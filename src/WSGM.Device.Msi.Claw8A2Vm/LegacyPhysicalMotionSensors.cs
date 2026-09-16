@@ -73,9 +73,9 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         try
         {
             managerObject = new SensorManagerClass();
-            ISensorManager manager = (ISensorManager)managerObject;
-            Guid customType = CustomSensorType;
-            int result = manager.GetSensorsByType(ref customType, out collection);
+            var manager = (ISensorManager)managerObject;
+            var customType = CustomSensorType;
+            var result = manager.GetSensorsByType(ref customType, out collection);
             if (result < 0 || collection is null)
             {
                 PluginTrace.Info(
@@ -84,7 +84,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
                 return null;
             }
 
-            result = collection.GetCount(out uint count);
+            result = collection.GetCount(out var count);
             if (result < 0)
             {
                 PluginTrace.Info(
@@ -104,7 +104,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
                     }
 
                     if (accelerometer is null
-                        && IsExpectedSensor(sensor, ExpectedAccelerometerName, requireCounter: false, out string? path))
+                        && IsExpectedSensor(sensor, ExpectedAccelerometerName, requireCounter: false, out var path))
                     {
                         accelerometer = sensor;
                         accelerometerPath = path;
@@ -149,7 +149,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
                 gyrometerPath!);
             accelerometer = null;
             gyrometer = null;
-            if (candidate.TryRead(out _, out string? error) == PhysicalMotionReadResult.Failed)
+            if (candidate.TryRead(out _, out var error) == PhysicalMotionReadResult.Failed)
             {
                 PluginTrace.Warn(
                     "motion",
@@ -201,16 +201,16 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             // The Intel accelerometer's synchronous GetData can wait for its next changed report
             // while the device is still. Read it first so that the gyrometer report and timestamp
             // are acquired last, immediately before this combined sample is published.
-            if (!TryReadVector(accelerometer, out Vector3 acceleration, out error))
+            if (!TryReadVector(accelerometer, out var acceleration, out error))
             {
                 return PhysicalMotionReadResult.Failed;
             }
 
-            PhysicalMotionReadResult result = TryReadGyrometer(
+            var result = TryReadGyrometer(
                 gyrometer,
-                out Vector3 angularVelocity,
-                out DateTimeOffset timestamp,
-                out uint counter,
+                out var angularVelocity,
+                out var timestamp,
+                out var counter,
                 out error);
             if (result != PhysicalMotionReadResult.Fresh)
             {
@@ -258,21 +258,21 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     private static IntervalState ConfigureFastestInterval(ISensor? sensor, string name)
     {
         if (sensor is null
-            || !TryReadUnsignedProperty(sensor, CurrentReportInterval, out uint original)
-            || !TryReadUnsignedProperty(sensor, MinimumReportInterval, out uint minimum))
+            || !TryReadUnsignedProperty(sensor, CurrentReportInterval, out var original)
+            || !TryReadUnsignedProperty(sensor, MinimumReportInterval, out var minimum))
         {
             PluginTrace.Warn("motion", $"{name} report interval properties could not be read.");
             return default;
         }
 
-        uint requested = minimum == 0 ? 10u : minimum;
+        var requested = minimum == 0 ? 10u : minimum;
         if (original == requested)
         {
             PluginTrace.Info("motion", $"{name} report interval is {requested} ms.");
             return new IntervalState(original, requested, Changed: false);
         }
 
-        if (!TrySetUnsignedProperty(sensor, CurrentReportInterval, requested, out string? error))
+        if (!TrySetUnsignedProperty(sensor, CurrentReportInterval, requested, out var error))
         {
             PluginTrace.Warn(
                 "motion",
@@ -280,7 +280,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             return new IntervalState(original, requested, Changed: false);
         }
 
-        if (!TryReadUnsignedProperty(sensor, CurrentReportInterval, out uint effective)
+        if (!TryReadUnsignedProperty(sensor, CurrentReportInterval, out var effective)
             || effective != requested)
         {
             PluginTrace.Warn(
@@ -304,7 +304,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             return;
         }
 
-        if (!TryReadUnsignedProperty(sensor, CurrentReportInterval, out uint current))
+        if (!TryReadUnsignedProperty(sensor, CurrentReportInterval, out var current))
         {
             PluginTrace.Warn("motion", $"{name} report interval could not be read during release.");
             return;
@@ -319,7 +319,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             return;
         }
 
-        if (!TrySetUnsignedProperty(sensor, CurrentReportInterval, state.Original, out string? error))
+        if (!TrySetUnsignedProperty(sensor, CurrentReportInterval, state.Original, out var error))
         {
             PluginTrace.Warn(
                 "motion",
@@ -334,9 +334,9 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         out string? devicePath)
     {
         devicePath = null;
-        if (sensor.GetFriendlyName(out string? friendlyName) < 0
-            || sensor.GetType(out Guid type) < 0
-            || sensor.GetState(out int state) < 0
+        if (sensor.GetFriendlyName(out var friendlyName) < 0
+            || sensor.GetType(out var type) < 0
+            || sensor.GetState(out var state) < 0
             || state != 0)
         {
             return false;
@@ -351,7 +351,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     }
 
     private static bool Supports(ISensor sensor, PropertyKey key) =>
-        sensor.SupportsDataField(ref key, out short supported) >= 0 && supported != 0;
+        sensor.SupportsDataField(ref key, out var supported) >= 0 && supported != 0;
 
     private PhysicalMotionReadResult TryReadGyrometer(
         ISensor sensor,
@@ -367,7 +367,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         ISensorDataReport? report = null;
         try
         {
-            int result = sensor.GetData(out report);
+            var result = sensor.GetData(out report);
             if (result < 0 || report is null)
             {
                 error = $"Physical Gyrometer GetData returned 0x{result:X8}";
@@ -393,7 +393,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
                 return PhysicalMotionReadResult.Failed;
             }
 
-            result = report.GetTimestamp(out SystemTime systemTime);
+            result = report.GetTimestamp(out var systemTime);
             if (result < 0 || !systemTime.TryToUtc(out timestamp))
             {
                 error = result < 0
@@ -422,7 +422,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         ISensorDataReport? report = null;
         try
         {
-            int result = sensor.GetData(out report);
+            var result = sensor.GetData(out report);
             if (result < 0 || report is null)
             {
                 error = $"Physical Accelerometer GetData returned 0x{result:X8}";
@@ -448,9 +448,9 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         out string? error)
     {
         value = default;
-        if (!TryReadNumericValue(report, AxisX, out float x, out error)
-            || !TryReadNumericValue(report, AxisY, out float y, out error)
-            || !TryReadNumericValue(report, AxisZ, out float z, out error))
+        if (!TryReadNumericValue(report, AxisX, out var x, out error)
+            || !TryReadNumericValue(report, AxisY, out var y, out error)
+            || !TryReadNumericValue(report, AxisZ, out var z, out error))
         {
             return false;
         }
@@ -462,7 +462,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     private static string? ReadStringProperty(ISensor sensor, PropertyKey key)
     {
         PropVariant value = default;
-        int result = sensor.GetProperty(ref key, out value);
+        var result = sensor.GetProperty(ref key, out value);
         if (result < 0)
         {
             return null;
@@ -482,7 +482,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     {
         result = 0;
         PropVariant value = default;
-        int hresult = sensor.GetProperty(ref key, out value);
+        var hresult = sensor.GetProperty(ref key, out value);
         if (hresult < 0)
         {
             return false;
@@ -516,7 +516,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         try
         {
             properties = (IPortableDeviceValues)new PortableDeviceValuesClass();
-            int result = properties.SetUnsignedIntegerValue(ref key, value);
+            var result = properties.SetUnsignedIntegerValue(ref key, value);
             if (result < 0)
             {
                 error = $"building the property set returned 0x{result:X8}";
@@ -553,7 +553,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         value = 0;
         error = null;
         PropVariant variant = default;
-        int result = report.GetSensorValue(ref key, out variant);
+        var result = report.GetSensorValue(ref key, out variant);
         if (result < 0)
         {
             error = $"custom field {key.PropertyId} returned 0x{result:X8}";
@@ -568,7 +568,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
                 19 => variant.UInt32,
                 4 => variant.Single,
                 5 => variant.Double,
-                _ => null,
+                _ => null
             };
             if (numeric is not { } present || !double.IsFinite(present))
             {
@@ -600,7 +600,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         value = 0;
         error = null;
         PropVariant variant = default;
-        int result = report.GetSensorValue(ref key, out variant);
+        var result = report.GetSensorValue(ref key, out variant);
         if (result < 0)
         {
             error = $"custom field {key.PropertyId} returned 0x{result:X8}";
@@ -786,5 +786,5 @@ internal enum PhysicalMotionReadResult
     Duplicate,
 
     /// <summary>The read failed; the reported error names the decisive COM or value fault.</summary>
-    Failed,
+    Failed
 }

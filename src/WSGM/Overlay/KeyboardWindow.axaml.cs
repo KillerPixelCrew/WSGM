@@ -5,6 +5,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
+using WSGM.Core;
 using WSGM.Input;
 using WSGM.Interop;
 
@@ -70,7 +71,7 @@ public partial class KeyboardWindow : Window
 
     private async void OnPasteRequested(object? sender, EventArgs e)
     {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        var clipboard = GetTopLevel(this)?.Clipboard;
         if (_closePending || clipboard is null)
         {
             return;
@@ -85,7 +86,7 @@ public partial class KeyboardWindow : Window
         }
         catch (Exception ex)
         {
-            Core.Log.Warn($"Keyboard paste failed: {ex.Message}");
+            Log.Warn($"Keyboard paste failed: {ex.Message}");
         }
     }
 

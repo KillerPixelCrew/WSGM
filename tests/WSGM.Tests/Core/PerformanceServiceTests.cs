@@ -9,7 +9,7 @@ public sealed class PerformanceServiceTests
     public async Task PowerStatusIsForwardedUntilTheServiceIsDisposed()
     {
         await using var adapter = new FakeRtssAdapter();
-        PerformanceService service = CreateService(adapter);
+        var service = CreateService(adapter);
         var first = new RtssOsdPowerStatus(18, false, false, null, string.Empty);
         var second = new RtssOsdPowerStatus(17, true, true, 17, "Holding");
 
@@ -51,7 +51,7 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         await using var service = CreateService(adapter);
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
             PerformancePersistenceTarget.Automatic,
@@ -71,7 +71,7 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         await using var service = CreateService(adapter);
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             999,
             PerformancePersistenceTarget.Automatic,
@@ -90,7 +90,7 @@ public sealed class PerformanceServiceTests
             adapter,
             static (_, _) => Task.FromException(new IOException("disk unavailable")));
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
             PerformancePersistenceTarget.Automatic,
@@ -112,12 +112,12 @@ public sealed class PerformanceServiceTests
             {
                 Availability = RtssAvailability.NotInstalled,
                 Capabilities = null,
-                Diagnostic = "RTSS is absent.",
-            },
+                Diagnostic = "RTSS is absent."
+            }
         };
         await using var service = CreateService(adapter);
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.OverlayLevel,
             2,
             PerformancePersistenceTarget.Automatic,
@@ -137,13 +137,13 @@ public sealed class PerformanceServiceTests
             {
                 Capabilities = FakeRtssAdapter.ReadyProbe.Capabilities! with
                 {
-                    OverlayLevelReadback = false,
-                },
-            },
+                    OverlayLevelReadback = false
+                }
+            }
         };
         await using var service = CreateService(adapter);
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.OverlayLevel,
             3,
             PerformancePersistenceTarget.Automatic,
@@ -166,7 +166,7 @@ public sealed class PerformanceServiceTests
         };
         await using var service = CreateService(adapter);
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             50,
             PerformancePersistenceTarget.Automatic,
@@ -185,14 +185,14 @@ public sealed class PerformanceServiceTests
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return new RtssApplyResult(true, null);
-            },
+            }
         };
         await using var service = new PerformanceService(
             adapter,
             PersistAsync,
             commandTimeout: TimeSpan.FromMilliseconds(100));
 
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
             PerformancePersistenceTarget.Automatic,
@@ -260,7 +260,7 @@ public sealed class PerformanceServiceTests
         };
         adapter.Values[string.Empty] = new PerformanceValues(12, 1);
         await service.RefreshAsync();
-        int afterOneRepair = adapter.Applies.Count;
+        var afterOneRepair = adapter.Applies.Count;
 
         await service.RefreshAsync();
         await service.RefreshAsync();
@@ -366,7 +366,7 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         adapter.OnApply = async (request, cancellationToken) =>
         {
-            int active = Interlocked.Increment(ref adapter.ActiveApplies);
+            var active = Interlocked.Increment(ref adapter.ActiveApplies);
             adapter.MaximumActiveApplies = Math.Max(adapter.MaximumActiveApplies, active);
             try
             {
@@ -381,13 +381,13 @@ public sealed class PerformanceServiceTests
         };
         await using var service = CreateService(adapter);
 
-        Task<PerformanceCommandState> overlay = service.SetAsync(
+        var overlay = service.SetAsync(
             PerformanceControl.FrameLimit,
             50,
             PerformancePersistenceTarget.Automatic,
             "overlay",
             "overlay-command");
-        Task<PerformanceCommandState> qam = service.SetAsync(
+        var qam = service.SetAsync(
             PerformanceControl.FrameLimit,
             55,
             PerformancePersistenceTarget.Automatic,
@@ -414,7 +414,7 @@ public sealed class PerformanceServiceTests
 
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("process:hitman3.exe", null, "HITMAN3.exe"));
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
             PerformancePersistenceTarget.Automatic,
@@ -440,7 +440,7 @@ public sealed class PerformanceServiceTests
 
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("process:game.exe", null, "game.exe"));
-        PerformanceCommandState command = await service.SetAsync(
+        var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
             PerformancePersistenceTarget.Automatic,
@@ -479,7 +479,7 @@ public sealed class PerformanceServiceTests
         Assert.Equal(PerformanceCommandPhase.Deferred, service.Current.Command.Phase);
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
-        PerformanceCommandState deferred = await service.SetAsync(
+        var deferred = await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
             PerformancePersistenceTarget.Automatic,
@@ -531,7 +531,7 @@ public sealed class PerformanceServiceTests
 
         public Dictionary<string, PerformanceValues> Values { get; } = new(StringComparer.OrdinalIgnoreCase)
         {
-            [string.Empty] = PerformanceValues.Empty,
+            [string.Empty] = PerformanceValues.Empty
         };
 
         /// <summary>Profiles RTSS already holds on disk, as the service would find them.</summary>
@@ -569,7 +569,7 @@ public sealed class PerformanceServiceTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Values.TryGetValue(rtssProfileName, out PerformanceValues? values);
+            Values.TryGetValue(rtssProfileName, out var values);
             return Task.FromResult(new RtssReadback(
                 values ?? PerformanceValues.Empty,
                 PerformanceReadbackQuality.Verified,
@@ -593,7 +593,7 @@ public sealed class PerformanceServiceTests
         public void Write(RtssApplyRequest request)
         {
             Applies.Add(request);
-            Values.TryGetValue(request.RtssProfileName, out PerformanceValues? current);
+            Values.TryGetValue(request.RtssProfileName, out var current);
             Values[request.RtssProfileName] = (current ?? PerformanceValues.Empty).With(
                 request.Control,
                 request.Value);
@@ -617,7 +617,7 @@ public sealed class PerformanceServiceTests
     [Fact]
     public async Task TheServiceRunsWithNoDevicePlatformPresent()
     {
-        await using PerformanceService service = Service();
+        await using var service = Service();
 
         Assert.True(service.Enabled);
         Assert.NotNull(service.Current);

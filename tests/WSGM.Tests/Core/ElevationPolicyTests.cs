@@ -15,7 +15,7 @@ public sealed class ElevationPolicyTests
         var config = new AppConfig
         {
             SteamLaunchUnelevated = true,
-            StartupApps = [new StartupAppConfig { Enabled = true, Elevated = true, Path = @"C:\x.exe" }],
+            StartupApps = [new StartupAppConfig { Enabled = true, Elevated = true, Path = @"C:\x.exe" }]
         };
 
         Assert.Equal("the configuration starts elevated apps",
@@ -28,7 +28,7 @@ public sealed class ElevationPolicyTests
         var config = new AppConfig
         {
             SteamLaunchUnelevated = true,
-            StartupApps = [new StartupAppConfig { Enabled = false, Elevated = true, Path = @"C:\x.exe" }],
+            StartupApps = [new StartupAppConfig { Enabled = false, Elevated = true, Path = @"C:\x.exe" }]
         };
 
         Assert.Null(ElevationPolicy.ElevationReason(config, steamAlreadyElevated: false));

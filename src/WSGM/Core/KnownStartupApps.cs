@@ -17,7 +17,7 @@ public static class KnownStartupApps
         new("HandheldCompanion (legacy path)", ["HandheldCompanion\\HandheldCompanion.exe"], true),
         new("RTSS (RivaTuner Statistics Server)", ["RivaTuner Statistics Server\\RTSS.exe"], true),
         new("MSI Afterburner", ["MSI Afterburner\\MSIAfterburner.exe"], true),
-        new("Playnite (desktop)", ["Playnite\\Playnite.DesktopApp.exe"], false),
+        new("Playnite (desktop)", ["Playnite\\Playnite.DesktopApp.exe"], false)
     ];
 
     /// <summary>(label, full path, elevated) for each suggestion found on disk.</summary>
@@ -27,7 +27,7 @@ public static class KnownStartupApps
         {
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
         };
 
         var found = new List<(string, string, bool)>();

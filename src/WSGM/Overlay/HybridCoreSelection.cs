@@ -42,10 +42,10 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
             ? "Reading the processor core preference..."
             : "Applying the processor core preference...";
         Changed?.Invoke();
-        CancellationToken token = _lifetime.Token;
+        var token = _lifetime.Token;
         try
         {
-            HybridCoreStatus status = await Task.Run(() =>
+            var status = await Task.Run(() =>
             {
                 token.ThrowIfCancellationRequested();
                 if (requested is { } mode)
@@ -100,7 +100,7 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
             return "This processor has one kind of core, so there is nothing to choose.";
         }
 
-        string cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
+        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
         if (status.OnAc is null || status.OnBattery is null)
         {
             // Something outside WSGM wrote a placement WSGM does not offer. Saying which of its own

@@ -12,7 +12,7 @@ public enum InstallProfileKind
     Claw8A2Vm,
 
     /// <summary>A resident desktop session at sign-in, nothing device-specific.</summary>
-    DesktopFirst,
+    DesktopFirst
 }
 
 /// <summary>Turns the install mode into the configuration a first run should start from.
@@ -54,7 +54,7 @@ public static class InstallProfile
     {
         ArgumentNullException.ThrowIfNull(args);
         const string prefix = "--profile=";
-        foreach (string argument in args)
+        foreach (var argument in args)
         {
             if (argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {

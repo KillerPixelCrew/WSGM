@@ -20,7 +20,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void ChangeReachesTheHostWithItsScopeKeyAndLevel()
     {
-        TestPluginHostAdapter adapter = Record(
+        var adapter = Record(
             () => PluginTrace.Change("motion", "freshness", "holding rest", DeviceTraceLevel.Debug));
 
         var line = Assert.Single(adapter.Changes);
@@ -34,7 +34,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void ChangeDefaultsToInfo()
     {
-        TestPluginHostAdapter adapter = Record(
+        var adapter = Record(
             () => PluginTrace.Change("motion", "freshness", "resumed"));
 
         Assert.Equal(DeviceTraceLevel.Info, Assert.Single(adapter.Changes).Level);
@@ -43,7 +43,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void DebugTracesAtTheSuppressedLevel()
     {
-        TestPluginHostAdapter adapter = Record(() => PluginTrace.Debug("motion", "sensor age 12 ms"));
+        var adapter = Record(() => PluginTrace.Debug("motion", "sensor age 12 ms"));
 
         Assert.Equal(DeviceTraceLevel.Debug, Assert.Single(adapter.Traces).Level);
     }
@@ -58,7 +58,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void ChangeIsSilentForAnEmptyMessage()
     {
-        TestPluginHostAdapter adapter = Record(
+        var adapter = Record(
             () => PluginTrace.Change("motion", "freshness", string.Empty));
 
         Assert.Empty(adapter.Changes);
@@ -67,7 +67,7 @@ public sealed class PluginTraceTests
     [Fact]
     public void ChangeTruncatesToTheDocumentedLimit()
     {
-        TestPluginHostAdapter adapter = Record(() => PluginTrace.Change(
+        var adapter = Record(() => PluginTrace.Change(
             "motion",
             "freshness",
             new string('x', PluginTrace.MaxMessageLength * 2)));
@@ -157,7 +157,7 @@ public sealed class PluginTraceTests
             PluginTrace.Install(null);
         }
 
-        (DeviceTraceLevel Level, string Scope, string Message) trace = Assert.Single(host.Traces);
+        var trace = Assert.Single(host.Traces);
         Assert.Equal(DeviceTraceLevel.Warn, trace.Level);
         Assert.Equal("loader", trace.Scope);
         Assert.Contains("starting the plugin", trace.Message, StringComparison.Ordinal);
@@ -172,7 +172,7 @@ public sealed class PluginTraceTests
         host.Trace(DeviceTraceLevel.Info, "controller", "switching to DirectInput");
         host.Trace(DeviceTraceLevel.Warn, "wmi", "provider probe failed");
 
-        IReadOnlyList<(DeviceTraceLevel Level, string Scope, string Message)> traces = host.Traces;
+        var traces = host.Traces;
         Assert.Equal(2, traces.Count);
         Assert.Equal("controller", traces[0].Scope);
         Assert.Equal(DeviceTraceLevel.Warn, traces[1].Level);

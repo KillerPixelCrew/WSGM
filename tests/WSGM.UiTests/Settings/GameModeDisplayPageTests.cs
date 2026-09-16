@@ -19,23 +19,23 @@ public sealed class GameModeDisplayPageTests
     {
         using UiFixture fixture = new()
         {
-            Displays = new([new(Tv, Available: true, Active: false, Current: null)], "disabled", DateTimeOffset.UnixEpoch),
+            Displays = new DisplayArrangement([new DisplayTargetObservation(Tv, Available: true, Active: false, Current: null)], "disabled", DateTimeOffset.UnixEpoch)
         };
-        fixture.DisplayFacts[Tv.DevicePath] = new(
-            [new(3840, 2160, 120), new(1920, 1080, 120), new(1920, 1080, 60)], true, 225);
-        SettingsWindow window = Open(fixture);
-        SettingsViewModel model = Model(window);
+        fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts(
+            [new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 120), new DisplayMode(1920, 1080, 60)], true, 225);
+        var window = Open(fixture);
+        var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         Dispatcher.UIThread.RunJobs();
-        DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
+        var row = Assert.Single(model.GameLayout.Rows);
         Assert.False(row.Active);
         Assert.True(row.HasModes);
-        ComboBox resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
+        var resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
         UiFixture.Click(window, resolution);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(new DisplayResolution(1920, 1080), row.Resolution);
-        ComboBox refresh = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "RefreshChoice");
+        var refresh = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "RefreshChoice");
         UiFixture.Click(window, refresh);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
@@ -53,15 +53,15 @@ public sealed class GameModeDisplayPageTests
     public void FreshCustomLayoutCanBeEditedWithoutCopyingAndDisabledDisplaysKeepTheirInspector()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
-        fixture.DisplayFacts[Tv.DevicePath] = new([new(3840, 2160, 120), new(1920, 1080, 60)], true, 225);
-        SettingsWindow window = Open(fixture);
-        SettingsViewModel model = Model(window);
+        fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
+        var window = Open(fixture);
+        var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         Dispatcher.UIThread.RunJobs();
-        DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
+        var row = Assert.Single(model.GameLayout.Rows);
         Assert.True(row.Active);
         Assert.Equal(100, row.DpiPercent);
-        ComboBox resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
+        var resolution = window.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "ResolutionChoice");
         Assert.True(resolution.IsEffectivelyEnabled);
         Assert.Equal(2, resolution.ItemCount);
         var enabled = window.GetVisualDescendants().OfType<CheckBox>().Single(control => Equals(control.Content, "Use in this layout"));
@@ -86,10 +86,10 @@ public sealed class GameModeDisplayPageTests
     public void RefreshKeepsBothDraftsSelectionAndUndoIncludingInvalidEdits()
     {
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
-        SettingsViewModel model = Model(Open(fixture));
+        var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
-        DisplayLayoutEditorRow tv = model.GameLayout.Rows[1];
+        var tv = model.GameLayout.Rows[1];
         model.GameLayout.Selected = tv;
         tv.X = 100;
         model.DesktopLayout.Rows[0].DpiPercent = 175;
@@ -113,7 +113,7 @@ public sealed class GameModeDisplayPageTests
     public void CopyAndUndoAffectOnlyTheSelectedDesktopDraft()
     {
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
-        SettingsViewModel model = Model(Open(fixture));
+        var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
         model.DesktopLayout.Rows[1].Active = false;
@@ -130,16 +130,16 @@ public sealed class GameModeDisplayPageTests
     public void DraggingAnArrangementScreenRecordsOneUndoStep()
     {
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
-        SettingsWindow window = Open(fixture);
-        SettingsViewModel model = Model(window);
+        var window = Open(fixture);
+        var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         Dispatcher.UIThread.RunJobs();
-        DisplayLayoutEditorRow tv = model.GameLayout.Rows[1];
+        var tv = model.GameLayout.Rows[1];
         var screen = window.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("display-monitor") && ReferenceEquals(button.Tag, tv));
         screen.BringIntoView();
         Dispatcher.UIThread.RunJobs();
-        Avalonia.Point start = screen.TranslatePoint(new(screen.Bounds.Width / 2, screen.Bounds.Height / 2), window)!.Value;
-        Avalonia.Point end = start + new Avalonia.Vector(0, 45);
+        var start = screen.TranslatePoint(new Point(screen.Bounds.Width / 2, screen.Bounds.Height / 2), window)!.Value;
+        var end = start + new Vector(0, 45);
         window.MouseDown(start, MouseButton.Left);
         window.MouseMove(end);
         window.MouseUp(end, MouseButton.Left);
@@ -166,7 +166,7 @@ public sealed class GameModeDisplayPageTests
 
     private static SettingsWindow Open(UiFixture fixture)
     {
-        SettingsWindow window = fixture.Settings();
+        var window = fixture.Settings();
         UiFixture.Click(window, UiFixture.Tab(window, 6));
         return window;
     }
@@ -178,7 +178,7 @@ public sealed class GameModeDisplayPageTests
     public void TheCustomLayoutFieldsAppearOnlyForACustomLaunch()
     {
         using UiFixture fixture = new();
-        SettingsViewModel model = Model(Open(fixture));
+        var model = Model(Open(fixture));
 
         Assert.False(model.ShowCustomLaunch);
         Assert.Contains("primary", model.LaunchSummaryText, StringComparison.Ordinal);
@@ -192,13 +192,13 @@ public sealed class GameModeDisplayPageTests
     public void CopyCapturesTheDesktopAndRemembersWhatEachDisplaySupports()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
-        fixture.DisplayFacts[Tv.DevicePath] = new([new(3840, 2160, 120), new(1920, 1080, 60)], true, 225);
-        SettingsViewModel model = Model(Open(fixture));
+        fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
+        var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
 
         model.CopyCurrentLayoutCommand.Execute(null);
 
-        DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
+        var row = Assert.Single(model.GameLayout.Rows);
         Assert.Equal("Living room TV", row.DisplayName);
         Assert.True(row.Active);
         Assert.True(row.IsPrimary);
@@ -219,11 +219,11 @@ public sealed class GameModeDisplayPageTests
         fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         fixture.Saved.GameModeLaunch.KnownDisplays =
         [
-            new() { Target = Tv, Modes = [new(3840, 2160, 120)], HdrSupported = true, MaximumDpiPercent = 225 },
+            new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)], HdrSupported = true, MaximumDpiPercent = 225 }
         ];
 
-        SettingsViewModel model = Model(Open(fixture));
-        DisplayLayoutEditorRow row = Assert.Single(model.GameLayout.Rows);
+        var model = Model(Open(fixture));
+        var row = Assert.Single(model.GameLayout.Rows);
         Assert.False(row.Present);
         Assert.Equal("Not connected right now", row.PresenceText);
 
@@ -232,7 +232,7 @@ public sealed class GameModeDisplayPageTests
 
         Assert.True(row.IsPrimary);
         Assert.Empty(model.GameLayout.ValidationText);
-        DisplayLayout built = Assert.IsType<DisplayLayout>(model.GameLayout.Build());
+        var built = Assert.IsType<DisplayLayout>(model.GameLayout.Build());
         Assert.Equal(3840, Assert.Single(built.Outputs).Width);
     }
 
@@ -240,12 +240,12 @@ public sealed class GameModeDisplayPageTests
     public void ChoosingAPrimaryMovesTheWholeArrangementSoItSitsAtTheOrigin()
     {
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
-        SettingsViewModel model = Model(Open(fixture));
+        var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.CopyCurrentLayoutCommand.Execute(null);
 
-        DisplayLayoutEditorRow desk = model.GameLayout.Rows.Single(row => row.DisplayName == "Desk monitor");
-        DisplayLayoutEditorRow tv = model.GameLayout.Rows.Single(row => row.DisplayName == "Living room TV");
+        var desk = model.GameLayout.Rows.Single(row => row.DisplayName == "Desk monitor");
+        var tv = model.GameLayout.Rows.Single(row => row.DisplayName == "Living room TV");
         Assert.True(desk.IsPrimary);
         Assert.Equal(3840, tv.X);
 
@@ -263,7 +263,7 @@ public sealed class GameModeDisplayPageTests
     public void AnOverlappingArrangementIsRefusedWithTheReasonTheApplyWouldGive()
     {
         using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
-        SettingsViewModel model = Model(Open(fixture));
+        var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.CopyCurrentLayoutCommand.Execute(null);
 
@@ -279,12 +279,12 @@ public sealed class GameModeDisplayPageTests
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
         // What the retired per-monitor profiles migrate into: real values, no resolvable identity.
         fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
-        fixture.Saved.GameModeLaunch.GameLayout = new([
-            new(new("", null, null, "Internal panel", 0, 0, 0), 0, 0, 1280, 720,
+        fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([
+            new DisplayLayoutOutput(new DisplayTargetIdentity("", null, null, "Internal panel", 0, 0, 0), 0, 0, 1280, 720,
                 DisplayRefresh.FromHertz(120))]);
 
-        SettingsViewModel model = Model(Open(fixture));
-        DisplayLayoutEditorRow row = model.GameLayout.Rows.Single(candidate => candidate.NeedsRebind);
+        var model = Model(Open(fixture));
+        var row = model.GameLayout.Rows.Single(candidate => candidate.NeedsRebind);
         Assert.Contains("Confirm which display", row.RebindText, StringComparison.Ordinal);
         Assert.Contains("identified", model.GameLayout.ValidationText, StringComparison.Ordinal);
         Assert.False(model.CanSaveLayouts);
@@ -294,7 +294,7 @@ public sealed class GameModeDisplayPageTests
 
         // The television already had its own row, because it is connected and Settings saw it on
         // open. The two merge: one monitor cannot be two rows, and both could never be applied.
-        DisplayLayoutEditorRow merged = Assert.Single(model.GameLayout.Rows);
+        var merged = Assert.Single(model.GameLayout.Rows);
         Assert.Equal("Living room TV", merged.DisplayName);
         Assert.False(merged.NeedsRebind);
         Assert.Empty(model.GameLayout.ValidationText);
@@ -307,7 +307,7 @@ public sealed class GameModeDisplayPageTests
     public void ForgettingADisplayRemovesItFromBothLayoutsAndTheCatalog()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
-        SettingsViewModel model = Model(Open(fixture));
+        var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
         model.CopyCurrentLayoutCommand.Execute(null);
@@ -326,11 +326,11 @@ public sealed class GameModeDisplayPageTests
     public void SavingForgetPreservesASeparateDisplayDiscoveredByTheRunningSession()
     {
         using UiFixture fixture = new();
-        fixture.Saved.GameModeLaunch.KnownDisplays = [new() { Target = Tv, Modes = [new(3840, 2160, 120)] }];
-        SettingsWindow window = Open(fixture);
-        SettingsViewModel model = Model(window);
+        fixture.Saved.GameModeLaunch.KnownDisplays = [new KnownDisplay { Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)] }];
+        var window = Open(fixture);
+        var model = Model(window);
         model.ForgetDisplayCommand.Execute(model.GameLayout.Rows[0]);
-        fixture.Saved.GameModeLaunch.KnownDisplays.Add(new() { Target = Desk, Modes = [new(1920, 1080, 60)] });
+        fixture.Saved.GameModeLaunch.KnownDisplays.Add(new KnownDisplay { Target = Desk, Modes = [new DisplayMode(1920, 1080, 60)] });
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
             .Single(button => Equals(button.Content, "Save changes")));
         Assert.Equal("Desk monitor", Assert.Single(fixture.Saved.GameModeLaunch.KnownDisplays).Target!.FriendlyName);
@@ -340,8 +340,8 @@ public sealed class GameModeDisplayPageTests
     public void ASavedLayoutAndItsWaitTargetSurviveASave()
     {
         using UiFixture fixture = new() { Displays = Desktop(Tv) };
-        SettingsWindow window = Open(fixture);
-        SettingsViewModel model = Model(window);
+        var window = Open(fixture);
+        var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.CopyCurrentLayoutCommand.Execute(null);
         model.WaitForDisplayIndex = 1;
@@ -349,7 +349,7 @@ public sealed class GameModeDisplayPageTests
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
             .Single(button => Equals(button.Content, "Save changes")));
 
-        GameModeLaunchConfiguration saved = fixture.Saved.GameModeLaunch;
+        var saved = fixture.Saved.GameModeLaunch;
         Assert.Equal(GameModeLaunchKind.Custom, saved.Kind);
         Assert.Equal(3840, Assert.Single(saved.GameLayout!.Outputs).Width);
         Assert.Equal("Living room TV", saved.WaitForDisplay!.FriendlyName);
@@ -363,12 +363,12 @@ public sealed class GameModeDisplayPageTests
         {
             PluginActions =
             [
-                Option("switch-to-pc", new PluginSetting("port", "Port", PluginSettingKind.Text, new(Text: "1"))),
-                Option("tv-on"),
-            ],
+                Option("switch-to-pc", new PluginSetting("port", "Port", PluginSettingKind.Text, new PluginValue(Text: "1"))),
+                Option("tv-on")
+            ]
         };
-        SettingsViewModel model = Model(Open(fixture));
-        PluginActionListEditor enter = model.ActionLists[0];
+        var model = Model(Open(fixture));
+        var enter = model.ActionLists[0];
         Assert.True(enter.CanAdd);
 
         enter.ChoiceIndex = 0;
@@ -377,7 +377,7 @@ public sealed class GameModeDisplayPageTests
         model.AddActionStepCommand.Execute(enter);
 
         Assert.Equal(2, enter.Rows.Count);
-        PluginArgumentRow argument = Assert.Single(enter.Rows[0].Arguments);
+        var argument = Assert.Single(enter.Rows[0].Arguments);
         Assert.Equal("Port", argument.Label);
         Assert.Equal("1", argument.TextValue);
 
@@ -396,11 +396,11 @@ public sealed class GameModeDisplayPageTests
         {
             PluginActions =
             [
-                Option("dwell", new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new(Number: 2), 1, 10)),
-            ],
+                Option("dwell", new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new PluginValue(Number: 2), 1, 10))
+            ]
         };
-        SettingsViewModel model = Model(Open(fixture));
-        PluginActionListEditor enter = model.ActionLists[0];
+        var model = Model(Open(fixture));
+        var enter = model.ActionLists[0];
         enter.ChoiceIndex = 0;
         model.AddActionStepCommand.Execute(enter);
 
@@ -417,12 +417,12 @@ public sealed class GameModeDisplayPageTests
         {
             PluginActions =
             [
-                Option("remote-press", new PluginSetting("remote", "Remote", PluginSettingKind.Text, new(Text: "tv"))),
-            ],
+                Option("remote-press", new PluginSetting("remote", "Remote", PluginSettingKind.Text, new PluginValue(Text: "tv")))
+            ]
         };
-        SettingsWindow window = Open(fixture);
-        SettingsViewModel model = Model(window);
-        PluginActionListEditor enter = model.ActionLists[0];
+        var window = Open(fixture);
+        var model = Model(window);
+        var enter = model.ActionLists[0];
         enter.ChoiceIndex = 0;
         model.AddActionStepCommand.Execute(enter);
         Assert.Single(enter.Rows[0].Arguments).TextValue = "hdmi-switch";
@@ -431,7 +431,7 @@ public sealed class GameModeDisplayPageTests
         UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
             .Single(button => Equals(button.Content, "Save changes")));
 
-        PluginActionStep saved = Assert.Single(fixture.Saved.GameModeLaunch.EnterActions);
+        var saved = Assert.Single(fixture.Saved.GameModeLaunch.EnterActions);
         Assert.Equal("remote-press", saved.ActionId);
         Assert.Equal("hdmi-switch", saved.Arguments["remote"].Text);
         Assert.Equal(45, saved.TimeoutSeconds);
@@ -443,18 +443,18 @@ public sealed class GameModeDisplayPageTests
         using UiFixture fixture = new();
         fixture.Saved.GameModeLaunch.EnterActions =
         [
-            new()
+            new PluginActionStep
             {
-                Plugin = new("wsgm.ir", "blaster"),
+                Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
                 ActionId = "remote-run",
-                Arguments = { ["remote"] = new(Text: "hdmi-switch") },
-                TimeoutSeconds = 45,
-            },
+                Arguments = { ["remote"] = new PluginValue(Text: "hdmi-switch") },
+                TimeoutSeconds = 45
+            }
         ];
 
-        SettingsViewModel model = Model(Open(fixture));
-        PluginActionListEditor enter = model.ActionLists[0];
-        PluginActionStepEditorRow row = Assert.Single(enter.Rows);
+        var model = Model(Open(fixture));
+        var enter = model.ActionLists[0];
+        var row = Assert.Single(enter.Rows);
 
         Assert.False(row.Available);
         Assert.Empty(row.Arguments);
@@ -469,5 +469,5 @@ public sealed class GameModeDisplayPageTests
     }
 
     private static SettingsViewModel.PluginActionOption Option(string id, params PluginSetting[] arguments) =>
-        new(new("wsgm.ir", "blaster"), new(id, id, arguments), $"IR / blaster: {id}");
+        new(new PluginInstanceIdentity("wsgm.ir", "blaster"), new PluginAction(id, id, arguments), $"IR / blaster: {id}");
 }

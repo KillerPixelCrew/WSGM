@@ -4,7 +4,7 @@ internal enum SettingsLeaseAction
 {
     None,
     Acquire,
-    Release,
+    Release
 }
 
 /// <summary>Serializes the Settings window's desired Steam Input ownership against

@@ -16,7 +16,7 @@ internal enum RunningApplicationTargetState
     Active,
     IdentityOnly,
     Ambiguous,
-    Unavailable,
+    Unavailable
 }
 
 /// <summary>
@@ -131,7 +131,7 @@ internal static class RunningApplicationTargetProjection
         ForegroundApplicationObservation? foreground = null,
         IReadOnlyList<RtssFrametimeSample>? rendering = null)
     {
-        RunningApplicationTargetSnapshot candidate = Project(observation, profile, observedAt);
+        var candidate = Project(observation, profile, observedAt);
         candidate = ApplyForeground(current, candidate, profile, foreground, rendering);
         if (Equivalent(current, candidate))
         {
@@ -173,7 +173,7 @@ internal static class RunningApplicationTargetProjection
                     State = RunningApplicationTargetState.Active,
                     ExecutablePath = handoff.Path,
                     RtssProfileName = handoff.Name,
-                    Diagnostic = null,
+                    Diagnostic = null
                 };
             }
 
@@ -182,7 +182,7 @@ internal static class RunningApplicationTargetProjection
                 State = RunningApplicationTargetState.Active,
                 ExecutablePath = current.ExecutablePath,
                 RtssProfileName = current.RtssProfileName,
-                Diagnostic = null,
+                Diagnostic = null
             };
         }
 
@@ -195,7 +195,7 @@ internal static class RunningApplicationTargetProjection
 
         // Ambiguous must stay ambiguous, and Unavailable means the Steam observation itself failed,
         // where publishing an identity would claim knowledge WSGM does not have.
-        string profileName = executable.Trim();
+        var profileName = executable.Trim();
         if (ForegroundApplicationFilter.Classify(profileName)
                 is not ForegroundApplicationKind.Application
             || profileName.Length > 128
@@ -226,7 +226,7 @@ internal static class RunningApplicationTargetProjection
                     State = RunningApplicationTargetState.Active,
                     ExecutablePath = game.Path,
                     RtssProfileName = game.Name,
-                    Diagnostic = null,
+                    Diagnostic = null
                 };
             }
 
@@ -235,7 +235,7 @@ internal static class RunningApplicationTargetProjection
                 State = RunningApplicationTargetState.Active,
                 ExecutablePath = null,
                 RtssProfileName = profileName,
-                Diagnostic = null,
+                Diagnostic = null
             };
         }
 
@@ -246,7 +246,7 @@ internal static class RunningApplicationTargetProjection
             SteamAppId = null,
             ExecutablePath = null,
             RtssProfileName = profileName,
-            Diagnostic = null,
+            Diagnostic = null
         };
     }
 
@@ -290,7 +290,7 @@ internal static class RunningApplicationTargetProjection
             return null;
         }
 
-        string name = (foreground.ExecutableName ?? string.Empty).Trim();
+        var name = (foreground.ExecutableName ?? string.Empty).Trim();
         if (ForegroundApplicationFilter.Classify(name) is not ForegroundApplicationKind.Application
             || name.Length is 0 or > 128
             || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -324,8 +324,8 @@ internal static class RunningApplicationTargetProjection
 
         try
         {
-            string fullFolder = Path.GetFullPath(folder);
-            string prefix = fullFolder.EndsWith(Path.DirectorySeparatorChar)
+            var fullFolder = Path.GetFullPath(folder);
+            var prefix = fullFolder.EndsWith(Path.DirectorySeparatorChar)
                 ? fullFolder
                 : fullFolder + Path.DirectorySeparatorChar;
             return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
@@ -346,7 +346,7 @@ internal static class RunningApplicationTargetProjection
             return false;
         }
 
-        foreach (RtssFrametimeSample sample in rendering)
+        foreach (var sample in rendering)
         {
             if (sample.ProcessId == foreground.ProcessId)
             {
@@ -376,7 +376,7 @@ internal static class RunningApplicationTargetProjection
                 Bound(observation.Diagnostic ?? "Steam running-app state is unavailable."));
         }
 
-        uint[] appIds = observation.AppIds.Distinct().Take(3).ToArray();
+        var appIds = observation.AppIds.Distinct().Take(3).ToArray();
         if (appIds.Length == 0)
         {
             return new RunningApplicationTargetSnapshot(
@@ -405,8 +405,8 @@ internal static class RunningApplicationTargetProjection
                 "Steam reports more than one running AppID; global policy remains active.");
         }
 
-        uint appId = appIds[0];
-        bool profileResolved = !string.IsNullOrWhiteSpace(profile?.RtssProfileName);
+        var appId = appIds[0];
+        var profileResolved = !string.IsNullOrWhiteSpace(profile?.RtssProfileName);
         return new RunningApplicationTargetSnapshot(
             0,
             observation.SourceGeneration,
@@ -480,7 +480,7 @@ internal sealed class SteamRunningApplicationProbe
 
     public async ValueTask<IAsyncDisposable> SubscribeAsync(CancellationToken cancellationToken)
     {
-        IAsyncDisposable transportLease = await _transport.SubscribeAsync(
+        var transportLease = await _transport.SubscribeAsync(
             SteamUiTargetRole.SharedJsContext,
             cancellationToken).ConfigureAwait(false);
         return new ProbeLease(_transport, transportLease);
@@ -489,7 +489,7 @@ internal sealed class SteamRunningApplicationProbe
     public async Task<SteamRunningAppObservation> ObserveAsync(
         CancellationToken cancellationToken)
     {
-        SteamUiEvaluationResult result = await _transport.EvaluateAsync(
+        var result = await _transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             ObserveExpression,
             EvaluationBudget,
@@ -516,33 +516,33 @@ internal sealed class SteamRunningApplicationProbe
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            if (!root.TryGetProperty("ok", out JsonElement ok)
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("ok", out var ok)
                 || ok.ValueKind != JsonValueKind.True)
             {
-                string? error = root.TryGetProperty("err", out JsonElement value)
-                    && value.ValueKind == JsonValueKind.String
+                var error = root.TryGetProperty("err", out var value)
+                            && value.ValueKind == JsonValueKind.String
                     ? value.GetString()
                     : "Steam rejected the running-app observer.";
                 return new SteamRunningAppObservation(false, [], 0, error);
             }
 
             List<uint> appIds = [];
-            if (root.TryGetProperty("ids", out JsonElement ids)
+            if (root.TryGetProperty("ids", out var ids)
                 && ids.ValueKind == JsonValueKind.Array)
             {
-                foreach (JsonElement id in ids.EnumerateArray().Take(3))
+                foreach (var id in ids.EnumerateArray().Take(3))
                 {
-                    if (id.TryGetUInt32(out uint appId) && appId > 0)
+                    if (id.TryGetUInt32(out var appId) && appId > 0)
                     {
                         appIds.Add(appId);
                     }
                 }
             }
 
-            long sourceGeneration = root.TryGetProperty("generation", out JsonElement generation)
-                && generation.TryGetInt64(out long parsedGeneration)
+            var sourceGeneration = root.TryGetProperty("generation", out var generation)
+                                   && generation.TryGetInt64(out var parsedGeneration)
                 ? parsedGeneration
                 : 0;
             return new SteamRunningAppObservation(true, appIds, sourceGeneration, null);
@@ -564,7 +564,7 @@ internal sealed class SteamRunningApplicationProbe
         // One details read serves both kinds of entry: a shortcut names its target executable, and
         // a store title names only its install folder — Steam never exposes a store title's
         // executable, so the folder is what foreground pairing is validated against.
-        string expression =
+        var expression =
             "(async()=>{try{const d=await new Promise(res=>{let t;try{" +
             "const h=SteamClient.Apps.RegisterForAppDetails(" + steamAppId + ",d=>{" +
             "clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
@@ -572,7 +572,7 @@ internal sealed class SteamRunningApplicationProbe
             "}catch(_){res(null);}});return JSON.stringify({ok:!!d,exe:d&&d.strShortcutExe||''," +
             "dir:d&&d.strInstallFolder||''});" +
             "}catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-        SteamUiEvaluationResult result = await _transport.EvaluateAsync(
+        var result = await _transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
             expression,
             EvaluationBudget,
@@ -584,14 +584,14 @@ internal sealed class SteamRunningApplicationProbe
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            string target = root.TryGetProperty("exe", out JsonElement executable)
-                && executable.ValueKind == JsonValueKind.String
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            var target = root.TryGetProperty("exe", out var executable)
+                         && executable.ValueKind == JsonValueKind.String
                 ? executable.GetString() ?? string.Empty
                 : string.Empty;
-            string folder = root.TryGetProperty("dir", out JsonElement installFolder)
-                && installFolder.ValueKind == JsonValueKind.String
+            var folder = root.TryGetProperty("dir", out var installFolder)
+                         && installFolder.ValueKind == JsonValueKind.String
                 ? installFolder.GetString() ?? string.Empty
                 : string.Empty;
             return IsShortcutAppId(steamAppId)
@@ -631,7 +631,7 @@ internal sealed class SteamRunningApplicationProbe
                     "Steam reported an install folder that is not an absolute path.");
             }
 
-            string normalized = Path.GetFullPath(folder);
+            var normalized = Path.GetFullPath(folder);
             if (!Directory.Exists(normalized))
             {
                 return new SteamRunningAppProfile(
@@ -911,7 +911,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 
     private async Task ObserveLoopAsync()
     {
-        CancellationToken cancellationToken = _shutdown.Token;
+        var cancellationToken = _shutdown.Token;
         while (!cancellationToken.IsCancellationRequested)
         {
             if (_observers.Count == 0)
@@ -960,7 +960,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 
     private async Task ObserveOnceAsync(CancellationToken cancellationToken)
     {
-        long enabledGeneration = Interlocked.Read(ref _steamEnableGeneration);
+        var enabledGeneration = Interlocked.Read(ref _steamEnableGeneration);
         if (!_steamEnabled)
         {
             return;
@@ -985,8 +985,8 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             return;
         }
 
-        uint? singleAppId = observation.Reachable ? SingleAppId(observation.AppIds) : null;
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        var singleAppId = observation.Reachable ? SingleAppId(observation.AppIds) : null;
+        var now = DateTimeOffset.UtcNow;
         if (ShouldResolveProfile(singleAppId, _profileAppId, _profile, now, _nextProfileRetry))
         {
             _profileAppId = singleAppId;
@@ -1013,7 +1013,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private static uint? SingleAppId(IReadOnlyList<uint> appIds)
     {
         uint? single = null;
-        foreach (uint appId in appIds)
+        foreach (var appId in appIds)
         {
             if (single is null)
             {
@@ -1081,7 +1081,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         string? foregroundName;
         // Outside the lock: this reads RTSS's shared mapping, and the state gate is held by the
         // window-hook thread as well as this one.
-        IReadOnlyList<RtssFrametimeSample> rendering = ReadRendering();
+        var rendering = ReadRendering();
         lock (_stateGate)
         {
             _lastObservation = observation;

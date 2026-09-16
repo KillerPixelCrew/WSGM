@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using WindowsDeviceControl;
 using WSGM.Shell;
 
@@ -49,10 +50,10 @@ public sealed class AudioManagerTests
     [Fact]
     public void EndpointRefreshesKeepSurvivingRowsAndUpdateThemInPlace()
     {
-        var entries = new System.Collections.ObjectModel.ObservableCollection<AudioEndpointEntry>
+        var entries = new ObservableCollection<AudioEndpointEntry>
         {
             new("stay", "Old name"),
-            new("gone", "Disconnected headset"),
+            new("gone", "Disconnected headset")
         };
         var survivor = entries[0];
 
@@ -60,7 +61,7 @@ public sealed class AudioManagerTests
             entries,
             [
                 new CoreAudio.AudioEndpoint("stay", "New name", true),
-                new CoreAudio.AudioEndpoint("new", "Dock speakers", false),
+                new CoreAudio.AudioEndpoint("new", "Dock speakers", false)
             ]);
 
         Assert.Equal(2, entries.Count);

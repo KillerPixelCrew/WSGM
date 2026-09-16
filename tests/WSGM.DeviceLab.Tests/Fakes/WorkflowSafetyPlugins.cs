@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
@@ -17,7 +18,7 @@ public class OwnerReservationLifetimePlugin : IDevicePlugin
         PluginDetectionContext context,
         CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDetectionResult
         {
-            Matched = false,
+            Matched = false
         });
 
     public ValueTask<PluginStartResult> StartAsync(
@@ -58,7 +59,7 @@ public class OwnerReservationLifetimePlugin : IDevicePlugin
 
     public virtual ValueTask DisposeAsync()
     {
-        string packageDirectory = Path.GetDirectoryName(typeof(OwnerReservationLifetimePlugin).Assembly.Location)!;
+        var packageDirectory = Path.GetDirectoryName(typeof(OwnerReservationLifetimePlugin).Assembly.Location)!;
         File.WriteAllText(Path.Combine(packageDirectory, DisposalMarker), "disposed");
         return ValueTask.CompletedTask;
     }
@@ -79,18 +80,18 @@ public sealed class HangingDetectionPlugin : OwnerReservationLifetimePlugin
         {
             FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
             UseShellExecute = false,
-            CreateNoWindow = true,
+            CreateNoWindow = true
         };
         startInfo.ArgumentList.Add("/d");
         startInfo.ArgumentList.Add("/c");
         startInfo.ArgumentList.Add("ping -t 127.0.0.1 > nul");
-        Process descendant = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Synthetic descendant did not start.");
+        var descendant = Process.Start(startInfo)
+                         ?? throw new InvalidOperationException("Synthetic descendant did not start.");
         File.WriteAllText(
             Path.Combine(
                 Path.GetDirectoryName(typeof(HangingDetectionPlugin).Assembly.Location)!,
                 DescendantMarker),
-            descendant.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            descendant.Id.ToString(CultureInfo.InvariantCulture));
         descendant.Dispose();
         return new ValueTask<PluginDetectionResult>(
             new TaskCompletionSource<PluginDetectionResult>(
@@ -115,7 +116,7 @@ public sealed class ThrowingConstructorPlugin : OwnerReservationLifetimePlugin
 
     public ThrowingConstructorPlugin()
     {
-        string packageDirectory = Path.GetDirectoryName(
+        var packageDirectory = Path.GetDirectoryName(
             typeof(ThrowingConstructorPlugin).Assembly.Location)!;
         File.WriteAllText(Path.Combine(packageDirectory, ConstructorMarker), "entered");
         throw new InvalidOperationException("plugin constructor failed");
@@ -133,7 +134,7 @@ public sealed class ThrowingPackageIdPlugin : OwnerReservationLifetimePlugin
 
     public override ValueTask DisposeAsync()
     {
-        string packageDirectory = Path.GetDirectoryName(
+        var packageDirectory = Path.GetDirectoryName(
             typeof(ThrowingPackageIdPlugin).Assembly.Location)!;
         File.WriteAllText(Path.Combine(packageDirectory, DisposalMarker), "attempted");
         return ValueTask.FromException(new InvalidOperationException("plugin disposal failed"));
@@ -158,14 +159,14 @@ public class UnverifiedStopPlugin : IDevicePlugin
         CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = true,
-            DeviceDefinitionId = "synthetic-device",
+            DeviceDefinitionId = "synthetic-device"
         });
 
     public ValueTask<PluginStartResult> StartAsync(
         PluginStartContext context,
         CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
         {
-            State = PluginOperationalState.Active,
+            State = PluginOperationalState.Active
         });
 
     public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
@@ -180,7 +181,7 @@ public class UnverifiedStopPlugin : IDevicePlugin
         PluginResumeContext context,
         CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
         {
-            State = PluginOperationalState.Active,
+            State = PluginOperationalState.Active
         });
 
     public ValueTask<PluginDiagnostics> GetDiagnosticsAsync(
@@ -195,7 +196,7 @@ public class UnverifiedStopPlugin : IDevicePlugin
         CancellationToken cancellationToken) => ValueTask.FromResult(new PluginControllerRelease
         {
             Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified,
+            Result = ControllerHandoffResult.ReleasedVerified
         });
 
     public ValueTask SetControllerManagementAsync(
@@ -209,7 +210,7 @@ public class UnverifiedStopPlugin : IDevicePlugin
             Status = PluginStopStatus.Unverified,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.TransportFaulted,
-                "synthetic restoration was unverified"),
+                "synthetic restoration was unverified")
         });
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -228,7 +229,7 @@ public sealed class FailedStopPlugin : UnverifiedStopPlugin
             Status = PluginStopStatus.Failed,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.TransportFaulted,
-                "synthetic restoration failed"),
+                "synthetic restoration failed")
         });
 }
 

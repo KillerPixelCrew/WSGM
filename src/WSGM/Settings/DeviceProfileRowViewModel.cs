@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia.Media;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -29,7 +30,7 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
         _name = profile.Name;
         _curve =
         [
-            .. profile.Curve.Select(point => new CurvePoint(point.Input, point.Output)),
+            .. profile.Curve.Select(point => new CurvePoint(point.Input, point.Output))
         ];
         _color = profile.Color;
     }
@@ -47,7 +48,7 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
         get => _name;
         set
         {
-            string bounded = (value ?? string.Empty).Trim();
+            var bounded = (value ?? string.Empty).Trim();
             if (bounded.Length > DeviceAuthoredProfile.MaxNameLength)
             {
                 bounded = bounded[..DeviceAuthoredProfile.MaxNameLength];
@@ -102,7 +103,7 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
     }
 
     /// <summary>The authored colour in the type consumed directly by Avalonia's picker.</summary>
-    public Avalonia.Media.Color PickerColor
+    public Color PickerColor
     {
         get => Avalonia.Media.Color.FromUInt32((uint)(0xFF000000 | (_color ?? 0)));
         set => Color = (value.R << 16) | (value.G << 8) | value.B;
@@ -111,10 +112,10 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
     /// <summary>The authored colour as an editable RGB string.</summary>
     public string ColorHex
     {
-        get => $"#{(_color ?? 0):X6}";
+        get => $"#{_color ?? 0:X6}";
         set
         {
-            if (Avalonia.Media.Color.TryParse(value, out Avalonia.Media.Color color))
+            if (Avalonia.Media.Color.TryParse(value, out var color))
             {
                 PickerColor = color;
             }
@@ -147,10 +148,10 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
             .. _curve.Select(point => new AuthoredCurvePoint
             {
                 Input = point.Input,
-                Output = point.Output,
-            }),
+                Output = point.Output
+            })
         ],
-        Color = _color,
+        Color = _color
     };
 
 }

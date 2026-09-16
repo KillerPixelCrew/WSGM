@@ -50,7 +50,7 @@ public enum OemControlPlacement
     Front,
 
     /// <summary>A rear paddle or grip control.</summary>
-    Rear,
+    Rear
 }
 
 /// <summary>Which press duration an assignment applies to.</summary>
@@ -61,7 +61,7 @@ public enum OemPressKind
     Short,
 
     /// <summary>A long press, where the source distinguishes one.</summary>
-    Long,
+    Long
 }
 
 /// <summary>The physical edge represented by an OEM event.</summary>
@@ -72,7 +72,7 @@ public enum OemControlEdge
     Pressed,
 
     /// <summary>The control was released and any held-state guard may reset.</summary>
-    Released,
+    Released
 }
 
 /// <summary>One published OEM control event.</summary>

@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 
 namespace WSGM.Core;
 
@@ -61,7 +62,7 @@ public static class SelfElevation
                 string.Join(' ', args.Append(RelaunchMarker).Select(Quote)))
             {
                 UseShellExecute = true,
-                Verb = "runas",
+                Verb = "runas"
             };
             using var child = Process.Start(psi);
             if (child is null)
@@ -110,7 +111,7 @@ public static class SelfElevation
             var psi = new ProcessStartInfo(exe, argument)
             {
                 UseShellExecute = true,
-                Verb = "runas",
+                Verb = "runas"
             };
             using var p = Process.Start(psi);
             if (p is null)
@@ -142,7 +143,7 @@ public static class SelfElevation
         {
             return arg;
         }
-        var sb = new System.Text.StringBuilder(arg.Length + 2);
+        var sb = new StringBuilder(arg.Length + 2);
         sb.Append('"');
         var backslashes = 0;
         foreach (var c in arg)

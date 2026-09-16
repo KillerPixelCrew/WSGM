@@ -17,7 +17,7 @@ internal static class KeyboardInput
                 Key(NativeMethods.VkControl, up: false),
                 Key(virtualKey, up: false),
                 Key(virtualKey, up: true),
-                Key(NativeMethods.VkControl, up: true),
+                Key(NativeMethods.VkControl, up: true)
             ];
 
         var sent = NativeMethods.SendInput(
@@ -62,7 +62,7 @@ internal static class KeyboardInput
             // 0xE0/0xE1 prefixed scan codes are the extended set (arrows, right Ctrl,
             // numpad Enter). Ctrl+1/Ctrl+2 are not, but the mapping must stay correct
             // if this ever carries another chord.
-            if ((scan >> 8) == 0xE0 || (scan >> 8) == 0xE1)
+            if (scan >> 8 == 0xE0 || scan >> 8 == 0xE1)
             {
                 flags |= NativeMethods.KeyEventExtendedKey;
             }
@@ -86,9 +86,9 @@ internal static class KeyboardInput
                 {
                     virtualKey = sentVirtualKey,
                     scanCode = (ushort)scan,
-                    flags = flags,
-                },
-            },
+                    flags = flags
+                }
+            }
         };
     }
 }

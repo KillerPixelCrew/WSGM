@@ -41,7 +41,7 @@ internal static class SelfWorkerProtocol
         IReadOnlyList<string> options,
         Func<IReadOnlyDictionary<string, string>, CancellationToken, Task<int>> run)
     {
-        if (!TryParseOptions(args, worker, options, out Dictionary<string, string>? values, out string? error))
+        if (!TryParseOptions(args, worker, options, out var values, out var error))
         {
             Console.Error.WriteLine(error);
             return ExitInvalidArguments;
@@ -82,7 +82,7 @@ internal static class SelfWorkerProtocol
         where TRequest : class
     {
         byte[]? secret;
-        using (CancellationTokenSource authorization =
+        using (var authorization =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
             authorization.CancelAfter(AuthorizationDeadline);
@@ -104,19 +104,19 @@ internal static class SelfWorkerProtocol
                     options["--result"],
                     requestFileName,
                     resultFileName,
-                    out string? requestPath,
-                    out string? resultPath))
+                    out var requestPath,
+                    out var resultPath))
             {
                 Console.Error.WriteLine($"The {worker} session paths were rejected.");
                 return null;
             }
 
-            TRequest? request = await ReadRequestAsync(
+            var request = await ReadRequestAsync(
                 requestPath!,
                 maximumRequestBytes,
                 deserialize,
                 cancellationToken).ConfigureAwait(false);
-            string? rejection = rejectRequest(request);
+            var rejection = rejectRequest(request);
             if (rejection is not null || request is null)
             {
                 Console.Error.WriteLine(rejection ?? $"The {worker} request was malformed.");
@@ -195,7 +195,7 @@ internal static class SelfWorkerProtocol
         out string? error)
     {
         Dictionary<string, string> parsed = new(StringComparer.Ordinal);
-        for (int index = 0; index < args.Count; index += 2)
+        for (var index = 0; index < args.Count; index += 2)
         {
             if (index + 1 >= args.Count
                 || !options.Contains(args[index], StringComparer.Ordinal)
@@ -209,7 +209,7 @@ internal static class SelfWorkerProtocol
         }
 
         if (parsed.Count != options.Count
-            || options.Any(option => !parsed.TryGetValue(option, out string? value) || string.IsNullOrWhiteSpace(value)))
+            || options.Any(option => !parsed.TryGetValue(option, out var value) || string.IsNullOrWhiteSpace(value)))
         {
             values = null;
             error = $"The {worker} arguments were incomplete or malformed.";

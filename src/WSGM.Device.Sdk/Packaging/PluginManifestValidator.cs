@@ -78,7 +78,7 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (!Version.TryParse(value, out Version? parsed)
+        if (!Version.TryParse(value, out var parsed)
             || parsed.ToString(parsed.Revision >= 0 ? 4 : parsed.Build >= 0 ? 3 : 2) != value)
         {
             Add(errors, "version", ManifestValidationCode.InvalidVersion,

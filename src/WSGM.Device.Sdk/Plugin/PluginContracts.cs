@@ -178,7 +178,7 @@ public enum PluginOperationalState
     Active,
 
     /// <summary>At least one service is usable and at least one is unavailable.</summary>
-    Degraded,
+    Degraded
 }
 
 /// <summary>Bounded plugin-owned diagnostic facts.</summary>
@@ -209,7 +209,7 @@ public enum PluginStopStatus
     Unverified,
 
     /// <summary>At least one restoration failed.</summary>
-    Failed,
+    Failed
 }
 
 /// <summary>Bounded suspend or lock quiescence.</summary>
@@ -273,7 +273,7 @@ public enum PluginStopReason
     StartFailed,
 
     /// <summary>A plugin-owned background service failed during an active cycle.</summary>
-    RuntimeFault,
+    RuntimeFault
 }
 
 /// <summary>Terminal cleanup request.</summary>

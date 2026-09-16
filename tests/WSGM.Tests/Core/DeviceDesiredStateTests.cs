@@ -12,13 +12,13 @@ public sealed class DeviceDesiredStateTests
     private static CapabilityValue Choice(string option) => new()
     {
         Kind = CapabilityValueKind.Choice,
-        ChoiceValue = option,
+        ChoiceValue = option
     };
 
     private static CapabilityValue Watts(int watts) => new()
     {
         Kind = CapabilityValueKind.Integer,
-        IntegerValue = watts,
+        IntegerValue = watts
     };
 
     private static DeviceCapabilityPreference Stored(
@@ -37,7 +37,7 @@ public sealed class DeviceDesiredStateTests
 
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, null, Choice("quiet"));
 
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
         Assert.Equal("quiet", preference.GlobalDefault?.ChoiceValue);
         Assert.Empty(preference.ApplicationOverrides);
     }
@@ -49,9 +49,9 @@ public sealed class DeviceDesiredStateTests
 
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, "steam:42", Choice("sport"));
 
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
         Assert.Null(preference.GlobalDefault);
-        DeviceApplicationDesiredValue entry = Assert.Single(preference.ApplicationOverrides);
+        var entry = Assert.Single(preference.ApplicationOverrides);
         Assert.Equal("steam:42", entry.ApplicationId);
         Assert.Equal("sport", entry.Value?.ChoiceValue);
     }
@@ -64,7 +64,7 @@ public sealed class DeviceDesiredStateTests
 
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, "steam:42", Choice("sport"));
 
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
         Assert.Equal("quiet", preference.GlobalDefault?.ChoiceValue);
         Assert.Equal("sport", Assert.Single(preference.ApplicationOverrides).Value?.ChoiceValue);
     }
@@ -80,7 +80,7 @@ public sealed class DeviceDesiredStateTests
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, null, Choice("quiet"));
 
         Assert.Single(device.Profiles);
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
         Assert.Equal("quiet", preference.GlobalDefault?.ChoiceValue);
         Assert.Equal("sport", Assert.Single(preference.ApplicationOverrides).Value?.ChoiceValue);
     }
@@ -104,7 +104,7 @@ public sealed class DeviceDesiredStateTests
 
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, "   ", Choice("quiet"));
 
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
         Assert.Equal("quiet", preference.GlobalDefault?.ChoiceValue);
         Assert.Empty(preference.ApplicationOverrides);
     }
@@ -127,14 +127,14 @@ public sealed class DeviceDesiredStateTests
         DeviceIntegrationConfig device = new();
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, null, Choice("quiet"));
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, "steam:42", Choice("sport"));
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
 
-        ResolvedDeviceDesiredValue inGame = DeviceDesiredStateResolver.Resolve(
+        var inGame = DeviceDesiredStateResolver.Resolve(
             preference,
             onAcPower: true,
             hardwareProfileId: null,
             applicationId: "steam:42");
-        ResolvedDeviceDesiredValue onDesktop = DeviceDesiredStateResolver.Resolve(
+        var onDesktop = DeviceDesiredStateResolver.Resolve(
             preference,
             onAcPower: true,
             hardwareProfileId: null,
@@ -151,13 +151,13 @@ public sealed class DeviceDesiredStateTests
     {
         DeviceIntegrationConfig device = new();
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, null, Choice("quiet"));
-        DeviceCapabilityPreference preference = Stored(device);
+        var preference = Stored(device);
         preference.AcPolicy = Choice("sport");
         preference.DcPolicy = Choice("eco");
         preference.HardwareProfiles.Add(new DeviceNamedDesiredValue
         {
             ProfileId = "handheld",
-            Value = Choice("silent"),
+            Value = Choice("silent")
         });
 
         DeviceDesiredStateWriter.Store(device, Machine, Fan, null, null, Choice("balanced"));
@@ -177,7 +177,7 @@ public sealed class DeviceDesiredStateTests
             GlobalDefault = CapabilityValue.Integer(10),
             AcPolicy = CapabilityValue.Integer(12),
             HardwareProfiles = [new DeviceNamedDesiredValue { ProfileId = "balanced", Value = CapabilityValue.Integer(15) }],
-            ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = CapabilityValue.Integer(18) }],
+            ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = CapabilityValue.Integer(18) }]
         };
 
         Assert.Equal(18, DeviceDesiredStateResolver.Resolve(

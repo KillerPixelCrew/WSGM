@@ -8,7 +8,7 @@ public sealed class DeviceBoundaryTests
     [Fact]
     public void WsgmLoadsThePluginDynamicallyWithoutReferencingItsProject()
     {
-        string[] references = ProjectReferences("src/WSGM/WSGM.csproj").ToArray();
+        var references = ProjectReferences("src/WSGM/WSGM.csproj").ToArray();
 
         // The SDK is the only device reference the application may hold: it is the type identity
         // the host and a plugin agree on. The solution builds the tool and package from their
@@ -22,7 +22,7 @@ public sealed class DeviceBoundaryTests
     [Fact]
     public void SolutionBuildsTheDeviceProjectsWithOneSharedSdk()
     {
-        string[] projects = XDocument.Load(Path.Combine(RepositoryFiles.Root, "WSGM.slnx"))
+        var projects = XDocument.Load(Path.Combine(RepositoryFiles.Root, "WSGM.slnx"))
             .Descendants("Project")
             .Select(project => (string?)project.Attribute("Path"))
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -42,14 +42,14 @@ public sealed class DeviceBoundaryTests
             "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj",
             Assert.Single(projects, path => Path.GetFileName(path) == "WSGM.Device.Sdk.csproj"));
 
-        string sdkPath = Path.GetFullPath(Path.Combine(
+        var sdkPath = Path.GetFullPath(Path.Combine(
             RepositoryFiles.Root, "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
-        foreach (string projectPath in projects)
+        foreach (var projectPath in projects)
         {
-            string projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, projectPath))!;
-            foreach (XElement reference in RepositoryFiles.LoadProject(projectPath).Descendants("ProjectReference"))
+            var projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, projectPath))!;
+            foreach (var reference in RepositoryFiles.LoadProject(projectPath).Descendants("ProjectReference"))
             {
-                string include = (string)reference.Attribute("Include")!;
+                var include = (string)reference.Attribute("Include")!;
                 if (Path.GetFileName(include) == "WSGM.Device.Sdk.csproj")
                 {
                     Assert.Equal(sdkPath, Path.GetFullPath(Path.Combine(projectDirectory, include)));
@@ -63,7 +63,7 @@ public sealed class DeviceBoundaryTests
     {
         // The SDK is the shared type-identity boundary. Any dependency added here would be
         // handed to every plugin built against it.
-        XDocument sdk = RepositoryFiles.LoadProject(
+        var sdk = RepositoryFiles.LoadProject(
             "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
 
         Assert.Empty(sdk.Descendants("ProjectReference"));

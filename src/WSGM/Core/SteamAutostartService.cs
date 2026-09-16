@@ -33,9 +33,9 @@ public static class SteamAutostartService
         IReadOnlyList<SteamAutostartSource> sources, bool allowElevation, IAutostartSystem? system = null)
     {
         ArgumentNullException.ThrowIfNull(sources);
-        IAutostartSystem surfaces = system ?? new AutostartSystem();
-        bool elevated = ElevationCheck.IsCurrentProcessElevated() is true;
-        SteamAutostartTakeoverResult result = SteamAutostartTakeover.Disable(
+        var surfaces = system ?? new AutostartSystem();
+        var elevated = ElevationCheck.IsCurrentProcessElevated() is true;
+        var result = SteamAutostartTakeover.Disable(
             surfaces, sources, elevated, RecordDisabled);
 
         if (result.NeedsElevation.Count == 0 || elevated || !allowElevation)
@@ -61,7 +61,7 @@ public static class SteamAutostartService
             Disabled = [.. result.Disabled, .. result.NeedsElevation.Where(source =>
                 !remaining.Any(other => other.Kind == source.Kind && other.Name == source.Name))],
             NeedsElevation = [.. result.NeedsElevation.Where(source =>
-                remaining.Any(other => other.Kind == source.Kind && other.Name == source.Name))],
+                remaining.Any(other => other.Kind == source.Kind && other.Name == source.Name))]
         };
     }
 
@@ -110,9 +110,9 @@ public static class SteamAutostartService
     {
         try
         {
-            AppConfig config = ConfigStore.Load();
+            var config = ConfigStore.Load();
             if (config.SteamAutostartDisabled.Count == 0) { return 0; }
-            IReadOnlyList<SteamAutostartRecord> restored = SteamAutostartTakeover.Restore(
+            var restored = SteamAutostartTakeover.Restore(
                 new AutostartSystem(), config.SteamAutostartDisabled,
                 ElevationCheck.IsCurrentProcessElevated() is true);
             HashSet<string> done = [.. restored.Select(Key)];
@@ -138,7 +138,7 @@ public static class SteamAutostartService
         {
             ConfigStore.Mutate(config =>
             {
-                SteamAutostartRecord? existing = config.SteamAutostartDisabled
+                var existing = config.SteamAutostartDisabled
                     .FirstOrDefault(other => Key(other) == Key(entry));
                 if (existing is null)
                 {

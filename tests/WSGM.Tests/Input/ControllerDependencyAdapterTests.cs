@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
@@ -14,7 +15,7 @@ public sealed class ControllerDependencyAdapterTests
             [
                 ManagedControllerTarget.SteamDeckComposite,
                 ManagedControllerTarget.Xbox360,
-                ManagedControllerTarget.DualShock4,
+                ManagedControllerTarget.DualShock4
             ],
             ViiperControllerBackend.SupportedTargets);
     }
@@ -32,7 +33,7 @@ public sealed class ControllerDependencyAdapterTests
         float expectedLow,
         float expectedHigh)
     {
-        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+        var feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(target, report));
 
         Assert.Equal(expectedLow, feedback.LowFrequency, 5);
@@ -47,7 +48,7 @@ public sealed class ControllerDependencyAdapterTests
         // range — a signed divisor clamps the upper half of the envelope and crushes dynamics.
         byte[] report = [0xEB, 0, 0, 0, 0, 0, 0x80, 0xFF, 0xFF];
 
-        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+        var feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
@@ -63,7 +64,7 @@ public sealed class ControllerDependencyAdapterTests
         // Steam-private 0xDC event as captured live: side 1, command 2 (strong click).
         byte[] report = [0xDC, 0x02, 0x01, 0x02];
 
-        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+        var feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
@@ -98,7 +99,7 @@ public sealed class ControllerDependencyAdapterTests
     {
         byte[] report = [0xEA, 0x0D, 0, 2, intensity, unchecked((byte)gain)];
 
-        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+        var feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
@@ -116,7 +117,7 @@ public sealed class ControllerDependencyAdapterTests
     {
         byte[] report = [0x8F, 0, 0, 0, 0, 0xE8, 0x03, 2, 0, 3];
 
-        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+        var feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
@@ -134,12 +135,12 @@ public sealed class ControllerDependencyAdapterTests
             TargetGeneration = 1,
             Timestamp = DateTimeOffset.UnixEpoch,
             LowFrequency = 0.008f,
-            HighFrequency = 0f,
+            HighFrequency = 0f
         };
 
-        HapticOutputFrame floored = ControllerOutputRouter.FloorForMotors(frame, 0.35f);
+        var floored = ControllerOutputRouter.FloorForMotors(frame, 0.35f);
 
-        Assert.Equal(0.35f + (0.65f * 0.008f), floored.LowFrequency, 5);
+        Assert.Equal(0.35f + 0.65f * 0.008f, floored.LowFrequency, 5);
         Assert.Equal(0f, floored.HighFrequency);
         Assert.Same(frame, ControllerOutputRouter.FloorForMotors(frame, 0f));
     }
@@ -149,7 +150,7 @@ public sealed class ControllerDependencyAdapterTests
     {
         // Regression: a self-forwarding overload once made this call recurse until the stack was
         // exhausted, which killed every live target replacement and shutdown.
-        int calls = 0;
+        var calls = 0;
 
         ViiperControllerBackend.SafeNative(() => ++calls, "count");
 
@@ -160,7 +161,7 @@ public sealed class ControllerDependencyAdapterTests
     public void SafeNativeSwallowsOnlyNativeBindingFailures()
     {
         ViiperControllerBackend.SafeNative(
-            () => throw new System.Runtime.InteropServices.SEHException(),
+            () => throw new SEHException(),
             "fail natively");
 
         Assert.Throws<InvalidOperationException>(() => ViiperControllerBackend.SafeNative(
@@ -175,11 +176,11 @@ public sealed class ControllerDependencyAdapterTests
             applications: ["external-b.exe", "external-a.exe"],
             devices: ["HID\\B", "HID\\A"]);
         WindowsHidHideAdapter adapter = new(control);
-        HidHideExactSnapshot expected = await adapter.ReadAsync(CancellationToken.None);
+        var expected = await adapter.ReadAsync(CancellationToken.None);
 
-        HidHideMutationResult result = await adapter.TryMutateAsync(
+        var result = await adapter.TryMutateAsync(
             expected,
-            new(HidHideMutationKind.Add, HidHideEntryKind.Application, "ControllerHost.exe"),
+            new HidHideEntryMutation(HidHideMutationKind.Add, HidHideEntryKind.Application, "ControllerHost.exe"),
             CancellationToken.None);
 
         Assert.True(result.Applied);
@@ -195,12 +196,12 @@ public sealed class ControllerDependencyAdapterTests
     {
         FakeHidHideControl control = new(applications: ["external.exe"]);
         WindowsHidHideAdapter adapter = new(control);
-        HidHideExactSnapshot expected = await adapter.ReadAsync(CancellationToken.None);
+        var expected = await adapter.ReadAsync(CancellationToken.None);
         control.ReplaceApplications(["new-external.exe", "external.exe"]);
 
-        HidHideMutationResult result = await adapter.TryMutateAsync(
+        var result = await adapter.TryMutateAsync(
             expected,
-            new(HidHideMutationKind.Add, HidHideEntryKind.Device, "HID\\OWN"),
+            new HidHideEntryMutation(HidHideMutationKind.Add, HidHideEntryKind.Device, "HID\\OWN"),
             CancellationToken.None);
 
         Assert.False(result.Applied);
@@ -213,11 +214,11 @@ public sealed class ControllerDependencyAdapterTests
     {
         FakeHidHideControl control = new(inverse: true);
         WindowsHidHideAdapter adapter = new(control);
-        HidHideExactSnapshot expected = await adapter.ReadAsync(CancellationToken.None);
+        var expected = await adapter.ReadAsync(CancellationToken.None);
 
-        HidHideMutationResult result = await adapter.TryMutateAsync(
+        var result = await adapter.TryMutateAsync(
             expected,
-            new(HidHideMutationKind.Add, HidHideEntryKind.Device, "HID\\OWN"),
+            new HidHideEntryMutation(HidHideMutationKind.Add, HidHideEntryKind.Device, "HID\\OWN"),
             CancellationToken.None);
 
         Assert.Equal(HidHideHealthState.Incompatible, expected.Health);
@@ -231,7 +232,7 @@ public sealed class ControllerDependencyAdapterTests
         FakeHidHideControl control = new(error: 2);
         WindowsHidHideAdapter adapter = new(control);
 
-        HidHideExactSnapshot snapshot = await adapter.ReadAsync(CancellationToken.None);
+        var snapshot = await adapter.ReadAsync(CancellationToken.None);
 
         Assert.Equal(HidHideHealthState.Unavailable, snapshot.Health);
         Assert.False(snapshot.Active);
@@ -259,15 +260,15 @@ public sealed class ControllerDependencyAdapterTests
             _error = error;
         }
 
-        internal bool Active { get; set; }
+        internal bool Active { get; }
 
-        internal bool Inverse { get; set; }
+        internal bool Inverse { get; }
 
         internal int WriteCount { get; private set; }
 
         public HidHideControlState Read() => _error == 0
-            ? new(true, 0, Active, Inverse, _applications.ToArray(), _devices.ToArray())
-            : new(false, _error, false, false, [], []);
+            ? new HidHideControlState(true, 0, Active, Inverse, _applications.ToArray(), _devices.ToArray())
+            : new HidHideControlState(false, _error, false, false, [], []);
 
         public int Write(HidHideEntryKind entryKind, IReadOnlyList<string> entries)
         {

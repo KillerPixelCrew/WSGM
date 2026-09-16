@@ -19,7 +19,7 @@ internal enum FanCurvePreset
     Default,
 
     /// <summary>Starts higher and reaches full speed sooner.</summary>
-    Aggressive,
+    Aggressive
 }
 
 /// <summary>
@@ -49,7 +49,7 @@ internal static class FanCurvePresets
         FanCurvePreset.Quiet => "Quiet",
         FanCurvePreset.Default => "Default",
         FanCurvePreset.Aggressive => "Aggressive",
-        _ => preset.ToString(),
+        _ => preset.ToString()
     };
 
     /// <summary>The preset's duty at one temperature, interpolated between its samples.</summary>
@@ -58,19 +58,19 @@ internal static class FanCurvePresets
     /// <returns>A duty percentage in 0..100.</returns>
     internal static int DutyAt(FanCurvePreset preset, int celsius)
     {
-        int[] samples = SamplesFor(preset);
-        int last = samples.Length - 1;
-        int clamped = Math.Clamp(celsius, 0, last * SampleStepCelsius);
-        int lower = Math.Min(clamped / SampleStepCelsius, last);
-        int upper = Math.Min(lower + 1, last);
+        var samples = SamplesFor(preset);
+        var last = samples.Length - 1;
+        var clamped = Math.Clamp(celsius, 0, last * SampleStepCelsius);
+        var lower = Math.Min(clamped / SampleStepCelsius, last);
+        var upper = Math.Min(lower + 1, last);
         if (lower == upper)
         {
             return samples[lower];
         }
 
-        int lowerCelsius = lower * SampleStepCelsius;
-        int span = samples[upper] - samples[lower];
-        return samples[lower] + (((clamped - lowerCelsius) * span) / SampleStepCelsius);
+        var lowerCelsius = lower * SampleStepCelsius;
+        var span = samples[upper] - samples[lower];
+        return samples[lower] + (clamped - lowerCelsius) * span / SampleStepCelsius;
     }
 
     /// <summary>Fits a preset onto the temperatures a device's own curve uses.</summary>
@@ -99,10 +99,10 @@ internal static class FanCurvePresets
         }
 
         List<CurvePoint> sampled = new(current.Count);
-        int floor = 0;
-        foreach (CurvePoint point in current)
+        var floor = 0;
+        foreach (var point in current)
         {
-            int duty = Math.Max(floor, DutyAt(preset, point.Input));
+            var duty = Math.Max(floor, DutyAt(preset, point.Input));
             floor = duty;
             sampled.Add(new CurvePoint(point.Input, duty));
         }
@@ -114,6 +114,6 @@ internal static class FanCurvePresets
     {
         FanCurvePreset.Quiet => Quiet,
         FanCurvePreset.Aggressive => Aggressive,
-        _ => Default,
+        _ => Default
     };
 }

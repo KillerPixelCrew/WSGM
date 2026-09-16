@@ -9,10 +9,10 @@ public sealed class SteamInputClaimTests
     public async Task HandoffClaimDoesNotWaitForTheNativeOperationLock()
     {
         // Hold precisely the lock a pending pipe acquire holds, without opening a native client.
-        object nativeLock = typeof(SteamInputBlocker).GetField("Sync", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var nativeLock = typeof(SteamInputBlocker).GetField("Sync", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using ManualResetEventSlim release = new();
-        Task nativeOperation = Task.Run(() =>
+        var nativeOperation = Task.Run(() =>
         {
             lock (nativeLock)
             {

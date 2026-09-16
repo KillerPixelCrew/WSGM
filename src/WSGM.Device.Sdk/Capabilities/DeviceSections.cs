@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.Device.Sdk.Settings;
@@ -31,7 +32,7 @@ public static class DeviceSections
 
     /// <summary>The four shared page declarations in their default presentation order.</summary>
     public static IReadOnlyList<CapabilitySection> All { get; } =
-        System.Array.AsReadOnly(new[] { Power, Rgb, Controller, Info });
+        Array.AsReadOnly(new[] { Power, Rgb, Controller, Info });
 
     /// <summary>Adds predefined sections omitted by a plugin, preserving its category declarations.</summary>
     /// <param name="declared">A validated plugin section list.</param>

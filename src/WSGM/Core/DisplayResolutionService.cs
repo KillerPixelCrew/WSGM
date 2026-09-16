@@ -109,7 +109,7 @@ internal sealed class DisplayResolutionService
         }
 
         Log.Info($"Display resolution released; restoring {resolution}.");
-        bool restored = _apply(resolution.Width, resolution.Height);
+        var restored = _apply(resolution.Width, resolution.Height);
         if (restored)
         {
             lock (_gate)

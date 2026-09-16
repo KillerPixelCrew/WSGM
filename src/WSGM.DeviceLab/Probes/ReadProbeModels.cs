@@ -31,7 +31,7 @@ internal enum ReadProbeFamily
     ChargeState,
 
     /// <summary>Offline native-library version, architecture, hash, signer, or export inspection.</summary>
-    NativeLibraryMetadata,
+    NativeLibraryMetadata
 }
 
 /// <summary>The scalar or byte representation expected from each probe repetition.</summary>
@@ -51,7 +51,7 @@ internal enum ReadProbeValueKind
     Bytes,
 
     /// <summary>A dotted version string.</summary>
-    Version,
+    Version
 }
 
 /// <summary>How an independent observation must relate to the primary probe value.</summary>
@@ -68,7 +68,7 @@ internal enum ReadProbeCrossCheckKind
     SameStatus,
 
     /// <summary>The independent observation must be present, but may legitimately change.</summary>
-    Present,
+    Present
 }
 
 /// <summary>Structural and semantic invariants for one read-probe response.</summary>
@@ -197,7 +197,7 @@ internal enum ReadProbeWorkerStatus
     PrerequisiteMissing,
 
     /// <summary>The profile rejected the request before opening the resource.</summary>
-    Rejected,
+    Rejected
 }
 
 /// <summary>Result document written once by a disposable Device Lab self-worker.</summary>
@@ -326,7 +326,7 @@ internal enum ReadProbeRunStatus
     Disconnected,
 
     /// <summary>The worker result was missing or failed structural validation.</summary>
-    MalformedResponse,
+    MalformedResponse
 }
 
 /// <summary>Classified result exposed to Device Lab callers.</summary>

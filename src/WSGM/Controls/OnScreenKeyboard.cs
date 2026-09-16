@@ -76,20 +76,20 @@ public sealed class OnScreenKeyboard : Decorator
 
     private void ShowLayer()
     {
-        int index = CurrentLayerIndex;
+        var index = CurrentLayerIndex;
         if (_layers[index] is not { } layer)
         {
             layer = BuildLayer();
             _layers[index] = layer;
             _root.Children.Add(layer);
         }
-        foreach (Control child in _root.Children)
+        foreach (var child in _root.Children)
         {
             child.IsVisible = ReferenceEquals(child, layer);
         }
     }
 
-    private int CurrentLayerIndex => _layer == LayerLetters ? (_shift ? 1 : 0) : _layer + 1;
+    private int CurrentLayerIndex => _layer == LayerLetters ? _shift ? 1 : 0 : _layer + 1;
 
     private StackPanel BuildLayer()
     {
@@ -98,7 +98,7 @@ public sealed class OnScreenKeyboard : Decorator
         {
             LayerSymbols => Symbols,
             LayerMoreSymbols => MoreSymbols,
-            _ => _shift ? LettersUpper : LettersLower,
+            _ => _shift ? LettersUpper : LettersLower
         };
         foreach (var row in rows)
         {
@@ -106,7 +106,7 @@ public sealed class OnScreenKeyboard : Decorator
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 4,
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
             };
             foreach (var key in row)
             {
@@ -119,7 +119,7 @@ public sealed class OnScreenKeyboard : Decorator
         {
             Orientation = Orientation.Horizontal,
             Spacing = 4,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
         };
         // One cycling key rather than two: the label names the layer it leads
         // to, so every character is reachable without a second modifier the
@@ -129,7 +129,7 @@ public sealed class OnScreenKeyboard : Decorator
             {
                 LayerSymbols => "#+=",
                 LayerMoreSymbols => "abc",
-                _ => "?123",
+                _ => "?123"
             },
             () =>
             {
@@ -185,7 +185,7 @@ public sealed class OnScreenKeyboard : Decorator
             // Constant border, no adorner: the repo's focus discipline, so a
             // controller cursor never changes a key's size as it moves.
             BorderThickness = new Thickness(2),
-            FocusAdorner = null,
+            FocusAdorner = null
         };
         button.Click += (_, _) => action();
         return button;

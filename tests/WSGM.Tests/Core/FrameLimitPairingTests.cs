@@ -110,9 +110,9 @@ public sealed class FrameLimitPairingTests
     [Fact]
     public void FrameLimitOptions_AlwaysOffersOffFirst()
     {
-        foreach (FrameLimitStrategy strategy in System.Enum.GetValues<FrameLimitStrategy>())
+        foreach (var strategy in Enum.GetValues<FrameLimitStrategy>())
         {
-            IReadOnlyList<int> options =
+            var options =
                 FrameLimitPairing.FrameLimitOptions(strategy, ClawNative, ClawAccepted);
             Assert.Equal(0, options[0]);
         }
@@ -121,12 +121,12 @@ public sealed class FrameLimitPairingTests
     [Fact]
     public void FrameLimitOptions_CoupledStrategy_PairsEveryCapItOffers()
     {
-        IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
+        var options = FrameLimitPairing.FrameLimitOptions(
             FrameLimitStrategy.FrameDoubling, ClawNative, ClawAccepted);
 
         // The row names a refresh rate beside every cap, so an offered cap with no rate behind it
         // would leave the label half-written.
-        foreach (int cap in options.Where(cap => cap != 0))
+        foreach (var cap in options.Where(cap => cap != 0))
         {
             Assert.NotNull(FrameLimitPairing.SelectRefreshHz(
                 FrameLimitStrategy.FrameDoubling, cap, ClawNative, ClawAccepted));
@@ -165,7 +165,7 @@ public sealed class FrameLimitPairingTests
     [Fact]
     public void FrameLimitOptions_NeverExceedsTheFastestAvailableMode()
     {
-        IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
+        var options = FrameLimitPairing.FrameLimitOptions(
             FrameLimitStrategy.FrameLimitOnly, ClawNative, ClawAccepted);
 
         Assert.All(options, cap => Assert.True(cap <= 120));
@@ -174,7 +174,7 @@ public sealed class FrameLimitPairingTests
     [Fact]
     public void FrameLimitOptions_OffersEveryIntegerFromThirtyToTheCeiling()
     {
-        IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
+        var options = FrameLimitPairing.FrameLimitOptions(
             FrameLimitStrategy.FrameLimitOnly, ClawNative, ClawAccepted);
 
         int[] expected = [0, .. Enumerable.Range(30, 91)];

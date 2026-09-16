@@ -12,7 +12,7 @@ internal enum HidBackendHealthState
     Unavailable,
     Incompatible,
     Ready,
-    Faulted,
+    Faulted
 }
 
 internal enum ManagedTargetState
@@ -20,7 +20,7 @@ internal enum ManagedTargetState
     Absent,
     Neutral,
     Active,
-    Faulted,
+    Faulted
 }
 
 internal sealed record HidBackendCapabilities(

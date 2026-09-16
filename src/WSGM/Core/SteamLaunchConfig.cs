@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -115,7 +116,7 @@ public static class SteamLaunchConfig
         CancellationToken cancellationToken = default)
     {
         var helper = LaunchWrapperCommand.HelperPathForCurrentDeployment();
-        if (!System.IO.File.Exists(helper))
+        if (!File.Exists(helper))
         {
             return new LaunchConfigResult(false, "The launch wrapper is missing from this install.");
         }

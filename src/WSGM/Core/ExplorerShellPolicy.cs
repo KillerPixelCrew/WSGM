@@ -30,47 +30,47 @@ internal static class ExplorerShellPolicy
     {
         if (process.Errors.Open != 0)
         {
-            return new(false, ExplorerShellRejection.ProcessUnavailable);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.ProcessUnavailable);
         }
         if (requireReadyTaskbar && process.ProcessId == 0 && !ownsReadyTaskbar)
         {
-            return new(false, ExplorerShellRejection.NotReady);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.NotReady);
         }
         if (string.IsNullOrWhiteSpace(process.ImagePath))
         {
-            return new(false, ExplorerShellRejection.ImageUnknown);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.ImageUnknown);
         }
         if (!Path.GetFullPath(process.ImagePath).Equals(
                 Path.GetFullPath(expectedImagePath),
                 StringComparison.OrdinalIgnoreCase))
         {
-            return new(false, ExplorerShellRejection.WrongImage);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.WrongImage);
         }
         if (process.SessionId is null)
         {
-            return new(false, ExplorerShellRejection.SessionUnknown);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.SessionUnknown);
         }
         if (process.SessionId != expectedSessionId)
         {
-            return new(false, ExplorerShellRejection.WrongSession);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.WrongSession);
         }
         if (process.Integrity != NativeIntegrityLevel.Medium)
         {
-            return new(false, process.Integrity == NativeIntegrityLevel.Unknown
+            return new ExplorerShellAcceptance(false, process.Integrity == NativeIntegrityLevel.Unknown
                 ? ExplorerShellRejection.IntegrityUnknown
                 : ExplorerShellRejection.WrongIntegrity);
         }
         if (requireReadyTaskbar && !ownsReadyTaskbar)
         {
-            return new(false, ExplorerShellRejection.NotReady);
+            return new ExplorerShellAcceptance(false, ExplorerShellRejection.NotReady);
         }
         if (process.JobMembership != NativeJobMembership.NotInJob)
         {
-            return new(false, process.JobMembership == NativeJobMembership.Unknown
+            return new ExplorerShellAcceptance(false, process.JobMembership == NativeJobMembership.Unknown
                 ? ExplorerShellRejection.JobMembershipUnknown
                 : ExplorerShellRejection.JobBound);
         }
-        return new(true, ExplorerShellRejection.None);
+        return new ExplorerShellAcceptance(true, ExplorerShellRejection.None);
     }
 
     /// <summary>Classifies an observed taskbar owner. Only a canonical current-session medium
@@ -167,7 +167,7 @@ internal enum ExplorerShellRejection
     /// <summary>The process belongs to a job.</summary>
     JobBound,
     /// <summary>The process does not own the initialized taskbar.</summary>
-    NotReady,
+    NotReady
 }
 
 /// <summary>Action taken by an anchor after its owning WSGM process disappears.</summary>
@@ -176,7 +176,7 @@ internal enum ExplorerAnchorOwnerLossAction
     /// <summary>Exit without starting anything.</summary>
     Exit,
     /// <summary>Restore the fixed canonical Explorer path.</summary>
-    RestoreExplorer,
+    RestoreExplorer
 }
 
 /// <summary>Action taken after the authenticated anchor command pipe disconnects.</summary>
@@ -187,5 +187,5 @@ internal enum ExplorerAnchorDisconnectAction
     /// <summary>Exit without restoring Explorer.</summary>
     Exit,
     /// <summary>Run abnormal owner-loss recovery.</summary>
-    Recover,
+    Recover
 }

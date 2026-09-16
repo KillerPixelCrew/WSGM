@@ -23,7 +23,7 @@ public sealed class PluginSettingRowViewModelTests
             MaximumLength = maximumLength,
             Choices = [.. choices.Select(value => new CapabilityChoice(
                 value,
-                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = value }))],
+                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = value }))]
         };
 
     private static CapabilityValue Value(CapabilityValueKind kind) => new() { Kind = kind };
@@ -38,10 +38,10 @@ public sealed class PluginSettingRowViewModelTests
             (CapabilityValueKind.Integer, row => row.IsRange),
             (CapabilityValueKind.Choice, row => row.IsChoice),
             (CapabilityValueKind.Color, row => row.IsColor),
-            (CapabilityValueKind.Text, row => row.IsText),
+            (CapabilityValueKind.Text, row => row.IsText)
         ];
 
-        foreach ((CapabilityValueKind kind, Func<PluginSettingRowViewModel, bool> flag) in cases)
+        foreach (var (kind, flag) in cases)
         {
             PluginSettingRowViewModel row = new(Descriptor(kind, 0, 10), Value(kind));
             bool[] flags = [row.IsToggle, row.IsRange, row.IsChoice, row.IsColor, row.IsText];
@@ -72,7 +72,7 @@ public sealed class PluginSettingRowViewModelTests
         PluginSettingRowViewModel row = new(
             Descriptor(CapabilityValueKind.Boolean),
             new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true });
-        int edits = 0;
+        var edits = 0;
         row.Edited += (_, _) => edits++;
 
         row.BooleanValue = true;
@@ -88,13 +88,13 @@ public sealed class PluginSettingRowViewModelTests
         PluginSettingRowViewModel row = new(
             Descriptor(CapabilityValueKind.Integer, 0, 100),
             Value(CapabilityValueKind.Integer));
-        int edits = 0;
+        var edits = 0;
         row.Edited += (_, _) => edits++;
 
         row.Adopt(new CapabilityValue
         {
             Kind = CapabilityValueKind.Integer,
-            IntegerValue = 42,
+            IntegerValue = 42
         });
 
         Assert.Equal(42, row.IntegerValue);
@@ -112,7 +112,7 @@ public sealed class PluginSettingRowViewModelTests
             Descriptor(CapabilityValueKind.Integer, 10, 100),
             Value(CapabilityValueKind.Integer))
         {
-            IntegerValue = requested,
+            IntegerValue = requested
         };
 
         Assert.Equal(expected, row.IntegerValue);
@@ -125,7 +125,7 @@ public sealed class PluginSettingRowViewModelTests
             Descriptor(CapabilityValueKind.Text, maximumLength: 4),
             Value(CapabilityValueKind.Text))
         {
-            TextValue = "far too long",
+            TextValue = "far too long"
         };
 
         Assert.Equal("far ", row.TextValue);
@@ -189,15 +189,15 @@ public sealed class PluginSettingRowViewModelTests
     [Fact]
     public void ChoiceOptionsExposeTheirValidatedDisplayLabelInsteadOfRecordToString()
     {
-        PluginSettingDescriptor descriptor = Descriptor(CapabilityValueKind.Choice);
+        var descriptor = Descriptor(CapabilityValueKind.Choice);
         descriptor = descriptor with
         {
             Choices =
             [
                 new CapabilityChoice(
                     "machine-value",
-                    new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }),
-            ],
+                    new CapabilityDisplay { Key = DisplayKey.PerformanceProfile })
+            ]
         };
 
         PluginSettingRowViewModel row = new(
@@ -205,7 +205,7 @@ public sealed class PluginSettingRowViewModelTests
             new CapabilityValue
             {
                 Kind = CapabilityValueKind.Choice,
-                ChoiceValue = "machine-value",
+                ChoiceValue = "machine-value"
             });
 
         Assert.Equal("machine-value", Assert.Single(row.Choices).Value);

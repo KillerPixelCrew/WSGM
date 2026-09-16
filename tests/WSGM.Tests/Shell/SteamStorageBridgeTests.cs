@@ -45,7 +45,7 @@ public sealed class SteamStorageBridgeTests
         // After one, an empty list is a real answer and has to reach Steam, or a card pulled from
         // the reader -- or ejected from Windows rather than from Steam -- stays on its page.
         drives.Apply([]);
-        SteamStorageState? state = bridge.ReadState();
+        var state = bridge.ReadState();
 
         Assert.NotNull(state);
         Assert.Empty(state.Drives);

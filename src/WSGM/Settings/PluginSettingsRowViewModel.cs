@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia.Media;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
@@ -93,12 +94,12 @@ public sealed class PluginSettingRowViewModel : ObservableObject
     public int MaximumLength => _descriptor.MaximumLength ?? PluginSettingDescriptor.MaxTextLength;
 
     /// <summary>The packed RGB value exposed through Avalonia's colour type.</summary>
-    public Avalonia.Media.Color PickerColor
+    public Color PickerColor
     {
-        get => Avalonia.Media.Color.FromUInt32((uint)(0xFF000000 | _colorValue));
+        get => Color.FromUInt32((uint)(0xFF000000 | _colorValue));
         set
         {
-            int packed = (value.R << 16) | (value.G << 8) | value.B;
+            var packed = (value.R << 16) | (value.G << 8) | value.B;
             if (_colorValue == packed)
             {
                 return;
@@ -110,7 +111,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             Publish(new CapabilityValue
             {
                 Kind = CapabilityValueKind.Color,
-                ColorValue = packed,
+                ColorValue = packed
             });
         }
     }
@@ -121,7 +122,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         get => $"#{_colorValue:X6}";
         set
         {
-            if (Avalonia.Media.Color.TryParse(value, out Avalonia.Media.Color color))
+            if (Color.TryParse(value, out var color))
             {
                 PickerColor = color;
             }
@@ -144,7 +145,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             Publish(new CapabilityValue
             {
                 Kind = CapabilityValueKind.Boolean,
-                BooleanValue = value,
+                BooleanValue = value
             });
         }
     }
@@ -158,7 +159,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             // Clamped here as well as validated on commit. A slider bound to a stale range can
             // otherwise report a value the plugin already refuses, and the user sees a control that
             // moves and then springs back with no explanation.
-            int clamped = _descriptor.Minimum is { } min && _descriptor.Maximum is { } max
+            var clamped = _descriptor.Minimum is { } min && _descriptor.Maximum is { } max
                 ? Math.Clamp(value, min, max)
                 : value;
             if (_integerValue == clamped)
@@ -171,7 +172,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             Publish(new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = clamped,
+                IntegerValue = clamped
             });
         }
     }
@@ -182,7 +183,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         get => _textValue;
         set
         {
-            string bounded = value ?? string.Empty;
+            var bounded = value ?? string.Empty;
             if (bounded.Length > MaximumLength)
             {
                 bounded = bounded[..MaximumLength];
@@ -198,7 +199,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             Publish(new CapabilityValue
             {
                 Kind = CapabilityValueKind.Text,
-                TextValue = bounded,
+                TextValue = bounded
             });
         }
     }
@@ -221,7 +222,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
                 Publish(new CapabilityValue
                 {
                     Kind = CapabilityValueKind.Choice,
-                    ChoiceValue = choice.Value,
+                    ChoiceValue = choice.Value
                 });
             }
         }
@@ -275,7 +276,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         DisplayKey.Motion => "Motion",
         DisplayKey.Rumble => "Rumble",
         DisplayKey.VariableRefreshRate => "Variable refresh rate",
-        _ => fallback,
+        _ => fallback
     };
 
     private void Publish(CapabilityValue value) => Edited?.Invoke(SettingId, value);

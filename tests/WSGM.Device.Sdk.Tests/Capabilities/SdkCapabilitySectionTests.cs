@@ -18,7 +18,7 @@ public sealed class SdkCapabilitySectionTests
             CustomTitle = customTitle,
             CustomDescription = customDescription,
             Icon = icon,
-            Categories = categories ?? [],
+            Categories = categories ?? []
         };
 
     private static CapabilityCategory Category(
@@ -28,13 +28,13 @@ public sealed class SdkCapabilitySectionTests
         {
             CategoryId = id,
             Key = key,
-            CustomTitle = customTitle,
+            CustomTitle = customTitle
         };
 
     [Fact]
     public void AKeyedSectionValidates()
     {
-        Assert.True(Section().TryValidate(out string? error));
+        Assert.True(Section().TryValidate(out var error));
         Assert.Null(error);
     }
 
@@ -52,7 +52,7 @@ public sealed class SdkCapabilitySectionTests
     {
         // A title alongside a real key is dead weight some surface eventually renders instead of
         // the localized string.
-        Assert.False(Section(customTitle: "Cooling").TryValidate(out string? error));
+        Assert.False(Section(customTitle: "Cooling").TryValidate(out var error));
         Assert.Contains("customTitle", error);
     }
 
@@ -98,15 +98,15 @@ public sealed class SdkCapabilitySectionTests
 
         // The failing child is named so a plugin author can find it in a long declaration.
         Assert.False(
-            Section(categories: [Category(id: "has spaces")]).TryValidate(out string? error));
+            Section(categories: [Category(id: "has spaces")]).TryValidate(out var error));
         Assert.Contains("has spaces", error);
     }
 
     [Fact]
     public void ADuplicateCategoryIdIsRefusedByName()
     {
-        bool valid = Section(categories: [Category(), Category()])
-            .TryValidate(out string? error);
+        var valid = Section(categories: [Category(), Category()])
+            .TryValidate(out var error);
 
         Assert.False(valid);
         Assert.Contains("readings", error);
@@ -118,7 +118,7 @@ public sealed class SdkCapabilitySectionTests
         CapabilityCategory[] categories =
         [
             .. Enumerable.Range(0, CapabilitySection.MaxCategories + 1)
-                .Select(index => Category(id: $"category-{index}")),
+                .Select(index => Category(id: $"category-{index}"))
         ];
 
         Assert.False(Section(categories: categories).TryValidate(out _));
@@ -127,11 +127,11 @@ public sealed class SdkCapabilitySectionTests
     [Fact]
     public void AKeyedCategoryMayNotCarryACustomTitle()
     {
-        CapabilityCategory category = Category(
+        var category = Category(
             key: SettingSectionKey.Power,
             customTitle: "Power");
 
-        Assert.False(category.TryValidate(out string? error));
+        Assert.False(category.TryValidate(out var error));
         Assert.Contains("customTitle", error);
     }
 
@@ -147,7 +147,7 @@ public sealed class SdkCapabilitySectionTests
     public void PluginsCanAddCategoriesAndCustomSections()
     {
         var power = DeviceSections.Power with
-        { Categories = [new() { CategoryId = "fans", Key = SettingSectionKey.Fans }] };
+        { Categories = [new CapabilityCategory { CategoryId = "fans", Key = SettingSectionKey.Fans }] };
         var custom = new CapabilitySection
         { SectionId = "extra", Key = SettingSectionKey.Custom, CustomTitle = "Extra" };
         Assert.True(power.TryValidate(out _));

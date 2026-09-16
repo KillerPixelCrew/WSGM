@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
@@ -13,7 +14,7 @@ internal sealed class ManualTdpModeView : StackPanel
     {
         Spacing = 6;
         ComboBox choice = new() { ItemsSource = new[] { "Advanced / split TDP", "Unified TDP" } };
-        TextBlock status = new() { Text = "Unified TDP coordinates sustained and boost limits through the device plugin.", TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        TextBlock status = new() { Text = "Unified TDP coordinates sustained and boost limits through the device plugin.", TextWrapping = TextWrapping.Wrap };
         Children.Add(choice);
         Children.Add(status);
         bool rendering = false, writing = false, closed = false;

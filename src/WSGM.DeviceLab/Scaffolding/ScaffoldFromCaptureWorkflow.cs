@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -71,7 +71,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         new("Plugin.csproj.template", "{rootNamespace}.csproj"),
         new("DevicePlugin.cs.template", "DevicePlugin.cs"),
         new("README.md.template", "README.md"),
-        new("LICENSE.txt.template", "LICENSE.txt"),
+        new("LICENSE.txt.template", "LICENSE.txt")
     ];
 
     /// <summary>Writes a hardware-empty starter from one validated current capture.</summary>
@@ -94,19 +94,19 @@ internal static partial class ScaffoldFromCaptureWorkflow
         cancellationToken.ThrowIfCancellationRequested();
 
         using FileStream capture = new(capturePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        CaptureBundleReadResult read = CaptureBundleReader.Read(capture, cancellationToken);
+        var read = CaptureBundleReader.Read(capture, cancellationToken);
         if (!read.Succeeded || read.Bundle is null)
         {
             throw new InvalidDataException($"Source capture was rejected: {read.Failure} ({read.Detail}).");
         }
 
-        PluginScaffoldIdentity identity = SelectExactIdentity(read.Bundle, usbInstanceId);
-        string slug = Slug(identity.BaseboardProduct);
-        string rootNamespace = $"WSGM.Device.Scaffold.{Identifier(slug)}";
-        string packageId = $"wsgm.device.scaffold.{slug}";
-        string deviceDefinitionId = $"scaffold.{slug}";
-        string displayName = $"{identity.SystemManufacturer} {identity.BaseboardProduct} Device Plugin";
-        Dictionary<string, string> tokens = Tokens(
+        var identity = SelectExactIdentity(read.Bundle, usbInstanceId);
+        var slug = Slug(identity.BaseboardProduct);
+        var rootNamespace = $"WSGM.Device.Scaffold.{Identifier(slug)}";
+        var packageId = $"wsgm.device.scaffold.{slug}";
+        var deviceDefinitionId = $"scaffold.{slug}";
+        var displayName = $"{identity.SystemManufacturer} {identity.BaseboardProduct} Device Plugin";
+        var tokens = Tokens(
             boundaries,
             rootNamespace,
             packageId,
@@ -115,22 +115,22 @@ internal static partial class ScaffoldFromCaptureWorkflow
             identity);
 
         List<(string Path, string Content)> rendered = [];
-        foreach (TemplateFile template in Templates)
+        foreach (var template in Templates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string path = template.OutputPath.Replace("{rootNamespace}", rootNamespace, StringComparison.Ordinal);
-            string content = ReplaceTokens(ReadTemplate(template.ResourceName), tokens);
+            var path = template.OutputPath.Replace("{rootNamespace}", rootNamespace, StringComparison.Ordinal);
+            var content = ReplaceTokens(ReadTemplate(template.ResourceName), tokens);
             rendered.Add((path, Normalize(content)));
         }
 
-        PluginManifestReadResult manifest = PluginManifestReader.Read(
+        var manifest = PluginManifestReader.Read(
             Encoding.UTF8.GetBytes(rendered.Single(file => file.Path == "plugin.wsgm.json").Content));
         if (!manifest.IsValid)
         {
             throw new InvalidDataException(string.Join(" ", manifest.Errors.Select(error => error.Message)));
         }
 
-        DeviceLabOutputPathDecision output = DeviceLabOutputPathPolicy.Evaluate(
+        var output = DeviceLabOutputPathPolicy.Evaluate(
             outputDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
@@ -144,9 +144,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
             throw new IOException("Scaffold output must be a new directory.");
         }
 
-        string parent = Path.GetDirectoryName(output.FullPath)
-            ?? throw new IOException("Scaffold output has no parent directory.");
-        string temporary = Path.Combine(
+        var parent = Path.GetDirectoryName(output.FullPath)
+                     ?? throw new IOException("Scaffold output has no parent directory.");
+        var temporary = Path.Combine(
             parent,
             $".{Path.GetFileName(output.FullPath)}.{Guid.NewGuid():N}.tmp");
         try
@@ -154,10 +154,10 @@ internal static partial class ScaffoldFromCaptureWorkflow
             Directory.CreateDirectory(parent);
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(temporary);
-            foreach ((string relative, string content) in rendered)
+            foreach (var (relative, content) in rendered)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string path = Path.GetFullPath(Path.Combine(temporary, relative));
+                var path = Path.GetFullPath(Path.Combine(temporary, relative));
                 if (!path.StartsWith(
                     temporary + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase))
@@ -187,7 +187,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
             PackageId = packageId,
             RootNamespace = rootNamespace,
             Identity = identity,
-            Files = [.. rendered.Select(file => file.Path).Order(StringComparer.Ordinal)],
+            Files = [.. rendered.Select(file => file.Path).Order(StringComparer.Ordinal)]
         };
     }
 
@@ -214,7 +214,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         {
             if (endpoints.Length != 1)
             {
-                string choices = string.Join(
+                var choices = string.Join(
                     ", ",
                     endpoints.Take(16).Select(candidate => candidate.InstanceId));
                 throw new InvalidDataException(
@@ -250,7 +250,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
                 ?? throw new InvalidDataException("Capture has no exact BIOS version."),
             UsbVendorId = endpoint.VendorId!,
             UsbProductId = endpoint.ProductId!,
-            UsbDeviceRelease = endpoint.DeviceRelease!,
+            UsbDeviceRelease = endpoint.DeviceRelease!
         };
     }
 
@@ -270,7 +270,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
             ["DISPLAY_NAME_JSON"] = Json(identity: displayName),
             ["DISPLAY_NAME_MD"] = Markdown(displayName),
             ["DEVICE_ID_CS"] = CSharp(deviceDefinitionId),
-            ["API_VERSION"] = DeviceApi.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["API_VERSION"] = DeviceApi.Version.ToString(CultureInfo.InvariantCulture),
             ["SDK_REFERENCE_XML"] = SdkReferenceXml(boundaries),
             ["MANUFACTURER_CS"] = CSharp(identity.SystemManufacturer),
             ["MANUFACTURER_MD"] = Markdown(identity.SystemManufacturer),
@@ -283,7 +283,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
             ["USB_VENDOR_CS"] = CSharp(identity.UsbVendorId),
             ["USB_PRODUCT_CS"] = CSharp(identity.UsbProductId),
             ["USB_RELEASE_CS"] = CSharp(identity.UsbDeviceRelease),
-            ["USB_MD"] = Markdown($"{identity.UsbVendorId}:{identity.UsbProductId} release {identity.UsbDeviceRelease}"),
+            ["USB_MD"] = Markdown($"{identity.UsbVendorId}:{identity.UsbProductId} release {identity.UsbDeviceRelease}")
         };
     }
 
@@ -298,7 +298,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         ArgumentNullException.ThrowIfNull(boundaries);
         if (boundaries.RepositoryRoot is { Length: > 0 } root)
         {
-            string candidate = Path.GetFullPath(Path.Combine(
+            var candidate = Path.GetFullPath(Path.Combine(
                 root, "src", "WSGM.Device.Sdk",
                 "WSGM.Device.Sdk.csproj"));
             if (File.Exists(candidate))
@@ -307,7 +307,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
             }
         }
 
-        string sdkAssembly = typeof(DeviceApi).Assembly.Location;
+        var sdkAssembly = typeof(DeviceApi).Assembly.Location;
         if (string.IsNullOrWhiteSpace(sdkAssembly)
             || !File.Exists(sdkAssembly)
             || !string.Equals(
@@ -320,7 +320,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
                 + "installation or a WSGM source checkout.");
         }
 
-        string resolved = Path.GetFullPath(sdkAssembly);
+        var resolved = Path.GetFullPath(sdkAssembly);
         return "<Reference Include=\"WSGM.Device.Sdk\">\n"
             + $"      <HintPath>{Xml(resolved)}</HintPath>\n"
             + "      <Private>false</Private>\n"
@@ -329,17 +329,17 @@ internal static partial class ScaffoldFromCaptureWorkflow
 
     private static string ReadTemplate(string name)
     {
-        Assembly assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
-        using Stream stream = assembly.GetManifestResourceStream(ResourcePrefix + name)
-            ?? throw new InvalidDataException($"Checked-in plugin template '{name}' is missing.");
+        var assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
+        using var stream = assembly.GetManifestResourceStream(ResourcePrefix + name)
+                           ?? throw new InvalidDataException($"Checked-in plugin template '{name}' is missing.");
         using StreamReader reader = new(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         return reader.ReadToEnd();
     }
 
     private static string ReplaceTokens(string template, IReadOnlyDictionary<string, string> tokens)
     {
-        string rendered = template;
-        foreach ((string key, string value) in tokens)
+        var rendered = template;
+        foreach (var (key, value) in tokens)
         {
             rendered = rendered.Replace($"{{{{{key}}}}}", value, StringComparison.Ordinal);
         }
@@ -354,14 +354,14 @@ internal static partial class ScaffoldFromCaptureWorkflow
 
     private static string Slug(string value)
     {
-        string slug = NonIdentifier().Replace(value.ToLowerInvariant(), "-").Trim('-');
+        var slug = NonIdentifier().Replace(value.ToLowerInvariant(), "-").Trim('-');
         return string.IsNullOrEmpty(slug) ? "unknown-device" : slug;
     }
 
     private static string Identifier(string slug)
     {
         StringBuilder builder = new();
-        foreach (string segment in slug.Split('-', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var segment in slug.Split('-', StringSplitOptions.RemoveEmptyEntries))
         {
             builder.Append(char.ToUpperInvariant(segment[0])).Append(segment.AsSpan(1));
         }

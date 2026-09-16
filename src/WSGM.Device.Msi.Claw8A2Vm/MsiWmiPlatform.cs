@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,7 +29,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
                     return false;
                 }
 
-                using ManagementObject? instance = FindActiveInstance();
+                using var instance = FindActiveInstance();
                 return instance is not null;
             },
             cancellationToken);
@@ -86,7 +87,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
     private async ValueTask<T> RunSerializedAsync<T>(Func<T> operation, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(OperationTimeout);
         await _serializer.WaitAsync(deadline.Token).ConfigureAwait(false);
         Task<T>? operationTask = null;
@@ -129,8 +130,8 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 
     private static byte[] InvokeCore(string methodName, byte[] request)
     {
-        using ManagementObject instance = FindActiveInstance()
-            ?? throw new FileNotFoundException("The reviewed MSI_ACPI instance was not present.");
+        using var instance = FindActiveInstance()
+                             ?? throw new FileNotFoundException("The reviewed MSI_ACPI instance was not present.");
 
         // Null means the method takes no in-parameters, which is not an error and not a missing
         // instance: on the A2VM's firmware `Get_WMI`, `Get_EC`, `Get_EC2` and `GetPackage` are all
@@ -139,9 +140,9 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         // very first call of the identity check, and the whole device cycle faulted behind it.
         // Device-verified on the reference Claw 2026-08-29: with a null input, `Get_WMI` returns its
         // 32-byte package with status 0x01.
-        using ManagementBaseObject? input = instance.GetMethodParameters(methodName);
+        using var input = instance.GetMethodParameters(methodName);
         using ManagementClass packageClass = new("root\\WMI", "Package_32", null);
-        using ManagementObject? package = input is null ? null : packageClass.CreateInstance();
+        using var package = input is null ? null : packageClass.CreateInstance();
         if (input is not null)
         {
             if (package is null)
@@ -153,8 +154,8 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             input["Data"] = package;
         }
 
-        using ManagementBaseObject output = instance.InvokeMethod(methodName, input, null)
-            ?? throw new IOException($"{methodName} returned no response.");
+        using var output = instance.InvokeMethod(methodName, input, null)
+                           ?? throw new IOException($"{methodName} returned no response.");
         if (output["Data"] is not ManagementBaseObject returned)
         {
             throw new InvalidDataException($"{methodName} returned no Package_32 response.");
@@ -183,9 +184,9 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         using ManagementObjectSearcher searcher = new(
             "root\\WMI",
             "SELECT * FROM MSI_ACPI WHERE Active = TRUE");
-        using ManagementObjectCollection candidates = searcher.Get();
+        using var candidates = searcher.Get();
         ManagementObject? found = null;
-        foreach (ManagementBaseObject candidate in candidates)
+        foreach (var candidate in candidates)
         {
             if (found is not null)
             {
@@ -202,7 +203,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 
     private static byte[] CreatePackage(byte selector)
     {
-        byte[] package = new byte[ClawHardwareFacts.WmiPackageLength];
+        var package = new byte[ClawHardwareFacts.WmiPackageLength];
         package[0] = selector;
         return package;
     }
@@ -235,7 +236,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 
     public async ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
     {
-        DeviceIdentitySnapshot snapshot = await Task.Run(_readBaseIdentity, CancellationToken.None)
+        var snapshot = await Task.Run(_readBaseIdentity, CancellationToken.None)
             .WaitAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -251,11 +252,11 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
                 ExactMachineMatch = false,
                 WmiFirmwareVerified = false,
                 McuFirmwareVerified = false,
-                OnAcPower = false,
+                OnAcPower = false
             };
         }
 
-        IReadOnlyList<UsbEndpointObservation> controllerEndpoints = await Task.Run(
+        var controllerEndpoints = await Task.Run(
                 _readControllerEndpoints,
                 CancellationToken.None)
             .WaitAsync(cancellationToken)
@@ -264,15 +265,15 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 
         bool providerAvailable;
         string? ecFirmware = null;
-        bool wmiFirmwareVerified = false;
+        var wmiFirmwareVerified = false;
         try
         {
             providerAvailable = await _wmi.IsProviderAvailableAsync(cancellationToken).ConfigureAwait(false);
             if (providerAvailable)
             {
-                byte[] wmiVersion = await _wmi.InvokeGetterAsync("Get_WMI", 0, cancellationToken)
+                var wmiVersion = await _wmi.InvokeGetterAsync("Get_WMI", 0, cancellationToken)
                     .ConfigureAwait(false);
-                byte[] ec = await _wmi.InvokeGetterAsync("Get_EC", 0, cancellationToken)
+                var ec = await _wmi.InvokeGetterAsync("Get_EC", 0, cancellationToken)
                     .ConfigureAwait(false);
                 ecFirmware = DecodeEcFirmware(ec);
 
@@ -314,10 +315,10 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
             EcFirmwareVersion = ecFirmware,
             WmiProviderSignatures = providerAvailable
                 ? ["root\\WMI:MSI_ACPI", "root\\WMI:MSI_ACPI.Get_WMI:8.0"]
-                : [],
+                : []
         };
 
-        bool mcuFirmwareVerified = snapshot.UsbEndpoints.Any(endpoint =>
+        var mcuFirmwareVerified = snapshot.UsbEndpoints.Any(endpoint =>
             string.Equals(endpoint.VendorId, ClawHardwareFacts.UsbVendorId, StringComparison.OrdinalIgnoreCase)
             && IsControllerProduct(endpoint.ProductId)
             && string.Equals(endpoint.DeviceRelease, ClawHardwareFacts.McuFirmware, StringComparison.OrdinalIgnoreCase));
@@ -329,7 +330,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
                 .WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ManagementException or IOException
-            or InvalidDataException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException
+            or InvalidDataException or UnauthorizedAccessException or COMException
             || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             PluginTrace.Failure("power", "AC-power observation failed", ex);
@@ -342,7 +343,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
             ExactMachineMatch = true,
             WmiFirmwareVerified = wmiFirmwareVerified,
             McuFirmwareVerified = mcuFirmwareVerified,
-            OnAcPower = onAcPower,
+            OnAcPower = onAcPower
         };
     }
 
@@ -353,13 +354,13 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 
     private static DeviceIdentitySnapshot ReadBaseMachineIdentity()
     {
-        using ManagementObject system = QuerySingle(
+        using var system = QuerySingle(
             "root\\CIMV2",
             "SELECT Manufacturer, Model, SystemSKUNumber, SystemFamily FROM Win32_ComputerSystem");
-        using ManagementObject board = QuerySingle(
+        using var board = QuerySingle(
             "root\\CIMV2",
             "SELECT Product, Version FROM Win32_BaseBoard");
-        using ManagementObject bios = QuerySingle(
+        using var bios = QuerySingle(
             "root\\CIMV2",
             "SELECT SMBIOSBIOSVersion FROM Win32_BIOS");
 
@@ -372,7 +373,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
             BaseboardProduct = Normalize(board["Product"]),
             BaseboardVersion = Normalize(board["Version"]),
             BiosVersion = Normalize(bios["SMBIOSBIOSVersion"]),
-            UsbEndpoints = [],
+            UsbEndpoints = []
         };
     }
 
@@ -382,15 +383,15 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         using ManagementObjectSearcher searcher = new(
             "root\\CIMV2",
             "SELECT DeviceID, HardwareID FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB\\\\VID_0DB0&PID_19%' ");
-        using ManagementObjectCollection candidates = searcher.Get();
-        foreach (ManagementObject item in candidates.Cast<ManagementObject>())
+        using var candidates = searcher.Get();
+        foreach (var item in candidates.Cast<ManagementObject>())
         {
             using (item)
             {
-                string id = Convert.ToString(item["DeviceID"], CultureInfo.InvariantCulture) ?? string.Empty;
-                string? vendorId = ExtractHex(id, "VID_");
-                string? productId = ExtractHex(id, "PID_");
-                string? release = (item["HardwareID"] as string[])
+                var id = Convert.ToString(item["DeviceID"], CultureInfo.InvariantCulture) ?? string.Empty;
+                var vendorId = ExtractHex(id, "VID_");
+                var productId = ExtractHex(id, "PID_");
+                var release = (item["HardwareID"] as string[])
                     ?.Select(value => ExtractHex(value, "REV_"))
                     .FirstOrDefault(value => value is not null);
                 if (vendorId is null || productId is null || !IsControllerProduct(productId))
@@ -402,7 +403,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
                 {
                     VendorId = vendorId,
                     ProductId = productId,
-                    DeviceRelease = release,
+                    DeviceRelease = release
                 });
             }
         }
@@ -413,7 +414,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
     private static ManagementObject QuerySingle(string scope, string query)
     {
         using ManagementObjectSearcher searcher = new(scope, query);
-        using ManagementObjectCollection candidates = searcher.Get();
+        using var candidates = searcher.Get();
         return candidates.Cast<ManagementObject>().FirstOrDefault()
             ?? throw new FileNotFoundException($"Inventory query returned no rows: {query}");
     }
@@ -423,26 +424,26 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
         using ManagementObjectSearcher searcher = new(
             "root\\WMI",
             "SELECT PowerOnline FROM BatteryStatus");
-        using ManagementObjectCollection candidates = searcher.Get();
-        using ManagementObject? battery = candidates.Cast<ManagementObject>().FirstOrDefault();
+        using var candidates = searcher.Get();
+        using var battery = candidates.Cast<ManagementObject>().FirstOrDefault();
         return battery is null || Convert.ToBoolean(battery["PowerOnline"], CultureInfo.InvariantCulture);
     }
 
     private static string? Normalize(object? value)
     {
-        string? text = Convert.ToString(value, CultureInfo.InvariantCulture)?.Trim();
+        var text = Convert.ToString(value, CultureInfo.InvariantCulture)?.Trim();
         return string.IsNullOrEmpty(text) ? null : text;
     }
 
     private static string? ExtractHex(string value, string marker)
     {
-        int start = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        var start = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
         if (start < 0 || value.Length < start + marker.Length + 4)
         {
             return null;
         }
 
-        string result = value.Substring(start + marker.Length, 4);
+        var result = value.Substring(start + marker.Length, 4);
         return result.All(Uri.IsHexDigit) ? result.ToUpperInvariant() : null;
     }
 
@@ -451,19 +452,19 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 
     private static string? DecodeEcFirmware(byte[] response)
     {
-        int marker = Array.IndexOf(response, (byte)0x81, 1);
+        var marker = Array.IndexOf(response, (byte)0x81, 1);
         if (marker < 0 || marker + 1 >= response.Length)
         {
             return null;
         }
 
-        int end = Array.IndexOf(response, (byte)0, marker + 1);
+        var end = Array.IndexOf(response, (byte)0, marker + 1);
         if (end < 0)
         {
             end = response.Length;
         }
 
-        string value = Encoding.ASCII.GetString(response, marker + 1, end - marker - 1).Trim();
+        var value = Encoding.ASCII.GetString(response, marker + 1, end - marker - 1).Trim();
         return string.IsNullOrEmpty(value) ? null : value;
     }
 }
@@ -542,20 +543,20 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
 
     private void OnEventArrived(object sender, EventArrivedEventArgs args)
     {
-        Func<byte, DateTimeOffset, ValueTask>? callback = _callback;
+        var callback = _callback;
         if (callback is null)
         {
             return;
         }
 
-        object? raw = args.NewEvent.Properties["MSIEvt"]?.Value;
+        var raw = args.NewEvent.Properties["MSIEvt"]?.Value;
         if (raw is null)
         {
             return;
         }
 
-        byte code = unchecked((byte)(Convert.ToUInt32(raw, CultureInfo.InvariantCulture) & 0xFF));
-        Task publication = callback(code, DateTimeOffset.UtcNow).AsTask();
+        var code = unchecked((byte)(Convert.ToUInt32(raw, CultureInfo.InvariantCulture) & 0xFF));
+        var publication = callback(code, DateTimeOffset.UtcNow).AsTask();
         if (!publication.IsCompletedSuccessfully)
         {
             _ = ObservePublicationAsync(publication);

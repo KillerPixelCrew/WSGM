@@ -162,7 +162,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             PerfSupport = perfSupport,
             ApplyRefreshRate = applyRefreshRate,
-            ApplyVariableRefreshRate = applyVariableRefreshRate,
+            ApplyVariableRefreshRate = applyVariableRefreshRate
         };
         _autoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, autoTdp);
         _controllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
@@ -342,7 +342,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
-        bool preferenceChanged = _carouselShowUninstalled != includeUninstalled;
+        var preferenceChanged = _carouselShowUninstalled != includeUninstalled;
         _carouselShowUninstalled = includeUninstalled;
         if (_homeCarouselEnabled == enabled)
         {
@@ -569,7 +569,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         SteamUiPatchSnapshot? surface = null;
-        foreach (SteamUiPatchSnapshot patch in _patches.GetSnapshots())
+        foreach (var patch in _patches.GetSnapshots())
         {
             if (patch.Id == SteamScreensaverSurface.PatchId)
             {
@@ -591,7 +591,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         surface is
         {
             Enabled: true,
-            State: SteamUiPatchState.Applying or SteamUiPatchState.Applied or SteamUiPatchState.Verified,
+            State: SteamUiPatchState.Applying or SteamUiPatchState.Applied or SteamUiPatchState.Verified
         };
 
     /// <summary>
@@ -610,40 +610,40 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         [
             new SteamUiModule(
                 "shell",
-                commands: [new(ShellPatchId, "toggleQuickAccess", HandleToggleQuickAccessAsync)]),
+                commands: [new SteamUiCommandHandler(ShellPatchId, "toggleQuickAccess", HandleToggleQuickAccessAsync)]),
 
             // Valve's TDP toggle and slider, fed the primary power limit's range and routed back to
             // the device capability.
             SteamPowerLimitSurface.Module(
                 Enabled,
-                () => new(_tdp.PowerLimit),
+                () => new ValueTask<SteamPowerLimitState?>(_tdp.PowerLimit),
                 _tdp,
                 id: "tdp"),
 
-            SteamAutoTdpRow.Module(Enabled, () => new(_autoTdp.Current), _autoTdp),
+            SteamAutoTdpRow.Module(Enabled, () => new ValueTask<SteamAutoTdpState?>(_autoTdp.Current), _autoTdp),
 
             // The frame limit is the toolkit's unified row rather than Valve's notch slider, and
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
-            SteamFrameLimitRow.Module(Enabled, () => new(_performance.FrameLimit), _performance),
+            SteamFrameLimitRow.Module(Enabled, () => new ValueTask<SteamFrameLimitState?>(_performance.FrameLimit), _performance),
             SteamPowerProfileRow.Module(Enabled, _powerProfiles.ReadAsync, _powerProfiles),
             SteamHybridCoreRow.Module(Enabled, _hybridCores.ReadAsync, _hybridCores),
             SteamPowerPresetRow.Module(Enabled, _powerPresets.ReadAsync, _powerPresets),
 
             SteamControllerTargetRow.Module(
                 Enabled,
-                () => new(_controllerTarget.Current),
+                () => new ValueTask<SteamControllerTargetState?>(_controllerTarget.Current),
                 _controllerTarget),
 
             // Declared unconditionally — whether the switch appears is decided by whether the
             // device publishes a variable-refresh capability, which the state carries.
-            SteamVariableRefreshRow.Module(Enabled, () => new(_performance.Vrr), _performance),
+            SteamVariableRefreshRow.Module(Enabled, () => new ValueTask<SteamVariableRefreshState?>(_performance.Vrr), _performance),
 
             // The backend behind Valve's own Performance tab and the Valve rows that read it.
             // Declared unconditionally because the performance service always exists; what the
             // panel then shows is decided entirely by which fields the projected state carries.
             SteamPerformanceSurface.Module(
                 Enabled,
-                () => new(_performance.PerfState),
+                () => new ValueTask<SteamPerformanceState?>(_performance.PerfState),
                 _performance,
                 id: "perf"),
 
@@ -652,7 +652,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
             SteamDeviceControlsRow.Module(
                 Enabled,
-                () => new(_deviceControls.Current),
+                () => new ValueTask<SteamDeviceControlsState?>(_deviceControls.Current),
                 _deviceControls),
 
             new SteamUiModule("download-sort", patches: [new SteamDownloadSortPatch()]),
@@ -666,15 +666,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // none publishes an empty list, which names every installed game as internal.
             SteamLibraryBadgeSurface.Module(
                 () => _libraryBadgeEnabled,
-                () => new(LibraryBadges.Current),
+                () => new ValueTask<SteamLibraryBadgeState?>(LibraryBadges.Current),
                 _libraryBadge),
 
             // Home's carousel, built from the same card reading as the badge so the two never
             // disagree about which card is in the reader. Rides LibraryBadges.Changed for card moves.
             SteamHomeCarouselSurface.Module(
                 () => _homeCarouselEnabled,
-                () => new(HomeCarousel.Build(LibraryBadges.Current, _carouselShowUninstalled)),
-                _homeCarousel),
+                () => new ValueTask<SteamHomeCarouselState?>(HomeCarousel.Build(LibraryBadges.Current, _carouselShowUninstalled)),
+                _homeCarousel)
         ];
 
         // WSGM's display-off rows in Steam's Screensaver settings, over the same timeouts the overlay
@@ -684,7 +684,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             modules.Add(SteamScreensaverSurface.Module(
                 () => _screensaverEnabled,
-                () => new(timeouts.ReadState()),
+                () => new ValueTask<SteamScreensaverState?>(timeouts.ReadState()),
                 timeouts));
         }
 
@@ -692,7 +692,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             modules.Add(SteamResolutionRow.Module(
                 Enabled,
-                () => new(resolution.Current),
+                () => new ValueTask<SteamResolutionState?>(resolution.Current),
                 resolution));
         }
 
@@ -700,7 +700,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             // Publishing once after injection updates the store whose availability was cached when
             // Steam started before the replacement namespace existed.
-            modules.Add(SteamAudioSurface.Module(Enabled, () => new(audio.Current), audio));
+            modules.Add(SteamAudioSurface.Module(Enabled, () => new ValueTask<SteamAudioState?>(audio.Current), audio));
         }
 
         // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if
@@ -725,7 +725,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // so there is nothing to await and no reason to hop threads to answer Steam.
         if (_storage is { } storage)
         {
-            modules.Add(SteamStorageSurface.Module(Enabled, () => new(storage.ReadState()), storage));
+            modules.Add(SteamStorageSurface.Module(Enabled, () => new ValueTask<SteamStorageState?>(storage.ReadState()), storage));
         }
 
         return modules;
@@ -738,10 +738,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SteamUiBridgeRequest request,
         CancellationToken cancellationToken)
     {
-        bool succeeded = await _toggleQuickAccess(cancellationToken).ConfigureAwait(false);
+        var succeeded = await _toggleQuickAccess(cancellationToken).ConfigureAwait(false);
         return succeeded
             ? SteamUiCommandResult.Applied
-            : new(false, "Quick access is not currently available.");
+            : new SteamUiCommandResult(false, "Quick access is not currently available.");
     }
 
     private void OnSemanticStateChanged() => QueueStatePublication();
@@ -753,14 +753,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The registry is the source of truth for which patches exist; a hand-kept id list here
         // drifts. Glyphs and download sorting have independent switches; the network gate may also
         // outlive native QAM to keep the configured header indicator.
-        foreach (SteamUiPatchSnapshot patch in _patches.GetSnapshots())
+        foreach (var patch in _patches.GetSnapshots())
         {
             if (patch.Id == SteamInputGlyphStylePatch.PatchId || patch.Id == _overlayActivation.Id)
             {
                 continue;
             }
 
-            bool enabled = patch.Id switch
+            var enabled = patch.Id switch
             {
                 var id when id == SteamDownloadSortPatch.PatchId => _downloadSortEnabled,
                 var id when id == SteamLibraryBadgeSurface.PatchId || id == SteamLibraryBadgeSurface.DetailsPatchId =>
@@ -769,7 +769,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 var id when id == SteamScreensaverSurface.PatchId => _screensaverEnabled,
                 var id when id == SteamUiBridgePatch.PatchId => bootstrap,
                 var id when id == SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
-                _ => components,
+                _ => components
             };
             _patches.SetPatchEnabled(patch.Id, enabled);
         }
@@ -785,17 +785,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </remarks>
     private void SetGlyphDeliveryPatchStates()
     {
-        SteamInputGlyphPresentation? presentation = _glyphDeliveryState.Current;
+        var presentation = _glyphDeliveryState.Current;
         // Absent controls count as rules. A reviewed profile may legitimately carry nothing but
         // them — hiding trackpad or extra-paddle rows on a handheld that has neither, while keeping
         // Valve's own artwork — and SteamGlyphCss.Build emits real hiding rules for exactly that.
         // Requiring a resource or an image left those profiles with no stylesheet at all, so the
         // controls the device does not have stayed on screen.
-        bool deliver = _glyphsEnabled
-            && presentation is not null
-            && (presentation.StableResources.Count > 0
-                || presentation.ControllerImages.Count > 0
-                || presentation.AbsentControls.Count > 0);
+        var deliver = _glyphsEnabled
+                      && presentation is not null
+                      && (presentation.StableResources.Count > 0
+                          || presentation.ControllerImages.Count > 0
+                          || presentation.AbsentControls.Count > 0);
 
         // Three independent conditions, and failing any of them leaves the Steam Input page showing
         // Valve's Steam Deck artwork instead of the handheld's own. The patch then reports itself
@@ -817,9 +817,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         // RTSS polling exists for rendered native controls, not merely for the session. A failed
         // fingerprint or lost bridge generation therefore releases the shared service lease.
-        IReadOnlyList<SteamUiPatchSnapshot> snapshots = _patches.GetSnapshots();
-        bool performancePatchVerified = false;
-        foreach (SteamUiPatchSnapshot snapshot in snapshots)
+        var snapshots = _patches.GetSnapshots();
+        var performancePatchVerified = false;
+        foreach (var snapshot in snapshots)
         {
             // The rows that actually render, whichever they are — WSGM's own frame limit and
             // Valve's overlay level. Observation must follow the mounted rows or it never starts.
@@ -827,7 +827,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 || snapshot.Id == SteamPerformanceSurface.OverlayLevelRow.Id)
                 && snapshot.State == SteamUiPatchState.Verified;
         }
-        bool shouldObserve = _enabled && _bridge.IsReady && performancePatchVerified;
+        var shouldObserve = _enabled && _bridge.IsReady && performancePatchVerified;
         if (!shouldObserve)
         {
             ReleasePerformanceObservation();

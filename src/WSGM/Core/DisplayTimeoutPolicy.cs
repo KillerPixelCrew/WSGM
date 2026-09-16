@@ -29,13 +29,13 @@ internal static class DisplayTimeoutPolicy
             return null;
         }
 
-        int seconds = kind switch
+        var seconds = kind switch
         {
             PowerTimeoutKind.DisplayAc => steam.PluggedInSeconds,
             PowerTimeoutKind.DisplayDc => steam.Battery && steam.BatterySeconds is int battery
                 ? battery
                 : steam.PluggedInSeconds,
-            _ => 0,
+            _ => 0
         };
         return seconds > 0 ? seconds : null;
     }
@@ -59,8 +59,8 @@ internal static class DisplayTimeoutPolicy
     /// <returns>The preset to cycle to.</returns>
     internal static int NextAllowed(int current, int? minimum)
     {
-        int next = current;
-        foreach (int _ in PowerTimeouts.PresetsSeconds)
+        var next = current;
+        foreach (var _ in PowerTimeouts.PresetsSeconds)
         {
             next = PowerTimeouts.NextPreset(next);
             if (Allows(next, minimum))

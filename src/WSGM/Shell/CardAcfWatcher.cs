@@ -140,7 +140,7 @@ internal sealed class CardAcfWatcher : IDisposable
                 $"{letter}:\\SteamLibrary\\steamapps", "appmanifest_*.acf")
             {
                 NotifyFilter = NotifyFilters.FileName,
-                EnableRaisingEvents = true,
+                EnableRaisingEvents = true
             };
             watcher.Created += (_, _) => Debounce();
             watcher.Deleted += (_, _) => Debounce();

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Core;
 
@@ -14,8 +15,8 @@ public sealed class HybridCoreView : UserControl
     private readonly ComboBox _modes = new()
     {
         DisplayMemberBinding = new Binding(nameof(HybridCoreOption.Name)),
-        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-        Tag = "system.hybrid-cores.choice",
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        Tag = "system.hybrid-cores.choice"
     };
     private readonly Button _apply = new() { Content = "Apply", Tag = "system.hybrid-cores.apply" };
     private readonly Button _refresh = new() { Content = "Refresh", Tag = "system.hybrid-cores.refresh" };
@@ -45,9 +46,9 @@ public sealed class HybridCoreView : UserControl
                     new TextBlock { Text = "Processor core preference", Classes = { "setting-title" } },
                     choices,
                     _effect,
-                    _status,
-                },
-            },
+                    _status
+                }
+            }
         };
         _modes.SelectionChanged += (_, _) =>
         {
@@ -99,7 +100,7 @@ public sealed class HybridCoreView : UserControl
         // line says so, and applying writes both, so one selection can still represent the pair.
         if (_items is not null && _model?.Status.OnAc is { } active)
         {
-            for (int index = 0; index < _items.Count; index++)
+            for (var index = 0; index < _items.Count; index++)
             {
                 if (_items[index].Mode == active)
                 {

@@ -2,6 +2,7 @@ using System.Linq;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -38,9 +39,9 @@ public sealed class DevicePowerPresetView : UserControl
                     new TextBlock { Text = "Device power profile", Classes = { "setting-title" } },
                     _active,
                     _assignments,
-                    _status,
-                },
-            },
+                    _status
+                }
+            }
         };
         _ac.SelectionChanged += async (_, _) =>
         {
@@ -60,7 +61,7 @@ public sealed class DevicePowerPresetView : UserControl
         {
             Tag = tag,
             DisplayMemberBinding = new Binding(nameof(DevicePowerPreset.Name)),
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
         AutomationProperties.SetName(choice, name);
         return choice;
@@ -90,7 +91,7 @@ public sealed class DevicePowerPresetView : UserControl
                 DevicePowerPreset[] choices = [new("", assignments.IsGlobal
                     ? "Manual selection" : "Use global assignment", 0, 0, DevicePowerMode.Balanced), .. state!.Presets];
                 if (assignments.AcPreset == "custom" || assignments.BatteryPreset == "custom")
-                { choices = [.. choices, new("custom", "Custom", 0, 0, DevicePowerMode.Balanced)]; }
+                { choices = [.. choices, new DevicePowerPreset("custom", "Custom", 0, 0, DevicePowerMode.Balanced)]; }
                 RenderAssignment(_ac, assignments.AcPreset, choices);
                 RenderAssignment(_battery, assignments.BatteryPreset, choices);
                 _ac.IsEnabled = _battery.IsEnabled = _model?.CanAssign == true;

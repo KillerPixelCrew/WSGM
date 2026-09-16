@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Security;
+using System.Security.Principal;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,7 +25,7 @@ internal static class UnelevatedLauncher
         // Recovery and legacy synchronous callers share the exact bounded implementation used by
         // the asynchronous desktop handoff. ConfigureAwait(false) throughout keeps this fixed sync
         // boundary independent of a UI synchronization context.
-        ScheduledTaskLaunchDisposition disposition = TryStartViaScheduledTaskAsync(
+        var disposition = TryStartViaScheduledTaskAsync(
             exePath,
             arguments,
             DateTimeOffset.UtcNow.AddSeconds(30),
@@ -39,9 +42,9 @@ internal static class UnelevatedLauncher
         CancellationToken cancellationToken,
         string? workingDirectory = null)
     {
-        string suffix = $"{Environment.ProcessId}-{Random.Shared.Next():x8}";
-        string taskName = $"WSGM_StartUnelevated_{suffix}";
-        string xmlPath = Path.Combine(Log.Directory, $"wsgm-task-{suffix}.xml");
+        var suffix = $"{Environment.ProcessId}-{Random.Shared.Next():x8}";
+        var taskName = $"WSGM_StartUnelevated_{suffix}";
+        var xmlPath = Path.Combine(Log.Directory, $"wsgm-task-{suffix}.xml");
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -52,17 +55,17 @@ internal static class UnelevatedLauncher
             }
 
             Directory.CreateDirectory(Log.Directory);
-            string taskXml = BuildTaskXml(exePath, arguments, workingDirectory);
+            var taskXml = BuildTaskXml(exePath, arguments, workingDirectory);
             using (var writeCancellation = CreateBudgetCancellation(deadline, cancellationToken))
             {
                 await File.WriteAllTextAsync(
                     xmlPath,
                     taskXml,
-                    System.Text.Encoding.Unicode,
+                    Encoding.Unicode,
                     writeCancellation.Token).ConfigureAwait(false);
             }
 
-            ScheduledTaskLaunchDisposition disposition = await RunScheduledTaskSequenceAsync(
+            var disposition = await RunScheduledTaskSequenceAsync(
                 taskName,
                 xmlPath,
                 deadline,
@@ -133,7 +136,7 @@ internal static class UnelevatedLauncher
     {
         ArgumentNullException.ThrowIfNull(runCommand);
         ArgumentNullException.ThrowIfNull(utcNow);
-        bool taskMayExist = false;
+        var taskMayExist = false;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -142,7 +145,7 @@ internal static class UnelevatedLauncher
                 return ScheduledTaskLaunchDisposition.NotDispatched;
             }
 
-            ConsoleToolRunOutcome create = await runCommand(
+            var create = await runCommand(
                 $"/Create /TN \"{taskName}\" /XML \"{xmlPath}\" /F",
                 deadline,
                 cancellationToken).ConfigureAwait(false);
@@ -161,7 +164,7 @@ internal static class UnelevatedLauncher
 
             try
             {
-                ConsoleToolRunOutcome run = await runCommand(
+                var run = await runCommand(
                     $"/Run /TN \"{taskName}\"",
                     deadline,
                     cancellationToken).ConfigureAwait(false);
@@ -169,7 +172,7 @@ internal static class UnelevatedLauncher
                 {
                     ConsoleToolRunOutcome.Succeeded => ScheduledTaskLaunchDisposition.Dispatched,
                     ConsoleToolRunOutcome.Unknown => ScheduledTaskLaunchDisposition.Unknown,
-                    _ => ScheduledTaskLaunchDisposition.NotDispatched,
+                    _ => ScheduledTaskLaunchDisposition.NotDispatched
                 };
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -196,7 +199,7 @@ internal static class UnelevatedLauncher
                 {
                     try
                     {
-                        ConsoleToolRunOutcome deleted = await runCommand(
+                        var deleted = await runCommand(
                             $"/Delete /TN \"{taskName}\" /F",
                             deadline,
                             cancellationToken).ConfigureAwait(false);
@@ -222,20 +225,20 @@ internal static class UnelevatedLauncher
     {
         // InteractiveToken principal without a RunLevel element = the user's
         // filtered medium-IL token (RunLevel defaults to LeastPrivilege).
-        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        using var identity = WindowsIdentity.GetCurrent();
         var user = identity.Name;
         var argumentsElement = arguments.Length == 0
             ? ""
-            : $"\n                  <Arguments>{System.Security.SecurityElement.Escape(arguments)}</Arguments>";
+            : $"\n                  <Arguments>{SecurityElement.Escape(arguments)}</Arguments>";
         var directoryElement = string.IsNullOrEmpty(workingDirectory)
             ? ""
-            : $"\n                  <WorkingDirectory>{System.Security.SecurityElement.Escape(workingDirectory)}</WorkingDirectory>";
+            : $"\n                  <WorkingDirectory>{SecurityElement.Escape(workingDirectory)}</WorkingDirectory>";
         return $"""
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <Principals>
                 <Principal id="Author">
-                  <UserId>{System.Security.SecurityElement.Escape(user)}</UserId>
+                  <UserId>{SecurityElement.Escape(user)}</UserId>
                   <LogonType>InteractiveToken</LogonType>
                 </Principal>
               </Principals>
@@ -248,7 +251,7 @@ internal static class UnelevatedLauncher
               </Settings>
               <Actions Context="Author">
                 <Exec>
-                  <Command>{System.Security.SecurityElement.Escape(exePath)}</Command>{argumentsElement}{directoryElement}
+                  <Command>{SecurityElement.Escape(exePath)}</Command>{argumentsElement}{directoryElement}
                 </Exec>
               </Actions>
             </Task>
@@ -270,7 +273,7 @@ internal static class UnelevatedLauncher
         CancellationToken cancellationToken)
     {
         var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+        var remaining = deadline - DateTimeOffset.UtcNow;
         source.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
         return source;
     }
@@ -293,5 +296,5 @@ internal enum ScheduledTaskLaunchDisposition
     /// <summary>Task Scheduler accepted the Explorer launch request.</summary>
     Dispatched,
     /// <summary>The scheduler command began but its dispatch result could not be verified.</summary>
-    Unknown,
+    Unknown
 }

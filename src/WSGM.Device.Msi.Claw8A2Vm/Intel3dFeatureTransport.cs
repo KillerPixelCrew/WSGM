@@ -15,7 +15,7 @@ internal enum EnduranceGamingControl
     On = 1,
 
     /// <summary>The driver decides, which in practice means on battery.</summary>
-    Auto = 2,
+    Auto = 2
 }
 
 /// <summary>The frame target Endurance Gaming holds to while it is engaged.</summary>
@@ -28,7 +28,7 @@ internal enum EnduranceGamingMode
     Balanced = 1,
 
     /// <summary>Maximum battery; around 30 FPS.</summary>
-    Battery = 2,
+    Battery = 2
 }
 
 /// <summary>How the driver presents frames, which is what "driver-level VSync" actually is.</summary>
@@ -66,7 +66,7 @@ internal enum GamingFlipMode
     SpeedFrame = 1 << 4,
 
     /// <summary>Capped FPS.</summary>
-    CappedFps = 1 << 5,
+    CappedFps = 1 << 5
 }
 
 /// <summary>What the driver reports for Endurance Gaming right now.</summary>
@@ -176,7 +176,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         args.Size = (uint)sizeof(CtlInitArgs);
         args.AppVersion = ImplVersion;
         nint api = 0;
-        int result = _init(&args, &api);
+        var result = _init(&args, &api);
         if (result != ResultSuccess)
         {
             PluginTrace.Warn("intel3d", $"ctlInit refused with 0x{result:x}.");
@@ -204,7 +204,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.CustomValueSize = sizeof(EnduranceGaming);
         request.CustomValue = (nint)(&value);
 
-        int result = _getSet3dFeature(_adapter, &request);
+        var result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Info("intel3d", $"Endurance Gaming read returned 0x{result:x}; unsupported here.");
@@ -238,14 +238,14 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.CustomValueSize = sizeof(EnduranceGaming);
         request.CustomValue = (nint)(&value);
 
-        int result = _getSet3dFeature(_adapter, &request);
+        var result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Warn("intel3d", $"Endurance Gaming write failed with 0x{result:x}.");
             return false;
         }
 
-        EnduranceGamingState? applied = Read();
+        var applied = Read();
         if (applied is { } state && state.Control == control && state.Mode == mode)
         {
             return true;
@@ -275,7 +275,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.FeatureType = FeatureGamingFlipModes;
         request.ValueType = ValueTypeEnum;
 
-        int result = _getSet3dFeature(_adapter, &request);
+        var result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Info("intel3d", $"Gaming flip mode read returned 0x{result:x}; unsupported here.");
@@ -286,7 +286,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         // adapter with no override selected reports enable=1 and value=0. That is exactly what
         // application default means, so it is reported as such rather than as "unreadable" — which
         // is what an earlier version of this did, and it made a working feature look absent.
-        uint value = request.Value.Second;
+        var value = request.Value.Second;
         if (value == 0)
         {
             return GamingFlipMode.ApplicationDefault;
@@ -329,9 +329,9 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
             return null;
         }
 
-        int elements = (int)caps.NumSupportedFeatures;
-        int bytes = elements * MaxFeatureDetailStride;
-        nint buffer = Marshal.AllocHGlobal(bytes);
+        var elements = (int)caps.NumSupportedFeatures;
+        var bytes = elements * MaxFeatureDetailStride;
+        var buffer = Marshal.AllocHGlobal(bytes);
         try
         {
             new Span<byte>((void*)buffer, bytes).Clear();
@@ -342,9 +342,9 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
             }
 
             var raw = new ReadOnlySpan<byte>((void*)buffer, bytes);
-            for (int stride = 16; stride <= MaxFeatureDetailStride; stride += 4)
+            for (var stride = 16; stride <= MaxFeatureDetailStride; stride += 4)
             {
-                if (TryReadMask(raw, elements, stride, out uint mask))
+                if (TryReadMask(raw, elements, stride, out var mask))
                 {
                     return mask;
                 }
@@ -368,16 +368,16 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
     {
         mask = 0;
         uint seen = 0;
-        bool found = false;
-        for (int index = 0; index < elements; index++)
+        var found = false;
+        for (var index = 0; index < elements; index++)
         {
-            int offset = index * stride;
+            var offset = index * stride;
             if (offset + 16 > raw.Length)
             {
                 return false;
             }
 
-            int feature = BitConverter.ToInt32(raw.Slice(offset, 4));
+            var feature = BitConverter.ToInt32(raw.Slice(offset, 4));
             if (feature is < 0 or > MaxFeatureId || (seen & (1u << feature)) != 0)
             {
                 return false;
@@ -420,7 +420,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.Value.First = 1;
         request.Value.Second = (uint)mode;
 
-        int result = _getSet3dFeature(_adapter, &request);
+        var result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Warn("intel3d", $"Gaming flip mode write failed with 0x{result:x}.");
@@ -454,7 +454,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.FeatureType = FeaturePrebuiltShaderDownload;
         request.ValueType = ValueTypeBool;
 
-        int result = _getSet3dFeature(_adapter, &request);
+        var result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Info("intel3d", $"Shader download read returned 0x{result:x}; unsupported here.");
@@ -482,7 +482,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.Set = 1;
         request.Value.First = enabled ? 1u : 0u;
 
-        int result = _getSet3dFeature(_adapter, &request);
+        var result = _getSet3dFeature(_adapter, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Warn("intel3d", $"Shader download write failed with 0x{result:x}.");
@@ -518,10 +518,10 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
     {
         // Addresses first, cast at the end: a function-pointer type cannot be a generic argument,
         // so it cannot be threaded through one shared helper. Same shape as ArcSyncTransport.
-        if (!TryGet("ctlInit", out nint init)
-            || !TryGet("ctlClose", out nint close)
-            || !TryGet("ctlEnumerateDevices", out nint enumerateDevices)
-            || !TryGet("ctlGetSet3DFeature", out nint getSet3dFeature))
+        if (!TryGet("ctlInit", out var init)
+            || !TryGet("ctlClose", out var close)
+            || !TryGet("ctlEnumerateDevices", out var enumerateDevices)
+            || !TryGet("ctlGetSet3DFeature", out var getSet3dFeature))
         {
             return false;
         }
@@ -534,7 +534,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         // Optional rather than required: it only narrows the offered flip modes, and a driver
         // without it should still get the feature with Intel's documented set.
         _getSupported3dCapabilities = NativeLibrary.TryGetExport(
-            _library, "ctlGetSupported3DCapabilities", out nint capabilities)
+            _library, "ctlGetSupported3DCapabilities", out var capabilities)
             ? (delegate* unmanaged[Cdecl]<nint, Ctl3dFeatureCaps*, int>)capabilities
             : null;
         return true;
@@ -567,7 +567,7 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         }
 
         count = Math.Min(count, MaxDevices);
-        nint* devices = stackalloc nint[MaxDevices];
+        var devices = stackalloc nint[MaxDevices];
         if (_enumerateDevices(_api, &count, devices) != ResultSuccess)
         {
             PluginTrace.Warn("intel3d", "Adapter handles could not be fetched.");

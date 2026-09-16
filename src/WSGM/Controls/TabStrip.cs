@@ -7,6 +7,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace WSGM.Controls;
 
@@ -130,7 +131,7 @@ public sealed class TabStrip : TemplatedControl
             SelectionChanged?.Invoke(this, new TabStripSelectionChangedEventArgs(newIndex, selected));
             if (newIndex >= 0 && newIndex < _tabButtons.Count)
             {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                Dispatcher.UIThread.Post(() =>
                 {
                     if (SelectedIndex >= 0 && SelectedIndex < _tabButtons.Count) { _tabButtons[SelectedIndex].BringIntoView(); }
                 });
@@ -183,7 +184,7 @@ public sealed class TabStrip : TemplatedControl
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Classes = { "tab-strip-face" },
+            Classes = { "tab-strip-face" }
         };
         if (item.IconGeometry is not null)
         {
@@ -200,7 +201,7 @@ public sealed class TabStrip : TemplatedControl
             {
                 Data = item.IconGeometry,
                 Stretch = Stretch.Uniform,
-                VerticalAlignment = VerticalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
             };
             if (bounds.Width >= bounds.Height)
             {
@@ -216,7 +217,7 @@ public sealed class TabStrip : TemplatedControl
         face.Children.Add(new TextBlock
         {
             Text = item.Label,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         });
 
         // Visibility and brush come from the .active style rules, never local values

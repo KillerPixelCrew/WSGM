@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -68,9 +70,9 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
-            RedirectStandardOutput = true,
+            RedirectStandardOutput = true
         };
-        foreach (string argument in arguments)
+        foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -80,12 +82,12 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         {
             containment = WorkerJobObject.Create();
         }
-        catch (System.ComponentModel.Win32Exception exception)
+        catch (Win32Exception exception)
         {
             return Failed(exception.Message);
         }
 
-        using WorkerJobObject containmentScope = containment;
+        using var containmentScope = containment;
         using AnonymousPipeServerStream authorizationPipe = new(
             PipeDirection.Out,
             HandleInheritability.Inheritable);
@@ -93,7 +95,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         startInfo.ArgumentList.Add(authorizationPipe.GetClientHandleAsString());
 
         using Process process = new() { StartInfo = startInfo };
-        bool assignedToContainment = false;
+        var assignedToContainment = false;
         try
         {
             if (!process.Start())
@@ -109,18 +111,18 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             await authorizationPipe.FlushAsync(cancellationToken).ConfigureAwait(false);
             authorizationPipe.Dispose();
         }
-        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception
+        catch (Exception exception) when (exception is Win32Exception
             or InvalidOperationException
             or IOException)
         {
-            bool containmentVerified = assignedToContainment
+            var containmentVerified = assignedToContainment
                 ? await TerminateAndWaitAsync(process, containment).ConfigureAwait(false)
                 : await KillAndWaitAsync(process).ConfigureAwait(false);
             return Failed(exception.Message, containmentVerified);
         }
         catch (OperationCanceledException)
         {
-            bool containmentVerified = assignedToContainment
+            var containmentVerified = assignedToContainment
                 ? await TerminateAndWaitAsync(process, containment).ConfigureAwait(false)
                 : await KillAndWaitAsync(process).ConfigureAwait(false);
             throw new DisposableWorkerCanceledException(
@@ -128,12 +130,12 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
                 cancellationToken);
         }
 
-        Task<string> errorRead = ReadBoundedAsync(
+        var errorRead = ReadBoundedAsync(
             process.StandardError,
             MaximumErrorLength,
             cancellationToken);
         _ = process.StandardOutput.BaseStream.CopyToAsync(Stream.Null, cancellationToken);
-        using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
 
         try
@@ -142,7 +144,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            bool containmentVerified = await TerminateAndWaitAsync(process, containment)
+            var containmentVerified = await TerminateAndWaitAsync(process, containment)
                 .ConfigureAwait(false);
             return new ReadProbeProcessOutcome
             {
@@ -152,22 +154,22 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
                 ResultProduced = File.Exists(resultPath),
                 Error = containmentVerified
                     ? "Device Lab's disposable self-worker exceeded its deadline and was killed."
-                    : "Device Lab's disposable self-worker exceeded its deadline, but complete descendant teardown could not be verified.",
+                    : "Device Lab's disposable self-worker exceeded its deadline, but complete descendant teardown could not be verified."
             };
         }
         catch (OperationCanceledException)
         {
             // Closing the GUI or pressing Ctrl+C must not leave the disposable worker holding its
             // endpoint. Kill the complete tree before the caller observes cancellation.
-            bool containmentVerified = await TerminateAndWaitAsync(process, containment)
+            var containmentVerified = await TerminateAndWaitAsync(process, containment)
                 .ConfigureAwait(false);
             throw new DisposableWorkerCanceledException(
                 containmentVerified,
                 cancellationToken);
         }
 
-        bool cleanContainment = await TerminateAndWaitAsync(process, containment).ConfigureAwait(false);
-        string error = await errorRead.ConfigureAwait(false);
+        var cleanContainment = await TerminateAndWaitAsync(process, containment).ConfigureAwait(false);
+        var error = await errorRead.ConfigureAwait(false);
         return new ReadProbeProcessOutcome
         {
             Started = true,
@@ -179,7 +181,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
                 ? "Device Lab could not verify complete disposable-worker descendant teardown."
                 : string.IsNullOrWhiteSpace(error)
                     ? null
-                    : error[..Math.Min(error.Length, MaximumErrorLength)],
+                    : error[..Math.Min(error.Length, MaximumErrorLength)]
         };
     }
 
@@ -189,16 +191,16 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         TimedOut = false,
         ContainmentVerified = containmentVerified,
         ResultProduced = false,
-        Error = error,
+        Error = error
     };
 
     private static async Task<bool> TerminateAndWaitAsync(
         Process process,
         WorkerJobObject containment)
     {
-        bool jobEmpty = await containment.TerminateAndWaitAsync(TeardownDeadline)
+        var jobEmpty = await containment.TerminateAndWaitAsync(TeardownDeadline)
             .ConfigureAwait(false);
-        bool rootExited = await KillAndWaitAsync(process).ConfigureAwait(false);
+        var rootExited = await KillAndWaitAsync(process).ConfigureAwait(false);
         return jobEmpty && rootExited;
     }
 
@@ -207,17 +209,17 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         int maximumCharacters,
         CancellationToken cancellationToken)
     {
-        char[] buffer = new char[4096];
+        var buffer = new char[4096];
         StringBuilder bounded = new(Math.Min(maximumCharacters, buffer.Length));
         while (true)
         {
-            int read = await reader.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var read = await reader.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             if (read == 0)
             {
                 return bounded.ToString();
             }
 
-            int remaining = maximumCharacters - bounded.Length;
+            var remaining = maximumCharacters - bounded.Length;
             if (remaining > 0)
             {
                 bounded.Append(buffer, 0, Math.Min(read, remaining));
@@ -238,7 +240,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         {
             // It exited between the deadline firing and the kill. There is no durable host state.
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (Win32Exception)
         {
             // The supervisor still reports a deadline failure. The OS owns final process teardown.
         }
@@ -294,7 +296,7 @@ internal static class ReadProbeWorkerSupervisor
         ArgumentNullException.ThrowIfNull(preflight);
         ArgumentNullException.ThrowIfNull(launcher);
 
-        IReadOnlyList<string> metadataErrors = ReadProbeMetadataPolicy.Validate(metadata);
+        var metadataErrors = ReadProbeMetadataPolicy.Validate(metadata);
         if (metadataErrors.Count != 0)
         {
             return Result(ReadProbeRunStatus.Rejected, string.Join(" ", metadataErrors));
@@ -319,7 +321,7 @@ internal static class ReadProbeWorkerSupervisor
             return Result(ReadProbeRunStatus.Rejected, "Probe session output must be a new directory.");
         }
 
-        DeviceLabOutputPathDecision output = DeviceLabOutputPathPolicy.Evaluate(
+        var output = DeviceLabOutputPathPolicy.Evaluate(
             sessionDirectory,
             DeviceLabOutputTargetKind.Directory,
             DeviceLabPathBoundaries.ForCurrentUser(
@@ -330,14 +332,14 @@ internal static class ReadProbeWorkerSupervisor
         }
 
         Directory.CreateDirectory(output.FullPath);
-        string requestPath = Path.Combine(output.FullPath, "probe-request.json");
-        string resultPath = Path.Combine(output.FullPath, "probe-result.json");
+        var requestPath = Path.Combine(output.FullPath, "probe-request.json");
+        var resultPath = Path.Combine(output.FullPath, "probe-result.json");
         if (File.Exists(requestPath) || File.Exists(resultPath))
         {
             return Result(ReadProbeRunStatus.Rejected, "Probe session files already exist; overwrite is forbidden.");
         }
 
-        byte[] authorizationSecret = SelfWorkerAuthorization.CreateSecret();
+        var authorizationSecret = SelfWorkerAuthorization.CreateSecret();
         ReadProbeWorkerRequest request = new()
         {
             SchemaVersion = 1,
@@ -349,7 +351,7 @@ internal static class ReadProbeWorkerSupervisor
             MaximumReadsPerSecond = metadata.MaximumReadsPerSecond,
             TimeoutMilliseconds = metadata.TimeoutMilliseconds,
             Repetitions = metadata.Repetitions,
-            AuthorizationSha256 = SelfWorkerAuthorization.Hash(authorizationSecret),
+            AuthorizationSha256 = SelfWorkerAuthorization.Hash(authorizationSecret)
         };
         ReadProbeProcessOutcome process;
         try
@@ -365,7 +367,7 @@ internal static class ReadProbeWorkerSupervisor
                 ReadProbeWorker.Mode,
                 "--probe", metadata.Id,
                 "--request", requestPath,
-                "--result", resultPath,
+                "--result", resultPath
             ];
             process = await launcher.RunAsync(
                 executablePath,
@@ -381,10 +383,10 @@ internal static class ReadProbeWorkerSupervisor
         }
         finally
         {
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(authorizationSecret);
+            CryptographicOperations.ZeroMemory(authorizationSecret);
         }
 
-        ReadProbeRunResult? processFailure = ReadProbeOutcomeClassifier.ClassifyProcess(process);
+        var processFailure = ReadProbeOutcomeClassifier.ClassifyProcess(process);
         if (processFailure is not null)
         {
             return processFailure;
@@ -433,7 +435,7 @@ internal static class ReadProbeWorkerSupervisor
     private static ReadProbeRunResult Result(ReadProbeRunStatus status, string message) => new()
     {
         Status = status,
-        Message = message,
+        Message = message
     };
 }
 
@@ -493,7 +495,7 @@ internal static class ReadProbeOutcomeClassifier
             return WithResponse(ReadProbeRunStatus.Disconnected, response.Error ?? "The exact endpoint disconnected.", response);
         }
 
-        ReadProbeValidationResult validation = ReadProbeResponseValidator.Validate(metadata, response);
+        var validation = ReadProbeResponseValidator.Validate(metadata, response);
         return WithResponse(
             validation.Accepted ? ReadProbeRunStatus.Accepted : ReadProbeRunStatus.MalformedResponse,
             validation.Message,
@@ -503,7 +505,7 @@ internal static class ReadProbeOutcomeClassifier
     private static ReadProbeRunResult Result(ReadProbeRunStatus status, string message) => new()
     {
         Status = status,
-        Message = message,
+        Message = message
     };
 
     private static ReadProbeRunResult WithResponse(
@@ -513,6 +515,6 @@ internal static class ReadProbeOutcomeClassifier
         {
             Status = status,
             Message = message,
-            Response = response,
+            Response = response
         };
 }

@@ -22,7 +22,7 @@ public enum WakeLockState
     SystemHeld,
 
     /// <summary>At least one display lock: the screen cannot turn off.</summary>
-    DisplayHeld,
+    DisplayHeld
 }
 
 /// <summary>The quick-access Keep Awake cycle: off → block standby → block standby
@@ -36,7 +36,7 @@ public enum ManualWakeMode
     Standby,
 
     /// <summary>Standby blocked and the display pinned on.</summary>
-    StandbyAndDisplay,
+    StandbyAndDisplay
 }
 
 /// <summary>Pure mapping from a power-request snapshot to the indicator state and

@@ -29,7 +29,7 @@ internal sealed partial class NativePackageSource : IDisposable
     /// <summary>Secures an existing directory tree root, or returns null when the path is absent.</summary>
     internal static NativePackageSource? TryOpen(string path)
     {
-        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         Stack<string> ancestors = [];
         DirectoryInfo? current = new(root);
         while (current is not null)
@@ -44,8 +44,8 @@ internal sealed partial class NativePackageSource : IDisposable
         {
             while (ancestors.Count > 0)
             {
-                string ancestor = ancestors.Pop();
-                NativePackageSourceEntry? entry = TryOpenEntry(ancestor);
+                var ancestor = ancestors.Pop();
+                var entry = TryOpenEntry(ancestor);
                 if (entry is null)
                 {
                     DisposeHandles(handles);
@@ -88,7 +88,7 @@ internal sealed partial class NativePackageSource : IDisposable
     internal NativePackageSourceEntry OpenEntry(string path)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        NativePackageSourceEntry? entry = TryOpenEntry(path);
+        var entry = TryOpenEntry(path);
         return entry ?? throw new IOException(
             $"Package source entry disappeared before it could be secured: '{path}'.");
     }
@@ -116,7 +116,7 @@ internal sealed partial class NativePackageSource : IDisposable
         }
 
         _disposed = true;
-        for (int index = _directoryHandles.Count - 1; index >= 0; index--)
+        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
         {
             _directoryHandles[index].Dispose();
         }
@@ -125,14 +125,14 @@ internal sealed partial class NativePackageSource : IDisposable
 
     private static NativePackageSourceEntry? TryOpenEntry(string path)
     {
-        SafeFileHandle? probe = OpenPath(
+        var probe = OpenPath(
             path,
             FileReadAttributes,
             FileShareRead | FileShareWrite,
             FileFlagBackupSemantics | FileFlagOpenReparsePoint);
         if (probe.IsInvalid)
         {
-            int error = Marshal.GetLastPInvokeError();
+            var error = Marshal.GetLastPInvokeError();
             probe.Dispose();
             if (error is ErrorFileNotFound or ErrorPathNotFound)
             {
@@ -144,9 +144,9 @@ internal sealed partial class NativePackageSource : IDisposable
 
         try
         {
-            NativeEntryInformation probeInformation = ReadInformation(probe, path);
-            bool isDirectory = (probeInformation.Attributes & FileAttributeDirectory) != 0;
-            bool isReparsePoint = (probeInformation.Attributes & FileAttributeReparsePoint) != 0;
+            var probeInformation = ReadInformation(probe, path);
+            var isDirectory = (probeInformation.Attributes & FileAttributeDirectory) != 0;
+            var isReparsePoint = (probeInformation.Attributes & FileAttributeReparsePoint) != 0;
             if (isDirectory || isReparsePoint)
             {
                 NativePackageSourceEntry result = new(
@@ -160,7 +160,7 @@ internal sealed partial class NativePackageSource : IDisposable
                 return result;
             }
 
-            SafeFileHandle? readHandle = OpenPath(
+            var readHandle = OpenPath(
                 path,
                 GenericRead,
                 FileShareRead,
@@ -172,7 +172,7 @@ internal sealed partial class NativePackageSource : IDisposable
                     throw NativeIoException("open for reading", path, Marshal.GetLastPInvokeError());
                 }
 
-                NativeEntryInformation readInformation = ReadInformation(readHandle, path);
+                var readInformation = ReadInformation(readHandle, path);
                 if (readInformation.Identity != probeInformation.Identity
                     || (readInformation.Attributes & (FileAttributeDirectory | FileAttributeReparsePoint)) != 0)
                 {
@@ -203,7 +203,7 @@ internal sealed partial class NativePackageSource : IDisposable
 
     private static void DisposeHandles(List<SafeFileHandle> handles)
     {
-        for (int index = handles.Count - 1; index >= 0; index--)
+        for (var index = handles.Count - 1; index >= 0; index--)
         {
             handles[index].Dispose();
         }
@@ -214,8 +214,8 @@ internal sealed partial class NativePackageSource : IDisposable
     {
         if (!NativePathIdentityReader.TryRead(
             handle,
-            out NativePathInformation information,
-            out int error))
+            out var information,
+            out var error))
         {
             throw NativeIoException("inspect", path, error);
         }
@@ -248,7 +248,7 @@ internal sealed partial class NativePackageSource : IDisposable
         uint shareMode,
         uint flags)
     {
-        nint handle = CreateFileHandleW(
+        var handle = CreateFileHandleW(
             path,
             desiredAccess,
             shareMode,
@@ -310,8 +310,8 @@ internal sealed class NativePackageSourceEntry : IDisposable
     /// <summary>Transfers ownership of the underlying no-follow handle.</summary>
     internal SafeFileHandle TakeHandle()
     {
-        SafeFileHandle handle = _handle
-            ?? throw new ObjectDisposedException(nameof(NativePackageSourceEntry));
+        var handle = _handle
+                     ?? throw new ObjectDisposedException(nameof(NativePackageSourceEntry));
         _handle = null;
         return handle;
     }

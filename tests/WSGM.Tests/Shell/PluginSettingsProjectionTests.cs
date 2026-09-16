@@ -13,10 +13,10 @@ public sealed class PluginSettingsProjectionTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [Section("power")],
-            Settings = [Toggle("a", "nonexistent")],
+            Settings = [Toggle("a", "nonexistent")]
         };
 
-        PluginSettingsView view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
+        var view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
 
         Assert.Contains(
             view.Sections,
@@ -30,10 +30,10 @@ public sealed class PluginSettingsProjectionTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [Section("power"), Section("empty")],
-            Settings = [Toggle("a", "power")],
+            Settings = [Toggle("a", "power")]
         };
 
-        PluginSettingsView view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
+        var view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
 
         Assert.Equal(["power"], view.Sections.Select(section => section.SectionId));
     }
@@ -47,12 +47,12 @@ public sealed class PluginSettingsProjectionTests
             [
                 Section("third", sort: 5),
                 Section("first", sort: 1),
-                Section("second", sort: 1),
+                Section("second", sort: 1)
             ],
-            Settings = [Toggle("a", "third"), Toggle("b", "first"), Toggle("c", "second")],
+            Settings = [Toggle("a", "third"), Toggle("b", "first"), Toggle("c", "second")]
         };
 
-        PluginSettingsView view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
+        var view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
 
         Assert.Equal(
             ["first", "second", "third"],
@@ -69,11 +69,11 @@ public sealed class PluginSettingsProjectionTests
             [
                 Toggle("c", "power", sort: 9),
                 Toggle("a", "power"),
-                Toggle("b", "power"),
-            ],
+                Toggle("b", "power")
+            ]
         };
 
-        PluginSettingsView view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
+        var view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
 
         Assert.Equal(
             ["a", "b", "c"],
@@ -86,10 +86,10 @@ public sealed class PluginSettingsProjectionTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [Section("power", sort: 100)],
-            Settings = [Toggle("a", "power"), Toggle("b", "nowhere")],
+            Settings = [Toggle("a", "power"), Toggle("b", "nowhere")]
         };
 
-        PluginSettingsView view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
+        var view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
 
         Assert.Equal(
             ["power", PluginSettingsCoordinator.FallbackSectionId],
@@ -101,7 +101,7 @@ public sealed class PluginSettingsProjectionTests
     {
         PluginSettingsManifest manifest = new() { Sections = [Section("power")] };
 
-        PluginSettingsView view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
+        var view = PluginSettingsCoordinator.Project(manifest, Resolve(manifest));
 
         Assert.Empty(view.Sections);
         Assert.Empty(view.Settings);
@@ -114,7 +114,7 @@ public sealed class PluginSettingsProjectionTests
     {
         SectionId = id,
         Key = SettingSectionKey.General,
-        SortOrder = sort,
+        SortOrder = sort
     };
 
     private static PluginSettingDescriptor Toggle(string id, string? section, int sort = 0) => new()
@@ -124,6 +124,6 @@ public sealed class PluginSettingsProjectionTests
         Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "A setting" },
         Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
         SectionId = section,
-        SortOrder = sort,
+        SortOrder = sort
     };
 }

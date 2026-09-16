@@ -39,7 +39,7 @@ public partial class AppearancePage : UserControl
         "#FF00B7C3", // cyan
         "#FF30A46C", // green
         "#FFF5D90A", // yellow
-        "#FFEEEEEE", // white
+        "#FFEEEEEE" // white
     ];
 
     private static readonly StreamGeometry CheckGeometry = StreamGeometry.Parse("M 2,7.5 L 6,11.5 L 12.5,3");
@@ -126,7 +126,7 @@ public partial class AppearancePage : UserControl
                 Width = 15,
                 Height = 15,
                 Stretch = Stretch.Uniform,
-                IsVisible = false,
+                IsVisible = false
             };
             var button = new Button
             {
@@ -139,7 +139,7 @@ public partial class AppearancePage : UserControl
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Content = check,
-                Tag = hex,
+                Tag = hex
             };
             ToolTip.SetTip(button, hex);
             AutomationProperties.SetName(button, $"Use accent color {hex}");
@@ -304,8 +304,8 @@ public partial class AppearancePage : UserControl
     // finishes behind it is dropped instead of shown.
     private void RefreshLogoThumbnail() => ObservePageAction(async () =>
     {
-        int generation = ++_logoThumbGeneration;
-        Bitmap? bitmap = await LoadThumbnailAsync(_viewModel?.SplashLogoPath);
+        var generation = ++_logoThumbGeneration;
+        var bitmap = await LoadThumbnailAsync(_viewModel?.SplashLogoPath);
         if (generation != _logoThumbGeneration)
         {
             bitmap?.Dispose();
@@ -316,8 +316,8 @@ public partial class AppearancePage : UserControl
 
     private void RefreshBackgroundThumbnail() => ObservePageAction(async () =>
     {
-        int generation = ++_backgroundThumbGeneration;
-        Bitmap? bitmap = await LoadThumbnailAsync(_viewModel?.SplashBackgroundImagePath);
+        var generation = ++_backgroundThumbGeneration;
+        var bitmap = await LoadThumbnailAsync(_viewModel?.SplashBackgroundImagePath);
         if (generation != _backgroundThumbGeneration)
         {
             bitmap?.Dispose();
@@ -437,8 +437,8 @@ public partial class AppearancePage : UserControl
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("Images") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"] },
-            ],
+                new FilePickerFileType("Images") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"] }
+            ]
         });
         return files.FirstOrDefault()?.TryGetLocalPath();
     }
@@ -480,8 +480,8 @@ public partial class AppearancePage : UserControl
             DefaultExtension = "wsgmsplash",
             FileTypeChoices =
             [
-                new FilePickerFileType("WSGM splash theme") { Patterns = ["*.wsgmsplash"] },
-            ],
+                new FilePickerFileType("WSGM splash theme") { Patterns = ["*.wsgmsplash"] }
+            ]
         });
         var path = file?.TryGetLocalPath();
         if (path is null)
@@ -514,8 +514,8 @@ public partial class AppearancePage : UserControl
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("WSGM splash theme") { Patterns = ["*.wsgmsplash"] },
-            ],
+                new FilePickerFileType("WSGM splash theme") { Patterns = ["*.wsgmsplash"] }
+            ]
         });
         var path = files.FirstOrDefault()?.TryGetLocalPath();
         if (path is null)

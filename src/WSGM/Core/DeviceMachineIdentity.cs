@@ -12,10 +12,10 @@ public static class DeviceMachineIdentity
     /// <summary>Reads stable SMBIOS values exposed by Windows in the hardware registry hive.</summary>
     public static DeviceIdentitySnapshot Collect()
     {
-        using RegistryKey? bios = Registry.LocalMachine.OpenSubKey(
+        using var bios = Registry.LocalMachine.OpenSubKey(
             @"HARDWARE\DESCRIPTION\System\BIOS",
             writable: false);
-        using RegistryKey? cpu = Registry.LocalMachine.OpenSubKey(
+        using var cpu = Registry.LocalMachine.OpenSubKey(
             @"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
             writable: false);
         return new DeviceIdentitySnapshot
@@ -27,7 +27,7 @@ public static class DeviceMachineIdentity
             BaseboardProduct = Normalize(bios?.GetValue("BaseBoardProduct") as string),
             BaseboardVersion = Normalize(bios?.GetValue("BaseBoardVersion") as string),
             BiosVersion = Normalize(bios?.GetValue("BIOSVersion") as string),
-            CpuIdentity = Normalize(cpu?.GetValue("Identifier") as string),
+            CpuIdentity = Normalize(cpu?.GetValue("Identifier") as string)
         };
     }
 
@@ -35,7 +35,7 @@ public static class DeviceMachineIdentity
     public static string StableKey(DeviceIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        string material = string.Join('|',
+        var material = string.Join('|',
             identity.SystemManufacturer ?? string.Empty,
             identity.BaseboardProduct ?? string.Empty,
             identity.BaseboardVersion ?? string.Empty,

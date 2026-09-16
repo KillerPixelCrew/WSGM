@@ -12,7 +12,7 @@ public sealed class InstallProfileTests
     [InlineData(" desktop ", InstallProfileKind.DesktopFirst)]
     public void EachModeIsRecognised(string value, InstallProfileKind expected)
     {
-        Assert.True(InstallProfile.TryParse(value, out InstallProfileKind kind));
+        Assert.True(InstallProfile.TryParse(value, out var kind));
         Assert.Equal(expected, kind);
     }
 

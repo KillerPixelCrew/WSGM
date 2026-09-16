@@ -7,14 +7,14 @@ public sealed class VisualComparisonTests
     [Fact]
     public void EqualDecodedPixelsPass()
     {
-        Assert.Null(VisualBaseline.Compare(Png(2, SKColors.Black), Png(2, SKColors.Black), out byte[]? diff));
+        Assert.Null(VisualBaseline.Compare(Png(2, SKColors.Black), Png(2, SKColors.Black), out var diff));
         Assert.Null(diff);
     }
 
     [Fact]
     public void OneChangedPixelFailsAndProducesADiff()
     {
-        string? result = VisualBaseline.Compare(Png(2, SKColors.Black), Png(2, SKColors.Red), out byte[]? diff);
+        var result = VisualBaseline.Compare(Png(2, SKColors.Black), Png(2, SKColors.Red), out var diff);
         Assert.Equal("1 pixels differ", result);
         Assert.NotNull(diff);
         using var image = SKBitmap.Decode(diff);
@@ -59,8 +59,8 @@ public sealed class VisualComparisonTests
         using SKBitmap bitmap = new(width, 1);
         bitmap.Erase(SKColors.Black);
         bitmap.SetPixel(0, 0, first);
-        using SKImage image = SKImage.FromBitmap(bitmap);
-        using SKData encoded = image.Encode(SKEncodedImageFormat.Png, 100);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
         return encoded.ToArray();
     }
 }

@@ -12,7 +12,7 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [InlineData("   ")]
     public void MissingPathIsRejectedAsMalformed(string? path)
     {
-        DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
+        var decision = DeviceLabOutputPathPolicy.Evaluate(
             path,
             DeviceLabOutputTargetKind.Directory,
             Boundaries());
@@ -24,8 +24,8 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void DriveRootAndBroadDirectoriesAreRejected()
     {
-        string driveRoot = Path.GetPathRoot(_temporary.Root)!;
-        DeviceLabPathBoundaries boundaries = Boundaries();
+        var driveRoot = Path.GetPathRoot(_temporary.Root)!;
+        var boundaries = Boundaries();
 
         Assert.Equal(
             DeviceLabOutputPathRisk.DriveRoot,
@@ -50,15 +50,15 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void LiveDataDirectoryAndEveryChildAreRejectedBeforeCreation()
     {
-        DeviceLabPathBoundaries boundaries = Boundaries();
+        var boundaries = Boundaries();
 
-        foreach (string path in new[]
+        foreach (var path in new[]
         {
             boundaries.LiveDataDirectory,
-            Path.Combine(boundaries.LiveDataDirectory, "capture", "bundle.wsgmcap"),
+            Path.Combine(boundaries.LiveDataDirectory, "capture", "bundle.wsgmcap")
         })
         {
-            DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
+            var decision = DeviceLabOutputPathPolicy.Evaluate(
                 path,
                 DeviceLabOutputTargetKind.NewFile,
                 boundaries);
@@ -71,7 +71,7 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void ExistingTargetsAreNotOverwrittenOrTreatedAsDirectories()
     {
-        string file = Path.Combine(_temporary.Root, "existing.bin");
+        var file = Path.Combine(_temporary.Root, "existing.bin");
         File.WriteAllText(file, "owned");
 
         Assert.Equal(
@@ -91,9 +91,9 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     [Fact]
     public void DedicatedNewTargetsAreAllowedAndNormalized()
     {
-        string requested = Path.Combine(_temporary.Root, "capture", "..", "capture", "result.wsgmcap");
+        var requested = Path.Combine(_temporary.Root, "capture", "..", "capture", "result.wsgmcap");
 
-        DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
+        var decision = DeviceLabOutputPathPolicy.Evaluate(
             requested,
             DeviceLabOutputTargetKind.NewFile,
             Boundaries());
@@ -109,6 +109,6 @@ public sealed class DeviceLabOutputPathPolicyTests : IDisposable
     {
         LiveDataDirectory = Path.Combine(_temporary.Root, "live"),
         RepositoryRoot = Path.Combine(_temporary.Root, "repo"),
-        BroadHomeDirectories = [Path.Combine(_temporary.Root, "home")],
+        BroadHomeDirectories = [Path.Combine(_temporary.Root, "home")]
     };
 }

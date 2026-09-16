@@ -38,7 +38,7 @@ public sealed class SessionModesTests
         var modes = new SessionModes(new AppConfig(), monitor: null);
 
         modes.RequestShutdown();
-        bool accepted = modes.TryBeginTransition("test transition");
+        var accepted = modes.TryBeginTransition("test transition");
         await modes.WaitForTransitionAsync();
 
         Assert.False(accepted);
@@ -51,7 +51,7 @@ public sealed class SessionModesTests
         var modes = new SessionModes(new AppConfig(), monitor: null);
         modes.BeginTransition();
 
-        Task waiting = modes.WaitForTransitionAsync();
+        var waiting = modes.WaitForTransitionAsync();
 
         Assert.False(waiting.IsCompleted);
         modes.EndTransition();

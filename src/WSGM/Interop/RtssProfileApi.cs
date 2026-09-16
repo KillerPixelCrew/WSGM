@@ -54,11 +54,11 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     internal bool TryGetUInt32(string property, out uint value)
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);
-        nint propertyPointer = Marshal.StringToCoTaskMemAnsi(property);
+        var propertyPointer = Marshal.StringToCoTaskMemAnsi(property);
         try
         {
             uint readValue = 0;
-            bool succeeded = _getProfileProperty(
+            var succeeded = _getProfileProperty(
                 propertyPointer,
                 (nint)(&readValue),
                 sizeof(uint)) != 0;
@@ -74,7 +74,7 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     internal bool TrySetUInt32(string property, uint value)
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);
-        nint propertyPointer = Marshal.StringToCoTaskMemAnsi(property);
+        var propertyPointer = Marshal.StringToCoTaskMemAnsi(property);
         try
         {
             return _setProfileProperty(propertyPointer, (nint)(&value), sizeof(uint)) != 0;
@@ -104,7 +104,7 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
 
     private nint GetExport(string name)
     {
-        nint address = GetProcAddress(_module, name);
+        var address = GetProcAddress(_module, name);
         if (address == 0)
         {
             throw new EntryPointNotFoundException($"RTSS profile API export is absent: {name}.");
@@ -116,7 +116,7 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     private void InvokeString(delegate* unmanaged[Cdecl]<nint, void> function, string value)
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);
-        nint pointer = Marshal.StringToCoTaskMemAnsi(value);
+        var pointer = Marshal.StringToCoTaskMemAnsi(value);
         try
         {
             function(pointer);

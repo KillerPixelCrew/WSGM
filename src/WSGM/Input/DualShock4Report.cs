@@ -46,31 +46,31 @@ internal static class DualShock4Report
         }
 
         destination.Clear();
-        CanonicalButtons buttons = sample.Buttons;
+        var buttons = sample.Buttons;
         destination[0] = unchecked((byte)Axis(sample.LeftStickX));
         destination[1] = unchecked((byte)Axis(-sample.LeftStickY));
         destination[2] = unchecked((byte)Axis(sample.RightStickX));
         destination[3] = unchecked((byte)Axis(-sample.RightStickY));
 
-        ushort wireButtons = (ushort)(Mask(buttons, CanonicalButtons.X, Square)
-            | Mask(buttons, CanonicalButtons.A, Cross)
-            | Mask(buttons, CanonicalButtons.B, Circle)
-            | Mask(buttons, CanonicalButtons.Y, Triangle)
-            | Mask(buttons, CanonicalButtons.LeftShoulder, L1)
-            | Mask(buttons, CanonicalButtons.RightShoulder, R1)
-            // The digital bit rises with the first analogue movement, as on a real DualShock 4.
-            // A mid-travel threshold splits the press into two Steam Input activations; the same
-            // split double-clicked and broke drags on the Deck target (device-observed 2026-09-02).
-            | (sample.LeftTrigger > 0 ? L2 : (ushort)0)
-            | (sample.RightTrigger > 0 ? R2 : (ushort)0)
-            | Mask(buttons, CanonicalButtons.View, Share)
-            | Mask(buttons, CanonicalButtons.Menu, Options)
-            | Mask(buttons, CanonicalButtons.LeftStick, L3)
-            | Mask(buttons, CanonicalButtons.RightStick, R3)
-            | Mask(buttons, CanonicalButtons.Guide, Ps)
-            | (((buttons & (CanonicalButtons.LeftPadClick | CanonicalButtons.RightPadClick)) != 0)
-                ? TouchpadClick
-                : (ushort)0));
+        var wireButtons = (ushort)(Mask(buttons, CanonicalButtons.X, Square)
+                                   | Mask(buttons, CanonicalButtons.A, Cross)
+                                   | Mask(buttons, CanonicalButtons.B, Circle)
+                                   | Mask(buttons, CanonicalButtons.Y, Triangle)
+                                   | Mask(buttons, CanonicalButtons.LeftShoulder, L1)
+                                   | Mask(buttons, CanonicalButtons.RightShoulder, R1)
+                                   // The digital bit rises with the first analogue movement, as on a real DualShock 4.
+                                   // A mid-travel threshold splits the press into two Steam Input activations; the same
+                                   // split double-clicked and broke drags on the Deck target (device-observed 2026-09-02).
+                                   | (sample.LeftTrigger > 0 ? L2 : (ushort)0)
+                                   | (sample.RightTrigger > 0 ? R2 : (ushort)0)
+                                   | Mask(buttons, CanonicalButtons.View, Share)
+                                   | Mask(buttons, CanonicalButtons.Menu, Options)
+                                   | Mask(buttons, CanonicalButtons.LeftStick, L3)
+                                   | Mask(buttons, CanonicalButtons.RightStick, R3)
+                                   | Mask(buttons, CanonicalButtons.Guide, Ps)
+                                   | ((buttons & (CanonicalButtons.LeftPadClick | CanonicalButtons.RightPadClick)) != 0
+                                       ? TouchpadClick
+                                       : (ushort)0));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[4..6], wireButtons);
 
         destination[6] = (byte)(Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
@@ -127,7 +127,7 @@ internal static class DualShock4Report
 
     private static ushort Touch(float value, ushort maximum) =>
         (ushort)Math.Clamp(
-            MathF.Round(((Math.Clamp(value, -1f, 1f) + 1f) / 2f) * maximum),
+            MathF.Round((Math.Clamp(value, -1f, 1f) + 1f) / 2f * maximum),
             0,
             maximum);
 

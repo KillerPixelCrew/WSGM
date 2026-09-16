@@ -24,14 +24,14 @@ public sealed class DevicePowerPresetsTests
     private static DevicePowerPresetSelection Selection(DevicePowerPresets service, bool readOnly)
     {
         PerformanceConfig config = new();
-        DevicePowerAssignments assignments = new(service, () => new(config, null, "fixture", 1, true, true),
+        DevicePowerAssignments assignments = new(service, () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
             (_, ac, reference) =>
             {
                 if (ac) { config.AcPowerPreset = reference; }
                 else { config.BatteryPowerPreset = reference; }
                 return Task.CompletedTask;
             });
-        return new(service, readOnly, assignments);
+        return new DevicePowerPresetSelection(service, readOnly, assignments);
     }
 
     private static readonly DevicePowerPreset Battery = new("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
@@ -68,7 +68,7 @@ public sealed class DevicePowerPresetsTests
             CapabilityId = role.ToString(),
             Role = role,
             ValueKind = CapabilityValueKind.Integer,
-            Display = new() { Key = DisplayKey.SustainedPowerLimit },
+            Display = new CapabilityDisplay { Key = DisplayKey.SustainedPowerLimit },
             Persistence = CapabilityPersistence.Volatile,
             Unit = CapabilityUnit.Watt,
             SupportsRead = true,
@@ -76,7 +76,7 @@ public sealed class DevicePowerPresetsTests
             Minimum = 8,
             Maximum = 37,
             Step = 1,
-            PowerPresets = role == CapabilityRole.PowerSustainedLimit ? [Battery, Balanced, Extreme] : [],
+            PowerPresets = role == CapabilityRole.PowerSustainedLimit ? [Battery, Balanced, Extreme] : []
         },
         new CapabilityProjection
         {
@@ -85,11 +85,11 @@ public sealed class DevicePowerPresetsTests
                 CapabilityId = role.ToString(),
                 Available = true,
                 Quality = HardwareStateQuality.Verified,
-                ObservedValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
+                ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
                 CycleGeneration = 1,
                 DescriptorGeneration = 1,
-                ObservedAt = DateTimeOffset.UtcNow,
-            },
+                ObservedAt = DateTimeOffset.UtcNow
+            }
         }, null);
 
     internal sealed class Rig
@@ -108,7 +108,7 @@ public sealed class DevicePowerPresetsTests
         internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal DevicePowerPresets Create() => new(() => Views, async (id, value, cycle, generation, persist, token) =>
         {
-            int watts = value.IntegerValue ?? 0;
+            var watts = value.IntegerValue ?? 0;
             Assert.Equal(1, cycle);
             Assert.Equal(1, generation);
             Calls.Add((id, watts));
@@ -116,10 +116,10 @@ public sealed class DevicePowerPresetsTests
             OnWriteEntered?.Invoke(Calls.Count);
             Entered.TrySetResult();
             if (WaitForWrite is not null) { await WaitForWrite.Task.WaitAsync(token); }
-            bool fail = FailAt == Calls.Count;
+            var fail = FailAt == Calls.Count;
             if (!fail)
             {
-                int index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
+                var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
                 LastScenario = value.ChoiceValue ?? LastScenario;
                 Views[index] = Views[index] with
                 {
@@ -128,9 +128,9 @@ public sealed class DevicePowerPresetsTests
                         State = Views[index].Projection.State with
                         {
                             ObservedValue = value,
-                            CycleGeneration = ReplaceGeneration ? 2 : 1,
-                        },
-                    },
+                            CycleGeneration = ReplaceGeneration ? 2 : 1
+                        }
+                    }
                 };
                 AfterDeviceWrite?.Invoke(id);
             }
@@ -138,7 +138,7 @@ public sealed class DevicePowerPresetsTests
             {
                 CommandId = Guid.NewGuid(),
                 Outcome = fail ? CommandOutcome.Indeterminate : CommandOutcome.AppliedVerified,
-                CompletedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow
             };
         }, new WindowsPowerModes(Api), () => OnAc);
 
@@ -150,8 +150,8 @@ public sealed class DevicePowerPresetsTests
                 {
                     PowerPresets = [Battery with { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
                         Balanced with { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
-                        Extreme with { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }],
-                },
+                        Extreme with { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }]
+                }
             };
             var scenario = View(CapabilityRole.ScenarioMode, 0);
             Views = [.. Views, scenario with
@@ -160,13 +160,13 @@ public sealed class DevicePowerPresetsTests
                 {
                     ValueKind = CapabilityValueKind.Choice,
                     Choices = new[] { "eco", "green", "sport", "comfort" }
-                        .Select(value => new CapabilityChoice(value, new() { Key = DisplayKey.PerformanceProfile })).ToArray(),
+                        .Select(value => new CapabilityChoice(value, new CapabilityDisplay { Key = DisplayKey.PerformanceProfile })).ToArray()
                 },
                 Projection = scenario.Projection with
                 {
                     State = scenario.Projection.State with
-                    { ObservedValue = new() { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" } },
-                },
+                    { ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "green" } }
+                }
             }];
         }
     }
@@ -192,7 +192,7 @@ public sealed class DevicePowerPresetsTests
     public async Task AppliesThePairInSafeOrderThenWindowsMode(string preset, string first, int sustained, int slow)
     {
         Rig rig = new();
-        DevicePowerPresets service = rig.Create();
+        var service = rig.Create();
         Assert.True((await service.ApplyAsync(preset, default)).Succeeded);
         Assert.Equal(first, rig.Calls[0].Id);
         Assert.Equal(sustained, rig.Views[0].Projection.State.ObservedValue!.IntegerValue);
@@ -349,13 +349,13 @@ public sealed class DevicePowerPresetsTests
     [Fact]
     public async Task ClosingOverlayCancelsRemainingWritesAndSuppressesLatePublication()
     {
-        Rig rig = new() { WaitForWrite = new(TaskCreationOptions.RunContinuationsAsynchronously) };
+        Rig rig = new() { WaitForWrite = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
         var overlay = Selection(rig.Create(), false);
         await overlay.RefreshAsync();
-        Task apply = overlay.AssignAsync(true, "battery");
+        var apply = overlay.AssignAsync(true, "battery");
         await rig.Entered.Task;
         overlay.Dispose();
-        bool changed = false;
+        var changed = false;
         overlay.Changed += () => changed = true;
         await apply;
         Assert.False(changed);
@@ -377,7 +377,7 @@ public sealed class DevicePowerPresetsTests
             entered.TrySetResult();
             Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
         };
-        Task refresh = overlay.RefreshAsync();
+        var refresh = overlay.RefreshAsync();
         await entered.Task;
         Task apply;
         try
@@ -434,14 +434,14 @@ public sealed class DevicePowerPresetsTests
         rig.AfterDeviceWrite = id =>
         {
             if (id != "ScenarioMode") { return; }
-            for (int i = 0; i < 2; i++)
+            for (var i = 0; i < 2; i++)
             {
                 rig.Views[i] = rig.Views[i] with
                 {
                     Projection = rig.Views[i].Projection with
                     {
                         State = rig.Views[i].Projection.State with
-                        { ObservedValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = 8 } }
+                        { ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 8 } }
                     }
                 };
             }
@@ -524,9 +524,9 @@ public sealed class DevicePowerPresetsTests
         {
             Generation = 1,
             CycleGeneration = 1,
-            Descriptors = rig.Views.Select(view => view.Descriptor).ToArray(),
+            Descriptors = rig.Views.Select(view => view.Descriptor).ToArray()
         };
-        Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, 1, 0, out string? error), error);
+        Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, 1, 0, out var error), error);
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(set with
         { Descriptors = set.Descriptors.Take(2).ToArray() }, 1, 0, out _));
     }

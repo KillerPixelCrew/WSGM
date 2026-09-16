@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -127,7 +128,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 return;
             }
 
-            int normalized = NormalizeVolume(requested);
+            var normalized = NormalizeVolume(requested);
             if (_inputVolumePercent is { } current && Math.Abs(current - normalized) < 0.01)
             {
                 return;
@@ -433,7 +434,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 + $"default='{SelectedOutput?.Name ?? "none"}'; {InputEndpoints.Count} input(s), "
                 + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}; "
                 + $"microphone={(InputVolumePercent is { } inputVolume
-                    ? inputVolume.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%"
+                    ? inputVolume.ToString("0", CultureInfo.InvariantCulture) + "%"
                     : "unavailable")}, "
                 + $"muted={InputMuted}.";
             if (_endpointSummary != summary)
@@ -466,7 +467,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
     /// <param name="muted">Observed mute state.</param>
     internal void ApplyInputVolume(int percentage, bool muted)
     {
-        int normalized = NormalizeVolume(percentage);
+        var normalized = NormalizeVolume(percentage);
         if (_inputVolumePercent is not { } current || Math.Abs(current - normalized) >= 0.01)
         {
             _inputVolumePercent = normalized;
@@ -618,7 +619,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
     }
 
     private ref EndpointSelectionTracker Tracker(bool output)
-        => ref (output ? ref _outputSelection : ref _inputSelection);
+        => ref output ? ref _outputSelection : ref _inputSelection;
 
     private void SetSelected(bool output, AudioEndpointEntry? value)
     {
@@ -661,7 +662,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
     private void WriteInputVolume(int requested)
     {
-        int result = CoreAudio.SetVolume(CoreAudio.AudioDirection.Capture, requested, out int muted);
+        var result = CoreAudio.SetVolume(CoreAudio.AudioDirection.Capture, requested, out var muted);
         if (result < 0)
         {
             PostFailure($"Set microphone volume failed (HRESULT 0x{result:X8}).", sticky: true);

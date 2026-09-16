@@ -32,7 +32,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         {
             Registry.CurrentUser.DeleteSubKeyTree(_scope, throwOnMissingSubKey: false);
         }
-        catch (Exception error) when (error is UnauthorizedAccessException or System.IO.IOException)
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException)
         {
             // A leaked unique subtree is preferable to a failed test run reporting a false defect.
         }
@@ -43,7 +43,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 19_327_352_832);
 
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.IsAvailable);
         Assert.Equal(new IntelGraphicsMemoryState(57, 19_327_352_832), transport.Read());
@@ -55,7 +55,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // Measured: the reference unit's display adapter class holds a bare 0000 next to the Intel
         // adapter, so an enumeration that gives up on the first miss finds nothing on a machine
         // that has the feature.
-        using (RegistryKey bare = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
+        using (var bare = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
         {
             bare.SetValue("DriverDesc", "Something else");
         }
@@ -109,7 +109,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     public void AWriteIsStoredAndReadBack()
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 19_327_352_832);
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.TryWrite(44));
 
@@ -127,7 +127,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     public void AWriteOutsideTheOfferedRangeIsRefused(int percent)
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.False(transport.TryWrite(percent));
         Assert.Equal(57, transport.Read()!.Value.Percent);
@@ -140,7 +140,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     public void EveryOfferedBoundIsAccepted(int percent)
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.TryWrite(percent));
         Assert.Equal(percent, transport.Read()!.Value.Percent);
@@ -163,7 +163,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // adapter reports 19,327,352,832 — the driver rounds its own figure to a whole 18.00 GiB.
         // Agreeing to within a fraction of a gibibyte is the arithmetic that ties this registry
         // value to the feature at all, so the test asserts the tie rather than a false exactness.
-        ulong derived = Open().BytesForPercent(57);
+        var derived = Open().BytesForPercent(57);
         ulong reported = 19_327_352_832;
 
         Assert.InRange(reported - derived, 0UL, 256UL * 1024 * 1024);
@@ -175,13 +175,13 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // There is no "has been changed" flag and none is needed: Intel's reset writes the literal
         // 57 back rather than deleting the value, so an absent value means the same thing. Treating
         // it as missing would hide the row on every machine nobody has configured yet.
-        using (RegistryKey adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
+        using (var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
         {
             adapter.SetValue("ProviderName", "Intel Corporation");
             adapter.SetValue("DriverVersion", "32.0.101.8992");
         }
 
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.IsAvailable);
         Assert.Equal(IntelGraphicsMemoryTransport.DefaultPercent, transport.Read()!.Value.Percent);
@@ -190,12 +190,12 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     [Fact]
     public void AWriteCreatesTheMemoryManagerKeyWhenTheDefaultWasNeverStored()
     {
-        using (RegistryKey adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
+        using (var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\0001"))
         {
             adapter.SetValue("ProviderName", "Intel Corporation");
             adapter.SetValue("DriverVersion", "32.0.101.8992");
         }
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.TryWrite(44));
         Assert.Equal(44, transport.Read()!.Value.Percent);
@@ -206,14 +206,14 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         // Two supported Intel adapters is ambiguous on its own, but the value only ever exists under
         // the one the driver reads it from, so its presence resolves the ambiguity.
-        using (RegistryKey other = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
+        using (var other = Registry.CurrentUser.CreateSubKey($@"{_scope}\0000"))
         {
             other.SetValue("ProviderName", "Intel Corporation");
             other.SetValue("DriverVersion", "32.0.101.8992");
         }
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 44, reportedBytes: 0);
 
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.IsAvailable);
         Assert.Equal(44, transport.Read()!.Value.Percent);
@@ -229,7 +229,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // Intel's own gaming-flip flag values: 1 application default, 4 VSync on, 8 Smooth Sync,
         // 32 capped FPS. Confirmed on the reference unit, where each wrote and read back exactly.
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.TryWriteFlipMode(mode));
         Assert.Equal(mode, transport.ReadFlipMode());
@@ -251,7 +251,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // The 3D settings key exists on a configured driver but need not on a fresh one, and a
         // capability that only works after Intel's software has run once is not a capability.
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", percent: 57, reportedBytes: 0);
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.True(transport.TryWriteFlipMode(4));
         Assert.Equal(4u, transport.ReadFlipMode());
@@ -261,7 +261,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     public void NoAdapterMeansNoFramePresentationModeEither()
     {
         Registry.CurrentUser.CreateSubKey(_scope).Dispose();
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.Null(transport.ReadFlipMode());
         Assert.False(transport.TryWriteFlipMode(4));
@@ -272,7 +272,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
     {
         Registry.CurrentUser.CreateSubKey(_scope).Dispose();
 
-        IntelGraphicsMemoryTransport transport = Open();
+        var transport = Open();
 
         Assert.False(transport.IsAvailable);
         Assert.Null(transport.Read());
@@ -284,7 +284,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
 
     private void WriteAdapter(string index, string provider, string version, int percent, long reportedBytes)
     {
-        using RegistryKey adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\{index}");
+        using var adapter = Registry.CurrentUser.CreateSubKey($@"{_scope}\{index}");
         adapter.SetValue("ProviderName", provider);
         adapter.SetValue("DriverVersion", version);
         if (reportedBytes > 0)
@@ -292,7 +292,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
             adapter.SetValue("HardwareInformation.qwMemorySize", reportedBytes, RegistryValueKind.QWord);
         }
 
-        using RegistryKey memory = adapter.CreateSubKey("GMM");
+        using var memory = adapter.CreateSubKey("GMM");
         memory.SetValue("GpuSystemMemoryPinninglimit", percent, RegistryValueKind.DWord);
     }
 }

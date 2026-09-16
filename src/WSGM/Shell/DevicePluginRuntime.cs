@@ -95,7 +95,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             throw new InvalidOperationException("Plugin start used a stale device generation.");
         }
 
-        using CancellationTokenSource bounded = CreateDeadlineToken(
+        using var bounded = CreateDeadlineToken(
             DateTimeOffset.UtcNow.AddSeconds(15),
             cancellationToken,
             _startCancellation.Token,
@@ -109,7 +109,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 throw new InvalidOperationException("The device plugin is already active.");
             }
 
-            PluginDetectionResult detection = await Plugin.DetectAsync(
+            var detection = await Plugin.DetectAsync(
                 new PluginDetectionContext { Identity = identity },
                 bounded.Token).ConfigureAwait(false);
             if (!detection.Matched || string.IsNullOrWhiteSpace(detection.DeviceDefinitionId))
@@ -121,13 +121,13 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             PublishLifecycle(DeviceCycleState.Detected, null);
             PublishLifecycle(DeviceCycleState.Activating, null);
             _pluginStartAttempted = true;
-            PluginStartResult result = await Plugin.StartAsync(new PluginStartContext
+            var result = await Plugin.StartAsync(new PluginStartContext
             {
                 Host = _adapter,
                 CycleGeneration = CycleGeneration,
                 DeviceDefinitionId = _deviceDefinitionId,
                 StateDirectory = CreatePluginStateDirectory(Plugin.PackageId, _pluginStateRoot),
-                ControllerManagementEnabled = controllerManagementEnabled,
+                ControllerManagementEnabled = controllerManagementEnabled
             }, bounded.Token).ConfigureAwait(false);
             return PublishLifecycle(MapOperationalState(result.State), result.Reason);
         }
@@ -149,7 +149,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using CancellationTokenSource bounded = CreateDeadlineToken(
+        using var bounded = CreateDeadlineToken(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -173,7 +173,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using CancellationTokenSource bounded = CreateDeadlineToken(
+        using var bounded = CreateDeadlineToken(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -190,7 +190,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CycleGeneration = cycleGeneration;
             _adapter.SetCycleGeneration(cycleGeneration);
             PublishLifecycle(DeviceCycleState.Activating, null);
-            PluginStartResult result = await Plugin.ResumeAsync(
+            var result = await Plugin.ResumeAsync(
                 new PluginResumeContext(cycleGeneration, deadline),
                 bounded.Token).ConfigureAwait(false);
             return PublishLifecycle(MapOperationalState(result.State), result.Reason);
@@ -209,7 +209,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         CloseCommandAdmission();
         TryCancel(_startCancellation);
         CancelCommands();
-        using CancellationTokenSource bounded = CreateDeadlineToken(
+        using var bounded = CreateDeadlineToken(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -221,16 +221,16 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 return SnapshotLifecycle();
             }
 
-            IReadOnlyList<Exception> commandFailures = await QuiesceCommandsAsync(
+            var commandFailures = await QuiesceCommandsAsync(
                 deadline,
                 bounded.Token).ConfigureAwait(false);
             PublishLifecycle(DeviceCycleState.Deactivating, null);
-            PluginStopResult result = await Plugin.StopAsync(
+            var result = await Plugin.StopAsync(
                 new PluginStopContext(reason, deadline),
                 bounded.Token).ConfigureAwait(false);
             _pluginStartAttempted = false;
             _stopped = true;
-            CapabilityReason? stopReason = result.Status switch
+            var stopReason = result.Status switch
             {
                 PluginStopStatus.Clean => null,
                 PluginStopStatus.Unverified => result.Reason ?? new CapabilityReason(
@@ -239,9 +239,9 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 PluginStopStatus.Failed => result.Reason ?? new CapabilityReason(
                     CapabilityReasonCode.TransportFaulted,
                     "Plugin cleanup failed."),
-                _ => throw new InvalidDataException("Unknown plugin stop status."),
+                _ => throw new InvalidDataException("Unknown plugin stop status.")
             };
-            DevicePluginState stopped = PublishLifecycle(
+            var stopped = PublishLifecycle(
                 DeviceCycleState.Disabled,
                 stopReason);
             Complete(DeviceRuntimeExitReason.Intentional, "Device plugin stopped.");
@@ -296,7 +296,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             {
                 operation.Fail(ex);
             }
-            CapabilityCommandResult result = await operation.Task.WaitAsync(operation.Token)
+            var result = await operation.Task.WaitAsync(operation.Token)
                 .ConfigureAwait(false);
             return new DeviceCommandDispatch(result);
         }
@@ -357,7 +357,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CancelCommands();
         }
 
-        using CancellationTokenSource bounded = CreateDeadlineToken(
+        using var bounded = CreateDeadlineToken(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -365,10 +365,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         try
         {
             EnsureLifecycleActive();
-            IReadOnlyList<Exception> commandFailures = scope is HandoffScope.FullDeactivation
+            var commandFailures = scope is HandoffScope.FullDeactivation
                 ? await QuiesceCommandsAsync(deadline, bounded.Token).ConfigureAwait(false)
                 : [];
-            PluginControllerRelease release = await Plugin.ReleaseControllerAsync(
+            var release = await Plugin.ReleaseControllerAsync(
                 new PluginControllerReleaseContext(scope, deadline),
                 bounded.Token).ConfigureAwait(false);
             if (commandFailures.Count > 0)
@@ -382,7 +382,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             {
                 Step = release.Step,
                 Result = release.Result,
-                ReleasedDevices = release.ReleasedDevices,
+                ReleasedDevices = release.ReleasedDevices
             };
         }
         finally
@@ -397,7 +397,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        using CancellationTokenSource bounded = CreateDeadlineToken(
+        using var bounded = CreateDeadlineToken(
             deadline,
             cancellationToken,
             _lifetime.Token);
@@ -431,7 +431,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         EnsureOperationAllowed();
-        PluginDiagnostics diagnostics = await Plugin.GetDiagnosticsAsync(cancellationToken)
+        var diagnostics = await Plugin.GetDiagnosticsAsync(cancellationToken)
             .ConfigureAwait(false);
         return new DeviceDiagnosticsSnapshot
         {
@@ -440,7 +440,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CycleState = _cycleState,
             CycleGeneration = CycleGeneration,
             PluginValues = diagnostics.Values,
-            CapturedAt = DateTimeOffset.UtcNow,
+            CapturedAt = DateTimeOffset.UtcNow
         };
     }
 
@@ -467,12 +467,12 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 new TimeoutException("The device plugin lifecycle gate exceeded the cleanup budget."));
         }
 
-        bool canUnload = true;
+        var canUnload = true;
         try
         {
             _disposed = true;
-            DateTimeOffset deadline = DateTimeOffset.UtcNow + EmergencyCleanupBudget;
-            IReadOnlyList<Exception> commandFailures = await QuiesceCommandsAsync(
+            var deadline = DateTimeOffset.UtcNow + EmergencyCleanupBudget;
+            var commandFailures = await QuiesceCommandsAsync(
                 deadline,
                 cleanup.Token).ConfigureAwait(false);
             failures.AddRange(commandFailures);
@@ -481,7 +481,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             {
                 try
                 {
-                    PluginStopResult result = await Plugin.StopAsync(
+                    var result = await Plugin.StopAsync(
                         new PluginStopContext(PluginStopReason.WsgmExiting, deadline),
                         cleanup.Token).ConfigureAwait(false);
                     if (result.Status is not PluginStopStatus.Clean)
@@ -574,7 +574,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         CapabilityReason? reason)
     {
         _cycleState = state;
-        DevicePluginState notification = SnapshotLifecycle(reason);
+        var notification = SnapshotLifecycle(reason);
         Raise(LifecycleStateReceived, notification, "lifecycle");
         return notification;
     }
@@ -584,7 +584,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         State = _cycleState,
         CycleGeneration = CycleGeneration,
         DeviceDefinitionId = _deviceDefinitionId,
-        Reason = reason,
+        Reason = reason
     };
 
     private async Task RemoveCommandWhenCompleteAsync(CommandOperation operation)
@@ -597,7 +597,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     {
         lock (_commandGate)
         {
-            if (_commands.TryGetValue(operation.Command.CommandId, out CommandOperation? current)
+            if (_commands.TryGetValue(operation.Command.CommandId, out var current)
                 && ReferenceEquals(current, operation))
             {
                 _commands.Remove(operation.Command.CommandId);
@@ -623,7 +623,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             commands = [.. _commands.Values];
         }
 
-        foreach (CommandOperation command in commands)
+        foreach (var command in commands)
         {
             command.Cancel();
         }
@@ -640,7 +640,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             commands = [.. _commands.Values];
         }
 
-        foreach (CommandOperation command in commands)
+        foreach (var command in commands)
         {
             command.Cancel();
         }
@@ -651,7 +651,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
 
         List<Exception> failures = [];
-        using CancellationTokenSource bounded = CreateDeadlineToken(deadline, cancellationToken);
+        using var bounded = CreateDeadlineToken(deadline, cancellationToken);
         try
         {
             await Task.WhenAll(commands.Select(command => command.Task))
@@ -662,7 +662,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             failures.Add(ex);
         }
 
-        foreach (CommandOperation command in commands)
+        foreach (var command in commands)
         {
             if (command.Task.IsCompleted)
             {
@@ -688,7 +688,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             return;
         }
 
-        string detail = message.Length <= PluginTrace.MaxMessageLength
+        var detail = message.Length <= PluginTrace.MaxMessageLength
             ? message
             : message[..PluginTrace.MaxMessageLength];
         // Completion is the coordinator's teardown trigger. Close admission first so observing the
@@ -709,7 +709,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CapabilityReasonCode.Quiescing,
             detail,
             Retryable: true),
-        CompletedAt = DateTimeOffset.UtcNow,
+        CompletedAt = DateTimeOffset.UtcNow
     };
 
     private static CapabilityCommandResult FailedCommand(
@@ -722,7 +722,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CapabilityReasonCode.TransportFaulted,
             DescribePluginFailure("command", exception),
             Retryable: false),
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
 
     /// <param name="command">The command that did not produce a final result.</param>
@@ -744,7 +744,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CapabilityReasonCode.Quiescing,
             "The command was canceled before the plugin produced a final result.",
             Retryable: false),
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
 
     private static DeviceCycleState MapOperationalState(PluginOperationalState state) => state switch
@@ -752,15 +752,15 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         PluginOperationalState.Active => DeviceCycleState.Active,
         PluginOperationalState.Passive => DeviceCycleState.Passive,
         PluginOperationalState.Degraded => DeviceCycleState.Degraded,
-        _ => throw new InvalidDataException("Unknown plugin operational state."),
+        _ => throw new InvalidDataException("Unknown plugin operational state.")
     };
 
     private static CancellationTokenSource CreateDeadlineToken(
         DateTimeOffset deadline,
         params CancellationToken[] tokens)
     {
-        CancellationTokenSource source = CancellationTokenSource.CreateLinkedTokenSource(tokens);
-        TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+        var source = CancellationTokenSource.CreateLinkedTokenSource(tokens);
+        var remaining = deadline - DateTimeOffset.UtcNow;
         if (remaining <= TimeSpan.Zero)
         {
             source.Cancel();
@@ -775,15 +775,15 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     private static string CreatePluginStateDirectory(string packageId, string? stateRoot)
     {
-        string root = stateRoot ?? DefaultPluginStateRoot();
-        string directory = Path.Combine(root, packageId);
+        var root = stateRoot ?? DefaultPluginStateRoot();
+        var directory = Path.Combine(root, packageId);
         Directory.CreateDirectory(directory);
         return directory;
     }
 
     private static string DefaultPluginStateRoot()
     {
-        string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrWhiteSpace(localData))
         {
             throw new InvalidOperationException(
@@ -795,7 +795,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     private static string DescribePluginFailure(string operation, Exception exception)
     {
-        string detail = $"Plugin {operation} failed ({exception.GetType().Name}): {exception.Message}";
+        var detail = $"Plugin {operation} failed ({exception.GetType().Name}): {exception.Message}";
         return detail.Length <= 1200 ? detail : detail[..1200];
     }
 
@@ -824,7 +824,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             return;
         }
 
-        foreach (Action<T> handler in Delegate.EnumerateInvocationList(handlers))
+        foreach (var handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -861,7 +861,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 caller,
                 lifetime,
                 _deadline.Token);
-            TimeSpan remaining = command.Deadline - DateTimeOffset.UtcNow;
+            var remaining = command.Deadline - DateTimeOffset.UtcNow;
             if (remaining <= TimeSpan.Zero)
             {
                 _deadline.Cancel();
@@ -1045,7 +1045,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             ArgumentNullException.ThrowIfNull(manifest);
             cancellationToken.ThrowIfCancellationRequested();
-            if (!manifest.TryValidate(out string? error))
+            if (!manifest.TryValidate(out var error))
             {
                 Trace(DeviceTraceLevel.Warn, "settings", $"Settings manifest refused: {error}");
                 return ValueTask.CompletedTask;
@@ -1057,7 +1057,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
         public void Trace(DeviceTraceLevel level, string scope, string message)
         {
-            if (!TryFormat(scope, message, out string line))
+            if (!TryFormat(scope, message, out var line))
             {
                 return;
             }
@@ -1087,7 +1087,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         /// </remarks>
         public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
         {
-            if (!TryFormat(scope, message, out string line))
+            if (!TryFormat(scope, message, out var line))
             {
                 return;
             }
@@ -1100,7 +1100,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                     DeviceTraceLevel.Warn => LogLevel.Warn,
                     DeviceTraceLevel.Error => LogLevel.Error,
                     DeviceTraceLevel.Debug => LogLevel.Debug,
-                    _ => LogLevel.Info,
+                    _ => LogLevel.Info
                 });
         }
 
@@ -1115,7 +1115,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 return false;
             }
 
-            string text = message.Length <= PluginTrace.MaxMessageLength
+            var text = message.Length <= PluginTrace.MaxMessageLength
                 ? message
                 : message[..PluginTrace.MaxMessageLength];
             line = $"plugin/{Normalize(scope)}: {text}";
@@ -1153,7 +1153,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 internal enum DeviceRuntimeExitReason
 {
     Intentional,
-    BackgroundFault,
+    BackgroundFault
 }
 
 internal sealed record DeviceRuntimeExit(DeviceRuntimeExitReason Reason, string Detail);

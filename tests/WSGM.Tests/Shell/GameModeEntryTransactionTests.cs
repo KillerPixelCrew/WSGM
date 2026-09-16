@@ -13,7 +13,7 @@ public sealed class GameModeEntryTransactionTests
     private static readonly DisplayTargetIdentity Desk = new(@"\\?\desk", null, null, "Desk", 0, 0, 2);
 
     private static DisplayLayout Layout(DisplayTargetIdentity target) =>
-        new([new(target, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
+        new([new DisplayLayoutOutput(target, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
 
     private static GameModeLaunchConfiguration Custom() => new()
     {
@@ -21,7 +21,7 @@ public sealed class GameModeEntryTransactionTests
         GameLayout = Layout(Tv),
         WaitForDisplay = Tv,
         EnterActions = [Step("switch-to-pc"), Step("tv-on")],
-        LeaveActions = [Step("switch-to-box")],
+        LeaveActions = [Step("switch-to-box")]
     };
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class GameModeEntryTransactionTests
             "apply-layout",
             "arm-splash",
             "big-picture",
-            "commit",
+            "commit"
         ], backend.Steps);
     }
 
@@ -58,7 +58,7 @@ public sealed class GameModeEntryTransactionTests
         {
             Kind = GameModeLaunchKind.Default,
             WaitForDisplay = Tv,
-            EnterActions = [Step("switch-to-pc")],
+            EnterActions = [Step("switch-to-pc")]
         };
 
         var result = await new GameModeEntryTransaction(backend, launch).RunAsync(default);
@@ -75,7 +75,7 @@ public sealed class GameModeEntryTransactionTests
     {
         TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Backend backend = new() { ArmGate = armed.Task };
-        Task<GameModeEntryResult> entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
 
         Assert.Contains("arm-splash", backend.Calls);
         Assert.DoesNotContain("big-picture", backend.Calls);
@@ -192,7 +192,7 @@ public sealed class GameModeEntryTransactionTests
     public async Task AConfiguredDesktopLayoutIsWhatEntryPromisesToRestore()
     {
         Backend backend = new() { PrepareExplorer = false };
-        GameModeLaunchConfiguration launch = Custom();
+        var launch = Custom();
         launch.Return = GameModeReturn.DesktopLayout;
         launch.DesktopLayout = Layout(Desk);
 
@@ -210,9 +210,9 @@ public sealed class GameModeEntryTransactionTests
 
         await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
 
-        int lastCancellable = backend.Calls.LastIndexOf("cancellable:true");
-        int notCancellable = backend.Calls.IndexOf("cancellable:false");
-        int exit = backend.Calls.IndexOf("exit-explorer");
+        var lastCancellable = backend.Calls.LastIndexOf("cancellable:true");
+        var notCancellable = backend.Calls.IndexOf("cancellable:false");
+        var exit = backend.Calls.IndexOf("exit-explorer");
         Assert.InRange(notCancellable, lastCancellable + 1, exit);
     }
 
@@ -292,9 +292,9 @@ public sealed class GameModeEntryTransactionTests
         {
             Calls.Add("observe");
             _observations++;
-            bool visible = !MissingOnRecheck || _observations != 2;
+            var visible = !MissingOnRecheck || _observations != 2;
             return Task.FromResult(new DisplayArrangement(
-                visible ? [new(Tv, true, true, new(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))] : [],
+                visible ? [new DisplayTargetObservation(Tv, true, true, new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))] : [],
                 "captured", DateTimeOffset.UnixEpoch));
         }
 
@@ -310,7 +310,7 @@ public sealed class GameModeEntryTransactionTests
         public Task<DisplayLayoutResult> ApplyLayoutAsync(
             DisplayLayout layout, CancellationToken cancellationToken)
         {
-            string name = layout.Outputs[0].Target.FriendlyName == "Desk" ? "desk" : "captured";
+            var name = layout.Outputs[0].Target.FriendlyName == "Desk" ? "desk" : "captured";
             // A restore is the same call with the layout entry recorded; distinguishing them by
             // whether Explorer has left yet would test the test, so both are recorded.
             Calls.Add("apply-layout");
@@ -333,10 +333,10 @@ public sealed class GameModeEntryTransactionTests
         {
             Calls.Add("enter-actions");
             List<PluginActionStepResult> results = [];
-            foreach (PluginActionStep step in new[] { Step("switch-to-pc"), Step("tv-on") })
+            foreach (var step in new[] { Step("switch-to-pc"), Step("tv-on") })
             {
-                bool failed = step.ActionId == FailAction;
-                results.Add(new(step,
+                var failed = step.ActionId == FailAction;
+                results.Add(new PluginActionStepResult(step,
                     failed ? PluginActionOutcome.Rejected : PluginActionOutcome.Dispatched,
                     failed ? $"{step.ActionId} refused" : "sent"));
                 if (failed) { break; }
@@ -395,7 +395,7 @@ public sealed class GameModeEntryTransactionTests
 
         private Task<DisplayArrangement> ObserveWithoutRecording() =>
             Task.FromResult(new DisplayArrangement(
-                [new(Tv, true, true, new(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))],
+                [new DisplayTargetObservation(Tv, true, true, new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))],
                 "captured", DateTimeOffset.UnixEpoch));
     }
 }

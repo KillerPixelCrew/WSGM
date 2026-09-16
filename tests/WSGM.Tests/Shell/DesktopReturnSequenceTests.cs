@@ -42,7 +42,7 @@ public sealed class DesktopReturnSequenceTests
     {
         TaskCompletionSource leave = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Backend backend = new() { LeaveGate = leave.Task };
-        Task<bool> returning = DesktopReturnSequence.RunAsync(backend, true, (_, _) => { });
+        var returning = DesktopReturnSequence.RunAsync(backend, true, (_, _) => { });
         Assert.False(returning.IsCompleted);
         Assert.Equal(["steam", "layout", "retire", "explorer", "clear", "leave"], backend.Calls);
         leave.SetResult();

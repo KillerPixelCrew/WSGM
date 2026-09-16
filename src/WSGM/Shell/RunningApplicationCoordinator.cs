@@ -249,7 +249,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
                     snapshot,
                     applyCancellation.Token).ConfigureAwait(false);
 
-                Task? controllerApply = StartControllerApply(snapshot, applyCancellation);
+                var controllerApply = StartControllerApply(snapshot, applyCancellation);
                 if (controllerApply is null)
                 {
                     Log.Info(

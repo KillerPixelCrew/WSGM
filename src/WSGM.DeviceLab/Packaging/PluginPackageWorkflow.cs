@@ -56,17 +56,17 @@ internal static class PluginPackageWorkflow
         string sourceDirectory,
         CancellationToken cancellationToken = default)
     {
-        PluginPackageValidationReport? openingFailure = CaptureSource(
+        var openingFailure = CaptureSource(
             sourceDirectory,
             cancellationToken,
-            out DeviceLabPackageSnapshot? snapshot);
+            out var snapshot);
         if (openingFailure is not null)
         {
             return openingFailure;
         }
 
-        using (DeviceLabPackageSnapshot captured = snapshot
-            ?? throw new InvalidOperationException("Package capture returned no snapshot."))
+        using (var captured = snapshot
+                              ?? throw new InvalidOperationException("Package capture returned no snapshot."))
         {
             return ValidateOffline(captured, out _, cancellationToken);
         }
@@ -80,13 +80,13 @@ internal static class PluginPackageWorkflow
         packageFiles = [];
         cancellationToken.ThrowIfCancellationRequested();
         List<PluginPackageValidationIssue> issues = [.. snapshot.Issues];
-        if (!snapshot.TryGetFile(ManifestPath, out DeviceLabPackageFile manifestFile))
+        if (!snapshot.TryGetFile(ManifestPath, out var manifestFile))
         {
             issues.Add(Issue("missing-manifest", ManifestPath, "Package manifest is absent."));
             return Report(null, null, [.. issues]);
         }
 
-        PluginManifestReadResult manifestRead = ReadManifestBounded(manifestFile);
+        var manifestRead = ReadManifestBounded(manifestFile);
         if (!manifestRead.IsValid || manifestRead.Manifest is null)
         {
             issues.AddRange(manifestRead.Errors.Select(error =>
@@ -94,17 +94,17 @@ internal static class PluginPackageWorkflow
             return Report(null, null, [.. issues]);
         }
 
-        PluginManifest manifest = manifestRead.Manifest;
+        var manifest = manifestRead.Manifest;
         if (manifest.ApiVersion != DeviceApi.Version)
         {
             issues.Add(Issue("runtime-api", "apiVersion", "Package does not use this exact SDK API version."));
         }
 
         List<DeviceLabPackageFile> files = [];
-        foreach (DeviceLabPackageFile file in snapshot.Files)
+        foreach (var file in snapshot.Files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string relative = file.RelativePath;
+            var relative = file.RelativePath;
             if (!CaptureBundleLayout.IsSafeRelativePath(relative))
             {
                 issues.Add(Issue("unsafe-path", relative, "Package file path is not canonical and relative."));
@@ -116,7 +116,7 @@ internal static class PluginPackageWorkflow
 
         IReadOnlyList<string> relativeFiles = [.. files.Select(file => file.RelativePath)];
         if (CheckRequiredFile(manifest.EntryAssembly, relativeFiles, issues)
-            && snapshot.TryGetFile(manifest.EntryAssembly, out DeviceLabPackageFile entryAssembly))
+            && snapshot.TryGetFile(manifest.EntryAssembly, out var entryAssembly))
         {
             if (!IsX64Pe(entryAssembly))
             {
@@ -162,28 +162,28 @@ internal static class PluginPackageWorkflow
         Action? sourceValidated)
     {
         ArgumentNullException.ThrowIfNull(boundaries);
-        PluginPackageValidationReport? openingFailure = CaptureSource(
+        var openingFailure = CaptureSource(
             sourceDirectory,
             cancellationToken,
-            out DeviceLabPackageSnapshot? snapshot);
+            out var snapshot);
         if (openingFailure is not null)
         {
             return openingFailure;
         }
 
-        using (DeviceLabPackageSnapshot captured = snapshot
-            ?? throw new InvalidOperationException("Package capture returned no snapshot."))
+        using (var captured = snapshot
+                              ?? throw new InvalidOperationException("Package capture returned no snapshot."))
         {
-            PluginPackageValidationReport report = ValidateOffline(
+            var report = ValidateOffline(
                 captured,
-                out IReadOnlyList<DeviceLabPackageFile> packageFiles,
+                out var packageFiles,
                 cancellationToken);
             if (!report.Valid)
             {
                 return report;
             }
 
-            DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
+            var decision = DeviceLabOutputPathPolicy.Evaluate(
                 outputPath,
                 DeviceLabOutputTargetKind.NewFile,
                 boundaries);
@@ -192,14 +192,14 @@ internal static class PluginPackageWorkflow
                 return report with
                 {
                     Valid = false,
-                    Issues = [Issue("invalid-output", outputPath, decision.Reason ?? "Output path rejected.")],
+                    Issues = [Issue("invalid-output", outputPath, decision.Reason ?? "Output path rejected.")]
                 };
             }
 
-            string temporary = $"{decision.FullPath}.{Guid.NewGuid():N}.tmp";
+            var temporary = $"{decision.FullPath}.{Guid.NewGuid():N}.tmp";
             Directory.CreateDirectory(Path.GetDirectoryName(decision.FullPath)!);
             cancellationToken.ThrowIfCancellationRequested();
-            DeviceLabOutputPathDecision recheck = DeviceLabOutputPathPolicy.Evaluate(
+            var recheck = DeviceLabOutputPathPolicy.Evaluate(
                 decision.FullPath,
                 DeviceLabOutputTargetKind.NewFile,
                 boundaries);
@@ -208,7 +208,7 @@ internal static class PluginPackageWorkflow
                 return report with
                 {
                     Valid = false,
-                    Issues = [Issue("invalid-output", outputPath, recheck.Reason ?? "Output path changed before write.")],
+                    Issues = [Issue("invalid-output", outputPath, recheck.Reason ?? "Output path changed before write.")]
                 };
             }
 
@@ -225,14 +225,14 @@ internal static class PluginPackageWorkflow
                     FileOptions.WriteThrough))
                 using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true, Encoding.UTF8))
                 {
-                    int fileCount = 0;
+                    var fileCount = 0;
                     long totalBytes = 0;
-                    foreach (DeviceLabPackageFile file in packageFiles.OrderBy(
+                    foreach (var file in packageFiles.OrderBy(
                         file => file.RelativePath,
                         StringComparer.Ordinal))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        long written = WriteEntry(
+                        var written = WriteEntry(
                             archive,
                             file,
                             fileCount,
@@ -265,11 +265,11 @@ internal static class PluginPackageWorkflow
     /// <returns>A lower-kebab issue code.</returns>
     internal static string StableCode(Enum value)
     {
-        string name = value.ToString();
+        var name = value.ToString();
         StringBuilder result = new(name.Length + 8);
-        for (int index = 0; index < name.Length; index++)
+        for (var index = 0; index < name.Length; index++)
         {
-            char character = name[index];
+            var character = name[index];
             if (index > 0 && char.IsUpper(character))
             {
                 result.Append('-');
@@ -328,7 +328,7 @@ internal static class PluginPackageWorkflow
         ICollection<PluginPackageValidationIssue> issues)
     {
         string[] forbiddenExtensions = [".sys", ".inf", ".cat", ".ps1", ".cmd", ".bat", ".reg"];
-        foreach (string path in paths.Where(path => forbiddenExtensions.Contains(
+        foreach (var path in paths.Where(path => forbiddenExtensions.Contains(
             Path.GetExtension(path),
             StringComparer.OrdinalIgnoreCase)))
         {
@@ -346,10 +346,10 @@ internal static class PluginPackageWorkflow
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        GlyphPackageImportResult imported = GlyphPackageImporter.Import(
+        var imported = GlyphPackageImporter.Import(
             new SnapshotGlyphPackageSource(snapshot, cancellationToken));
 
-        foreach (GlyphPackageImportError error in imported.Errors)
+        foreach (var error in imported.Errors)
         {
             issues.Add(Issue(
                 $"glyph-{ToKebabCase(error.Code.ToString())}",
@@ -363,17 +363,17 @@ internal static class PluginPackageWorkflow
         }
 
         HashSet<string> expected = new(StringComparer.Ordinal);
-        foreach (ImportedGlyphProfile profile in imported.Profiles)
+        foreach (var profile in imported.Profiles)
         {
             expected.Add(GlyphPackageLayout.ProfileManifest(profile.Manifest.ProfileId));
-            foreach (GlyphAssetLockEntry asset in profile.Manifest.Assets)
+            foreach (var asset in profile.Manifest.Assets)
             {
                 expected.Add(GlyphPackageLayout.Asset(asset.Sha256, asset.Format));
             }
             expected.Add(profile.Manifest.NoticePath);
         }
 
-        foreach (string path in packageFiles.Where(path => path.StartsWith("glyphs/", StringComparison.Ordinal))
+        foreach (var path in packageFiles.Where(path => path.StartsWith("glyphs/", StringComparison.Ordinal))
             .Except(expected, StringComparer.Ordinal)
             .Order(StringComparer.Ordinal))
         {
@@ -422,9 +422,9 @@ internal static class PluginPackageWorkflow
     private static string ToKebabCase(string value)
     {
         StringBuilder builder = new(value.Length + 8);
-        for (int index = 0; index < value.Length; index++)
+        for (var index = 0; index < value.Length; index++)
         {
-            char character = value[index];
+            var character = value[index];
             if (char.IsUpper(character) && index > 0)
             {
                 builder.Append('-');
@@ -439,7 +439,7 @@ internal static class PluginPackageWorkflow
         IReadOnlyList<string> packageFiles,
         ICollection<PluginPackageValidationIssue> issues)
     {
-        string canonical = relative.Replace('\\', '/');
+        var canonical = relative.Replace('\\', '/');
         if (!packageFiles.Contains(canonical, StringComparer.Ordinal))
         {
             issues.Add(Issue("missing-file", canonical, "Manifest-referenced package file is absent."));
@@ -456,23 +456,23 @@ internal static class PluginPackageWorkflow
         long acceptedBytes,
         CancellationToken cancellationToken)
     {
-        string? violation = PackageBudgetViolation(acceptedFileCount, acceptedBytes, file.Length);
+        var violation = PackageBudgetViolation(acceptedFileCount, acceptedBytes, file.Length);
         if (violation is not null)
         {
             throw new InvalidDataException(PackageBudgetMessage(violation));
         }
 
-        ZipArchiveEntry entry = archive.CreateEntry(file.RelativePath, CompressionLevel.NoCompression);
+        var entry = archive.CreateEntry(file.RelativePath, CompressionLevel.NoCompression);
         entry.LastWriteTime = DeterministicTimestamp;
         entry.ExternalAttributes = 0;
-        using Stream output = entry.Open();
-        byte[] buffer = new byte[64 * 1024];
+        using var output = entry.Open();
+        var buffer = new byte[64 * 1024];
         long written = 0;
         file.Rewind();
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = file.Stream.Read(buffer);
+            var read = file.Stream.Read(buffer);
             if (read == 0)
             {
                 break;
@@ -510,14 +510,14 @@ internal static class PluginPackageWorkflow
                         + $"{ManifestLimits.MaxDocumentBytes}-byte limit.")]);
         }
 
-        byte[] bytes = new byte[(int)stream.Length];
+        var bytes = new byte[(int)stream.Length];
         stream.ReadExactly(bytes);
         return PluginManifestReader.Read(bytes);
     }
 
     private static PluginManifestReadResult ReadManifestBounded(DeviceLabPackageFile file)
     {
-        if (!file.TryReadAllBytes(ManifestLimits.MaxDocumentBytes, out byte[] bytes))
+        if (!file.TryReadAllBytes(ManifestLimits.MaxDocumentBytes, out var bytes))
         {
             return new PluginManifestReadResult(
                 null,
@@ -543,7 +543,7 @@ internal static class PluginPackageWorkflow
                 return false;
             }
 
-            MetadataReader metadata = pe.GetMetadataReader();
+            var metadata = pe.GetMetadataReader();
             return metadata.IsAssembly;
         }
         catch (Exception exception) when (exception is IOException
@@ -559,7 +559,7 @@ internal static class PluginPackageWorkflow
         "package-too-many-files" => $"Package contains more than {MaximumPackageFiles} files.",
         "file-too-large" => $"A package file exceeds {MaximumPackageFileBytes} bytes.",
         "package-too-large" => $"Package exceeds {MaximumPackageBytes} total bytes.",
-        _ => "Package exceeds a filesystem budget.",
+        _ => "Package exceeds a filesystem budget."
     };
 
     private static PluginPackageValidationIssue Issue(string code, string path, string message) =>
@@ -573,7 +573,7 @@ internal static class PluginPackageWorkflow
             Valid = issues.Count == 0,
             PackageId = id,
             PackageVersion = version,
-            Issues = issues,
+            Issues = issues
         };
 
     private static void TryDelete(string path)
@@ -628,7 +628,7 @@ internal sealed class SnapshotGlyphPackageSource(
         try
         {
             _cancellationToken.ThrowIfCancellationRequested();
-            return _snapshot.TryGetFile(relativePath, out DeviceLabPackageFile file)
+            return _snapshot.TryGetFile(relativePath, out var file)
                 && file.TryReadAllBytes(maximumBytes, out bytes);
         }
         catch (Exception exception) when (exception is IOException

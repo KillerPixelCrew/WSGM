@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace WSGM.Device.Sdk.Capabilities;
@@ -28,7 +29,7 @@ public enum HardwareStateQuality
     Stale,
 
     /// <summary>The capability failed and its value cannot be trusted at all.</summary>
-    Faulted,
+    Faulted
 }
 
 /// <summary>
@@ -95,7 +96,7 @@ public sealed record CapabilityValue
     public int? ColorValue { get; init; }
 
     /// <summary>Curve points when <see cref="Kind"/> is <see cref="CapabilityValueKind.Curve"/>.</summary>
-    public System.Collections.Generic.IReadOnlyList<CurvePoint> CurveValue { get; init; } = [];
+    public IReadOnlyList<CurvePoint> CurveValue { get; init; } = [];
 
     /// <summary>
     /// Text when <see cref="Kind"/> is <see cref="CapabilityValueKind.Text"/>.
@@ -116,7 +117,7 @@ public sealed record CapabilityValue
     public static CapabilityValue Boolean(bool value) => new()
     {
         Kind = CapabilityValueKind.Boolean,
-        BooleanValue = value,
+        BooleanValue = value
     };
 
     /// <summary>Creates a <see cref="CapabilityValueKind.Integer"/> value.</summary>
@@ -125,7 +126,7 @@ public sealed record CapabilityValue
     public static CapabilityValue Integer(int value) => new()
     {
         Kind = CapabilityValueKind.Integer,
-        IntegerValue = value,
+        IntegerValue = value
     };
 
     /// <summary>Creates a <see cref="CapabilityValueKind.Choice"/> value.</summary>
@@ -134,7 +135,7 @@ public sealed record CapabilityValue
     public static CapabilityValue Choice(string value) => new()
     {
         Kind = CapabilityValueKind.Choice,
-        ChoiceValue = value,
+        ChoiceValue = value
     };
 
     /// <summary>Creates a <see cref="CapabilityValueKind.Color"/> value.</summary>
@@ -143,16 +144,16 @@ public sealed record CapabilityValue
     public static CapabilityValue Color(int value) => new()
     {
         Kind = CapabilityValueKind.Color,
-        ColorValue = value,
+        ColorValue = value
     };
 
     /// <summary>Creates a <see cref="CapabilityValueKind.Curve"/> value.</summary>
     /// <param name="points">The curve points. The list is stored as given, not copied.</param>
     /// <returns>The value with <see cref="CurveValue"/> set.</returns>
-    public static CapabilityValue Curve(System.Collections.Generic.IReadOnlyList<CurvePoint> points) => new()
+    public static CapabilityValue Curve(IReadOnlyList<CurvePoint> points) => new()
     {
         Kind = CapabilityValueKind.Curve,
-        CurveValue = points,
+        CurveValue = points
     };
 
     /// <summary>Creates a <see cref="CapabilityValueKind.Text"/> value.</summary>
@@ -161,7 +162,7 @@ public sealed record CapabilityValue
     public static CapabilityValue Text(string value) => new()
     {
         Kind = CapabilityValueKind.Text,
-        TextValue = value,
+        TextValue = value
     };
 }
 

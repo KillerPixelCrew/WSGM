@@ -12,7 +12,7 @@ internal enum DeviceLabOutputTargetKind
     Directory,
 
     /// <summary>One new output file.</summary>
-    NewFile,
+    NewFile
 }
 
 /// <summary>Closed reason an output path was refused.</summary>
@@ -43,7 +43,7 @@ internal enum DeviceLabOutputPathRisk
     ExistingTarget,
 
     /// <summary>A directory target names an existing file.</summary>
-    NotDirectory,
+    NotDirectory
 }
 
 /// <summary>Environment-owned paths that Device Lab must not use as broad output targets.</summary>
@@ -63,12 +63,12 @@ internal sealed record DeviceLabPathBoundaries
     /// <returns>Normalized boundaries used only for rejection.</returns>
     public static DeviceLabPathBoundaries ForCurrentUser(string? repositoryRoot)
     {
-        string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         List<string> broadHomeDirectories =
         [
             profile,
             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
         ];
 
         if (!string.IsNullOrWhiteSpace(profile))
@@ -76,7 +76,7 @@ internal sealed record DeviceLabPathBoundaries
             broadHomeDirectories.Add(Path.Combine(profile, "Downloads"));
         }
 
-        string? oneDrive = Environment.GetEnvironmentVariable("OneDrive");
+        var oneDrive = Environment.GetEnvironmentVariable("OneDrive");
         if (!string.IsNullOrWhiteSpace(oneDrive))
         {
             broadHomeDirectories.Add(oneDrive);
@@ -84,7 +84,7 @@ internal sealed record DeviceLabPathBoundaries
 
         // wsgm-allow-live-data-path: this resolves the live directory only so every Device Lab
         // output policy can refuse it before opening or creating anything there.
-        string liveDataDirectory = Path.Combine(
+        var liveDataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WSGM");
 
@@ -95,7 +95,7 @@ internal sealed record DeviceLabPathBoundaries
             BroadHomeDirectories = broadHomeDirectories
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray(),
+                .ToArray()
         };
     }
 }
@@ -147,8 +147,8 @@ internal static class DeviceLabOutputPathPolicy
             return Reject(DeviceLabOutputPathRisk.Malformed, "The output path is malformed.");
         }
 
-        string normalized = NormalizeDirectory(fullPath);
-        string? root = Path.GetPathRoot(fullPath);
+        var normalized = NormalizeDirectory(fullPath);
+        var root = Path.GetPathRoot(fullPath);
         if (root is not null && PathsEqual(normalized, NormalizeDirectory(root)))
         {
             return Reject(
@@ -214,13 +214,13 @@ internal static class DeviceLabOutputPathPolicy
         {
             IsAllowed = true,
             FullPath = fullPath,
-            Risk = DeviceLabOutputPathRisk.None,
+            Risk = DeviceLabOutputPathRisk.None
         };
     }
 
     private static bool HasExistingReparsePoint(string path)
     {
-        string? current = File.Exists(path) || Directory.Exists(path)
+        var current = File.Exists(path) || Directory.Exists(path)
             ? path
             : Path.GetDirectoryName(path);
 
@@ -241,7 +241,7 @@ internal static class DeviceLabOutputPathPolicy
                 }
             }
 
-            string? parent = Path.GetDirectoryName(current);
+            var parent = Path.GetDirectoryName(current);
             if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
             {
                 break;
@@ -255,8 +255,8 @@ internal static class DeviceLabOutputPathPolicy
 
     private static bool IsUnderneath(string candidate, string directory)
     {
-        string normalizedCandidate = NormalizeDirectory(candidate);
-        string normalizedDirectory = NormalizeDirectory(directory);
+        var normalizedCandidate = NormalizeDirectory(candidate);
+        var normalizedDirectory = NormalizeDirectory(directory);
         return PathsEqual(normalizedCandidate, normalizedDirectory)
             || normalizedCandidate.StartsWith(
                 normalizedDirectory + Path.DirectorySeparatorChar,
@@ -277,7 +277,7 @@ internal static class DeviceLabOutputPathPolicy
             IsAllowed = false,
             FullPath = fullPath,
             Risk = risk,
-            Reason = reason,
+            Reason = reason
         };
 }
 
@@ -308,12 +308,12 @@ internal static class DeviceLabRepositoryLocator
             return null;
         }
 
-        DirectoryInfo? directory = File.Exists(fullPath)
+        var directory = File.Exists(fullPath)
             ? new FileInfo(fullPath).Directory
             : new DirectoryInfo(fullPath);
         while (directory is not null)
         {
-            foreach (string marker in SolutionMarkers)
+            foreach (var marker in SolutionMarkers)
             {
                 if (File.Exists(Path.Combine(directory.FullName, marker)))
                 {

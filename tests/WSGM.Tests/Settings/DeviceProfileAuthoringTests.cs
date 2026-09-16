@@ -21,10 +21,10 @@ public sealed class DeviceProfileAuthoringTests
                     DeviceDefinitionId = Device,
                     PluginId = Plugin,
                     Declaration = new PluginSettingsManifest(),
-                    Profiles = [.. profiles],
-                },
-            ],
-        },
+                    Profiles = [.. profiles]
+                }
+            ]
+        }
     };
 
     private static DeviceAuthoredProfile Stored(string id, string name) => new()
@@ -35,8 +35,8 @@ public sealed class DeviceProfileAuthoringTests
         Curve =
         [
             new AuthoredCurvePoint { Input = 0, Output = 10 },
-            new AuthoredCurvePoint { Input = 100, Output = 90 },
-        ],
+            new AuthoredCurvePoint { Input = 100, Output = 90 }
+        ]
     };
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class DeviceProfileAuthoringTests
     {
         SettingsViewModel viewModel = new(Config(Stored("quiet", "Quiet")));
 
-        DeviceProfileRowViewModel row = Assert.Single(viewModel.DeviceProfiles);
+        var row = Assert.Single(viewModel.DeviceProfiles);
         Assert.Equal("Quiet", row.Name);
         Assert.Equal(2, row.Curve.Count);
         Assert.Same(row, viewModel.SelectedDeviceProfile);
@@ -59,7 +59,7 @@ public sealed class DeviceProfileAuthoringTests
 
         viewModel.AddDeviceProfile("thermal.fan-curve");
 
-        DeviceProfileRowViewModel row = Assert.Single(viewModel.DeviceProfiles);
+        var row = Assert.Single(viewModel.DeviceProfiles);
         Assert.Equal(2, row.Curve.Count);
         Assert.Same(row, viewModel.SelectedDeviceProfile);
     }
@@ -93,7 +93,7 @@ public sealed class DeviceProfileAuthoringTests
         SettingsViewModel viewModel = new(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Name = "Silent";
 
-        DeviceAuthoredProfile stored = viewModel.DeviceProfiles[0].ToStored();
+        var stored = viewModel.DeviceProfiles[0].ToStored();
 
         Assert.Equal("quiet", stored.ProfileId);
         Assert.Equal("Silent", stored.Name);
@@ -105,7 +105,7 @@ public sealed class DeviceProfileAuthoringTests
         SettingsViewModel viewModel = new(Config(Stored("a", "A")));
         viewModel.AddDeviceProfile("thermal.fan-curve");
 
-        AppConfig fresh = Config(Stored("a", "A"));
+        var fresh = Config(Stored("a", "A"));
         viewModel.ApplyDeviceProfilesTo(fresh);
 
         Assert.Equal(2, fresh.DeviceIntegration.PluginSettings[0].Profiles.Count);
@@ -117,7 +117,7 @@ public sealed class DeviceProfileAuthoringTests
         // A save triggered by an unrelated page must not overwrite what something else put there.
         SettingsViewModel viewModel = new(Config(Stored("a", "A")));
 
-        AppConfig fresh = Config(Stored("a", "A"), Stored("b", "B"));
+        var fresh = Config(Stored("a", "A"), Stored("b", "B"));
         viewModel.ApplyDeviceProfilesTo(fresh);
 
         Assert.Equal(2, fresh.DeviceIntegration.PluginSettings[0].Profiles.Count);
@@ -149,7 +149,7 @@ public sealed class DeviceProfileAuthoringTests
         SettingsViewModel viewModel = new(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Curve = [new CurvePoint(20, 30), new CurvePoint(80, 70)];
 
-        DeviceAuthoredProfile stored = viewModel.DeviceProfiles[0].ToStored();
+        var stored = viewModel.DeviceProfiles[0].ToStored();
 
         Assert.Equal([20, 80], stored.Curve.Select(point => point.Input));
         Assert.Equal([30, 70], stored.Curve.Select(point => point.Output));
@@ -164,7 +164,7 @@ public sealed class DeviceProfileAuthoringTests
 
         viewModel.AddDeviceProfile("lighting.color", color: true);
 
-        DeviceProfileRowViewModel row = Assert.Single(viewModel.DeviceProfiles);
+        var row = Assert.Single(viewModel.DeviceProfiles);
         Assert.True(row.IsColorProfile);
         Assert.False(row.IsCurveProfile);
         Assert.Empty(row.ToStored().Curve);

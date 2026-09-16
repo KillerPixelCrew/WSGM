@@ -13,11 +13,11 @@ public sealed class DisplayTimeoutsTests
     public async Task AReportRaisesADisplayTimeoutBelowTheScreensaverOnceAndLeavesTheRestAlone()
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 180, [PowerTimeoutKind.DisplayDc] = 900 };
-        DisplayTimeouts timeouts = scheme.Owner();
-        int changes = 0;
+        var timeouts = scheme.Owner();
+        var changes = 0;
         timeouts.Changed += () => changes++;
 
-        SteamUiCommandResult result = await timeouts.ReportAsync(new(300, null, Battery: false), CancellationToken.None);
+        var result = await timeouts.ReportAsync(new SteamScreensaverReport(300, null, Battery: false), CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(300, scheme[PowerTimeoutKind.DisplayAc]);
@@ -31,7 +31,7 @@ public sealed class DisplayTimeoutsTests
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 0, [PowerTimeoutKind.DisplayDc] = 0 };
 
-        await scheme.Owner().ReportAsync(new(3600, 3600, Battery: true), CancellationToken.None);
+        await scheme.Owner().ReportAsync(new SteamScreensaverReport(3600, 3600, Battery: true), CancellationToken.None);
 
         Assert.Empty(scheme.Writes);
     }
@@ -42,7 +42,7 @@ public sealed class DisplayTimeoutsTests
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 60, [PowerTimeoutKind.DisplayDc] = 60 };
         scheme.Refuse = true;
 
-        SteamUiCommandResult result = await scheme.Owner().ReportAsync(new(300, null, false), CancellationToken.None);
+        var result = await scheme.Owner().ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
 
         // The report itself is heard; each breach got exactly one attempt.
         Assert.True(result.Succeeded);
@@ -54,13 +54,13 @@ public sealed class DisplayTimeoutsTests
     public async Task AChoiceBelowTheScreensaverIsRefusedWithItsReason()
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 600, [PowerTimeoutKind.DisplayDc] = 600 };
-        DisplayTimeouts timeouts = scheme.Owner();
-        await timeouts.ReportAsync(new(300, 900, Battery: true), CancellationToken.None);
+        var timeouts = scheme.Owner();
+        await timeouts.ReportAsync(new SteamScreensaverReport(300, 900, Battery: true), CancellationToken.None);
         scheme.Writes.Clear();
 
-        SteamUiCommandResult refused = await timeouts.SetTimeoutAsync("battery", 600, CancellationToken.None);
-        SteamUiCommandResult applied = await timeouts.SetTimeoutAsync("plugged-in", 300, CancellationToken.None);
-        SteamUiCommandResult never = await timeouts.SetTimeoutAsync("battery", 0, CancellationToken.None);
+        var refused = await timeouts.SetTimeoutAsync("battery", 600, CancellationToken.None);
+        var applied = await timeouts.SetTimeoutAsync("plugged-in", 300, CancellationToken.None);
+        var never = await timeouts.SetTimeoutAsync("battery", 0, CancellationToken.None);
 
         Assert.False(refused.Succeeded);
         Assert.Equal("The display cannot turn off before Steam's screensaver starts (15 min).", refused.Error);
@@ -73,11 +73,11 @@ public sealed class DisplayTimeoutsTests
     public async Task AnUnknownRowIsRefusedAndWindowsRefusingIsReported()
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 600 };
-        DisplayTimeouts timeouts = scheme.Owner();
+        var timeouts = scheme.Owner();
 
-        SteamUiCommandResult unknown = await timeouts.SetTimeoutAsync("sleep", 600, CancellationToken.None);
+        var unknown = await timeouts.SetTimeoutAsync("sleep", 600, CancellationToken.None);
         scheme.Refuse = true;
-        SteamUiCommandResult refused = await timeouts.SetTimeoutAsync("plugged-in", 900, CancellationToken.None);
+        var refused = await timeouts.SetTimeoutAsync("plugged-in", 900, CancellationToken.None);
 
         Assert.Equal("That timeout row is not one of WSGM's.", unknown.Error);
         Assert.Equal("Windows did not accept the display timeout.", refused.Error);
@@ -89,10 +89,10 @@ public sealed class DisplayTimeoutsTests
         FakeScheme scheme = new()
         {
             [PowerTimeoutKind.DisplayAc] = 60,
-            [PowerTimeoutKind.SleepAc] = 60,
+            [PowerTimeoutKind.SleepAc] = 60
         };
-        DisplayTimeouts timeouts = scheme.Owner();
-        await timeouts.ReportAsync(new(600, null, false), CancellationToken.None);
+        var timeouts = scheme.Owner();
+        await timeouts.ReportAsync(new SteamScreensaverReport(600, null, false), CancellationToken.None);
         // The report raised the display timeout to the bound already.
         Assert.Equal(600, scheme[PowerTimeoutKind.DisplayAc]);
         scheme[PowerTimeoutKind.DisplayAc] = 3600;
@@ -109,9 +109,9 @@ public sealed class DisplayTimeoutsTests
     public async Task ForgettingSteamLiftsTheBoundOnceAndOnlyOnce()
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 600 };
-        DisplayTimeouts timeouts = scheme.Owner();
-        await timeouts.ReportAsync(new(300, null, false), CancellationToken.None);
-        int changes = 0;
+        var timeouts = scheme.Owner();
+        await timeouts.ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
+        var changes = 0;
         timeouts.Changed += () => changes++;
 
         timeouts.ForgetSteam();
@@ -153,17 +153,17 @@ public sealed class DisplayTimeoutsTests
     public async Task TheRowsOfferOnlyAllowedChoicesAndNameTheBound()
     {
         FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 900 };
-        DisplayTimeouts timeouts = scheme.Owner();
-        SteamScreensaverState before = timeouts.ReadState();
-        await timeouts.ReportAsync(new(300, null, false), CancellationToken.None);
+        var timeouts = scheme.Owner();
+        var before = timeouts.ReadState();
+        await timeouts.ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
 
-        SteamScreensaverState state = timeouts.ReadState();
+        var state = timeouts.ReadState();
 
         Assert.Equal(["battery", "plugged-in"], state.Rows.Select(row => row.Id));
-        SteamTimeoutRow battery = state.Rows[0];
+        var battery = state.Rows[0];
         Assert.False(battery.Available);
         Assert.Empty(battery.Options);
-        SteamTimeoutRow pluggedIn = state.Rows[1];
+        var pluggedIn = state.Rows[1];
         Assert.True(pluggedIn.Available);
         Assert.Equal(900, pluggedIn.Seconds);
         Assert.Equal([300, 600, 900, 1800, 3600, 0], pluggedIn.Options.Select(option => option.Seconds));
@@ -188,7 +188,7 @@ public sealed class DisplayTimeoutsTests
         }
 
         internal DisplayTimeouts Owner() => new(
-            kind => _values.TryGetValue(kind, out int seconds) ? seconds : null,
+            kind => _values.TryGetValue(kind, out var seconds) ? seconds : null,
             (kind, seconds) =>
             {
                 Writes.Add((kind, seconds));

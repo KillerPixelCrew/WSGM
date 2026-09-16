@@ -106,7 +106,7 @@ internal static class DeviceCoordinatorDiagnosticsClient
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
-        using CancellationTokenSource bounded = CancellationTokenSource.CreateLinkedTokenSource(
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         bounded.CancelAfter(timeout);
         await using NamedPipeClientStream pipe = new(

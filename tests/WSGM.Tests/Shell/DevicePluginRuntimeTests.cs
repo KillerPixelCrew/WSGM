@@ -1,13 +1,15 @@
+using System.Globalization;
 using WSGM.Core;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using PluginManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
 namespace WSGM.Device.Tests;
 
@@ -20,14 +22,14 @@ public sealed class DevicePluginRuntimeTests
         var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         PluginHost host = new(action => action());
-        var registration = host.Admit(adapter, new(adapter.Id, "device"), WSGM.Plugin.Sdk.PluginCategories.Device,
-            WSGM.Plugin.Sdk.PluginCategoryPolicy.Device, true, InitialGeneration, runtime.StateDirectory);
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var registration = host.Admit(adapter, new PluginInstanceIdentity(adapter.Id, "device"), PluginCategories.Device,
+            PluginCategoryPolicy.Device, true, InitialGeneration, runtime.StateDirectory);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         await registration.StartAsync(deadline, default);
-        await host.SetModeAsync(WSGM.Plugin.Sdk.PluginSessionMode.Game, deadline, default);
+        await host.SetModeAsync(PluginSessionMode.Game, deadline, default);
         await registration.SuspendAsync(deadline, default);
         await registration.ResumeAsync(InitialGeneration + 1, deadline, default);
-        Assert.Equal(WSGM.Plugin.Sdk.PluginHealth.Ready, Assert.Single(host.Snapshot()).Health);
+        Assert.Equal(PluginHealth.Ready, Assert.Single(host.Snapshot()).Health);
         Assert.True(await registration.StopAsync(deadline, default));
         await registration.DisposeAsync();
         Assert.Empty(host.Snapshot());
@@ -41,16 +43,16 @@ public sealed class DevicePluginRuntimeTests
         var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         CommonHost host = new();
-        var context = new WSGM.Plugin.Sdk.PluginContext(new(RuntimeFixturePlugin.PackageIdValue, "device"),
-            InitialGeneration, WSGM.Plugin.Sdk.PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
-        Assert.Equal(WSGM.Plugin.Sdk.PluginHealth.Ready, await adapter.StartAsync(host, context, default));
-        await adapter.SessionChangedAsync(context with { Mode = WSGM.Plugin.Sdk.PluginSessionMode.Game }, default);
+        var context = new PluginContext(new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"),
+            InitialGeneration, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
+        Assert.Equal(PluginHealth.Ready, await adapter.StartAsync(host, context, default));
+        await adapter.SessionChangedAsync(context with { Mode = PluginSessionMode.Game }, default);
         Assert.Equal(DeviceCycleState.Active, adapter.LastState!.State);
         await adapter.SuspendAsync(context, default);
         var resumed = context with { Generation = InitialGeneration + 1 };
         await adapter.ResumeAsync(resumed, default);
         Assert.Equal(InitialGeneration + 1, runtime.CycleGeneration);
-        Assert.Contains(host.States, state => state.Generation == resumed.Generation && state.Health == WSGM.Plugin.Sdk.PluginHealth.Ready);
+        Assert.Contains(host.States, state => state.Generation == resumed.Generation && state.Health == PluginHealth.Ready);
         Assert.True(await adapter.StopAsync(resumed, default));
     }
 
@@ -60,18 +62,18 @@ public sealed class DevicePluginRuntimeTests
         using TemporaryDirectory temporary = new();
         var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
-        var context = new WSGM.Plugin.Sdk.PluginContext(new("other.plugin", "device"), InitialGeneration,
-            WSGM.Plugin.Sdk.PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
+        var context = new PluginContext(new PluginInstanceIdentity("other.plugin", "device"), InitialGeneration,
+            PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, default).AsTask());
-        context = context with { Instance = new(RuntimeFixturePlugin.PackageIdValue, "device"), Generation = InitialGeneration - 1 };
+        context = context with { Instance = new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"), Generation = InitialGeneration - 1 };
         await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, default).AsTask());
         Assert.False(File.Exists(temporary.GetPath("state", RuntimeFixturePlugin.PackageIdValue, "started.txt")));
     }
 
-    private sealed class CommonHost : WSGM.Plugin.Sdk.IPluginHost
+    private sealed class CommonHost : IPluginHost
     {
-        internal List<WSGM.Plugin.Sdk.PluginHealthPublication> States { get; } = [];
-        public void PublishHealth(WSGM.Plugin.Sdk.PluginHealthPublication publication) => States.Add(publication);
+        internal List<PluginHealthPublication> States { get; } = [];
+        public void PublishHealth(PluginHealthPublication publication) => States.Add(publication);
     }
 
     private const long InitialGeneration = 41;
@@ -80,7 +82,7 @@ public sealed class DevicePluginRuntimeTests
     public async Task ResumePublishesFreshLightingIntoTheRouterBeforeTheLifecycleCallReturns()
     {
         using TemporaryDirectory temporary = new();
-        await using DevicePluginRuntime runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        await using var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         await using DeviceCapabilityRouter router = new(action => action());
         router.Attach(runtime, InitialGeneration);
         await runtime.StartAsync(new DeviceIdentitySnapshot(), InitialGeneration, false, CancellationToken.None);
@@ -102,11 +104,11 @@ public sealed class DevicePluginRuntimeTests
     public async Task DirectLoadRunsTheLifecycleInsideTheExplicitTemporaryStateRoot()
     {
         using TemporaryDirectory temporary = new();
-        DevicePluginRuntime runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         List<CanonicalControllerSample> samples = [];
         runtime.ControllerSampleReceived += samples.Add;
 
-        DevicePluginState started = await runtime.StartAsync(
+        var started = await runtime.StartAsync(
             new DeviceIdentitySnapshot(),
             InitialGeneration,
             controllerManagementEnabled: true,
@@ -115,25 +117,25 @@ public sealed class DevicePluginRuntimeTests
         Assert.Equal(DeviceCycleState.Active, started.State);
         Assert.Equal(RuntimeFixturePlugin.DeviceDefinitionIdValue, started.DeviceDefinitionId);
         Assert.Equal(InitialGeneration, Assert.Single(samples).CycleGeneration);
-        string stateDirectory = temporary.GetPath(
+        var stateDirectory = temporary.GetPath(
             "state",
             RuntimeFixturePlugin.PackageIdValue);
         Assert.True(File.Exists(Path.Combine(stateDirectory, "started.txt")));
 
-        DevicePluginState suspended = await runtime.SuspendAsync(
+        var suspended = await runtime.SuspendAsync(
             DateTimeOffset.UtcNow.AddSeconds(1),
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Suspended, suspended.State);
 
-        long resumedGeneration = InitialGeneration + 1;
-        DevicePluginState resumed = await runtime.ResumeAsync(
+        var resumedGeneration = InitialGeneration + 1;
+        var resumed = await runtime.ResumeAsync(
             resumedGeneration,
             DateTimeOffset.UtcNow.AddSeconds(1),
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Active, resumed.State);
         Assert.Equal(resumedGeneration, samples[^1].CycleGeneration);
 
-        DevicePluginState stopped = await runtime.StopAsync(
+        var stopped = await runtime.StopAsync(
             PluginStopReason.IntegrationDisabled,
             DateTimeOffset.UtcNow.AddSeconds(1),
             CancellationToken.None);
@@ -143,7 +145,7 @@ public sealed class DevicePluginRuntimeTests
             await File.ReadAllTextAsync(Path.Combine(stateDirectory, "stopped.txt")),
             StringComparison.Ordinal);
 
-        DeviceRuntimeExit exit = await runtime.Completion.WaitAsync(TimeSpan.FromSeconds(1));
+        var exit = await runtime.Completion.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.Equal(DeviceRuntimeExitReason.Intentional, exit.Reason);
 
         await runtime.DisposeAsync();
@@ -154,19 +156,19 @@ public sealed class DevicePluginRuntimeTests
     public async Task BackgroundReportFaultCompletesTheRuntimeAndClosesCommandAdmission()
     {
         using TemporaryDirectory temporary = new();
-        DevicePluginRuntime runtime = await StartRuntimeAsync(temporary, InitialGeneration);
+        var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
         try
         {
-            DeviceCommandDispatch dispatched = await runtime.ExecuteCommandAsync(
+            var dispatched = await runtime.ExecuteCommandAsync(
                 Command("fault", InitialGeneration),
                 CancellationToken.None);
             Assert.Equal(CommandOutcome.AppliedVerified, dispatched.Immediate.Outcome);
 
-            DeviceRuntimeExit exit = await runtime.Completion.WaitAsync(TimeSpan.FromSeconds(1));
+            var exit = await runtime.Completion.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Equal(DeviceRuntimeExitReason.BackgroundFault, exit.Reason);
             Assert.Contains("background reader failed", exit.Detail, StringComparison.Ordinal);
 
-            DeviceCommandDispatch refused = await runtime.ExecuteCommandAsync(
+            var refused = await runtime.ExecuteCommandAsync(
                 Command("current-sample", InitialGeneration),
                 CancellationToken.None);
             Assert.Equal(CommandOutcome.Rejected, refused.Immediate.Outcome);
@@ -186,22 +188,22 @@ public sealed class DevicePluginRuntimeTests
     public async Task CanceledCommandReturnsImmediatelyAndKeepsItsLateCompletion()
     {
         using TemporaryDirectory temporary = new();
-        DevicePluginRuntime runtime = await StartRuntimeAsync(temporary, InitialGeneration);
+        var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
         try
         {
-            CapabilityCommand command = Command(
+            var command = Command(
                 "late",
                 InitialGeneration,
                 DateTimeOffset.UtcNow.AddMilliseconds(30));
 
-            DeviceCommandDispatch dispatched = await runtime.ExecuteCommandAsync(
+            var dispatched = await runtime.ExecuteCommandAsync(
                 command,
                 CancellationToken.None);
 
             Assert.Equal(CommandOutcome.TimedOut, dispatched.Immediate.Outcome);
-            Task<CapabilityCommandResult>? late = dispatched.LateCompletion;
+            var late = dispatched.LateCompletion;
             Assert.NotNull(late);
-            CapabilityCommandResult completed = await late.WaitAsync(TimeSpan.FromSeconds(1));
+            var completed = await late.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Equal(command.CommandId, completed.CommandId);
             Assert.Equal(CommandOutcome.AppliedVerified, completed.Outcome);
         }
@@ -219,7 +221,7 @@ public sealed class DevicePluginRuntimeTests
     public async Task FreshGenerationAcceptsCurrentSamplesAndRejectsStaleSamples()
     {
         using TemporaryDirectory temporary = new();
-        DevicePluginRuntime runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
+        var runtime = await LoadRuntimeAsync(temporary, InitialGeneration);
         List<CanonicalControllerSample> samples = [];
         runtime.ControllerSampleReceived += samples.Add;
         await runtime.StartAsync(
@@ -230,7 +232,7 @@ public sealed class DevicePluginRuntimeTests
         await runtime.SuspendAsync(
             DateTimeOffset.UtcNow.AddSeconds(1),
             CancellationToken.None);
-        long resumedGeneration = InitialGeneration + 1;
+        var resumedGeneration = InitialGeneration + 1;
         await runtime.ResumeAsync(
             resumedGeneration,
             DateTimeOffset.UtcNow.AddSeconds(1),
@@ -238,14 +240,14 @@ public sealed class DevicePluginRuntimeTests
 
         try
         {
-            int acceptedBeforeStale = samples.Count;
-            DeviceCommandDispatch stale = await runtime.ExecuteCommandAsync(
+            var acceptedBeforeStale = samples.Count;
+            var stale = await runtime.ExecuteCommandAsync(
                 Command("stale-sample", resumedGeneration),
                 CancellationToken.None);
             Assert.Equal(CommandOutcome.Indeterminate, stale.Immediate.Outcome);
             Assert.Equal(acceptedBeforeStale, samples.Count);
 
-            DeviceCommandDispatch current = await runtime.ExecuteCommandAsync(
+            var current = await runtime.ExecuteCommandAsync(
                 Command("current-sample", resumedGeneration),
                 CancellationToken.None);
             Assert.Equal(CommandOutcome.AppliedVerified, current.Immediate.Outcome);
@@ -266,7 +268,7 @@ public sealed class DevicePluginRuntimeTests
         TemporaryDirectory temporary,
         long cycleGeneration)
     {
-        DevicePluginRuntime runtime = await LoadRuntimeAsync(temporary, cycleGeneration);
+        var runtime = await LoadRuntimeAsync(temporary, cycleGeneration);
         await runtime.StartAsync(
             new DeviceIdentitySnapshot(),
             cycleGeneration,
@@ -279,10 +281,10 @@ public sealed class DevicePluginRuntimeTests
         TemporaryDirectory temporary,
         long cycleGeneration)
     {
-        string packageDirectory = temporary.GetPath("package");
+        var packageDirectory = temporary.GetPath("package");
         Directory.CreateDirectory(packageDirectory);
-        string sourceAssembly = typeof(RuntimeFixturePlugin).Assembly.Location;
-        string entryAssembly = Path.GetFileName(sourceAssembly);
+        var sourceAssembly = typeof(RuntimeFixturePlugin).Assembly.Location;
+        var entryAssembly = Path.GetFileName(sourceAssembly);
         File.Copy(sourceAssembly, Path.Combine(packageDirectory, entryAssembly));
         InstalledDevicePackage package = new()
         {
@@ -295,8 +297,8 @@ public sealed class DevicePluginRuntimeTests
                 Version = "1.0.0",
                 ApiVersion = DeviceApi.Version,
                 EntryAssembly = entryAssembly,
-                EntryType = typeof(RuntimeFixturePlugin).FullName!,
-            },
+                EntryType = typeof(RuntimeFixturePlugin).FullName!
+            }
         };
         return DevicePluginRuntime.StartAsync(
             package,
@@ -314,7 +316,7 @@ public sealed class DevicePluginRuntimeTests
             CapabilityId = capabilityId,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = cycleGeneration,
-            Deadline = deadline ?? DateTimeOffset.UtcNow.AddSeconds(1),
+            Deadline = deadline ?? DateTimeOffset.UtcNow.AddSeconds(1)
         };
 }
 
@@ -339,7 +341,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         return ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = true,
-            DeviceDefinitionId = DeviceDefinitionIdValue,
+            DeviceDefinitionId = DeviceDefinitionIdValue
         });
     }
 
@@ -354,7 +356,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         _stateDirectory = context.StateDirectory;
         await File.WriteAllTextAsync(
             Path.Combine(_stateDirectory, "started.txt"),
-            _cycleGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _cycleGeneration.ToString(CultureInfo.InvariantCulture),
             cancellationToken);
         await PublishSampleAsync(_cycleGeneration, cancellationToken);
         await PublishLightingAsync(cancellationToken);
@@ -386,7 +388,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         {
             CommandId = command.CommandId,
             Outcome = CommandOutcome.AppliedVerified,
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
     }
 
@@ -428,8 +430,8 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         {
             Values = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["state-directory"] = _stateDirectory ?? string.Empty,
-            },
+                ["state-directory"] = _stateDirectory ?? string.Empty
+            }
         });
     }
 
@@ -451,7 +453,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         return ValueTask.FromResult(new PluginControllerRelease
         {
             Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified,
+            Result = ControllerHandoffResult.ReleasedVerified
         });
     }
 
@@ -506,7 +508,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         {
             Sequence = Interlocked.Increment(ref _sequence),
             CycleGeneration = cycleGeneration,
-            Timestamp = DateTimeOffset.UtcNow,
+            Timestamp = DateTimeOffset.UtcNow
         }, cancellationToken);
     }
 
@@ -530,8 +532,8 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
                 Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
                 SupportsRead = true,
                 SupportsWrite = true,
-                Persistence = CapabilityPersistence.DevicePersistent,
-            }],
+                Persistence = CapabilityPersistence.DevicePersistent
+            }]
         }, cancellationToken);
         await Host.PublishCapabilityStateAsync(new CapabilityState
         {
@@ -541,12 +543,12 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
             Available = true,
             ObservedAt = DateTimeOffset.UtcNow,
             Quality = HardwareStateQuality.Observed,
-            ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0xFFFFFF },
+            ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0xFFFFFF }
         }, cancellationToken);
     }
 
     private static PluginStartResult Active() => new()
     {
-        State = PluginOperationalState.Active,
+        State = PluginOperationalState.Active
     };
 }

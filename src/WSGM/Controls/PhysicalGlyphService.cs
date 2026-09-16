@@ -11,14 +11,14 @@ namespace WSGM.Controls;
 internal enum PhysicalGlyphSurface
 {
     DeviceDescription,
-    NavigationHint,
+    NavigationHint
 }
 
 internal enum PhysicalGlyphTheme
 {
     Light,
     Dark,
-    HighContrast,
+    HighContrast
 }
 
 internal sealed record PhysicalGlyphPath(
@@ -120,18 +120,18 @@ internal sealed class PhysicalGlyphService : IDisposable
             return FallbackPlan(requestedControl, selection.FallbackReason);
         }
 
-        bool authorized = surface switch
+        var authorized = surface switch
         {
             PhysicalGlyphSurface.DeviceDescription => true,
             PhysicalGlyphSurface.NavigationHint => activeInputSourceIsManagedHandheld,
-            _ => false,
+            _ => false
         };
         if (!authorized)
         {
             return FallbackPlan(requestedControl, PhysicalGlyphFallbackReason.SourceNotHandheld);
         }
 
-        int scaleBucket = Math.Clamp((int)Math.Round(scale * 4, MidpointRounding.AwayFromZero), 2, 16);
+        var scaleBucket = Math.Clamp((int)Math.Round(scale * 4, MidpointRounding.AwayFromZero), 2, 16);
         RenderCacheKey key = new(
             selection.Profile.Manifest.ProfileId,
             selection.Profile.Manifest.Revision,
@@ -140,17 +140,17 @@ internal sealed class PhysicalGlyphService : IDisposable
             scaleBucket);
         lock (_gate)
         {
-            if (_cache.TryGetValue(key, out CacheEntry? cached) && cached is not null)
+            if (_cache.TryGetValue(key, out var cached) && cached is not null)
             {
                 Touch(cached);
                 return cached.Plan;
             }
 
-            PhysicalGlyphRenderPlan plan = BuildPlan(selection.Profile, requestedControl);
-            int cost = EstimateCost(selection.Profile, plan);
+            var plan = BuildPlan(selection.Profile, requestedControl);
+            var cost = EstimateCost(selection.Profile, plan);
             if (cost <= _maximumCacheBytes)
             {
-                LinkedListNode<RenderCacheKey> node = _lru.AddFirst(key);
+                var node = _lru.AddFirst(key);
                 _cache.Add(key, new CacheEntry(plan, cost, node));
                 _cacheBytes += cost;
                 TrimCache();
@@ -177,15 +177,15 @@ internal sealed class PhysicalGlyphService : IDisposable
         ImportedGlyphProfile profile,
         GlyphControlId requestedControl)
     {
-        GlyphControlId physicalControl = requestedControl;
-        GlyphControlAlias? alias = profile.Manifest.Aliases.FirstOrDefault(
+        var physicalControl = requestedControl;
+        var alias = profile.Manifest.Aliases.FirstOrDefault(
             item => item.LogicalControl == requestedControl);
         if (alias is not null)
         {
             physicalControl = alias.PhysicalControl;
         }
 
-        GlyphControlMapping? mapping = profile.Manifest.Controls.FirstOrDefault(
+        var mapping = profile.Manifest.Controls.FirstOrDefault(
             item => item.Control == physicalControl);
         if (mapping is null || mapping.Presence is GlyphControlPresence.Absent)
         {
@@ -199,7 +199,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         }
 
         if (mapping.AssetSha256 is not { } hash
-            || !profile.Assets.TryGetValue(hash, out ImportedGlyphAsset? asset)
+            || !profile.Assets.TryGetValue(hash, out var asset)
             || asset is null)
         {
             return FallbackPlan(
@@ -213,7 +213,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         {
             try
             {
-                PhysicalGlyphPath[] paths = vector.Paths.Select(path => new PhysicalGlyphPath(
+                var paths = vector.Paths.Select(path => new PhysicalGlyphPath(
                     StreamGeometry.Parse(ToAvaloniaPathData(path.Data)),
                     path.Fill,
                     path.Stroke,
@@ -229,7 +229,7 @@ internal sealed class PhysicalGlyphService : IDisposable
                     FallbackReason = PhysicalGlyphFallbackReason.None,
                     ViewBox = vector.ViewBox,
                     Paths = paths,
-                    RasterPng = default,
+                    RasterPng = default
                 };
             }
             catch (Exception)
@@ -253,7 +253,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             FallbackReason = PhysicalGlyphFallbackReason.None,
             ViewBox = null,
             Paths = [],
-            RasterPng = asset.RasterPng,
+            RasterPng = asset.RasterPng
         };
     }
 
@@ -265,10 +265,10 @@ internal sealed class PhysicalGlyphService : IDisposable
         {
             return 64;
         }
-        GlyphControlMapping? mapping = profile.Manifest.Controls.FirstOrDefault(
+        var mapping = profile.Manifest.Controls.FirstOrDefault(
             item => item.Control == control);
         return mapping?.AssetSha256 is { } hash
-            && profile.Assets.TryGetValue(hash, out ImportedGlyphAsset? asset)
+            && profile.Assets.TryGetValue(hash, out var asset)
             && asset is not null
             ? Math.Max(64, asset.RetainedBytes)
             : 64;
@@ -276,18 +276,18 @@ internal sealed class PhysicalGlyphService : IDisposable
 
     private static string ToAvaloniaPathData(string normalized)
     {
-        string[] tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         StringBuilder output = new(normalized.Length + 16);
-        int index = 0;
+        var index = 0;
         while (index < tokens.Length)
         {
-            string command = tokens[index++];
+            var command = tokens[index++];
             if (output.Length > 0)
             {
                 output.Append(' ');
             }
             output.Append(command);
-            int arity = char.ToUpperInvariant(command[0]) switch
+            var arity = char.ToUpperInvariant(command[0]) switch
             {
                 'M' or 'L' or 'T' => 2,
                 'H' or 'V' => 1,
@@ -295,7 +295,7 @@ internal sealed class PhysicalGlyphService : IDisposable
                 'S' or 'Q' => 4,
                 'A' => 7,
                 'Z' => 0,
-                _ => throw new FormatException("Imported glyph path has an unsupported command."),
+                _ => throw new FormatException("Imported glyph path has an unsupported command.")
             };
             while (arity > 0 && index < tokens.Length && !char.IsAsciiLetter(tokens[index][0]))
             {
@@ -319,7 +319,7 @@ internal sealed class PhysicalGlyphService : IDisposable
                 }
                 else
                 {
-                    for (int parameter = 0; parameter < arity; parameter += 2)
+                    for (var parameter = 0; parameter < arity; parameter += 2)
                     {
                         if (parameter > 0)
                         {
@@ -347,7 +347,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             FallbackReason = reason,
             ViewBox = null,
             Paths = [],
-            RasterPng = default,
+            RasterPng = default
         };
 
     private void Touch(CacheEntry entry)
@@ -360,9 +360,9 @@ internal sealed class PhysicalGlyphService : IDisposable
     {
         while (_cache.Count > _maximumCacheEntries || _cacheBytes > _maximumCacheBytes)
         {
-            LinkedListNode<RenderCacheKey>? tail = _lru.Last;
+            var tail = _lru.Last;
             if (tail is null
-                || !_cache.Remove(tail.Value, out CacheEntry? removed)
+                || !_cache.Remove(tail.Value, out var removed)
                 || removed is null)
             {
                 break;

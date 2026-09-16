@@ -9,13 +9,13 @@ public sealed class ClawInputTests
     [Fact]
     public void Decode_DirectInputReport_MapsMeasuredRearPaddlesAndDiagonalHat()
     {
-        byte[] report = new byte[64];
+        var report = new byte[64];
         report[0] = 0x01;
         report[1] = report[2] = report[3] = report[4] = 0x80;
         report[5] = 0x01;
         report[7] = 0x18;
 
-        CanonicalControllerSample sample = ClawControllerCodec.Decode(
+        var sample = ClawControllerCodec.Decode(
             report,
             1,
             CycleGeneration,
@@ -32,7 +32,7 @@ public sealed class ClawInputTests
     [InlineData(0x08, CanonicalButtons.RearPaddle2)]
     public void RearPaddlesHaveIndependentMeasuredBits(byte bit, CanonicalButtons expected)
     {
-        byte[] report = new byte[64];
+        var report = new byte[64];
         report[0] = 0x01;
         report[7] = bit;
         var sample = ClawControllerCodec.Decode(report, 1, CycleGeneration, DateTimeOffset.UnixEpoch);
@@ -48,22 +48,22 @@ public sealed class ClawInputTests
         // Steam listed no such controls, and no glyph could exist for a control Steam did not know
         // about.
         ClawOemButtonLatch latch = new();
-        byte[] report = new byte[64];
+        var report = new byte[64];
         report[0] = 0x01;
         report[1] = report[2] = report[3] = report[4] = 0x80;
         report[5] = 0x0F;
-        DateTimeOffset pressed = DateTimeOffset.UnixEpoch;
+        var pressed = DateTimeOffset.UnixEpoch;
 
         latch.Press(CanonicalButtons.Guide, pressed);
         latch.Press(CanonicalButtons.QuickAccess, pressed);
-        CanonicalControllerSample held = ClawControllerCodec.Decode(
+        var held = ClawControllerCodec.Decode(
             report, 1, CycleGeneration, pressed, SampleQuality.Good, latch);
 
         Assert.True(held.Buttons.HasFlag(CanonicalButtons.Guide));
         Assert.True(held.Buttons.HasFlag(CanonicalButtons.QuickAccess));
 
         // One event has to become a press AND a release: the firmware never sends the release.
-        CanonicalControllerSample released = ClawControllerCodec.Decode(
+        var released = ClawControllerCodec.Decode(
             report,
             2,
             CycleGeneration,
@@ -79,13 +79,13 @@ public sealed class ClawInputTests
     public void OemButtons_StaggeredPressesExpireIndependently()
     {
         ClawOemButtonLatch latch = new();
-        DateTimeOffset first = DateTimeOffset.UnixEpoch;
-        DateTimeOffset second = first + TimeSpan.FromMilliseconds(80);
+        var first = DateTimeOffset.UnixEpoch;
+        var second = first + TimeSpan.FromMilliseconds(80);
 
         latch.Press(CanonicalButtons.Guide, first);
         latch.Press(CanonicalButtons.QuickAccess, second);
 
-        CanonicalButtons betweenExpiries = latch.Current(
+        var betweenExpiries = latch.Current(
             first + ClawOemButtonLatch.HoldDuration + TimeSpan.FromMilliseconds(1));
         Assert.False(betweenExpiries.HasFlag(CanonicalButtons.Guide));
         Assert.True(betweenExpiries.HasFlag(CanonicalButtons.QuickAccess));

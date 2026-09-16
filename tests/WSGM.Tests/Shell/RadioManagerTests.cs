@@ -118,12 +118,12 @@ public class RadioManagerTests
     [Fact]
     public void OneLiveRadioWinsTheAggregateState()
         => Assert.Equal(
-            WindowsRadio.Power.On,
-            WindowsRadio.AggregatePower([WindowsRadio.Power.Off, WindowsRadio.Power.On]));
+            RadioPower.On,
+            WindowsRadio.AggregatePower([RadioPower.Off, RadioPower.On]));
 
     [Fact]
     public void NoRadioIsReportedAsAbsent()
-        => Assert.Equal(WindowsRadio.Power.Absent, WindowsRadio.AggregatePower([]));
+        => Assert.Equal(RadioPower.Absent, WindowsRadio.AggregatePower([]));
 
     [Theory]
     [InlineData(294932u, WifiFailureKind.KeyRejected)] // MSMSEC_PSK_MISMATCH_SUSPECTED
@@ -220,7 +220,7 @@ public class RadioEntryTests
         var entry = new WifiNetworkEntry("Cafe")
         {
             Security = WifiSecurity.PersonalPsk,
-            Saved = true,
+            Saved = true
         };
         Assert.False(entry.NeedsPassword);
     }
@@ -284,7 +284,7 @@ public class RadioEntryTests
             Paired = true,
             AudioConnectable = true,
             Connected = true,
-            AudioActive = false,
+            AudioActive = false
         };
         Assert.Equal("Connect", entry.ActionText);
     }

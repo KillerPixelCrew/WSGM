@@ -54,7 +54,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             return true;
         }
 
-        string? directory = _lastProbe?.ExecutablePath is { } executable
+        var directory = _lastProbe?.ExecutablePath is { } executable
             ? Path.GetDirectoryName(executable)
             : null;
         return directory is not null
@@ -80,7 +80,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     private RtssProbe ProbeCore(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        RtssProbe probe = _discovery.Probe();
+        var probe = _discovery.Probe();
         if (probe.Availability != RtssAvailability.AdapterUnavailable
             || probe.ExecutablePath is null)
         {
@@ -92,7 +92,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         try
         {
             EnsureApi(probe);
-            RtssProbe ready = probe with
+            var ready = probe with
             {
                 Availability = RtssAvailability.Ready,
                 Capabilities = new RtssCapabilities(
@@ -101,7 +101,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                     new HashSet<int> { 0, 1, 2, 3, MaximumOverlayLevel },
                     FrameLimitReadback: true,
                     OverlayLevelReadback: true),
-                Diagnostic = "RTSS profile API is ready.",
+                Diagnostic = "RTSS profile API is ready."
             };
             _lastProbe = ready;
             return ready;
@@ -109,10 +109,10 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         catch (Exception ex)
         {
             ReleaseApi();
-            RtssProbe degraded = probe with
+            var degraded = probe with
             {
                 Availability = RtssAvailability.Degraded,
-                Diagnostic = $"RTSS profile API load failed: {ex.Message}",
+                Diagnostic = $"RTSS profile API load failed: {ex.Message}"
             };
             _lastProbe = degraded;
             return degraded;
@@ -132,10 +132,10 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     private RtssReadback ReadCore(string rtssProfileName)
     {
-        RtssProfileApi api = _api
-            ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
+        var api = _api
+                  ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
         api.LoadProfile(rtssProfileName);
-        if (!api.TryGetUInt32(FrameLimitProperty, out uint frameLimit)
+        if (!api.TryGetUInt32(FrameLimitProperty, out var frameLimit)
             || frameLimit > int.MaxValue)
         {
             throw new InvalidDataException("RTSS did not return a valid frame-limit value.");
@@ -158,13 +158,13 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         if (request.Control is PerformanceControl.FrameLimit
             && request.Value is < 0 or > 1000)
         {
-            return new(false, "The frame-limit value is outside the verified RTSS range.");
+            return new RtssApplyResult(false, "The frame-limit value is outside the verified RTSS range.");
         }
 
         if (request.Control is PerformanceControl.OverlayLevel
             && request.Value is < 0 or > MaximumOverlayLevel)
         {
-            return new(false, "The overlay level is outside the supported range.");
+            return new RtssApplyResult(false, "The overlay level is outside the supported range.");
         }
 
         await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
@@ -173,38 +173,38 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     private RtssApplyResult ApplyCore(RtssApplyRequest request)
     {
-        RtssProfileApi api = _api
-            ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
+        var api = _api
+                  ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
         if (request.Control is PerformanceControl.OverlayLevel)
         {
-            IReadOnlyList<string> activationProfiles = OverlayActivationProfiles(
+            var activationProfiles = OverlayActivationProfiles(
                 request.Value,
                 request.RtssProfileName);
             if (activationProfiles.Count > 0
-                && !TryEnableOverlayPresentation(api, activationProfiles, out string? refusal))
+                && !TryEnableOverlayPresentation(api, activationProfiles, out var refusal))
             {
-                return new(false, refusal);
+                return new RtssApplyResult(false, refusal);
             }
 
             _osd.SetLevel(request.Value);
-            return new(true, null);
+            return new RtssApplyResult(true, null);
         }
 
         api.LoadProfile(request.RtssProfileName);
-        (string property, uint propertyValue) = request.Control switch
+        var (property, propertyValue) = request.Control switch
         {
             PerformanceControl.FrameLimit =>
                 (FrameLimitProperty, checked((uint)request.Value)),
-            _ => (string.Empty, 0u),
+            _ => (string.Empty, 0u)
         };
         if (property.Length == 0 || !api.TrySetUInt32(property, propertyValue))
         {
-            return new(false, "RTSS rejected the performance-profile value.");
+            return new RtssApplyResult(false, "RTSS rejected the performance-profile value.");
         }
 
         api.SaveProfile(request.RtssProfileName);
         api.UpdateProfiles();
-        return new(true, null);
+        return new RtssApplyResult(true, null);
     }
 
     private static bool TryEnableOverlayPresentation(
@@ -212,12 +212,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         IReadOnlyList<string> profiles,
         out string? refusal)
     {
-        bool changed = false;
+        var changed = false;
         List<string> changedProfiles = [];
-        foreach (string profile in profiles)
+        foreach (var profile in profiles)
         {
             api.LoadProfile(profile);
-            if (api.TryGetUInt32(OverlayEnabledProperty, out uint enabled) && enabled == 1)
+            if (api.TryGetUInt32(OverlayEnabledProperty, out var enabled) && enabled == 1)
             {
                 continue;
             }
@@ -240,7 +240,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             api.UpdateProfiles();
         }
 
-        string requested = ProfileLabels(profiles);
+        var requested = ProfileLabels(profiles);
         Log.Change(
             "rtss.overlay-presentation",
             changedProfiles.Count == 0
@@ -258,8 +258,8 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     private static string ProfileLabels(IReadOnlyList<string> profiles)
     {
-        string[] labels = new string[profiles.Count];
-        for (int index = 0; index < profiles.Count; index++)
+        var labels = new string[profiles.Count];
+        for (var index = 0; index < profiles.Count; index++)
         {
             labels[index] = ProfileLabel(profiles[index]);
         }
@@ -299,8 +299,8 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
-        RtssProbe probe = _lastProbe is { Availability: RtssAvailability.Ready } cached
-            && cached.Generation == generation
+        var probe = _lastProbe is { Availability: RtssAvailability.Ready } cached
+                    && cached.Generation == generation
             ? cached
             : await ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (probe.Availability != RtssAvailability.Ready || probe.Generation != generation)
@@ -320,11 +320,11 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         }
 
         ReleaseApi();
-        string executable = probe.ExecutablePath
-            ?? throw new InvalidDataException("RTSS discovery returned no executable path.");
-        string directory = Path.GetDirectoryName(executable)
-            ?? throw new InvalidDataException("RTSS executable has no installation directory.");
-        string library = Path.Combine(
+        var executable = probe.ExecutablePath
+                         ?? throw new InvalidDataException("RTSS discovery returned no executable path.");
+        var directory = Path.GetDirectoryName(executable)
+                        ?? throw new InvalidDataException("RTSS executable has no installation directory.");
+        var library = Path.Combine(
             directory,
             Environment.Is64BitProcess ? "RTSSHooks64.dll" : "RTSSHooks.dll");
         _api = new RtssProfileApi(library);
@@ -368,7 +368,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
     private readonly Dictionary<string, PerformanceValues> _profiles =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            [string.Empty] = new PerformanceValues(60, 2),
+            [string.Empty] = new PerformanceValues(60, 2)
         };
     private bool _disposed;
 
@@ -397,8 +397,8 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
             throw new InvalidOperationException("Simulated RTSS generation changed.");
         }
 
-        PerformanceValues values = _profiles.TryGetValue(rtssProfileName, out PerformanceValues? profile)
-            && profile is not null
+        var values = _profiles.TryGetValue(rtssProfileName, out var profile)
+                     && profile is not null
             ? profile
             : _profiles[string.Empty];
         return Task.FromResult(new RtssReadback(
@@ -419,10 +419,10 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
             return Task.FromResult(new RtssApplyResult(false, "Simulated request is invalid."));
         }
 
-        PerformanceValues current = _profiles.TryGetValue(
-            request.RtssProfileName,
-            out PerformanceValues? profile)
-            && profile is not null
+        var current = _profiles.TryGetValue(
+                          request.RtssProfileName,
+                          out var profile)
+                      && profile is not null
             ? profile
             : _profiles[string.Empty];
         _profiles[request.RtssProfileName] = current.With(request.Control, request.Value);

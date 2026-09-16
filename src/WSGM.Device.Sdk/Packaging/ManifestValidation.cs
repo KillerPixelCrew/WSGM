@@ -29,7 +29,7 @@ public enum ManifestValidationCode
     UnsafePath,
 
     /// <summary>The package was compiled against a different exact SDK API.</summary>
-    InvalidApiVersion,
+    InvalidApiVersion
 }
 
 /// <summary>

@@ -23,7 +23,7 @@ internal static partial class NativeShellProcess
     /// <returns>The values Windows exposed, including explicit unknown states.</returns>
     internal static NativeShellProcessInfo Inspect(uint processId)
     {
-        nint process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        var process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
         if (process == 0)
         {
             return NativeShellProcessInfo.Unavailable(processId, Marshal.GetLastPInvokeError());
@@ -31,16 +31,16 @@ internal static partial class NativeShellProcess
 
         try
         {
-            string? imagePath = QueryImagePath(process, out int imageError);
-            bool sessionKnown = ProcessIdToSessionId(processId, out uint session);
-            int sessionError = sessionKnown ? 0 : Marshal.GetLastPInvokeError();
+            var imagePath = QueryImagePath(process, out var imageError);
+            var sessionKnown = ProcessIdToSessionId(processId, out var session);
+            var sessionError = sessionKnown ? 0 : Marshal.GetLastPInvokeError();
             int? sessionId = sessionKnown ? checked((int)session) : null;
-            bool jobKnown = IsProcessInJob(process, 0, out bool inJob);
-            int jobError = jobKnown ? 0 : Marshal.GetLastPInvokeError();
-            NativeJobMembership jobMembership = jobKnown
+            var jobKnown = IsProcessInJob(process, 0, out var inJob);
+            var jobError = jobKnown ? 0 : Marshal.GetLastPInvokeError();
+            var jobMembership = jobKnown
                 ? inJob ? NativeJobMembership.InJob : NativeJobMembership.NotInJob
                 : NativeJobMembership.Unknown;
-            NativeIntegrityLevel integrity = QueryIntegrity(process, out int integrityError);
+            var integrity = QueryIntegrity(process, out var integrityError);
             return new NativeShellProcessInfo(
                 processId,
                 imagePath,
@@ -61,7 +61,7 @@ internal static partial class NativeShellProcess
     /// needs the path, not the full inspection.</summary>
     internal static string? TryGetImagePath(uint processId)
     {
-        nint process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        var process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
         if (process == 0)
         {
             return null;
@@ -88,7 +88,7 @@ internal static partial class NativeShellProcess
         out int error)
     {
         parent = null;
-        nint process = NativeMethods.OpenProcess(
+        var process = NativeMethods.OpenProcess(
             ProcessCreateProcess | ProcessQueryLimitedInformation,
             false,
             processId);
@@ -98,7 +98,7 @@ internal static partial class NativeShellProcess
             return false;
         }
 
-        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery | TokenDuplicate, out nint token))
+        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery | TokenDuplicate, out var token))
         {
             error = Marshal.GetLastPInvokeError();
             Win32Common.CloseHandle(process);
@@ -132,7 +132,7 @@ internal static partial class NativeShellProcess
         error = 0;
         nint environment = 0;
         nint attributeList = 0;
-        bool attributeListInitialized = false;
+        var attributeListInitialized = false;
 
         try
         {
@@ -164,7 +164,7 @@ internal static partial class NativeShellProcess
             }
             attributeListInitialized = true;
 
-            nint parentHandle = parent.ProcessHandle;
+            var parentHandle = parent.ProcessHandle;
             if (!UpdateProcThreadAttribute(
                     attributeList,
                     0,
@@ -182,9 +182,9 @@ internal static partial class NativeShellProcess
             {
                 StartupInfo = new StartupInfo
                 {
-                    Size = checked((uint)sizeof(StartupInfoEx)),
+                    Size = checked((uint)sizeof(StartupInfoEx))
                 },
-                AttributeList = attributeList,
+                AttributeList = attributeList
             };
 
             char[] mutableCommandLine = [.. commandLine, '\0'];
@@ -202,7 +202,7 @@ internal static partial class NativeShellProcess
                         environment,
                         directory,
                         in startup,
-                        out ProcessInformation processInformation))
+                        out var processInformation))
                 {
                     error = Marshal.GetLastPInvokeError();
                     return false;
@@ -234,8 +234,8 @@ internal static partial class NativeShellProcess
 
     private static string? QueryImagePath(nint process, out int error)
     {
-        char[] buffer = new char[32768];
-        uint length = checked((uint)buffer.Length);
+        var buffer = new char[32768];
+        var length = checked((uint)buffer.Length);
         if (NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref length))
         {
             error = 0;
@@ -248,7 +248,7 @@ internal static partial class NativeShellProcess
 
     private static unsafe NativeIntegrityLevel QueryIntegrity(nint process, out int error)
     {
-        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery, out nint token))
+        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery, out var token))
         {
             error = Marshal.GetLastPInvokeError();
             return NativeIntegrityLevel.Unknown;
@@ -256,14 +256,14 @@ internal static partial class NativeShellProcess
 
         try
         {
-            _ = NativeMethods.GetTokenInformation(token, TokenIntegrityLevel, (nint)0, 0, out uint required);
+            _ = NativeMethods.GetTokenInformation(token, TokenIntegrityLevel, (nint)0, 0, out var required);
             if (required < (uint)sizeof(nint))
             {
                 error = Marshal.GetLastPInvokeError();
                 return NativeIntegrityLevel.Unknown;
             }
 
-            void* buffer = NativeMemory.Alloc(required);
+            var buffer = NativeMemory.Alloc(required);
             if (buffer == null)
             {
                 error = 8; // ERROR_NOT_ENOUGH_MEMORY
@@ -278,21 +278,21 @@ internal static partial class NativeShellProcess
                     return NativeIntegrityLevel.Unknown;
                 }
 
-                nint sid = *(nint*)buffer;
+                var sid = *(nint*)buffer;
                 if (sid == 0)
                 {
                     error = 13; // ERROR_INVALID_DATA
                     return NativeIntegrityLevel.Unknown;
                 }
 
-                byte subAuthorityCount = *(((byte*)sid) + 1);
+                var subAuthorityCount = *((byte*)sid + 1);
                 if (subAuthorityCount == 0)
                 {
                     error = 13; // ERROR_INVALID_DATA
                     return NativeIntegrityLevel.Unknown;
                 }
 
-                uint rid = *(uint*)(((byte*)sid) + 8 + ((subAuthorityCount - 1) * sizeof(uint)));
+                var rid = *(uint*)((byte*)sid + 8 + (subAuthorityCount - 1) * sizeof(uint));
                 error = 0;
                 return rid switch
                 {
@@ -300,7 +300,7 @@ internal static partial class NativeShellProcess
                     < 0x2000 => NativeIntegrityLevel.Low,
                     < 0x3000 => NativeIntegrityLevel.Medium,
                     < 0x4000 => NativeIntegrityLevel.High,
-                    _ => NativeIntegrityLevel.System,
+                    _ => NativeIntegrityLevel.System
                 };
             }
             finally
@@ -410,10 +410,10 @@ internal static partial class NativeShellProcess
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        uint milliseconds = timeout <= TimeSpan.Zero
+        var milliseconds = timeout <= TimeSpan.Zero
             ? 0
             : checked((uint)Math.Min(timeout.TotalMilliseconds, uint.MaxValue - 1));
-        uint result = await Task.Run(
+        var result = await Task.Run(
             () => Win32Common.WaitForSingleObject(processHandle, milliseconds),
             cancellationToken).ConfigureAwait(false);
         return result == WaitObject0;
@@ -431,8 +431,8 @@ internal static partial class NativeShellProcess
                 0,
                 checked((uint)sessionId),
                 8, // WTSConnectState
-                out nint buffer,
-                out uint bytes))
+                out var buffer,
+                out var bytes))
         {
             error = Marshal.GetLastPInvokeError();
             return false;
@@ -497,7 +497,7 @@ internal enum NativeIntegrityLevel
     /// <summary>High integrity.</summary>
     High,
     /// <summary>System or protected integrity.</summary>
-    System,
+    System
 }
 
 /// <summary>Tri-state process job membership; a failed query never becomes jobless.</summary>
@@ -508,7 +508,7 @@ internal enum NativeJobMembership
     /// <summary>The process is not associated with a job.</summary>
     NotInJob,
     /// <summary>The process is associated with a job.</summary>
-    InJob,
+    InJob
 }
 
 /// <summary>Retained native handles for a verified process-creation parent.</summary>
@@ -537,13 +537,13 @@ internal sealed class NativeShellLaunchParent : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        nint token = System.Threading.Interlocked.Exchange(ref _tokenHandle, 0);
+        var token = Interlocked.Exchange(ref _tokenHandle, 0);
         if (token != 0)
         {
             Win32Common.CloseHandle(token);
         }
 
-        nint process = System.Threading.Interlocked.Exchange(ref _processHandle, 0);
+        var process = Interlocked.Exchange(ref _processHandle, 0);
         if (process != 0)
         {
             Win32Common.CloseHandle(process);
@@ -573,7 +573,7 @@ internal sealed class NativeShellChildProcess : IDisposable
     /// <summary>Waits boundedly for the exact created process to exit.</summary>
     internal Task<bool> WaitForExitAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        nint handle = _processHandle;
+        var handle = _processHandle;
         return handle == 0
             ? Task.FromResult(true)
             : NativeShellProcess.WaitForExitAsync(handle, timeout, cancellationToken);
@@ -583,7 +583,7 @@ internal sealed class NativeShellChildProcess : IDisposable
     /// authenticated stop handshake failed before the child could be released normally.</summary>
     internal bool TryTerminate(out int error)
     {
-        nint handle = _processHandle;
+        var handle = _processHandle;
         if (handle == 0 || HasExited)
         {
             error = 0;
@@ -601,7 +601,7 @@ internal sealed class NativeShellChildProcess : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        nint process = Interlocked.Exchange(ref _processHandle, 0);
+        var process = Interlocked.Exchange(ref _processHandle, 0);
         if (process != 0)
         {
             Win32Common.CloseHandle(process);

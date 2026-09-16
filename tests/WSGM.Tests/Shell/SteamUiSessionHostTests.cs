@@ -82,7 +82,7 @@ public sealed class SteamUiSessionHostTests
             transport,
             async cancellationToken =>
             {
-                using CancellationTokenRegistration registration = cancellationToken.Register(
+                using var registration = cancellationToken.Register(
                     () => requestCancelled.TrySetResult());
                 requestStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -124,7 +124,7 @@ public sealed class SteamUiSessionHostTests
 
         transport.AdvanceGeneration(SteamUiTargetRole.SharedJsContext);
 
-        Task completed = await Task.WhenAny(
+        var completed = await Task.WhenAny(
             transport.SecondDownloadInstall.Task,
             Task.Delay(TimeSpan.FromSeconds(2)));
         Assert.True(
@@ -164,11 +164,11 @@ public sealed class SteamUiSessionHostTests
                     new GlyphControlMapping
                     {
                         Control = GlyphControlId.FaceSouth,
-                        Presence = GlyphControlPresence.Present,
-                    },
-                ],
+                        Presence = GlyphControlPresence.Present
+                    }
+                ]
             },
-            Assets = new Dictionary<string, ImportedGlyphAsset>(),
+            Assets = new Dictionary<string, ImportedGlyphAsset>()
         };
 
         host.ApplyGlyphs(true, profile);
@@ -204,7 +204,7 @@ public sealed class SteamUiSessionHostTests
 
         host.Apply(false);
 
-        IReadOnlyList<SteamUiPatchSnapshot> snapshots = host.GetPatchSnapshots();
+        var snapshots = host.GetPatchSnapshots();
         Assert.True(snapshots.Single(snapshot => snapshot.Id == "wsgm.download-sort").Enabled);
         Assert.True(snapshots.Single(snapshot => snapshot.Id == SteamUiBridgePatch.PatchId).Enabled);
         Assert.All(
@@ -331,8 +331,8 @@ public sealed class SteamUiSessionHostTests
     {
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
         {
-            [SteamUiTargetRole.SharedJsContext] = new(1, 1, 1, 1, 1, 1),
-            [SteamUiTargetRole.MainWindow] = new(1, 1, 1, 1, 1, 1),
+            [SteamUiTargetRole.SharedJsContext] = new SteamUiGenerations(1, 1, 1, 1, 1, 1),
+            [SteamUiTargetRole.MainWindow] = new SteamUiGenerations(1, 1, 1, 1, 1, 1)
         };
         private int _downloadInstallations;
         private int _glyphInstallations;
@@ -404,7 +404,7 @@ public sealed class SteamUiSessionHostTests
             }
             else if (expression.Contains("dlSortInstall", StringComparison.Ordinal))
             {
-                int count = Interlocked.Increment(ref _downloadInstallations);
+                var count = Interlocked.Increment(ref _downloadInstallations);
                 (count == 1 ? FirstDownloadInstall : SecondDownloadInstall).TrySetResult();
                 value = "{\"ok\":true}";
             }
@@ -421,7 +421,7 @@ public sealed class SteamUiSessionHostTests
             }
             else if (expression.Contains("document.head.append(style)", StringComparison.Ordinal))
             {
-                int count = Interlocked.Increment(ref _glyphInstallations);
+                var count = Interlocked.Increment(ref _glyphInstallations);
                 (count == 1 ? FirstGlyphInstall : SecondGlyphInstall).TrySetResult();
                 value = "{\"ok\":true}";
             }
@@ -469,10 +469,10 @@ public sealed class SteamUiSessionHostTests
 
         internal void AdvanceGeneration(SteamUiTargetRole role)
         {
-            SteamUiGenerations next = _generations[role] with
+            var next = _generations[role] with
             {
                 Session = _generations[role].Session + 1,
-                Document = _generations[role].Document + 1,
+                Document = _generations[role].Document + 1
             };
             _generations[role] = next;
             GenerationChanged?.Invoke(this, Snapshot(role));
@@ -480,8 +480,8 @@ public sealed class SteamUiSessionHostTests
 
         internal void EmitToggleRequest()
         {
-            SteamUiGenerations generation = _generations[SteamUiTargetRole.SharedJsContext];
-            string payload = JsonSerializer.Serialize(new
+            var generation = _generations[SteamUiTargetRole.SharedJsContext];
+            var payload = JsonSerializer.Serialize(new
             {
                 version = 1,
                 type = "request",
@@ -491,12 +491,12 @@ public sealed class SteamUiSessionHostTests
                 actionGeneration = 1,
                 contextGeneration = generation.ExecutionContext,
                 documentGeneration = generation.Document,
-                payload = (object?)null,
+                payload = (object?)null
             });
-            string parameters = JsonSerializer.Serialize(new
+            var parameters = JsonSerializer.Serialize(new
             {
                 name = "__steamUiBridge_v1_7b24d11c",
-                payload,
+                payload
             });
             NotificationReceived?.Invoke(this, new SteamUiNotification(
                 SteamUiTargetRole.SharedJsContext,
@@ -579,7 +579,7 @@ public sealed class SteamUiSessionHostTests
         var firstCancelled = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var calls = 0;
-        TimeSpan routeDeadline = TimeSpan.FromSeconds(2);
+        var routeDeadline = TimeSpan.FromSeconds(2);
         await using var host = new SteamUiSessionHost(
             transport,
             async cancellationToken =>
@@ -589,7 +589,7 @@ public sealed class SteamUiSessionHostTests
                     return true;
                 }
 
-                using CancellationTokenRegistration registration = cancellationToken.Register(
+                using var registration = cancellationToken.Register(
                     () => firstCancelled.TrySetResult());
                 firstStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -664,8 +664,8 @@ public sealed class SteamUiSessionHostTests
         private readonly object _responseGate = new();
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
         {
-            [SteamUiTargetRole.SharedJsContext] = new(1, 1, 1, 1, 1, 1),
-            [SteamUiTargetRole.MainWindow] = new(1, 1, 1, 1, 1, 1),
+            [SteamUiTargetRole.SharedJsContext] = new SteamUiGenerations(1, 1, 1, 1, 1, 1),
+            [SteamUiTargetRole.MainWindow] = new SteamUiGenerations(1, 1, 1, 1, 1, 1)
         };
         private readonly List<JsonElement> _responses = [];
 
@@ -780,8 +780,8 @@ public sealed class SteamUiSessionHostTests
             object? payload,
             string type = "request")
         {
-            SteamUiGenerations generation = _generations[SteamUiTargetRole.SharedJsContext];
-            string envelope = JsonSerializer.Serialize(new
+            var generation = _generations[SteamUiTargetRole.SharedJsContext];
+            var envelope = JsonSerializer.Serialize(new
             {
                 version = SteamUiBridgeHost.SchemaVersion,
                 type,
@@ -791,12 +791,12 @@ public sealed class SteamUiSessionHostTests
                 actionGeneration,
                 contextGeneration = generation.ExecutionContext,
                 documentGeneration = generation.Document,
-                payload,
+                payload
             });
-            string parameters = JsonSerializer.Serialize(new
+            var parameters = JsonSerializer.Serialize(new
             {
                 name = "__steamUiBridge_v1_7b24d11c",
-                payload = envelope,
+                payload = envelope
             });
             NotificationReceived?.Invoke(this, new SteamUiNotification(
                 SteamUiTargetRole.SharedJsContext,
@@ -807,13 +807,13 @@ public sealed class SteamUiSessionHostTests
 
         internal void AdvanceSharedGeneration()
         {
-            SteamUiTargetRole role = SteamUiTargetRole.SharedJsContext;
+            var role = SteamUiTargetRole.SharedJsContext;
             _generations[role] = _generations[role] with
             {
                 ExecutionContext = _generations[role].ExecutionContext + 1,
-                Document = _generations[role].Document + 1,
+                Document = _generations[role].Document + 1
             };
-            SteamUiGenerations generation = _generations[role];
+            var generation = _generations[role];
             GenerationChanged?.Invoke(this, new SteamUiTransportSnapshot(
                 role,
                 SteamUiTransportHealth.Ready,
@@ -827,7 +827,7 @@ public sealed class SteamUiSessionHostTests
         private void CaptureResponse(string expression)
         {
             const string marker = "JSON.parse(";
-            int start = expression.IndexOf(marker, StringComparison.Ordinal);
+            var start = expression.IndexOf(marker, StringComparison.Ordinal);
             if (start < 0)
             {
                 return;
@@ -840,19 +840,19 @@ public sealed class SteamUiSessionHostTests
             }
 
             var escaped = false;
-            for (int index = start + 1; index < expression.Length; index++)
+            for (var index = start + 1; index < expression.Length; index++)
             {
-                char character = expression[index];
+                var character = expression[index];
                 if (!escaped && character == '"')
                 {
-                    string? json = JsonSerializer.Deserialize<string>(expression[start..(index + 1)]);
+                    var json = JsonSerializer.Deserialize<string>(expression[start..(index + 1)]);
                     if (json is null)
                     {
                         return;
                     }
 
-                    using JsonDocument document = JsonDocument.Parse(json);
-                    if (!document.RootElement.TryGetProperty("type", out JsonElement type)
+                    using var document = JsonDocument.Parse(json);
+                    if (!document.RootElement.TryGetProperty("type", out var type)
                         || type.GetString() != "response")
                     {
                         return;

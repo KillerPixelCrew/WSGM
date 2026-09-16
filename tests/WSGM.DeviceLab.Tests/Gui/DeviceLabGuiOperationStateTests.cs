@@ -7,7 +7,7 @@ public sealed class DeviceLabGuiOperationStateTests
     [Fact]
     public void LaterFailurePreservesLastSuccessfulResult()
     {
-        DeviceLabGuiOperationState state = DeviceLabGuiOperationState.Initial
+        var state = DeviceLabGuiOperationState.Initial
             .Started()
             .Succeeded("first result")
             .Started()
@@ -21,7 +21,7 @@ public sealed class DeviceLabGuiOperationStateTests
     [Fact]
     public void CancellationPreservesLastSuccessfulResult()
     {
-        DeviceLabGuiOperationState state = DeviceLabGuiOperationState.Initial
+        var state = DeviceLabGuiOperationState.Initial
             .Succeeded("last good result")
             .Started()
             .Cancelled();
@@ -34,7 +34,7 @@ public sealed class DeviceLabGuiOperationStateTests
     [Fact]
     public void StartingAnotherOperationDoesNotReplaceVisibleSuccess()
     {
-        DeviceLabGuiOperationState state = DeviceLabGuiOperationState.Initial
+        var state = DeviceLabGuiOperationState.Initial
             .Succeeded("durable result")
             .Started();
 

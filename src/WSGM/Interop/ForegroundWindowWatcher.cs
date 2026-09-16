@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Core;
@@ -28,7 +29,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
 
     private readonly object _gate = new();
     private readonly WinEventProc _callback;
-    private readonly System.Threading.Timer _poll;
+    private readonly Timer _poll;
     private nint _hook;
     private nint _lastWindow;
     private nint _pendingWindow;
@@ -58,7 +59,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
             Log.Warn("Foreground watcher: WinEvent hook not installed; polling only.");
         }
 
-        _poll = new System.Threading.Timer(_ => Evaluate(), null, TimeSpan.Zero, PollInterval);
+        _poll = new Timer(_ => Evaluate(), null, TimeSpan.Zero, PollInterval);
     }
 
     /// <summary>
@@ -123,7 +124,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     {
         while (true)
         {
-            nint window = Interlocked.Exchange(ref _pendingWindow, 0);
+            var window = Interlocked.Exchange(ref _pendingWindow, 0);
             if (window != 0)
             {
                 try
@@ -167,7 +168,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
             _lastWindow = window;
         }
 
-        (string executable, string? imagePath, uint processId) = ResolveExecutable(window);
+        var (executable, imagePath, processId) = ResolveExecutable(window);
         if (ForegroundApplicationFilter.Classify(executable)
             is not ForegroundApplicationKind.Application)
         {
@@ -197,7 +198,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     /// </remarks>
     private static (string Name, string? Path, uint ProcessId) ResolveExecutable(nint window)
     {
-        _ = NativeMethods.GetWindowThreadProcessId(window, out uint processId);
+        _ = NativeMethods.GetWindowThreadProcessId(window, out var processId);
         if (processId == 0)
         {
             return (string.Empty, null, 0);
@@ -208,7 +209,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
                 ForegroundApplicationFilter.UwpHostWindowClass,
                 StringComparison.Ordinal))
         {
-            uint hosted = FindHostedProcess(window, processId);
+            var hosted = FindHostedProcess(window, processId);
             if (hosted != 0)
             {
                 processId = hosted;
@@ -220,12 +221,12 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
 
     private static uint FindHostedProcess(nint window, uint hostProcessId)
     {
-        uint found = 0U;
+        var found = 0U;
         EnumChildWindows(
             window,
             (child, parameter) =>
             {
-                _ = NativeMethods.GetWindowThreadProcessId(child, out uint childProcessId);
+                _ = NativeMethods.GetWindowThreadProcessId(child, out var childProcessId);
                 if (childProcessId != 0 && childProcessId != hostProcessId)
                 {
                     found = childProcessId;
@@ -246,7 +247,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
         Span<char> buffer = stackalloc char[256];
         fixed (char* pointer = buffer)
         {
-            int length = GetClassNameW(window, pointer, buffer.Length);
+            var length = GetClassNameW(window, pointer, buffer.Length);
             return length > 0 ? new string(pointer, 0, length) : string.Empty;
         }
     }
@@ -256,7 +257,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     // The identifier travels with the path because the RTSS rendering proof matches on it.
     private static (string Name, string? Path, uint ProcessId) ExecutableIdentity(uint processId)
         => NativeShellProcess.TryGetImagePath(processId) is { } path
-            ? (System.IO.Path.GetFileName(path), path, processId)
+            ? (Path.GetFileName(path), path, processId)
             : (string.Empty, null, 0);
 
     private delegate void WinEventProc(

@@ -98,7 +98,7 @@ internal static class SplashStyle
                 or SplashPlacementAnchor.BottomLeft => HorizontalAlignment.Left,
             SplashPlacementAnchor.TopRight or SplashPlacementAnchor.CenterRight
                 or SplashPlacementAnchor.BottomRight => HorizontalAlignment.Right,
-            _ => HorizontalAlignment.Center,
+            _ => HorizontalAlignment.Center
         };
         var vertical = placement.Anchor switch
         {
@@ -106,7 +106,7 @@ internal static class SplashStyle
                 or SplashPlacementAnchor.TopRight => VerticalAlignment.Top,
             SplashPlacementAnchor.BottomLeft or SplashPlacementAnchor.BottomCenter
                 or SplashPlacementAnchor.BottomRight => VerticalAlignment.Bottom,
-            _ => VerticalAlignment.Center,
+            _ => VerticalAlignment.Center
         };
 
         var left = horizontal == HorizontalAlignment.Left ? paddingX : 0;
@@ -119,7 +119,7 @@ internal static class SplashStyle
             IsAbsolute = false,
             HorizontalAlignment = horizontal,
             VerticalAlignment = vertical,
-            Margin = new Thickness(left, top, right, bottom),
+            Margin = new Thickness(left, top, right, bottom)
         };
     }
 }

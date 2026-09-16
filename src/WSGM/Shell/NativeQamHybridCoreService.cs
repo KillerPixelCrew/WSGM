@@ -26,18 +26,18 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
         {
             try
             {
-                HybridCoreStatus status = cores.Read();
+                var status = cores.Read();
                 _requiresRead = false;
                 if (!status.Supported)
                 {
                     // Published as unavailable rather than withheld. No options hides the row, and
                     // the reason still reaches the component host's render outcomes, so an absent
                     // control can be told from a broken one.
-                    return new(false, [], string.Empty,
+                    return new SteamHybridCoreState(false, [], string.Empty,
                         "This processor has one kind of core, so there is nothing to choose.");
                 }
 
-                return new(
+                return new SteamHybridCoreState(
                     true,
                     status.Options.Select(option =>
                         new SteamPowerProfileOption(HybridCores.IdFor(option.Mode), option.Name)).ToArray(),
@@ -49,14 +49,14 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
             catch (Exception ex)
             {
                 _requiresRead = true;
-                return new(false, [], string.Empty, ex.Message);
+                return new SteamHybridCoreState(false, [], string.Empty, ex.Message);
             }
         }
     }));
 
     private static string Describe(HybridCoreStatus status)
     {
-        string cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
+        var cores = $"{status.PerformanceCores} performance and {status.EfficiencyCores} efficiency cores.";
         if (status.OnAc is null || status.OnBattery is null)
         {
             return $"{cores} The current preference was not set by WSGM.";
@@ -86,7 +86,7 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
 
                 try
                 {
-                    HybridCoreStatus status = cores.Read();
+                    var status = cores.Read();
                     if (!status.Supported || !status.Options.Any(offered => offered.Mode == mode))
                     {
                         return new SteamUiCommandResult(

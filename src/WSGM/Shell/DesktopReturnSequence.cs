@@ -25,18 +25,18 @@ internal static class DesktopReturnSequence
     {
         async Task<bool> Attempt(string phase, Func<Task> action)
         {
-            Stopwatch elapsed = Stopwatch.StartNew();
+            var elapsed = Stopwatch.StartNew();
             try { await action().ConfigureAwait(false); return true; }
             catch (Exception ex) { error(phase, ex); return false; }
             finally { trace?.Invoke($"Desktop return: {phase} settled in {elapsed.ElapsedMilliseconds} ms."); }
         }
 
         await Attempt("Leaving Big Picture", backend.ExitBigPictureAsync).ConfigureAwait(false);
-        bool layoutRestored = false;
+        var layoutRestored = false;
         await Attempt("Restoring the desktop layout", async () =>
             layoutRestored = await backend.RestoreLayoutAsync().ConfigureAwait(false)).ConfigureAwait(false);
         await Attempt("Retiring Game Mode", backend.RetireGameModeAsync).ConfigureAwait(false);
-        bool desktopRestored = false;
+        var desktopRestored = false;
         await Attempt("Restoring Explorer", async () =>
             desktopRestored = await backend.RestoreExplorerAsync().ConfigureAwait(false)).ConfigureAwait(false);
         if (desktopRestored)

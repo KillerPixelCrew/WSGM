@@ -15,7 +15,7 @@ internal static class VolumeAppCommands
     {
         // GET_APPCOMMAND_LPARAM(lParam): HIWORD(lParam) without the device bits.
         var raw = unchecked((int)(long)lParam);
-        var command = ((raw >> 16) & 0xFFFF) & AppCommandMask;
+        var command = (raw >> 16) & 0xFFFF & AppCommandMask;
         if (Supported(command) is { } packed)
         {
             return packed;

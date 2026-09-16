@@ -29,7 +29,7 @@ internal enum ModernStandbyOutcome
     TooSoon,
 
     /// <summary>Nothing accounts for the wake. Suspend again.</summary>
-    Resuspend,
+    Resuspend
 }
 
 /// <summary>The decision for one look at an unattended wake.</summary>
@@ -96,11 +96,11 @@ internal static class ModernStandbyPolicy
     {
         if (!enabled)
         {
-            return new(ModernStandbyOutcome.Disabled);
+            return new ModernStandbyDecision(ModernStandbyOutcome.Disabled);
         }
         if (!unattendedResume)
         {
-            return new(ModernStandbyOutcome.UserWoke);
+            return new ModernStandbyDecision(ModernStandbyOutcome.UserWoke);
         }
 
         // The display is the gate that does not depend on Windows counting a device as input.
@@ -109,18 +109,18 @@ internal static class ModernStandbyPolicy
         // hands is the one failure this feature must never produce.
         if (displayOn)
         {
-            return new(ModernStandbyOutcome.DisplayOn);
+            return new ModernStandbyDecision(ModernStandbyOutcome.DisplayOn);
         }
         if (sinceUserInput < sinceWake || sinceUserInput < grace)
         {
-            return new(ModernStandbyOutcome.UserActive);
+            return new ModernStandbyDecision(ModernStandbyOutcome.UserActive);
         }
         if (attempts >= MaximumAttemptsPerWake)
         {
-            return new(ModernStandbyOutcome.AttemptsExhausted);
+            return new ModernStandbyDecision(ModernStandbyOutcome.AttemptsExhausted);
         }
         return sinceWake < grace
-            ? new(ModernStandbyOutcome.TooSoon)
-            : new(ModernStandbyOutcome.Resuspend);
+            ? new ModernStandbyDecision(ModernStandbyOutcome.TooSoon)
+            : new ModernStandbyDecision(ModernStandbyOutcome.Resuspend);
     }
 }

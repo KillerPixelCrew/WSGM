@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -61,7 +62,7 @@ public partial class EjectWindow : Window
         {
             // EjectAsync contains the user-visible error boundary. Detach only
             // after that boundary so no event-handler exception can reach Avalonia.
-            Core.Log.Observe(_drives.EjectAsync(entry), $"eject {entry.Name}");
+            Log.Observe(_drives.EjectAsync(entry), $"eject {entry.Name}");
         }
     }
 

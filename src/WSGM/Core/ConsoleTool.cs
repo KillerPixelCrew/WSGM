@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,7 +17,7 @@ internal enum ConsoleToolRunOutcome
     /// <summary>The process exited with a known failure before the deadline.</summary>
     Failed,
     /// <summary>The process started but its result could not be verified.</summary>
-    Unknown,
+    Unknown
 }
 
 /// <summary>Narrow owned-process surface used to verify bounded console-tool cleanup without
@@ -56,7 +57,7 @@ internal static class ConsoleTool
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System),
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
             });
             if (p is null)
             {
@@ -103,7 +104,7 @@ internal static class ConsoleTool
             cancellationToken,
             static startInfo =>
             {
-                Process? process = Process.Start(startInfo);
+                var process = Process.Start(startInfo);
                 return process is null ? null : new SystemConsoleToolProcess(process);
             });
 
@@ -117,7 +118,7 @@ internal static class ConsoleTool
         Func<ProcessStartInfo, IConsoleToolProcess?> startProcess)
     {
         ArgumentNullException.ThrowIfNull(startProcess);
-        string what = $"{exe} {FirstToken(arguments)}";
+        var what = $"{exe} {FirstToken(arguments)}";
         var processStarted = false;
         cancellationToken.ThrowIfCancellationRequested();
         if (deadline <= DateTimeOffset.UtcNow)
@@ -128,11 +129,11 @@ internal static class ConsoleTool
 
         try
         {
-            using IConsoleToolProcess? process = startProcess(new ProcessStartInfo(exe, arguments)
+            using var process = startProcess(new ProcessStartInfo(exe, arguments)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System),
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
             });
             if (process is null)
             {
@@ -141,7 +142,7 @@ internal static class ConsoleTool
             }
             processStarted = true;
 
-            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            var remaining = deadline - DateTimeOffset.UtcNow;
             using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             waitCancellation.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
             try
@@ -219,7 +220,7 @@ internal static class ConsoleTool
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System),
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
             });
             if (p is null)
             {
@@ -230,7 +231,7 @@ internal static class ConsoleTool
             // the caller waits on the other deadlocks otherwise.
             var stdout = p.StandardOutput.ReadToEndAsync();
             var stderr = p.StandardError.ReadToEndAsync();
-            using var cts = new System.Threading.CancellationTokenSource(timeoutMs);
+            using var cts = new CancellationTokenSource(timeoutMs);
             try
             {
                 await p.WaitForExitAsync(cts.Token);
@@ -277,7 +278,7 @@ internal static class ConsoleTool
     /// name is resolved from the application directory first, which for a per-user
     /// install is user-writable — an elevated caller must never search it.</summary>
     public static string System32(string exeName) =>
-        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exeName);
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exeName);
 
     internal static string FirstToken(string arguments)
     {
@@ -310,7 +311,7 @@ internal static class ConsoleTool
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
-        TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+        var remaining = deadline - DateTimeOffset.UtcNow;
         if (remaining <= TimeSpan.Zero)
         {
             return;

@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -29,12 +30,12 @@ public partial class OverlayWindow
     // window (KeyboardService), like every other game-mode text field.
     private void OnFormatEditName(object? sender, RoutedEventArgs e)
     {
-        if (!Core.KeyboardService.Request("Name (volume and Steam library)",
+        if (!KeyboardService.Request("Name (volume and Steam library)",
                 _formatName, 32, SetFormatName))
         {
             // No keyboard window means no way to type on a controller; say so instead
             // of leaving a row that silently does nothing when pressed.
-            Core.Log.Warn("Format: no on-screen keyboard available for the library name.");
+            Log.Warn("Format: no on-screen keyboard available for the library name.");
         }
     }
 
@@ -62,7 +63,7 @@ public partial class OverlayWindow
         _pendingTarget = entry;
         FormatConfirmTarget.Text = $"Erase {entry.Name}?";
         FormatConfirmDetail.Text = entry.Detail;
-        SetFormatName(Shell.SdFormatManager.DefaultLabel);
+        SetFormatName(SdFormatManager.DefaultLabel);
         ShowFormatState(pick: false, confirm: true, progress: false);
         FocusFirstControl(FormatConfirmView);
     }
@@ -85,8 +86,8 @@ public partial class OverlayWindow
 
     private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubViewToOrigin();
 
-    private Shell.LibraryTabManager? _libraryTabs;
-    private Shell.LibraryTabManager LibraryTabs => _libraryTabs ??= new Shell.LibraryTabManager();
+    private LibraryTabManager? _libraryTabs;
+    private LibraryTabManager LibraryTabs => _libraryTabs ??= new LibraryTabManager();
 
     // Debounce for the on-open auto-sync, shared across overlay instances (the
     // window is recreated per open). Auto-sync keeps card and category tabs current
@@ -188,10 +189,10 @@ public partial class OverlayWindow
         // DIY Steam machines, where the user has a pointer. Not gamepad-driven —
         // the format flow is the controller-only path.
         var folders = await StorageProvider.OpenFolderPickerAsync(
-            new Avalonia.Platform.Storage.FolderPickerOpenOptions
+            new FolderPickerOpenOptions
             {
                 Title = "Choose a folder for the Steam library",
-                AllowMultiple = false,
+                AllowMultiple = false
             });
         if (folders.Count == 0)
         {

@@ -4,8 +4,11 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Loader;
+using Windows.Foundation;
+using WinRT;
 using WSGM.Core;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
@@ -37,13 +40,13 @@ internal sealed class PluginPackageLoader : IDisposable
             throw new InvalidDataException("The installed device package is not valid.");
         }
 
-        string root = Path.GetFullPath(package.PackagePath);
+        var root = Path.GetFullPath(package.PackagePath);
         if (!Directory.Exists(root))
         {
             throw new DirectoryNotFoundException("The plugin package directory is missing.");
         }
 
-        string entryPath = ConstrainPackagePath(root, package.Manifest.EntryAssembly);
+        var entryPath = ConstrainPackagePath(root, package.Manifest.EntryAssembly);
         if (!File.Exists(entryPath))
         {
             throw new FileNotFoundException("The plugin entry point is missing.", entryPath);
@@ -54,18 +57,18 @@ internal sealed class PluginPackageLoader : IDisposable
         try
         {
             Assembly assembly;
-            using (FileStream entry = File.OpenRead(entryPath))
+            using (var entry = File.OpenRead(entryPath))
             {
                 // Loading the entry image from a stream avoids pinning the installed DLL for the
                 // lifetime of the collectible context. The plugin can therefore be replaced as
                 // soon as its lifecycle is quiescent; dependencies still resolve package-locally.
                 assembly = context.LoadFromStream(entry);
             }
-            Type entryType = assembly.GetType(
-                package.Manifest.EntryType,
-                throwOnError: false,
-                ignoreCase: false)
-                ?? throw new InvalidDataException("The declared plugin entry type was not found.");
+            var entryType = assembly.GetType(
+                                package.Manifest.EntryType,
+                                throwOnError: false,
+                                ignoreCase: false)
+                            ?? throw new InvalidDataException("The declared plugin entry type was not found.");
             if (!entryType.IsPublic
                 || entryType.IsAbstract
                 || entryType.IsInterface
@@ -146,9 +149,9 @@ internal sealed class PluginPackageLoader : IDisposable
             throw new InvalidDataException("Package paths must be non-empty and relative.");
         }
 
-        string rootPrefix = packageRoot.TrimEnd(Path.DirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        string candidate = Path.GetFullPath(Path.Combine(packageRoot, relativePath));
+        var rootPrefix = packageRoot.TrimEnd(Path.DirectorySeparatorChar)
+                         + Path.DirectorySeparatorChar;
+        var candidate = Path.GetFullPath(Path.Combine(packageRoot, relativePath));
         if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("A package path escaped the package directory.");
@@ -180,10 +183,10 @@ internal sealed class PluginPackageLoader : IDisposable
         private static readonly Dictionary<string, Assembly> HostOwned = new(StringComparer.Ordinal)
         {
             [SdkName] = typeof(IDevicePlugin).Assembly,
-            [typeof(WSGM.Plugin.Sdk.IPlugin).Assembly.GetName().Name!] = typeof(WSGM.Plugin.Sdk.IPlugin).Assembly,
-            [typeof(WinRT.IWinRTObject).Assembly.GetName().Name!] = typeof(WinRT.IWinRTObject).Assembly,
-            [typeof(Windows.Foundation.Point).Assembly.GetName().Name!] =
-                typeof(Windows.Foundation.Point).Assembly,
+            [typeof(IPlugin).Assembly.GetName().Name!] = typeof(IPlugin).Assembly,
+            [typeof(IWinRTObject).Assembly.GetName().Name!] = typeof(IWinRTObject).Assembly,
+            [typeof(Point).Assembly.GetName().Name!] =
+                typeof(Point).Assembly
         };
 
         protected override Assembly? Load(AssemblyName assemblyName)
@@ -194,7 +197,7 @@ internal sealed class PluginPackageLoader : IDisposable
             // contract still matches - the manifest apiVersion is the real compatibility gate,
             // not the assembly version. The WinRT pair is pinned for the same reason plus the
             // process-global registration above.
-            if (HostOwned.TryGetValue(assemblyName.Name ?? string.Empty, out Assembly? hostOwned))
+            if (HostOwned.TryGetValue(assemblyName.Name ?? string.Empty, out var hostOwned))
             {
                 return hostOwned;
             }
@@ -208,7 +211,7 @@ internal sealed class PluginPackageLoader : IDisposable
             // for. A version the host cannot satisfy also falls through to the package copy, so
             // a plugin carrying a newer library than WSGM still loads; that duplicate is logged
             // once because it is the case that can bite later.
-            string? path = _resolver.ResolveAssemblyToPath(assemblyName);
+            var path = _resolver.ResolveAssemblyToPath(assemblyName);
             try
             {
                 return Default.LoadFromAssemblyName(assemblyName);
@@ -237,7 +240,7 @@ internal sealed class PluginPackageLoader : IDisposable
 
         protected override nint LoadUnmanagedDll(string unmanagedDllName)
         {
-            string? path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            var path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
             if (path is null)
             {
                 return nint.Zero;
@@ -249,9 +252,9 @@ internal sealed class PluginPackageLoader : IDisposable
 
         private void EnsurePackagePath(string path)
         {
-            string rootPrefix = _packageRoot.TrimEnd(Path.DirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            string fullPath = Path.GetFullPath(path);
+            var rootPrefix = _packageRoot.TrimEnd(Path.DirectorySeparatorChar)
+                             + Path.DirectorySeparatorChar;
+            var fullPath = Path.GetFullPath(path);
             if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException(

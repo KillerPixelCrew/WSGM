@@ -42,27 +42,27 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(issues);
-        NoFollowPackageSource source = NoFollowPackageSource.Open(root);
+        var source = NoFollowPackageSource.Open(root);
         DeviceLabPackageSnapshot snapshot = new(source, issues);
         try
         {
             Stack<string> pending = new();
             pending.Push(source.RootPath);
-            int entryCount = 0;
-            int fileCount = 0;
+            var entryCount = 0;
+            var fileCount = 0;
             long totalBytes = 0;
             while (pending.Count > 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string directory = pending.Pop();
-                IReadOnlyList<string> entries = TakeBoundedEntries(
+                var directory = pending.Pop();
+                var entries = TakeBoundedEntries(
                     Directory.EnumerateFileSystemEntries(directory),
                     PluginPackageWorkflow.MaximumPackageEntries - entryCount,
                     cancellationToken,
-                    out bool exceeded);
+                    out var exceeded);
                 if (exceeded)
                 {
-                    string relative = Path.GetRelativePath(source.RootPath, directory).Replace('\\', '/');
+                    var relative = Path.GetRelativePath(source.RootPath, directory).Replace('\\', '/');
                     issues.Add(new PluginPackageValidationIssue(
                         "package-too-many-entries",
                         relative is "." ? string.Empty : relative,
@@ -70,12 +70,12 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
                     return snapshot;
                 }
 
-                foreach (string path in entries.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                foreach (var path in entries.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     entryCount++;
-                    string relative = Path.GetRelativePath(source.RootPath, path).Replace('\\', '/');
-                    using NoFollowPackageSourceEntry entry = source.OpenEntry(path);
+                    var relative = Path.GetRelativePath(source.RootPath, path).Replace('\\', '/');
+                    using var entry = source.OpenEntry(path);
                     if (entry.IsReparsePoint)
                     {
                         issues.Add(new PluginPackageValidationIssue(
@@ -92,7 +92,7 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
                         continue;
                     }
 
-                    string? violation = PluginPackageWorkflow.PackageBudgetViolation(
+                    var violation = PluginPackageWorkflow.PackageBudgetViolation(
                         fileCount,
                         totalBytes,
                         entry.Length);
@@ -148,7 +148,7 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentOutOfRangeException.ThrowIfNegative(remaining);
         List<string> accepted = new(Math.Min(remaining, 256));
-        using IEnumerator<string> enumerator = entries.GetEnumerator();
+        using var enumerator = entries.GetEnumerator();
         while (accepted.Count < remaining)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -174,7 +174,7 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
         }
 
         _disposed = true;
-        foreach (DeviceLabPackageFile file in _files.Values)
+        foreach (var file in _files.Values)
         {
             file.Dispose();
         }
@@ -218,7 +218,7 @@ internal sealed class DeviceLabPackageFile : IDisposable
         }
 
         Rewind();
-        byte[] owned = new byte[(int)Length];
+        var owned = new byte[(int)Length];
         _stream.ReadExactly(owned);
         bytes = owned;
         return true;
@@ -245,7 +245,7 @@ internal sealed partial class NoFollowPackageSource : IDisposable
     /// <summary>Opens and pins every existing source ancestor through the package root.</summary>
     internal static NoFollowPackageSource Open(string path)
     {
-        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         Stack<string> ancestors = [];
         DirectoryInfo? current = new(root);
         while (current is not null)
@@ -259,8 +259,8 @@ internal sealed partial class NoFollowPackageSource : IDisposable
         {
             while (ancestors.Count > 0)
             {
-                string ancestor = ancestors.Pop();
-                using NoFollowPackageSourceEntry entry = OpenEntryCore(ancestor);
+                var ancestor = ancestors.Pop();
+                using var entry = OpenEntryCore(ancestor);
                 if (entry.IsReparsePoint)
                 {
                     throw new InvalidDataException("Package source may not traverse a link or reparse point.");
@@ -308,7 +308,7 @@ internal sealed partial class NoFollowPackageSource : IDisposable
         }
 
         _disposed = true;
-        for (int index = _directoryHandles.Count - 1; index >= 0; index--)
+        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
         {
             _directoryHandles[index].Dispose();
         }
@@ -317,23 +317,23 @@ internal sealed partial class NoFollowPackageSource : IDisposable
 
     private static NoFollowPackageSourceEntry OpenEntryCore(string path)
     {
-        SafeFileHandle? probe = OpenPath(
+        var probe = OpenPath(
             path,
             FileReadAttributes,
             FileShareRead | FileShareWrite,
             FileFlagBackupSemantics | FileFlagOpenReparsePoint);
         if (probe.IsInvalid)
         {
-            int error = Marshal.GetLastPInvokeError();
+            var error = Marshal.GetLastPInvokeError();
             probe.Dispose();
             throw NativeIoException("open", path, error);
         }
 
         try
         {
-            NativeEntryInformation probeInformation = ReadInformation(probe, path);
-            bool isDirectory = (probeInformation.Attributes & FileAttributeDirectory) != 0;
-            bool isReparsePoint = (probeInformation.Attributes & FileAttributeReparsePoint) != 0;
+            var probeInformation = ReadInformation(probe, path);
+            var isDirectory = (probeInformation.Attributes & FileAttributeDirectory) != 0;
+            var isReparsePoint = (probeInformation.Attributes & FileAttributeReparsePoint) != 0;
             if (isDirectory || isReparsePoint)
             {
                 NoFollowPackageSourceEntry result = new(
@@ -345,7 +345,7 @@ internal sealed partial class NoFollowPackageSource : IDisposable
                 return result;
             }
 
-            SafeFileHandle? readHandle = OpenPath(
+            var readHandle = OpenPath(
                 path,
                 GenericRead,
                 FileShareRead,
@@ -357,7 +357,7 @@ internal sealed partial class NoFollowPackageSource : IDisposable
                     throw NativeIoException("open for reading", path, Marshal.GetLastPInvokeError());
                 }
 
-                NativeEntryInformation readInformation = ReadInformation(readHandle, path);
+                var readInformation = ReadInformation(readHandle, path);
                 if (readInformation.Identity != probeInformation.Identity
                     || (readInformation.Attributes & (FileAttributeDirectory | FileAttributeReparsePoint)) != 0)
                 {
@@ -386,12 +386,12 @@ internal sealed partial class NoFollowPackageSource : IDisposable
 
     private static NativeEntryInformation ReadInformation(SafeFileHandle handle, string path)
     {
-        if (!GetFileInformationByHandle(handle, out ByHandleFileInformation information))
+        if (!GetFileInformationByHandle(handle, out var information))
         {
             throw NativeIoException("inspect", path, Marshal.GetLastPInvokeError());
         }
 
-        ulong length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
+        var length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
         if (length > long.MaxValue)
         {
             throw new InvalidDataException($"Package source entry is too large: '{path}'.");
@@ -407,12 +407,12 @@ internal sealed partial class NoFollowPackageSource : IDisposable
 
     private static Exception NativeIoException(string operation, string path, int error)
     {
-        string message = $"Could not {operation} package source path '{path}'.";
+        var message = $"Could not {operation} package source path '{path}'.";
         return error switch
         {
             2 or 3 => new DirectoryNotFoundException(message),
             5 => new UnauthorizedAccessException(message, new Win32Exception(error)),
-            _ => new IOException(message, new Win32Exception(error)),
+            _ => new IOException(message, new Win32Exception(error))
         };
     }
 
@@ -509,8 +509,8 @@ internal sealed class NoFollowPackageSourceEntry : IDisposable
     /// <summary>Transfers the retained native handle.</summary>
     internal SafeFileHandle TakeHandle()
     {
-        SafeFileHandle handle = _handle
-            ?? throw new ObjectDisposedException(nameof(NoFollowPackageSourceEntry));
+        var handle = _handle
+                     ?? throw new ObjectDisposedException(nameof(NoFollowPackageSourceEntry));
         _handle = null;
         return handle;
     }

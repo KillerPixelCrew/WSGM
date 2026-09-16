@@ -132,7 +132,7 @@ public sealed class OverlayViewModel : ObservableObject
         ManualWakeMode.Standby => "Standby blocked until you turn this off",
         _ when KeepAwakeDownloadActive => "Held awake while Steam downloads",
         _ when WakeLockSummary.Length > 0 => WakeLockSummary,
-        _ => "Off",
+        _ => "Off"
     };
 
     /// <summary>Gets the trailing badge for the keep-awake row ("ON" for a standby
@@ -141,7 +141,7 @@ public sealed class OverlayViewModel : ObservableObject
     {
         ManualWakeMode.StandbyAndDisplay => "ON+",
         ManualWakeMode.Standby => "ON",
-        _ => KeepAwakeDownloadActive ? "ON" : "",
+        _ => KeepAwakeDownloadActive ? "ON" : ""
     };
 
     private string _displayDcTimeout = "—";

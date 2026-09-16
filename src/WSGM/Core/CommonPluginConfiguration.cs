@@ -62,7 +62,7 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
         if (saved is not null && (saved.Revision < 0 || saved.Values is null || saved.Values.Count > 128
             || saved.Values.Any(pair => !PluginConfigurationRules.ValidKey(pair.Key) || !pair.Value.IsValid)))
         { throw new InvalidOperationException("Stored plugin preferences are invalid; preserving them without overwrite."); }
-        return new(saved?.Revision ?? 0, new ReadOnlyDictionary<string, PluginValue>(
+        return new SavedPluginConfiguration(saved?.Revision ?? 0, new ReadOnlyDictionary<string, PluginValue>(
             saved is null ? new Dictionary<string, PluginValue>(StringComparer.Ordinal) : new Dictionary<string, PluginValue>(saved.Values, StringComparer.Ordinal)));
     }
 
@@ -80,7 +80,7 @@ internal sealed class ApplicationPluginConfigurationStore : IPluginConfiguration
             PluginId = identity.PluginId,
             InstanceId = identity.InstanceId,
             Revision = checked(previous.Revision + 1),
-            Values = values,
+            Values = values
         };
         config.PluginConfigurations.RemoveAll(entry => entry is not null && entry.PluginId == identity.PluginId && entry.InstanceId == identity.InstanceId);
         config.PluginConfigurations.Add(saved);

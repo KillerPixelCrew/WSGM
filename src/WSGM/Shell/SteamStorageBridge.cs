@@ -120,7 +120,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // only thing that relates a volume to the disk under it: the format manager knows a card by
         // its disk number and the drive manager knows it by its device instance path, and nothing
         // else can say those describe the same card.
-        IReadOnlyList<StorageVolume> volumes = WindowsStorage.DescribeVolumes();
+        var volumes = WindowsStorage.DescribeVolumes();
 
         // One drive row per format target, because that is the manager that knows a disk by number
         // and can say whether it is erasable at all.
@@ -138,7 +138,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // Ejectable volumes, which may or may not correspond to a format target. An eject row with
         // no matching drive still has to appear: a USB stick is ejectable and not a format target.
         var devices = new List<SteamStorageBlockDevice>();
-        foreach (RemovableDriveEntry entry in ejectable)
+        foreach (var entry in ejectable)
         {
             if (entry.Ejected)
             {
@@ -148,13 +148,13 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             // The parent drive is zero rather than a guess when nothing erasable matches: Steam
             // reads it to decide which drive a volume belongs under, and a wrong parent puts the
             // volume on the wrong row. A USB stick with no format target has no parent here.
-            IReadOnlyList<string> paths = SplitLetters(entry.Letters);
+            var paths = SplitLetters(entry.Letters);
             // Label is the volume's, not the device's product name: Steam shows it as the row's own
             // name under the drive carrying it, so "SDCard1" belongs here and "Realtek PCIE
             // CardReader" on the drive above. Size is the volume's for the same reason — the
             // entry's is the whole device's, which would report one size on every partition.
-            StorageVolume? volume = paths.Count == 0 ? null : FindVolume(volumes, paths[0]);
-            IReadOnlyList<string> libraries = paths.Count == 0 ? [] : LibraryPathsOn(paths[0]);
+            var volume = paths.Count == 0 ? null : FindVolume(volumes, paths[0]);
+            var libraries = paths.Count == 0 ? [] : LibraryPathsOn(paths[0]);
             devices.Add(new SteamStorageBlockDevice(
                 Id: DeviceId(entry.Id),
                 DriveId: MatchingDrive(volume, formattable),
@@ -169,7 +169,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // adopt support. Unmount is reported against the rows that can actually be ejected rather
         // than against the drive list, because a machine with a formattable disk and nothing
         // ejectable would otherwise offer an eject with no row behind it.
-        bool unmountSupported = devices.Count > 0;
+        var unmountSupported = devices.Count > 0;
         LogProjection(drives, devices, adoptSupported: true, unmountSupported);
 
         // Trim is offered whenever there is a mounted volume to trim; whether this reader passes
@@ -191,11 +191,11 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// be bridged somewhere. Assigning numbers here, stably and from one, keeps the managers
     /// unchanged and keeps the mapping in the one place that also resolves it back.
     /// </remarks>
-    private uint DriveId(string id) => _driveIds.TryGetValue(id, out uint existing)
+    private uint DriveId(string id) => _driveIds.TryGetValue(id, out var existing)
         ? existing
         : _driveIds[id] = (uint)(_driveIds.Count + _deviceIds.Count + 1);
 
-    private uint DeviceId(string id) => _deviceIds.TryGetValue(id, out uint existing)
+    private uint DeviceId(string id) => _deviceIds.TryGetValue(id, out var existing)
         ? existing
         : _deviceIds[id] = (uint)(_driveIds.Count + _deviceIds.Count + 1);
 
@@ -218,7 +218,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             return 0;
         }
 
-        FormatTargetEntry? match = targets.FirstOrDefault(
+        var match = targets.FirstOrDefault(
             target => target.DiskNumber == volume.DiskNumber);
         return match is null ? 0 : DriveId(match.Id);
     }
@@ -289,12 +289,12 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// </remarks>
     private static bool CarriesLibraryMarker(IReadOnlyList<string> paths)
     {
-        foreach (string path in paths)
+        foreach (var path in paths)
         {
             try
             {
                 if (SteamLibraryVdf.TryReadMarkerContentId(
-                        Path.Combine(path, "SteamLibrary"), out string? contentId)
+                        Path.Combine(path, "SteamLibrary"), out var contentId)
                     && !string.IsNullOrWhiteSpace(contentId))
                 {
                     return true;
@@ -330,7 +330,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// </remarks>
     private static IReadOnlyList<string> LibraryPathsOn(string path)
     {
-        string root = SteamLibraryVdf.VolumeRoot(path);
+        var root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
         {
             return [];
@@ -338,7 +338,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
         try
         {
-            if (!Steam.TryReadLibraryFolders(out _, out string? vdf) || vdf is null)
+            if (!Steam.TryReadLibraryFolders(out _, out var vdf) || vdf is null)
             {
                 return [];
             }
@@ -371,14 +371,14 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     {
         Log.Info($"Steam storage: adopt requested (drive {driveId}, label '{label}', "
             + $"validate={validate}).");
-        FormatTargetEntry? target = FindTarget(driveId);
+        var target = FindTarget(driveId);
         if (target is null)
         {
             Log.Warn($"Steam storage: adopt refused, no disk answers to drive {driveId}.");
             return Refuse("That drive is no longer present.");
         }
 
-        string? path = FirstMountPath(driveId);
+        var path = FirstMountPath(driveId);
         if (path is null)
         {
             // Nothing mountable on it: this is the erase-and-register adopt.
@@ -434,8 +434,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
         // The volume is preferred: it is what Windows ejects. A drive-level press is resolved to
         // the volume sitting on it, because the managers only eject volumes and devices.
-        string? id = ResolveDevice(blockDeviceId) ?? ResolveDrive(driveId);
-        RemovableDriveEntry? entry = id is null
+        var id = ResolveDevice(blockDeviceId) ?? ResolveDrive(driveId);
+        var entry = id is null
             ? null
             : _drives.Drives.FirstOrDefault(drive => drive.Id == id);
         if (entry is null)
@@ -475,7 +475,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 "Formatting from Steam's pages is switched off in WSGM Settings.");
         }
 
-        FormatTargetEntry? target = FindTarget(driveId);
+        var target = FindTarget(driveId);
         if (target is null)
         {
             return Refuse("That drive is no longer present.");
@@ -523,8 +523,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         _trimRunning = true;
         try
         {
-            int trimmed = 0;
-            foreach (char letter in letters)
+            var trimmed = 0;
+            foreach (var letter in letters)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (await _formats.TrimAsync(letter).ConfigureAwait(false))
@@ -561,7 +561,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
     private FormatTargetEntry? FindTarget(uint driveId)
     {
-        string? id = ResolveDrive(driveId);
+        var id = ResolveDrive(driveId);
         return id is null ? null : _formats.Targets.FirstOrDefault(target => target.Id == id);
     }
 
@@ -576,13 +576,13 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// </remarks>
     private string? FirstMountPath(uint driveId)
     {
-        FormatTargetEntry? target = FindTarget(driveId);
+        var target = FindTarget(driveId);
         if (target is null)
         {
             return null;
         }
 
-        StorageVolume? volume = WindowsStorage.DescribeVolumes()
+        var volume = WindowsStorage.DescribeVolumes()
             .FirstOrDefault(candidate => candidate.Ready && candidate.DiskNumber == target.DiskNumber);
         return volume?.MountPath;
     }

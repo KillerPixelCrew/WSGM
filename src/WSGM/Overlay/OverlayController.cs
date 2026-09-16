@@ -1,13 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Interop;
 using WSGM.Settings;
 using WSGM.Shell;
+using WSGM.Themes;
 
 namespace WSGM.Overlay;
 
@@ -37,8 +46,8 @@ public sealed class OverlayController : IDisposable
             CloseOverlay();
             await closed.Task;
             if (_disposed) { return; }
-            bool shown = ShowOnScreenKeyboard is { } show
-                && await show(CancellationToken.None);
+            var shown = ShowOnScreenKeyboard is { } show
+                        && await show(CancellationToken.None);
             if (!shown && !_disposed) { WarnOrReopen("On-screen keyboard unavailable. Check Steam or Windows touch keyboard."); }
         }
         catch (Exception ex)
@@ -83,13 +92,13 @@ public sealed class OverlayController : IDisposable
     /// is closed, and a manager the taskbar disposes cannot serve them. Two managers would also
     /// enumerate every volume twice and could disagree about what is still ejectable.
     /// </remarks>
-    private readonly Shell.RemovableDriveManager? _sessionDrives;
+    private readonly RemovableDriveManager? _sessionDrives;
 
     /// <summary>
     /// The session's display-off timeouts, shared with Steam's Screensaver settings, or null when the
     /// controller has no session behind it.
     /// </summary>
-    private readonly Shell.DisplayTimeouts? _displayTimeouts;
+    private readonly DisplayTimeouts? _displayTimeouts;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
 
@@ -119,7 +128,7 @@ public sealed class OverlayController : IDisposable
     private AppSwitcherViewModel? _switcherViewModel;
     private SystemStatus? _systemStatus;
     private WindowIconCache? _iconCache;
-    private Avalonia.Threading.DispatcherTimer? _switcherRefresh;
+    private DispatcherTimer? _switcherRefresh;
     private int _switcherRefreshInFlight;
     private TrayHost? _trayHost;
     private string _pendingWarning = "";
@@ -150,9 +159,9 @@ public sealed class OverlayController : IDisposable
         RadioManager? radios = null,
         DevicePowerPresets? powerPresets = null,
         DevicePowerAssignments? powerAssignments = null,
-        Shell.RemovableDriveManager? drives = null,
-        Shell.SdFormatManager? formats = null,
-        Shell.DisplayTimeouts? displayTimeouts = null)
+        RemovableDriveManager? drives = null,
+        SdFormatManager? formats = null,
+        DisplayTimeouts? displayTimeouts = null)
     {
         _sources = sources ?? new OverlaySources();
         _displayTimeouts = displayTimeouts;
@@ -246,7 +255,7 @@ public sealed class OverlayController : IDisposable
         SteamMenu,
 
         /// <summary>Steam Big Picture's right-side Quick Access Menu opens.</summary>
-        SteamQuickAccess,
+        SteamQuickAccess
     }
 
     private void OnSwipeTriggered(ScreenEdge edge)
@@ -307,20 +316,20 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    private Shell.SdFormatManager? _formatManager;
+    private SdFormatManager? _formatManager;
 
     /// <summary>The shared removable-storage format manager backing the Tools
     /// tab's Format SD Card / Add Steam Library flow. Created on first use and
     /// kept for the controller's lifetime so a format survives the overlay
     /// closing; a completion reached while the overlay is closed surfaces
     /// through the warning bar on the next open.</summary>
-    private Shell.SdFormatManager FormatManager
+    private SdFormatManager FormatManager
     {
         get
         {
             if (_formatManager is null)
             {
-                _formatManager = new Shell.SdFormatManager();
+                _formatManager = new SdFormatManager();
                 _formatManager.Finished += OnFormatFinished;
             }
             return _formatManager;
@@ -329,7 +338,7 @@ public sealed class OverlayController : IDisposable
 
     private void OnFormatFinished(string message, bool success)
     {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(() =>
         {
             // While the overlay is open the sub-view already shows the outcome.
             // If it was closed mid-format (the run outlives the window), reopen
@@ -365,7 +374,7 @@ public sealed class OverlayController : IDisposable
         // gamepad's DispatcherTimer with no marshalling of its own. ShellSession's
         // debounced config watcher already posts it; the Post below only keeps the
         // accent re-apply safe for this public entry point.
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => Themes.AccentPalette.Apply(Avalonia.Application.Current!, Themes.AccentPalette.Parse(config.AccentColor)));
+        Dispatcher.UIThread.Post(() => AccentPalette.Apply(Application.Current!, AccentPalette.Parse(config.AccentColor)));
         _modes.ApplyConfig(config);
         _hotkey.Apply(config.Hotkey);
         _chordWatcher.ApplyConfig(config.GamepadChord);
@@ -452,7 +461,7 @@ public sealed class OverlayController : IDisposable
 
     private void OnSteamInputRecoveryWarning(string warning)
     {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(() =>
         {
             if (!_disposed)
             {
@@ -495,7 +504,7 @@ public sealed class OverlayController : IDisposable
     /// <summary>Mirrors keep-awake hold changes (poll loop or toggle, any thread)
     /// into an open panel's view model.</summary>
     private void OnKeepAwakeStateChanged()
-        => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        => Dispatcher.UIThread.Post(() =>
         {
             if (_disposed || _overlayViewModel is null || _keepAwake is null)
             {
@@ -508,7 +517,7 @@ public sealed class OverlayController : IDisposable
     /// <summary>Mirrors a display timeout chosen in Steam's Screensaver settings, or a new bound from
     /// Steam's screensaver timeout, into an open panel's view model.</summary>
     private void OnDisplayTimeoutsChanged()
-        => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        => Dispatcher.UIThread.Post(() =>
         {
             if (!_disposed && _overlayViewModel is { } vm)
             {
@@ -522,7 +531,7 @@ public sealed class OverlayController : IDisposable
             ? $"Idle time before the display turns off; at least {PowerTimeouts.Describe(minimum)} for Steam's screensaver"
             : OverlayViewModel.DisplayTimeoutDescription;
 
-    private Avalonia.Threading.DispatcherTimer? _wakeLockRefresh;
+    private DispatcherTimer? _wakeLockRefresh;
     private string? _lastWakeLockError;
 
     /// <summary>Polls the system-wide power-request list into the Keep Awake row's
@@ -538,9 +547,9 @@ public sealed class OverlayController : IDisposable
         {
             // Parameterless ctor + explicit Start (the 3-arg ctor auto-starts and
             // defeats IsEnabled guards — device-verified invariant).
-            _wakeLockRefresh = new Avalonia.Threading.DispatcherTimer
+            _wakeLockRefresh = new DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(1500),
+                Interval = TimeSpan.FromMilliseconds(1500)
             };
             _wakeLockRefresh.Tick += (_, _) => RefreshWakeLockIndicator();
         }
@@ -564,7 +573,7 @@ public sealed class OverlayController : IDisposable
         _wakeLockQueryRunning = true;
         try
         {
-            var (entries, error) = await Task.Run(WindowsDeviceControl.PowerRequestList.Query);
+            var (entries, error) = await Task.Run(PowerRequestList.Query);
             if (_disposed || _overlay is not { } overlay || _overlayViewModel is not { } viewModel)
             {
                 return;
@@ -599,7 +608,7 @@ public sealed class OverlayController : IDisposable
     /// "Test panel" pressed twice) claims the lease under its own name, so the
     /// outgoing controller's release cannot drop the live surface's lease.</summary>
     private readonly string _leaseOwner =
-        $"overlay-controller#{System.Threading.Interlocked.Increment(ref _nextLeaseOwnerId)}";
+        $"overlay-controller#{Interlocked.Increment(ref _nextLeaseOwnerId)}";
 
     /// <summary>Feeds one canonical sample from the plugin into WSGM's own navigation.</summary>
     /// <param name="sample">The sample, already filtered for UI consumption by the manager.</param>
@@ -730,7 +739,7 @@ public sealed class OverlayController : IDisposable
             }
             else
             {
-                NativeMethods.GetWindowThreadProcessId(entry.Hwnd, out uint pid);
+                NativeMethods.GetWindowThreadProcessId(entry.Hwnd, out var pid);
                 if (pid == entry.ProcessId) { WindowFinder.BringToForeground(entry.Hwnd); }
             }
         }
@@ -745,7 +754,7 @@ public sealed class OverlayController : IDisposable
 
     private static void StartTaskManager()
     {
-        var taskmgr = System.IO.Path.Combine(
+        var taskmgr = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
         // ShellExecute-open: Taskmgr auto-elevates through its own manifest.
         if (!AppLauncher.Open(taskmgr).Started)
@@ -768,7 +777,7 @@ public sealed class OverlayController : IDisposable
         {
             // Only the real System32 Task Manager qualifies — never promote a
             // same-named exe running from elsewhere to the foreground.
-            var expected = System.IO.Path.Combine(
+            var expected = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
             var pids = WindowFinder.FindProcessIds("Taskmgr");
             pids.RemoveWhere(pid => !WindowFinder.ProcessImagePathEquals(pid, expected));
@@ -850,7 +859,7 @@ public sealed class OverlayController : IDisposable
         _pendingTrim = null;
         if (_overlay is null)
         {
-            _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
+            _restoreFocusTo = NativeMethods.GetForegroundWindow();
             _suppressFocusRestore = false;
         }
         AcquireSteamInputLease();
@@ -861,9 +870,9 @@ public sealed class OverlayController : IDisposable
             return;
         }
 
-        long openStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        var openStarted = Stopwatch.GetTimestamp();
         // One process-table scan per open: the view model and the UI scale both need it.
-        bool explorerRunning = ExplorerControl.IsRunningInSession();
+        var explorerRunning = ExplorerControl.IsRunningInSession();
         var vm = new OverlayViewModel
         {
             ExplorerRunning = explorerRunning,
@@ -874,7 +883,7 @@ public sealed class OverlayController : IDisposable
             ShowKeepAwake = _keepAwake is not null,
             ModeSwitchAvailable = !_previewOnly,
             KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off,
-            KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false,
+            KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false
         };
         ApplyCefVisibility(vm, _config);
         RefreshPowerTimeouts(vm);
@@ -892,7 +901,7 @@ public sealed class OverlayController : IDisposable
         // pills and Steam's own surfaces are the same state rather than two views that can disagree.
         _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios, _sessionDrives);
         _systemStatus.Start();
-        long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
+        var setupDone = Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(explorerRunning), WindowCenter(_restoreFocusTo));
         _overlay.AttachSteamOwnership(SteamOwnership);
         if (_sources.Brightness is { } brightness) { _overlay.AttachBrightness(brightness); }
@@ -917,7 +926,7 @@ public sealed class OverlayController : IDisposable
                 RefreshPowerTimeouts(vm);
             }
         };
-        long constructDone = System.Diagnostics.Stopwatch.GetTimestamp();
+        var constructDone = Stopwatch.GetTimestamp();
         _overlay.AttachDeviceBridge(_sources.Device);
         _overlay.AttachDevicePrerequisites(_sources.DevicePrerequisites);
         _overlay.AttachCommonPlugins(_sources.CommonPlugins);
@@ -968,7 +977,7 @@ public sealed class OverlayController : IDisposable
             OnOverlayClosed();
             throw;
         }
-        long showDone = System.Diagnostics.Stopwatch.GetTimestamp();
+        var showDone = Stopwatch.GetTimestamp();
         LogOpenTimings(openStarted, setupDone, constructDone, showDone);
         RefreshWakeLockIndicator();
         StartWakeLockRefresh();
@@ -1141,7 +1150,7 @@ public sealed class OverlayController : IDisposable
             // gameModeSurface: the window takes over as the on-screen surface and owns
             // the handed-off Steam Input lease, else Steam's desktop profile grabs the
             // pad over Settings.
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            Dispatcher.UIThread.Post(() =>
             {
                 try
                 {
@@ -1260,7 +1269,7 @@ public sealed class OverlayController : IDisposable
         ShowTouchEdges();
         if (reopenForWarning)
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(ShowOverlay);
+            Dispatcher.UIThread.Post(ShowOverlay);
         }
         else
         {
@@ -1273,26 +1282,26 @@ public sealed class OverlayController : IDisposable
     }
 
     private static void LogOpenTimings(long openStarted, long setupDone, long constructDone, long showDone) =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(
+        Dispatcher.UIThread.Post(
             () => Log.Info(
                 "Quick access open timings: setup "
-                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(openStarted, setupDone).TotalMilliseconds:F0} ms, "
-                + $"construct {System.Diagnostics.Stopwatch.GetElapsedTime(setupDone, constructDone).TotalMilliseconds:F0} ms, "
-                + $"show {System.Diagnostics.Stopwatch.GetElapsedTime(constructDone, showDone).TotalMilliseconds:F0} ms, "
-                + $"first frame {System.Diagnostics.Stopwatch.GetElapsedTime(showDone).TotalMilliseconds:F0} ms."),
-            Avalonia.Threading.DispatcherPriority.Background);
+                + $"{Stopwatch.GetElapsedTime(openStarted, setupDone).TotalMilliseconds:F0} ms, "
+                + $"construct {Stopwatch.GetElapsedTime(setupDone, constructDone).TotalMilliseconds:F0} ms, "
+                + $"show {Stopwatch.GetElapsedTime(constructDone, showDone).TotalMilliseconds:F0} ms, "
+                + $"first frame {Stopwatch.GetElapsedTime(showDone).TotalMilliseconds:F0} ms."),
+            DispatcherPriority.Background);
 
-    private static Avalonia.PixelPoint? WindowCenter(nint window)
+    private static PixelPoint? WindowCenter(nint window)
     {
-        if (window == 0 || !Interop.NativeMethods.GetWindowRect(window, out var rect)
+        if (window == 0 || !NativeMethods.GetWindowRect(window, out var rect)
             || rect.Right <= rect.Left || rect.Bottom <= rect.Top)
         {
             return null;
         }
 
-        return new Avalonia.PixelPoint(
-            rect.Left + ((rect.Right - rect.Left) / 2),
-            rect.Top + ((rect.Bottom - rect.Top) / 2));
+        return new PixelPoint(
+            rect.Left + (rect.Right - rect.Left) / 2,
+            rect.Top + (rect.Bottom - rect.Top) / 2);
     }
 
     /// <summary>The bottom-swipe entry: the sheet, with controller focus landing on
@@ -1303,8 +1312,8 @@ public sealed class OverlayController : IDisposable
         ShowOverlay();
         // Background priority: after the window's own Opened focus (DefaultFocusTarget)
         // AND the first layout pass, which is what realizes the chip buttons.
-        Avalonia.Threading.Dispatcher.UIThread.Post(
-            () => _overlay?.FocusOpenApps(), Avalonia.Threading.DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(
+            () => _overlay?.FocusOpenApps(), DispatcherPriority.Background);
     }
 
     /// <summary>Opens the sheet on its Open apps strip, or closes it when it is up — the
@@ -1382,20 +1391,20 @@ public sealed class OverlayController : IDisposable
                 // and survives its close — proven by the second open being a fresh window that is
                 // already fast. Priming it here moves that ~0.5 s off the user's first swipe. The
                 // topmost sheet is parked at a negative origin so the warm frame never flashes.
-                Position = new Avalonia.PixelPoint(-32000, -32000),
-                ShowInTaskbar = false,
+                Position = new PixelPoint(-32000, -32000),
+                ShowInTaskbar = false
             };
             window.Show();
             // Let one full render pass complete before tearing the warm window down, then free
             // it — the primed backend and caches are process-global and outlive it.
-            Avalonia.Threading.Dispatcher.UIThread.Post(
+            Dispatcher.UIThread.Post(
                 () =>
                 {
                     window.Close();
                     status.Dispose();
                     Log.Info("Quick access sheet warmed for first open.");
                 },
-                Avalonia.Threading.DispatcherPriority.Background);
+                DispatcherPriority.Background);
         }
         catch (Exception ex)
         {
@@ -1479,7 +1488,7 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    private static bool HitsWindow(Avalonia.Controls.Window window, int x, int y)
+    private static bool HitsWindow(Window window, int x, int y)
     {
         if (double.IsNaN(window.Width) || double.IsNaN(window.Height))
         {
@@ -1487,11 +1496,11 @@ public sealed class OverlayController : IDisposable
             // that is still coming up.
             return true;
         }
-        return WindowRect(window).Contains(new Avalonia.PixelPoint(x, y));
+        return WindowRect(window).Contains(new PixelPoint(x, y));
     }
 
     /// <summary>The window's screen rectangle in physical pixels — the space raw touch reports in.</summary>
-    private static Avalonia.PixelRect WindowRect(Avalonia.Controls.Window window)
+    private static PixelRect WindowRect(Window window)
     {
         // Window scaling, not the screens cache — the cache reports the
         // pre-game-mode factor after the runtime display-scale flip, which
@@ -1499,7 +1508,7 @@ public sealed class OverlayController : IDisposable
         var scaling = StatusPanel.CurrentWindowScale(window);
         var w = (int)Math.Ceiling(window.Width * scaling);
         var h = (int)Math.Ceiling(window.Height * scaling);
-        return new Avalonia.PixelRect(window.Position, new Avalonia.PixelSize(w, h));
+        return new PixelRect(window.Position, new PixelSize(w, h));
     }
 
     /// <summary>Keeps the sheet from taking activation away from an open status panel on a mouse
@@ -1581,9 +1590,9 @@ public sealed class OverlayController : IDisposable
                 _navigation.IsEnabled = true;
             }
             overlay.Activate();
-            overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+            overlay.DefaultFocusTarget.Focus(NavigationMethod.Directional);
             // Keep the activation reset suppressed through the handoff itself.
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => overlay.KeyboardOwnsFocus = false);
+            Dispatcher.UIThread.Post(() => overlay.KeyboardOwnsFocus = false);
         };
         window.Activate();
         window.FocusDefault();
@@ -1614,23 +1623,23 @@ public sealed class OverlayController : IDisposable
             x = Math.Min(Math.Max(x, minX), maxX);
             y = Math.Max(screen.WorkingArea.Y, screen.WorkingArea.Bottom - heightPx - (int)Math.Round(8 * scaling));
         }
-        window.Position = new Avalonia.PixelPoint(x, y);
+        window.Position = new PixelPoint(x, y);
     }
 
     // The keyboard hangs below the sheet's rows, so a Down press at the sheet's
     // bottom edge hands focus over when the keyboard window is open.
-    private void OnOverlayEdge(Avalonia.Input.NavigationDirection direction)
+    private void OnOverlayEdge(NavigationDirection direction)
     {
-        if (direction == Avalonia.Input.NavigationDirection.Down && _keyboardWindow is not null)
+        if (direction == NavigationDirection.Down && _keyboardWindow is not null)
         {
             CrossToKeyboard();
         }
     }
 
     // Crossing off the keyboard's top edge returns to the sheet.
-    private void OnKeyboardEdge(Avalonia.Input.NavigationDirection direction)
+    private void OnKeyboardEdge(NavigationDirection direction)
     {
-        if (direction == Avalonia.Input.NavigationDirection.Up)
+        if (direction == NavigationDirection.Up)
         {
             CrossToSidebar();
         }
@@ -1647,7 +1656,7 @@ public sealed class OverlayController : IDisposable
             _navigation.IsEnabled = false;
         }
         var keyboard = _keyboardWindow;
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(() =>
         {
             if (_keyboardNavigation is not null && _keyboardWindow == keyboard)
             {
@@ -1673,7 +1682,7 @@ public sealed class OverlayController : IDisposable
             _navigation.IsEnabled = true;
         }
         _overlay.Activate();
-        _overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+        _overlay.DefaultFocusTarget.Focus(NavigationMethod.Directional);
     }
 
     private void CloseKeyboardNow()
@@ -1857,7 +1866,7 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>Closes the status panels other than the one about to show, so only one is open.</summary>
-    private void CloseOtherStatusPanels(Avalonia.Controls.Window? keep)
+    private void CloseOtherStatusPanels(Window? keep)
     {
         if (_radioPanel is not null && !ReferenceEquals(_radioPanel, keep))
         {
@@ -1874,7 +1883,7 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>Brings an open status panel back to the front with navigation.</summary>
-    private void ReactivateStatusPanel(Avalonia.Controls.Window panel, GamepadNavigation? navigation)
+    private void ReactivateStatusPanel(Window panel, GamepadNavigation? navigation)
     {
         if (_navigation is not null)
         {
@@ -1986,7 +1995,7 @@ public sealed class OverlayController : IDisposable
     private void OnTrayIconsChanged()
         => _switcherViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
 
-    private System.Collections.Generic.HashSet<uint> _steamPids = [];
+    private HashSet<uint> _steamPids = [];
     private DateTime _steamPidsAtUtc;
 
     /// <summary>Queues an off-thread snapshot of the process/window tables, then reconciles the
@@ -1994,19 +2003,19 @@ public sealed class OverlayController : IDisposable
     /// captured pre-open foreground window.</summary>
     private void RefreshSwitcherEntries()
     {
-        AppSwitcherViewModel? viewModel = _switcherViewModel;
+        var viewModel = _switcherViewModel;
         if (viewModel is null || Interlocked.CompareExchange(ref _switcherRefreshInFlight, 1, 0) != 0)
         {
             return;
         }
 
         var now = DateTime.UtcNow;
-        bool refreshSteamPids = _steamPidsAtUtc == default
-            || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5);
+        var refreshSteamPids = _steamPidsAtUtc == default
+                               || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5);
         HashSet<uint> cachedSteamPids = [.. _steamPids];
-        nint active = _overlay is { IsVisible: true }
+        var active = _overlay is { IsVisible: true }
             ? _restoreFocusTo
-            : Interop.NativeMethods.GetForegroundWindow();
+            : NativeMethods.GetForegroundWindow();
         Log.Observe(
             RefreshSwitcherEntriesAsync(
                 viewModel,
@@ -2032,13 +2041,13 @@ public sealed class OverlayController : IDisposable
             (HashSet<uint> SteamPids, IReadOnlyList<WindowFinder.AppWindow> Windows) snapshot =
                 await Task.Run(() =>
                 {
-                    HashSet<uint> steamPids = refreshSteamPids
+                    var steamPids = refreshSteamPids
                         ? WindowFinder.FindProcessIds(Steam.ProcessNames)
                         : cachedSteamPids;
                     return (steamPids, WindowFinder.ListSwitchableWindows());
                 }).ConfigureAwait(false);
 
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (_disposed || !ReferenceEquals(_switcherViewModel, viewModel))
                 {
@@ -2055,7 +2064,7 @@ public sealed class OverlayController : IDisposable
                     snapshot.Windows,
                     active,
                     window => CreateSwitcherEntry(window, snapshot.SteamPids));
-            }, Avalonia.Threading.DispatcherPriority.Background);
+            }, DispatcherPriority.Background);
         }
         finally
         {
@@ -2069,7 +2078,7 @@ public sealed class OverlayController : IDisposable
     {
         // Cached icons are handed over synchronously; a miss resolves off the UI thread
         // (cross-process WM_GETICON probes plus a possible exe read) and lands in place.
-        Avalonia.Media.Imaging.Bitmap? icon = null;
+        Bitmap? icon = null;
         if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
         {
             _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
@@ -2084,13 +2093,13 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Places a background-resolved icon on its chip, if that chip is still on
     /// the open sheet. Runs off the UI thread, so it marshals before touching view state.</summary>
-    private void ApplyResolvedIcon(nint hwnd, Avalonia.Media.Imaging.Bitmap? icon)
+    private void ApplyResolvedIcon(nint hwnd, Bitmap? icon)
     {
         if (icon is null)
         {
             return;
         }
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(() =>
         {
             // The window may have closed, or the sheet may have been dismissed and its
             // cache cleared, between the resolve starting and finishing.
@@ -2116,7 +2125,7 @@ public sealed class OverlayController : IDisposable
         StopSwitcherRefresh();
         // Parameterless ctor + explicit Start; see the DispatcherTimer finding in
         // docs\overlay-and-input.md.
-        _switcherRefresh = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _switcherRefresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _switcherRefresh.Tick += (_, _) => RefreshSwitcherEntries();
         _switcherRefresh.Start();
     }
@@ -2134,7 +2143,7 @@ public sealed class OverlayController : IDisposable
     /// via plain Show() (Handheld Companion since its commit c86932bc) are
     /// NON-topmost and never activated — over a topmost sheet they open BEHIND it,
     /// which reads as "the menu doesn't appear" (device-reported).</summary>
-    private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, Avalonia.PixelPoint anchor)
+    private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, PixelPoint anchor)
     {
         if (contextMenu)
         {
@@ -2172,7 +2181,7 @@ public sealed class OverlayController : IDisposable
     /// on the UI thread after the delay; dispose the returned handle to cancel.
     /// UI-thread callers only — overlay events and SteamMonitor's tick already are.</summary>
     private static IDisposable RunOnUiThreadAfter(TimeSpan delay, Action action)
-        => Avalonia.Threading.DispatcherTimer.RunOnce(action, delay);
+        => DispatcherTimer.RunOnce(action, delay);
 
     private bool IsNintendoLayout() => _config.GlyphStyle == GlyphStyle.Nintendo;
 

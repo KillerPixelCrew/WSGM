@@ -10,7 +10,7 @@ public enum PluginSessionMode
     /// <summary>Explorer desktop with WSGM resident.</summary>
     Desktop,
     /// <summary>WSGM Game Mode.</summary>
-    Game,
+    Game
 }
 
 /// <summary>Stable identity for an installed plugin instance.</summary>
@@ -35,7 +35,7 @@ public enum PluginHealth
     /// <summary>Loaded but waiting for an external prerequisite.</summary>
     Unavailable,
     /// <summary>A failure requires host intervention or explicit restart.</summary>
-    Failed,
+    Failed
 }
 
 /// <summary>A generation-scoped health publication.</summary>

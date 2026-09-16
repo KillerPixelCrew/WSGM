@@ -13,7 +13,7 @@ public partial class OverlayWindow
     private void RefreshDeviceSectionPins(DeviceOverlaySnapshot snapshot)
     {
         // Preserve the focused pin button when only telemetry changes.
-        string[] ids = _controlPinFactories.Keys
+        var ids = _controlPinFactories.Keys
             .Where(id => id == "section.system.power-profile"
                 || snapshot.Visible && id.StartsWith("section.device.", StringComparison.Ordinal))
             .Concat(_performanceSource?.Snapshot().Visible is true ? ["section.performance"] : [])
@@ -23,9 +23,9 @@ public partial class OverlayWindow
         if (DeviceSectionPinsHost.Children.OfType<SectionPinHeader>().Select(header => header.SectionId).SequenceEqual(ids))
         { return; }
         DeviceSectionPinsHost.Children.Clear();
-        foreach (string id in ids)
+        foreach (var id in ids)
         {
-            string title = _controlPinFactories.TryGetValue(id, out var host) ? host.Title
+            var title = _controlPinFactories.TryGetValue(id, out var host) ? host.Title
                 : id == "section.performance" ? "Performance"
                 : DevicePinSections(snapshot).First(section => section.Id == id).Title;
             DeviceSectionPinsHost.Children.Add(CreateSectionHeader(id, title));
@@ -35,7 +35,7 @@ public partial class OverlayWindow
     private DescriptorStatusRow? RenderControllerPage(DeviceOverlaySnapshot snapshot, string? focusedKey, string pinId)
     {
         var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16 };
-        StackPanel glyphs = CreateSection(pinId, "Button glyphs");
+        var glyphs = CreateSection(pinId, "Button glyphs");
         var output = new StackPanel { Spacing = 8 };
         output.Children.Add(new TextBlock { Text = "Controller output", Classes = { "setting-title" }, FontSize = 18 });
         columns.Children.Add(new Border { Classes = { "device-group", "device-overview-card" }, Child = glyphs, VerticalAlignment = VerticalAlignment.Top });
@@ -44,7 +44,7 @@ public partial class OverlayWindow
         columns.Children.Add(outputCard);
         DeviceCapabilityList.Children.Add(columns);
 
-        DescriptorStatusRow? restore = RenderOwnedDeviceRows(snapshot with { Controller = null },
+        var restore = RenderOwnedDeviceRows(snapshot with { Controller = null },
             DeviceOverlaySection.ControllerAndMotion, focusedKey, glyphs);
         restore = RenderOwnedDeviceRows(snapshot with { GlyphSelection = null, GlyphPreview = null },
             DeviceOverlaySection.ControllerAndMotion, focusedKey, output) ?? restore;
@@ -55,7 +55,7 @@ public partial class OverlayWindow
                 Text = snapshot.Visible ? "Controller output is unavailable for this device."
                     : "Device integration is off. Enable it in WSGM Settings to configure controller output.",
                 Classes = { "caption" },
-                TextWrapping = TextWrapping.Wrap,
+                TextWrapping = TextWrapping.Wrap
             });
         }
         foreach (var section in DevicePinSections(snapshot).Where(section => section.Capabilities.Count > 0
@@ -63,7 +63,7 @@ public partial class OverlayWindow
                 ? DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, id) == DeviceOverlaySection.ControllerAndMotion
                 : section.Owned == DeviceOverlaySection.ControllerAndMotion)))
         {
-            StackPanel content = CreateSection(section.Id, section.Title);
+            var content = CreateSection(section.Id, section.Title);
             restore = AddDeviceSectionRows(snapshot, section with { Owned = null }, content, focusedKey) ?? restore;
             DeviceCapabilityList.Children.Add(new Border { Classes = { "device-group" }, Child = content, Margin = new Thickness(0, 4, 0, 0) });
         }

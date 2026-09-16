@@ -75,31 +75,31 @@ internal sealed class CommonPluginActions
     internal async Task<PluginActionResult> ExecuteAsync(string actionId, PluginActionOrigin origin,
         IReadOnlyDictionary<string, PluginValue> arguments, PluginContext context, CancellationToken cancellationToken)
     {
-        Guid operationId = Guid.NewGuid();
+        var operationId = Guid.NewGuid();
         var action = Actions.FirstOrDefault(candidate => candidate.Id == actionId);
         if (_provider is null || action is null || !Enum.IsDefined(origin)
             || arguments.Any(pair => !action.Arguments.Any(argument => argument.Key == pair.Key)))
-        { return LastResult = new(operationId, PluginActionOutcome.Rejected, "Unknown action, origin or argument."); }
+        { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Rejected, "Unknown action, origin or argument."); }
         Dictionary<string, PluginValue> values = new(StringComparer.Ordinal);
         foreach (var argument in action.Arguments)
         {
             var value = arguments.TryGetValue(argument.Key, out var supplied) ? supplied : argument.Default;
             if (!PluginConfigurationRules.Accepts(argument, value))
-            { return LastResult = new(operationId, PluginActionOutcome.Rejected, "Action arguments do not match the declaration."); }
+            { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Rejected, "Action arguments do not match the declaration."); }
             values.Add(argument.Key, value);
         }
         cancellationToken.ThrowIfCancellationRequested();
         var request = new PluginActionRequest(operationId, actionId, origin, new ReadOnlyDictionary<string, PluginValue>(values));
-        LastResult = new(operationId, PluginActionOutcome.Unconfirmed, "Action dispatch pending");
+        LastResult = new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, "Action dispatch pending");
         try
         {
             var result = await _provider.ExecuteActionAsync(request, context, cancellationToken).ConfigureAwait(false);
             if (result is null || result.OperationId != operationId || !Enum.IsDefined(result.Outcome))
-            { return LastResult = new(operationId, PluginActionOutcome.Unconfirmed, "The plugin returned an invalid action confirmation."); }
+            { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, "The plugin returned an invalid action confirmation."); }
             return LastResult = result with { Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail };
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
-        { return LastResult = new(operationId, PluginActionOutcome.Unconfirmed, ex.Message.Length > 2048 ? ex.Message[..2048] : ex.Message); }
+        { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, ex.Message.Length > 2048 ? ex.Message[..2048] : ex.Message); }
     }
 
     private bool ValidContribution(PluginUiContribution contribution)
@@ -115,7 +115,7 @@ internal sealed class CommonPluginActions
                 && argument?.Kind == PluginSettingKind.Boolean,
             PluginUiKind.Slider => PluginConfigurationRules.ValidKey(contribution.StateKey)
                 && argument is { Kind: PluginSettingKind.Number, Minimum: not null, Maximum: not null },
-            _ => false,
+            _ => false
         };
     }
 

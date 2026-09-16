@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
+using Windows.Devices.Power;
+using WindowsDeviceControl;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -94,26 +99,26 @@ internal static class RtssOsdSlots
     internal static bool TryWrite(IRtssOsdRegion region, string owner, string text)
     {
         ArgumentNullException.ThrowIfNull(region);
-        if (!TryReadHeader(region, out uint version, out long entrySize, out long arrayOffset,
-                out uint arraySize))
+        if (!TryReadHeader(region, out var version, out var entrySize, out var arrayOffset,
+                out var arraySize))
         {
             return false;
         }
 
-        byte[] ownerBytes = Encoding.ASCII.GetBytes(owner);
-        long slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, claim: true);
+        var ownerBytes = Encoding.ASCII.GetBytes(owner);
+        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, claim: true);
         if (slot < 0)
         {
             return false;
         }
 
-        long entry = arrayOffset + (slot * entrySize);
-        byte[] textBytes = Encoding.ASCII.GetBytes(text);
-        bool useExtended = version >= TextExMinimumVersion
-            && entrySize >= TextExOffset + TextExLength;
-        long textAt = entry + (useExtended ? TextExOffset : TextOffset);
-        int capacity = useExtended ? TextExLength : TextLength;
-        byte[] payload = new byte[Math.Min(textBytes.Length, capacity - 1) + 1];
+        var entry = arrayOffset + slot * entrySize;
+        var textBytes = Encoding.ASCII.GetBytes(text);
+        var useExtended = version >= TextExMinimumVersion
+                          && entrySize >= TextExOffset + TextExLength;
+        var textAt = entry + (useExtended ? TextExOffset : TextOffset);
+        var capacity = useExtended ? TextExLength : TextLength;
+        var payload = new byte[Math.Min(textBytes.Length, capacity - 1) + 1];
         Array.Copy(textBytes, payload, payload.Length - 1);
 
         if (version >= BusyMinimumVersion)
@@ -141,26 +146,26 @@ internal static class RtssOsdSlots
     internal static void Release(IRtssOsdRegion region, string owner)
     {
         ArgumentNullException.ThrowIfNull(region);
-        if (!TryReadHeader(region, out _, out long entrySize, out long arrayOffset,
-                out uint arraySize))
+        if (!TryReadHeader(region, out _, out var entrySize, out var arrayOffset,
+                out var arraySize))
         {
             return;
         }
 
-        byte[] ownerBytes = Encoding.ASCII.GetBytes(owner);
-        long slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, claim: false);
+        var ownerBytes = Encoding.ASCII.GetBytes(owner);
+        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, claim: false);
         if (slot < 0)
         {
             return;
         }
 
-        long entry = arrayOffset + (slot * entrySize);
-        byte[] zero = new byte[Math.Min(entrySize, 65536)];
-        long remaining = entrySize;
-        long at = entry;
+        var entry = arrayOffset + slot * entrySize;
+        var zero = new byte[Math.Min(entrySize, 65536)];
+        var remaining = entrySize;
+        var at = entry;
         while (remaining > 0)
         {
-            int chunk = (int)Math.Min(remaining, zero.Length);
+            var chunk = (int)Math.Min(remaining, zero.Length);
             region.WriteBytes(at, zero, chunk);
             at += chunk;
             remaining -= chunk;
@@ -200,11 +205,11 @@ internal static class RtssOsdSlots
         uint arraySize,
         bool claim)
     {
-        byte[] current = new byte[OwnerLength];
+        var current = new byte[OwnerLength];
         long firstEmpty = -1;
         for (uint index = 1; index < arraySize; index++)
         {
-            long entry = arrayOffset + (index * entrySize);
+            var entry = arrayOffset + index * entrySize;
             if (entry < 0 || entry + entrySize > region.Capacity)
             {
                 break;
@@ -227,9 +232,9 @@ internal static class RtssOsdSlots
             return -1;
         }
 
-        byte[] claimBytes = new byte[OwnerLength];
+        var claimBytes = new byte[OwnerLength];
         Array.Copy(owner, claimBytes, Math.Min(owner.Length, OwnerLength - 1));
-        region.WriteBytes(arrayOffset + (firstEmpty * entrySize) + OwnerOffset,
+        region.WriteBytes(arrayOffset + firstEmpty * entrySize + OwnerOffset,
             claimBytes, OwnerLength);
         return firstEmpty;
     }
@@ -241,7 +246,7 @@ internal static class RtssOsdSlots
             return false;
         }
 
-        for (int i = 0; i < owner.Length; i++)
+        for (var i = 0; i < owner.Length; i++)
         {
             if (current[i] != owner[i])
             {
@@ -276,7 +281,7 @@ internal sealed class RtssOsdWriter : IDisposable
 
         try
         {
-            bool written = RtssOsdSlots.TryWrite(new AccessorRegion(_view!), Owner, text);
+            var written = RtssOsdSlots.TryWrite(new AccessorRegion(_view!), Owner, text);
             Log.Change(
                 "rtss-osd-slot",
                 written
@@ -477,7 +482,7 @@ internal sealed record RtssOsdCustomSettings(
     internal static RtssOsdCustomSettings FromConfig(PerformanceConfig configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        return new(
+        return new RtssOsdCustomSettings(
             ParseOrder(configuration.OsdCustomOrder),
             Math.Clamp(configuration.OsdCustomTime, 0, 2),
             Math.Clamp(configuration.OsdCustomFps, 0, 2),
@@ -491,10 +496,10 @@ internal sealed record RtssOsdCustomSettings(
     private static IReadOnlyList<string> ParseOrder(string? order)
     {
         List<string> names = [];
-        foreach (string part in (order ?? string.Empty).Split(
+        foreach (var part in (order ?? string.Empty).Split(
             ',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            string canonical = part.ToUpperInvariant();
+            var canonical = part.ToUpperInvariant();
             if (Array.IndexOf(KnownWidgets, canonical) >= 0 && !names.Contains(canonical))
             {
                 names.Add(canonical);
@@ -537,7 +542,7 @@ internal sealed class LhmSensorReader : IDisposable
 
         try
         {
-            bool held = false;
+            var held = false;
             try
             {
                 try
@@ -553,13 +558,13 @@ internal sealed class LhmSensorReader : IDisposable
                     held = ex is AbandonedMutexException;
                 }
 
-                int size = (int)Math.Min(_view!.Capacity, 4 * 1024 * 1024);
+                var size = (int)Math.Min(_view!.Capacity, 4 * 1024 * 1024);
                 if (_buffer.Length != size)
                 {
                     _buffer = new byte[size];
                 }
                 _view.ReadArray(0, _buffer, 0, size);
-                int length = Array.IndexOf(_buffer, (byte)0);
+                var length = Array.IndexOf(_buffer, (byte)0);
                 if (length <= 0)
                 {
                     return null;
@@ -645,19 +650,19 @@ internal static class RtssLhmSensors
         double? memoryUsedGb = null, memoryAvailableGb = null;
         try
         {
-            using System.Xml.XmlReader reader = System.Xml.XmlReader.Create(
+            using var reader = XmlReader.Create(
                 new StringReader(xml),
-                new System.Xml.XmlReaderSettings
+                new XmlReaderSettings
                 {
-                    ConformanceLevel = System.Xml.ConformanceLevel.Fragment,
+                    ConformanceLevel = ConformanceLevel.Fragment
                 });
-            string hardwareType = string.Empty;
-            string element = string.Empty;
+            var hardwareType = string.Empty;
+            var element = string.Empty;
             string sensorName = string.Empty, sensorType = string.Empty, sensorValue = string.Empty;
-            bool inSensor = false;
+            var inSensor = false;
             while (reader.Read())
             {
-                if (reader.NodeType == System.Xml.XmlNodeType.Element)
+                if (reader.NodeType == XmlNodeType.Element)
                 {
                     element = reader.Name;
                     if (element == "sensor")
@@ -666,7 +671,7 @@ internal static class RtssLhmSensors
                         sensorName = sensorType = sensorValue = string.Empty;
                     }
                 }
-                else if (reader.NodeType == System.Xml.XmlNodeType.Text)
+                else if (reader.NodeType == XmlNodeType.Text)
                 {
                     if (!inSensor && element == "type")
                     {
@@ -682,11 +687,11 @@ internal static class RtssLhmSensors
                         }
                     }
                 }
-                else if (reader.NodeType == System.Xml.XmlNodeType.EndElement
+                else if (reader.NodeType == XmlNodeType.EndElement
                     && reader.Name == "sensor")
                 {
                     inSensor = false;
-                    if (!TryParseValue(sensorValue, out double value))
+                    if (!TryParseValue(sensorValue, out var value))
                     {
                         continue;
                     }
@@ -729,12 +734,12 @@ internal static class RtssLhmSensors
                         {
                             // HC's preference order: dedicated GPU memory beats D3D dedicated
                             // beats D3D shared; the exporter reports megabytes.
-                            int usedRank = sensorName switch
+                            var usedRank = sensorName switch
                             {
                                 "GPU Memory Used" => 0,
                                 "D3D Dedicated Memory Used" => 1,
                                 "D3D Shared Memory Used" => 2,
-                                _ => -1,
+                                _ => -1
                             };
                             if (usedRank >= 0 && usedRank < gpuMemoryUsedRank)
                             {
@@ -742,12 +747,12 @@ internal static class RtssLhmSensors
                                 gpuMemoryUsedMb = value;
                             }
 
-                            int totalRank = sensorName switch
+                            var totalRank = sensorName switch
                             {
                                 "GPU Memory Total" => 0,
                                 "D3D Dedicated Memory Total" => 1,
                                 "D3D Shared Memory Total" => 2,
-                                _ => -1,
+                                _ => -1
                             };
                             if (totalRank >= 0 && totalRank < gpuMemoryTotalRank)
                             {
@@ -770,7 +775,7 @@ internal static class RtssLhmSensors
                 }
             }
         }
-        catch (System.Xml.XmlException)
+        catch (XmlException)
         {
             // A torn snapshot read without the mutex; the next sample gets a whole one.
             return RtssOsdMetrics.Empty;
@@ -787,7 +792,7 @@ internal static class RtssLhmSensors
             GpuMemoryUsedGb = gpuMemoryUsedMb / 1024.0,
             GpuMemoryTotalGb = gpuMemoryTotalMb / 1024.0,
             MemoryUsedGb = memoryUsedGb,
-            MemoryTotalGb = memoryUsedGb + memoryAvailableGb,
+            MemoryTotalGb = memoryUsedGb + memoryAvailableGb
         };
     }
 
@@ -796,7 +801,7 @@ internal static class RtssLhmSensors
         // The exporter formats with the provider machine's culture: "37,5" on this device.
         return double.TryParse(
             text.Replace(',', '.'),
-            System.Globalization.NumberStyles.Float,
+            NumberStyles.Float,
             CultureInfo.InvariantCulture,
             out value);
     }
@@ -835,15 +840,15 @@ internal sealed class RtssOsdMetricsSource : IDisposable
     /// <returns>The sample.</returns>
     internal RtssOsdMetrics Sample()
     {
-        long now = Environment.TickCount64;
+        var now = Environment.TickCount64;
         if (now - _cachedAtTicks < SampleLifetime.TotalMilliseconds)
         {
             return _cached;
         }
 
         _cachedAtTicks = now;
-        string? xml = _lhm.TryReadXml();
-        RtssOsdMetrics metrics = xml is null ? RtssOsdMetrics.Empty : RtssLhmSensors.Parse(xml);
+        var xml = _lhm.TryReadXml();
+        var metrics = xml is null ? RtssOsdMetrics.Empty : RtssLhmSensors.Parse(xml);
         if (xml is null)
         {
             TryStartProvider(now);
@@ -852,22 +857,22 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         metrics = metrics with { CpuLoadPercent = metrics.CpuLoadPercent ?? SampleCpu() };
         if (metrics.MemoryUsedGb is null || metrics.MemoryTotalGb is null)
         {
-            (double? usedGb, double? totalGb) = SampleMemory();
+            var (usedGb, totalGb) = SampleMemory();
             metrics = metrics with
             {
                 MemoryUsedGb = metrics.MemoryUsedGb ?? usedGb,
-                MemoryTotalGb = metrics.MemoryTotalGb ?? totalGb,
+                MemoryTotalGb = metrics.MemoryTotalGb ?? totalGb
             };
         }
 
         // The provider ships with its battery section disabled, so the battery stays kernel-fed.
-        (double? percent, int? minutes, bool onAc) = SampleBattery();
+        var (percent, minutes, onAc) = SampleBattery();
         _cached = metrics with
         {
             BatteryPercent = percent,
             BatteryWatts = percent is null ? null : SampleBatteryWatts(now),
             BatteryMinutesRemaining = minutes,
-            OnAcPower = onAc,
+            OnAcPower = onAc
         };
         return _cached;
     }
@@ -886,15 +891,15 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         }
 
         _providerAttemptTicks = nowTicks;
-        string? executable = _rtssExecutablePath?.Invoke();
-        string? directory = executable is null ? null : Path.GetDirectoryName(executable);
+        var executable = _rtssExecutablePath?.Invoke();
+        var directory = executable is null ? null : Path.GetDirectoryName(executable);
         if (directory is null)
         {
             Log.Change("rtss-lhm-provider", "LHM sensor provider not started: RTSS location unknown.");
             return;
         }
 
-        string provider = Path.Combine(
+        var provider = Path.Combine(
             directory, "Plugins", "Client", "LHMDataProvider", "LHMDataProvider.exe");
         if (!File.Exists(provider))
         {
@@ -904,12 +909,12 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 
         try
         {
-            using System.Diagnostics.Process? started = System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(provider, "-i")
+            using var started = Process.Start(
+                new ProcessStartInfo(provider, "-i")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(provider)!,
+                    WorkingDirectory = Path.GetDirectoryName(provider)!
                 });
             Log.Change("rtss-lhm-provider", "LHM sensor provider start requested.");
         }
@@ -921,18 +926,18 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 
     private double? SampleCpu()
     {
-        if (!NativeMethods.GetSystemTimes(out long idle, out long kernel, out long user))
+        if (!NativeMethods.GetSystemTimes(out var idle, out var kernel, out var user))
         {
             return null;
         }
 
         // Kernel time includes idle, so busy = (kernel + user) - idle.
-        long busyBase = kernel + user;
+        var busyBase = kernel + user;
         double? load = null;
         if (_hasCpuSample)
         {
-            long totalDelta = busyBase - _lastBusyBase;
-            long idleDelta = idle - _lastIdle;
+            var totalDelta = busyBase - _lastBusyBase;
+            var idleDelta = idle - _lastIdle;
             if (totalDelta > 0)
             {
                 load = Math.Clamp(100.0 * (totalDelta - idleDelta) / totalDelta, 0, 100);
@@ -948,7 +953,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
     private static (double? UsedGb, double? TotalGb) SampleMemory()
     {
         NativeMethods.MemoryStatusEx status = default;
-        status.Length = (uint)System.Runtime.InteropServices.Marshal
+        status.Length = (uint)Marshal
             .SizeOf<NativeMethods.MemoryStatusEx>();
         if (!NativeMethods.GlobalMemoryStatusEx(ref status) || status.TotalPhys == 0)
         {
@@ -961,7 +966,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 
     private static (double? Percent, int? MinutesRemaining, bool OnAcPower) SampleBattery()
     {
-        if (!WindowsDeviceControl.WindowsPower.TryGetStatus(out WindowsDeviceControl.WindowsPowerStatus power)
+        if (!WindowsPower.TryGetStatus(out var power)
             || (power.BatteryFlag & 0x80) != 0)
         {
             return (null, null, false);
@@ -986,7 +991,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         _batteryWattsAtTicks = nowTicks;
         try
         {
-            int? milliwatts = Windows.Devices.Power.Battery.AggregateBattery
+            var milliwatts = Battery.AggregateBattery
                 .GetReport().ChargeRateInMilliwatts;
             _batteryWatts = milliwatts is null ? null : milliwatts.Value / 1000.0;
         }
@@ -1045,7 +1050,7 @@ internal static class RtssOsdContent
                 Row(Entry("VRAM", VramColor, true, VramElements(metrics, full: true))),
                 Row(Entry("BATT", BattColor, true, BatteryElements(metrics, full: true))),
                 Row(Entry("<APP>", FpsColor, true, FpsElements(full: true)))),
-            _ => string.Empty,
+            _ => string.Empty
         };
     }
 
@@ -1080,8 +1085,8 @@ internal static class RtssOsdContent
         ArgumentNullException.ThrowIfNull(metrics);
         List<string> rows = [];
         powerStatus ??= RtssOsdPowerStatus.Empty;
-        string tdpRow = Row(TdpEntry(powerStatus, true));
-        string autoTdpRow = Row(AutoTdpEntry(powerStatus, true));
+        var tdpRow = Row(TdpEntry(powerStatus, true));
+        var autoTdpRow = Row(AutoTdpEntry(powerStatus, true));
         if (tdpRow.Length > 0)
         {
             rows.Add(tdpRow);
@@ -1090,10 +1095,10 @@ internal static class RtssOsdContent
         {
             rows.Add(autoTdpRow);
         }
-        foreach (string name in custom.Order)
+        foreach (var name in custom.Order)
         {
             // HC's CustomStrategy shows the widget's literal name, FPS included.
-            string? entry = name switch
+            var entry = name switch
             {
                 "TIME" when custom.Time > 0 =>
                     Entry("TIME", "FFFFFF", true, TimeElements(custom.Time == 2)),
@@ -1109,9 +1114,9 @@ internal static class RtssOsdContent
                     Entry("BATT", BattColor, true, BatteryElements(metrics, custom.Battery == 2)),
                 "FPS" when custom.Fps > 0 =>
                     Entry("FPS", FpsColor, true, FpsElements(custom.Fps == 2)),
-                _ => null,
+                _ => null
             };
-            string row = Row(entry);
+            var row = Row(entry);
             if (row.Length > 0)
             {
                 rows.Add(row);
@@ -1255,7 +1260,7 @@ internal static class RtssOsdContent
     private static string Compose(params string[] rows)
     {
         List<string> populated = [];
-        foreach (string row in rows)
+        foreach (var row in rows)
         {
             if (row.Length > 0)
             {
@@ -1269,7 +1274,7 @@ internal static class RtssOsdContent
     private static string Row(params string?[] entries)
     {
         List<string> populated = [];
-        foreach (string? entry in entries)
+        foreach (var entry in entries)
         {
             if (!string.IsNullOrEmpty(entry))
             {
@@ -1287,7 +1292,7 @@ internal static class RtssOsdContent
             return null;
         }
 
-        string label = $"<C={color}>{name}{(indent ? "\t" : string.Empty)}<C>";
+        var label = $"<C={color}>{name}{(indent ? "\t" : string.Empty)}<C>";
         return $"{label} {string.Join(" ", elements)}";
     }
 
@@ -1295,12 +1300,12 @@ internal static class RtssOsdContent
 
     private static string Format(double value, string unit)
     {
-        string format = unit switch
+        var format = unit switch
         {
             "GB" => "0.0",
             "W" or "%" or "C" or "h" or "min" => "00",
             "MB" => "0",
-            _ => "0.##",
+            _ => "0.##"
         };
         return value.ToString(format, CultureInfo.InvariantCulture);
     }
@@ -1354,7 +1359,7 @@ internal sealed class RtssOsdRenderer : IDisposable
     /// outside are clamped into range.</param>
     internal void SetLevel(int level)
     {
-        int bounded = Math.Clamp(level, 0, 4);
+        var bounded = Math.Clamp(level, 0, 4);
         if (_level == bounded)
         {
             return;
@@ -1406,10 +1411,10 @@ internal sealed class RtssOsdRenderer : IDisposable
 
     private async Task RenderLoopAsync()
     {
-        CancellationToken cancellationToken = _shutdown.Token;
-        bool cleared = true;
-        bool written = false;
-        int writtenLevel = 0;
+        var cancellationToken = _shutdown.Token;
+        var cleared = true;
+        var written = false;
+        var writtenLevel = 0;
         long writtenSecond = 0;
         RtssOsdMetrics? writtenSample = null;
         RtssOsdPowerStatus? writtenPowerStatus = null;
@@ -1418,7 +1423,7 @@ internal sealed class RtssOsdRenderer : IDisposable
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                int level = _level;
+                var level = _level;
                 if (level == 0)
                 {
                     if (!cleared)
@@ -1435,10 +1440,10 @@ internal sealed class RtssOsdRenderer : IDisposable
                 cleared = false;
                 try
                 {
-                    RtssOsdMetrics sample = _metrics.Sample();
-                    RtssOsdPowerStatus powerStatus = _powerStatus;
-                    RtssOsdCustomSettings custom = _custom;
-                    long second = DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond;
+                    var sample = _metrics.Sample();
+                    var powerStatus = _powerStatus;
+                    var custom = _custom;
+                    var second = DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond;
                     // The metrics refresh once a second and this loop runs at 10 Hz, so most ticks
                     // would rebuild and write the same text. The second counts as a change: the clock
                     // stays current, and a write still lands every second to reclaim the slot after

@@ -29,7 +29,7 @@ public enum FrameLimitStrategy
     /// 30 Hz keeps that machinery out of reach. When no doubled multiple exists the lowest exact
     /// multiple still wins, and failing that the lowest mode that can present the cap.
     /// </summary>
-    FrameDoubling,
+    FrameDoubling
 }
 
 /// <summary>
@@ -80,11 +80,11 @@ public static class FrameLimitPairing
             return null;
         }
 
-        IReadOnlyList<int> candidates = strategy switch
+        var candidates = strategy switch
         {
             FrameLimitStrategy.NativeModes => nativeHz,
             FrameLimitStrategy.FrameDoubling => acceptedHz,
-            _ => [],
+            _ => []
         };
 
         // FrameDoubling wants each frame shown at least twice: a doubled cadence is the one LFC and
@@ -94,7 +94,7 @@ public static class FrameLimitPairing
         // power cost: 60 Hz carries a 30 FPS cap as smoothly as 120 Hz and costs less.
         if (strategy is FrameLimitStrategy.FrameDoubling)
         {
-            int? doubled = candidates
+            var doubled = candidates
                 .Where(hz => hz % capFps == 0 && hz >= capFps * 2)
                 .OrderBy(hz => hz)
                 .Select(hz => (int?)hz)
@@ -108,7 +108,7 @@ public static class FrameLimitPairing
         // The lowest exact multiple, because refresh rate is a power cost: a 30 FPS cap held at
         // 30 Hz costs meaningfully less than the same cap held at 120 Hz. Under NativeModes this is
         // the whole policy; under FrameDoubling it is the fallback when no doubled mode exists.
-        int? exact = candidates
+        var exact = candidates
             .Where(hz => hz >= capFps && hz % capFps == 0)
             .OrderBy(hz => hz)
             .Select(hz => (int?)hz)
@@ -149,13 +149,13 @@ public static class FrameLimitPairing
         IReadOnlyList<int> acceptedHz
     )
     {
-        IReadOnlyList<int> available = strategy switch
+        var available = strategy switch
         {
             FrameLimitStrategy.NativeModes => nativeHz,
-            _ => acceptedHz,
+            _ => acceptedHz
         };
 
-        int ceiling = available.Count is 0 ? 0 : available.Max();
+        var ceiling = available.Count is 0 ? 0 : available.Max();
         return ceiling < UncoupledFloor ? null : (UncoupledFloor, ceiling);
     }
 
@@ -186,7 +186,7 @@ public static class FrameLimitPairing
         // is how SteamOS's own unified Frame Limit row behaves. Callers that want the two ends
         // should ask FrameLimitRange rather than reading them back off this list.
         List<int> caps = new(range.Maximum - range.Minimum + 2) { 0 };
-        for (int cap = range.Minimum; cap <= range.Maximum; cap++)
+        for (var cap = range.Minimum; cap <= range.Maximum; cap++)
         {
             caps.Add(cap);
         }

@@ -56,7 +56,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
                             button.IsEnabled = false;
                             try
                             {
-                                int index = Array.IndexOf(previous, pin);
+                                var index = Array.IndexOf(previous, pin);
                                 await action();
                                 button.IsEnabled = true;
                                 pendingFocus = (pin, label, index);
@@ -76,7 +76,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
                         Content = actions,
                         IsExpanded = expanded.Contains(pin) || pendingFocus is not null,
                         HorizontalAlignment = HorizontalAlignment.Stretch,
-                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch
                     });
                     Children.Add(card);
                 }
@@ -99,7 +99,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
                         Content = reset,
                         IsExpanded = pendingFocus?.Pin is null && pendingFocus is not null,
                         HorizontalAlignment = HorizontalAlignment.Stretch,
-                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch
                     });
                 }
             }

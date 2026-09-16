@@ -26,14 +26,14 @@ internal static class SelfWorkerAuthorization
             return null;
         }
 
-        byte[] secret = new byte[SecretBytes];
+        var secret = new byte[SecretBytes];
         try
         {
             using AnonymousPipeClientStream pipe = new(PipeDirection.In, inheritedHandle);
-            int offset = 0;
+            var offset = 0;
             while (offset < secret.Length)
             {
-                int read = await pipe.ReadAsync(secret.AsMemory(offset), cancellationToken)
+                var read = await pipe.ReadAsync(secret.AsMemory(offset), cancellationToken)
                     .ConfigureAwait(false);
                 if (read == 0)
                 {
@@ -86,7 +86,7 @@ internal static class SelfWorkerAuthorization
             return false;
         }
 
-        byte[] actual = SHA256.HashData(secret);
+        var actual = SHA256.HashData(secret);
         return expected.Length == actual.Length
             && CryptographicOperations.FixedTimeEquals(actual, expected);
     }
@@ -103,10 +103,10 @@ internal static class SelfWorkerAuthorization
         constrainedResult = null;
         try
         {
-            string request = Path.GetFullPath(requestPath);
-            string result = Path.GetFullPath(resultPath);
-            string? requestDirectory = Path.GetDirectoryName(request);
-            string? resultDirectory = Path.GetDirectoryName(result);
+            var request = Path.GetFullPath(requestPath);
+            var result = Path.GetFullPath(resultPath);
+            var requestDirectory = Path.GetDirectoryName(request);
+            var resultDirectory = Path.GetDirectoryName(result);
             if (requestDirectory is null
                 || resultDirectory is null
                 || !string.Equals(requestDirectory, resultDirectory, StringComparison.OrdinalIgnoreCase)
@@ -140,7 +140,7 @@ internal static class SelfWorkerAuthorization
 
     private static bool ContainsLinkInAncestry(string directory)
     {
-        string? current = directory;
+        var current = directory;
         while (current is not null)
         {
             if (IsLink(current))
@@ -148,7 +148,7 @@ internal static class SelfWorkerAuthorization
                 return true;
             }
 
-            string? parent = Path.GetDirectoryName(current);
+            var parent = Path.GetDirectoryName(current);
             if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
             {
                 break;

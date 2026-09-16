@@ -23,13 +23,13 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi
         HybridSchedulingPolicy.PreferPerformantProcessors,
         HybridSchedulingPolicy.EfficientProcessors,
         HybridSchedulingPolicy.PreferEfficientProcessors,
-        HybridSchedulingPolicy.Automatic,
+        HybridSchedulingPolicy.Automatic
     ];
 
     internal Dictionary<bool, HybridCoreState> States { get; } = new()
     {
-        [false] = new(0, HybridSchedulingPolicy.Automatic, HybridSchedulingPolicy.Automatic),
-        [true] = new(0, HybridSchedulingPolicy.Automatic, HybridSchedulingPolicy.Automatic),
+        [false] = new HybridCoreState(0, HybridSchedulingPolicy.Automatic, HybridSchedulingPolicy.Automatic),
+        [true] = new HybridCoreState(0, HybridSchedulingPolicy.Automatic, HybridSchedulingPolicy.Automatic)
     };
 
     internal List<string> Calls { get; } = [];

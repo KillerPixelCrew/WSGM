@@ -48,10 +48,10 @@ public static class DevicePrerequisites
         ArgumentNullException.ThrowIfNull(state);
         // Nothing is claimed about a machine with no package: an install that never wanted a device
         // is not missing anything, and saying so would be noise on every desktop PC.
-        if (!state.PackageInstalled) { return new("", false, false); }
+        if (!state.PackageInstalled) { return new DevicePrerequisiteAdvice("", false, false); }
 
-        bool controllerMissing = !state.ControllerLibraryInstalled || !state.HidHideInstalled;
-        if (state.IntegrationEnabled && !controllerMissing) { return new("", false, false); }
+        var controllerMissing = !state.ControllerLibraryInstalled || !state.HidHideInstalled;
+        if (state.IntegrationEnabled && !controllerMissing) { return new DevicePrerequisiteAdvice("", false, false); }
 
         List<string> lines = [];
         if (!state.IntegrationEnabled)
@@ -67,7 +67,7 @@ public static class DevicePrerequisites
                 + "support. It installs a driver that restarts USB devices and needs a reboot, "
                 + "which is why setup is the only place it can happen.");
         }
-        return new(string.Join(" ", lines), !state.IntegrationEnabled, controllerMissing);
+        return new DevicePrerequisiteAdvice(string.Join(" ", lines), !state.IntegrationEnabled, controllerMissing);
     }
 
     private static string Missing(DevicePrerequisiteState state) =>
@@ -77,6 +77,6 @@ public static class DevicePrerequisites
                 + "HidHide driver.",
             (true, false) => "This install has the virtual controller library but not the HidHide "
                 + "driver.",
-            _ => "This install does not have the virtual controller library.",
+            _ => "This install does not have the virtual controller library."
         };
 }

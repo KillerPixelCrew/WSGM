@@ -47,7 +47,7 @@ public static class AppLauncher
     {
         try
         {
-            using Process? activation = Process.Start(
+            using var activation = Process.Start(
                 new ProcessStartInfo(protocol) { UseShellExecute = true });
             Log.Info($"Started protocol: {protocol}");
             return new LaunchResult(null, true, false);
@@ -69,7 +69,7 @@ public static class AppLauncher
     {
         try
         {
-            using Process? activation = Process.Start(
+            using var activation = Process.Start(
                 new ProcessStartInfo(path, args) { UseShellExecute = true });
             Log.Info($"Started via shell: {path}{(args.Length == 0 ? "" : " " + args)}");
             return new LaunchResult(null, true, false);
@@ -88,7 +88,7 @@ public static class AppLauncher
             var psi = new ProcessStartInfo(path, args)
             {
                 UseShellExecute = false,
-                WorkingDirectory = SafeDirectory(path),
+                WorkingDirectory = SafeDirectory(path)
             };
             var process = Process.Start(psi);
             Log.Info($"Started: {path} {args} (pid {process?.Id.ToString() ?? "?"})");
@@ -120,7 +120,7 @@ public static class AppLauncher
             {
                 UseShellExecute = true,
                 Verb = "runas",
-                WorkingDirectory = SafeDirectory(path),
+                WorkingDirectory = SafeDirectory(path)
             };
             var process = Process.Start(psi); // may be null (no new process resource)
             Log.Info($"Started elevated: {path} {args} (pid {process?.Id.ToString() ?? "?"})");

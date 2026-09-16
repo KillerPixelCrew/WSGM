@@ -1,3 +1,6 @@
+using Avalonia.Input;
+using Avalonia.Media;
+using WSGM.Controls;
 using WSGM.Overlay;
 
 namespace WSGM.Tests;
@@ -10,7 +13,7 @@ public sealed class DeviceColorViewTests
     [InlineData("  000000  ", 0x000000)]
     public void ExactColorAcceptsSixRgbHexDigits(string text, int expected)
     {
-        Assert.True(DeviceColorView.TryParseColor(text, out int color));
+        Assert.True(DeviceColorView.TryParseColor(text, out var color));
         Assert.Equal(expected, color);
     }
 
@@ -28,14 +31,14 @@ public sealed class DeviceColorViewTests
     [InlineData(120, true, 129)]
     public void SpectrumHueStepWrapsAroundTheWheel(double hue, bool right, double expected)
     {
-        WSGM.Controls.DeviceColorSpectrum spectrum = new()
+        DeviceColorSpectrum spectrum = new()
         {
-            HsvColor = new Avalonia.Media.HsvColor(1, hue, 1, 1),
+            HsvColor = new HsvColor(1, hue, 1, 1)
         };
 
         spectrum.ApplyDirection(right
-            ? Avalonia.Input.NavigationDirection.Right
-            : Avalonia.Input.NavigationDirection.Left);
+            ? NavigationDirection.Right
+            : NavigationDirection.Left);
 
         Assert.Equal(expected, spectrum.HsvColor.H, 3);
     }

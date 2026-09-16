@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,11 +31,11 @@ internal static class HomeCarousel
             return new SteamHomeCarouselState(includeUninstalled, []);
         }
 
-        HashSet<long> attached = libraries.Libraries
+        var attached = libraries.Libraries
             .Where(static library => library.Connected)
             .SelectMany(static library => library.AppIds)
             .ToHashSet();
-        long[] disconnected = libraries.Libraries
+        var disconnected = libraries.Libraries
             .Where(static library => !library.Connected)
             .SelectMany(static library => library.AppIds)
             .Where(appId => !attached.Contains(appId))

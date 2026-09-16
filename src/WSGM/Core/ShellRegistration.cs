@@ -22,7 +22,7 @@ public static class ShellRegistration
         coerce: static value => value as string ?? string.Empty,
         normalizeKind: static kind =>
             kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String,
-        load: static config => new(config.PreviousShellSnapshotCaptured, config.PreviousShellValueExists,
+        load: static config => new RegistryValueSnapshot<string?>.State(config.PreviousShellSnapshotCaptured, config.PreviousShellValueExists,
             config.PreviousShellValue, config.PreviousShellValueKind),
         store: static (config, state) =>
         {
@@ -40,7 +40,7 @@ public static class ShellRegistration
         coerce: static value => value is int number ? number : 0,
         normalizeKind: static kind =>
             kind == RegistryValueKind.QWord ? RegistryValueKind.QWord : RegistryValueKind.DWord,
-        load: static config => new(config.PreviousStartupToGamingHomeSnapshotCaptured,
+        load: static config => new RegistryValueSnapshot<int>.State(config.PreviousStartupToGamingHomeSnapshotCaptured,
             config.PreviousStartupToGamingHomeValueExists,
             config.PreviousStartupToGamingHomeValue,
             config.PreviousStartupToGamingHomeValueKind),

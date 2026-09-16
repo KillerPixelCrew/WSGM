@@ -23,7 +23,7 @@ internal enum DescriptorStatus
     Stale,
     ExternallyOwned,
     Unsupported,
-    Progress,
+    Progress
 }
 
 /// <summary>Immutable, presentation-only content for a descriptor-driven overlay row.</summary>
@@ -88,14 +88,14 @@ internal sealed class DescriptorStatusRow : CardButton
 
     private IBrush? StatusBrushFor(DescriptorStatus status)
     {
-        string? resource = status switch
+        var resource = status switch
         {
             DescriptorStatus.Available => "HcSuccessBrush",
             DescriptorStatus.Warning or DescriptorStatus.Stale => "HcWarningBrush",
             DescriptorStatus.Faulted => "HcDangerBrush",
             DescriptorStatus.ExternallyOwned or DescriptorStatus.Unsupported => "HcTextMutedBrush",
             DescriptorStatus.Progress => "HcWarningBrush",
-            _ => null,
+            _ => null
         };
         return resource is null ? null : this.FindResource(resource) as IBrush;
     }

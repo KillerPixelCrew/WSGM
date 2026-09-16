@@ -1,4 +1,7 @@
+using System;
+using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using WSGM.Core;
 
@@ -36,18 +39,18 @@ public partial class SteamPage : UserControl
             static (viewModel, wanted) => viewModel.SetLockOnWakeAsync(wanted),
             static viewModel => viewModel.LockOnWakeDisabled), "wake sign-in policy change");
 
-    private void ObservePolicyChange(System.Func<System.Threading.Tasks.Task> action, string operation) =>
+    private void ObservePolicyChange(Func<Task> action, string operation) =>
         _ = ObservePolicyChangeAsync(action, operation);
 
-    private async System.Threading.Tasks.Task ObservePolicyChangeAsync(
-        System.Func<System.Threading.Tasks.Task> action,
+    private async Task ObservePolicyChangeAsync(
+        Func<Task> action,
         string operation)
     {
         try
         {
             await action();
         }
-        catch (System.Exception ex) when (ex is not System.OutOfMemoryException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Warn($"{operation} failed: {ex.Message}");
             if (DataContext is SettingsViewModel viewModel)
@@ -61,10 +64,10 @@ public partial class SteamPage : UserControl
     /// machine state, not a config value: ask Windows to change it (one elevation
     /// prompt), then re-read whatever actually stuck. The box is disabled meanwhile
     /// so a second press cannot queue a second elevation prompt.</summary>
-    private async System.Threading.Tasks.Task TogglePolicyAsync(
-        Avalonia.Controls.Primitives.ToggleButton box,
-        System.Func<SettingsViewModel, bool, System.Threading.Tasks.Task<bool>> change,
-        System.Func<SettingsViewModel, bool> current)
+    private async Task TogglePolicyAsync(
+        ToggleButton box,
+        Func<SettingsViewModel, bool, Task<bool>> change,
+        Func<SettingsViewModel, bool> current)
     {
         if (DataContext is not SettingsViewModel viewModel)
         {
@@ -83,7 +86,7 @@ public partial class SteamPage : UserControl
             {
                 box.IsChecked = current(viewModel);
             }
-            catch (System.Exception ex) when (ex is not System.OutOfMemoryException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 Log.Warn($"Machine-policy readback failed: {ex.Message}");
                 viewModel.StatusText = $"Could not read the resulting Windows policy: {ex.Message}";

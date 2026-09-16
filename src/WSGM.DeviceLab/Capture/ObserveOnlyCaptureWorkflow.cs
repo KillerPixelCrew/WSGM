@@ -32,7 +32,7 @@ internal enum ObserveOnlyCaptureStatus
     CaptureFailed,
 
     /// <summary>The private session could not be persisted.</summary>
-    WriteFailed,
+    WriteFailed
 }
 
 /// <summary>Inputs for one explicitly approved observe-only capture preparation.</summary>
@@ -137,9 +137,9 @@ internal static class ObserveOnlyCaptureWorkflow
     {
         HashSet<string> sourceIds = new(StringComparer.Ordinal);
         List<CaptureStreamFile> shareable = [];
-        foreach (CaptureStreamFile stream in streams)
+        foreach (var stream in streams)
         {
-            string sourceId = redactor.Redact(stream.SourceId);
+            var sourceId = redactor.Redact(stream.SourceId);
             if (!sourceIds.Add(sourceId))
             {
                 throw new InvalidDataException(
@@ -151,8 +151,8 @@ internal static class ObserveOnlyCaptureWorkflow
                 Events = [.. stream.Events.Select(captureEvent => captureEvent with
                 {
                     SourceId = redactor.Redact(captureEvent.SourceId),
-                    RecipeStepId = redactor.Redact(captureEvent.RecipeStepId),
-                })],
+                    RecipeStepId = redactor.Redact(captureEvent.RecipeStepId)
+                })]
             });
         }
         return shareable;
@@ -168,13 +168,13 @@ internal static class ObserveOnlyCaptureWorkflow
         string recipePath,
         CancellationToken cancellationToken = default)
     {
-        (ObserveOnlyRecipe recipe, string hash) = ReadRecipe(recipePath, cancellationToken);
+        var (recipe, hash) = ReadRecipe(recipePath, cancellationToken);
         return new ObserveOnlyRecipeReview
         {
             RecipeSha256 = hash,
             RecipeId = recipe.RecipeId,
             DisplayName = recipe.DisplayName,
-            Steps = recipe.Steps,
+            Steps = recipe.Steps
         };
     }
 
@@ -198,8 +198,8 @@ internal static class ObserveOnlyCaptureWorkflow
                 "A local interactive operator must review and approve the observation scope.");
         }
 
-        DeviceLabPathBoundaries boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
-        DeviceLabOutputPathDecision rootDecision = DeviceLabOutputPathPolicy.Evaluate(
+        var boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+        var rootDecision = DeviceLabOutputPathPolicy.Evaluate(
             request.OutputDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
@@ -211,7 +211,7 @@ internal static class ObserveOnlyCaptureWorkflow
         ObserveOnlyRecipe recipe;
         try
         {
-            (recipe, string hash) = ReadRecipe(request.RecipePath, cancellationToken);
+            (recipe, var hash) = ReadRecipe(request.RecipePath, cancellationToken);
             if (!string.Equals(hash, request.ReviewedRecipeSha256, StringComparison.OrdinalIgnoreCase))
             {
                 return Failure(
@@ -225,14 +225,14 @@ internal static class ObserveOnlyCaptureWorkflow
             return Failure(ObserveOnlyCaptureStatus.InvalidRecipe, exception.Message);
         }
 
-        string captureId = $"capture-{capturedAt:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-        string privateDirectory = Path.Combine(rootDecision.FullPath, "private", captureId);
-        string shareablePath = Path.Combine(rootDecision.FullPath, "shareable", $"{captureId}.wsgmcap");
-        DeviceLabOutputPathDecision privateDecision = DeviceLabOutputPathPolicy.Evaluate(
+        var captureId = $"capture-{capturedAt:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+        var privateDirectory = Path.Combine(rootDecision.FullPath, "private", captureId);
+        var shareablePath = Path.Combine(rootDecision.FullPath, "shareable", $"{captureId}.wsgmcap");
+        var privateDecision = DeviceLabOutputPathPolicy.Evaluate(
             privateDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
-        DeviceLabOutputPathDecision exportDecision = DeviceLabOutputPathPolicy.Evaluate(
+        var exportDecision = DeviceLabOutputPathPolicy.Evaluate(
             shareablePath,
             DeviceLabOutputTargetKind.NewFile,
             boundaries);
@@ -257,7 +257,7 @@ internal static class ObserveOnlyCaptureWorkflow
                 .. recipe.Steps
                     .Select(step => step.SourceId)
                     .Distinct(StringComparer.Ordinal)
-                    .Select(sourceId => new ClosedObserveOnlyCaptureSource(sourceId)),
+                    .Select(sourceId => new ClosedObserveOnlyCaptureSource(sourceId))
             ];
             PassiveCaptureCoordinator coordinator = new(sources, timeline);
             await coordinator.RunAsync(recipe, cancellationToken).ConfigureAwait(false);
@@ -268,19 +268,19 @@ internal static class ObserveOnlyCaptureWorkflow
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        DateTimeOffset completedAt = DateTimeOffset.UtcNow;
-        IReadOnlyList<CaptureStreamEvent> events = timeline.SnapshotByReceipt();
+        var completedAt = DateTimeOffset.UtcNow;
+        var events = timeline.SnapshotByReceipt();
         IReadOnlyList<CaptureStreamFile> streams = [.. events
             .GroupBy(captureEvent => captureEvent.SourceId, StringComparer.Ordinal)
             .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new CaptureStreamFile
             {
                 SourceId = group.Key,
-                Events = [.. group.OrderBy(captureEvent => captureEvent.SourceSequence)],
+                Events = [.. group.OrderBy(captureEvent => captureEvent.SourceSequence)]
             })];
         CaptureRedactor recipeRedactor = new();
-        MachineInventory shareableInventory = InventoryRedaction.ToShareable(privateInventory, recipeRedactor);
-        ObserveOnlyRecipe shareableRecipe = recipe with
+        var shareableInventory = InventoryRedaction.ToShareable(privateInventory, recipeRedactor);
+        var shareableRecipe = recipe with
         {
             RecipeId = recipeRedactor.Redact(recipe.RecipeId),
             DisplayName = recipeRedactor.Redact(recipe.DisplayName),
@@ -290,8 +290,8 @@ internal static class ObserveOnlyCaptureWorkflow
                 SourceId = recipeRedactor.Redact(step.SourceId),
                 OperatorPrompt = step.OperatorPrompt is null
                     ? null
-                    : recipeRedactor.Redact(step.OperatorPrompt),
-            })],
+                    : recipeRedactor.Redact(step.OperatorPrompt)
+            })]
         };
         IReadOnlyList<CaptureStreamFile> shareableStreams;
         try
@@ -302,15 +302,15 @@ internal static class ObserveOnlyCaptureWorkflow
         {
             return Failure(ObserveOnlyCaptureStatus.CaptureFailed, exception.Message);
         }
-        IReadOnlyList<RedactionSummary> replacements = recipeRedactor.Summarize();
+        var replacements = recipeRedactor.Summarize();
         CaptureRedactionManifest redaction = new()
         {
             SchemaVersion = CaptureSchema.CurrentVersion,
             DefaultRedactionApplied = true,
             Replacements = replacements,
-            Quarantined = [],
+            Quarantined = []
         };
-        SanitizedCaptureBundle bundle = CreateShareableBundle(
+        var bundle = CreateShareableBundle(
             captureId,
             capturedAt,
             completedAt,
@@ -351,8 +351,8 @@ internal static class ObserveOnlyCaptureWorkflow
                 Prompts = [.. recipe.Steps
                     .Where(step => !string.IsNullOrWhiteSpace(step.OperatorPrompt))
                     .Select(step => step.OperatorPrompt!)],
-                Limitations = PassiveCaptureLimitations.All,
-            },
+                Limitations = PassiveCaptureLimitations.All
+            }
         };
     }
 
@@ -385,12 +385,12 @@ internal static class ObserveOnlyCaptureWorkflow
             return new CaptureExportResult
             {
                 Exported = false,
-                Error = "The redaction and quarantine preview must be accepted before export.",
+                Error = "The redaction and quarantine preview must be accepted before export."
             };
         }
 
-        DeviceLabPathBoundaries boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
-        DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
+        var boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+        var decision = DeviceLabOutputPathPolicy.Evaluate(
             plan.ShareableOutputPath,
             DeviceLabOutputTargetKind.NewFile,
             boundaries);
@@ -399,8 +399,8 @@ internal static class ObserveOnlyCaptureWorkflow
             return new CaptureExportResult { Exported = false, Error = decision.Reason };
         }
 
-        string directory = Path.GetDirectoryName(decision.FullPath)!;
-        string temporaryPath = Path.Combine(directory, $".{Path.GetFileName(decision.FullPath)}.{Guid.NewGuid():N}.tmp");
+        var directory = Path.GetDirectoryName(decision.FullPath)!;
+        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(decision.FullPath)}.{Guid.NewGuid():N}.tmp");
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -417,7 +417,7 @@ internal static class ObserveOnlyCaptureWorkflow
         }
         catch (OperationCanceledException)
         {
-            string? cleanupError = TryDelete(temporaryPath);
+            var cleanupError = TryDelete(temporaryPath);
             if (cleanupError is not null)
             {
                 return new CaptureExportResult { Exported = false, Error = $"Export cancelled. {cleanupError}" };
@@ -427,11 +427,11 @@ internal static class ObserveOnlyCaptureWorkflow
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or NotSupportedException or ArgumentException or InvalidDataException)
         {
-            string? cleanupError = TryDelete(temporaryPath);
+            var cleanupError = TryDelete(temporaryPath);
             return new CaptureExportResult
             {
                 Exported = false,
-                Error = cleanupError is null ? exception.Message : $"{exception.Message} {cleanupError}",
+                Error = cleanupError is null ? exception.Message : $"{exception.Message} {cleanupError}"
             };
         }
     }
@@ -441,7 +441,7 @@ internal static class ObserveOnlyCaptureWorkflow
         ("root\\WMI", "MSI_ACPI"),
         ("root\\WMI", "MSI_Event"),
         ("root\\WMI", "BatteryStatus"),
-        ("root\\WMI", "MSAcpi_ThermalZoneTemperature"),
+        ("root\\WMI", "MSAcpi_ThermalZoneTemperature")
     ];
 
     private static (ObserveOnlyRecipe Recipe, string Sha256) ReadRecipe(
@@ -455,22 +455,22 @@ internal static class ObserveOnlyCaptureWorkflow
             throw new InvalidDataException("Recipe is absent, empty, or oversized.");
         }
 
-        byte[] bytes = new byte[(int)file.Length];
-        int offset = 0;
+        var bytes = new byte[(int)file.Length];
+        var offset = 0;
         while (offset < bytes.Length)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = file.Read(bytes, offset, bytes.Length - offset);
+            var read = file.Read(bytes, offset, bytes.Length - offset);
             if (read == 0)
             {
                 throw new EndOfStreamException("Recipe ended before its inspected length.");
             }
             offset += read;
         }
-        ObserveOnlyRecipe? recipe = JsonSerializer.Deserialize(
+        var recipe = JsonSerializer.Deserialize(
             bytes,
             DeviceLabJsonContext.Default.ObserveOnlyRecipe) ?? throw new InvalidDataException("Recipe could not be decoded.");
-        IReadOnlyList<CaptureValidationError> errors = CaptureSchemaValidator.Validate(recipe);
+        var errors = CaptureSchemaValidator.Validate(recipe);
         if (errors.Count > 0)
         {
             throw new InvalidDataException(string.Join(
@@ -496,7 +496,7 @@ internal static class ObserveOnlyCaptureWorkflow
         {
             SourceId = stream.SourceId,
             Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
-            EventCount = stream.Events.Count,
+            EventCount = stream.Events.Count
         })];
         return new SanitizedCaptureBundle
         {
@@ -510,14 +510,14 @@ internal static class ObserveOnlyCaptureWorkflow
                 QpcFrequency = qpcFrequency,
                 Streams = descriptors,
                 Analysis = [],
-                Blobs = [],
+                Blobs = []
             },
             Recipe = recipe,
             Inventory = inventory,
             Streams = streams,
             Analysis = [],
             Blobs = [],
-            Redaction = redaction,
+            Redaction = redaction
         };
     }
 
@@ -534,13 +534,13 @@ internal static class ObserveOnlyCaptureWorkflow
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(directory);
-        string streamsDirectory = Path.Combine(directory, "streams");
+        var streamsDirectory = Path.Combine(directory, "streams");
         Directory.CreateDirectory(streamsDirectory);
         CaptureStreamDescriptor[] descriptors = [.. streams.Select((stream, index) => new CaptureStreamDescriptor
         {
             SourceId = stream.SourceId,
             Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
-            EventCount = stream.Events.Count,
+            EventCount = stream.Events.Count
         })];
         PrivateCaptureManifest manifest = new()
         {
@@ -554,16 +554,16 @@ internal static class ObserveOnlyCaptureWorkflow
             InventoryPath = CaptureBundleLayout.InventoryPath,
             Streams = descriptors,
             Analysis = [],
-            Blobs = [],
+            Blobs = []
         };
 
         WriteNew(Path.Combine(directory, CaptureBundleLayout.RecipePath), DeviceLabJson.Serialize(recipe));
         cancellationToken.ThrowIfCancellationRequested();
         WriteNew(Path.Combine(directory, CaptureBundleLayout.InventoryPath), DeviceLabJson.Serialize(inventory));
-        for (int index = 0; index < streams.Count; index++)
+        for (var index = 0; index < streams.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CaptureStreamFile stream = streams[index];
+            var stream = streams[index];
             WriteNewNdjson(
                 Path.Combine(
                     directory,
@@ -582,7 +582,7 @@ internal static class ObserveOnlyCaptureWorkflow
 
     private static void WriteNew(string path, string content)
     {
-        string? directory = Path.GetDirectoryName(path);
+        var directory = Path.GetDirectoryName(path);
         if (directory is { Length: > 0 })
         {
             Directory.CreateDirectory(directory);
@@ -596,7 +596,7 @@ internal static class ObserveOnlyCaptureWorkflow
         IReadOnlyList<CaptureStreamEvent> events,
         CancellationToken cancellationToken)
     {
-        string? directory = Path.GetDirectoryName(path);
+        var directory = Path.GetDirectoryName(path);
         if (directory is { Length: > 0 })
         {
             Directory.CreateDirectory(directory);
@@ -604,10 +604,10 @@ internal static class ObserveOnlyCaptureWorkflow
 
         DurableFile.WriteNew(path, stream =>
         {
-            foreach (CaptureStreamEvent captureEvent in events)
+            foreach (var captureEvent in events)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+                var json = JsonSerializer.SerializeToUtf8Bytes(
                     captureEvent,
                     DeviceLabCompactJson.CaptureStreamEvent);
                 stream.Write(json);
@@ -619,7 +619,7 @@ internal static class ObserveOnlyCaptureWorkflow
     private static string SafeName(string sourceId)
     {
         StringBuilder name = new();
-        foreach (char character in sourceId.ToLowerInvariant())
+        foreach (var character in sourceId.ToLowerInvariant())
         {
             name.Append(char.IsAsciiLetterOrDigit(character) || character is '-' or '_' ? character : '-');
         }
@@ -643,7 +643,7 @@ internal static class ObserveOnlyCaptureWorkflow
     private static ObserveOnlyCaptureResult Failure(ObserveOnlyCaptureStatus status, string? error) => new()
     {
         Status = status,
-        Error = error ?? "The observe-only capture workflow could not complete.",
+        Error = error ?? "The observe-only capture workflow could not complete."
     };
 
     private sealed class ClosedObserveOnlyCaptureSource(string sourceId) : IPassiveCaptureSource
@@ -658,7 +658,7 @@ internal static class ObserveOnlyCaptureWorkflow
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            long sequence = Interlocked.Increment(ref _sequence);
+            var sequence = Interlocked.Increment(ref _sequence);
             if (step.Kind is not ObservationStepKind.InventorySnapshot)
             {
                 return emit(new PassiveObservation
@@ -668,11 +668,11 @@ internal static class ObserveOnlyCaptureWorkflow
                     SourceSequence = sequence,
                     DeviceGeneration = 0,
                     Payload = new CapturedPayload { Length = 0, Disposition = PayloadDisposition.NotCaptured },
-                    Access = EventAccessState.Unavailable,
+                    Access = EventAccessState.Unavailable
                 }).AsTask();
             }
 
-            byte[] payload = "inventory-snapshot-recorded"u8.ToArray();
+            var payload = "inventory-snapshot-recorded"u8.ToArray();
             return emit(new PassiveObservation
             {
                 SourceId = SourceId,
@@ -684,8 +684,8 @@ internal static class ObserveOnlyCaptureWorkflow
                     Length = payload.Length,
                     Disposition = PayloadDisposition.Included,
                     Bytes = payload,
-                    Sha256 = CaptureHashFile.Hash(payload),
-                },
+                    Sha256 = CaptureHashFile.Hash(payload)
+                }
             }).AsTask();
         }
     }

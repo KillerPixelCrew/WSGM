@@ -34,7 +34,7 @@ internal enum RedactionCategory
     NetworkAddress,
 
     /// <summary>A process, API endpoint, or other identifier meaningful only within this session.</summary>
-    SessionIdentifier,
+    SessionIdentifier
 }
 
 /// <summary>
@@ -68,7 +68,7 @@ internal sealed partial class CaptureRedactor
             return string.Empty;
         }
 
-        string result = value;
+        var result = value;
 
         // Order matters: SIDs are replaced before account names, because a SID's textual form does
         // not contain a name but a resolved "DOMAIN\user" string does, and replacing the name first
@@ -95,7 +95,7 @@ internal sealed partial class CaptureRedactor
     public IReadOnlyList<RedactionSummary> Summarize()
     {
         List<RedactionSummary> summaries = [];
-        foreach ((RedactionCategory category, int count) in _counts)
+        foreach (var (category, count) in _counts)
         {
             summaries.Add(new RedactionSummary(category, count));
         }
@@ -116,8 +116,8 @@ internal sealed partial class CaptureRedactor
     {
         return DeviceInstancePath().Replace(value, match =>
         {
-            string prefix = match.Groups["prefix"].Value;
-            string token = TokenFor(match.Value, RedactionCategory.DeviceInstance, "DEV");
+            var prefix = match.Groups["prefix"].Value;
+            var token = TokenFor(match.Value, RedactionCategory.DeviceInstance, "DEV");
             return $"{prefix}\\{token}";
         });
     }
@@ -126,16 +126,16 @@ internal sealed partial class CaptureRedactor
     {
         return GenericPnpInstancePath().Replace(value, match =>
         {
-            string prefix = match.Groups["prefix"].Value;
-            string token = TokenFor(match.Value, RedactionCategory.DeviceInstance, "DEV");
+            var prefix = match.Groups["prefix"].Value;
+            var token = TokenFor(match.Value, RedactionCategory.DeviceInstance, "DEV");
             return $"{prefix}\\{token}";
         });
     }
 
     private string ReplaceAccountNames(string value)
     {
-        string userName = Environment.UserName;
-        string machineName = Environment.MachineName;
+        var userName = Environment.UserName;
+        var machineName = Environment.MachineName;
 
         if (userName.Length > 2 && value.Contains(userName, StringComparison.OrdinalIgnoreCase))
         {
@@ -157,19 +157,19 @@ internal sealed partial class CaptureRedactor
 
     private string TokenFor(string original, RedactionCategory category, string prefix)
     {
-        if (_tokens.TryGetValue(original, out string? existing))
+        if (_tokens.TryGetValue(original, out var existing))
         {
             return existing;
         }
 
         Count(category);
-        string token = $"[{prefix}-{_tokens.Count:D3}]";
+        var token = $"[{prefix}-{_tokens.Count:D3}]";
         _tokens[original] = token;
         return token;
     }
 
     private void Count(RedactionCategory category) =>
-        _counts[category] = _counts.TryGetValue(category, out int existing) ? existing + 1 : 1;
+        _counts[category] = _counts.TryGetValue(category, out var existing) ? existing + 1 : 1;
 
     [GeneratedRegex(@"S-1-(?:\d+-){2,}\d+")]
     private static partial Regex Sid();

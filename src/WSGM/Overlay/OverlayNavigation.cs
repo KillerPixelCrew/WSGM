@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
 
@@ -16,7 +17,7 @@ internal enum OverlayDestination
     System,
 
     /// <summary>Wake, idle timeouts and the session-ending actions.</summary>
-    Power,
+    Power
 }
 
 /// <summary>Stable page identifiers used by the bounded in-overlay navigation stack.</summary>
@@ -83,7 +84,7 @@ internal enum OverlayPage
     /// is what the rest of Power is.
     /// </summary>
     PowerSession,
-    PowerWakeLocks,
+    PowerWakeLocks
 }
 
 /// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
@@ -95,7 +96,7 @@ internal enum OverlayBackAction
 
     /// <summary>Return to the Quick access root from another destination's root.</summary>
     ReturnHome,
-    CloseOverlay,
+    CloseOverlay
 }
 
 /// <summary>A navigation-stack entry with a semantic focus target for its caller.</summary>
@@ -132,8 +133,8 @@ internal sealed class OverlayNavigation
 
     internal bool NeedsDeviceRoot(bool pluginVisible)
         => !pluginVisible && Page == OverlayPage.DevicePluginSection
-            && SectionId != WSGM.Device.Sdk.Capabilities.DeviceSections.PowerId
-            && SectionId != WSGM.Device.Sdk.Capabilities.DeviceSections.ControllerId;
+            && SectionId != DeviceSections.PowerId
+            && SectionId != DeviceSections.ControllerId;
 
     internal IReadOnlyList<OverlayDestination> VisibleDestinations => _deviceVisible
         ? [OverlayDestination.QuickAccess, OverlayDestination.Steam,
@@ -201,7 +202,7 @@ internal sealed class OverlayNavigation
             return null;
         }
 
-        string? returnFocusKey = _stack[^1].ReturnFocusKey;
+        var returnFocusKey = _stack[^1].ReturnFocusKey;
         _stack.RemoveAt(_stack.Count - 1);
         Log.Info($"Overlay nav: popped to {Page} (depth={_stack.Count}).");
         return returnFocusKey;
@@ -238,7 +239,7 @@ internal sealed class OverlayNavigation
         OverlayDestination.Device => OverlayPage.Device,
         OverlayDestination.System => OverlayPage.System,
         OverlayDestination.Power => OverlayPage.Power,
-        _ => throw new ArgumentOutOfRangeException(nameof(destination)),
+        _ => throw new ArgumentOutOfRangeException(nameof(destination))
     };
 
     private static OverlayDestination DestinationFor(OverlayPage page) => page switch
@@ -261,7 +262,7 @@ internal sealed class OverlayNavigation
         OverlayPage.Power or OverlayPage.PowerWake or OverlayPage.PowerTimeouts
             or OverlayPage.PowerActions or OverlayPage.PowerSession
             or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
-        _ => throw new ArgumentOutOfRangeException(nameof(page)),
+        _ => throw new ArgumentOutOfRangeException(nameof(page))
     };
 }
 
@@ -279,7 +280,7 @@ internal sealed class OverlayFocusMemory
             Math.Max(0, scrollOffset));
 
     internal OverlayFocusState Recall(OverlayDestination destination)
-        => _states.TryGetValue(destination, out OverlayFocusState state)
+        => _states.TryGetValue(destination, out var state)
             ? state
             : new OverlayFocusState(null, 0);
 }

@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Input;
@@ -181,9 +182,9 @@ public partial class OverlayWindow
         var factor = Math.Clamp(_uiScale / scaling, 1.0, 3.0);
         if (Math.Abs(factor - 1.0) >= 0.01)
         {
-            Core.Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
+            Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
             _contentScale = factor;
-            RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
+            RootScale.LayoutTransform = new ScaleTransform(factor, factor);
         }
         Width = bounds.Width / scaling;
         Height = Math.Round(bounds.Height / scaling * SheetHeightFraction);

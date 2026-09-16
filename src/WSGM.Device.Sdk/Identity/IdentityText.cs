@@ -27,14 +27,14 @@ public static class IdentityText
             return null;
         }
 
-        ReadOnlySpan<char> source = value.AsSpan().Trim();
-        Span<char> buffer = source.Length <= 256 ? stackalloc char[source.Length] : new char[source.Length];
+        var source = value.AsSpan().Trim();
+        var buffer = source.Length <= 256 ? stackalloc char[source.Length] : new char[source.Length];
 
-        int length = 0;
-        bool previousWasSpace = false;
-        foreach (char c in source)
+        var length = 0;
+        var previousWasSpace = false;
+        foreach (var c in source)
         {
-            bool isSpace = char.IsWhiteSpace(c);
+            var isSpace = char.IsWhiteSpace(c);
             if (isSpace)
             {
                 if (previousWasSpace)
@@ -63,8 +63,8 @@ public static class IdentityText
     /// <returns><see langword="true"/> when both normalize to the same non-null value.</returns>
     public static bool Matches(string? observed, string? expected)
     {
-        string? left = Normalize(observed);
-        string? right = Normalize(expected);
+        var left = Normalize(observed);
+        var right = Normalize(expected);
 
         // Two absent values are not a match. A definition that declares an EC firmware gate must not
         // be satisfied by a machine that reports no EC firmware at all.

@@ -24,7 +24,7 @@ public class CardNameAuthorityTests
             {
                 ContentId = contentId,
                 Name = name,
-                Enabled = true,
+                Enabled = true
             });
         }
         return config;

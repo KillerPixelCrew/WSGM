@@ -20,7 +20,6 @@ namespace WSGM.Interop;
 public sealed unsafe class DisplayChangeWindow : IDisposable
 {
     private static DisplayChangeWindow? _instance;
-    private nint _hwnd;
 
     private DisplayChangeWindow()
     {
@@ -34,7 +33,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     public event Action? DisplaysChanged;
 
     /// <summary>Gets the native handle, or zero once disposed.</summary>
-    public nint Handle => _hwnd;
+    public nint Handle { get; private set; }
 
     /// <summary>Gets or creates the process-wide display-change window.</summary>
     /// <returns>The singleton window.</returns>
@@ -44,24 +43,24 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
         if (_instance is not null) { return _instance; }
 
         const string className = "WSGM.DisplayChangeWindow";
-        nint hInstance = NativeMethods.GetModuleHandleW(0);
-        string terminated = className + "\0";
+        var hInstance = NativeMethods.GetModuleHandleW(0);
+        var terminated = className + "\0";
         fixed (char* pClassName = terminated)
         {
             NativeMethods.WndClassW wc = new()
             {
                 lpfnWndProc = &WndProc,
                 hInstance = hInstance,
-                lpszClassName = (nint)pClassName,
+                lpszClassName = (nint)pClassName
             };
             if (NativeMethods.RegisterClassW(&wc) == 0)
             {
-                int error = Marshal.GetLastWin32Error();
+                var error = Marshal.GetLastWin32Error();
                 if (error != 1410) { Log.Warn($"RegisterClassW({className}) failed (error {error})."); }
             }
         }
 
-        nint hwnd = NativeMethods.CreateWindowExW(
+        var hwnd = NativeMethods.CreateWindowExW(
             (uint)(NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate),
             className, null, NativeMethods.WsPopup,
             0, 0, 0, 0,
@@ -70,7 +69,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
         {
             throw new InvalidOperationException("Failed to create the display-change window.");
         }
-        _instance = new DisplayChangeWindow { _hwnd = hwnd };
+        _instance = new DisplayChangeWindow { Handle = hwnd };
         Log.Info("Display-change window created.");
         return _instance;
     }
@@ -78,7 +77,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     [UnmanagedCallersOnly]
     private static nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam)
     {
-        DisplayChangeWindow? instance = _instance;
+        var instance = _instance;
         if (instance is null) { return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam); }
         if (msg == NativeMethods.WmDisplayChange
             || (msg == NativeMethods.WmDeviceChange && wParam == NativeMethods.DbtDevnodesChanged))
@@ -92,14 +91,14 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     /// <summary>Destroys the native window and clears the process singleton.</summary>
     public void Dispose()
     {
-        if (_hwnd != 0)
+        if (Handle != 0)
         {
-            if (!NativeMethods.DestroyWindow(_hwnd))
+            if (!NativeMethods.DestroyWindow(Handle))
             {
                 // Fails from the wrong thread; the handle then leaks until exit.
                 Log.Warn($"DestroyWindow(display-change window) failed (error {Marshal.GetLastWin32Error()}).");
             }
-            _hwnd = 0;
+            Handle = 0;
         }
         _instance = null;
     }

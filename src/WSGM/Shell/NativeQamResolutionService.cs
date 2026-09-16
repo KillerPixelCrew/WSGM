@@ -40,13 +40,13 @@ internal sealed class NativeQamResolutionService : ISteamResolutionBackend
         string option,
         CancellationToken cancellationToken)
     {
-        if (!TryParse(option, out DisplayResolution resolution))
+        if (!TryParse(option, out var resolution))
         {
             Log.Warn($"Native QAM resolution refused: '{option}' is not a resolution.");
             return new SteamUiCommandResult(false, "The resolution value is invalid.");
         }
 
-        bool applied = await Task.Run(
+        var applied = await Task.Run(
             () => _display.Apply(resolution),
             cancellationToken).ConfigureAwait(false);
         return applied
@@ -94,10 +94,10 @@ internal sealed class NativeQamResolutionService : ISteamResolutionBackend
             return false;
         }
 
-        string[] parts = value.Split('x', 2, StringSplitOptions.TrimEntries);
+        var parts = value.Split('x', 2, StringSplitOptions.TrimEntries);
         if (parts.Length != 2
-            || !int.TryParse(parts[0], out int width)
-            || !int.TryParse(parts[1], out int height)
+            || !int.TryParse(parts[0], out var width)
+            || !int.TryParse(parts[1], out var height)
             || width <= 0
             || height <= 0)
         {

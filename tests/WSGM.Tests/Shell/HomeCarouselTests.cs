@@ -11,11 +11,11 @@ public sealed class HomeCarouselTests
         SteamLibraryBadgeState libraries = new(
         [
             new SteamLibraryBadgeLibrary("Blue card", Connected: true, [1, 2]),
-            new SteamLibraryBadgeLibrary("Red card", Connected: false, [4, 3, 2, 4]),
+            new SteamLibraryBadgeLibrary("Red card", Connected: false, [4, 3, 2, 4])
         ],
             Revision: 7);
 
-        SteamHomeCarouselState state = HomeCarousel.Build(libraries, includeUninstalled: false);
+        var state = HomeCarousel.Build(libraries, includeUninstalled: false);
 
         // Game 2 is on both cards and one of them is in the reader, so it stays.
         Assert.Equal([3, 4], state.DisconnectedAppIds);
@@ -26,7 +26,7 @@ public sealed class HomeCarouselTests
     [Fact]
     public void BeforeTheCardModelIsReadNothingIsDisconnected()
     {
-        SteamHomeCarouselState state = HomeCarousel.Build(null, includeUninstalled: true);
+        var state = HomeCarousel.Build(null, includeUninstalled: true);
 
         Assert.Empty(state.DisconnectedAppIds);
         Assert.True(state.IncludeUninstalled);
@@ -51,7 +51,7 @@ public sealed class HomeCarouselTests
         Assert.True((await backend.ReportAsync(report, CancellationToken.None)).Succeeded);
         Assert.Equal(report, backend.Last);
 
-        SteamHomeCarouselReport fallback = report with { Fallback = true };
+        var fallback = report with { Fallback = true };
         Assert.True((await backend.ReportAsync(fallback, CancellationToken.None)).Succeeded);
         Assert.True(backend.Last!.Fallback);
     }

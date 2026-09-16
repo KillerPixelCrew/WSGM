@@ -26,7 +26,7 @@ internal sealed class DesktopTray : IDisposable
             Icon = new WindowIcon(stream),
             ToolTipText = "WSGM",
             Menu = menu,
-            IsVisible = false,
+            IsVisible = false
         };
         _icon.Clicked += (_, _) => open();
     }

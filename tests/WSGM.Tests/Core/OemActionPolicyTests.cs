@@ -9,7 +9,7 @@ public sealed class OemActionPolicyTests
     [Fact]
     public void PublicSdk_ExposesPhysicalOemFactsButNoWsgmActionPolicy()
     {
-        Type[] exported = typeof(OemControlDescriptor).Assembly.GetExportedTypes();
+        var exported = typeof(OemControlDescriptor).Assembly.GetExportedTypes();
 
         Assert.Contains(exported, type => type == typeof(OemControlDescriptor));
         Assert.Contains(exported, type => type == typeof(OemControlEvent));
@@ -68,7 +68,7 @@ public sealed class OemActionPolicyTests
             "CyclePerformanceProfile",
             "CyclePerformanceOverlayLevel",
             "VirtualTargetRearButton1",
-            "VirtualTargetRearButton2",
+            "VirtualTargetRearButton2"
         ];
 
         Assert.Equal(

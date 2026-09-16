@@ -1,13 +1,16 @@
 using System.Globalization;
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Logging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Settings;
 using WSGM.Shell;
@@ -35,9 +38,9 @@ internal sealed class UiFixture : IDisposable
 
     /// <summary>What a Snapshot in Settings observes. Synthetic: these tests never read this
     /// machine's displays.</summary>
-    internal WindowsDeviceControl.DisplayArrangement Displays { get; set; } =
+    internal DisplayArrangement Displays { get; set; } =
         new([], "no-displays", DateTimeOffset.UnixEpoch);
-    internal Func<WindowsDeviceControl.DisplayArrangement>? ReadDisplays { get; set; }
+    internal Func<DisplayArrangement>? ReadDisplays { get; set; }
 
     /// <summary>What each display claims to support, keyed by device path.</summary>
     internal Dictionary<string, DisplayCatalogFacts> DisplayFacts { get; } = [];
@@ -67,10 +70,10 @@ internal sealed class UiFixture : IDisposable
             {
                 Calls.Add("save");
                 if (Persist is { } persist) { return await persist(request); }
-                AppConfig fresh = ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig);
+                var fresh = ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig);
                 SettingsViewModel.ApplyCapturedValues(fresh, request, request.Splash);
                 Saved = fresh;
-                return new(fresh, [], null);
+                return new SettingsViewModel.SaveResult(fresh, [], null);
             },
             _ => { Calls.Add("reconcile"); return Task.CompletedTask; },
             (message, _) => Calls.Add(message),
@@ -80,7 +83,7 @@ internal sealed class UiFixture : IDisposable
             () => ScanSteamAutostart(), sources => ApplySteamAutostart(sources));
         var model = new SettingsViewModel(ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig),
             null, false, services);
-        var windowServices = new SettingsWindowServices(new(),
+        var windowServices = new SettingsWindowServices(new GamepadService(),
             () => Calls.Add("input-start"), () => Calls.Add("input-stop"),
             () => Calls.Add("window-import-begin"), () => Calls.Add("window-import-end"),
             () => { Calls.Add("device-read"); return Task.CompletedTask; }, () => Saved.AccentColor,
@@ -110,7 +113,7 @@ internal sealed class UiFixture : IDisposable
         _windows.Add(window);
         window.Show();
         Dispatcher.UIThread.RunJobs();
-        foreach (var visual in window.GetVisualDescendants().OfType<Avalonia.Animation.Animatable>())
+        foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
         {
             visual.Transitions = null;
         }
@@ -128,8 +131,8 @@ internal sealed class UiFixture : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.True(control.IsEffectivelyVisible);
         Assert.True(control.IsEffectivelyEnabled);
-        Point position = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)
-            ?? throw new InvalidOperationException("Control is not attached to the window");
+        var position = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)
+                       ?? throw new InvalidOperationException("Control is not attached to the window");
         window.MouseMove(position);
         window.MouseDown(position, button);
         window.MouseUp(position, button);
@@ -145,8 +148,8 @@ internal sealed class UiFixture : IDisposable
     {
         try
         {
-            foreach (Window window in _windows.AsEnumerable().Reverse()) { window.Close(); }
-            foreach (IDisposable resource in _owned.AsEnumerable().Reverse()) { resource.Dispose(); }
+            foreach (var window in _windows.AsEnumerable().Reverse()) { window.Close(); }
+            foreach (var resource in _owned.AsEnumerable().Reverse()) { resource.Dispose(); }
             Dispatcher.UIThread.RunJobs();
             Assert.True(_errors.Messages.Count == 0, string.Join("\n", _errors.Messages));
         }
@@ -161,11 +164,11 @@ internal sealed class UiFixture : IDisposable
     private sealed class BindingErrors : ILogSink
     {
         internal List<string> Messages { get; } = [];
-        public bool IsEnabled(Avalonia.Logging.LogEventLevel level, string area) =>
-            area == "Binding" && level >= Avalonia.Logging.LogEventLevel.Warning;
-        public void Log(Avalonia.Logging.LogEventLevel level, string area, object? source, string messageTemplate) =>
+        public bool IsEnabled(LogEventLevel level, string area) =>
+            area == "Binding" && level >= LogEventLevel.Warning;
+        public void Log(LogEventLevel level, string area, object? source, string messageTemplate) =>
             Messages.Add(messageTemplate);
-        public void Log(Avalonia.Logging.LogEventLevel level, string area, object? source, string messageTemplate,
+        public void Log(LogEventLevel level, string area, object? source, string messageTemplate,
             params object?[] propertyValues) => Messages.Add(messageTemplate + " " + string.Join(", ", propertyValues));
     }
 }

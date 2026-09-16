@@ -9,11 +9,11 @@ public sealed class PluginSettingsResolverTests
     [Fact]
     public void Resolve_SettingTheUserNeverChanged_UsesTheDeclaredDefault()
     {
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
             stored: []);
 
-        EffectivePluginSetting value = Assert.Single(resolution.Values);
+        var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Default, value.Origin);
         Assert.Equal(1000, value.Value.IntegerValue);
     }
@@ -21,11 +21,11 @@ public sealed class PluginSettingsResolverTests
     [Fact]
     public void Resolve_StoredValueStillInsideTheDeclaration_IsRestoredUnchanged()
     {
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
             [Stored("ec.poll", integer: 2000)]);
 
-        EffectivePluginSetting value = Assert.Single(resolution.Values);
+        var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Stored, value.Origin);
         Assert.Equal(2000, value.Value.IntegerValue);
         Assert.Null(value.Reason);
@@ -35,11 +35,11 @@ public sealed class PluginSettingsResolverTests
     public void Resolve_PluginUpdateNarrowedTheRange_FallsBackAndNamesBothValueAndBound()
     {
         // The value was legal when it was written; the plugin has since narrowed the maximum.
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 1000, step: 100, @default: 500)),
             [Stored("ec.poll", integer: 5000)]);
 
-        EffectivePluginSetting value = Assert.Single(resolution.Values);
+        var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Rejected, value.Origin);
         Assert.Equal(500, value.Value.IntegerValue);
         Assert.Contains("5000", value.Reason);
@@ -49,7 +49,7 @@ public sealed class PluginSettingsResolverTests
     [Fact]
     public void Resolve_StoredValueOffTheDeclaredStep_IsRejected()
     {
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
             [Stored("ec.poll", integer: 2050)]);
 
@@ -68,15 +68,15 @@ public sealed class PluginSettingsResolverTests
             Default = new CapabilityValue
             {
                 Kind = CapabilityValueKind.Choice,
-                ChoiceValue = "quiet",
-            },
+                ChoiceValue = "quiet"
+            }
         };
 
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(mode),
             [new PluginSettingValue { SettingId = "ec.mode", Choice = "removed" }]);
 
-        EffectivePluginSetting value = Assert.Single(resolution.Values);
+        var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Rejected, value.Origin);
         Assert.Equal("quiet", value.Value.ChoiceValue);
         Assert.Contains("removed", value.Reason);
@@ -92,14 +92,14 @@ public sealed class PluginSettingsResolverTests
             SettingId = "ec.tint",
             ValueKind = CapabilityValueKind.Color,
             Display = Label,
-            Default = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0x00FF00 },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0x00FF00 }
         };
 
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(colour),
             [Stored("ec.tint", integer: 42)]);
 
-        EffectivePluginSetting value = Assert.Single(resolution.Values);
+        var value = Assert.Single(resolution.Values);
         Assert.Equal(PluginSettingOrigin.Rejected, value.Origin);
         Assert.Equal(0x00FF00, value.Value.ColorValue);
     }
@@ -107,7 +107,7 @@ public sealed class PluginSettingsResolverTests
     [Fact]
     public void Resolve_StoredSettingTheManifestNoLongerDeclares_IsReportedAsAnOrphan()
     {
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             Manifest(Poll(minimum: 100, maximum: 5000, step: 100, @default: 1000)),
             [Stored("ec.poll", integer: 1000), Stored("ec.gone", integer: 7)]);
 
@@ -123,11 +123,11 @@ public sealed class PluginSettingsResolverTests
             [
                 Poll("a", 100, 5000, 100, 1000),
                 Poll("b", 100, 5000, 100, 1000),
-                Poll("c", 100, 5000, 100, 1000),
-            ],
+                Poll("c", 100, 5000, 100, 1000)
+            ]
         };
 
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(manifest, stored: []);
+        var resolution = PluginSettingsResolver.Resolve(manifest, stored: []);
 
         Assert.Equal(["a", "b", "c"], resolution.Values.Select(v => v.SettingId));
     }
@@ -135,7 +135,7 @@ public sealed class PluginSettingsResolverTests
     private static readonly CapabilityDisplay Label = new()
     {
         Key = DisplayKey.Custom,
-        CustomLabel = "A setting",
+        CustomLabel = "A setting"
     };
 
     private static PluginSettingsManifest Manifest(params PluginSettingDescriptor[] settings) =>
@@ -158,8 +158,8 @@ public sealed class PluginSettingsResolverTests
         Default = new CapabilityValue
         {
             Kind = CapabilityValueKind.Integer,
-            IntegerValue = @default,
-        },
+            IntegerValue = @default
+        }
     };
 
     private static PluginSettingValue Stored(string id, int integer) =>

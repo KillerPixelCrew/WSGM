@@ -10,12 +10,12 @@ public sealed class FanCurvePresetTests
 
     private static IReadOnlyList<CurvePoint> ClawTable() =>
     [
-        new CurvePoint(0, 0),
-        new CurvePoint(50, 40),
-        new CurvePoint(60, 50),
-        new CurvePoint(70, 60),
-        new CurvePoint(80, 70),
-        new CurvePoint(90, 80),
+        new(0, 0),
+        new(50, 40),
+        new(60, 50),
+        new(70, 60),
+        new(80, 70),
+        new(90, 80)
     ];
 
     /// The samples are HandheldCompanion's own arrays, so a preset read at one of its grid points
@@ -36,10 +36,10 @@ public sealed class FanCurvePresetTests
             (FanCurvePreset.Default, 90, 100),
             (FanCurvePreset.Aggressive, 0, 40),
             (FanCurvePreset.Aggressive, 40, 40),
-            (FanCurvePreset.Aggressive, 70, 80),
+            (FanCurvePreset.Aggressive, 70, 80)
         ];
 
-        foreach ((FanCurvePreset preset, int celsius, int expected) in cases)
+        foreach (var (preset, celsius, expected) in cases)
         {
             Assert.Equal(expected, FanCurvePresets.DutyAt(preset, celsius));
         }
@@ -64,7 +64,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void SamplingOntoADeviceCurveKeepsItsOwnTemperatures()
     {
-        IReadOnlyList<CurvePoint> sampled =
+        var sampled =
             FanCurvePresets.SampleOnto(FanCurvePreset.Quiet, ClawTable());
 
         Assert.Equal(
@@ -75,7 +75,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void SamplingOntoADeviceCurveTakesThePresetsDuties()
     {
-        IReadOnlyList<CurvePoint> sampled =
+        var sampled =
             FanCurvePresets.SampleOnto(FanCurvePreset.Aggressive, ClawTable());
 
         Assert.Equal(
@@ -92,7 +92,7 @@ public sealed class FanCurvePresetTests
         [
             [.. FanCurvePresets.SampleOnto(FanCurvePreset.Quiet, ClawTable()).Select(p => p.Output)],
             [.. FanCurvePresets.SampleOnto(FanCurvePreset.Default, ClawTable()).Select(p => p.Output)],
-            [.. FanCurvePresets.SampleOnto(FanCurvePreset.Aggressive, ClawTable()).Select(p => p.Output)],
+            [.. FanCurvePresets.SampleOnto(FanCurvePreset.Aggressive, ClawTable()).Select(p => p.Output)]
         ];
 
         Assert.NotEqual(shapes[0], shapes[1]);
@@ -103,10 +103,10 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void EveryPresetProducesDutiesThatNeverDecrease()
     {
-        foreach (FanCurvePreset preset in Enum.GetValues<FanCurvePreset>())
+        foreach (var preset in Enum.GetValues<FanCurvePreset>())
         {
-            IReadOnlyList<CurvePoint> sampled = FanCurvePresets.SampleOnto(preset, ClawTable());
-            for (int index = 1; index < sampled.Count; index++)
+            var sampled = FanCurvePresets.SampleOnto(preset, ClawTable());
+            for (var index = 1; index < sampled.Count; index++)
             {
                 Assert.True(
                     sampled[index].Output >= sampled[index - 1].Output,
@@ -126,7 +126,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void ARisingCurveRefusesADragBelowTheLeftNeighbour()
     {
-        IReadOnlyList<CurvePoint> moved = CurveEditing.Move(
+        var moved = CurveEditing.Move(
             ClawTable(),
             index: 3,
             input: 70,
@@ -140,7 +140,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void ARisingCurveRefusesADragAboveTheRightNeighbour()
     {
-        IReadOnlyList<CurvePoint> moved = CurveEditing.Move(
+        var moved = CurveEditing.Move(
             ClawTable(),
             index: 3,
             input: 70,
@@ -154,7 +154,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void ARisingCurveStillMovesAPointBetweenItsNeighbours()
     {
-        IReadOnlyList<CurvePoint> moved = CurveEditing.Move(
+        var moved = CurveEditing.Move(
             ClawTable(),
             index: 3,
             input: 70,
@@ -169,7 +169,7 @@ public sealed class FanCurvePresetTests
     [Fact]
     public void WithoutTheRuleADipIsStillAllowed()
     {
-        IReadOnlyList<CurvePoint> moved = CurveEditing.Move(
+        var moved = CurveEditing.Move(
             ClawTable(),
             index: 3,
             input: 70,
@@ -186,13 +186,13 @@ public sealed class FanCurvePresetTests
     {
         IReadOnlyList<CurvePoint> dipped =
         [
-            new CurvePoint(0, 0),
-            new CurvePoint(50, 90),
-            new CurvePoint(60, 10),
-            new CurvePoint(70, 95),
+            new(0, 0),
+            new(50, 90),
+            new(60, 10),
+            new(70, 95)
         ];
 
-        IReadOnlyList<CurvePoint> moved = CurveEditing.Move(
+        var moved = CurveEditing.Move(
             dipped,
             index: 2,
             input: 60,
@@ -211,13 +211,13 @@ public sealed class FanCurvePresetTests
     {
         IReadOnlyList<CurvePoint> crossed =
         [
-            new CurvePoint(0, 0),
-            new CurvePoint(50, 90),
-            new CurvePoint(60, 60),
-            new CurvePoint(70, 20),
+            new(0, 0),
+            new(50, 90),
+            new(60, 60),
+            new(70, 20)
         ];
 
-        IReadOnlyList<CurvePoint> moved = CurveEditing.Move(
+        var moved = CurveEditing.Move(
             crossed,
             index: 2,
             input: 60,

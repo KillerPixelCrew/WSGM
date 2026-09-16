@@ -79,7 +79,7 @@ internal static partial class WindowsInventoryCollector
             Services = CollectSection(CollectRelevantServices, cancellationToken),
             ScheduledTasks = CollectSection(CollectRelevantScheduledTasks, cancellationToken),
             CollectionIssues = collectionIssues,
-            CapturedAt = capturedAt,
+            CapturedAt = capturedAt
         };
         collected = collected with
         {
@@ -96,8 +96,8 @@ internal static partial class WindowsInventoryCollector
                     Change = TopologyChangeKind.Baseline,
                     InstanceId = endpoint.InstanceId,
                     AssociationId = endpoint.DeviceLevelLocationPath,
-                    Present = endpoint.Present,
-                }).ToArray(),
+                    Present = endpoint.Present
+                }).ToArray()
         };
         cancellationToken.ThrowIfCancellationRequested();
         collected = collected with
@@ -107,7 +107,7 @@ internal static partial class WindowsInventoryCollector
                     collected.Processes,
                     collected.Services,
                     collected.NativeBinaries),
-                cancellationToken),
+                cancellationToken)
         };
         cancellationToken.ThrowIfCancellationRequested();
         return MachineInventoryNormalizer.Normalize(collected);
@@ -116,16 +116,16 @@ internal static partial class WindowsInventoryCollector
     private static T CollectSection<T>(Func<T> collect, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        T result = collect();
+        var result = collect();
         cancellationToken.ThrowIfCancellationRequested();
         return result;
     }
 
     private static FirmwareInventory CollectFirmware()
     {
-        using ManagementObject? system = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_ComputerSystem");
-        using ManagementObject? board = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_BaseBoard");
-        using ManagementObject? bios = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_BIOS");
+        using var system = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_ComputerSystem");
+        using var board = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_BaseBoard");
+        using var bios = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_BIOS");
 
         string? ecVersion = null;
         if (bios is not null)
@@ -133,8 +133,8 @@ internal static partial class WindowsInventoryCollector
             // Recorded exactly as reported, including 255/255 - the SMBIOS "unknown" encoding. A
             // matcher has to be able to tell "firmware says it does not know" from "nobody looked",
             // and the usable EC version comes from the vendor provider instead.
-            string? major = Text(bios, "EmbeddedControllerMajorVersion");
-            string? minor = Text(bios, "EmbeddedControllerMinorVersion");
+            var major = Text(bios, "EmbeddedControllerMajorVersion");
+            var minor = Text(bios, "EmbeddedControllerMinorVersion");
             if (major is not null || minor is not null)
             {
                 ecVersion = $"{major ?? "?"}.{minor ?? "?"}";
@@ -150,13 +150,13 @@ internal static partial class WindowsInventoryCollector
             BaseboardProduct = Text(board, "Product"),
             BaseboardVersion = Text(board, "Version"),
             BiosVersion = Text(bios, "SMBIOSBIOSVersion"),
-            EmbeddedControllerVersion = ecVersion,
+            EmbeddedControllerVersion = ecVersion
         };
     }
 
     private static ProcessorInventory? CollectProcessor()
     {
-        using ManagementObject? cpu = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_Processor");
+        using var cpu = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_Processor");
         if (cpu is null)
         {
             return null;
@@ -164,8 +164,8 @@ internal static partial class WindowsInventoryCollector
 
         // Win32_Processor exposes Description as "Family N Model N Stepping N" rather than the three
         // as separate usable numbers, so the identity used for matching is parsed from it.
-        string? description = Text(cpu, "Description");
-        Match match = description is null ? Match.Empty : CpuDescription().Match(description);
+        var description = Text(cpu, "Description");
+        var match = description is null ? Match.Empty : CpuDescription().Match(description);
 
         return new ProcessorInventory
         {
@@ -173,7 +173,7 @@ internal static partial class WindowsInventoryCollector
             Family = match.Success ? int.Parse(match.Groups["family"].Value, CultureInfo.InvariantCulture) : null,
             Model = match.Success ? int.Parse(match.Groups["model"].Value, CultureInfo.InvariantCulture) : null,
             Stepping = match.Success ? int.Parse(match.Groups["stepping"].Value, CultureInfo.InvariantCulture) : null,
-            Cores = int.TryParse(Text(cpu, "NumberOfCores"), out int cores) ? cores : null,
+            Cores = int.TryParse(Text(cpu, "NumberOfCores"), out var cores) ? cores : null
         };
     }
 
@@ -185,26 +185,26 @@ internal static partial class WindowsInventoryCollector
 
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, PNPClass, Status, HardwareID FROM Win32_PnPEntity "
                     + "WHERE DeviceID LIKE 'USB%' OR DeviceID LIKE 'HID%'");
 
-            foreach (ManagementBaseObject entity in searcher.Get())
+            foreach (var entity in searcher.Get())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 using (entity)
                 {
-                    string? instanceId = Text(entity, "DeviceID");
+                    var instanceId = Text(entity, "DeviceID");
                     if (instanceId is null)
                     {
                         continue;
                     }
 
-                    Match ids = UsbIdentifiers().Match(instanceId);
-                    string? hardwareIds = TextList(entity, "HardwareID");
-                    Match release = hardwareIds is null ? Match.Empty : UsbRelease().Match(hardwareIds);
-                    string? locationPath = DeviceProperties.ResolveLocationPath(instanceId);
+                    var ids = UsbIdentifiers().Match(instanceId);
+                    var hardwareIds = TextList(entity, "HardwareID");
+                    var release = hardwareIds is null ? Match.Empty : UsbRelease().Match(hardwareIds);
+                    var locationPath = DeviceProperties.ResolveLocationPath(instanceId);
 
                     interfaces.Add(new UsbInterfaceInventory
                     {
@@ -216,7 +216,7 @@ internal static partial class WindowsInventoryCollector
                         InterfaceNumber = ParseInterfaceNumber(instanceId),
                         LocationPath = locationPath,
                         DeviceLevelLocationPath = DeviceProperties.ToDeviceLevelPath(locationPath),
-                        Present = string.Equals(Text(entity, "Status"), "OK", StringComparison.Ordinal),
+                        Present = string.Equals(Text(entity, "Status"), "OK", StringComparison.Ordinal)
                     });
                 }
             }
@@ -226,7 +226,7 @@ internal static partial class WindowsInventoryCollector
             collectionIssues.Add(new InventoryCollectionIssue
             {
                 Lane = "usb",
-                Error = exception.ErrorCode.ToString(),
+                Error = exception.ErrorCode.ToString()
             });
         }
         catch (UnauthorizedAccessException)
@@ -234,7 +234,7 @@ internal static partial class WindowsInventoryCollector
             collectionIssues.Add(new InventoryCollectionIssue
             {
                 Lane = "usb",
-                Error = "AccessDenied",
+                Error = "AccessDenied"
             });
         }
 
@@ -248,7 +248,7 @@ internal static partial class WindowsInventoryCollector
     {
         List<WmiClassInventory> results = [];
 
-        foreach ((string ns, string className) in classes)
+        foreach (var (ns, className) in classes)
         {
             cancellationToken.ThrowIfCancellationRequested();
             results.Add(ProbeClass(ns, className));
@@ -268,7 +268,7 @@ internal static partial class WindowsInventoryCollector
             definition.Get();
 
             List<string> methods = [];
-            foreach (MethodData method in definition.Methods)
+            foreach (var method in definition.Methods)
             {
                 methods.Add(method.Name);
             }
@@ -278,11 +278,11 @@ internal static partial class WindowsInventoryCollector
             int? instanceCount = null;
             try
             {
-                using ManagementObjectSearcher searcher = CreateSearcher(
+                using var searcher = CreateSearcher(
                     ns,
                     $"SELECT * FROM {className}");
-                int count = 0;
-                foreach (ManagementBaseObject instance in searcher.Get())
+                var count = 0;
+                foreach (var instance in searcher.Get())
                 {
                     instance.Dispose();
                     count++;
@@ -301,7 +301,7 @@ internal static partial class WindowsInventoryCollector
                     Namespace = ns,
                     ClassName = className,
                     Access = WmiAccess.AccessDenied,
-                    MethodNames = methods,
+                    MethodNames = methods
                 };
             }
 
@@ -311,7 +311,7 @@ internal static partial class WindowsInventoryCollector
                 ClassName = className,
                 Access = WmiAccess.Available,
                 InstanceCount = instanceCount,
-                MethodNames = methods,
+                MethodNames = methods
             };
         }
         catch (ManagementException ex)
@@ -324,8 +324,8 @@ internal static partial class WindowsInventoryCollector
                 {
                     ManagementStatus.AccessDenied => WmiAccess.AccessDenied,
                     ManagementStatus.InvalidNamespace => WmiAccess.NamespaceUnavailable,
-                    _ => WmiAccess.NotFound,
-                },
+                    _ => WmiAccess.NotFound
+                }
             };
         }
         catch (UnauthorizedAccessException)
@@ -334,7 +334,7 @@ internal static partial class WindowsInventoryCollector
             {
                 Namespace = ns,
                 ClassName = className,
-                Access = WmiAccess.AccessDenied,
+                Access = WmiAccess.AccessDenied
             };
         }
     }
@@ -343,8 +343,8 @@ internal static partial class WindowsInventoryCollector
     {
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(ns, query);
-            foreach (ManagementBaseObject item in searcher.Get())
+            using var searcher = CreateSearcher(ns, query);
+            foreach (var item in searcher.Get())
             {
                 return (ManagementObject)item;
             }
@@ -378,8 +378,8 @@ internal static partial class WindowsInventoryCollector
 
         try
         {
-            object? value = source[property];
-            string? text = value?.ToString()?.Trim();
+            var value = source[property];
+            var text = value?.ToString()?.Trim();
             if (string.IsNullOrEmpty(text))
             {
                 return null;
@@ -404,7 +404,7 @@ internal static partial class WindowsInventoryCollector
                 return Text(source, property);
             }
 
-            string joined = string.Join(";", values.Take(64));
+            var joined = string.Join(";", values.Take(64));
             return joined.Length <= InventoryLimits.MaximumTextCharacters
                 ? joined
                 : joined[..InventoryLimits.MaximumTextCharacters];
@@ -417,7 +417,7 @@ internal static partial class WindowsInventoryCollector
 
     private static int? ParseInterfaceNumber(string instanceId)
     {
-        Match match = InterfaceNumber().Match(instanceId);
+        var match = InterfaceNumber().Match(instanceId);
         return match.Success
             ? int.Parse(match.Groups["mi"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture)
             : null;

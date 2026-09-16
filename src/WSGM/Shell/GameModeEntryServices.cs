@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
 
@@ -118,7 +119,7 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     {
         // The normal desktop can be recreated only if its current taskbar owner is captured while
         // it still exists. A contaminated or unknown shell is preserved instead.
-        ExplorerPreparationResult preparation = await desktopHost.PrepareForExplorerExitAsync()
+        var preparation = await desktopHost.PrepareForExplorerExitAsync()
             .ConfigureAwait(false);
         return preparation.Prepared;
     }
@@ -128,7 +129,7 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     {
         try
         {
-            bool exited = await desktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout)
+            var exited = await desktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout)
                 .ConfigureAwait(false);
             return exited;
         }
@@ -159,5 +160,5 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
 
     /// <inheritdoc />
     public async Task CommitGameModeAsync() =>
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(modes.CommitGameMode);
+        await Dispatcher.UIThread.InvokeAsync(modes.CommitGameMode);
 }

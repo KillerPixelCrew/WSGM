@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 namespace WSGM.Core;
 
@@ -160,7 +161,7 @@ public static class TrayProtocol
 
     private static string ReadFixedString(ReadOnlySpan<byte> utf16Bytes)
     {
-        var chars = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, char>(utf16Bytes);
+        var chars = MemoryMarshal.Cast<byte, char>(utf16Bytes);
         var end = chars.IndexOf('\0');
         return new string(end >= 0 ? chars[..end] : chars);
     }
@@ -181,7 +182,7 @@ public enum TrayChange
     Updated,
 
     /// <summary>An icon was removed.</summary>
-    Removed,
+    Removed
 }
 
 /// <summary>The live set of registered tray icons: identity resolution

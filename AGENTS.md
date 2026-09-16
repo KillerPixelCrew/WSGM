@@ -75,6 +75,11 @@ when the guidance conflicts.
   concise language. Avoid canned AI phrasing, filler, and em dashes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
+- C# follows the JetBrains recommended style that Qodana checks (`qodana.yaml`): `var` for
+  locals, no trailing commas in multiline lists, and explicit types on `new` when the target type
+  is not evident. WSGM.slnx.DotSettings holds the shared "WSGM Style" cleanup profile, which
+  applies those rules without JetBrains layout formatting; `dotnet format` stays the whitespace
+  authority. Keep named arguments on literal values.
 - Keep nullable analysis, build-time code-style checks, and public XML documentation clean. Avoid
   blocking the UI thread; make ownership, cancellation, and disposal explicit for long-lived work.
 - UI-observable state belongs on the Avalonia dispatcher. High-rate input and telemetry paths must

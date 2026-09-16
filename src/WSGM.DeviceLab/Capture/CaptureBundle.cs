@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 
 namespace WSGM.DeviceLab.Capture;
@@ -43,7 +44,7 @@ internal static class CaptureBundleLayout
             return false;
         }
 
-        string[] segments = path.Split('/');
+        var segments = path.Split('/');
         return segments.All(segment => segment.Length > 0 && segment is not "." and not "..");
     }
 }
@@ -96,12 +97,12 @@ internal static class CaptureSchemaValidator
         ValidateRecipe(bundle.Recipe, errors);
         ValidateRedaction(bundle.Redaction, errors);
 
-        Dictionary<string, ObservationStep> steps = bundle.Recipe.Steps
+        var steps = bundle.Recipe.Steps
             .Where(step => !string.IsNullOrWhiteSpace(step.StepId))
             .GroupBy(step => step.StepId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
-        Dictionary<string, CaptureStreamDescriptor> streamDescriptors = bundle.Manifest.Streams
+        var streamDescriptors = bundle.Manifest.Streams
             .Where(stream => !string.IsNullOrWhiteSpace(stream.SourceId))
             .GroupBy(stream => stream.SourceId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
@@ -109,30 +110,30 @@ internal static class CaptureSchemaValidator
         HashSet<long> globalSequences = [];
         HashSet<string> eventIds = new(StringComparer.Ordinal);
 
-        foreach (CaptureStreamFile stream in bundle.Streams)
+        foreach (var stream in bundle.Streams)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!streamDescriptors.TryGetValue(stream.SourceId, out CaptureStreamDescriptor? descriptor))
+            if (!streamDescriptors.TryGetValue(stream.SourceId, out var descriptor))
             {
-                errors.Add(new("streams", $"Source '{stream.SourceId}' has no manifest descriptor."));
+                errors.Add(new CaptureValidationError("streams", $"Source '{stream.SourceId}' has no manifest descriptor."));
                 continue;
             }
 
             if (descriptor.EventCount != stream.Events.Count)
             {
-                errors.Add(new(descriptor.Path,
+                errors.Add(new CaptureValidationError(descriptor.Path,
                     $"Manifest declares {descriptor.EventCount} events but stream contains {stream.Events.Count}."));
             }
 
             long previousSourceSequence = -1;
-            foreach (CaptureStreamEvent captureEvent in stream.Events)
+            foreach (var captureEvent in stream.Events)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateEvent(captureEvent, stream.SourceId, steps, errors);
 
                 if (captureEvent.SourceSequence <= previousSourceSequence)
                 {
-                    errors.Add(new(captureEvent.EventId,
+                    errors.Add(new CaptureValidationError(captureEvent.EventId,
                         "Source sequence must increase strictly within its stream."));
                 }
 
@@ -140,45 +141,45 @@ internal static class CaptureSchemaValidator
 
                 if (!globalSequences.Add(captureEvent.GlobalSequence))
                 {
-                    errors.Add(new(captureEvent.EventId,
+                    errors.Add(new CaptureValidationError(captureEvent.EventId,
                         $"Global sequence {captureEvent.GlobalSequence} is duplicated."));
                 }
 
                 if (!eventIds.Add(captureEvent.EventId))
                 {
-                    errors.Add(new(captureEvent.EventId, "Event ID is duplicated."));
+                    errors.Add(new CaptureValidationError(captureEvent.EventId, "Event ID is duplicated."));
                 }
             }
         }
 
         if (bundle.Streams.Count != streamDescriptors.Count)
         {
-            errors.Add(new("streams", "Manifest descriptors and supplied stream files do not match one-to-one."));
+            errors.Add(new CaptureValidationError("streams", "Manifest descriptors and supplied stream files do not match one-to-one."));
         }
 
-        Dictionary<string, CaptureAnalysisDescriptor> analysisDescriptors = bundle.Manifest.Analysis
+        var analysisDescriptors = bundle.Manifest.Analysis
             .Where(item => !string.IsNullOrWhiteSpace(item.AnalyzerId))
             .GroupBy(item => item.AnalyzerId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
-        foreach (CaptureAnalysisFile analysis in bundle.Analysis)
+        foreach (var analysis in bundle.Analysis)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!analysisDescriptors.TryGetValue(
                     analysis.AnalyzerId,
-                    out CaptureAnalysisDescriptor? descriptor))
+                    out var descriptor))
             {
-                errors.Add(new("analysis", $"Analyzer '{analysis.AnalyzerId}' has no manifest descriptor."));
+                errors.Add(new CaptureValidationError("analysis", $"Analyzer '{analysis.AnalyzerId}' has no manifest descriptor."));
                 continue;
             }
 
             if (descriptor.ResultCount != analysis.Results.Count)
             {
-                errors.Add(new(descriptor.Path,
+                errors.Add(new CaptureValidationError(descriptor.Path,
                     $"Manifest declares {descriptor.ResultCount} results but stream contains {analysis.Results.Count}."));
             }
 
-            foreach (CaptureAnalysisResult result in analysis.Results)
+            foreach (var result in analysis.Results)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateAnalysis(result, descriptor, eventIds, errors);
@@ -187,15 +188,15 @@ internal static class CaptureSchemaValidator
 
         if (bundle.Analysis.Count != analysisDescriptors.Count)
         {
-            errors.Add(new("analysis", "Manifest descriptors and supplied analysis files do not match one-to-one."));
+            errors.Add(new CaptureValidationError("analysis", "Manifest descriptors and supplied analysis files do not match one-to-one."));
         }
 
-        Dictionary<string, CaptureBlobDescriptor> blobDescriptors = bundle.Manifest.Blobs
+        var blobDescriptors = bundle.Manifest.Blobs
             .Where(blob => !string.IsNullOrWhiteSpace(blob.BlobId))
             .GroupBy(blob => blob.BlobId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
-        foreach (CaptureBlobFile blob in bundle.Blobs)
+        foreach (var blob in bundle.Blobs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ValidateBlob(blob, blobDescriptors, errors);
@@ -203,7 +204,7 @@ internal static class CaptureSchemaValidator
 
         if (bundle.Blobs.Count != blobDescriptors.Count)
         {
-            errors.Add(new("blobs", "Manifest descriptors and supplied blob files do not match one-to-one."));
+            errors.Add(new CaptureValidationError("blobs", "Manifest descriptors and supplied blob files do not match one-to-one."));
         }
 
         return errors;
@@ -215,7 +216,7 @@ internal static class CaptureSchemaValidator
     {
         if (manifest.SchemaVersion != CaptureSchema.CurrentVersion)
         {
-            errors.Add(new("manifest.schemaVersion", "Unsupported shareable capture schema version."));
+            errors.Add(new CaptureValidationError("manifest.schemaVersion", "Unsupported shareable capture schema version."));
         }
 
         ValidateId(manifest.BundleId, "manifest.bundleId", errors);
@@ -223,17 +224,17 @@ internal static class CaptureSchemaValidator
 
         if (manifest.Privacy is not CapturePrivacy.ShareableSanitized)
         {
-            errors.Add(new("manifest.privacy", "A .wsgmcap must be marked ShareableSanitized."));
+            errors.Add(new CaptureValidationError("manifest.privacy", "A .wsgmcap must be marked ShareableSanitized."));
         }
 
         if (manifest.CompletedAt < manifest.StartedAt)
         {
-            errors.Add(new("manifest.completedAt", "Capture completion precedes its start."));
+            errors.Add(new CaptureValidationError("manifest.completedAt", "Capture completion precedes its start."));
         }
 
         if (manifest.QpcFrequency <= 0)
         {
-            errors.Add(new("manifest.qpcFrequency", "QPC frequency must be positive."));
+            errors.Add(new CaptureValidationError("manifest.qpcFrequency", "QPC frequency must be positive."));
         }
 
         ValidateFixedPath(manifest.RecipePath, CaptureBundleLayout.RecipePath, "manifest.recipePath", errors);
@@ -243,7 +244,7 @@ internal static class CaptureSchemaValidator
 
         if (manifest.Streams.Count > CaptureSchema.MaximumSources)
         {
-            errors.Add(new("manifest.streams", $"At most {CaptureSchema.MaximumSources} streams are allowed."));
+            errors.Add(new CaptureValidationError("manifest.streams", $"At most {CaptureSchema.MaximumSources} streams are allowed."));
         }
 
         ValidateUniquePaths(manifest.Streams.Select(stream => stream.Path), errors);
@@ -253,34 +254,34 @@ internal static class CaptureSchemaValidator
         ValidateUniqueIds(manifest.Analysis.Select(analysis => analysis.AnalyzerId), "manifest.analysis", errors);
         ValidateUniqueIds(manifest.Blobs.Select(blob => blob.BlobId), "manifest.blobs", errors);
 
-        foreach (CaptureStreamDescriptor stream in manifest.Streams)
+        foreach (var stream in manifest.Streams)
         {
             ValidateId(stream.SourceId, "manifest.streams.sourceId", errors);
             ValidateFolderPath(stream.Path, "streams/", ".ndjson", errors);
             if (stream.EventCount < 0)
             {
-                errors.Add(new(stream.Path, "Event count cannot be negative."));
+                errors.Add(new CaptureValidationError(stream.Path, "Event count cannot be negative."));
             }
         }
 
-        foreach (CaptureAnalysisDescriptor analysis in manifest.Analysis)
+        foreach (var analysis in manifest.Analysis)
         {
             ValidateId(analysis.AnalyzerId, "manifest.analysis.analyzerId", errors);
             ValidateId(analysis.AnalyzerVersion, "manifest.analysis.analyzerVersion", errors);
             ValidateFolderPath(analysis.Path, "analysis/", ".ndjson", errors);
             if (analysis.ResultCount < 0)
             {
-                errors.Add(new(analysis.Path, "Result count cannot be negative."));
+                errors.Add(new CaptureValidationError(analysis.Path, "Result count cannot be negative."));
             }
         }
 
-        foreach (CaptureBlobDescriptor blob in manifest.Blobs)
+        foreach (var blob in manifest.Blobs)
         {
             ValidateId(blob.BlobId, "manifest.blobs.blobId", errors);
             ValidateFolderPath(blob.Path, "blobs/", null, errors);
             if (blob.Length < 0 || blob.Length > CaptureSchema.MaximumBlobBytes)
             {
-                errors.Add(new(blob.Path, $"Blob length must be between 0 and {CaptureSchema.MaximumBlobBytes}."));
+                errors.Add(new CaptureValidationError(blob.Path, $"Blob length must be between 0 and {CaptureSchema.MaximumBlobBytes}."));
             }
 
             ValidateSha256(blob.Sha256, blob.Path, errors);
@@ -293,7 +294,7 @@ internal static class CaptureSchemaValidator
     {
         if (recipe.SchemaVersion != CaptureSchema.CurrentVersion)
         {
-            errors.Add(new("recipe.schemaVersion", "Unsupported observe-only recipe schema version."));
+            errors.Add(new CaptureValidationError("recipe.schemaVersion", "Unsupported observe-only recipe schema version."));
         }
 
         ValidateId(recipe.RecipeId, "recipe.recipeId", errors);
@@ -301,23 +302,23 @@ internal static class CaptureSchemaValidator
 
         if (recipe.Steps.Count > CaptureSchema.MaximumRecipeSteps)
         {
-            errors.Add(new("recipe.steps", $"At most {CaptureSchema.MaximumRecipeSteps} steps are allowed."));
+            errors.Add(new CaptureValidationError("recipe.steps", $"At most {CaptureSchema.MaximumRecipeSteps} steps are allowed."));
         }
 
         HashSet<string> stepIds = new(StringComparer.Ordinal);
-        foreach (ObservationStep step in recipe.Steps)
+        foreach (var step in recipe.Steps)
         {
             ValidateId(step.StepId, "recipe.steps.stepId", errors);
             ValidateId(step.SourceId, "recipe.steps.sourceId", errors);
             if (!stepIds.Add(step.StepId))
             {
-                errors.Add(new(step.StepId, "Recipe step ID is duplicated."));
+                errors.Add(new CaptureValidationError(step.StepId, "Recipe step ID is duplicated."));
             }
 
             if (step.DurationMilliseconds <= 0
                 || step.DurationMilliseconds > CaptureSchema.MaximumStepDurationMilliseconds)
             {
-                errors.Add(new(step.StepId,
+                errors.Add(new CaptureValidationError(step.StepId,
                     $"Observation duration must be between 1 and {CaptureSchema.MaximumStepDurationMilliseconds} milliseconds."));
             }
 
@@ -336,7 +337,7 @@ internal static class CaptureSchemaValidator
     {
         if (captureEvent.SchemaVersion != CaptureSchema.CurrentVersion)
         {
-            errors.Add(new(captureEvent.EventId, "Unsupported stream-event schema version."));
+            errors.Add(new CaptureValidationError(captureEvent.EventId, "Unsupported stream-event schema version."));
         }
 
         ValidateId(captureEvent.EventId, "event.eventId", errors);
@@ -345,32 +346,32 @@ internal static class CaptureSchemaValidator
 
         if (!string.Equals(captureEvent.SourceId, sourceId, StringComparison.Ordinal))
         {
-            errors.Add(new(captureEvent.EventId, "Event source does not match its stream."));
+            errors.Add(new CaptureValidationError(captureEvent.EventId, "Event source does not match its stream."));
         }
 
-        if (!steps.TryGetValue(captureEvent.RecipeStepId, out ObservationStep? step)
+        if (!steps.TryGetValue(captureEvent.RecipeStepId, out var step)
             || !string.Equals(step.SourceId, captureEvent.SourceId, StringComparison.Ordinal))
         {
-            errors.Add(new(captureEvent.EventId, "Event does not reference a matching recipe step."));
+            errors.Add(new CaptureValidationError(captureEvent.EventId, "Event does not reference a matching recipe step."));
         }
 
         if (captureEvent.SourceSequence < 0 || captureEvent.GlobalSequence < 0
             || captureEvent.QpcReceiptTime < 0 || captureEvent.ClockSegment < 0
             || captureEvent.DeviceGeneration < 0)
         {
-            errors.Add(new(captureEvent.EventId, "Sequences, time, segment, and generation cannot be negative."));
+            errors.Add(new CaptureValidationError(captureEvent.EventId, "Sequences, time, segment, and generation cannot be negative."));
         }
 
         if (captureEvent.SourceTime is { } sourceTime
             && (sourceTime.Frequency <= 0 || sourceTime.Value < 0))
         {
-            errors.Add(new(captureEvent.EventId, "Source timestamp must have non-negative time and positive frequency."));
+            errors.Add(new CaptureValidationError(captureEvent.EventId, "Source timestamp must have non-negative time and positive frequency."));
         }
 
-        CapturedPayload payload = captureEvent.Payload;
+        var payload = captureEvent.Payload;
         if (payload.Length < 0 || payload.Length > CaptureSchema.MaximumEventPayloadBytes)
         {
-            errors.Add(new(captureEvent.EventId,
+            errors.Add(new CaptureValidationError(captureEvent.EventId,
                 $"Payload length must be between 0 and {CaptureSchema.MaximumEventPayloadBytes}."));
         }
 
@@ -378,20 +379,20 @@ internal static class CaptureSchemaValidator
         {
             if (payload.Bytes is null || payload.Bytes.Length != payload.Length)
             {
-                errors.Add(new(captureEvent.EventId, "Included payload bytes must match the reported length."));
+                errors.Add(new CaptureValidationError(captureEvent.EventId, "Included payload bytes must match the reported length."));
             }
             else
             {
-                string expectedHash = CaptureHashFile.Hash(payload.Bytes);
+                var expectedHash = CaptureHashFile.Hash(payload.Bytes);
                 if (!string.Equals(payload.Sha256, expectedHash, StringComparison.Ordinal))
                 {
-                    errors.Add(new(captureEvent.EventId, "Included payload SHA-256 does not match its bytes."));
+                    errors.Add(new CaptureValidationError(captureEvent.EventId, "Included payload SHA-256 does not match its bytes."));
                 }
             }
         }
         else if (payload.Bytes is not null || payload.Sha256 is not null)
         {
-            errors.Add(new(captureEvent.EventId,
+            errors.Add(new CaptureValidationError(captureEvent.EventId,
                 "Redacted, absent, or quarantined payloads cannot retain bytes or a content hash."));
         }
     }
@@ -404,7 +405,7 @@ internal static class CaptureSchemaValidator
     {
         if (result.SchemaVersion != CaptureSchema.CurrentVersion)
         {
-            errors.Add(new(result.ResultId, "Unsupported analysis-result schema version."));
+            errors.Add(new CaptureValidationError(result.ResultId, "Unsupported analysis-result schema version."));
         }
 
         ValidateId(result.ResultId, "analysis.resultId", errors);
@@ -413,28 +414,28 @@ internal static class CaptureSchemaValidator
         if (!string.Equals(result.AnalyzerId, descriptor.AnalyzerId, StringComparison.Ordinal)
             || !string.Equals(result.AnalyzerVersion, descriptor.AnalyzerVersion, StringComparison.Ordinal))
         {
-            errors.Add(new(result.ResultId, "Result analyzer identity does not match its stream."));
+            errors.Add(new CaptureValidationError(result.ResultId, "Result analyzer identity does not match its stream."));
         }
 
         if (result.SupportingEventIds.Count == 0)
         {
-            errors.Add(new(result.ResultId, "Derived analysis must reference at least one raw event."));
+            errors.Add(new CaptureValidationError(result.ResultId, "Derived analysis must reference at least one raw event."));
         }
 
         if (result.Values.Count > CaptureSchema.MaximumAnalysisValues)
         {
-            errors.Add(new(result.ResultId,
+            errors.Add(new CaptureValidationError(result.ResultId,
                 $"Analysis may contain at most {CaptureSchema.MaximumAnalysisValues} values."));
         }
 
         if (result.SupportingEventIds.Count + result.CounterexampleEventIds.Count
             > CaptureSchema.MaximumAnalysisEventReferences)
         {
-            errors.Add(new(result.ResultId,
+            errors.Add(new CaptureValidationError(result.ResultId,
                 $"Analysis may reference at most {CaptureSchema.MaximumAnalysisEventReferences} raw events."));
         }
 
-        foreach (CaptureAnalysisValue value in result.Values)
+        foreach (var value in result.Values)
         {
             ValidateId(value.Key, result.ResultId, errors);
             ValidateText(value.Value, result.ResultId, errors);
@@ -444,16 +445,16 @@ internal static class CaptureSchemaValidator
             }
         }
 
-        foreach (string limitation in result.Limitations)
+        foreach (var limitation in result.Limitations)
         {
             ValidateText(limitation, result.ResultId, errors);
         }
 
-        foreach (string eventId in result.SupportingEventIds.Concat(result.CounterexampleEventIds))
+        foreach (var eventId in result.SupportingEventIds.Concat(result.CounterexampleEventIds))
         {
             if (!eventIds.Contains(eventId))
             {
-                errors.Add(new(result.ResultId, $"Analysis references unknown event '{eventId}'."));
+                errors.Add(new CaptureValidationError(result.ResultId, $"Analysis references unknown event '{eventId}'."));
             }
         }
     }
@@ -463,16 +464,16 @@ internal static class CaptureSchemaValidator
         IReadOnlyDictionary<string, CaptureBlobDescriptor> descriptors,
         ICollection<CaptureValidationError> errors)
     {
-        if (!descriptors.TryGetValue(blob.Descriptor.BlobId, out CaptureBlobDescriptor? manifestBlob)
+        if (!descriptors.TryGetValue(blob.Descriptor.BlobId, out var manifestBlob)
             || manifestBlob != blob.Descriptor)
         {
-            errors.Add(new(blob.Descriptor.BlobId, "Blob descriptor does not match the manifest."));
+            errors.Add(new CaptureValidationError(blob.Descriptor.BlobId, "Blob descriptor does not match the manifest."));
             return;
         }
 
         if (blob.Bytes.LongLength != blob.Descriptor.Length)
         {
-            errors.Add(new(blob.Descriptor.Path, "Blob bytes do not match the declared length."));
+            errors.Add(new CaptureValidationError(blob.Descriptor.Path, "Blob bytes do not match the declared length."));
         }
 
         if (!string.Equals(
@@ -480,7 +481,7 @@ internal static class CaptureSchemaValidator
                 blob.Descriptor.Sha256,
                 StringComparison.Ordinal))
         {
-            errors.Add(new(blob.Descriptor.Path, "Blob SHA-256 does not match its bytes."));
+            errors.Add(new CaptureValidationError(blob.Descriptor.Path, "Blob SHA-256 does not match its bytes."));
         }
     }
 
@@ -490,22 +491,22 @@ internal static class CaptureSchemaValidator
     {
         if (redaction.SchemaVersion != CaptureSchema.CurrentVersion)
         {
-            errors.Add(new("redaction.schemaVersion", "Unsupported redaction schema version."));
+            errors.Add(new CaptureValidationError("redaction.schemaVersion", "Unsupported redaction schema version."));
         }
 
         if (!redaction.DefaultRedactionApplied)
         {
-            errors.Add(new("redaction.defaultRedactionApplied",
+            errors.Add(new CaptureValidationError("redaction.defaultRedactionApplied",
                 "A shareable capture must pass the default redaction stage."));
         }
 
-        foreach (QuarantinedCaptureArtifact artifact in redaction.Quarantined)
+        foreach (var artifact in redaction.Quarantined)
         {
             ValidateText(artifact.Name, "redaction.quarantined.name", errors);
             ValidateText(artifact.Reason, "redaction.quarantined.reason", errors);
             if (artifact.Length < 0)
             {
-                errors.Add(new(artifact.Name, "Quarantined artifact length cannot be negative."));
+                errors.Add(new CaptureValidationError(artifact.Name, "Quarantined artifact length cannot be negative."));
             }
         }
     }
@@ -517,7 +518,7 @@ internal static class CaptureSchemaValidator
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > CaptureSchema.MaximumIdentifierLength)
         {
-            errors.Add(new(path,
+            errors.Add(new CaptureValidationError(path,
                 $"Identifier must contain 1 to {CaptureSchema.MaximumIdentifierLength} characters."));
         }
     }
@@ -529,7 +530,7 @@ internal static class CaptureSchemaValidator
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > CaptureSchema.MaximumTextLength)
         {
-            errors.Add(new(path,
+            errors.Add(new CaptureValidationError(path,
                 $"Text must contain 1 to {CaptureSchema.MaximumTextLength} characters."));
         }
     }
@@ -542,7 +543,7 @@ internal static class CaptureSchemaValidator
     {
         if (!string.Equals(path, expected, StringComparison.Ordinal))
         {
-            errors.Add(new(property, $"Path must be '{expected}'."));
+            errors.Add(new CaptureValidationError(property, $"Path must be '{expected}'."));
         }
     }
 
@@ -556,7 +557,7 @@ internal static class CaptureSchemaValidator
             || !path.StartsWith(prefix, StringComparison.Ordinal)
             || suffix is not null && !path.EndsWith(suffix, StringComparison.Ordinal))
         {
-            errors.Add(new(path, $"Path must be a canonical entry below '{prefix}'."));
+            errors.Add(new CaptureValidationError(path, $"Path must be a canonical entry below '{prefix}'."));
         }
     }
 
@@ -565,11 +566,11 @@ internal static class CaptureSchemaValidator
         ICollection<CaptureValidationError> errors)
     {
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-        foreach (string path in paths)
+        foreach (var path in paths)
         {
             if (!seen.Add(path))
             {
-                errors.Add(new(path, "Archive path is duplicated."));
+                errors.Add(new CaptureValidationError(path, "Archive path is duplicated."));
             }
         }
     }
@@ -580,11 +581,11 @@ internal static class CaptureSchemaValidator
         ICollection<CaptureValidationError> errors)
     {
         HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (string id in ids)
+        foreach (var id in ids)
         {
             if (!seen.Add(id))
             {
-                errors.Add(new(path, $"Identifier '{id}' is duplicated."));
+                errors.Add(new CaptureValidationError(path, $"Identifier '{id}' is duplicated."));
             }
         }
     }
@@ -596,7 +597,7 @@ internal static class CaptureSchemaValidator
     {
         if (hash is null || hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
         {
-            errors.Add(new(path, "SHA-256 must be 64 lowercase hexadecimal characters."));
+            errors.Add(new CaptureValidationError(path, "SHA-256 must be 64 lowercase hexadecimal characters."));
         }
     }
 }
@@ -618,7 +619,7 @@ internal static class CaptureHashFile
         ArgumentNullException.ThrowIfNull(entries);
 
         StringBuilder builder = new();
-        foreach (CaptureHashEntry entry in entries.OrderBy(entry => entry.Path, StringComparer.Ordinal))
+        foreach (var entry in entries.OrderBy(entry => entry.Path, StringComparer.Ordinal))
         {
             builder.Append(entry.Sha256).Append("  ").Append(entry.Path).Append('\n');
         }
@@ -650,7 +651,7 @@ internal static class CaptureBundleWriter
         ArgumentNullException.ThrowIfNull(bundle);
         cancellationToken.ThrowIfCancellationRequested();
 
-        IReadOnlyList<CaptureValidationError> errors = CaptureSchemaValidator.Validate(
+        var errors = CaptureSchemaValidator.Validate(
             bundle,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -692,13 +693,13 @@ internal static class CaptureBundleWriter
                     hash,
                     bundle.Redaction,
                     DeviceLabJsonContext.Default.CaptureRedactionManifest,
-                    token),
+                    token)
             };
 
-        foreach (CaptureStreamFile stream in bundle.Streams)
+        foreach (var stream in bundle.Streams)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CaptureStreamDescriptor descriptor = bundle.Manifest.Streams.Single(item =>
+            var descriptor = bundle.Manifest.Streams.Single(item =>
                 string.Equals(item.SourceId, stream.SourceId, StringComparison.Ordinal));
             entries[descriptor.Path] = (output, hash, token) => WriteNdjson(
                 output,
@@ -710,10 +711,10 @@ internal static class CaptureBundleWriter
                 token);
         }
 
-        foreach (CaptureAnalysisFile analysis in bundle.Analysis)
+        foreach (var analysis in bundle.Analysis)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CaptureAnalysisDescriptor descriptor = bundle.Manifest.Analysis.Single(item =>
+            var descriptor = bundle.Manifest.Analysis.Single(item =>
                 string.Equals(item.AnalyzerId, analysis.AnalyzerId, StringComparison.Ordinal));
             entries[descriptor.Path] = (output, hash, token) => WriteNdjson(
                 output,
@@ -725,7 +726,7 @@ internal static class CaptureBundleWriter
                 token);
         }
 
-        foreach (CaptureBlobFile blob in bundle.Blobs)
+        foreach (var blob in bundle.Blobs)
         {
             cancellationToken.ThrowIfCancellationRequested();
             entries[blob.Descriptor.Path] = (output, hash, token) => WriteBytes(
@@ -741,27 +742,27 @@ internal static class CaptureBundleWriter
 
         using ZipArchive archive = new(destination, ZipArchiveMode.Create, leaveOpen: true, Encoding.UTF8);
         List<CaptureHashEntry> hashes = [];
-        foreach ((string path, Action<Stream, IncrementalHash, CancellationToken> write) in entries)
+        foreach (var (path, write) in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ZipArchiveEntry entry = archive.CreateEntry(path, CompressionLevel.NoCompression);
+            var entry = archive.CreateEntry(path, CompressionLevel.NoCompression);
             entry.LastWriteTime = DeterministicTimestamp;
             entry.ExternalAttributes = 0;
-            using Stream output = entry.Open();
-            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            using var output = entry.Open();
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             write(output, hash, cancellationToken);
             hashes.Add(new CaptureHashEntry(
                 path,
                 Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()));
         }
 
-        byte[] hashFile = Encoding.UTF8.GetBytes(CaptureHashFile.Serialize(hashes));
-        ZipArchiveEntry hashesEntry = archive.CreateEntry(
+        var hashFile = Encoding.UTF8.GetBytes(CaptureHashFile.Serialize(hashes));
+        var hashesEntry = archive.CreateEntry(
             CaptureBundleLayout.HashesPath,
             CompressionLevel.NoCompression);
         hashesEntry.LastWriteTime = DeterministicTimestamp;
         hashesEntry.ExternalAttributes = 0;
-        using Stream hashesOutput = hashesEntry.Open();
+        using var hashesOutput = hashesEntry.Open();
         WriteBytes(hashesOutput, hash: null, hashFile, cancellationToken);
     }
 
@@ -769,10 +770,10 @@ internal static class CaptureBundleWriter
         Stream output,
         IncrementalHash hash,
         T value,
-        System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
+        JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken)
     {
-        byte[] json = JsonSerializer.SerializeToUtf8Bytes(value, typeInfo);
+        var json = JsonSerializer.SerializeToUtf8Bytes(value, typeInfo);
         WriteBytes(output, hash, json, cancellationToken);
         WriteBytes(output, hash, Newline, cancellationToken);
     }
@@ -784,10 +785,10 @@ internal static class CaptureBundleWriter
         Func<T, byte[]> serialize,
         CancellationToken cancellationToken)
     {
-        foreach (T value in values)
+        foreach (var value in values)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            byte[] json = serialize(value);
+            var json = serialize(value);
             WriteBytes(output, hash, json, cancellationToken);
             WriteBytes(output, hash, Newline, cancellationToken);
         }
@@ -800,12 +801,12 @@ internal static class CaptureBundleWriter
         CancellationToken cancellationToken)
     {
         const int MaximumChunkBytes = 64 * 1024;
-        int offset = 0;
+        var offset = 0;
         while (offset < content.Length)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int length = Math.Min(MaximumChunkBytes, content.Length - offset);
-            ReadOnlySpan<byte> chunk = content.Slice(offset, length);
+            var length = Math.Min(MaximumChunkBytes, content.Length - offset);
+            var chunk = content.Slice(offset, length);
             hash?.AppendData(chunk);
             output.Write(chunk);
             offset += length;

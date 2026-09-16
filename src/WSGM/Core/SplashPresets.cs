@@ -22,7 +22,7 @@ internal enum SplashPreset
     QuietConsole,
 
     /// <summary>Wordmark with an accent sweep-line along the bottom edge.</summary>
-    SweepLine,
+    SweepLine
 }
 
 /// <summary>Factories for the built-in splash presets. A preset only fills a
@@ -38,7 +38,7 @@ internal static class SplashPresets
         SplashPreset.Wordmark,
         SplashPreset.MonogramRing,
         SplashPreset.QuietConsole,
-        SplashPreset.SweepLine,
+        SplashPreset.SweepLine
     ];
 
     /// <summary>Human-readable name for the preset combo box.</summary>
@@ -50,7 +50,7 @@ internal static class SplashPresets
         SplashPreset.MonogramRing => "Monogram ring",
         SplashPreset.QuietConsole => "Quiet console",
         SplashPreset.SweepLine => "Sweep line",
-        _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, null),
+        _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, null)
     };
 
     /// <summary>Creates a fresh <see cref="SplashConfig"/> filled with the preset's
@@ -63,7 +63,7 @@ internal static class SplashPresets
         SplashPreset.MonogramRing => MonogramRing(),
         SplashPreset.QuietConsole => QuietConsole(),
         SplashPreset.SweepLine => SweepLine(),
-        _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, null),
+        _ => throw new ArgumentOutOfRangeException(nameof(preset), preset, null)
     };
 
     /// <summary>What a fresh WSGM 2.0 install boots with.</summary>
@@ -103,8 +103,8 @@ internal static class SplashPresets
         TextPlacement = new SplashElementPlacement
         {
             Mode = SplashPlacementMode.Anchor,
-            Anchor = SplashPlacementAnchor.Center,
-        },
+            Anchor = SplashPlacementAnchor.Center
+        }
     };
 
     /// <summary>The classic default look — exactly the <see cref="SplashConfig"/> defaults.</summary>
@@ -127,9 +127,9 @@ internal static class SplashPresets
         TextPlacement = new SplashElementPlacement
         {
             Mode = SplashPlacementMode.Anchor,
-            Anchor = SplashPlacementAnchor.Center,
+            Anchor = SplashPlacementAnchor.Center
         },
-        SpinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
+        SpinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText }
     };
 
     /// <summary>Near-black vignetted background with a small "WSGM" mark and a large
@@ -152,7 +152,7 @@ internal static class SplashPresets
         TextPlacement = new SplashElementPlacement
         {
             Mode = SplashPlacementMode.Anchor,
-            Anchor = SplashPlacementAnchor.Center,
+            Anchor = SplashPlacementAnchor.Center
         },
         // Both center-ANCHORED (not WithText, which would stack the ring below
         // the text): anchor-mode elements are independent layers, so the two
@@ -160,8 +160,8 @@ internal static class SplashPresets
         SpinnerPlacement = new SplashElementPlacement
         {
             Mode = SplashPlacementMode.Anchor,
-            Anchor = SplashPlacementAnchor.Center,
-        },
+            Anchor = SplashPlacementAnchor.Center
+        }
     };
 
     /// <summary>Minimal quiet look: a dim "Starting Steam" line with a tiny ring
@@ -181,9 +181,9 @@ internal static class SplashPresets
         {
             Mode = SplashPlacementMode.Anchor,
             Anchor = SplashPlacementAnchor.BottomCenter,
-            PaddingY = 200,
+            PaddingY = 200
         },
-        SpinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
+        SpinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText }
     };
 
     /// <summary>Black background, centered "WSGM" wordmark, and an accent-orange
@@ -203,7 +203,7 @@ internal static class SplashPresets
         TextPlacement = new SplashElementPlacement
         {
             Mode = SplashPlacementMode.Anchor,
-            Anchor = SplashPlacementAnchor.Center,
-        },
+            Anchor = SplashPlacementAnchor.Center
+        }
     };
 }

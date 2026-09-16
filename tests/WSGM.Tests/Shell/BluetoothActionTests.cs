@@ -1,3 +1,4 @@
+using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -9,7 +10,7 @@ public sealed class BluetoothActionTests
     {
         int writes = 0, reads = 0;
         BluetoothAudioConnection connection = new((_, _) => writes++,
-            () => [new("{ABC}", ++reads >= 3)], (_, _) => Task.CompletedTask);
+            () => [new CoreAudio.BluetoothAudioContainer("{ABC}", ++reads >= 3)], (_, _) => Task.CompletedTask);
         Assert.True(await connection.ApplyAsync("abc", true, default));
         Assert.Equal(1, writes);
         Assert.Equal(3, reads);
@@ -18,9 +19,9 @@ public sealed class BluetoothActionTests
     [Fact]
     public async Task AudioTimeoutDoesNotRetryTheWrite()
     {
-        int writes = 0;
+        var writes = 0;
         BluetoothAudioConnection connection = new((_, _) => writes++,
-            () => [new("abc", false)], (_, _) => Task.CompletedTask);
+            () => [new CoreAudio.BluetoothAudioContainer("abc", false)], (_, _) => Task.CompletedTask);
         Assert.False(await connection.ApplyAsync("abc", true, default));
         Assert.Equal(1, writes);
     }

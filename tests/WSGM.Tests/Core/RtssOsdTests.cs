@@ -20,18 +20,18 @@ public sealed class RtssOsdContentTests
         BatteryPercent = 76,
         BatteryWatts = -14.2,
         BatteryMinutesRemaining = 95,
-        OnAcPower = false,
+        OnAcPower = false
     };
 
     private static readonly RtssOsdMetrics EmptyMetrics = RtssOsdMetrics.Empty with
     {
-        OnAcPower = true,
+        OnAcPower = true
     };
 
     [Fact]
     public void Minimal_IsOneRowOfRtssFramerate()
     {
-        string text = RtssOsdContent.Build(1, EmptyMetrics);
+        var text = RtssOsdContent.Build(1, EmptyMetrics);
 
         Assert.StartsWith("<C0=FFFFFF><C1=8000FF>", text);
         Assert.Contains("<FR>", text);
@@ -45,7 +45,7 @@ public sealed class RtssOsdContentTests
     {
         var power = new RtssOsdPowerStatus(18, true, true, 17, "Raising");
 
-        string text = RtssOsdContent.Build(1, FullMetrics, power);
+        var text = RtssOsdContent.Build(1, FullMetrics, power);
 
         Assert.DoesNotContain("TDP", text);
         Assert.DoesNotContain("RAISING", text);
@@ -58,7 +58,7 @@ public sealed class RtssOsdContentTests
     {
         var power = new RtssOsdPowerStatus(18, true, true, 17, "Raising");
 
-        string text = RtssOsdContent.Build(level, FullMetrics, power);
+        var text = RtssOsdContent.Build(level, FullMetrics, power);
 
         Assert.Contains("TDP", text);
         Assert.Contains("18<S1>W", text);
@@ -72,7 +72,7 @@ public sealed class RtssOsdContentTests
     {
         var power = new RtssOsdPowerStatus(18, false, false, null, string.Empty);
 
-        string text = RtssOsdContent.Build(2, FullMetrics, power);
+        var text = RtssOsdContent.Build(2, FullMetrics, power);
 
         Assert.Contains("TDP", text);
         Assert.DoesNotContain("AUTO TDP", text);
@@ -83,7 +83,7 @@ public sealed class RtssOsdContentTests
     {
         var power = new RtssOsdPowerStatus(18, true, false, null, string.Empty);
 
-        string text = RtssOsdContent.Build(2, FullMetrics, power);
+        var text = RtssOsdContent.Build(2, FullMetrics, power);
 
         Assert.Contains("TDP", text);
         Assert.DoesNotContain("AUTO TDP", text);
@@ -92,7 +92,7 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void Extended_IsOneRowWithEverySourcedSubject()
     {
-        string text = RtssOsdContent.Build(2, FullMetrics);
+        var text = RtssOsdContent.Build(2, FullMetrics);
 
         Assert.DoesNotContain("\n", text);
         Assert.Contains("<FR>", text);
@@ -109,9 +109,9 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void Full_IsOneRowPerSubject()
     {
-        string text = RtssOsdContent.Build(3, FullMetrics);
+        var text = RtssOsdContent.Build(3, FullMetrics);
 
-        string[] rows = text.Split('\n');
+        var rows = text.Split('\n');
         Assert.Equal(6, rows.Length);
         // Full shows used/total memory, temperatures and the discharge estimate.
         Assert.Contains("12.3/31.6", text);
@@ -124,7 +124,7 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void SubjectsWithoutASourceDoNotRender()
     {
-        string text = RtssOsdContent.Build(3, EmptyMetrics);
+        var text = RtssOsdContent.Build(3, EmptyMetrics);
 
         // Only the FPS row survives: its tags are filled by RTSS, not by a sensor.
         Assert.DoesNotContain("GPU", text);
@@ -138,9 +138,9 @@ public sealed class RtssOsdContentTests
     [Fact]
     public void BatteryTimeIsOmittedOnAcPower()
     {
-        RtssOsdMetrics charging = FullMetrics with { OnAcPower = true };
+        var charging = FullMetrics with { OnAcPower = true };
 
-        string text = RtssOsdContent.Build(3, charging);
+        var text = RtssOsdContent.Build(3, charging);
 
         Assert.DoesNotContain("<S1>h", text);
         Assert.DoesNotContain("<S1>min", text);
@@ -189,7 +189,7 @@ public sealed class RtssLhmSensorsTests
     [Fact]
     public void SelectsHandheldCompanionsSensors()
     {
-        RtssOsdMetrics metrics = RtssLhmSensors.Parse(ClawSample);
+        var metrics = RtssLhmSensors.Parse(ClawSample);
 
         Assert.Equal(17.4, metrics.CpuLoadPercent!.Value, 3);
         Assert.Equal(12.6, metrics.CpuPowerWatts!.Value, 3);
@@ -217,7 +217,7 @@ public sealed class RtssLhmSensorsTests
             </hardware>
             """;
 
-        RtssOsdMetrics metrics = RtssLhmSensors.Parse(sample);
+        var metrics = RtssLhmSensors.Parse(sample);
 
         Assert.Equal(1.0, metrics.GpuMemoryUsedGb!.Value, 3);
         Assert.Equal(4.0, metrics.GpuMemoryTotalGb!.Value, 3);
@@ -226,7 +226,7 @@ public sealed class RtssLhmSensorsTests
     [Fact]
     public void ATornSnapshotYieldsNothing()
     {
-        RtssOsdMetrics metrics = RtssLhmSensors.Parse("<hardware><sensor><name>CPU T");
+        var metrics = RtssLhmSensors.Parse("<hardware><sensor><name>CPU T");
 
         Assert.Equal(RtssOsdMetrics.Empty, metrics);
     }
@@ -247,7 +247,7 @@ public sealed class RtssOsdCustomTests
         BatteryPercent = 80,
         BatteryWatts = -12,
         BatteryMinutesRemaining = 60,
-        OnAcPower = false,
+        OnAcPower = false
     };
 
     [Fact]
@@ -257,10 +257,10 @@ public sealed class RtssOsdCustomTests
         {
             OsdCustomOrder = "fps, cpu, Nonsense, CPU, batt",
             OsdCustomFps = 7,
-            OsdCustomBattery = -3,
+            OsdCustomBattery = -3
         };
 
-        RtssOsdCustomSettings settings = RtssOsdCustomSettings.FromConfig(config);
+        var settings = RtssOsdCustomSettings.FromConfig(config);
 
         Assert.Equal(["FPS", "CPU", "BATT"], settings.Order);
         Assert.Equal(2, settings.Fps);
@@ -270,11 +270,11 @@ public sealed class RtssOsdCustomTests
     [Fact]
     public void BuildCustom_RendersOneRowPerConfiguredWidgetInOrder()
     {
-        RtssOsdCustomSettings settings = RtssOsdCustomSettings.Default;
+        var settings = RtssOsdCustomSettings.Default;
 
-        string text = RtssOsdContent.BuildCustom(settings, Metrics);
+        var text = RtssOsdContent.BuildCustom(settings, Metrics);
 
-        string[] rows = text.Split('\n');
+        var rows = text.Split('\n');
         // Default order Time,GPU,CPU,VRAM,RAM,BATT,FPS — every widget has a source here.
         Assert.Equal(7, rows.Length);
         Assert.Contains("TIME", rows[0]);
@@ -292,12 +292,12 @@ public sealed class RtssOsdCustomTests
     {
         var power = new RtssOsdPowerStatus(18, true, true, 17, "Lowering");
 
-        string text = RtssOsdContent.BuildCustom(
+        var text = RtssOsdContent.BuildCustom(
             RtssOsdCustomSettings.Default,
             Metrics,
             power);
 
-        string[] rows = text.Split('\n');
+        var rows = text.Split('\n');
         Assert.Contains("TDP", rows[0]);
         Assert.Contains("18<S1>W", rows[0]);
         Assert.Contains("AUTO TDP", rows[1]);
@@ -308,10 +308,10 @@ public sealed class RtssOsdCustomTests
     [Fact]
     public void BuildCustom_SkipsHiddenWidgetsAndSourcelessEntries()
     {
-        RtssOsdCustomSettings settings = RtssOsdCustomSettings.Default with { Gpu = 0 };
-        RtssOsdMetrics noBattery = Metrics with { BatteryPercent = null, BatteryWatts = null };
+        var settings = RtssOsdCustomSettings.Default with { Gpu = 0 };
+        var noBattery = Metrics with { BatteryPercent = null, BatteryWatts = null };
 
-        string text = RtssOsdContent.BuildCustom(settings, noBattery);
+        var text = RtssOsdContent.BuildCustom(settings, noBattery);
 
         Assert.DoesNotContain("GPU", text.Replace("VRAM", string.Empty));
         Assert.DoesNotContain("BATT", text);
@@ -364,7 +364,7 @@ public sealed class RtssOsdSlotsTests
     [Fact]
     public void ClaimsTheFirstFreeSlotAndSkipsRtssOwnSlot()
     {
-        FakeRegion region = NewRegion();
+        var region = NewRegion();
 
         Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
 
@@ -378,7 +378,7 @@ public sealed class RtssOsdSlotsTests
     [Fact]
     public void ReusesItsOwnSlotAndRespectsOtherOwners()
     {
-        FakeRegion region = NewRegion();
+        var region = NewRegion();
         region.WriteString(EntryOffset(1) + OwnerOffset, "RTSSSharedMemorySample");
         region.WriteString(EntryOffset(2) + OwnerOffset, "WSGM");
 
@@ -392,8 +392,8 @@ public sealed class RtssOsdSlotsTests
     [Fact]
     public void RefusesWhenEverySlotIsForeignOwned()
     {
-        FakeRegion region = NewRegion();
-        for (int slot = 1; slot < Slots; slot++)
+        var region = NewRegion();
+        for (var slot = 1; slot < Slots; slot++)
         {
             region.WriteString(EntryOffset(slot) + OwnerOffset, $"owner-{slot}");
         }
@@ -405,7 +405,7 @@ public sealed class RtssOsdSlotsTests
     [Fact]
     public void ReleaseZeroesOnlyTheOwnedEntry()
     {
-        FakeRegion region = NewRegion();
+        var region = NewRegion();
         region.WriteString(EntryOffset(1) + OwnerOffset, "someone-else");
         region.WriteString(EntryOffset(1) + TextExOffset, "theirs");
         Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "ours"));
@@ -421,7 +421,7 @@ public sealed class RtssOsdSlotsTests
     [Fact]
     public void SkipsTheTextWriteWhenTheBusyFlagIsHeld()
     {
-        FakeRegion region = NewRegion();
+        var region = NewRegion();
         region.BusyHeld = true;
 
         Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
@@ -436,17 +436,17 @@ public sealed class RtssOsdSlotsTests
     [Fact]
     public void RefusesAForeignMapping()
     {
-        FakeRegion region = NewRegion();
+        var region = NewRegion();
         region.WriteUInt32(0, 0x12345678);
 
         Assert.False(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
     }
 
-    private static long EntryOffset(int slot) => ArrayOffset + ((long)slot * EntrySize);
+    private static long EntryOffset(int slot) => ArrayOffset + (long)slot * EntrySize;
 
     private static FakeRegion NewRegion()
     {
-        var region = new FakeRegion(ArrayOffset + (Slots * EntrySize));
+        var region = new FakeRegion(ArrayOffset + Slots * EntrySize);
         // 'RTSS' as the server's C multichar constant — bytes "SSTR" in memory.
         region.WriteUInt32(0, 0x52545353);
         region.WriteUInt32(4, 0x0002_0015);
@@ -483,7 +483,7 @@ public sealed class RtssOsdSlotsTests
 
         public string ReadString(long offset)
         {
-            int end = (int)offset;
+            var end = (int)offset;
             while (end < _memory.Length && _memory[end] != 0)
             {
                 end++;

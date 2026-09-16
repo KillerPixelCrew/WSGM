@@ -41,9 +41,9 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void ImportedProfileProducesOnlyCatalogOwnedExactMappings()
     {
-        ImportedGlyphProfile profile = ImportProfile();
+        var profile = ImportProfile();
 
-        SteamInputGlyphPresentation? presentation = SteamInputGlyphPresentation.Create(profile);
+        var presentation = SteamInputGlyphPresentation.Create(profile);
 
         Assert.NotNull(presentation);
         Assert.Equal("example.handheld", presentation.ProfileId);
@@ -68,9 +68,9 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void EveryValveResourceForAControlIsOverriddenWithTheOnePluginAsset()
     {
-        SteamInputGlyphPresentation presentation = Presentation();
+        var presentation = Presentation();
 
-        string css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
+        var css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
 
         // The south face button is drawn from several Valve resources depending on the controller
         // family; all of them have to resolve to the handheld's own artwork.
@@ -83,7 +83,7 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void AnAliasedLogicalControlIsPresentWhenItsPhysicalArtworkExists()
     {
-        SteamInputGlyphPresentation? presentation = SteamInputGlyphPresentation.Create(
+        var presentation = SteamInputGlyphPresentation.Create(
             ImportProfile(aliasEastToSouth: true));
 
         Assert.NotNull(presentation);
@@ -96,9 +96,9 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void OnlyControlsThePluginSuppliesAppearInTheStylesheet()
     {
-        SteamInputGlyphPresentation presentation = Presentation();
+        var presentation = Presentation();
 
-        string css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
+        var css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
 
         // WSGM ships no artwork of its own, so a control the profile does not supply must simply be
         // absent from the sheet and keep Valve's own glyph.
@@ -109,9 +109,9 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void ControllerImagesArePublishedAsCustomProperties()
     {
-        SteamInputGlyphPresentation presentation = Presentation();
+        var presentation = Presentation();
 
-        string css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
+        var css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
 
         Assert.Contains("--wsgm-controller-full-image: url(\"data:", css, StringComparison.Ordinal);
     }
@@ -119,10 +119,10 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void AnAbsentControlHidesItsRowOnlyWhenHidingIsRequested()
     {
-        SteamInputGlyphPresentation presentation = Presentation();
+        var presentation = Presentation();
 
-        string hidden = SteamGlyphCss.Build(presentation, hideAbsentControls: true);
-        string shown = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
+        var hidden = SteamGlyphCss.Build(presentation, hideAbsentControls: true);
+        var shown = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
 
         // The glyph names are the ones the client actually draws. The table previously named
         // sd_ltrackpad_swipe.svg, which this build renders nowhere, so every hide rule matched
@@ -139,9 +139,9 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void TheInlineSteamLogoIsReplacedFromTheGuideArtwork()
     {
-        SteamInputGlyphPresentation presentation = Presentation(guide: true);
+        var presentation = Presentation(guide: true);
 
-        string css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
+        var css = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
 
         // Valve draws this one as an inline path, so a content override cannot reach it: the inner
         // svg is hidden and the container is painted instead.
@@ -178,7 +178,7 @@ public sealed class SteamGlyphCssTests
 
     private static SteamInputGlyphPresentation Presentation(bool guide = false)
     {
-        SteamInputGlyphPresentation? presentation =
+        var presentation =
             SteamInputGlyphPresentation.Create(ImportProfile(guide));
         Assert.NotNull(presentation);
         return presentation;
@@ -188,46 +188,46 @@ public sealed class SteamGlyphCssTests
         bool guide = false,
         bool aliasEastToSouth = false)
     {
-        byte[] controlSvg = Encoding.UTF8.GetBytes(
+        var controlSvg = Encoding.UTF8.GetBytes(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
             + "<path d=\"M 0 0 L 64 64 Z\"/></svg>");
-        byte[] guideSvg = Encoding.UTF8.GetBytes(
+        var guideSvg = Encoding.UTF8.GetBytes(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
             + "<path d=\"M 0 0 L 32 64 Z\"/></svg>");
-        byte[] controllerSvg = Encoding.UTF8.GetBytes(
+        var controllerSvg = Encoding.UTF8.GetBytes(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 64\">"
             + "<path d=\"M 0 0 L 128 64 Z\"/></svg>");
-        string controlHash = Hash(controlSvg);
-        string guideHash = Hash(guideSvg);
-        string controllerHash = Hash(controllerSvg);
-        GlyphAssetLockEntry controlAsset = Asset(
+        var controlHash = Hash(controlSvg);
+        var guideHash = Hash(guideSvg);
+        var controllerHash = Hash(controllerSvg);
+        var controlAsset = Asset(
             controlHash,
             controlSvg.Length,
             GlyphAssetRole.Control,
             new GlyphViewBox(0, 0, 64, 64));
-        GlyphAssetLockEntry guideAsset = Asset(
+        var guideAsset = Asset(
             guideHash,
             guideSvg.Length,
             GlyphAssetRole.Control,
             new GlyphViewBox(0, 0, 64, 64));
-        GlyphAssetLockEntry controllerAsset = Asset(
+        var controllerAsset = Asset(
             controllerHash,
             controllerSvg.Length,
             GlyphAssetRole.FullController,
             new GlyphViewBox(0, 0, 128, 64));
         List<GlyphControlMapping> controls =
         [
-            new GlyphControlMapping
+            new()
             {
                 Control = GlyphControlId.FaceSouth,
                 Presence = GlyphControlPresence.Present,
-                AssetSha256 = controlHash,
+                AssetSha256 = controlHash
             },
-            new GlyphControlMapping
+            new()
             {
                 Control = GlyphControlId.LeftTrackpad,
-                Presence = GlyphControlPresence.Absent,
-            },
+                Presence = GlyphControlPresence.Absent
+            }
         ];
         if (guide)
         {
@@ -235,7 +235,7 @@ public sealed class SteamGlyphCssTests
             {
                 Control = GlyphControlId.Guide,
                 Presence = GlyphControlPresence.Present,
-                AssetSha256 = guideHash,
+                AssetSha256 = guideHash
             });
         }
 
@@ -259,10 +259,10 @@ public sealed class SteamGlyphCssTests
                     new GlyphControlAlias
                     {
                         LogicalControl = GlyphControlId.FaceEast,
-                        PhysicalControl = GlyphControlId.FaceSouth,
-                    },
+                        PhysicalControl = GlyphControlId.FaceSouth
+                    }
                 ]
-                : [],
+                : []
         };
         Dictionary<string, byte[]> files = new(StringComparer.Ordinal)
         {
@@ -273,9 +273,9 @@ public sealed class SteamGlyphCssTests
             [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n"),
             [GlyphPackageLayout.Asset(controlHash, GlyphAssetFormat.Svg)] = controlSvg,
             [GlyphPackageLayout.Asset(guideHash, GlyphAssetFormat.Svg)] = guideSvg,
-            [GlyphPackageLayout.Asset(controllerHash, GlyphAssetFormat.Svg)] = controllerSvg,
+            [GlyphPackageLayout.Asset(controllerHash, GlyphAssetFormat.Svg)] = controllerSvg
         };
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(
+        var result = GlyphPackageImporter.Import(
             new GlyphTestPackageSource(manifest.ProfileId, files));
         Assert.True(result.IsValid, string.Join("; ", result.Errors));
         return Assert.Single(result.Profiles);
@@ -291,7 +291,7 @@ public sealed class SteamGlyphCssTests
             Format = GlyphAssetFormat.Svg,
             ByteCount = byteCount,
             Role = role,
-            ViewBox = viewBox,
+            ViewBox = viewBox
         };
 
     private static string Hash(byte[] bytes) =>

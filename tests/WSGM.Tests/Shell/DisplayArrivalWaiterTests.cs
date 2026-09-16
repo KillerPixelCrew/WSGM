@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using WindowsDeviceControl;
 using WSGM.Shell;
 
@@ -18,7 +19,7 @@ public sealed class DisplayArrivalWaiterTests
         Presence presence = new([Seen("a", Desk), Seen("b", Desk, Tv), Seen("b", Desk, Tv)]);
         Signal signal = new();
 
-        DisplayArrangement settled = await Waiter(presence, signal).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, signal).WaitAsync([Tv], default);
 
         Assert.Equal("b", settled.Fingerprint);
         Assert.Equal(1, signal.Waits);
@@ -31,7 +32,7 @@ public sealed class DisplayArrivalWaiterTests
         // first sighting would configure a display that is still negotiating.
         Presence presence = new([Seen("a", Tv), Seen("b", Tv), Seen("c", Tv), Seen("c", Tv)]);
 
-        DisplayArrangement settled = await Waiter(presence, new()).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, new Signal()).WaitAsync([Tv], default);
 
         Assert.Equal("c", settled.Fingerprint);
         Assert.Equal(4, presence.Reads);
@@ -43,7 +44,7 @@ public sealed class DisplayArrivalWaiterTests
         Presence presence = new([Seen("a", Tv), Seen("b", Desk), Seen("c", Tv), Seen("c", Tv)]);
         Signal signal = new();
 
-        DisplayArrangement settled = await Waiter(presence, signal).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, signal).WaitAsync([Tv], default);
 
         Assert.Equal("c", settled.Fingerprint);
         Assert.Equal(1, signal.Waits);
@@ -54,7 +55,7 @@ public sealed class DisplayArrivalWaiterTests
     {
         Presence presence = new([null, Seen("a", Tv), Seen("a", Tv)]);
 
-        DisplayArrangement settled = await Waiter(presence, new()).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, new Signal()).WaitAsync([Tv], default);
 
         Assert.Equal("a", settled.Fingerprint);
     }
@@ -64,7 +65,7 @@ public sealed class DisplayArrivalWaiterTests
     {
         Presence presence = new([Seen("a"), Seen("a")]);
 
-        Assert.Equal("a", (await Waiter(presence, new()).WaitAsync([], default)).Fingerprint);
+        Assert.Equal("a", (await Waiter(presence, new Signal()).WaitAsync([], default)).Fingerprint);
     }
 
     [Fact]
@@ -81,7 +82,7 @@ public sealed class DisplayArrivalWaiterTests
     [Fact]
     public void MissingNamesOnlyTheDisplaysTheObservationCannotSee()
     {
-        DisplayArrangement seen = Seen("a", Desk);
+        var seen = Seen("a", Desk);
 
         Assert.Equal([Tv], DisplayArrivalWaiter.Missing(seen, [Tv, Desk]));
         Assert.True(DisplayArrivalWaiter.Present(seen, [Desk]));
@@ -93,7 +94,7 @@ public sealed class DisplayArrivalWaiterTests
     {
         // Windows enumerates a monitor before it is part of the desktop; the layout apply is what
         // activates it, so waiting for Active would wait forever.
-        DisplayArrangement seen = new([new(Tv, true, false, null)], "a", DateTimeOffset.UnixEpoch);
+        DisplayArrangement seen = new([new DisplayTargetObservation(Tv, true, false, null)], "a", DateTimeOffset.UnixEpoch);
 
         Assert.True(DisplayArrivalWaiter.Present(seen, [Tv]));
     }
@@ -115,7 +116,7 @@ public sealed class DisplayArrivalWaiterTests
 
         public DisplayArrangement Observe()
         {
-            int index = Repeat ? Math.Min(Reads, observations.Count - 1) : Reads;
+            var index = Repeat ? Math.Min(Reads, observations.Count - 1) : Reads;
             Reads++;
             if (index >= observations.Count)
             {
@@ -125,7 +126,7 @@ public sealed class DisplayArrivalWaiterTests
                     "The waiter looked more times than the test scripted.");
             }
             return observations[index]
-                ?? throw new System.ComponentModel.Win32Exception(31, "the driver is mid-change");
+                ?? throw new Win32Exception(31, "the driver is mid-change");
         }
     }
 

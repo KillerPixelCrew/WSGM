@@ -15,7 +15,7 @@ internal enum DeviceLabDoctorStatus
     Warning,
 
     /// <summary>A required prerequisite prevents the requested workflow.</summary>
-    Blocked,
+    Blocked
 }
 
 /// <summary>One stable doctor check suitable for CLI and GUI rendering.</summary>

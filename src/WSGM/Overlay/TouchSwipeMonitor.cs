@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Avalonia.Threading;
@@ -22,7 +23,7 @@ public enum ScreenEdge
     Left,
 
     /// <summary>The top edge of the primary display.</summary>
-    Top,
+    Top
 }
 
 /// <summary>
@@ -121,8 +122,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     internal static bool IsMouseClick(ReadOnlySpan<byte> mouse)
     {
         if (mouse.Length < 24) { return false; }
-        ushort buttons = BinaryPrimitives.ReadUInt16LittleEndian(mouse[4..]);
-        uint extra = BinaryPrimitives.ReadUInt32LittleEndian(mouse[20..]);
+        var buttons = BinaryPrimitives.ReadUInt16LittleEndian(mouse[4..]);
+        var extra = BinaryPrimitives.ReadUInt32LittleEndian(mouse[20..]);
         return (buttons & 0x0015) != 0
             && (extra & NativeMethods.MiWpSignatureMask) != NativeMethods.MiWpSignature;
     }
@@ -162,15 +163,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 usUsagePage = NativeMethods.HidUsagePageDigitizer,
                 usUsage = NativeMethods.HidUsageTouchScreen,
                 dwFlags = NativeMethods.RidevInputSink | NativeMethods.RidevDevNotify,
-                hwndTarget = _sharedHwnd,
+                hwndTarget = _sharedHwnd
             },
             new NativeMethods.RawInputDevice
             {
                 usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
                 usUsage = NativeMethods.HidUsageMouse,
                 dwFlags = NativeMethods.RidevInputSink,
-                hwndTarget = _sharedHwnd,
-            },
+                hwndTarget = _sharedHwnd
+            }
         };
         if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
         {
@@ -223,7 +224,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
         try
         {
-            return $"0x{hwnd:X} ({System.Diagnostics.Process.GetProcessById((int)pid).ProcessName})";
+            return $"0x{hwnd:X} ({Process.GetProcessById((int)pid).ProcessName})";
         }
         catch
         {
@@ -247,7 +248,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     {
         if (hwnd == _sharedHwnd)
         {
-            TouchSwipeMonitor[] monitors = Volatile.Read(ref _instanceSnapshot);
+            var monitors = Volatile.Read(ref _instanceSnapshot);
             try
             {
                 if (message == NativeMethods.WmInput)
@@ -299,8 +300,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         // WM_INPUT costs one call instead of a size query followed by the read.
         fixed (byte* buffer = _inputBuffer)
         {
-            uint capacity = (uint)_inputBuffer.Length;
-            uint read = NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, (nint)buffer, ref capacity, headerSize);
+            var capacity = (uint)_inputBuffer.Length;
+            var read = NativeMethods.GetRawInputData(hRawInput, NativeMethods.RidInput, (nint)buffer, ref capacity, headerSize);
             if (read != unchecked((uint)-1))
             {
                 if (read >= headerSize)
@@ -692,7 +693,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         ScreenEdge.Right => startX - x,
         ScreenEdge.Left => x - startX,
         ScreenEdge.Top => y - startY,
-        _ => throw new ArgumentOutOfRangeException(nameof(edge)),
+        _ => throw new ArgumentOutOfRangeException(nameof(edge))
     };
 
     /// <summary>Selects the candidate edge whose inward movement has crossed the
@@ -767,15 +768,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                         usUsagePage = NativeMethods.HidUsagePageDigitizer,
                         usUsage = NativeMethods.HidUsageTouchScreen,
                         dwFlags = NativeMethods.RidevRemove,
-                        hwndTarget = 0,
+                        hwndTarget = 0
                     },
                     new NativeMethods.RawInputDevice
                     {
                         usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
                         usUsage = NativeMethods.HidUsageMouse,
                         dwFlags = NativeMethods.RidevRemove,
-                        hwndTarget = 0,
-                    },
+                        hwndTarget = 0
+                    }
                 };
                 if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
                 {

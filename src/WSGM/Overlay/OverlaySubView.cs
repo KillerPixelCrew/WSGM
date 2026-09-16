@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -119,7 +120,7 @@ public abstract class OverlaySubView : UserControl
                 Text = heading,
                 FontSize = 15,
                 FontWeight = FontWeight.SemiBold,
-                Margin = new Avalonia.Thickness(0, 0, 0, 4),
+                Margin = new Thickness(0, 0, 0, 4)
             });
         }
         if (!string.IsNullOrEmpty(_notice))
@@ -171,14 +172,14 @@ public abstract class OverlaySubView : UserControl
         Text = text,
         Classes = { "caption" },
         TextWrapping = TextWrapping.Wrap,
-        Margin = new Avalonia.Thickness(2, 0, 2, 4),
+        Margin = new Thickness(2, 0, 2, 4)
     };
 
     private protected TextBlock SectionLabel(string text) => new()
     {
         Text = text,
         Classes = { "eyebrow" },
-        Margin = new Avalonia.Thickness(2, 6, 2, 2),
+        Margin = new Thickness(2, 6, 2, 2)
     };
 
     // No inner ScrollViewer: the overlay's ContentScroller owns scrolling and its

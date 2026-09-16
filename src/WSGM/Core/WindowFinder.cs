@@ -266,7 +266,7 @@ public static class WindowFinder
             Result = [],
             OwnPid = (uint)Environment.ProcessId,
             ShellWindow = NativeMethods.GetShellWindow(),
-            IncludedOwnWindows = included,
+            IncludedOwnWindows = included
         };
         RunEnumWindows(&ListWindowsProc, state);
         return state.Result;
@@ -323,7 +323,7 @@ public static class WindowFinder
         }
         state.Result.Add(new AppWindow(hWnd, new string(buffer, 0, length), pid)
         {
-            IsMinimized = NativeMethods.IsIconic(hWnd),
+            IsMinimized = NativeMethods.IsIconic(hWnd)
         });
         return 1;
     }

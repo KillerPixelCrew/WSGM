@@ -11,7 +11,7 @@ public sealed class DeviceCapabilityRouterTests
     {
         await using DeviceCapabilityRouter router = new(action => action());
 
-        CapabilityCommandResult result = await router.ExecuteAsync(
+        var result = await router.ExecuteAsync(
             "power.sustained",
             instanceId: null,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 18 },
@@ -74,7 +74,7 @@ public sealed class DeviceCapabilityRouterTests
         SectionId = sectionId,
         SupportsRead = true,
         SupportsWrite = true,
-        Persistence = CapabilityPersistence.Volatile,
+        Persistence = CapabilityPersistence.Volatile
     };
 
     private static CapabilityDescriptor Semantic(string? sectionId = null) => new()
@@ -89,7 +89,7 @@ public sealed class DeviceCapabilityRouterTests
         Minimum = 8,
         Maximum = 30,
         Step = 1,
-        Persistence = CapabilityPersistence.Volatile,
+        Persistence = CapabilityPersistence.Volatile
     };
 
     private static bool Validates(
@@ -102,7 +102,7 @@ public sealed class DeviceCapabilityRouterTests
                 Generation = 1,
                 CycleGeneration = 1,
                 Sections = sections,
-                Descriptors = [descriptor],
+                Descriptors = [descriptor]
             },
             1,
             0,
@@ -117,9 +117,9 @@ public sealed class DeviceCapabilityRouterTests
             new CapabilityCategory
             {
                 CategoryId = "general",
-                Key = SettingSectionKey.General,
-            },
-        ],
+                Key = SettingSectionKey.General
+            }
+        ]
     };
 
     [Theory]
@@ -159,7 +159,7 @@ public sealed class DeviceCapabilityRouterTests
         // and not some other defect in the shape.
         Assert.True(Validates(Semantic(), out _));
 
-        bool valid = Validates(Semantic("vendor.tuning"), out string? error);
+        var valid = Validates(Semantic("vendor.tuning"), out var error);
 
         Assert.False(valid);
         // Named, because from the plugin author's side an ignored section looks like nothing
@@ -188,7 +188,7 @@ public sealed class DeviceCapabilityRouterTests
     {
         // The declared layout is the plugin authoring its own overlay surface; every title and
         // icon in it comes from a WSGM-owned vocabulary, so the consistency rule is not weakened.
-        Assert.True(Validates(Semantic("vendor.tuning"), out string? error, Declared()), error);
+        Assert.True(Validates(Semantic("vendor.tuning"), out var error, Declared()), error);
     }
 
     [Fact]
@@ -199,9 +199,9 @@ public sealed class DeviceCapabilityRouterTests
             out _,
             Declared()));
 
-        bool valid = Validates(
+        var valid = Validates(
             Generic("vendor.tuning") with { CategoryId = "missing" },
-            out string? error,
+            out var error,
             Declared());
 
         Assert.False(valid);
@@ -217,9 +217,9 @@ public sealed class DeviceCapabilityRouterTests
     [Fact]
     public void ADuplicateDeclaredSectionIsRefusedByName()
     {
-        bool valid = Validates(
+        var valid = Validates(
             Generic("vendor.tuning"),
-            out string? error,
+            out var error,
             Declared(),
             Declared());
 
@@ -230,12 +230,12 @@ public sealed class DeviceCapabilityRouterTests
     [Fact]
     public void DescriptorValidationRejectsDuplicateAndStaleShapes()
     {
-        CapabilityDescriptor descriptor = Descriptor();
+        var descriptor = Descriptor();
         CapabilityDescriptorSet duplicated = new()
         {
             Generation = 2,
             CycleGeneration = 3,
-            Descriptors = [descriptor, descriptor],
+            Descriptors = [descriptor, descriptor]
         };
 
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(
@@ -250,14 +250,14 @@ public sealed class DeviceCapabilityRouterTests
     [Fact]
     public void CurveWritesAreHeldToTheDeclaredOutputBoundsLikeEveryOtherNumericKind()
     {
-        CapabilityDescriptor fanCurve = Descriptor() with
+        var fanCurve = Descriptor() with
         {
             CapabilityId = "fan.curve",
             Role = CapabilityRole.FanCurve,
             ValueKind = CapabilityValueKind.Curve,
             Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
             Minimum = 0,
-            Maximum = 100,
+            Maximum = 100
         };
 
         Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(0, 100), fanCurve, out _));
@@ -266,7 +266,7 @@ public sealed class DeviceCapabilityRouterTests
 
         // An undeclared bound means the device has no limit there; inventing one would refuse a
         // curve it would have accepted.
-        CapabilityDescriptor unbounded = fanCurve with { Minimum = null, Maximum = null };
+        var unbounded = fanCurve with { Minimum = null, Maximum = null };
         Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
     }
 
@@ -284,6 +284,6 @@ public sealed class DeviceCapabilityRouterTests
         Minimum = 8,
         Maximum = 30,
         Step = 1,
-        Persistence = CapabilityPersistence.Volatile,
+        Persistence = CapabilityPersistence.Volatile
     };
 }

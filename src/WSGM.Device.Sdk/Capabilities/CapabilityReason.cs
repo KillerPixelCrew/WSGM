@@ -47,7 +47,7 @@ public enum CapabilityReasonCode
     ValueOutOfRange,
 
     /// <summary>The device is quiescing for suspend or shutdown and takes no new work.</summary>
-    Quiescing,
+    Quiescing
 }
 
 /// <summary>

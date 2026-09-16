@@ -38,22 +38,22 @@ internal static class Xbox360Report
         }
 
         destination.Clear();
-        CanonicalButtons buttons = sample.Buttons;
-        uint wireButtons = Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
-            | Mask(buttons, CanonicalButtons.DPadDown, DPadDown)
-            | Mask(buttons, CanonicalButtons.DPadLeft, DPadLeft)
-            | Mask(buttons, CanonicalButtons.DPadRight, DPadRight)
-            | Mask(buttons, CanonicalButtons.Menu, Start)
-            | Mask(buttons, CanonicalButtons.View, Back)
-            | Mask(buttons, CanonicalButtons.LeftStick, LeftThumb)
-            | Mask(buttons, CanonicalButtons.RightStick, RightThumb)
-            | Mask(buttons, CanonicalButtons.LeftShoulder, LeftShoulder)
-            | Mask(buttons, CanonicalButtons.RightShoulder, RightShoulder)
-            | Mask(buttons, CanonicalButtons.Guide, Guide)
-            | Mask(buttons, CanonicalButtons.A, A)
-            | Mask(buttons, CanonicalButtons.B, B)
-            | Mask(buttons, CanonicalButtons.X, X)
-            | Mask(buttons, CanonicalButtons.Y, Y);
+        var buttons = sample.Buttons;
+        var wireButtons = Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
+                          | Mask(buttons, CanonicalButtons.DPadDown, DPadDown)
+                          | Mask(buttons, CanonicalButtons.DPadLeft, DPadLeft)
+                          | Mask(buttons, CanonicalButtons.DPadRight, DPadRight)
+                          | Mask(buttons, CanonicalButtons.Menu, Start)
+                          | Mask(buttons, CanonicalButtons.View, Back)
+                          | Mask(buttons, CanonicalButtons.LeftStick, LeftThumb)
+                          | Mask(buttons, CanonicalButtons.RightStick, RightThumb)
+                          | Mask(buttons, CanonicalButtons.LeftShoulder, LeftShoulder)
+                          | Mask(buttons, CanonicalButtons.RightShoulder, RightShoulder)
+                          | Mask(buttons, CanonicalButtons.Guide, Guide)
+                          | Mask(buttons, CanonicalButtons.A, A)
+                          | Mask(buttons, CanonicalButtons.B, B)
+                          | Mask(buttons, CanonicalButtons.X, X)
+                          | Mask(buttons, CanonicalButtons.Y, Y);
 
         BinaryPrimitives.WriteUInt32LittleEndian(destination[0..4], wireButtons);
         destination[4] = Trigger(sample.LeftTrigger);

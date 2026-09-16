@@ -23,7 +23,7 @@ internal static partial class NativePathIdentityReader
     /// <summary>Returns the identity of an existing file or directory, or null when it is absent.</summary>
     internal static NativePathIdentity? Read(string path)
     {
-        nint rawHandle = CreateFileHandleW(
+        var rawHandle = CreateFileHandleW(
             path,
             0,
             FileShareRead | FileShareWrite | FileShareDelete,
@@ -33,7 +33,7 @@ internal static partial class NativePathIdentityReader
             0);
         if (rawHandle == -1)
         {
-            int openError = Marshal.GetLastPInvokeError();
+            var openError = Marshal.GetLastPInvokeError();
             if (openError is ErrorFileNotFound or ErrorPathNotFound)
             {
                 return null;
@@ -45,7 +45,7 @@ internal static partial class NativePathIdentityReader
         }
         using SafeFileHandle handle = new(rawHandle, ownsHandle: true);
 
-        if (!TryRead(handle, out NativePathInformation information, out int error))
+        if (!TryRead(handle, out var information, out var error))
         {
             throw new IOException(
                 $"Could not read filesystem identity for '{path}'.",
@@ -64,14 +64,14 @@ internal static partial class NativePathIdentityReader
         ArgumentNullException.ThrowIfNull(handle);
         if (GetFileInformationByHandle(
             handle.DangerousGetHandle(),
-            out ByHandleFileInformation information) == 0)
+            out var information) == 0)
         {
             result = default;
             error = Marshal.GetLastPInvokeError();
             return false;
         }
 
-        ulong length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
+        var length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
         if (length > long.MaxValue)
         {
             result = default;

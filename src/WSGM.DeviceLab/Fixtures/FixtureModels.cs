@@ -56,7 +56,7 @@ internal sealed record FixtureManifest
 internal enum FixtureReplayPolicy
 {
     /// <summary>Replay against an in-memory simulator with no hardware transport.</summary>
-    SimulatorOnly,
+    SimulatorOnly
 }
 
 /// <summary>One file in a plain fixture directory.</summary>
@@ -88,7 +88,7 @@ internal static class FixtureSchemaValidator
         List<CaptureValidationError> errors = [];
         if (manifest.SchemaVersion != FixtureSchema.CurrentVersion)
         {
-            errors.Add(new("fixture.schemaVersion", "Unsupported fixture schema version."));
+            errors.Add(new CaptureValidationError("fixture.schemaVersion", "Unsupported fixture schema version."));
         }
 
         ValidateIdentifier(manifest.FixtureId, "fixture.fixtureId", errors);
@@ -97,12 +97,12 @@ internal static class FixtureSchemaValidator
 
         if (manifest.ReplayPolicy is not FixtureReplayPolicy.SimulatorOnly)
         {
-            errors.Add(new("fixture.replayPolicy", "Fixture replay must remain simulator-only."));
+            errors.Add(new CaptureValidationError("fixture.replayPolicy", "Fixture replay must remain simulator-only."));
         }
 
         if (manifest.Inputs.Count + manifest.ExpectedOutputs.Count > FixtureSchema.MaximumArtifacts)
         {
-            errors.Add(new("fixture.artifacts",
+            errors.Add(new CaptureValidationError("fixture.artifacts",
                 $"A fixture may contain at most {FixtureSchema.MaximumArtifacts} artifacts."));
         }
 
@@ -110,11 +110,11 @@ internal static class FixtureSchemaValidator
         ValidateArtifacts(manifest.ExpectedOutputs, FixtureSchema.ExpectedPrefix, errors);
 
         HashSet<string> allPaths = new(StringComparer.OrdinalIgnoreCase);
-        foreach (FixtureArtifact artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs))
+        foreach (var artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs))
         {
             if (!allPaths.Add(artifact.Path))
             {
-                errors.Add(new(artifact.Path, "Fixture path is duplicated."));
+                errors.Add(new CaptureValidationError(artifact.Path, "Fixture path is duplicated."));
             }
         }
 
@@ -126,17 +126,17 @@ internal static class FixtureSchemaValidator
         string requiredPrefix,
         ICollection<CaptureValidationError> errors)
     {
-        foreach (FixtureArtifact artifact in artifacts)
+        foreach (var artifact in artifacts)
         {
             if (!CaptureBundleLayout.IsSafeRelativePath(artifact.Path)
                 || !artifact.Path.StartsWith(requiredPrefix, StringComparison.Ordinal))
             {
-                errors.Add(new(artifact.Path, $"Fixture artifact must be below '{requiredPrefix}'."));
+                errors.Add(new CaptureValidationError(artifact.Path, $"Fixture artifact must be below '{requiredPrefix}'."));
             }
 
             if (artifact.Length < 0 || artifact.Length > CaptureSchema.MaximumBlobBytes)
             {
-                errors.Add(new(artifact.Path,
+                errors.Add(new CaptureValidationError(artifact.Path,
                     $"Fixture artifact length must be between 0 and {CaptureSchema.MaximumBlobBytes}."));
             }
 
@@ -152,7 +152,7 @@ internal static class FixtureSchemaValidator
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > CaptureSchema.MaximumIdentifierLength)
         {
-            errors.Add(new(path,
+            errors.Add(new CaptureValidationError(path,
                 $"Identifier must contain 1 to {CaptureSchema.MaximumIdentifierLength} characters."));
         }
     }
@@ -164,7 +164,7 @@ internal static class FixtureSchemaValidator
     {
         if (hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
         {
-            errors.Add(new(path, "SHA-256 must be 64 lowercase hexadecimal characters."));
+            errors.Add(new CaptureValidationError(path, "SHA-256 must be 64 lowercase hexadecimal characters."));
         }
     }
 }

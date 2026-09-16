@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
@@ -88,13 +89,13 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
-        if (!System.Enum.IsDefined(ValueKind))
+        if (!Enum.IsDefined(ValueKind))
         {
             error = $"setting '{SettingId}' has an undefined valueKind '{ValueKind}'.";
             return false;
         }
 
-        if (!System.Enum.IsDefined(Unit))
+        if (!Enum.IsDefined(Unit))
         {
             error = $"setting '{SettingId}' has an undefined unit '{Unit}'.";
             return false;
@@ -106,7 +107,7 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
-        if (!Display.TryValidate(out string? displayError))
+        if (!Display.TryValidate(out var displayError))
         {
             error = $"setting '{SettingId}' has invalid display metadata: {displayError}";
             return false;
@@ -150,10 +151,10 @@ public sealed record PluginSettingDescriptor
 
         if (ValueKind is CapabilityValueKind.Choice)
         {
-            var choiceValues = new HashSet<string>(System.StringComparer.Ordinal);
-            for (int index = 0; index < Choices.Count; index++)
+            var choiceValues = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < Choices.Count; index++)
             {
-                CapabilityChoice? choice = Choices[index];
+                var choice = Choices[index];
                 if (choice is null)
                 {
                     error = $"setting '{SettingId}' has a null choice at index {index}.";
@@ -178,7 +179,7 @@ public sealed record PluginSettingDescriptor
                     return false;
                 }
 
-                if (!choice.Display.TryValidate(out string? choiceDisplayError))
+                if (!choice.Display.TryValidate(out var choiceDisplayError))
                 {
                     error = $"setting '{SettingId}' choice '{choice.Value}' has invalid display metadata: {choiceDisplayError}";
                     return false;
@@ -210,7 +211,7 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
-        if (!TryValidateValue(Default, out string? defaultError))
+        if (!TryValidateValue(Default, out var defaultError))
         {
             error = $"setting '{SettingId}' has an invalid default: {defaultError}";
             return false;
@@ -233,7 +234,7 @@ public sealed record PluginSettingDescriptor
     /// </remarks>
     public bool TryValidateValue(CapabilityValue? value, out string? error)
     {
-        if (!System.Enum.IsDefined(ValueKind))
+        if (!Enum.IsDefined(ValueKind))
         {
             error = $"declared value kind {ValueKind} is undefined.";
             return false;
@@ -245,7 +246,7 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
-        if (!System.Enum.IsDefined(value.Kind))
+        if (!Enum.IsDefined(value.Kind))
         {
             error = $"value kind {value.Kind} is undefined.";
             return false;
@@ -307,7 +308,7 @@ public sealed record PluginSettingDescriptor
                 if (!Choices.Any(item => string.Equals(
                     item.Value,
                     choice,
-                    System.StringComparison.Ordinal)))
+                    StringComparison.Ordinal)))
                 {
                     error = $"'{choice}' is not one of the {Choices.Count} declared options.";
                     return false;
@@ -393,10 +394,10 @@ public sealed record PluginSettingsManifest
             return false;
         }
 
-        var sectionIds = new HashSet<string>(System.StringComparer.Ordinal);
-        for (int index = 0; index < Sections.Count; index++)
+        var sectionIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < Sections.Count; index++)
         {
-            PluginSettingSection? section = Sections[index];
+            var section = Sections[index];
             if (section is null)
             {
                 error = $"manifest has a null section at index {index}.";
@@ -415,10 +416,10 @@ public sealed record PluginSettingsManifest
             }
         }
 
-        var settingIds = new HashSet<string>(System.StringComparer.Ordinal);
-        for (int index = 0; index < Settings.Count; index++)
+        var settingIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index < Settings.Count; index++)
         {
-            PluginSettingDescriptor? setting = Settings[index];
+            var setting = Settings[index];
             if (setting is null)
             {
                 error = $"manifest has a null setting at index {index}.";

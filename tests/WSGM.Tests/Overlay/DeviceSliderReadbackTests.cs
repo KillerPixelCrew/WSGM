@@ -9,9 +9,9 @@ public sealed class DeviceSliderReadbackTests
     [Fact]
     public void ProgrammaticReadbackUpdatesTheSameSliderWithoutSchedulingAWrite()
     {
-        int writes = 0;
+        var writes = 0;
         DeviceSliderRow row = new("power", "Power", "", 8, 37, 1, CapabilityUnit.Watt, 30, true, _ => writes++);
-        Slider slider = Assert.IsType<Slider>(row.FocusTarget);
+        var slider = Assert.IsType<Slider>(row.FocusTarget);
         row.RefreshReadback(8, 37, 1, 17, true);
         Assert.Same(slider, row.FocusTarget);
         Assert.Equal(17, slider.Value);

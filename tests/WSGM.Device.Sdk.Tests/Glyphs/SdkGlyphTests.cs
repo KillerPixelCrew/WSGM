@@ -11,14 +11,14 @@ public sealed class SdkGlyphTests
     [Fact]
     public void Import_DirectlyEnumeratedHashPinnedProfile_ShipsTheAuthorsOwnBytes()
     {
-        byte[] svg = Svg("<path d=\"M 0 0 L 64 0 L 64 64 Z\" fill=\"currentColor\"/>");
-        DictionaryGlyphSource source = Source(svg);
+        var svg = Svg("<path d=\"M 0 0 L 64 0 L 64 64 Z\" fill=\"currentColor\"/>");
+        var source = Source(svg);
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(source);
+        var result = GlyphPackageImporter.Import(source);
 
         Assert.True(result.IsValid, Describe(result));
-        ImportedGlyphProfile profile = Assert.Single(result.Profiles);
-        ImportedGlyphAsset asset = Assert.Single(profile.Assets).Value;
+        var profile = Assert.Single(result.Profiles);
+        var asset = Assert.Single(profile.Assets).Value;
 
         // Steam is handed exactly what the author wrote. The importer used to re-serialize an
         // allowlisted subset instead, which silently discarded whatever the allowlist had not
@@ -33,17 +33,17 @@ public sealed class SdkGlyphTests
         // The Claw's controller illustration carries its stroke on nine nested groups. Refusing a
         // group with attributes made that artwork unpackageable; dropping the attributes would have
         // drawn it as unstyled outlines.
-        byte[] svg = Svg(
+        var svg = Svg(
             "<g stroke=\"#899099\" stroke-width=\"2\">"
                 + "<path d=\"M 0 0 L 64 0\"/>"
                 + "</g>");
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(Source(svg));
+        var result = GlyphPackageImporter.Import(Source(svg));
 
         Assert.True(result.IsValid, Describe(result));
-        ImportedGlyphAsset asset = Assert.Single(
+        var asset = Assert.Single(
             Assert.Single(result.Profiles).Assets).Value;
-        NormalizedGlyphPath path = Assert.Single(asset.Vector!.Paths);
+        var path = Assert.Single(asset.Vector!.Paths);
         Assert.Equal("#899099", path.Stroke);
         Assert.Equal(2m, path.StrokeWidth);
     }
@@ -56,13 +56,13 @@ public sealed class SdkGlyphTests
         // filtering its artwork constrained nothing while refusing artwork that was simply drawn
         // with more than the allowlist knew. What matters is that the bytes arrive unaltered and
         // that WSGM's own renderer takes only what it understands.
-        byte[] svg = Svg(
+        var svg = Svg(
             "<style>.x{fill:red}</style><path d=\"M 0 0 L 8 8\" fill=\"currentColor\"/>");
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(Source(svg));
+        var result = GlyphPackageImporter.Import(Source(svg));
 
         Assert.True(result.IsValid, Describe(result));
-        ImportedGlyphAsset asset = Assert.Single(
+        var asset = Assert.Single(
             Assert.Single(result.Profiles).Assets).Value;
         Assert.Equal(svg, asset.Vector!.SvgUtf8.ToArray());
         Assert.Single(asset.Vector.Paths);
@@ -73,10 +73,10 @@ public sealed class SdkGlyphTests
     {
         // Integrity is what remains: a corrupt asset fails at import with a reason, rather than
         // reaching Steam and rendering as nothing.
-        byte[] svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path"u8
+        var svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path"u8
             .ToArray();
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(Source(svg));
+        var result = GlyphPackageImporter.Import(Source(svg));
 
         Assert.Empty(result.Profiles);
         Assert.Contains(result.Errors, error => error.Code is GlyphPackageImportCode.AssetRejected);
@@ -85,10 +85,10 @@ public sealed class SdkGlyphTests
     [Fact]
     public void Import_SvgViewBoxMustMatchItsLockEntry()
     {
-        byte[] svg = Svg("<path d=\"M 0 0 L 64 64\"/>");
-        DictionaryGlyphSource source = Source(svg, new GlyphViewBox(0, 0, 32, 32));
+        var svg = Svg("<path d=\"M 0 0 L 64 64\"/>");
+        var source = Source(svg, new GlyphViewBox(0, 0, 32, 32));
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(source);
+        var result = GlyphPackageImporter.Import(source);
 
         Assert.Empty(result.Profiles);
         Assert.Contains(result.Errors, error => error.Message.Contains(
@@ -99,10 +99,10 @@ public sealed class SdkGlyphTests
     [Fact]
     public void Import_ValidatesTheWholeSvgAfterThePathProjectionLimit()
     {
-        string paths = string.Concat(Enumerable.Repeat("<path d=\"M0 0\"/>", GlyphProfileLimits.MaxSvgPaths));
-        byte[] svg = Svg(paths + "<broken");
+        var paths = string.Concat(Enumerable.Repeat("<path d=\"M0 0\"/>", GlyphProfileLimits.MaxSvgPaths));
+        var svg = Svg(paths + "<broken");
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(Source(svg));
+        var result = GlyphPackageImporter.Import(Source(svg));
 
         Assert.Empty(result.Profiles);
         Assert.Contains(result.Errors, error => error.Code is GlyphPackageImportCode.AssetRejected);
@@ -111,10 +111,10 @@ public sealed class SdkGlyphTests
     [Fact]
     public void Import_RejectsMorePathCommandsThanTheDeclaredRendererLimit()
     {
-        string commands = string.Concat(Enumerable.Repeat("M0 0 ", GlyphProfileLimits.MaxSvgCommands + 1));
-        byte[] svg = Svg($"<path d=\"{commands}\"/>");
+        var commands = string.Concat(Enumerable.Repeat("M0 0 ", GlyphProfileLimits.MaxSvgCommands + 1));
+        var svg = Svg($"<path d=\"{commands}\"/>");
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(Source(svg));
+        var result = GlyphPackageImporter.Import(Source(svg));
 
         Assert.Empty(result.Profiles);
         Assert.Contains(result.Errors, error => error.Message.Contains(
@@ -126,7 +126,7 @@ public sealed class SdkGlyphTests
         byte[] svg,
         GlyphViewBox? declaredViewBox = null)
     {
-        string hash = Convert.ToHexString(SHA256.HashData(svg)).ToLowerInvariant();
+        var hash = Convert.ToHexString(SHA256.HashData(svg)).ToLowerInvariant();
         GlyphProfileManifest manifest = new()
         {
             SchemaVersion = GlyphProfileLimits.CurrentSchemaVersion,
@@ -144,8 +144,8 @@ public sealed class SdkGlyphTests
                     Format = GlyphAssetFormat.Svg,
                     ByteCount = svg.Length,
                     Role = GlyphAssetRole.Control,
-                    ViewBox = declaredViewBox ?? new GlyphViewBox(0, 0, 64, 64),
-                },
+                    ViewBox = declaredViewBox ?? new GlyphViewBox(0, 0, 64, 64)
+                }
             ],
             Controls =
             [
@@ -153,9 +153,9 @@ public sealed class SdkGlyphTests
                 {
                     Control = GlyphControlId.FaceSouth,
                     Presence = GlyphControlPresence.Present,
-                    AssetSha256 = hash,
-                },
-            ],
+                    AssetSha256 = hash
+                }
+            ]
         };
         Dictionary<string, byte[]> files = new(StringComparer.Ordinal)
         {
@@ -164,7 +164,7 @@ public sealed class SdkGlyphTests
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
             [GlyphPackageLayout.Asset(hash, GlyphAssetFormat.Svg)] = svg,
-            [manifest.NoticePath] = "Synthetic test artwork.\n"u8.ToArray(),
+            [manifest.NoticePath] = "Synthetic test artwork.\n"u8.ToArray()
         };
         return new DictionaryGlyphSource(manifest.ProfileId, files);
     }
@@ -179,10 +179,10 @@ public sealed class SdkGlyphTests
         string[] identifiers =
         [
             .. Enumerable.Range(0, GlyphProfileLimits.MaxProfiles + 1)
-                .Select(index => $"profile-{index:D2}"),
+                .Select(index => $"profile-{index:D2}")
         ];
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(
+        var result = GlyphPackageImporter.Import(
             new EmptyGlyphSource(identifiers));
 
         Assert.False(result.IsValid);
@@ -197,9 +197,9 @@ public sealed class SdkGlyphTests
     public void DirectorySource_EnumeratesOnePastTheLimitSoTheImporterCanSeeIt()
     {
         using TemporaryDirectory root = new();
-        string profiles = Path.Combine(root.Root, "glyphs", "profiles");
+        var profiles = Path.Combine(root.Root, "glyphs", "profiles");
         Directory.CreateDirectory(profiles);
-        for (int index = 0; index < GlyphProfileLimits.MaxProfiles + 5; index++)
+        for (var index = 0; index < GlyphProfileLimits.MaxProfiles + 5; index++)
         {
             File.WriteAllText(Path.Combine(profiles, $"profile-{index:D2}.json"), "{}");
         }
@@ -235,7 +235,7 @@ public sealed class SdkGlyphTests
 
         public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
         {
-            if (files.TryGetValue(relativePath, out byte[]? value)
+            if (files.TryGetValue(relativePath, out var value)
                 && value.Length <= maximumBytes)
             {
                 bytes = value.ToArray();

@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
+using WSGM.Core;
 
 namespace WSGM.Interop;
 
@@ -28,7 +29,7 @@ internal static class ShellLink
         object? instance = null;
         try
         {
-            Type type = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"), throwOnError: true)!;
+            var type = Type.GetTypeFromCLSID(new Guid("00021401-0000-0000-C000-000000000046"), throwOnError: true)!;
             instance = Activator.CreateInstance(type)
                 ?? throw new COMException("Windows did not create the shortcut resolver.");
             ((IPersistFile)instance).Load(path, 0);
@@ -38,12 +39,12 @@ internal static class ShellLink
             link.Resolve(0, NoUi | NoSearch | NoTrack | NoLinkInfo | UncacheSitename);
             StringBuilder target = new(MaxPath);
             link.GetPath(target, target.Capacity, IntPtr.Zero, 0);
-            string result = target.ToString();
+            var result = target.ToString();
             return result.Length == 0 ? null : result;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            WSGM.Core.Log.Warn($"Shortcut target could not be read from {path}: {ex.Message}");
+            Log.Warn($"Shortcut target could not be read from {path}: {ex.Message}");
             return null;
         }
         finally

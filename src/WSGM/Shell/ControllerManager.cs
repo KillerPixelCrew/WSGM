@@ -26,7 +26,7 @@ internal enum ControllerManagementState
     Active,
 
     /// <summary>Management faulted for this run; input falls back to SDL and the Steam lease.</summary>
-    Faulted,
+    Faulted
 }
 
 /// <summary>Combined physical-release and WSGM make-safe result.</summary>
@@ -87,8 +87,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         ManagedControllerTarget.SteamDeckComposite,
         [],
         "Controller management has not started.");
-    private ResolvedControllerTarget? _effective;
-    private IReadOnlyList<ManagedControllerTarget> _supportedTargets = [];
+
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
     private CanonicalButtons _syntheticButtons;
@@ -168,7 +167,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         : UiInputSource.SdlWithSteamLease;
 
     /// <summary>The target in effect and the layer that chose it.</summary>
-    internal ResolvedControllerTarget? Effective => _effective;
+    internal ResolvedControllerTarget? Effective { get; private set; }
 
     /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
     /// <remarks>
@@ -176,15 +175,15 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// choice. Advertising a target the backend cannot build is worse than offering fewer: the
     /// selection persists, the target creation fails, and management reports itself unavailable.
     /// </remarks>
-    internal IReadOnlyList<ManagedControllerTarget> SupportedTargets => _supportedTargets;
+    internal IReadOnlyList<ManagedControllerTarget> SupportedTargets { get; private set; } = [];
 
     /// <summary>Returns the current projection.</summary>
     /// <returns>The controller-management projection.</returns>
     internal ControllerManagerStatus Snapshot() => new(
         State,
-        _effective?.Target,
-        _effective?.Source ?? ControllerTargetSource.GlobalDefault,
-        _effective?.ApplicationId,
+        Effective?.Target,
+        Effective?.Source ?? ControllerTargetSource.GlobalDefault,
+        Effective?.ApplicationId,
         UiSource,
         Detail);
 
@@ -239,20 +238,20 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return SetState(ControllerManagementState.Off, selection.DisabledDetail);
             }
 
-            HidBackendHealth health = await _backend.DiscoverAsync(cancellationToken)
+            var health = await _backend.DiscoverAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (health.State is not HidBackendHealthState.Ready || health.Capabilities is null)
             {
-                _supportedTargets = [];
+                SupportedTargets = [];
                 return SetState(ControllerManagementState.Unavailable, health.Detail);
             }
 
             // What the backend on this machine can actually create: the surfaces offer these and
             // nothing else, because an advertised target the backend has no encoder for reads as a
             // broken feature rather than an unimplemented one.
-            _supportedTargets = [.. health.Capabilities.SupportedTargets];
+            SupportedTargets = [.. health.Capabilities.SupportedTargets];
 
-            ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
+            var resolved = ControllerTargetSelection.Resolve(
                 selection.GlobalDefault,
                 selection.Overrides,
                 applicationId);
@@ -263,7 +262,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                     $"The backend cannot create a {resolved.Target} target.");
             }
 
-            HidHideActivationResult hidHide = await _hidHide.StartAsync(
+            var hidHide = await _hidHide.StartAsync(
                 _controllerReaderApplication,
                 physicalDevices,
                 cancellationToken).ConfigureAwait(false);
@@ -372,7 +371,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     {
         try
         {
-            string detail = await _hidHide.EnsureReadableAsync(
+            var detail = await _hidHide.EnsureReadableAsync(
                 controllerManagementEnabled,
                 _controllerReaderApplication,
                 cancellationToken).ConfigureAwait(false);
@@ -407,7 +406,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return;
             }
 
-            long generation = Interlocked.Read(ref _sourceGeneration);
+            var generation = Interlocked.Read(ref _sourceGeneration);
             if (sample.CycleGeneration != generation)
             {
                 Log.Change(
@@ -727,7 +726,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             bool neutralize;
             lock (_stateGate)
             {
-                bool newlyBlocked = blockForwarding && !_forwardingBlocked;
+                var newlyBlocked = blockForwarding && !_forwardingBlocked;
                 _forwardingBlocked |= blockForwarding;
                 neutralize = State is ControllerManagementState.Active
                     && (newlyBlocked || !blockForwarding);
@@ -752,11 +751,11 @@ internal sealed class ControllerManager : IAsyncDisposable
         int button,
         CancellationToken cancellationToken)
     {
-        CanonicalButtons pressed = button switch
+        var pressed = button switch
         {
             1 => CanonicalButtons.RearPaddle1,
             2 => CanonicalButtons.RearPaddle2,
-            _ => CanonicalButtons.None,
+            _ => CanonicalButtons.None
         };
         if (pressed is CanonicalButtons.None)
         {
@@ -921,7 +920,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         // Admission closes before the target is quietened, not after: a sample arriving once the
         // router reaches Neutral would re-activate the source and publish a non-neutral report
         // behind the handoff's back.
-        bool neutralized = false;
+        var neutralized = false;
         await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -950,7 +949,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         try
         {
-            ControllerHandoff plugin = await releasePhysicalAsync(cancellationToken)
+            var plugin = await releasePhysicalAsync(cancellationToken)
                 .ConfigureAwait(false);
             released = plugin.ReleasedDevices;
             sequence.RecordPluginRelease(plugin.Step, plugin.Result);
@@ -961,7 +960,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             Log.Warn($"Controller make-safe: the plugin release was unverified: {ex.Message}");
         }
 
-        bool targetRemoved = false;
+        var targetRemoved = false;
         try
         {
             await _router.RemoveAsync("make-safe", cancellationToken).ConfigureAwait(false);
@@ -980,7 +979,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         sequence.RecordHidHideRemoved(
             await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false));
 
-        ControllerHandoffResult result = sequence.Complete();
+        var result = sequence.Complete();
         SetState(
             scope is HandoffScope.FullDeactivation
                 ? ControllerManagementState.Off
@@ -993,7 +992,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             Step = sequence.Step,
             Result = result,
-            ReleasedDevices = released,
+            ReleasedDevices = released
         };
     }
 
@@ -1001,7 +1000,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     {
         try
         {
-            HidHideCleanupResult cleanup = await _hidHide.CleanupAsync(cancellationToken)
+            var cleanup = await _hidHide.CleanupAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (!cleanup.Verified)
             {
@@ -1021,7 +1020,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         string? applicationId,
         CancellationToken cancellationToken)
     {
-        ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
+        var resolved = ControllerTargetSelection.Resolve(
             _selection.GlobalDefault,
             _selection.Overrides,
             applicationId);
@@ -1033,9 +1032,9 @@ internal sealed class ControllerManager : IAsyncDisposable
             return Snapshot();
         }
 
-        if (_effective is { } current && current.Target == resolved.Target)
+        if (Effective is { } current && current.Target == resolved.Target)
         {
-            _effective = resolved;
+            Effective = resolved;
             return Snapshot();
         }
 
@@ -1073,12 +1072,12 @@ internal sealed class ControllerManager : IAsyncDisposable
                 }
             }
 
-            HidTargetHandle target = replace
+            var target = replace
                 ? await _router.ReplaceAsync(resolved.Target, _sourceGeneration, cancellationToken)
                     .ConfigureAwait(false)
                 : await _router.CreateAsync(resolved.Target, _sourceGeneration, cancellationToken)
                     .ConfigureAwait(false);
-            _effective = resolved;
+            Effective = resolved;
             bool captured;
             lock (_stateGate)
             {
@@ -1117,11 +1116,11 @@ internal sealed class ControllerManager : IAsyncDisposable
             _processPriority.SetActive(!_disposed && state is ControllerManagementState.Active);
             if (state is not (ControllerManagementState.Active or ControllerManagementState.Idle))
             {
-                _effective = null;
+                Effective = null;
             }
         }
 
-        ControllerManagerStatus status = Snapshot();
+        var status = Snapshot();
         StatusChanged?.Invoke(status);
         return status;
     }
@@ -1141,7 +1140,7 @@ internal sealed class UiCaptureState
     /// <returns><see langword="true"/> when this claim started capture.</returns>
     internal bool Claim(string surfaceId, CanonicalButtons heldAtOpen)
     {
-        bool wasCaptured = IsCaptured;
+        var wasCaptured = IsCaptured;
         if (!_surfaces.Add(surfaceId))
         {
             Log.Change(

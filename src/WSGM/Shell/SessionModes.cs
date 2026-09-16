@@ -1,4 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -20,7 +25,7 @@ public sealed class SessionModes
     public const string SteamStartFailedWarning = "Couldn't start Steam.";
 
     private AppConfig _config;
-    private System.Threading.CancellationTokenSource? _entryCancellation;
+    private CancellationTokenSource? _entryCancellation;
     private readonly SteamMonitor? _monitor;
     private readonly ExplorerDesktopHost? _desktopHost;
     private readonly object _homeLaunchGate = new();
@@ -67,7 +72,7 @@ public sealed class SessionModes
     /// the owner can retract injected Steam UI state and close its transport first: the request
     /// rebuilds Steam's whole front-end, and that rebuild must see stock client state (see
     /// <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>).</summary>
-    internal Func<System.Threading.Tasks.Task>? PrepareSteamUiForBigPictureAsync { get; set; }
+    internal Func<Task>? PrepareSteamUiForBigPictureAsync { get; set; }
 
     /// <summary>Invoked when a transition worker that may have requested Big Picture has settled,
     /// on every outcome path, so the owner can lift the hold above. Idempotent by contract; also
@@ -144,51 +149,51 @@ public sealed class SessionModes
     /// <summary>Whether the user closed Steam deliberately. The monitor's pause only covers a
     /// transition, so this is what keeps the desktop session from starting Steam straight back up
     /// after an explicit Close Steam. Cleared by any request that wants Steam running again.</summary>
-    public bool SteamClosedByUser => System.Threading.Volatile.Read(ref _steamClosedByUser) != 0;
+    public bool SteamClosedByUser => Volatile.Read(ref _steamClosedByUser) != 0;
 
     /// <summary>True while explorer is being brought up or down (mode switch or the
     /// boot takeover). Mode-switch requests arriving in that window are ignored —
     /// two concurrent explorer transitions produced exactly the device-observed
     /// mess of duplicate shutdowns and refused tray hosts (2026-08-07).</summary>
-    public bool TransitionInProgress => System.Threading.Volatile.Read(ref _explorerTransition) != 0;
+    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) != 0;
 
     /// <summary>Marks an explorer transition as running (boot takeover uses this
     /// directly; the mode switches go through <see cref="TryBeginTransition"/>).</summary>
-    internal void BeginTransition() => System.Threading.Volatile.Write(ref _explorerTransition, 1);
+    internal void BeginTransition() => Volatile.Write(ref _explorerTransition, 1);
 
     /// <summary>Clears the transition flag. Always pair with Begin/TryBegin.</summary>
-    internal void EndTransition() => System.Threading.Volatile.Write(ref _explorerTransition, 0);
+    internal void EndTransition() => Volatile.Write(ref _explorerTransition, 0);
 
     /// <summary>Prevents another shell transition from starting during application teardown.</summary>
     internal void RequestShutdown()
     {
-        System.Threading.Volatile.Write(ref _shutdownRequested, 1);
+        Volatile.Write(ref _shutdownRequested, 1);
         CancelGameModeEntry();
     }
 
     /// <summary>Waits for the one already-running shell transition to leave its Explorer and UI
     /// boundaries. The application shutdown coordinator supplies the sole outer deadline.</summary>
-    internal async System.Threading.Tasks.Task WaitForTransitionAsync()
+    internal async Task WaitForTransitionAsync()
     {
         while (TransitionInProgress)
         {
-            await System.Threading.Tasks.Task.Delay(50).ConfigureAwait(false);
+            await Task.Delay(50).ConfigureAwait(false);
         }
     }
 
     internal bool TryBeginTransition(string reason)
     {
-        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
             return false;
         }
-        if (System.Threading.Interlocked.CompareExchange(ref _explorerTransition, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _explorerTransition, 1, 0) != 0)
         {
             Log.Warn($"Ignoring {reason}: an explorer transition is already in progress.");
             return false;
         }
-        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             EndTransition();
             Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
@@ -205,7 +210,7 @@ public sealed class SessionModes
     /// <see cref="DesktopModeStarting"/> stay UI-thread work.</summary>
     public void EnterDesktopMode()
     {
-        ExplorerDesktopHost? desktopHost = _desktopHost;
+        var desktopHost = _desktopHost;
         if (desktopHost is null)
         {
             Log.Info("Ignoring desktop-mode switch in preview-only SessionModes.");
@@ -213,7 +218,7 @@ public sealed class SessionModes
         }
         if (_entryCancellation is not null)
         {
-            System.Threading.Interlocked.Exchange(ref _desktopRequested, 1);
+            Interlocked.Exchange(ref _desktopRequested, 1);
             CancelGameModeEntry();
             return;
         }
@@ -227,7 +232,7 @@ public sealed class SessionModes
         {
             _monitor.Paused = true;
         }
-        _ = System.Threading.Tasks.Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             try { await ReturnToDesktopAsync(null, runLeaveActions: true).ConfigureAwait(false); }
             catch (Exception ex) { Log.Error("Desktop-mode transition failed", ex); }
@@ -235,19 +240,19 @@ public sealed class SessionModes
         });
     }
 
-    internal async System.Threading.Tasks.Task<bool> ReturnToDesktopAsync(
-        WindowsDeviceControl.DisplayLayout? layout, bool runLeaveActions)
+    internal async Task<bool> ReturnToDesktopAsync(
+        DisplayLayout? layout, bool runLeaveActions)
     {
-        var warnings = new System.Collections.Generic.List<string>();
+        var warnings = new List<string>();
         var backend = new DesktopReturnBackend(this, _desktopHost!, layout, warnings);
-        bool restored = await DesktopReturnSequence.RunAsync(backend, runLeaveActions, (phase, ex) =>
+        var restored = await DesktopReturnSequence.RunAsync(backend, runLeaveActions, (phase, ex) =>
         {
             Log.Error(phase + " failed", ex);
             warnings.Add(phase + ": " + ex.Message);
         }, Log.Info).ConfigureAwait(false);
         try
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _desktopReturnComplete = restored && warnings.Count == 0;
                 if (_monitor is not null) { _monitor.Paused = !restored; }
@@ -261,43 +266,43 @@ public sealed class SessionModes
     }
 
     private sealed class DesktopReturnBackend(
-        SessionModes modes, ExplorerDesktopHost host, WindowsDeviceControl.DisplayLayout? layout,
-        System.Collections.Generic.List<string> warnings) : IDesktopReturnBackend
+        SessionModes modes, ExplorerDesktopHost host, DisplayLayout? layout,
+        List<string> warnings) : IDesktopReturnBackend
     {
-        public System.Threading.Tasks.Task ExitBigPictureAsync()
+        public Task ExitBigPictureAsync()
         {
             modes.ExitBigPicture();
-            return System.Threading.Tasks.Task.CompletedTask;
+            return Task.CompletedTask;
         }
-        public async System.Threading.Tasks.Task<bool> RestoreLayoutAsync()
+        public async Task<bool> RestoreLayoutAsync()
         {
             DisplayScale.ApplyDesktopMode(modes._config);
             if (modes.GameModeEntryServices is not { } services) { return true; }
             if (layout is not null)
             {
-                var result = await services.ApplyLayoutAsync(layout, System.Threading.CancellationToken.None)
+                var result = await services.ApplyLayoutAsync(layout, CancellationToken.None)
                     .ConfigureAwait(false);
                 if (!result.Applied) { warnings.Add("Desktop display layout: " + result.Detail); }
                 return result.Applied;
             }
-            string? warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
+            var warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
             if (warning is not null) { warnings.Add(warning); }
             return warning is null;
         }
-        public async System.Threading.Tasks.Task RetireGameModeAsync() =>
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
-        public async System.Threading.Tasks.Task<bool> RestoreExplorerAsync()
+        public async Task RetireGameModeAsync() =>
+            await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
+        public async Task<bool> RestoreExplorerAsync()
         {
             var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed")
                 .ConfigureAwait(false);
-            bool restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
+            var restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
             if (restored)
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
+                await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
             }
             return restored;
         }
-        public async System.Threading.Tasks.Task RunLeaveActionsAsync()
+        public async Task RunLeaveActionsAsync()
         {
             if (modes.GameModeEntryServices is not { } services) { return; }
             foreach (var step in await services.RunLeaveActionsAsync().ConfigureAwait(false))
@@ -305,8 +310,8 @@ public sealed class SessionModes
                 if (!step.Succeeded) { warnings.Add("Leave Game Mode action: " + step.Detail); }
             }
         }
-        public System.Threading.Tasks.Task ClearPendingReturnAsync() =>
-            modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? System.Threading.Tasks.Task.CompletedTask;
+        public Task ClearPendingReturnAsync() =>
+            modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? Task.CompletedTask;
     }
 
     /// <summary>Starts the windowed Steam client a desktop session is expected to have, so it
@@ -314,12 +319,12 @@ public sealed class SessionModes
     /// when Steam already runs, or after the user closed Steam deliberately.</summary>
     public void EnsureSteamDesktop()
     {
-        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring desktop Steam start: application shutdown is in progress.");
             return;
         }
-        if (System.Threading.Volatile.Read(ref _steamClosedByUser) != 0)
+        if (Volatile.Read(ref _steamClosedByUser) != 0)
         {
             Log.Info("Skipping desktop Steam start: Steam was closed deliberately.");
             return;
@@ -350,7 +355,7 @@ public sealed class SessionModes
     /// exit rather than preceding it.</summary>
     public void EnterGameMode()
     {
-        ExplorerDesktopHost? desktopHost = _desktopHost;
+        var desktopHost = _desktopHost;
         if (desktopHost is null)
         {
             Log.Info("Ignoring game-mode switch in preview-only SessionModes.");
@@ -369,27 +374,27 @@ public sealed class SessionModes
             // no Steam lifecycle edge may react until Explorer is confirmed gone.
             _monitor.Paused = true;
         }
-        var cancellation = new System.Threading.CancellationTokenSource();
+        var cancellation = new CancellationTokenSource();
         _entryCancellation = cancellation;
-        _ = System.Threading.Tasks.Task.Run(async () =>
+        _ = Task.Run(async () =>
         {
             SessionModesEntryBackend backend = new(this, desktopHost);
-            bool entered = false;
+            var entered = false;
             try
             {
-                GameModeEntryTransaction transaction = new(backend, GameModeEntryServices?.ReadLaunch() ?? new());
-                GameModeEntryResult result = await transaction.RunAsync(cancellation.Token).ConfigureAwait(false);
+                GameModeEntryTransaction transaction = new(backend, GameModeEntryServices?.ReadLaunch() ?? new GameModeLaunchConfiguration());
+                var result = await transaction.RunAsync(cancellation.Token).ConfigureAwait(false);
                 entered = result.Outcome == GameModeEntryOutcome.Entered;
                 if (result.Warning is { } warning)
                 {
-                    await Avalonia.Threading.Dispatcher.UIThread
+                    await Dispatcher.UIThread
                         .InvokeAsync(() => SteamStartFailed?.Invoke(warning));
                 }
             }
             catch (Exception ex)
             {
                 Log.Error("Game-mode transition failed", ex);
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                     SteamStartFailed?.Invoke(ExplorerExitFailedWarning));
             }
             finally
@@ -404,9 +409,9 @@ public sealed class SessionModes
                 finally
                 {
                     EndTransition();
-                    if (System.Threading.Interlocked.Exchange(ref _desktopRequested, 0) != 0 && entered)
+                    if (Interlocked.Exchange(ref _desktopRequested, 0) != 0 && entered)
                     {
-                        Avalonia.Threading.Dispatcher.UIThread.Post(EnterDesktopMode);
+                        Dispatcher.UIThread.Post(EnterDesktopMode);
                     }
                 }
             }
@@ -425,7 +430,7 @@ public sealed class SessionModes
     /// result. The exception may have happened after an anchor/scheduler launch crossed its
     /// boundary, so it reports the launch as dispatched — Unknown is unsafe for recreating a
     /// competing Shell_TrayWnd.</summary>
-    private static async System.Threading.Tasks.Task<ExplorerDesktopResult> RestoreDesktopSafelyAsync(
+    private static async Task<ExplorerDesktopResult> RestoreDesktopSafelyAsync(
         ExplorerDesktopHost desktopHost,
         string failureContext)
     {
@@ -467,7 +472,7 @@ public sealed class SessionModes
     /// first so neither auto-relaunch nor the exit-overlay reaction fires.</summary>
     public void CloseSteam()
     {
-        System.Threading.Volatile.Write(ref _steamClosedByUser, 1);
+        Volatile.Write(ref _steamClosedByUser, 1);
         if (_monitor is not null)
         {
             _monitor.Paused = true;
@@ -482,12 +487,12 @@ public sealed class SessionModes
     /// Failures surface through <see cref="SteamStartFailed"/>.</summary>
     public void StartOrFocusSteam()
     {
-        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
             return;
         }
-        System.Threading.Volatile.Write(ref _steamClosedByUser, 0);
+        Volatile.Write(ref _steamClosedByUser, 0);
         if (_monitor is not null)
         {
             _monitor.Paused = false;
@@ -524,16 +529,16 @@ public sealed class SessionModes
     /// broken CEF session can never block the mode switch itself.</summary>
     private static readonly TimeSpan SteamUiPrepareTimeout = TimeSpan.FromSeconds(5);
 
-    internal async System.Threading.Tasks.Task<string?> RequestBigPictureWhilePausedAsync()
+    internal async Task<string?> RequestBigPictureWhilePausedAsync()
     {
-        System.Threading.Volatile.Write(ref _steamClosedByUser, 0);
+        Volatile.Write(ref _steamClosedByUser, 0);
         if (PrepareSteamUiForBigPictureAsync is { } prepare)
         {
             try
             {
-                System.Threading.Tasks.Task work = prepare();
-                System.Threading.Tasks.Task first = await System.Threading.Tasks.Task
-                    .WhenAny(work, System.Threading.Tasks.Task.Delay(SteamUiPrepareTimeout))
+                var work = prepare();
+                var first = await Task
+                    .WhenAny(work, Task.Delay(SteamUiPrepareTimeout))
                     .ConfigureAwait(false);
                 if (first == work)
                 {
@@ -566,7 +571,7 @@ public sealed class SessionModes
     /// surface, or null on success.</summary>
     public string? StartBigPicture()
     {
-        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Big Picture start: application shutdown is in progress.");
             return null;
@@ -588,7 +593,7 @@ public sealed class SessionModes
     /// caller has already established that Steam is running.</param>
     public void FocusSteam(bool force = false)
     {
-        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam focus: application shutdown is in progress.");
             return;

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Controls;
@@ -43,7 +44,7 @@ public sealed class WakeLockHoldersView : OverlaySubView
 
     private void RenderList(
         bool unknown, string? error,
-        System.Collections.Generic.IReadOnlyList<WakeLockHolderGroup> groups)
+        IReadOnlyList<WakeLockHolderGroup> groups)
     {
         var stack = NewStack("What's keeping this awake");
         if (unknown)

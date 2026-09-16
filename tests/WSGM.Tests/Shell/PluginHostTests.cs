@@ -16,12 +16,12 @@ public sealed class PluginHostTests
         await instance.StartAsync(Deadline, default);
         List<PluginStatePublication> observed = [];
         host.StateChanged += observed.Add;
-        var first = new PluginStatePublication(instance.Identity, 1, 1, "level", new(Number: 40), PluginStateOrigin.HardwareReadback);
+        var first = new PluginStatePublication(instance.Identity, 1, 1, "level", new PluginValue(Number: 40), PluginStateOrigin.HardwareReadback);
         instance.PublishState(first);
-        var latest = first with { Sequence = 3, Value = new(Number: 50), ConfigurationRevision = 7 };
+        var latest = first with { Sequence = 3, Value = new PluginValue(Number: 50), ConfigurationRevision = 7 };
         instance.PublishState(latest);
         instance.PublishState(first with { Sequence = 2 });
-        instance.PublishState(first with { Sequence = 4, Value = new(Number: double.NaN) });
+        instance.PublishState(first with { Sequence = 4, Value = new PluginValue(Number: double.NaN) });
         while (ui.TryDequeue(out var action)) { action(); }
         Assert.Equal(latest, Assert.Single(observed));
         Assert.Equal(latest, Assert.Single(host.StateSnapshot(instance.Identity)));
@@ -34,7 +34,7 @@ public sealed class PluginHostTests
         PluginHost host = new(action => action());
         var instance = Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true), "one");
         await instance.StartAsync(Deadline, default);
-        var state = new PluginStatePublication(instance.Identity, 1, 100, "ready", new(Boolean: true), PluginStateOrigin.Initialization);
+        var state = new PluginStatePublication(instance.Identity, 1, 100, "ready", new PluginValue(Boolean: true), PluginStateOrigin.Initialization);
         instance.PublishState(state);
         await instance.ResumeAsync(2, Deadline, default);
         Assert.Empty(host.StateSnapshot(instance.Identity));
@@ -52,8 +52,8 @@ public sealed class PluginHostTests
         PluginHost host = new(action => action());
         var instance = Admit(host, new FakePlugin("test.ir", publishReadyOnResume: true), "one");
         await instance.StartAsync(Deadline, default);
-        var state = new PluginStatePublication(instance.Identity, 1, 1, "ready", new(Boolean: true), PluginStateOrigin.Initialization);
-        for (int index = 1; index <= 129; index++)
+        var state = new PluginStatePublication(instance.Identity, 1, 1, "ready", new PluginValue(Boolean: true), PluginStateOrigin.Initialization);
+        for (var index = 1; index <= 129; index++)
         { instance.PublishState(state with { Sequence = index, Key = "state" + index }); }
         Assert.Equal(128, host.StateSnapshot(instance.Identity).Length);
         await Close(instance);
@@ -76,10 +76,10 @@ public sealed class PluginHostTests
         await two.StartAsync(Deadline, default);
         Assert.Equal(2, host.Snapshot().Length);
         FakePlugin device = new("test.device", publishReadyOnResume: true);
-        var deviceInstance = host.Admit(device, new(device.Id, "device"), PluginCategories.Device,
+        var deviceInstance = host.Admit(device, new PluginInstanceIdentity(device.Id, "device"), PluginCategories.Device,
             PluginCategoryPolicy.Device, true, 1, "fixture-state");
         Assert.Throws<InvalidOperationException>(() => host.Admit(new FakePlugin("another.device", publishReadyOnResume: true),
-            new("another.device", "device"), PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, "fixture-state"));
+            new PluginInstanceIdentity("another.device", "device"), PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, "fixture-state"));
         await deviceInstance.StartAsync(Deadline, default);
         await host.SetModeAsync(PluginSessionMode.Game, Deadline, default);
         Assert.Equal(PluginSessionMode.Game, first.Mode);
@@ -103,8 +103,8 @@ public sealed class PluginHostTests
         await instance.StartAsync(Deadline, default);
         await instance.SuspendAsync(Deadline, default);
         await instance.ResumeAsync(2, Deadline, default);
-        plugin.Host!.PublishHealth(new(instance.Identity, 1, PluginHealth.Failed, "stale"));
-        plugin.Host.PublishHealth(new(new("other.plugin", "one"), 2, PluginHealth.Failed, "wrong identity"));
+        plugin.Host!.PublishHealth(new PluginHealthPublication(instance.Identity, 1, PluginHealth.Failed, "stale"));
+        plugin.Host.PublishHealth(new PluginHealthPublication(new PluginInstanceIdentity("other.plugin", "one"), 2, PluginHealth.Failed, "wrong identity"));
         while (ui.TryDequeue(out var action)) { action(); }
         Assert.NotEmpty(observed);
         Assert.All(observed, publication => Assert.Equal(2, publication.Generation));
@@ -182,7 +182,7 @@ public sealed class PluginHostTests
                 if (mode != PluginSessionMode.Game) { return; }
                 entered.SetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, token);
-            },
+            }
         };
         var instance = Admit(host, plugin, "one");
         await instance.StartAsync(Deadline, default);

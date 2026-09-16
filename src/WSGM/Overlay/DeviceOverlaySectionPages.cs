@@ -71,7 +71,7 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.ControllerAndMotion,
         DeviceOverlaySection.Oem,
         DeviceOverlaySection.LightingAndFeatures,
-        DeviceOverlaySection.Diagnostics,
+        DeviceOverlaySection.Diagnostics
     ];
 
     /// <summary>
@@ -95,7 +95,7 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.Diagnostics => SettingSectionKey.Diagnostics,
         // OEM assignments are WSGM policy over a plugin's controls, and a plugin has no vocabulary
         // for that subject, so this one keeps its own page whatever the device declares.
-        _ => null,
+        _ => null
     };
 
     /// <summary>The declared section a WSGM-owned section folds into, or null to keep its own page.</summary>
@@ -123,7 +123,7 @@ internal static class DeviceOverlaySectionPages
         string sectionId)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        foreach (DeviceOverlaySection section in Order)
+        foreach (var section in Order)
         {
             if (string.Equals(AbsorbedBy(snapshot, section), sectionId, StringComparison.Ordinal))
             {
@@ -146,7 +146,7 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.Oem => OverlayPage.DeviceOem,
         DeviceOverlaySection.LightingAndFeatures => OverlayPage.DeviceLightingAndFeatures,
         DeviceOverlaySection.Diagnostics => OverlayPage.DeviceDiagnostics,
-        _ => throw new ArgumentOutOfRangeException(nameof(section)),
+        _ => throw new ArgumentOutOfRangeException(nameof(section))
     };
 
     /// <summary>The section a page belongs to, or null when the page is not a Device section.</summary>
@@ -161,7 +161,7 @@ internal static class DeviceOverlaySectionPages
         OverlayPage.DeviceOem => DeviceOverlaySection.Oem,
         OverlayPage.DeviceLightingAndFeatures => DeviceOverlaySection.LightingAndFeatures,
         OverlayPage.DeviceDiagnostics => DeviceOverlaySection.Diagnostics,
-        _ => null,
+        _ => null
     };
 
     /// <summary>The stable focus key for a section's card on the root page.</summary>
@@ -184,7 +184,7 @@ internal static class DeviceOverlaySectionPages
             DeviceOverlaySection.Oem => "oem",
             DeviceOverlaySection.LightingAndFeatures => "lighting",
             DeviceOverlaySection.Diagnostics => "diagnostics",
-            _ => "unknown",
+            _ => "unknown"
         };
 
     /// <summary>Builds the section menu for a snapshot.</summary>
@@ -201,7 +201,7 @@ internal static class DeviceOverlaySectionPages
         Dictionary<DeviceOverlaySection, DescriptorStatus> statuses = [];
         Dictionary<string, int> pluginCounts = [];
         Dictionary<string, DescriptorStatus> pluginStatuses = [];
-        foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
+        foreach (var capability in snapshot.Capabilities)
         {
             if (capability.PluginSectionId is { } pluginSection)
             {
@@ -223,7 +223,7 @@ internal static class DeviceOverlaySectionPages
         // and is dropped from the menu, which makes the row unreachable — the case for AutoTDP on a
         // device that publishes no power capability, and for the controller target on any device,
         // since no plugin publishes one.
-        foreach ((DeviceOverlaySection section, DescriptorRow? row) in DirectRows(snapshot))
+        foreach (var (section, row) in DirectRows(snapshot))
         {
             if (row is null)
             {
@@ -242,7 +242,7 @@ internal static class DeviceOverlaySectionPages
             // per-application detail rows), so they count toward that page. The per-application enable
             // toggle is not counted here at all: it is the headline toggle on the Device root, not a
             // row inside any section.
-            foreach (DescriptorRow row in performance.ProfileRows
+            foreach (var row in performance.ProfileRows
                 .Where(row => !string.Equals(row.Id, ApplicationProfileRowId, StringComparison.Ordinal))
                 .Concat(performance.Rows))
             {
@@ -260,7 +260,7 @@ internal static class DeviceOverlaySectionPages
         // and its status move onto the declared one, and the menu shows one card for that subject
         // instead of two that each hold half of it.
         Dictionary<string, DeviceOverlaySection> absorbed = [];
-        foreach (DeviceOverlaySection section in Order)
+        foreach (var section in Order)
         {
             if (AbsorbedBy(snapshot, section) is { } host)
             {
@@ -272,12 +272,12 @@ internal static class DeviceOverlaySectionPages
 
         // The plugin's declared layout leads: it is the device describing itself. The WSGM-owned
         // sections that remain — anything the device claimed no subject for — follow it.
-        foreach (DeviceOverlayPluginSection pluginSection in snapshot.PluginSections)
+        foreach (var pluginSection in snapshot.PluginSections)
         {
-            int pluginCount = pluginCounts.GetValueOrDefault(pluginSection.SectionId);
-            DescriptorStatus pluginStatus =
+            var pluginCount = pluginCounts.GetValueOrDefault(pluginSection.SectionId);
+            var pluginStatus =
                 pluginStatuses.GetValueOrDefault(pluginSection.SectionId, DescriptorStatus.None);
-            if (absorbed.TryGetValue(pluginSection.SectionId, out DeviceOverlaySection owned))
+            if (absorbed.TryGetValue(pluginSection.SectionId, out var owned))
             {
                 pluginCount += counts.GetValueOrDefault(owned);
                 pluginStatus = MoreSerious(
@@ -299,13 +299,13 @@ internal static class DeviceOverlaySectionPages
                 pluginStatus)
             {
                 PluginSectionId = pluginSection.SectionId,
-                Icon = pluginSection.Icon,
+                Icon = pluginSection.Icon
             });
         }
 
-        foreach (DeviceOverlaySection section in Order)
+        foreach (var section in Order)
         {
-            int count = counts.GetValueOrDefault(section);
+            var count = counts.GetValueOrDefault(section);
             if (count == 0 || AbsorbedBy(snapshot, section) is not null)
             {
                 continue;
@@ -352,7 +352,7 @@ internal static class DeviceOverlaySectionPages
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         List<DeviceOverlayCapability> matching = [];
-        foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
+        foreach (var capability in snapshot.Capabilities)
         {
             if (capability.PluginSectionId is null && capability.Section == section)
             {
@@ -404,7 +404,7 @@ internal static class DeviceOverlaySectionPages
         DescriptorStatus.Warning => 3,
         DescriptorStatus.Stale => 2,
         DescriptorStatus.Unsupported => 1,
-        _ => 0,
+        _ => 0
     };
 
     private static string TitleFor(DeviceOverlaySection section) => section switch
@@ -416,7 +416,7 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.Oem => "OEM buttons",
         DeviceOverlaySection.LightingAndFeatures => "Lighting and features",
         DeviceOverlaySection.Diagnostics => "Diagnostics and recovery",
-        _ => "Device",
+        _ => "Device"
     };
 
     private static string DescriptionFor(DeviceOverlaySection section) => section switch
@@ -428,6 +428,6 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.Oem => "Device buttons and their assignments",
         DeviceOverlaySection.LightingAndFeatures => "Lighting and remaining device features",
         DeviceOverlaySection.Diagnostics => "Health, readings, and recovery",
-        _ => string.Empty,
+        _ => string.Empty
     };
 }

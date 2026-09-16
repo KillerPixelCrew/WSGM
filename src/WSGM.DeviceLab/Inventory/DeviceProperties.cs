@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace WSGM.DeviceLab.Inventory;
 
@@ -42,19 +43,19 @@ internal static partial class DeviceProperties
     /// </remarks>
     public static string? ResolveLocationPath(string instanceId, int maxDepth = 8)
     {
-        if (CM_Locate_DevNodeW(out uint devInst, instanceId, CmLocateDevnodeNormal) != CrSuccess)
+        if (CM_Locate_DevNodeW(out var devInst, instanceId, CmLocateDevnodeNormal) != CrSuccess)
         {
             return null;
         }
 
-        for (int depth = 0; depth < maxDepth; depth++)
+        for (var depth = 0; depth < maxDepth; depth++)
         {
             if (ReadStringList(devInst) is { Length: > 0 } paths)
             {
                 return paths[0];
             }
 
-            if (CM_Get_Parent(out uint parent, devInst, 0) != CrSuccess)
+            if (CM_Get_Parent(out var parent, devInst, 0) != CrSuccess)
             {
                 return null;
             }
@@ -70,14 +71,14 @@ internal static partial class DeviceProperties
     /// <returns>Parent instance identifier, or <see langword="null"/> when unavailable.</returns>
     public static string? ResolveParentInstanceId(string instanceId)
     {
-        if (CM_Locate_DevNodeW(out uint child, instanceId, CmLocateDevnodeNormal) != CrSuccess
-            || CM_Get_Parent(out uint parent, child, 0) != CrSuccess)
+        if (CM_Locate_DevNodeW(out var child, instanceId, CmLocateDevnodeNormal) != CrSuccess
+            || CM_Get_Parent(out var parent, child, 0) != CrSuccess)
         {
             return null;
         }
 
-        int characters = 0;
-        int result = CM_Get_Device_ID_Size(out characters, parent, 0);
+        var characters = 0;
+        var result = CM_Get_Device_ID_Size(out characters, parent, 0);
         if (result != CrSuccess
             || characters <= 0
             || characters > InventoryLimits.MaximumTextCharacters)
@@ -85,7 +86,7 @@ internal static partial class DeviceProperties
             return null;
         }
 
-        char[] buffer = new char[characters + 1];
+        var buffer = new char[characters + 1];
         return CM_Get_Device_IDW(parent, buffer, buffer.Length, 0) == CrSuccess
             ? new string(buffer, 0, characters)
             : null;
@@ -115,14 +116,14 @@ internal static partial class DeviceProperties
             return null;
         }
 
-        int interfaceMarker = locationPath.IndexOf("#USBMI(", StringComparison.OrdinalIgnoreCase);
+        var interfaceMarker = locationPath.IndexOf("#USBMI(", StringComparison.OrdinalIgnoreCase);
         return interfaceMarker < 0 ? locationPath : locationPath[..interfaceMarker];
     }
 
     private static string[]? ReadStringList(uint devInst)
     {
-        int size = 0;
-        int result = CM_Get_DevNode_PropertyW(devInst, in LocationPaths, out _, null, ref size, 0);
+        var size = 0;
+        var result = CM_Get_DevNode_PropertyW(devInst, in LocationPaths, out _, null, ref size, 0);
 
         // An absent property reports success with a zero size rather than an error, so the size is
         // the presence test and a non-buffer-small result means there is nothing to read.
@@ -133,14 +134,14 @@ internal static partial class DeviceProperties
             return null;
         }
 
-        byte[] buffer = new byte[size];
+        var buffer = new byte[size];
         if (CM_Get_DevNode_PropertyW(devInst, in LocationPaths, out _, buffer, ref size, 0) != CrSuccess)
         {
             return null;
         }
 
         // REG_MULTI_SZ layout: consecutive null-terminated UTF-16 strings, terminated by an empty one.
-        string raw = System.Text.Encoding.Unicode.GetString(buffer, 0, size);
+        var raw = Encoding.Unicode.GetString(buffer, 0, size);
         return raw.Split('\0', StringSplitOptions.RemoveEmptyEntries);
     }
 

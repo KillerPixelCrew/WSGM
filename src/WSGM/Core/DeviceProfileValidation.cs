@@ -23,7 +23,7 @@ public enum DeviceProfileRejection
     NotAscending,
 
     /// <summary>A point sits outside the bounds the device declared.</summary>
-    OutOfBounds,
+    OutOfBounds
 }
 
 /// <summary>
@@ -76,9 +76,9 @@ public static class DeviceProfileValidation
             return DeviceProfileRejection.PointCount;
         }
 
-        for (int index = 0; index < curve.Count; index++)
+        for (var index = 0; index < curve.Count; index++)
         {
-            AuthoredCurvePoint point = curve[index];
+            var point = curve[index];
             if (index > 0 && point.Input <= curve[index - 1].Input)
             {
                 reason =

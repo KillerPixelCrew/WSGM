@@ -76,7 +76,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 "No reviewed handheld glyph profile is selected.");
         }
 
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
+        var result = await context.EvaluateAsync(
             TargetRole,
             $$"""
             (()=>{try{
@@ -112,7 +112,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
         }
 
         // Individual selector drift must not suppress every independent rule in the sheet.
-        bool compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value);
+        var compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value);
         return new SteamUiPatchProbeResult(
             true,
             compatible,
@@ -134,7 +134,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 "No reviewed handheld glyph profile is selected."));
         }
 
-        string css = SteamGlyphCss.Build(presentation, hideAbsentControls: true);
+        var css = SteamGlyphCss.Build(presentation, hideAbsentControls: true);
         if (css.Length == 0)
         {
             return Task.FromResult(new SteamUiPatchOperationResult(

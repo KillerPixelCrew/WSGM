@@ -77,7 +77,7 @@ internal static partial class NativeViiper
     /// <returns>The message, or a stable placeholder when the library reported none.</returns>
     internal static string TakeLastError()
     {
-        IntPtr text = IntPtr.Zero;
+        var text = IntPtr.Zero;
         try
         {
             text = LastError();

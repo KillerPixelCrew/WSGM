@@ -13,7 +13,7 @@ public sealed class GyroFrameResamplerTests
         resampler.OnReading(new Vector3(90f, 0f, 0f), T0);
         resampler.FrameAverage(T0);
 
-        Vector3 average = resampler.FrameAverage(T0.AddMilliseconds(8));
+        var average = resampler.FrameAverage(T0.AddMilliseconds(8));
 
         Assert.Equal(90f, average.X, 3);
         Assert.Equal(0f, average.Y, 3);
@@ -31,13 +31,13 @@ public sealed class GyroFrameResamplerTests
         double expected = 0;
         double integrated = 0;
         var previousRate = 0f;
-        DateTimeOffset lastFrame = T0;
+        var lastFrame = T0;
         for (var ms = 1; ms <= 1000; ms++)
         {
-            DateTimeOffset now = T0.AddMilliseconds(ms);
+            var now = T0.AddMilliseconds(ms);
             if (ms % 10 == 0)
             {
-                float rate = 60f + (40f * MathF.Sin(ms / 90f));
+                var rate = 60f + 40f * MathF.Sin(ms / 90f);
                 expected += previousRate * 0.010;
                 previousRate = rate;
                 resampler.OnReading(new Vector3(rate, 0f, 0f), now);
@@ -45,7 +45,7 @@ public sealed class GyroFrameResamplerTests
 
             if (ms % 8 == 0)
             {
-                Vector3 average = resampler.FrameAverage(now);
+                var average = resampler.FrameAverage(now);
                 integrated += average.X * (now - lastFrame).TotalSeconds;
                 lastFrame = now;
             }
@@ -64,8 +64,8 @@ public sealed class GyroFrameResamplerTests
 
         // The held rate stops counting at the quiet cap, so a frame long after it sees only the
         // capped slice, and the next frame sees nothing at all.
-        Vector3 tail = resampler.FrameAverage(T0.AddSeconds(1));
-        Vector3 rest = resampler.FrameAverage(T0.AddSeconds(1.008));
+        var tail = resampler.FrameAverage(T0.AddSeconds(1));
+        var rest = resampler.FrameAverage(T0.AddSeconds(1.008));
 
         Assert.True(tail.X < 120f * 0.3f, $"tail={tail.X}");
         Assert.Equal(0f, rest.X, 4);
@@ -78,7 +78,7 @@ public sealed class GyroFrameResamplerTests
         resampler.OnReading(new Vector3(45f, 0f, 0f), T0);
         resampler.FrameAverage(T0.AddMilliseconds(8));
 
-        Vector3 repeat = resampler.FrameAverage(T0.AddMilliseconds(8));
+        var repeat = resampler.FrameAverage(T0.AddMilliseconds(8));
 
         Assert.Equal(45f, repeat.X, 3);
     }

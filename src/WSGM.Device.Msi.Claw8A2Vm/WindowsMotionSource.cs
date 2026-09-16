@@ -95,25 +95,25 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
 
     private static MotionWorkerSession? OpenSession(Func<MotionSample, ValueTask> publish)
     {
-        LegacyPhysicalMotionSensors? sensors = LegacyPhysicalMotionSensors.TryOpen();
+        var sensors = LegacyPhysicalMotionSensors.TryOpen();
         if (sensors is null)
         {
             return null;
         }
 
-        Channel<MotionSample> samples = Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
+        var samples = Channel.CreateBounded<MotionSample>(new BoundedChannelOptions(8)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
-            SingleWriter = true,
+            SingleWriter = true
         });
         CancellationTokenSource cancellation = new();
-        Task producer = Task.Factory.StartNew(
+        var producer = Task.Factory.StartNew(
             () => Produce(sensors, samples.Writer, cancellation.Token),
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
-        Task pump = PumpAsync(samples.Reader, publish, cancellation.Token);
+        var pump = PumpAsync(samples.Reader, publish, cancellation.Token);
         return new MotionWorkerSession(sensors, cancellation, producer, pump);
     }
 
@@ -128,8 +128,8 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         DateTimeOffset timestamp,
         Vector3? rawAcceleration)
     {
-        Vector3 gyro = ToApplicationBasis(rawAngularVelocity);
-        Vector3 acceleration = rawAcceleration is { } raw
+        var gyro = ToApplicationBasis(rawAngularVelocity);
+        var acceleration = rawAcceleration is { } raw
             ? ToApplicationBasis(raw)
             : default;
         return new MotionSample
@@ -142,7 +142,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
             AccelY = acceleration.Y,
             AccelZ = acceleration.Z,
             HasAccelerometer = rawAcceleration.HasValue,
-            SensorTimestamp = timestamp,
+            SensorTimestamp = timestamp
         };
     }
 
@@ -156,20 +156,20 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     {
         StationaryGyroBiasCalibrator calibrator = new();
         ulong freshIndex = 0;
-        bool readFailed = false;
+        var readFailed = false;
         Vector3? reportedBias = null;
-        bool uncalibratedReported = false;
+        var uncalibratedReported = false;
         try
         {
             // Sensor COM calls are synchronous and can block. Keep them on one sleeping worker
             // instead of waking and spinning shared thread-pool workers for every 2 ms tick.
             // Wait after each read: a slow sensor must not cause a burst of catch-up polls.
-            WaitHandle stop = cancellationToken.WaitHandle;
+            var stop = cancellationToken.WaitHandle;
             while (!stop.WaitOne(PollInterval))
             {
-                PhysicalMotionReadResult read = sensors.TryRead(
-                    out PhysicalMotionReading reading,
-                    out string? error);
+                var read = sensors.TryRead(
+                    out var reading,
+                    out var error);
                 if (read == PhysicalMotionReadResult.Failed)
                 {
                     if (!readFailed)
@@ -196,7 +196,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
                 // This IMU's zero-rate offset reaches the wire as a permanent rotation no target
                 // removes: the Deck's own gyro is offset-free in hardware, so Steam integrates
                 // whatever arrives. Correcting it here is the only place it can be corrected.
-                Vector3 corrected = calibrator.Correct(
+                var corrected = calibrator.Correct(
                     reading.AngularVelocity,
                     reading.Acceleration);
                 if (calibrator.Bias is { } bias)
@@ -238,7 +238,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         Func<MotionSample, ValueTask> publish,
         CancellationToken cancellationToken)
     {
-        await foreach (MotionSample sample in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (var sample in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             await publish(sample).ConfigureAwait(false);
         }
@@ -335,7 +335,7 @@ internal sealed class StationaryGyroBiasCalibrator
 
     private void Observe(Vector3 angularVelocity, Vector3 acceleration)
     {
-        float gravity = acceleration.Length();
+        var gravity = acceleration.Length();
         if (!float.IsFinite(gravity)
             || !float.IsFinite(angularVelocity.LengthSquared())
             || gravity < MinimumGravityMagnitude
@@ -361,7 +361,7 @@ internal sealed class StationaryGyroBiasCalibrator
             return;
         }
 
-        Vector3 candidate = _angularSum / _count;
+        var candidate = _angularSum / _count;
         ResetWindow();
         if (candidate.Length() > MaximumBiasMagnitude)
         {
@@ -374,7 +374,7 @@ internal sealed class StationaryGyroBiasCalibrator
             return;
         }
 
-        Vector3 delta = candidate - bias;
+        var delta = candidate - bias;
         if (Exceeds(Vector3.Abs(delta), MaximumRefinementDelta))
         {
             // Too far to be a refinement. Rather than clamp — which would freeze a first offset
@@ -394,7 +394,7 @@ internal sealed class StationaryGyroBiasCalibrator
             return;
         }
 
-        Bias = bias + (delta * RefinementWeight);
+        Bias = bias + delta * RefinementWeight;
         _distantCandidate = null;
         _distantCount = 0;
     }

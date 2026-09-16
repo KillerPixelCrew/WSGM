@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -64,7 +65,7 @@ internal static class PluginTestWorker
         IReadOnlyDictionary<string, string> options,
         CancellationToken cancellationToken)
     {
-        SelfWorkerSession<PluginTestWorkerRequest>? session = await SelfWorkerProtocol.AuthorizeAsync(
+        var session = await SelfWorkerProtocol.AuthorizeAsync(
             Worker,
             options,
             RequestFileName,
@@ -92,7 +93,7 @@ internal static class PluginTestWorker
             return SelfWorkerProtocol.ExitRejected;
         }
 
-        PluginTestWorkerRequest request = session.Request;
+        var request = session.Request;
         PluginTestReport? report = null;
         string? failure = null;
         try
@@ -106,8 +107,8 @@ internal static class PluginTestWorker
             }
             else
             {
-                string? repositoryRoot = DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
-                    ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
+                var repositoryRoot = DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
+                                     ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
                 report = await PluginTestWorkflow.RunAttendedAsync(
                     request.PackageDirectory,
                     request.Identity,
@@ -133,7 +134,7 @@ internal static class PluginTestWorker
                     SchemaVersion = 1,
                     AuthorizationSha256 = request.AuthorizationSha256,
                     Report = report,
-                    Error = failure,
+                    Error = failure
                 },
                 PluginTestWorkerJson.Options,
                 token),
@@ -147,15 +148,15 @@ internal static class PluginTestWorker
         {
             Inspection = new DeviceLabOwnerInspection
             {
-                State = DeviceOwnerDiscoveryState.Absent,
+                State = DeviceOwnerDiscoveryState.Absent
             },
             // The real machine-wide handle remains in the supervising process. This local handle
             // preserves the in-process lifetime ordering without pretending to own another mutex.
-            Reservation = new DeviceLabOwnerReservation(new NoopDisposable()),
+            Reservation = new DeviceLabOwnerReservation(new NoopDisposable())
         },
         IsElevated = DeviceLabEnvironment.IsElevated(),
         IsUserInteractive = Environment.UserInteractive,
-        IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
+        IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration()
     };
 
     private sealed class NoopDisposable : IDisposable
@@ -174,7 +175,7 @@ internal static class PluginTestWorkerJson
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         RespectNullableAnnotations = true,
         WriteIndented = false,
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter() }
     };
 }
 
@@ -222,7 +223,7 @@ internal static class PluginTestWorkerSupervisor
                 Mode = PluginTestMode.DetectionOnly,
                 PackageDirectory = Path.GetFullPath(packageDirectory),
                 Identity = identity,
-                AuthorizationSha256 = string.Empty,
+                AuthorizationSha256 = string.Empty
             },
             ownerReservation: null,
             executablePath,
@@ -243,7 +244,7 @@ internal static class PluginTestWorkerSupervisor
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(boundaries);
-        PluginPackageValidationReport validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
+        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
         if (!validation.Valid)
         {
             return Failed(
@@ -253,7 +254,7 @@ internal static class PluginTestWorkerSupervisor
                 "Offline package validation failed.");
         }
 
-        DeviceLabOutputPathDecision output = DeviceLabOutputPathPolicy.Evaluate(
+        var output = DeviceLabOutputPathPolicy.Evaluate(
             stateDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
@@ -273,7 +274,7 @@ internal static class PluginTestWorkerSupervisor
             ResourceId = validation.PackageId!,
             Access = DeviceLabOperationAccess.AttendedPluginAction,
             ExactDeviceMatched = true,
-            RequiresElevation = true,
+            RequiresElevation = true
         };
         DeviceLabSafetySnapshot staticSnapshot = new()
         {
@@ -281,9 +282,9 @@ internal static class PluginTestWorkerSupervisor
             IsElevated = DeviceLabEnvironment.IsElevated(),
             IsUserInteractive = Environment.UserInteractive,
             IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
-            AttendedActionConfirmed = confirmed,
+            AttendedActionConfirmed = confirmed
         };
-        DeviceLabPreflightDecision staticPreflight = DeviceLabSafetyPreflight.Evaluate(
+        var staticPreflight = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             staticSnapshot);
         if (staticPreflight.Route is not DeviceLabAccessRoute.DirectAttended)
@@ -295,19 +296,19 @@ internal static class PluginTestWorkerSupervisor
                 PackageId = validation.PackageId,
                 Preflight = staticPreflight,
                 Action = action,
-                Error = "The attended hardware action was blocked before plugin loading.",
+                Error = "The attended hardware action was blocked before plugin loading."
             };
         }
 
-        DeviceLabOwnerReservationResult owner = DeviceLabOwnerInspector.Reserve();
-        using DeviceLabOwnerReservation? ownerReservation = owner.Reservation;
-        DeviceOwnerDiscoveryState ownerState = owner.Inspection.State;
-        if ((ownerState is DeviceOwnerDiscoveryState.Absent) != (ownerReservation is not null))
+        var owner = DeviceLabOwnerInspector.Reserve();
+        using var ownerReservation = owner.Reservation;
+        var ownerState = owner.Inspection.State;
+        if (ownerState is DeviceOwnerDiscoveryState.Absent != ownerReservation is not null)
         {
             ownerState = DeviceOwnerDiscoveryState.Unknown;
         }
 
-        DeviceLabPreflightDecision ownerPreflight = DeviceLabSafetyPreflight.Evaluate(
+        var ownerPreflight = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             staticSnapshot with { OwnerDiscovery = ownerState });
         if (ownerPreflight.Route is not DeviceLabAccessRoute.DirectAttended)
@@ -319,11 +320,11 @@ internal static class PluginTestWorkerSupervisor
                 PackageId = validation.PackageId,
                 Preflight = ownerPreflight,
                 Action = action,
-                Error = "The attended hardware action was blocked before plugin loading.",
+                Error = "The attended hardware action was blocked before plugin loading."
             };
         }
 
-        PluginTestReport report = await RunAsync(
+        var report = await RunAsync(
             new PluginTestWorkerRequest
             {
                 SchemaVersion = 1,
@@ -334,7 +335,7 @@ internal static class PluginTestWorkerSupervisor
                 Action = action,
                 Confirmed = confirmed,
                 ParentOwnerReserved = true,
-                AuthorizationSha256 = string.Empty,
+                AuthorizationSha256 = string.Empty
             },
             ownerReservation,
             DeviceLabExecutable.CurrentPath,
@@ -361,23 +362,23 @@ internal static class PluginTestWorkerSupervisor
             throw new ArgumentOutOfRangeException(nameof(deadline));
         }
 
-        byte[] authorizationSecret = SelfWorkerAuthorization.CreateSecret();
+        var authorizationSecret = SelfWorkerAuthorization.CreateSecret();
         request = request with
         {
-            AuthorizationSha256 = SelfWorkerAuthorization.Hash(authorizationSecret),
+            AuthorizationSha256 = SelfWorkerAuthorization.Hash(authorizationSecret)
         };
 
-        string workersRoot = Path.GetFullPath(Path.Combine(
+        var workersRoot = Path.GetFullPath(Path.Combine(
             // wsgm-allow-live-data-path: Device Lab's own root beside WSGM's data, never inside it.
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WSGM Device Lab",
             "Workers"));
-        string sessionId = $"plugin-{Guid.NewGuid():N}";
-        string sessionDirectory = Path.Combine(workersRoot, sessionId);
-        string requestPath = Path.Combine(sessionDirectory, PluginTestWorker.RequestFileName);
-        string resultPath = Path.Combine(sessionDirectory, PluginTestWorker.ResultFileName);
-        string markerPath = Path.Combine(sessionDirectory, ".device-lab-worker-session");
-        bool sessionCleanupAllowed = true;
+        var sessionId = $"plugin-{Guid.NewGuid():N}";
+        var sessionDirectory = Path.Combine(workersRoot, sessionId);
+        var requestPath = Path.Combine(sessionDirectory, PluginTestWorker.RequestFileName);
+        var resultPath = Path.Combine(sessionDirectory, PluginTestWorker.ResultFileName);
+        var markerPath = Path.Combine(sessionDirectory, ".device-lab-worker-session");
+        var sessionCleanupAllowed = true;
         try
         {
             Directory.CreateDirectory(workersRoot);
@@ -415,7 +416,7 @@ internal static class PluginTestWorkerSupervisor
             [
                 PluginTestWorker.Mode,
                 "--request", requestPath,
-                "--result", resultPath,
+                "--result", resultPath
             ];
             ReadProbeProcessOutcome process;
             try
@@ -532,7 +533,7 @@ internal static class PluginTestWorkerSupervisor
         }
         finally
         {
-            System.Security.Cryptography.CryptographicOperations.ZeroMemory(authorizationSecret);
+            CryptographicOperations.ZeroMemory(authorizationSecret);
             if (sessionCleanupAllowed)
             {
                 TryDeleteOwnedSession(workersRoot, sessionDirectory, markerPath, sessionId);
@@ -550,7 +551,7 @@ internal static class PluginTestWorkerSupervisor
             Passed = false,
             PackageId = packageId,
             Action = action,
-            Error = error[..Math.Min(error.Length, 16_384)],
+            Error = error[..Math.Min(error.Length, 16_384)]
         };
 
     private static void TryDeleteOwnedSession(
@@ -577,10 +578,10 @@ internal static class PluginTestWorkerSupervisor
             {
                 Path.GetFullPath(markerPath),
                 Path.Combine(sessionDirectory, PluginTestWorker.RequestFileName),
-                Path.Combine(sessionDirectory, PluginTestWorker.ResultFileName),
+                Path.Combine(sessionDirectory, PluginTestWorker.ResultFileName)
             };
-            int observed = 0;
-            foreach (string path in Directory.EnumerateFileSystemEntries(sessionDirectory))
+            var observed = 0;
+            foreach (var path in Directory.EnumerateFileSystemEntries(sessionDirectory))
             {
                 if (++observed > expected.Count
                     || !expected.Contains(Path.GetFullPath(path)))
@@ -588,14 +589,14 @@ internal static class PluginTestWorkerSupervisor
                     return;
                 }
 
-                FileAttributes attributes = File.GetAttributes(path);
+                var attributes = File.GetAttributes(path);
                 if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
                 {
                     return;
                 }
             }
 
-            foreach (string path in expected)
+            foreach (var path in expected)
             {
                 if (File.Exists(path))
                 {

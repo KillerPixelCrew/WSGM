@@ -13,7 +13,7 @@ internal enum DeviceLabOperationAccess
     ReadOnlyProbe,
 
     /// <summary>One locally confirmed plugin activation followed by mandatory cleanup.</summary>
-    AttendedPluginAction,
+    AttendedPluginAction
 }
 
 /// <summary>The route selected after the small local safety gate.</summary>
@@ -27,7 +27,7 @@ internal enum DeviceLabAccessRoute
     DirectReadOnly,
 
     /// <summary>A locally selected plugin may run its ordinary activation and cleanup lifecycle.</summary>
-    DirectAttended,
+    DirectAttended
 }
 
 /// <summary>Whether the production WSGM session currently owns device integration.</summary>
@@ -41,7 +41,7 @@ internal enum DeviceOwnerDiscoveryState
     Present,
 
     /// <summary>The owner object could not be inspected safely.</summary>
-    Unknown,
+    Unknown
 }
 
 /// <summary>Inputs to the local gate shared by read probes and the attended plugin action.</summary>
@@ -177,10 +177,10 @@ internal static class DeviceLabSafetyPreflight
             }
         }
 
-        DeviceLabDoctorStatus status = checks.Any(check => check.Status is DeviceLabDoctorStatus.Blocked)
+        var status = checks.Any(check => check.Status is DeviceLabDoctorStatus.Blocked)
             ? DeviceLabDoctorStatus.Blocked
             : DeviceLabDoctorStatus.Pass;
-        DeviceLabAccessRoute route = status is DeviceLabDoctorStatus.Blocked
+        var route = status is DeviceLabDoctorStatus.Blocked
             ? DeviceLabAccessRoute.None
             : requirements.Access is DeviceLabOperationAccess.ReadOnlyProbe
                 ? DeviceLabAccessRoute.DirectReadOnly
@@ -194,7 +194,7 @@ internal static class DeviceLabSafetyPreflight
                 Status = DeviceLabDoctorStatus.Pass,
                 Message = route is DeviceLabAccessRoute.DirectReadOnly
                     ? "The exact compiled read may run in the disposable self-worker."
-                    : "The exact local plugin may run once and must clean up before returning.",
+                    : "The exact local plugin may run once and must clean up before returning."
             });
         }
 
@@ -203,7 +203,7 @@ internal static class DeviceLabSafetyPreflight
             ResourceId = requirements.ResourceId,
             Status = status,
             Route = route,
-            Checks = checks,
+            Checks = checks
         };
     }
 
@@ -214,6 +214,6 @@ internal static class DeviceLabSafetyPreflight
         {
             Code = code,
             Status = DeviceLabDoctorStatus.Blocked,
-            Message = message,
+            Message = message
         });
 }

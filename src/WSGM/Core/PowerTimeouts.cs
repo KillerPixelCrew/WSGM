@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Globalization;
 using WindowsDeviceControl;
 
 namespace WSGM.Core;
@@ -17,7 +18,7 @@ public enum PowerTimeoutKind
     SleepDc,
 
     /// <summary>Go to standby after (plugged in).</summary>
-    SleepAc,
+    SleepAc
 }
 
 /// <summary>Reads and writes the active power scheme's display-off and standby idle
@@ -49,7 +50,7 @@ public static class PowerTimeouts
         var (subgroup, setting, dc) = Locate(kind);
         try
         {
-            uint value = WindowsPower.ReadSetting(scheme, subgroup, setting, dc);
+            var value = WindowsPower.ReadSetting(scheme, subgroup, setting, dc);
             return value <= int.MaxValue ? (int)value : null;
         }
         catch (Win32Exception ex)
@@ -138,7 +139,7 @@ public static class PowerTimeouts
         _ => seconds % 3600 == 0
             ? $"{seconds / 3600} h"
             // Invariant on purpose: the badge must not become "1,5 h" on a German OS.
-            : (seconds / 3600.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " h",
+            : (seconds / 3600.0).ToString("0.#", CultureInfo.InvariantCulture) + " h"
     };
 
     private static (Guid Subgroup, Guid Setting, bool Dc) Locate(PowerTimeoutKind kind) => kind switch
@@ -146,7 +147,7 @@ public static class PowerTimeouts
         PowerTimeoutKind.DisplayDc => (SubVideo, VideoIdle, true),
         PowerTimeoutKind.DisplayAc => (SubVideo, VideoIdle, false),
         PowerTimeoutKind.SleepDc => (SubSleep, StandbyIdle, true),
-        _ => (SubSleep, StandbyIdle, false),
+        _ => (SubSleep, StandbyIdle, false)
     };
 
     private static bool TryGetActiveScheme(out Guid scheme)

@@ -23,9 +23,6 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class ControllerMakeSafeSequence
 {
-    private bool _pluginReleaseObserved;
-    private bool _targetRemoved;
-    private bool _hidHideRemoved;
     private bool _unverified;
 
     /// <summary>How far the handoff has progressed in the shared plugin vocabulary.</summary>
@@ -36,14 +33,14 @@ internal sealed class ControllerMakeSafeSequence
         ControllerHandoffResult.InProgress;
 
     /// <summary>Whether WSGM's virtual target has been removed.</summary>
-    internal bool TargetRemoved => _targetRemoved;
+    internal bool TargetRemoved { get; private set; }
 
     /// <summary>Whether WSGM's own HidHide entries have been removed.</summary>
-    internal bool HidHideRemoved => _hidHideRemoved;
+    internal bool HidHideRemoved { get; private set; }
 
     /// <summary>Whether WSGM's HidHide entries must stay in place for now.</summary>
     internal bool HidHideMustRemain =>
-        Step is not ControllerHandoffStep.NotStarted && !_targetRemoved;
+        Step is not ControllerHandoffStep.NotStarted && !TargetRemoved;
 
     /// <summary>Whether the virtual target may be removed yet.</summary>
     /// <remarks>
@@ -51,10 +48,10 @@ internal sealed class ControllerMakeSafeSequence
     /// removal: the user asked WSGM to stop, and leaving a virtual target behind because the plugin
     /// was slow would leave duplicate input rather than prevent it.
     /// </remarks>
-    internal bool CanRemoveTarget => _pluginReleaseObserved;
+    internal bool CanRemoveTarget { get; private set; }
 
     /// <summary>Whether WSGM's HidHide entries may be removed yet.</summary>
-    internal bool CanRemoveHidHide => _targetRemoved;
+    internal bool CanRemoveHidHide => TargetRemoved;
 
     /// <summary>Records that routing, output, and the virtual target are all quiet.</summary>
     /// <param name="verified">Whether the neutral state was actually written and confirmed.</param>
@@ -78,13 +75,13 @@ internal sealed class ControllerMakeSafeSequence
     internal void RecordPluginRelease(ControllerHandoffStep step, ControllerHandoffResult result)
     {
         Require(
-            Step is ControllerHandoffStep.VirtualTargetNeutralized && !_pluginReleaseObserved,
+            Step is ControllerHandoffStep.VirtualTargetNeutralized && !CanRemoveTarget,
             $"Make-safe cannot accept a plugin release from {Step}.");
         Require(
             step is not (ControllerHandoffStep.NotStarted
                 or ControllerHandoffStep.VirtualTargetNeutralized),
             $"{step} is not a plugin-owned handoff step.");
-        _pluginReleaseObserved = true;
+        CanRemoveTarget = true;
         Step = step;
         _unverified |= step is not ControllerHandoffStep.TopologyVerified
             || result is not ControllerHandoffResult.ReleasedVerified;
@@ -94,9 +91,9 @@ internal sealed class ControllerMakeSafeSequence
     internal void RecordPluginReleaseUnobserved()
     {
         Require(
-            Step is ControllerHandoffStep.VirtualTargetNeutralized && !_pluginReleaseObserved,
+            Step is ControllerHandoffStep.VirtualTargetNeutralized && !CanRemoveTarget,
             $"Make-safe cannot time out a plugin release from {Step}.");
-        _pluginReleaseObserved = true;
+        CanRemoveTarget = true;
         _unverified = true;
         Step = ControllerHandoffStep.TopologyUnverified;
     }
@@ -111,7 +108,7 @@ internal sealed class ControllerMakeSafeSequence
     internal void RecordTargetRemoved(bool verified)
     {
         Require(CanRemoveTarget, "The virtual target cannot be removed before the physical release.");
-        _targetRemoved = true;
+        TargetRemoved = true;
         _unverified |= !verified;
     }
 
@@ -120,7 +117,7 @@ internal sealed class ControllerMakeSafeSequence
     internal void RecordHidHideRemoved(bool verified)
     {
         Require(CanRemoveHidHide, "HidHide entries cannot be removed while the target still exists.");
-        _hidHideRemoved = true;
+        HidHideRemoved = true;
         _unverified |= !verified;
     }
 
@@ -128,7 +125,7 @@ internal sealed class ControllerMakeSafeSequence
     internal ControllerHandoffResult Complete()
     {
         Require(
-            _targetRemoved && _hidHideRemoved,
+            TargetRemoved && HidHideRemoved,
             "Make-safe cannot complete before WSGM state is removed.");
         Step = ControllerHandoffStep.WsgmStateRemoved;
         Result = _unverified

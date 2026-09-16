@@ -12,6 +12,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using LoadingIndicators.Avalonia;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -178,7 +179,7 @@ public partial class BootSplashWindow : Window
         // a splash tap can never land on whatever the splash was covering.
         Win32Properties.AddWndProcHookCallback(
             this,
-            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
+            NativeMethods.SwallowTouchSynthesizedMouse);
 
         if (_preview)
         {
@@ -244,7 +245,7 @@ public partial class BootSplashWindow : Window
                     Stretch = Stretch.Uniform,
                     MaxWidth = maxSize,
                     MaxHeight = maxSize,
-                    HorizontalAlignment = HorizontalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
                 };
             }
         }
@@ -267,7 +268,7 @@ public partial class BootSplashWindow : Window
                     StartAngle = 0,
                     SweepAngle = 270,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    RenderTransform = _spinnerRotate,
+                    RenderTransform = _spinnerRotate
                 };
                 spinner = _ringSpinner;
                 break;
@@ -282,7 +283,7 @@ public partial class BootSplashWindow : Window
                     Width = spinnerSize,
                     Height = spinnerSize,
                     IsActive = true,
-                    HorizontalAlignment = HorizontalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
                 };
                 break;
         }
@@ -303,7 +304,7 @@ public partial class BootSplashWindow : Window
                 FontSize = Math.Max(1, _splash.TitleFontSize),
                 FontWeight = FontWeight.Light,
                 Foreground = textBrush,
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
             });
         }
         if (captionVisible)
@@ -313,7 +314,7 @@ public partial class BootSplashWindow : Window
                 Text = _splash.Caption,
                 FontSize = Math.Max(1, _splash.CaptionFontSize),
                 Foreground = captionBrush,
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
             });
         }
         if (spinner is not null && _splash.SpinnerPlacement.Mode == SplashPlacementMode.WithText)
@@ -520,7 +521,7 @@ public partial class BootSplashWindow : Window
             Height = SweepLineThickness,
             Background = brush,
             HorizontalAlignment = HorizontalAlignment.Left,
-            RenderTransform = _sweepTransform,
+            RenderTransform = _sweepTransform
         };
         var bottom = _splash.SweepEdge == SweepEdge.Bottom;
         _sweepHost = new Panel
@@ -529,7 +530,7 @@ public partial class BootSplashWindow : Window
             VerticalAlignment = bottom ? VerticalAlignment.Bottom : VerticalAlignment.Top,
             // Bottom edge keeps clear of the desktop button; the top edge has
             // nothing to collide with.
-            Margin = bottom ? new Thickness(0, 0, 0, SweepBottomClearance) : default,
+            Margin = bottom ? new Thickness(0, 0, 0, SweepBottomClearance) : default
         };
         _sweepHost.Children.Add(_sweepLine);
         AddLayer(_sweepHost);
@@ -546,7 +547,7 @@ public partial class BootSplashWindow : Window
         SplashSpinnerStyle.LiRing => LoadingIndicatorMode.Ring,
         SplashSpinnerStyle.LiThreeDots => LoadingIndicatorMode.ThreeDots,
         SplashSpinnerStyle.LiWave => LoadingIndicatorMode.Wave,
-        _ => LoadingIndicatorMode.Ring,
+        _ => LoadingIndicatorMode.Ring
     };
 
     private static string DescribePlacement(SplashElementPlacement placement) =>
@@ -567,9 +568,9 @@ public partial class BootSplashWindow : Window
             {
                 new GradientStop(Color.FromArgb(0, 0, 0, 0), 0),
                 new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.55),
-                new GradientStop(Color.FromArgb(0xA0, 0, 0, 0), 1),
-            },
-        },
+                new GradientStop(Color.FromArgb(0xA0, 0, 0, 0), 1)
+            }
+        }
     };
 
     /// <param name="path">Full path to the image file.</param>
@@ -648,10 +649,10 @@ public partial class BootSplashWindow : Window
         _hwnd = TryGetPlatformHandle()?.Handle ?? 0;
         if (_hwnd != 0)
         {
-            var ex = Interop.NativeMethods.GetWindowLong(_hwnd, Interop.NativeMethods.GwlExStyle);
-            Interop.NativeMethods.SetWindowLong(_hwnd, Interop.NativeMethods.GwlExStyle,
-                ex | Interop.NativeMethods.WsExLayered);
-            Interop.NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 255, Interop.NativeMethods.LwaAlpha);
+            var ex = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GwlExStyle);
+            NativeMethods.SetWindowLong(_hwnd, NativeMethods.GwlExStyle,
+                ex | NativeMethods.WsExLayered);
+            NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 255, NativeMethods.LwaAlpha);
         }
 
         // The animation timer exists only for the in-repo spinners; the Li*
@@ -710,8 +711,8 @@ public partial class BootSplashWindow : Window
     {
         var progress = Math.Clamp(
             (DateTime.UtcNow - _fadeStartedUtc).TotalMilliseconds / _fadeDuration.TotalMilliseconds, 0, 1);
-        Interop.NativeMethods.SetLayeredWindowAttributes(
-            _hwnd, 0, (byte)Math.Round(255 * (1 - progress)), Interop.NativeMethods.LwaAlpha);
+        NativeMethods.SetLayeredWindowAttributes(
+            _hwnd, 0, (byte)Math.Round(255 * (1 - progress)), NativeMethods.LwaAlpha);
         if (progress >= 1)
         {
             _fadeTimer?.Stop();
@@ -727,7 +728,7 @@ public partial class BootSplashWindow : Window
     {
         CoverPrimaryScreen();
         UpdateAbsolutePositions();
-        Core.Log.Info("Boot splash resized after display change.");
+        Log.Info("Boot splash resized after display change.");
     }
 
     /// <summary>Primary display only — same assumption as the overlay; startup apps

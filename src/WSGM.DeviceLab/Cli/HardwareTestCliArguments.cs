@@ -27,7 +27,7 @@ internal sealed record HardwareTestCliArguments
         parsed = null;
         error = string.Empty;
 
-        foreach (string argument in args)
+        foreach (var argument in args)
         {
             if (string.Equals(argument, "--yes", StringComparison.OrdinalIgnoreCase))
             {
@@ -42,7 +42,7 @@ internal sealed record HardwareTestCliArguments
             return false;
         }
 
-        string packageDirectory = args[0];
+        var packageDirectory = args[0];
         string? inventoryPath = null;
         string? stateDirectory = null;
         string? actionName = null;
@@ -50,9 +50,9 @@ internal sealed record HardwareTestCliArguments
         string? instanceId = null;
         string? valueText = null;
 
-        for (int index = 1; index < args.Length; index++)
+        for (var index = 1; index < args.Length; index++)
         {
-            string option = args[index];
+            var option = args[index];
             switch (option)
             {
                 case "--from":
@@ -178,7 +178,7 @@ internal sealed record HardwareTestCliArguments
                 Kind = AttendedPluginActionKind.CapabilityValue,
                 CapabilityId = capabilityId,
                 InstanceId = instanceId,
-                ValueText = valueText,
+                ValueText = valueText
             };
         }
         else if (string.Equals(actionName, "haptic", StringComparison.Ordinal)
@@ -197,9 +197,9 @@ internal sealed record HardwareTestCliArguments
                 {
                     "haptic" => AttendedPluginActionKind.HapticPulse,
                     "haptic-sweep" => AttendedPluginActionKind.HapticSweep,
-                    _ => AttendedPluginActionKind.ControllerManagement,
+                    _ => AttendedPluginActionKind.ControllerManagement
                 },
-                InstanceId = instanceId,
+                InstanceId = instanceId
             };
         }
         else
@@ -213,7 +213,7 @@ internal sealed record HardwareTestCliArguments
             PackageDirectory = packageDirectory,
             InventoryPath = inventoryPath,
             StateDirectory = stateDirectory,
-            Action = action,
+            Action = action
         };
         return true;
     }

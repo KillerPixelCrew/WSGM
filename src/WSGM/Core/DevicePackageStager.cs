@@ -29,19 +29,19 @@ internal static class DevicePackageStager
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
 
-        string source = DevicePackagePolicy.NormalizeDirectoryPath(sourceDirectory);
-        string destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        string parent = Directory.GetParent(destination)?.FullName
-            ?? throw new InvalidDataException("The installed package root needs a parent directory.");
-        string stagingRoot = ReplacementStagingRoot(destination);
-        string backupRoot = ReplacementRecoveryRoot(destination);
+        var source = DevicePackagePolicy.NormalizeDirectoryPath(sourceDirectory);
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var parent = Directory.GetParent(destination)?.FullName
+                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
+        var stagingRoot = ReplacementStagingRoot(destination);
+        var backupRoot = ReplacementRecoveryRoot(destination);
         if (SourceOverlapsProtectedNamespace(source, destination, PathsOverlap))
         {
             throw new InvalidDataException(
                 "Package source must be separate from the installed slot and every staging or recovery namespace.");
         }
 
-        Func<string, bool> inspectSourcePath = sourcePathTraversesLink ?? PathTraversesLink;
+        var inspectSourcePath = sourcePathTraversesLink ?? PathTraversesLink;
         if (inspectSourcePath(source))
         {
             // A lexical external path can still alias one of the protected siblings through a
@@ -49,12 +49,12 @@ internal static class DevicePackageStager
             throw new InvalidDataException("Package source may not traverse a link or reparse point.");
         }
 
-        Func<string, NativePathIdentity?> readPathIdentity = pathIdentityReader
-            ?? NativePathIdentityReader.Read;
-        Func<string, NativePathIdentity?> revalidateSecuredSource = securedSourceIdentityReader
-            ?? NativePathIdentityReader.Read;
-        Func<string, FileAttributes?> readProtectedAttributes = protectedPathAttributeReader
-            ?? DevicePackagePolicy.ReadPathAttributes;
+        var readPathIdentity = pathIdentityReader
+                               ?? NativePathIdentityReader.Read;
+        var revalidateSecuredSource = securedSourceIdentityReader
+                                      ?? NativePathIdentityReader.Read;
+        var readProtectedAttributes = protectedPathAttributeReader
+                                      ?? DevicePackagePolicy.ReadPathAttributes;
         NativePackageSource? packageSource = null;
         FileStream? manifestPin = null;
         try
@@ -110,7 +110,7 @@ internal static class DevicePackageStager
             }
 
             FileStream manifestStream;
-            using (NativePackageSourceEntry manifestEntry = packageSource.OpenEntry(
+            using (var manifestEntry = packageSource.OpenEntry(
                 Path.Combine(source, "plugin.wsgm.json")))
             {
                 if (manifestEntry.IsDirectory || manifestEntry.IsReparsePoint)
@@ -123,26 +123,26 @@ internal static class DevicePackageStager
                 manifestPin = manifestStream;
             }
 
-            PluginManifest manifest = ReadManifest(manifestStream);
+            var manifest = ReadManifest(manifestStream);
             if (!SafeSegment(manifest.Id))
             {
                 throw new InvalidDataException("Package identifier is not a safe directory segment.");
             }
 
-            string stagingPackage = Path.Combine(stagingRoot, manifest.Id);
-            bool previousMoved = false;
-            bool replacementInstalled = false;
+            var stagingPackage = Path.Combine(stagingRoot, manifest.Id);
+            var previousMoved = false;
+            var replacementInstalled = false;
 
             try
             {
                 Directory.CreateDirectory(stagingPackage);
                 await CopyPackageAsync(packageSource, stagingPackage, cancellationToken)
                     .ConfigureAwait(false);
-                DevicePackageDiscovery discovery = DevicePackagePolicy.Discover(
+                var discovery = DevicePackagePolicy.Discover(
                     stagingRoot,
                     readProtectedAttributes);
-                InstalledDevicePackage package = discovery.InstalledPackage
-                    ?? throw new InvalidDataException("Staged package did not occupy exactly one slot.");
+                var package = discovery.InstalledPackage
+                              ?? throw new InvalidDataException("Staged package did not occupy exactly one slot.");
                 if (!package.Valid || package.Manifest is null)
                 {
                     throw new InvalidDataException(
@@ -150,11 +150,11 @@ internal static class DevicePackageStager
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                bool destinationExists = ValidateDirectoryPath(
+                var destinationExists = ValidateDirectoryPath(
                     destination,
                     "Installed package root",
                     readProtectedAttributes);
-                bool backupExists = ValidateDirectoryPath(
+                var backupExists = ValidateDirectoryPath(
                     backupRoot,
                     "Device package replacement recovery",
                     readProtectedAttributes);
@@ -202,7 +202,7 @@ internal static class DevicePackageStager
                     throw;
                 }
 
-                string finalPackage = Path.Combine(destination, manifest.Id);
+                var finalPackage = Path.Combine(destination, manifest.Id);
                 return package with { PackagePath = finalPackage };
             }
             finally
@@ -249,15 +249,15 @@ internal static class DevicePackageStager
         Func<string, FileAttributes?>? attributeReader = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        string destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        string recoveryRoot = ReplacementRecoveryRoot(destination);
-        Func<string, FileAttributes?> readAttributes = attributeReader
-            ?? DevicePackagePolicy.ReadPathAttributes;
-        bool destinationExists = ValidateDirectoryPath(
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var recoveryRoot = ReplacementRecoveryRoot(destination);
+        var readAttributes = attributeReader
+                             ?? DevicePackagePolicy.ReadPathAttributes;
+        var destinationExists = ValidateDirectoryPath(
             destination,
             "Installed package root",
             readAttributes);
-        bool recoveryExists = ValidateDirectoryPath(
+        var recoveryExists = ValidateDirectoryPath(
             recoveryRoot,
             "Device package replacement recovery",
             readAttributes);
@@ -279,9 +279,9 @@ internal static class DevicePackageStager
     internal static string ReplacementRecoveryRoot(string installedRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        string destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        string parent = Directory.GetParent(destination)?.FullName
-            ?? throw new InvalidDataException("The installed package root needs a parent directory.");
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var parent = Directory.GetParent(destination)?.FullName
+                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
         return Path.Combine(parent, RecoveryDirectoryName);
     }
 
@@ -289,9 +289,9 @@ internal static class DevicePackageStager
     internal static string ReplacementStagingRoot(string installedRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        string destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        string parent = Directory.GetParent(destination)?.FullName
-            ?? throw new InvalidDataException("The installed package root needs a parent directory.");
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var parent = Directory.GetParent(destination)?.FullName
+                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
         return Path.Combine(parent, StagingDirectoryName);
     }
 
@@ -303,15 +303,15 @@ internal static class DevicePackageStager
         Func<string, FileAttributes?>? attributeReader = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        string destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        string recoveryRoot = ReplacementRecoveryRoot(destination);
-        Func<string, FileAttributes?> readAttributes = attributeReader
-            ?? DevicePackagePolicy.ReadPathAttributes;
-        bool destinationExists = ValidateDirectoryPath(
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var recoveryRoot = ReplacementRecoveryRoot(destination);
+        var readAttributes = attributeReader
+                             ?? DevicePackagePolicy.ReadPathAttributes;
+        var destinationExists = ValidateDirectoryPath(
             destination,
             "Installed package root",
             readAttributes);
-        bool recoveryExists = ValidateDirectoryPath(
+        var recoveryExists = ValidateDirectoryPath(
             recoveryRoot,
             "Device package replacement recovery",
             readAttributes);
@@ -332,15 +332,15 @@ internal static class DevicePackageStager
         Func<string, FileAttributes?>? attributeReader = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        string destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        string recoveryRoot = ReplacementRecoveryRoot(destination);
-        Func<string, FileAttributes?> readAttributes = attributeReader
-            ?? DevicePackagePolicy.ReadPathAttributes;
-        bool destinationExists = ValidateDirectoryPath(
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var recoveryRoot = ReplacementRecoveryRoot(destination);
+        var readAttributes = attributeReader
+                             ?? DevicePackagePolicy.ReadPathAttributes;
+        var destinationExists = ValidateDirectoryPath(
             destination,
             "Installed package root",
             readAttributes);
-        bool recoveryExists = ValidateDirectoryPath(
+        var recoveryExists = ValidateDirectoryPath(
             recoveryRoot,
             "Device package replacement recovery",
             readAttributes);
@@ -358,28 +358,28 @@ internal static class DevicePackageStager
     {
         Stack<(string Source, string Destination)> pending = new();
         pending.Push((source.RootPath, destination));
-        byte[] buffer = new byte[64 * 1024];
-        int entryCount = 0;
-        int fileCount = 0;
+        var buffer = new byte[64 * 1024];
+        var entryCount = 0;
+        var fileCount = 0;
         long totalBytes = 0;
         while (pending.Count > 0)
         {
-            (string currentSource, string currentDestination) = pending.Pop();
-            IReadOnlyList<string> entries = DevicePackagePolicy.EnumerateBoundedDirectory(
+            var (currentSource, currentDestination) = pending.Pop();
+            var entries = DevicePackagePolicy.EnumerateBoundedDirectory(
                 currentSource,
                 DevicePackagePolicy.MaxPackageEntries - entryCount,
                 cancellationToken);
             entryCount += entries.Count;
-            foreach (string entry in entries)
+            foreach (var entry in entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                using NativePackageSourceEntry sourceEntry = source.OpenEntry(entry);
+                using var sourceEntry = source.OpenEntry(entry);
                 if (sourceEntry.IsReparsePoint)
                 {
                     throw new InvalidDataException("Package staging never follows links or reparse points.");
                 }
 
-                string target = Path.Combine(currentDestination, Path.GetFileName(entry));
+                var target = Path.Combine(currentDestination, Path.GetFileName(entry));
                 if (sourceEntry.IsDirectory)
                 {
                     source.RetainDirectory(sourceEntry);
@@ -396,7 +396,7 @@ internal static class DevicePackageStager
                     throw new InvalidDataException("Package exceeds staging file or size bounds.");
                 }
 
-                await using FileStream input = sourceEntry.OpenReadStream();
+                await using var input = sourceEntry.OpenReadStream();
                 await using FileStream output = new(
                     target,
                     FileMode.CreateNew,
@@ -407,7 +407,7 @@ internal static class DevicePackageStager
                 long fileBytes = 0;
                 while (true)
                 {
-                    int read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
                     if (read == 0)
                     {
                         break;
@@ -430,11 +430,11 @@ internal static class DevicePackageStager
 
     private static PluginManifest ReadManifest(FileStream stream)
     {
-        byte[] bytes = DevicePackagePolicy.ReadAllBytesBounded(
+        var bytes = DevicePackagePolicy.ReadAllBytesBounded(
             stream,
             DevicePackagePolicy.MaxMetadataBytes,
             "Plugin manifest");
-        PluginManifestReadResult result = PluginManifestReader.Read(bytes);
+        var result = PluginManifestReader.Read(bytes);
         return result.IsValid && result.Manifest is not null
             ? result.Manifest
             : throw new InvalidDataException(
@@ -449,7 +449,7 @@ internal static class DevicePackageStager
         Action? sourceRootSecured)
     {
         sourceRootSecured?.Invoke();
-        NativePathIdentity? currentIdentity = readPathIdentity(source);
+        var currentIdentity = readPathIdentity(source);
         if (currentIdentity is null || currentIdentity.Value != packageSource.RootIdentity)
         {
             throw new InvalidDataException(
@@ -489,11 +489,11 @@ internal static class DevicePackageStager
             return true;
         }
 
-        IReadOnlyList<PathLineageEntry> firstLineage = ReadPathLineage(first, readPathIdentity);
-        IReadOnlyList<PathLineageEntry> secondLineage = ReadPathLineage(second, readPathIdentity);
-        foreach (PathLineageEntry firstEntry in firstLineage)
+        var firstLineage = ReadPathLineage(first, readPathIdentity);
+        var secondLineage = ReadPathLineage(second, readPathIdentity);
+        foreach (var firstEntry in firstLineage)
         {
-            foreach (PathLineageEntry secondEntry in secondLineage)
+            foreach (var secondEntry in secondLineage)
             {
                 if (firstEntry.Identity == secondEntry.Identity
                     && RelativePathsOverlap(
@@ -514,25 +514,25 @@ internal static class DevicePackageStager
     {
         List<PathLineageEntry> lineage = [];
         List<string> relativeSegments = [];
-        string current = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var current = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         while (true)
         {
-            NativePathIdentity? identity = readPathIdentity(current);
+            var identity = readPathIdentity(current);
             if (identity is not null)
             {
                 lineage.Add(new PathLineageEntry(identity.Value, [.. relativeSegments]));
             }
 
-            string trimmed = current.TrimEnd(
+            var trimmed = current.TrimEnd(
                 Path.DirectorySeparatorChar,
                 Path.AltDirectorySeparatorChar);
-            string? parent = Directory.GetParent(current)?.FullName;
+            var parent = Directory.GetParent(current)?.FullName;
             if (parent is null || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
             {
                 break;
             }
 
-            string segment = Path.GetFileName(trimmed);
+            var segment = Path.GetFileName(trimmed);
             if (string.IsNullOrEmpty(segment))
             {
                 break;
@@ -559,7 +559,7 @@ internal static class DevicePackageStager
             return false;
         }
 
-        for (int index = 0; index < candidatePrefix.Count; index++)
+        for (var index = 0; index < candidatePrefix.Count; index++)
         {
             if (!string.Equals(
                 candidatePrefix[index],
@@ -611,14 +611,14 @@ internal static class DevicePackageStager
         string destination,
         Func<string, FileAttributes?> readAttributes)
     {
-        string parent = Directory.GetParent(destination)?.FullName
-            ?? throw new InvalidDataException("The installed package root needs a parent directory.");
+        var parent = Directory.GetParent(destination)?.FullName
+                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
         if (!ValidateDirectoryPath(parent, "Device package slot parent", readAttributes))
         {
             return;
         }
 
-        string stagingRoot = ReplacementStagingRoot(destination);
+        var stagingRoot = ReplacementStagingRoot(destination);
         if (ValidateDirectoryPath(stagingRoot, "Device package staging root", readAttributes))
         {
             Directory.Delete(stagingRoot, recursive: true);
@@ -642,7 +642,7 @@ internal static class DevicePackageStager
         string description,
         Func<string, FileAttributes?> readAttributes)
     {
-        FileAttributes? attributes = readAttributes(path);
+        var attributes = readAttributes(path);
         if (attributes is null)
         {
             return false;
@@ -661,8 +661,8 @@ internal static class DevicePackageStager
 
     private static bool IsSameOrDescendant(string candidate, string root)
     {
-        string normalizedCandidate = DevicePackagePolicy.NormalizeDirectoryPath(candidate);
-        string normalizedRoot = DevicePackagePolicy.NormalizeDirectoryPath(root);
+        var normalizedCandidate = DevicePackagePolicy.NormalizeDirectoryPath(candidate);
+        var normalizedRoot = DevicePackagePolicy.NormalizeDirectoryPath(root);
         return string.Equals(normalizedCandidate, normalizedRoot, StringComparison.OrdinalIgnoreCase)
             || normalizedCandidate.StartsWith(
                 normalizedRoot + Path.DirectorySeparatorChar,

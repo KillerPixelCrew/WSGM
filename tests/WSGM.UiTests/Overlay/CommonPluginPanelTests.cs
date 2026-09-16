@@ -2,7 +2,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.LogicalTree;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Overlay;
@@ -22,7 +24,7 @@ public sealed class CommonPluginPanelTests
         var window = fixture.Overlay();
         var host = UiFixture.Named<StackPanel>(window, "CommonPluginRows");
         host.Children.Add(new CommonPluginPanel(new MutableProvider(), readPins: () => Task.FromResult(Array.Empty<PluginWidgetPin>())));
-        var tile = UiFixture.Named<WSGM.Controls.CardButton>(window, "SystemPluginsTile");
+        var tile = UiFixture.Named<CardButton>(window, "SystemPluginsTile");
         tile.IsVisible = true;
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, tile);
@@ -40,7 +42,7 @@ public sealed class CommonPluginPanelTests
             (_, _) => Task.CompletedTask, _ => Task.CompletedTask, () => Task.CompletedTask);
         PinnedPluginWidgets panel = new(new MutableProvider(), (_, _) => { }, preferences);
         UiFixture.Named<StackPanel>(window, "PinnedPluginWidgetsHost").Children.Add(panel);
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs();
         Assert.DoesNotContain(panel.GetLogicalDescendants().OfType<TextBlock>(),
             text => text.Text?.Contains("test / default") == true);
         Assert.All(panel.GetLogicalDescendants().OfType<Expander>(), expander => Assert.False(expander.IsExpanded));
@@ -171,7 +173,7 @@ public sealed class CommonPluginPanelTests
             Assert.Null(source.Requested);
             buttons.Press(GamepadButtons.A);
             Assert.False(choice.IsDropDownOpen);
-            var apply = panel.GetLogicalDescendants().OfType<Button>().Single(button => button is WSGM.Controls.CardButton { Title: "Change fan" });
+            var apply = panel.GetLogicalDescendants().OfType<Button>().Single(button => button is CardButton { Title: "Change fan" });
             Assert.True(apply.Focus());
             buttons.Press(GamepadButtons.A);
             Assert.Equal("turbo", source.Requested);
@@ -211,7 +213,7 @@ public sealed class CommonPluginPanelTests
             Assert.Equal("quiet", choice.SelectedItem);
             choice.SelectedItem = "turbo";
             Assert.Null(source.Requested);
-            UiFixture.Click(window, panel.GetLogicalDescendants().OfType<Button>().Single(button => button is WSGM.Controls.CardButton { Title: "Change fan" }));
+            UiFixture.Click(window, panel.GetLogicalDescendants().OfType<Button>().Single(button => button is CardButton { Title: "Change fan" }));
             Assert.Equal("turbo", source.Requested);
         }
         finally { window.Close(); }
@@ -255,7 +257,7 @@ public sealed class CommonPluginPanelTests
         try
         {
             var (editor, read) = CommonPluginPanel.CreateTextArgumentEditor(
-                new("name", "Command name", PluginSettingKind.Text, new(Text: "Power")));
+                new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")));
             window.Content = editor;
             window.Show();
             UiFixture.Click(window, editor);

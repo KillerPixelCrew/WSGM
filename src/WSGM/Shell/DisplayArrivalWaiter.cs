@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -61,7 +62,7 @@ internal sealed class DisplayArrivalWaiter(
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            DisplayArrangement? observed = TryObserve();
+            var observed = TryObserve();
             if (observed is not null && Present(observed, targets))
             {
                 if (stable == observed.Fingerprint) { return observed; }
@@ -99,7 +100,7 @@ internal sealed class DisplayArrivalWaiter(
     private DisplayArrangement? TryObserve()
     {
         try { return presence.Observe(); }
-        catch (System.ComponentModel.Win32Exception) { return null; }
+        catch (Win32Exception) { return null; }
         catch (InvalidOperationException) { return null; }
     }
 }

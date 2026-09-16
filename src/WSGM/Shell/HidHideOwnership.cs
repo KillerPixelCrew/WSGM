@@ -17,7 +17,7 @@ internal enum HidHideHealthState
     Inactive,
     Incompatible,
     Ready,
-    Faulted,
+    Faulted
 }
 
 internal sealed class HidHideExactSnapshot
@@ -58,13 +58,13 @@ internal sealed class HidHideExactSnapshot
 internal enum HidHideEntryKind
 {
     Application,
-    Device,
+    Device
 }
 
 internal enum HidHideMutationKind
 {
     Add,
-    Remove,
+    Remove
 }
 
 internal sealed record HidHideEntryMutation(
@@ -92,7 +92,7 @@ internal enum HidHideOwnedDeltaState
     Pending,
     Applied,
     Cleaned,
-    CleanupIndeterminate,
+    CleanupIndeterminate
 }
 
 internal sealed class HidHideOwnedDelta
@@ -154,7 +154,7 @@ internal sealed class FileHidHideOwnershipStore : IHidHideOwnershipStore
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ledger);
-        string? directory = Path.GetDirectoryName(_path);
+        var directory = Path.GetDirectoryName(_path);
         if (string.IsNullOrWhiteSpace(directory))
         {
             throw new InvalidOperationException("The HidHide ledger path has no parent directory.");
@@ -236,7 +236,7 @@ internal sealed class HidHideOwnedDeltaManager
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            HidHideExactSnapshot snapshot = await _adapter.ReadAsync(cancellationToken)
+            var snapshot = await _adapter.ReadAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (snapshot.Health is not HidHideHealthState.Ready)
             {
@@ -253,7 +253,7 @@ internal sealed class HidHideOwnedDeltaManager
                 return $"HidHide hides {snapshot.Devices.Count} device(s); WSGM is already allowed.";
             }
 
-            HidHideMutationResult mutation = await _adapter.TryMutateAsync(
+            var mutation = await _adapter.TryMutateAsync(
                 snapshot,
                 new HidHideEntryMutation(
                     HidHideMutationKind.Add,
@@ -289,12 +289,12 @@ internal sealed class HidHideOwnedDeltaManager
             {
                 // A ledger loaded before this run writes anything records an interrupted ownership
                 // transaction. Recover it before admitting a new transaction.
-                HidHideCleanupResult recovery = await CleanupUnderGateAsync(existing, cancellationToken)
+                var recovery = await CleanupUnderGateAsync(existing, cancellationToken)
                     .ConfigureAwait(false);
                 if (!recovery.Verified)
                 {
                     // Recovery could not put HidHide back, which is a real reason to keep hands off.
-                    return new(
+                    return new HidHideActivationResult(
                         false,
                         $"A previous HidHide ownership ledger could not be recovered: {recovery.Detail}",
                         existing);
@@ -303,11 +303,11 @@ internal sealed class HidHideOwnedDeltaManager
                 Log.Info("Recovered an orphaned HidHide ownership ledger from a previous session.");
             }
 
-            HidHideExactSnapshot snapshot = await _adapter.ReadAsync(cancellationToken)
+            var snapshot = await _adapter.ReadAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (snapshot.Health is not HidHideHealthState.Ready || !snapshot.Active)
             {
-                return new(false,
+                return new HidHideActivationResult(false,
                     $"HidHide prerequisite unavailable: {snapshot.Health} ({snapshot.Detail}).",
                     null);
             }
@@ -323,7 +323,7 @@ internal sealed class HidHideOwnedDeltaManager
                     controllerReaderApplication,
                     cancellationToken).ConfigureAwait(false);
 
-                foreach (string instancePath in physicalDevices
+                foreach (var instancePath in physicalDevices
                     .Where(device => device.RequiresHiding)
                     .Select(device => device.InstancePath)
                     .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -344,15 +344,15 @@ internal sealed class HidHideOwnedDeltaManager
                     throw new InvalidOperationException("HidHide readback did not contain every required entry.");
                 }
 
-                return new(true, "WSGM-owned HidHide deltas applied and verified.", ledger);
+                return new HidHideActivationResult(true, "WSGM-owned HidHide deltas applied and verified.", ledger);
             }
             catch (Exception ex)
             {
                 ledger.RecoveryDetail = $"Activation failed: {ex.Message}";
                 await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
-                HidHideCleanupResult cleanup = await CleanupUnderGateAsync(ledger, cancellationToken)
+                var cleanup = await CleanupUnderGateAsync(ledger, cancellationToken)
                     .ConfigureAwait(false);
-                return new(false,
+                return new HidHideActivationResult(false,
                     cleanup.Verified
                         ? $"HidHide activation rolled back: {ex.Message}"
                         : $"HidHide activation cleanup is unverified: {ex.Message}",
@@ -370,10 +370,10 @@ internal sealed class HidHideOwnedDeltaManager
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            HidHideOwnershipLedger? ledger = await _store.LoadAsync(cancellationToken)
+            var ledger = await _store.LoadAsync(cancellationToken)
                 .ConfigureAwait(false);
             return ledger is null
-                ? new(true, "No WSGM-owned HidHide state exists.", null)
+                ? new HidHideCleanupResult(true, "No WSGM-owned HidHide state exists.", null)
                 : await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -398,16 +398,16 @@ internal sealed class HidHideOwnedDeltaManager
         {
             EntryKind = entryKind,
             Value = value,
-            State = HidHideOwnedDeltaState.Pending,
+            State = HidHideOwnedDeltaState.Pending
         };
         ledger.Deltas.Add(delta);
         await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
 
-        for (int attempt = 0; attempt < MaximumCompareRetries; attempt++)
+        for (var attempt = 0; attempt < MaximumCompareRetries; attempt++)
         {
-            HidHideMutationResult result = await _adapter.TryMutateAsync(
+            var result = await _adapter.TryMutateAsync(
                 snapshot,
-                new(HidHideMutationKind.Add, entryKind, value),
+                new HidHideEntryMutation(HidHideMutationKind.Add, entryKind, value),
                 cancellationToken).ConfigureAwait(false);
             snapshot = result.Current;
             if (result.Applied)
@@ -433,14 +433,14 @@ internal sealed class HidHideOwnedDeltaManager
         CancellationToken cancellationToken)
     {
         List<string> problems = [];
-        foreach (HidHideOwnedDelta delta in ledger.Deltas.AsEnumerable().Reverse())
+        foreach (var delta in ledger.Deltas.AsEnumerable().Reverse())
         {
             if (delta.State is HidHideOwnedDeltaState.Cleaned)
             {
                 continue;
             }
 
-            bool cleaned = await RemoveOwnedDeltaAsync(delta, cancellationToken)
+            var cleaned = await RemoveOwnedDeltaAsync(delta, cancellationToken)
                 .ConfigureAwait(false);
             delta.State = cleaned
                 ? HidHideOwnedDeltaState.Cleaned
@@ -456,31 +456,31 @@ internal sealed class HidHideOwnedDeltaManager
         if (problems.Count == 0)
         {
             await _store.DeleteAsync(cancellationToken).ConfigureAwait(false);
-            return new(true, "Only WSGM-owned HidHide deltas were removed.", null);
+            return new HidHideCleanupResult(true, "Only WSGM-owned HidHide deltas were removed.", null);
         }
 
         ledger.RecoveryDetail = "Cleanup refused ambiguous entries: " + string.Join(", ", problems);
         await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
-        return new(false, ledger.RecoveryDetail, ledger);
+        return new HidHideCleanupResult(false, ledger.RecoveryDetail, ledger);
     }
 
     private async Task<bool> RemoveOwnedDeltaAsync(
         HidHideOwnedDelta delta,
         CancellationToken cancellationToken)
     {
-        for (int attempt = 0; attempt < MaximumCompareRetries; attempt++)
+        for (var attempt = 0; attempt < MaximumCompareRetries; attempt++)
         {
-            HidHideExactSnapshot snapshot = await _adapter.ReadAsync(cancellationToken)
+            var snapshot = await _adapter.ReadAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (snapshot.Health is not HidHideHealthState.Ready)
             {
                 return false;
             }
 
-            IReadOnlyList<string> entries = Entries(snapshot, delta.EntryKind);
-            int semanticCount = entries.Count(entry =>
+            var entries = Entries(snapshot, delta.EntryKind);
+            var semanticCount = entries.Count(entry =>
                 string.Equals(entry, delta.Value, StringComparison.OrdinalIgnoreCase));
-            int exactCount = entries.Count(entry =>
+            var exactCount = entries.Count(entry =>
                 string.Equals(entry, delta.Value, StringComparison.Ordinal));
 
             if (semanticCount == 0)
@@ -493,9 +493,9 @@ internal sealed class HidHideOwnedDeltaManager
                 return false;
             }
 
-            HidHideMutationResult result = await _adapter.TryMutateAsync(
+            var result = await _adapter.TryMutateAsync(
                 snapshot,
-                new(HidHideMutationKind.Remove, delta.EntryKind, delta.Value),
+                new HidHideEntryMutation(HidHideMutationKind.Remove, delta.EntryKind, delta.Value),
                 cancellationToken).ConfigureAwait(false);
             if (result.Applied)
             {
@@ -526,7 +526,7 @@ internal sealed class HidHideOwnedDeltaManager
     internal static bool Contains(IEnumerable<string> entries, string value)
     {
         ArgumentNullException.ThrowIfNull(entries);
-        string normalized = NormalizePath(value);
+        var normalized = NormalizePath(value);
         return entries.Any(entry =>
             string.Equals(entry, value, StringComparison.OrdinalIgnoreCase)
             || string.Equals(NormalizePath(entry), normalized, StringComparison.OrdinalIgnoreCase));
@@ -547,13 +547,13 @@ internal sealed class HidHideOwnedDeltaManager
             return string.Empty;
         }
 
-        string path = value.Trim().Replace('/', '\\');
+        var path = value.Trim().Replace('/', '\\');
 
         // \Device\HarddiskVolumeN\rest  ->  \rest
         const string devicePrefix = @"\device\harddiskvolume";
         if (path.StartsWith(devicePrefix, StringComparison.OrdinalIgnoreCase))
         {
-            int separator = path.IndexOf('\\', devicePrefix.Length);
+            var separator = path.IndexOf('\\', devicePrefix.Length);
             return separator < 0 ? string.Empty : path[separator..];
         }
 

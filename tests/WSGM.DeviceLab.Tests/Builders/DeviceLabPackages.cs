@@ -9,6 +9,6 @@ internal static class DeviceLabPackages
     internal static DeviceLabPathBoundaries Boundaries(TemporaryDirectory temporary) => new()
     {
         LiveDataDirectory = temporary.GetPath("never-live-data"),
-        BroadHomeDirectories = [],
+        BroadHomeDirectories = []
     };
 }

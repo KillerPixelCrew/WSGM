@@ -1,4 +1,3 @@
-using System.Xml.Linq;
 using WSGM.Core;
 
 namespace WSGM.Tests;
@@ -33,7 +32,7 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
 
     public IReadOnlyDictionary<string, string> ReadLogonTasks() => Tasks;
 
-    public bool IsTaskEnabled(string taskPath) => TaskEnabled.TryGetValue(taskPath, out bool enabled) && enabled;
+    public bool IsTaskEnabled(string taskPath) => TaskEnabled.TryGetValue(taskPath, out var enabled) && enabled;
 
     public bool SetTaskEnabled(string taskPath, bool enabled)
     {
@@ -49,7 +48,7 @@ public sealed class SteamAutostartScannerTests
     private const string SteamExe = @"C:\Program Files (x86)\Steam\steam.exe";
 
     private static FakeAutostartSystem WithRunValue(string name, string command) =>
-        new() { Run = { [(SteamAutostartScope.User, false)] = new() { [name] = command } } };
+        new() { Run = { [(SteamAutostartScope.User, false)] = new Dictionary<string, string> { [name] = command } } };
 
     [Theory]
     [InlineData("\"C:\\Program Files (x86)\\Steam\\steam.exe\" -silent")]
@@ -112,9 +111,9 @@ public sealed class SteamAutostartScannerTests
     {
         FakeAutostartSystem system = new()
         {
-            Shortcuts = { [SteamAutostartScope.User] = new() { ["Steam.lnk"] = SteamExe } },
+            Shortcuts = { [SteamAutostartScope.User] = new Dictionary<string, string> { ["Steam.lnk"] = SteamExe } },
             Tasks = { [@"\Steam"] = SteamExe },
-            TaskEnabled = { [@"\Steam"] = true },
+            TaskEnabled = { [@"\Steam"] = true }
         };
 
         var found = SteamAutostartScanner.Scan(system, SteamExe);
@@ -133,7 +132,7 @@ public sealed class SteamAutostartScannerTests
     {
         FakeAutostartSystem system = new()
         {
-            Run = { [(SteamAutostartScope.Machine, true)] = new() { ["Steam"] = SteamExe } },
+            Run = { [(SteamAutostartScope.Machine, true)] = new Dictionary<string, string> { ["Steam"] = SteamExe } }
         };
 
         var source = Assert.Single(SteamAutostartScanner.Scan(system, SteamExe));
@@ -164,7 +163,7 @@ public sealed class SteamAutostartScannerTests
         var definitions = AutostartSystem.SplitTaskDefinitions(output).ToArray();
 
         Assert.Equal([@"\Other", @"\Steam"], definitions.Select(entry => entry.Path));
-        XNamespace ns = definitions[1].Definition.Name.Namespace;
+        var ns = definitions[1].Definition.Name.Namespace;
         Assert.Equal("false", definitions[1].Definition.Element(ns + "Settings")?.Element(ns + "Enabled")?.Value);
     }
 }
@@ -189,7 +188,7 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new()
         {
-            Approvals = { [(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0] },
+            Approvals = { [(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0] }
         };
         List<(string Write, bool Pending)> order = [];
 
@@ -246,7 +245,7 @@ public sealed class SteamAutostartTakeoverTests
     {
         FakeAutostartSystem system = new()
         {
-            Approvals = { [(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0] },
+            Approvals = { [(SteamAutostartScope.User, "Run", "Steam")] = [2, 0, 0, 0, 0, 0, 0, 0] }
         };
         List<SteamAutostartRecord> records = [];
         SteamAutostartTakeover.Disable(system, [RunSource()], elevated: false, Collect(records));
@@ -320,7 +319,7 @@ public sealed class SteamAutostartTakeoverTests
             Kind = SteamAutostartKind.ScheduledTask,
             Scope = SteamAutostartScope.Machine,
             Location = @"\Steam",
-            Name = @"\Steam",
+            Name = @"\Steam"
         };
 
         Assert.Empty(SteamAutostartTakeover.Restore(system, [record], elevated: false));

@@ -44,7 +44,7 @@ internal sealed class ControllerProcessPriority
         {
             if (active)
             {
-                ProcessPriorityClass current = _read();
+                var current = _read();
                 if (current is ProcessPriorityClass.High or ProcessPriorityClass.RealTime)
                 {
                     return;
@@ -75,13 +75,13 @@ internal sealed class ControllerProcessPriority
 
     private static ProcessPriorityClass ReadCurrent()
     {
-        using Process process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         return process.PriorityClass;
     }
 
     private static void WriteCurrent(ProcessPriorityClass priority)
     {
-        using Process process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         process.PriorityClass = priority;
     }
 }

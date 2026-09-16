@@ -95,7 +95,7 @@ public enum CanonicalButtons : uint
     RightPadClick = 1 << 24,
 
     /// <summary>Dedicated quick-access button.</summary>
-    QuickAccess = 1 << 25,
+    QuickAccess = 1 << 25
 }
 
 /// <summary>
@@ -129,7 +129,7 @@ public enum SampleQuality
     /// corrupt first state with every axis at its extreme, which would read as a fully deflected
     /// stick if it were forwarded.
     /// </remarks>
-    FirstSampleUnreliable,
+    FirstSampleUnreliable
 }
 
 /// <summary>
@@ -242,7 +242,7 @@ public sealed record CanonicalControllerSample
         {
             Sequence = sequence,
             CycleGeneration = cycleGeneration,
-            Timestamp = timestamp,
+            Timestamp = timestamp
         };
 }
 

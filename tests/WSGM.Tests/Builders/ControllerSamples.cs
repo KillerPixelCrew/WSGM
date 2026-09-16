@@ -16,6 +16,6 @@ internal static class ControllerSamples
             Timestamp = DateTimeOffset.UnixEpoch,
             Buttons = buttons,
             LeftTrigger = leftTrigger,
-            RightTrigger = rightTrigger,
+            RightTrigger = rightTrigger
         };
 }

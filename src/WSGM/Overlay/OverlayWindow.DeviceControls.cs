@@ -1,6 +1,10 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
@@ -34,7 +38,7 @@ public partial class OverlayWindow
         {
             case CapabilityValueKind.Boolean:
                 {
-                    (Border row, _) = DeviceControlRows.Toggle(
+                    var (row, _) = DeviceControlRows.Toggle(
                         key,
                         capability.Title,
                         capability.Description,
@@ -43,14 +47,14 @@ public partial class OverlayWindow
                         value => WriteDeviceValue(capability, new CapabilityValue
                         {
                             Kind = CapabilityValueKind.Boolean,
-                            BooleanValue = value,
+                            BooleanValue = value
                         }));
                     return row;
                 }
 
             case CapabilityValueKind.Choice when capability.Choices.Count > 0:
                 {
-                    (Border row, _) = DeviceControlRows.Choice(
+                    var (row, _) = DeviceControlRows.Choice(
                         key,
                         capability.Title,
                         capability.Description,
@@ -60,14 +64,14 @@ public partial class OverlayWindow
                         value => WriteDeviceValue(capability, new CapabilityValue
                         {
                             Kind = CapabilityValueKind.Choice,
-                            ChoiceValue = value,
+                            ChoiceValue = value
                         }));
                     return row;
                 }
 
             case CapabilityValueKind.Text:
                 {
-                    (Border row, _) = DeviceControlRows.Text(
+                    var (row, _) = DeviceControlRows.Text(
                         key,
                         capability.Title,
                         capability.Description,
@@ -77,7 +81,7 @@ public partial class OverlayWindow
                         value => WriteDeviceValue(capability, new CapabilityValue
                         {
                             Kind = CapabilityValueKind.Text,
-                            TextValue = value,
+                            TextValue = value
                         }));
                     return row;
                 }
@@ -89,7 +93,7 @@ public partial class OverlayWindow
 
     private void WriteDeviceValue(DeviceOverlayCapability capability, CapabilityValue value)
     {
-        IDeviceOverlaySource? bridge = _deviceBridge;
+        var bridge = _deviceBridge;
         if (bridge is null || _closed)
         {
             return;
@@ -103,9 +107,9 @@ public partial class OverlayWindow
     /// editor uses.</summary>
     private DeviceSliderRow CreateDeviceSliderRow(DeviceOverlayCapability capability, string key)
     {
-        int min = capability.Minimum!.Value;
-        int max = capability.Maximum!.Value;
-        int current = capability.CurrentValue?.IntegerValue ?? min;
+        var min = capability.Minimum!.Value;
+        var max = capability.Maximum!.Value;
+        var current = capability.CurrentValue?.IntegerValue ?? min;
         var row = new DeviceSliderRow(
             key,
             capability.Title,
@@ -130,7 +134,7 @@ public partial class OverlayWindow
     /// </remarks>
     private DeviceCurveRow CreateDeviceCurveRow(DeviceOverlayCapability capability, string key)
     {
-        int? marker = _deviceBridge?.Snapshot().Capabilities
+        var marker = _deviceBridge?.Snapshot().Capabilities
             .FirstOrDefault(candidate => candidate.Role is CapabilityRole.Telemetry
                 && candidate.Unit is CapabilityUnit.Celsius)
             ?.CurrentValue?.IntegerValue;
@@ -146,7 +150,7 @@ public partial class OverlayWindow
                 new CapabilityValue { Kind = CapabilityValueKind.Curve, CurveValue = curve }));
     }
 
-    private async System.Threading.Tasks.Task CommitDeviceValueAsync(
+    private async Task CommitDeviceValueAsync(
         IDeviceOverlaySource bridge,
         DeviceOverlayCapability capability)
     {
@@ -179,7 +183,7 @@ public partial class OverlayWindow
         {
             // The row wears its current color: swatch instead of icon (mock detail).
             button.IconGeometry = null;
-            button.SwatchBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(
+            button.SwatchBrush = new SolidColorBrush(Color.FromRgb(
                 (byte)((packedColor >> 16) & 0xFF),
                 (byte)((packedColor >> 8) & 0xFF),
                 (byte)(packedColor & 0xFF)));
@@ -187,7 +191,7 @@ public partial class OverlayWindow
 
         button.Click += async (_, _) =>
         {
-            IDeviceOverlaySource? bridge = _deviceBridge;
+            var bridge = _deviceBridge;
             if (bridge is null || _closed)
             {
                 return;
@@ -218,11 +222,11 @@ public partial class OverlayWindow
             ItemsSource = new[] { "Automatic", "Steam native", "Reviewed device profile" },
             SelectedIndex = (int)selected,
             IsEnabled = descriptor.CanInvoke,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Tag = descriptor.Id,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Tag = descriptor.Id
         };
-        Avalonia.Automation.AutomationProperties.SetName(choice, "Button glyph style");
-        var detail = new TextBlock { Text = descriptor.Description, Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        AutomationProperties.SetName(choice, "Button glyph style");
+        var detail = new TextBlock { Text = descriptor.Description, Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
         var panel = new StackPanel { Spacing = 8, Children = { choice, detail } };
         choice.SelectionChanged += async (_, _) =>
         {

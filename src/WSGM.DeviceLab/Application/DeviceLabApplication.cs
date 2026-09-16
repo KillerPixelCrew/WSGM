@@ -80,7 +80,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        DeviceLabDoctorReport report = DeviceLabDoctor.Run(outputDirectory, capturedAt, _repositoryRoot);
+        var report = DeviceLabDoctor.Run(outputDirectory, capturedAt, _repositoryRoot);
         cancellationToken.ThrowIfCancellationRequested();
         return report;
     }
@@ -111,7 +111,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string? targetDeviceId = null,
         CancellationToken cancellationToken = default)
     {
-        MachineInventory inventory = ReadInventory(inventoryPath, cancellationToken);
+        var inventory = ReadInventory(inventoryPath, cancellationToken);
         return Candidates(inventory, targetDeviceId, cancellationToken);
     }
 
@@ -121,16 +121,16 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        string target = string.IsNullOrWhiteSpace(targetDeviceId) ? DeviceId(inventory) : targetDeviceId;
-        KnownDeviceFingerprint fingerprint = KnownMsiClaw.Create();
-        CandidateAssessment assessment = KnownDeviceMatcher.Assess(inventory, fingerprint, target);
+        var target = string.IsNullOrWhiteSpace(targetDeviceId) ? DeviceId(inventory) : targetDeviceId;
+        var fingerprint = KnownMsiClaw.Create();
+        var assessment = KnownDeviceMatcher.Assess(inventory, fingerprint, target);
         return new DeviceLabCandidateResult
         {
             TargetDeviceId = target,
             Candidates = [assessment],
             ReadOnlyProbes = assessment.ExactMatch
                 ? [.. fingerprint.ReadProbes.OrderBy(probe => probe.Id, StringComparer.Ordinal)]
-                : [],
+                : []
         };
     }
 
@@ -156,25 +156,25 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(probeId);
-        MachineInventory inventory = ReadInventory(inventoryPath, cancellationToken);
-        DeviceLabCandidateResult candidateResult = Candidates(
+        var inventory = ReadInventory(inventoryPath, cancellationToken);
+        var candidateResult = Candidates(
             inventory,
             targetDeviceId: null,
             cancellationToken: cancellationToken);
-        ReadProbeMetadata probe = candidateResult.ReadOnlyProbes.SingleOrDefault(item =>
-            string.Equals(item.Id, probeId, StringComparison.Ordinal))
-            ?? throw new InvalidDataException("The named probe is not a positively matched reviewed read probe.");
-        DeviceLabDoctorReport doctor = Doctor(
+        var probe = candidateResult.ReadOnlyProbes.SingleOrDefault(item =>
+                        string.Equals(item.Id, probeId, StringComparison.Ordinal))
+                    ?? throw new InvalidDataException("The named probe is not a positively matched reviewed read probe.");
+        var doctor = Doctor(
             outputDirectory,
             DateTimeOffset.UtcNow,
             cancellationToken);
-        DeviceLabOwnerInspection owner = DeviceLabOwnerInspector.Inspect();
-        bool elevated = doctor.Checks.Any(check =>
+        var owner = DeviceLabOwnerInspector.Inspect();
+        var elevated = doctor.Checks.Any(check =>
             check.Code == "permissions.elevation" && check.Status is DeviceLabDoctorStatus.Pass);
-        bool continuousIntegration = DeviceLabEnvironment.IsContinuousIntegration();
-        bool exactFamilyMatched = ProbeFamilyMatches(probe.FamilyId, candidateResult.TargetDeviceId);
-        bool exactEndpointMatched = ProbeEndpointMatches(probe.EndpointId, inventory);
-        DeviceLabPreflightDecision preflight = DeviceLabSafetyPreflight.Evaluate(
+        var continuousIntegration = DeviceLabEnvironment.IsContinuousIntegration();
+        var exactFamilyMatched = ProbeFamilyMatches(probe.FamilyId, candidateResult.TargetDeviceId);
+        var exactEndpointMatched = ProbeEndpointMatches(probe.EndpointId, inventory);
+        var preflight = DeviceLabSafetyPreflight.Evaluate(
             new DeviceLabOperationRequirements
             {
                 OperationId = probe.Id,
@@ -182,7 +182,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
                 Access = DeviceLabOperationAccess.ReadOnlyProbe,
                 ExactDeviceMatched = exactFamilyMatched,
                 ExactEndpointMatched = exactEndpointMatched,
-                RequiresElevation = probe.RequiresElevation,
+                RequiresElevation = probe.RequiresElevation
             },
             new DeviceLabSafetySnapshot
             {
@@ -190,7 +190,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
                 OwnerDiscovery = owner.State,
                 IsElevated = elevated,
                 IsUserInteractive = Environment.UserInteractive,
-                IsContinuousIntegration = continuousIntegration,
+                IsContinuousIntegration = continuousIntegration
             });
         if (preflight.Status is DeviceLabDoctorStatus.Blocked
             || preflight.Route is not DeviceLabAccessRoute.DirectReadOnly)
@@ -198,10 +198,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             return new DeviceLabReadProbeExecutionResult { Probe = probe, Preflight = preflight };
         }
 
-        string sessionDirectory = Path.Combine(
+        var sessionDirectory = Path.Combine(
             Path.GetFullPath(outputDirectory),
             $"probe-{SafeFileName(probe.Id)}-{Guid.NewGuid():N}");
-        ReadProbeRunResult run = await ReadProbeWorkerSupervisor.RunAsync(
+        var run = await ReadProbeWorkerSupervisor.RunAsync(
             probe,
             preflight,
             _deviceLabPath,
@@ -247,7 +247,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string capturePath,
         CancellationToken cancellationToken = default)
     {
-        CaptureBundleReadResult read = ReadCapture(capturePath, cancellationToken);
+        var read = ReadCapture(capturePath, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return CaptureWorkbench.Inspect(read.Bundle!);
     }
@@ -262,8 +262,8 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string rightPath,
         CancellationToken cancellationToken = default)
     {
-        CaptureBundleReadResult left = ReadCapture(leftPath, cancellationToken);
-        CaptureBundleReadResult right = ReadCapture(rightPath, cancellationToken);
+        var left = ReadCapture(leftPath, cancellationToken);
+        var right = ReadCapture(rightPath, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return CaptureWorkbench.Diff(left.EntryHashes, right.EntryHashes);
     }
@@ -282,7 +282,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actionId);
         ArgumentNullException.ThrowIfNull(sourceIds);
-        CaptureBundleReadResult read = ReadCapture(capturePath, cancellationToken);
+        var read = ReadCapture(capturePath, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyList<CaptureStreamEvent> events = [.. read.Bundle!.Streams
             .SelectMany(stream => stream.Events)
@@ -296,10 +296,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
                     ActionId = actionId,
                     ExpectedSourceIds = sourceIds,
                     Events = events,
-                    ContextWindowTicks = Math.Max(1, read.Bundle.Manifest.QpcFrequency * 2),
+                    ContextWindowTicks = Math.Max(1, read.Bundle.Manifest.QpcFrequency * 2)
                 },
                 cancellationToken),
-            Limitations = PassiveCaptureLimitations.All,
+            Limitations = PassiveCaptureLimitations.All
         };
     }
 
@@ -317,10 +317,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     {
         cancellationToken.ThrowIfCancellationRequested();
         using FileStream input = new(capturePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        CaptureBundleReadResult read = CaptureBundleReader.Read(input, cancellationToken);
+        var read = CaptureBundleReader.Read(input, cancellationToken);
         EnsureCapture(read);
         input.Position = 0;
-        string sourceSha256 = HashStream(input, cancellationToken);
+        var sourceSha256 = HashStream(input, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return FixtureExtractionWorkflow.Extract(
             read.Bundle!,
@@ -390,7 +390,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         // it may describe another machine or an earlier topology. Validate its shape, then recollect
         // identity from the machine that will actually run the plugin.
         _ = ReadInventory(inventoryPath, cancellationToken);
-        DeviceIdentitySnapshot liveIdentity = ToPluginIdentity(WindowsInventoryCollector.Collect(
+        var liveIdentity = ToPluginIdentity(WindowsInventoryCollector.Collect(
             DateTimeOffset.UtcNow,
             cancellationToken: cancellationToken));
         return PluginTestWorkflow.RunAttendedAsync(
@@ -436,12 +436,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
 
     private static MachineInventory ReadInventory(string path, CancellationToken cancellationToken)
     {
-        byte[] bytes = ReadBoundedFile(
+        var bytes = ReadBoundedFile(
             path,
             MaximumInventoryBytes,
             "Inventory is absent, empty, or oversized.",
             cancellationToken);
-        MachineInventory? inventory = JsonSerializer.Deserialize(
+        var inventory = JsonSerializer.Deserialize(
             bytes,
             DeviceLabJsonContext.Default.MachineInventory);
         cancellationToken.ThrowIfCancellationRequested();
@@ -461,7 +461,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     {
         cancellationToken.ThrowIfCancellationRequested();
         using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        CaptureBundleReadResult read = CaptureBundleReader.Read(input, cancellationToken);
+        var read = CaptureBundleReader.Read(input, cancellationToken);
         EnsureCapture(read);
         return read;
     }
@@ -479,12 +479,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             throw new InvalidDataException(invalidMessage);
         }
 
-        byte[] bytes = new byte[(int)input.Length];
-        int offset = 0;
+        var bytes = new byte[(int)input.Length];
+        var offset = 0;
         while (offset < bytes.Length)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = input.Read(bytes, offset, bytes.Length - offset);
+            var read = input.Read(bytes, offset, bytes.Length - offset);
             if (read == 0)
             {
                 throw new EndOfStreamException(invalidMessage);
@@ -496,12 +496,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
 
     private static string HashStream(Stream input, CancellationToken cancellationToken)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] buffer = new byte[64 * 1024];
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[64 * 1024];
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = input.Read(buffer, 0, buffer.Length);
+            var read = input.Read(buffer, 0, buffer.Length);
             if (read == 0)
             {
                 break;
@@ -545,12 +545,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
                 ProductId = endpoint.ProductId!,
                 InterfaceNumber = endpoint.InterfaceNumber,
                 DeviceRelease = endpoint.DeviceRelease,
-                LocationPath = endpoint.LocationPath,
+                LocationPath = endpoint.LocationPath
             })],
         WmiProviderSignatures = [.. inventory.WmiClasses
             .Where(provider => provider.Access is WmiAccess.Available or WmiAccess.AccessDenied)
             .Select(provider => $"{provider.Namespace}:{provider.ClassName}")
-            .Order(StringComparer.Ordinal)],
+            .Order(StringComparer.Ordinal)]
     };
 
     private static string SafeFileName(string value) => string.Concat(value.Select(character =>
@@ -559,22 +559,22 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     private static bool ProbeFamilyMatches(string familyId, string targetDeviceId) => familyId switch
     {
         "msi.claw-a2vm.ms-1t52" => string.Equals(targetDeviceId, "ms-1t52", StringComparison.Ordinal),
-        _ => false,
+        _ => false
     };
 
     private static bool ProbeEndpointMatches(string endpointId, MachineInventory inventory)
     {
-        int namespaceSeparator = endpointId.IndexOf(':');
-        int methodSeparator = endpointId.IndexOf('.', namespaceSeparator + 1);
+        var namespaceSeparator = endpointId.IndexOf(':');
+        var methodSeparator = endpointId.IndexOf('.', namespaceSeparator + 1);
         if (namespaceSeparator <= 0 || methodSeparator <= namespaceSeparator + 1)
         {
             return false;
         }
 
-        string wmiNamespace = endpointId[..namespaceSeparator].Replace('/', '\\');
-        string className = endpointId[(namespaceSeparator + 1)..methodSeparator];
-        int selectorSeparator = endpointId.IndexOf(':', methodSeparator + 1);
-        string methodName = selectorSeparator < 0
+        var wmiNamespace = endpointId[..namespaceSeparator].Replace('/', '\\');
+        var className = endpointId[(namespaceSeparator + 1)..methodSeparator];
+        var selectorSeparator = endpointId.IndexOf(':', methodSeparator + 1);
+        var methodName = selectorSeparator < 0
             ? endpointId[(methodSeparator + 1)..]
             : endpointId[(methodSeparator + 1)..selectorSeparator];
         return inventory.WmiClasses.Any(item =>

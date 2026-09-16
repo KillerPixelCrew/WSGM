@@ -1,6 +1,9 @@
 using System.Runtime.InteropServices;
+using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using SkiaSharp;
 using WSGM.Device.Tests;
@@ -13,34 +16,34 @@ internal static class VisualBaseline
     {
         // Capture resting controls. Focus visuals and caret timing belong to interaction tests.
         window.FocusManager?.Focus(null);
-        foreach (var visual in window.GetVisualDescendants().OfType<Avalonia.Animation.Animatable>())
+        foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
         {
             visual.Transitions = null;
         }
-        window.MouseMove(new Avalonia.Point(-20, -20));
+        window.MouseMove(new Point(-20, -20));
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
         using MemoryStream stream = new();
-        frame.Save(stream, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
-        byte[] actual = stream.ToArray();
-        string artifacts = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", name);
+        frame.Save(stream, new PngBitmapEncoderOptions());
+        var actual = stream.ToArray();
+        var artifacts = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", name);
         Directory.CreateDirectory(artifacts);
         File.Delete(Path.Combine(artifacts, "expected.png"));
         File.Delete(Path.Combine(artifacts, "diff.png"));
         File.WriteAllBytes(Path.Combine(artifacts, "actual.png"), actual);
-        string baseline = Path.Combine(AppContext.BaseDirectory, "Baselines", name + ".png");
+        var baseline = Path.Combine(AppContext.BaseDirectory, "Baselines", name + ".png");
         Assert.True(File.Exists(baseline), $"Missing baseline {name}. Review TestResults/ui/{name}/actual.png and use eng/update-ui-baselines.ps1 -Case {name}.");
-        byte[] expected = File.ReadAllBytes(baseline);
+        var expected = File.ReadAllBytes(baseline);
         File.WriteAllBytes(Path.Combine(artifacts, "expected.png"), expected);
-        string? mismatch = Compare(expected, actual, out byte[]? diff);
+        var mismatch = Compare(expected, actual, out var diff);
         if (diff is not null) { File.WriteAllBytes(Path.Combine(artifacts, "diff.png"), diff); }
         Assert.True(mismatch is null, $"{name}: {mismatch}. Images: {artifacts}");
     }
 
     internal static string? Compare(byte[] expectedPng, byte[] actualPng, out byte[]? diff)
     {
-        using SKBitmap expected = SKBitmap.Decode(expectedPng) ?? throw new InvalidDataException("Invalid expected PNG");
-        using SKBitmap actual = SKBitmap.Decode(actualPng) ?? throw new InvalidDataException("Invalid actual PNG");
+        using var expected = SKBitmap.Decode(expectedPng) ?? throw new InvalidDataException("Invalid expected PNG");
+        using var actual = SKBitmap.Decode(actualPng) ?? throw new InvalidDataException("Invalid actual PNG");
         diff = null;
         if (expected.Width != actual.Width || expected.Height != actual.Height)
         {
@@ -48,13 +51,13 @@ internal static class VisualBaseline
             return $"Dimensions differ: expected {expected.Width}x{expected.Height}, actual {actual.Width}x{actual.Height}";
         }
         // Decode both through Skia before comparing, so PNG metadata and compression are irrelevant.
-        SKColor[] left = expected.Pixels;
-        SKColor[] right = actual.Pixels;
-        int differences = 0;
-        byte[] pixels = new byte[left.Length * 4];
-        for (int i = 0; i < left.Length; i++)
+        var left = expected.Pixels;
+        var right = actual.Pixels;
+        var differences = 0;
+        var pixels = new byte[left.Length * 4];
+        for (var i = 0; i < left.Length; i++)
         {
-            bool changed = Differs(left[i], right[i]);
+            var changed = Differs(left[i], right[i]);
             if (changed) { differences++; }
             pixels[i * 4] = changed ? (byte)255 : (byte)0;
             pixels[i * 4 + 2] = changed ? (byte)255 : (byte)0;
@@ -63,8 +66,8 @@ internal static class VisualBaseline
         if (differences == 0) { return null; }
         using SKBitmap difference = new(new SKImageInfo(expected.Width, expected.Height, SKColorType.Bgra8888, SKAlphaType.Opaque));
         Marshal.Copy(pixels, 0, difference.GetPixels(), pixels.Length);
-        using SKImage image = SKImage.FromBitmap(difference);
-        using SKData encoded = image.Encode(SKEncodedImageFormat.Png, 100);
+        using var image = SKImage.FromBitmap(difference);
+        using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
         diff = encoded.ToArray();
         return $"{differences} pixels differ";
     }

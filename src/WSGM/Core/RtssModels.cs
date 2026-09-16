@@ -14,14 +14,14 @@ internal enum RtssAvailability
     NotRunning,
     AdapterUnavailable,
     Ready,
-    Degraded,
+    Degraded
 }
 
 /// <summary>The two bounded RTSS controls exposed through shared performance state.</summary>
 internal enum PerformanceControl
 {
     FrameLimit,
-    OverlayLevel,
+    OverlayLevel
 }
 
 /// <summary>Where a performance edit is stored.</summary>
@@ -29,7 +29,7 @@ internal enum PerformancePersistenceTarget
 {
     Automatic,
     Global,
-    Application,
+    Application
 }
 
 /// <summary>Persistent policy layer supplying one effective RTSS value.</summary>
@@ -37,7 +37,7 @@ internal enum PerformancePolicyLayer
 {
     None,
     Global,
-    Application,
+    Application
 }
 
 /// <summary>Truthful lifecycle of the last semantic performance command.</summary>
@@ -53,7 +53,7 @@ internal enum PerformanceCommandPhase
     TimedOut,
     Indeterminate,
     Failed,
-    ExternalChange,
+    ExternalChange
 }
 
 /// <summary>Quality of values read back from RTSS.</summary>
@@ -61,7 +61,7 @@ internal enum PerformanceReadbackQuality
 {
     Unavailable,
     Verified,
-    AppliedUnverified,
+    AppliedUnverified
 }
 
 /// <summary>Canonical WSGM application identity plus optional Steam and RTSS enrichment.</summary>
@@ -85,14 +85,14 @@ internal sealed record PerformanceValues(int? FrameLimit, int? OverlayLevel)
     {
         PerformanceControl.FrameLimit => FrameLimit,
         PerformanceControl.OverlayLevel => OverlayLevel,
-        _ => null,
+        _ => null
     };
 
     internal PerformanceValues With(PerformanceControl control, int value) => control switch
     {
         PerformanceControl.FrameLimit => this with { FrameLimit = value },
         PerformanceControl.OverlayLevel => this with { OverlayLevel = value },
-        _ => this,
+        _ => this
     };
 }
 
@@ -126,21 +126,21 @@ internal sealed record RtssCapabilities(
         PerformanceControl.FrameLimit => MinimumFrameLimit >= 0
             && MaximumFrameLimit >= MinimumFrameLimit,
         PerformanceControl.OverlayLevel => OverlayLevels.Count > 0,
-        _ => false,
+        _ => false
     };
 
     internal bool IsValid(PerformanceControl control, int value) => control switch
     {
         PerformanceControl.FrameLimit => value >= MinimumFrameLimit && value <= MaximumFrameLimit,
         PerformanceControl.OverlayLevel => OverlayLevels.Contains(value),
-        _ => false,
+        _ => false
     };
 
     internal bool HasVerifiedReadback(PerformanceControl control) => control switch
     {
         PerformanceControl.FrameLimit => FrameLimitReadback,
         PerformanceControl.OverlayLevel => OverlayLevelReadback,
-        _ => false,
+        _ => false
     };
 }
 

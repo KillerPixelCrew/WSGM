@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Security;
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Plugin;
 
@@ -127,7 +129,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using RegistryKey? adapter = _root.OpenSubKey(_adapterPath);
+            using var adapter = _root.OpenSubKey(_adapterPath);
             if (adapter is null)
             {
                 return null;
@@ -137,8 +139,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
             // the literal 57 both when it ships and when the user presses reset — confirmed on the
             // reference unit on 2026-09-10, where a reset wrote 57 back rather than deleting the
             // value — so there is no "user changed this" flag to look for and none is needed.
-            using RegistryKey? memory = adapter.OpenSubKey(MemoryManagerSubkey);
-            int percent = memory?.GetValue(PinningLimitValue) is int stored ? stored : DefaultPercent;
+            using var memory = adapter.OpenSubKey(MemoryManagerSubkey);
+            var percent = memory?.GetValue(PinningLimitValue) is int stored ? stored : DefaultPercent;
             if (percent is < MinimumPercent or > MaximumPercent)
             {
                 return null;
@@ -148,7 +150,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
             {
                 long size when size > 0 => (ulong)size,
                 int size when size > 0 => (uint)size,
-                _ => 0,
+                _ => 0
             };
             return new IntelGraphicsMemoryState(percent, reported);
         }
@@ -177,11 +179,11 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using RegistryKey? adapter = _root.OpenSubKey(_adapterPath, writable: true);
+            using var adapter = _root.OpenSubKey(_adapterPath, writable: true);
 
             // Created when absent, because absent is the default rather than a refusal and Intel's
             // own software writes into the same place.
-            using RegistryKey? memory = adapter?.CreateSubKey(MemoryManagerSubkey, writable: true);
+            using var memory = adapter?.CreateSubKey(MemoryManagerSubkey, writable: true);
             if (memory is null)
             {
                 PluginTrace.Warn("intel-memory", "The graphics memory manager key is not writable.");
@@ -189,7 +191,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
             }
 
             memory.SetValue(PinningLimitValue, percent, RegistryValueKind.DWord);
-            bool applied = memory.GetValue(PinningLimitValue) is int stored && stored == percent;
+            var applied = memory.GetValue(PinningLimitValue) is int stored && stored == percent;
             PluginTrace.Info(
                 "intel-memory",
                 applied
@@ -235,8 +237,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using RegistryKey? adapter = _root.OpenSubKey(_adapterPath, writable: true);
-            using RegistryKey? settings = adapter?.CreateSubKey(ThreeDSubkey, writable: true);
+            using var adapter = _root.OpenSubKey(_adapterPath, writable: true);
+            using var settings = adapter?.CreateSubKey(ThreeDSubkey, writable: true);
             if (settings is null)
             {
                 PluginTrace.Warn("intel-3d", "The driver's 3D settings key is not writable.");
@@ -244,7 +246,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
             }
 
             settings.SetValue(FlipModeValue, unchecked((int)mode), RegistryValueKind.DWord);
-            bool applied = ReadThreeDValue(FlipModeValue) == mode;
+            var applied = ReadThreeDValue(FlipModeValue) == mode;
             PluginTrace.Info(
                 "intel-3d",
                 applied
@@ -268,8 +270,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using RegistryKey? adapter = _root.OpenSubKey(_adapterPath);
-            using RegistryKey? settings = adapter?.OpenSubKey(ThreeDSubkey);
+            using var adapter = _root.OpenSubKey(_adapterPath);
+            using var settings = adapter?.OpenSubKey(ThreeDSubkey);
             return settings?.GetValue(name) is int stored ? unchecked((uint)stored) : null;
         }
         catch (Exception error) when (IsRegistryFailure(error))
@@ -311,7 +313,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
         try
         {
-            using RegistryKey? adapters = _root.OpenSubKey(_classPath);
+            using var adapters = _root.OpenSubKey(_classPath);
             if (adapters is null)
             {
                 return null;
@@ -319,7 +321,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
             List<string> supported = [];
             List<string> storing = [];
-            foreach (string name in adapters.GetSubKeyNames())
+            foreach (var name in adapters.GetSubKeyNames())
             {
                 if (name.Length != 4 || !int.TryParse(name, NumberStyles.None, CultureInfo.InvariantCulture, out _))
                 {
@@ -342,7 +344,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
             // only ever written under the one the driver actually reads it from. Falling back to a
             // lone supported Intel adapter is what makes an untouched machine work at all: absent
             // is the default, so a machine nobody has configured has no value to match on.
-            List<string> candidates = storing.Count > 0 ? storing : supported;
+            var candidates = storing.Count > 0 ? storing : supported;
             if (candidates.Count == 1)
             {
                 return $@"{_classPath}\{candidates[0]}";
@@ -374,7 +376,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
         Supported,
 
         /// <summary>A supported Intel driver that already carries the stored value.</summary>
-        StoresLimit,
+        StoresLimit
     }
 
     /// <summary>Classifies one adapter subkey.</summary>
@@ -391,13 +393,13 @@ internal sealed partial class IntelGraphicsMemoryTransport
     {
         try
         {
-            using RegistryKey? adapter = adapters.OpenSubKey(name);
+            using var adapter = adapters.OpenSubKey(name);
             if (adapter is null || !IsSupportedIntelDriver(adapter))
             {
                 return AdapterMatch.None;
             }
 
-            using RegistryKey? memory = adapter.OpenSubKey(MemoryManagerSubkey);
+            using var memory = adapter.OpenSubKey(MemoryManagerSubkey);
             return memory?.GetValue(PinningLimitValue) is int ? AdapterMatch.StoresLimit : AdapterMatch.Supported;
         }
         catch (Exception error) when (IsRegistryFailure(error))
@@ -418,7 +420,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
         }
 
         return adapter.GetValue("DriverVersion") is string version
-            && Version.TryParse(version, out Version? parsed)
+            && Version.TryParse(version, out var parsed)
             && parsed >= FirstSupportedDriver;
     }
 
@@ -437,9 +439,9 @@ internal sealed partial class IntelGraphicsMemoryTransport
     }
 
     private static bool IsRegistryFailure(Exception error) => error
-        is System.Security.SecurityException
+        is SecurityException
         or UnauthorizedAccessException
-        or System.IO.IOException
+        or IOException
         or ObjectDisposedException;
 
     [StructLayout(LayoutKind.Sequential)]

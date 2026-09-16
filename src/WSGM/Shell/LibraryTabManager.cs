@@ -169,7 +169,7 @@ public sealed class LibraryTabManager
             "Library tabs (boot)",
             async token =>
         {
-            CefEvalResult probe = await SteamUiTransportSession.EvaluateAsync(
+            var probe = await SteamUiTransportSession.EvaluateAsync(
                 "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore"
                     + "&&!!window.appStore)",
                 TimeSpan.FromSeconds(4),
@@ -179,7 +179,7 @@ public sealed class LibraryTabManager
                 return false;
             }
 
-            LibraryTabSyncResult result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
+            var result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
             Log.Info($"Library tabs (boot): {result.Summary}");
             // A half-initialized appStore can be reachable but reject a filter; only a sync that
             // reached Steam and placed the tabs is done. The badge needs no retry of its own: its
@@ -265,12 +265,12 @@ public sealed class LibraryTabManager
 
         public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId)
         {
-            IEnumerable<CardLibraryConfig> cards = scope switch
+            var cards = scope switch
             {
                 SdCardScope.Inserted => config.CardLibraries.Where(c => _present.Contains(c.ContentId)),
                 SdCardScope.Any => config.CardLibraries,
                 _ => config.CardLibraries.Where(
-                    c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal)),
+                    c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal))
             };
             var ids = new HashSet<long>();
             foreach (var card in cards)
@@ -540,10 +540,10 @@ public sealed class LibraryTabManager
                 Log.Warn($"Card rename: could not read Steam config: {ex.Message}");
                 return steamBehind;
             }
-            var result = await Core.SteamCdp.SetLibraryLabelByContentIdAsync(
+            var result = await SteamCdp.SetLibraryLabelByContentIdAsync(
                 contentId, configText, label, cancellationToken).ConfigureAwait(false);
-            if (result.Status is Core.SteamLibraryLabelStatus.Applied
-                or Core.SteamLibraryLabelStatus.NotPresent)
+            if (result.Status is SteamLibraryLabelStatus.Applied
+                or SteamLibraryLabelStatus.NotPresent)
             {
                 return null;
             }
@@ -755,7 +755,7 @@ public sealed class LibraryTabManager
         ("Favorites", "Favorites"),
         ("Collections", "Collections"),
         ("DesktopApps", "Non-Steam"),
-        ("Soundtracks", "Soundtracks"),
+        ("Soundtracks", "Soundtracks")
     ];
 
     /// <summary>Builds the full tab-strip list the way Steam will render it: keys from

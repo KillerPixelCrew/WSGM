@@ -54,7 +54,7 @@ internal static class GlyphInputTestMap
         (CanonicalButtons.LeftPadClick, GlyphControlId.LeftTrackpad),
         (CanonicalButtons.RightPadClick, GlyphControlId.RightTrackpad),
         (CanonicalButtons.LeftPadTouch, GlyphControlId.LeftTrackpad),
-        (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpad),
+        (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpad)
     ];
 
     /// <summary>How far a trigger must travel before it counts as pressed.</summary>
@@ -70,7 +70,7 @@ internal static class GlyphInputTestMap
     internal static HashSet<GlyphControlId> Pressed(CanonicalControllerSample sample)
     {
         HashSet<GlyphControlId> pressed = [];
-        foreach ((CanonicalButtons button, GlyphControlId control) in Buttons)
+        foreach (var (button, control) in Buttons)
         {
             if ((sample.Buttons & button) != 0)
             {

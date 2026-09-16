@@ -84,26 +84,26 @@ internal static class CurveEditing
             return points;
         }
 
-        bool firstPoint = index == 0;
-        bool lastPoint = index == points.Count - 1;
-        int lowerLimit = firstPoint
+        var firstPoint = index == 0;
+        var lastPoint = index == points.Count - 1;
+        var lowerLimit = firstPoint
             ? bounds.InputMinimum
             : points[index - 1].Input + MinimumInputGap;
-        int upperLimit = lastPoint
+        var upperLimit = lastPoint
             ? bounds.InputMaximum
             : points[index + 1].Input - MinimumInputGap;
 
-        int resolvedInput = firstPoint
+        var resolvedInput = firstPoint
             ? bounds.InputMinimum
             : lastPoint
                 ? bounds.InputMaximum
                 : Math.Clamp(bounds.ClampInput(input), lowerLimit, upperLimit);
 
-        int resolvedOutput = bounds.ClampOutput(output);
+        var resolvedOutput = bounds.ClampOutput(output);
         if (risingOutput)
         {
-            int outputFloor = firstPoint ? bounds.OutputMinimum : points[index - 1].Output;
-            int outputCeiling = lastPoint ? bounds.OutputMaximum : points[index + 1].Output;
+            var outputFloor = firstPoint ? bounds.OutputMinimum : points[index - 1].Output;
+            var outputCeiling = lastPoint ? bounds.OutputMaximum : points[index + 1].Output;
             // A neighbour pair that already dips — a curve stored before this rule, or written by
             // something else — would give an empty range and clamp to nonsense. Keep the requested
             // value in that case and let the next move of the offending neighbour settle it.
@@ -136,10 +136,10 @@ internal static class CurveEditing
         CurveBounds bounds)
     {
         ArgumentNullException.ThrowIfNull(points);
-        int clampedInput = bounds.ClampInput(input);
-        int clampedOutput = bounds.ClampOutput(output);
+        var clampedInput = bounds.ClampInput(input);
+        var clampedOutput = bounds.ClampOutput(output);
 
-        for (int index = 0; index < points.Count; index++)
+        for (var index = 0; index < points.Count; index++)
         {
             if (points[index].Input == clampedInput)
             {
@@ -155,7 +155,7 @@ internal static class CurveEditing
             return points;
         }
 
-        List<CurvePoint> added = [.. points, new CurvePoint(clampedInput, clampedOutput)];
+        List<CurvePoint> added = [.. points, new(clampedInput, clampedOutput)];
         added.Sort(static (left, right) => left.Input.CompareTo(right.Input));
         return added;
     }
@@ -208,16 +208,16 @@ internal static class CurveEditing
             return points[^1].Output;
         }
 
-        for (int index = 1; index < points.Count; index++)
+        for (var index = 1; index < points.Count; index++)
         {
-            CurvePoint upper = points[index];
+            var upper = points[index];
             if (input > upper.Input)
             {
                 continue;
             }
 
-            CurvePoint lower = points[index - 1];
-            int span = upper.Input - lower.Input;
+            var lower = points[index - 1];
+            var span = upper.Input - lower.Input;
             if (span <= 0)
             {
                 return upper.Output;

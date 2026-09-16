@@ -25,7 +25,7 @@ internal enum AutoTdpState
     Controlling,
 
     /// <summary>Suspended because the power limit was changed by hand.</summary>
-    Paused,
+    Paused
 }
 
 /// <summary>The complete AutoTDP projection.</summary>
@@ -128,10 +128,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
     {
         get
         {
-            double target = _targetFrametimeMs();
+            var target = _targetFrametimeMs();
             if (!double.IsFinite(target) || target <= 0)
             {
-                return new(false, "Requires frame-rate limit.", null);
+                return new AutoTdpAvailability(false, "Requires frame-rate limit.", null);
             }
             var power = FindPowerCapability();
             lock (_gate)
@@ -140,17 +140,17 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     && (_restoreCycle != power.Projection.State.CycleGeneration
                         || _restoreCapability != new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId)))
                 {
-                    return new(false, "The previous power owner must be restored before control can resume.", target);
+                    return new AutoTdpAvailability(false, "The previous power owner must be restored before control can resume.", target);
                 }
             }
             if (power?.Descriptor.PairedPowerLimitId is not null
                 && !IsObserved(FindPairedPower(power)))
             {
-                return new(false, "The paired power limit is unavailable.", target);
+                return new AutoTdpAvailability(false, "The paired power limit is unavailable.", target);
             }
             return IsObserved(power)
-                ? new(true, string.Empty, target)
-                : new(false, "No primary power limit is available.", target);
+                ? new AutoTdpAvailability(true, string.Empty, target)
+                : new AutoTdpAvailability(false, "No primary power limit is available.", target);
         }
     }
 
@@ -158,10 +158,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <returns>Whether an active session was forced off.</returns>
     internal bool RefreshPrerequisites()
     {
-        AutoTdpAvailability availability = Availability;
-        bool disabled = Enabled && availability.TargetFrametimeMs is null;
+        var availability = Availability;
+        var disabled = Enabled && availability.TargetFrametimeMs is null;
         if (disabled) { Apply(false); }
-        bool enabled = Enabled;
+        var enabled = Enabled;
         bool changed;
         lock (_gate)
         {
@@ -219,10 +219,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 // The token is taken from a local, not from the field: a later disable clears the
                 // field, and a worker that read it there would dereference null on the thread pool
                 // instead of running.
-                CancellationTokenSource started =
+                var started =
                     CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
                 _generation = started;
-                Task<bool> priorStop = _lastStop;
+                var priorStop = _lastStop;
                 _worker = Task.Run(async () =>
                 {
                     await priorStop.ConfigureAwait(false);
@@ -545,13 +545,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        double target = _targetFrametimeMs();
+        var target = _targetFrametimeMs();
         if (!double.IsFinite(target) || target <= 0)
         {
             Apply(false);
             return;
         }
-        string context = ContextKey(running, frametime);
+        var context = ContextKey(running, frametime);
         AutoTdpDecision decision;
         bool rebased;
         lock (_gate)
@@ -687,7 +687,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                             return false;
                         }
                         _restoreCycle = power.Projection.State.CycleGeneration;
-                        _restoreCapability = new(power.Descriptor.CapabilityId, power.Descriptor.InstanceId);
+                        _restoreCapability = new DeviceCapabilityKey(power.Descriptor.CapabilityId, power.Descriptor.InstanceId);
                     }
                     _restoreTo ??= watts;
                 }
@@ -697,14 +697,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = decision.Watts,
+                        IntegerValue = decision.Watts
                     },
                     power.Descriptor.PairedPowerLimitId is not null,
                     cancellationToken);
             }
 
-            CapabilityCommandResult result = await command.ConfigureAwait(false);
-            bool applied = power.Descriptor.PairedPowerLimitId is not null
+            var result = await command.ConfigureAwait(false);
+            var applied = power.Descriptor.PairedPowerLimitId is not null
                 ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == decision.Watts
                 : result.Outcome.IsApplied();
             lock (_gate)
@@ -761,7 +761,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private async Task<bool> StopAsync(CancellationToken cancellationToken)
     {
         int? restoreTo;
-        DeviceCapabilityView? power = FindPowerCapability();
+        var power = FindPowerCapability();
         lock (_gate)
         {
             restoreTo = _restoreTo;
@@ -791,11 +791,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return false;
         }
 
-        AutoTdpDecision decision = _controller.Stop(watts);
+        var decision = _controller.Stop(watts);
         // Reported from the write's own outcome. Saying "restored" for a value that was refused,
         // timed out, or skipped is the one message that makes the handheld's real state
         // undiagnosable from a log.
-        bool restored = await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
+        var restored = await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
         if (restored && _restorePair is { } pair)
         {
             var live = FindPairedPower(power);
@@ -808,7 +808,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             {
                 try
                 {
-                    CapabilityCommandResult result = await _writeAsync(live,
+                    var result = await _writeAsync(live,
                         pair.Projection.State.ObservedValue!, false, cancellationToken).ConfigureAwait(false);
                     restored = result.Outcome == CommandOutcome.AppliedVerified
                         && result.ReadbackValue?.IntegerValue == pair.Projection.State.ObservedValue?.IntegerValue;
@@ -873,7 +873,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running)
     {
-        IReadOnlyList<RtssFrametimeSample> live = _frametimes.ReadLive();
+        var live = _frametimes.ReadLive();
         if (live.Count == 0)
         {
             return null;
@@ -884,8 +884,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         // or a background renderer that happens to be in the table.
         if (running?.ExecutablePath is { Length: > 0 } executable)
         {
-            string leaf = Path.GetFileName(executable);
-            foreach (RtssFrametimeSample sample in live)
+            var leaf = Path.GetFileName(executable);
+            foreach (var sample in live)
             {
                 if (string.Equals(
                     Path.GetFileName(sample.ExecutablePath),
@@ -950,7 +950,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             action);
         lock (_gate)
         {
-            bool stateMatchesEnabled = state is AutoTdpState.Off ? !_enabled : _enabled;
+            var stateMatchesEnabled = state is AutoTdpState.Off ? !_enabled : _enabled;
             if (!stateMatchesEnabled
                 || (expectedRunningGeneration is long expected
                     && (_running?.Generation ?? -1) != expected))

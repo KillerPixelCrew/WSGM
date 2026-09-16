@@ -81,8 +81,8 @@ internal static class NativeQamPerfProjection
         // A foreground-only identity has no AppID, and Steam's per-game header is built entirely
         // from one. The profile still applies — it is simply presented as the global one, because
         // claiming an AppID WSGM does not have would put the wrong game's name in Valve's header.
-        string gameId = steamAppId is { } appId ? appId.ToString() : SteamPerformanceState.NoGame;
-        bool perGame = perApplicationProfileEnabled && gameId != SteamPerformanceState.NoGame;
+        var gameId = steamAppId is { } appId ? appId.ToString() : SteamPerformanceState.NoGame;
+        var perGame = perApplicationProfileEnabled && gameId != SteamPerformanceState.NoGame;
 
         IReadOnlyList<int>? frameLimitOptions = support.FrameLimitOptions.Count > 0
             ? [.. support.FrameLimitOptions.Where(option => option > 0).Distinct().Order()]
@@ -116,7 +116,7 @@ internal static class NativeQamPerfProjection
                     : null,
                 DisplayExternalRefreshManualHzMax = support.RefreshRatesSelectable
                     ? support.RefreshRateMaxHz
-                    : null,
+                    : null
             },
             Global = new SteamPerformanceGlobalSettings
             {
@@ -126,7 +126,7 @@ internal static class NativeQamPerfProjection
                 PerfOverlayLevel = SteamOverlayLevelWire.ToSteam(
                     Math.Clamp(values.OverlayLevel ?? 0, 0, SteamOverlayLevelWire.MaximumNotch)),
                 IsAdvancedSettingsEnabled = advancedSettingsEnabled,
-                AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null,
+                AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null
             },
             PerApp = new SteamPerformanceApplicationSettings
             {
@@ -150,10 +150,10 @@ internal static class NativeQamPerfProjection
                 DisplayExternalRefreshManualHz = manualRefreshHz,
                 IsGamePerfProfileEnabled = gameId == SteamPerformanceState.NoGame
                     ? null
-                    : perApplicationProfileEnabled,
+                    : perApplicationProfileEnabled
             },
             CurrentGameId = gameId,
-            ActiveProfileGameId = perGame ? gameId : SteamPerformanceState.NoGame,
+            ActiveProfileGameId = perGame ? gameId : SteamPerformanceState.NoGame
         };
     }
 
@@ -165,8 +165,8 @@ internal static class NativeQamPerfProjection
     /// </remarks>
     internal static int LowestOption(IReadOnlyList<int> options)
     {
-        int lowest = 0;
-        foreach (int option in options)
+        var lowest = 0;
+        foreach (var option in options)
         {
             if (option > 0 && (lowest == 0 || option < lowest))
             {

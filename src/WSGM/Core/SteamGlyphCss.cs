@@ -152,7 +152,7 @@ internal static class SteamGlyphCss
         (GlyphControlId.RearM1, "/steaminputglyphs/sd_l4.svg"),
         (GlyphControlId.RearM2, "/steaminputglyphs/sd_r4.svg"),
         (GlyphControlId.RearLeft2, "/steaminputglyphs/sd_l5.svg"),
-        (GlyphControlId.RearRight2, "/steaminputglyphs/sd_r5.svg"),
+        (GlyphControlId.RearRight2, "/steaminputglyphs/sd_r5.svg")
     ];
 
     /// <summary>
@@ -173,7 +173,7 @@ internal static class SteamGlyphCss
             .Append(presentation.Revision.ToString(CultureInfo.InvariantCulture))
             .Append(". Generated; do not edit in place. */\n");
 
-        int rules = AppendImageOverrides(css, presentation);
+        var rules = AppendImageOverrides(css, presentation);
         rules += AppendInlineLogoOverride(css, presentation);
         rules += AppendControllerImages(css, presentation);
         if (hideAbsentControls)
@@ -196,7 +196,7 @@ internal static class SteamGlyphCss
             .ToArray();
         foreach (var group in byAsset)
         {
-            string selector = string.Join(
+            var selector = string.Join(
                 ",\n",
                 group
                     .Select(mapping => mapping.ValvePath)
@@ -216,15 +216,15 @@ internal static class SteamGlyphCss
         StringBuilder css,
         SteamInputGlyphPresentation presentation)
     {
-        SteamInputGlyphResourceMapping? guide = presentation.StableResources
+        var guide = presentation.StableResources
             .FirstOrDefault(mapping => mapping.Control is GlyphControlId.Guide);
         if (guide is null)
         {
             return 0;
         }
 
-        string container = "." + InlineLogoContainerClass;
-        string path = $"svg path[d=\"{Attribute(SteamLogoPathData)}\"]";
+        var container = "." + InlineLogoContainerClass;
+        var path = $"svg path[d=\"{Attribute(SteamLogoPathData)}\"]";
         // The inner svg is hidden rather than removed, and the replacement is painted on the
         // container: the svg is Steam's own node, and WSGM owns no DOM here, only style.
         //
@@ -259,7 +259,7 @@ internal static class SteamGlyphCss
         // separates the device-specific half from the shared rules: the device supplies artwork, and
         // whatever renders the controller diagram reads these.
         css.Append(":root {\n");
-        foreach (SteamInputGlyphControllerImageMapping image in presentation.ControllerImages
+        foreach (var image in presentation.ControllerImages
             .OrderBy(image => image.Slot, StringComparer.Ordinal))
         {
             css.Append("  --wsgm-controller-")
@@ -283,7 +283,7 @@ internal static class SteamGlyphCss
         // control the device does not have takes its heading and its bindings with it. The previous
         // form required the glyph to be an immediate grandchild of a row, which described neither
         // the trackpad sections nor the back-button rows as Steam actually builds them.
-        string[] selectors = RowGlyphs
+        var selectors = RowGlyphs
             .Where(row => absent.Contains(row.Control))
             .SelectMany(row => new[]
             {
@@ -304,7 +304,7 @@ internal static class SteamGlyphCss
                 // wherever Steam offers it: this is the only anchor here that a CSS-module rebuild
                 // cannot rename.
                 row.Control is GlyphControlId.LeftTrackpad or GlyphControlId.RightTrackpad
-                    ? $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])" : "",
+                    ? $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])" : ""
             })
             .Where(selector => selector.Length > 0)
             .Distinct(StringComparer.Ordinal)

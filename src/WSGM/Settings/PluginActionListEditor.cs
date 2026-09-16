@@ -42,7 +42,7 @@ public sealed class PluginArgumentRow : ObservableObject
     public bool BooleanValue
     {
         get => Current.Boolean ?? false;
-        set => Write(new(Boolean: value), nameof(BooleanValue));
+        set => Write(new PluginValue(Boolean: value), nameof(BooleanValue));
     }
 
     /// <summary>Gets or sets the text or chosen value.</summary>
@@ -51,7 +51,7 @@ public sealed class PluginArgumentRow : ObservableObject
         get => Current.Text ?? Current.Number?.ToString(CultureInfo.InvariantCulture) ?? "";
         set => Write(
             _field.Kind == PluginSettingKind.Number
-                && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
                 ? new PluginValue(Number: number)
                 : new PluginValue(Text: value),
             nameof(TextValue));
@@ -66,7 +66,7 @@ public sealed class PluginArgumentRow : ObservableObject
     /// <summary>Gets whether this value would be refused.</summary>
     public bool HasValidationError => ValidationText.Length > 0;
 
-    private PluginValue Current => _step.Arguments.TryGetValue(_field.Key, out PluginValue value)
+    private PluginValue Current => _step.Arguments.TryGetValue(_field.Key, out var value)
         ? value
         : _field.Default;
 
@@ -137,7 +137,7 @@ public sealed class PluginActionStepEditorRow : ObservableObject
     private static string Describe(PluginValue value) =>
         value.Text is { Length: > 0 } text ? text
         : value.Number is { } number ? number.ToString(CultureInfo.InvariantCulture)
-        : value.Boolean is { } flag ? (flag ? "on" : "off")
+        : value.Boolean is { } flag ? flag ? "on" : "off"
         : "";
 }
 
@@ -204,11 +204,11 @@ public sealed class PluginActionListEditor : ObservableObject
     {
         _options = options;
         Choices.Clear();
-        foreach (SettingsViewModel.PluginActionOption option in options) { Choices.Add(option); }
+        foreach (var option in options) { Choices.Add(option); }
         ChoiceIndex = Choices.Count > 0 ? 0 : -1;
 
         Rows.Clear();
-        foreach (PluginActionStep step in steps) { Rows.Add(Build(step)); }
+        foreach (var step in steps) { Rows.Add(Build(step)); }
         RaiseState();
     }
 
@@ -220,13 +220,13 @@ public sealed class PluginActionListEditor : ObservableObject
     internal void Add()
     {
         if (ChoiceIndex < 0 || ChoiceIndex >= Choices.Count) { return; }
-        SettingsViewModel.PluginActionOption option = Choices[ChoiceIndex];
+        var option = Choices[ChoiceIndex];
         PluginActionStep step = new()
         {
             Plugin = option.Identity,
             ActionId = option.Action.Id,
             Arguments = option.Action.Arguments.ToDictionary(
-                field => field.Key, field => field.Default),
+                field => field.Key, field => field.Default)
         };
         Rows.Add(Build(step));
         RaiseState();
@@ -247,8 +247,8 @@ public sealed class PluginActionListEditor : ObservableObject
     /// <param name="delta">-1 for earlier, +1 for later.</param>
     internal void Move(PluginActionStepEditorRow row, int delta)
     {
-        int index = Rows.IndexOf(row);
-        int target = index + delta;
+        var index = Rows.IndexOf(row);
+        var target = index + delta;
         if (index < 0 || target < 0 || target >= Rows.Count) { return; }
         Rows.Move(index, target);
         _changed();

@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Controls;
-// Avalonia 12 moved SetTextAsync off IClipboard onto ClipboardExtensions.
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
+// Avalonia 12 moved SetTextAsync off IClipboard onto ClipboardExtensions.
 
 namespace WSGM.Overlay;
 
@@ -77,9 +77,9 @@ public partial class OverlayWindow
                     [
                         new FilePickerFileType("Launch actions")
                         {
-                            Patterns = ["*.exe", "*.cmd", "*.bat", "*.ps1"],
-                        },
-                    ],
+                            Patterns = ["*.exe", "*.cmd", "*.bat", "*.ps1"]
+                        }
+                    ]
                 });
             }
             finally
@@ -136,12 +136,12 @@ public partial class OverlayWindow
         string path, string arguments, SteamCollections.AppInfo game)
         => _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
 
-    private async System.Threading.Tasks.Task ApplyCustomLaunchToAsync(
+    private async Task ApplyCustomLaunchToAsync(
         string path, string arguments, SteamCollections.AppInfo game, CardButton button)
     {
         try
         {
-            if (!System.IO.File.Exists(path))
+            if (!File.Exists(path))
             {
                 button.Title = "File is no longer available";
                 return;
@@ -164,7 +164,7 @@ public partial class OverlayWindow
                 IsShortcut = game.Shortcut,
                 OriginalTarget = originals.Item1,
                 OriginalLaunchOptions = originals.Item2,
-                OriginalStartDir = originals.Item3,
+                OriginalStartDir = originals.Item3
             };
             snapshot.Kind = LaunchConfigurationKind.CustomAction;
             snapshot.Mode = LaunchWrapperMode.None;
@@ -210,7 +210,7 @@ public partial class OverlayWindow
         mode = LaunchWrapperCommand.ForCurrentInputMode(
             mode, (DataContext as OverlayViewModel)?.InputLeaseUsesShim ?? true);
         var helperPath = LaunchWrapperCommand.HelperPathForCurrentDeployment();
-        if (mode != LaunchWrapperMode.None && !System.IO.File.Exists(helperPath))
+        if (mode != LaunchWrapperMode.None && !File.Exists(helperPath))
         {
             button.Title = "Launch wrapper missing";
             Log.Warn($"Cannot configure a launch fix; wrapper not found: {helperPath}");
@@ -225,10 +225,10 @@ public partial class OverlayWindow
         _ = ApplyLaunchFixAsync(mode, button);
     }
 
-    private async System.Threading.Tasks.Task CopyLaunchCommandAsync(
+    private async Task CopyLaunchCommandAsync(
         LaunchWrapperMode mode, CardButton button, string helperPath)
     {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        var clipboard = GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
             button.Title = "Clipboard unavailable";
@@ -253,10 +253,10 @@ public partial class OverlayWindow
     // A copied command means the user is heading to Steam to paste it: show the
     // "Copied" confirmation briefly, then dismiss the panel (which restores Steam
     // to the foreground). Same rule as the actions that open a window.
-    private static async System.Threading.Tasks.Task FeedbackDelay()
-        => await System.Threading.Tasks.Task.Delay(TimeSpan.FromMilliseconds(700));
+    private static async Task FeedbackDelay()
+        => await Task.Delay(TimeSpan.FromMilliseconds(700));
 
-    private async System.Threading.Tasks.Task DismissAfterCopyFeedback()
+    private async Task DismissAfterCopyFeedback()
     {
         await FeedbackDelay();
         if (_closed)
@@ -270,7 +270,7 @@ public partial class OverlayWindow
         Dismissed?.Invoke();
     }
 
-    private async System.Threading.Tasks.Task ApplyLaunchFixAsync(
+    private async Task ApplyLaunchFixAsync(
         LaunchWrapperMode mode, CardButton button)
     {
         button.Title = "Asking Steam…";
@@ -294,7 +294,7 @@ public partial class OverlayWindow
             match?.Shortcut ?? appId >= 0x80000000L);
     }
 
-    private async System.Threading.Tasks.Task ApplyLaunchFixToAsync(
+    private async Task ApplyLaunchFixToAsync(
         LaunchWrapperMode mode, CardButton button, long appId, string name, bool isShortcut)
     {
         try
@@ -350,7 +350,7 @@ public partial class OverlayWindow
                     IsShortcut = isShortcut,
                     OriginalTarget = originals.Target,
                     OriginalLaunchOptions = originals.LaunchOptions,
-                    OriginalStartDir = originals.StartDir,
+                    OriginalStartDir = originals.StartDir
                 };
                 snapshot.Kind = LaunchConfigurationKind.Wrapper;
                 snapshot.Mode = mode;
@@ -384,7 +384,7 @@ public partial class OverlayWindow
         }
     }
 
-    private static async System.Threading.Tasks.Task<IReadOnlyList<SteamCollections.AppInfo>>
+    private static async Task<IReadOnlyList<SteamCollections.AppInfo>>
         SafeGameLookupAsync()
     {
         try { return await SteamCollections.GetGamesAsync(); }

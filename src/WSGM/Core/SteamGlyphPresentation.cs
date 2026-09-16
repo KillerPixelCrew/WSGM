@@ -120,7 +120,7 @@ internal sealed record SteamInputGlyphPresentation(
         ("/steaminputglyphs/sd_button_menu.svg", GlyphControlId.Menu),
         ("/steaminputglyphs/qam_icon.svg", GlyphControlId.QuickAccess),
         ("/steaminputglyphs/shared_m1.svg", GlyphControlId.RearM1),
-        ("/steaminputglyphs/shared_m2.svg", GlyphControlId.RearM2),
+        ("/steaminputglyphs/shared_m2.svg", GlyphControlId.RearM2)
     ];
 
     /// <summary>Resolves an imported plugin profile into Valve resource mappings.</summary>
@@ -133,24 +133,24 @@ internal sealed record SteamInputGlyphPresentation(
             return null;
         }
 
-        Dictionary<GlyphControlId, GlyphControlMapping> controls = profile.Manifest.Controls
+        var controls = profile.Manifest.Controls
             .ToDictionary(mapping => mapping.Control);
-        Dictionary<GlyphControlId, GlyphControlId> aliases = profile.Manifest.Aliases
+        var aliases = profile.Manifest.Aliases
             .ToDictionary(mapping => mapping.LogicalControl, mapping => mapping.PhysicalControl);
         Dictionary<string, SteamInputGlyphAssetReference> assetReferences =
             new(StringComparer.Ordinal);
         List<SteamInputGlyphResourceMapping> resources = [];
-        foreach ((string path, GlyphControlId logicalControl) in StableResourceMap)
+        foreach (var (path, logicalControl) in StableResourceMap)
         {
-            GlyphControlId physicalControl = aliases.GetValueOrDefault(logicalControl, logicalControl);
-            if (!controls.TryGetValue(physicalControl, out GlyphControlMapping? mapping)
+            var physicalControl = aliases.GetValueOrDefault(logicalControl, logicalControl);
+            if (!controls.TryGetValue(physicalControl, out var mapping)
                 || mapping.Presence is not GlyphControlPresence.Present
                 || mapping.AssetSha256 is not { Length: > 0 } assetHash
                 || !TryGetAsset(
                     profile,
                     assetReferences,
                     assetHash,
-                    out SteamInputGlyphAssetReference asset))
+                    out var asset))
             {
                 continue;
             }
@@ -183,18 +183,18 @@ internal sealed record SteamInputGlyphPresentation(
         // list it. Declaring absence explicitly was the previous model and it fails the same way
         // every allowlist-by-omission does: the entry nobody remembered to add is the one that
         // shows up on screen.
-        HashSet<GlyphControlId> present = profile.Manifest.Controls
+        var present = profile.Manifest.Controls
             .Where(mapping => mapping.Presence is GlyphControlPresence.Present)
             .Select(mapping => mapping.Control)
             .ToHashSet();
-        foreach (GlyphControlAlias alias in profile.Manifest.Aliases)
+        foreach (var alias in profile.Manifest.Aliases)
         {
             if (present.Contains(alias.PhysicalControl))
             {
                 present.Add(alias.LogicalControl);
             }
         }
-        GlyphControlId[] absent = Enum.GetValues<GlyphControlId>()
+        var absent = Enum.GetValues<GlyphControlId>()
             .Where(control => !present.Contains(control))
             .OrderBy(control => control)
             .ToArray();
@@ -219,7 +219,7 @@ internal sealed record SteamInputGlyphPresentation(
                 profile,
                 assetReferences,
                 assetHash,
-                out SteamInputGlyphAssetReference asset))
+                out var asset))
         {
             images.Add(new SteamInputGlyphControllerImageMapping(slot, asset));
         }
@@ -234,13 +234,13 @@ internal sealed record SteamInputGlyphPresentation(
         reference = null!;
         if (assetReferences.TryGetValue(
             assetHash,
-            out SteamInputGlyphAssetReference? existing)
+            out var existing)
             && existing is not null)
         {
             reference = existing;
             return true;
         }
-        if (!profile.Assets.TryGetValue(assetHash, out ImportedGlyphAsset? asset)
+        if (!profile.Assets.TryGetValue(assetHash, out var asset)
             || !string.Equals(asset.Lock.Sha256, assetHash, StringComparison.Ordinal))
         {
             return false;

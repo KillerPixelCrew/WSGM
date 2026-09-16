@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using WindowsDeviceControl;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
 
@@ -33,7 +34,7 @@ internal static class ConfigMigrations
     internal static bool Apply(JsonObject root)
     {
         // The sign-in rule reads DisplayRoutes, so it has to run before the launch rule removes it.
-        bool changed = MigrateSignInStart(root);
+        var changed = MigrateSignInStart(root);
         return MigrateGameModeLaunch(root) || changed;
     }
 
@@ -53,11 +54,11 @@ internal static class ConfigMigrations
             return true;
         }
 
-        bool gameModeBoot = legacy is JsonValue value && value.TryGetValue(out bool enabled) && enabled;
-        bool desktopResident = root["DisplayRoutes"] is JsonObject routes
-            && routes["Enabled"] is JsonValue routesEnabled
-            && routesEnabled.TryGetValue(out bool routesOn)
-            && routesOn;
+        var gameModeBoot = legacy is JsonValue value && value.TryGetValue(out bool enabled) && enabled;
+        var desktopResident = root["DisplayRoutes"] is JsonObject routes
+                              && routes["Enabled"] is JsonValue routesEnabled
+                              && routesEnabled.TryGetValue(out bool routesOn)
+                              && routesOn;
 
         root[nameof(AppConfig.StartAtSignIn)] = gameModeBoot || desktopResident;
         // Only a configuration that actually started a resident desktop carries a Desktop
@@ -77,9 +78,9 @@ internal static class ConfigMigrations
     /// running the desktop's scaling in Big Picture.</summary>
     private static bool MigrateGameModeLaunch(JsonObject root)
     {
-        bool present = root.Remove("DisplayManagement", out JsonNode? mode)
-            | root.Remove("DisplayProfiles", out JsonNode? profiles)
-            | root.Remove("DisplayRoutes", out JsonNode? routes);
+        var present = root.Remove("DisplayManagement", out var mode)
+                      | root.Remove("DisplayProfiles", out var profiles)
+                      | root.Remove("DisplayRoutes", out var routes);
         if (!present) { return false; }
         if (root.ContainsKey(nameof(AppConfig.GameModeLaunch)))
         {
@@ -122,10 +123,10 @@ internal static class ConfigMigrations
         if (profiles is null) { return (null, null); }
         List<DisplayLayoutOutput> game = [], desktop = [];
         int gameX = 0, desktopX = 0;
-        foreach (JsonNode? node in profiles)
+        foreach (var node in profiles)
         {
             if (Read(node, ConfigJsonContext.Default.LegacyMonitorDisplayProfile) is not { } profile) { continue; }
-            DisplayTargetIdentity identity = Unresolved(profile.DisplayName);
+            var identity = Unresolved(profile.DisplayName);
             if (Output(identity, profile.Game, profile.HdrAvailable, gameX) is { } gameOutput)
             {
                 game.Add(gameOutput);
@@ -143,7 +144,7 @@ internal static class ConfigMigrations
     private static DisplayLayoutOutput? Output(
         DisplayTargetIdentity identity, LegacyDisplayModeValues values, bool hdrAvailable, int x) =>
         values is { Width: > 0, Height: > 0 }
-            ? new(identity, x, 0, values.Width, values.Height, DisplayRefresh.FromHertz(values.RefreshRate),
+            ? new DisplayLayoutOutput(identity, x, 0, values.Width, values.Height, DisplayRefresh.FromHertz(values.RefreshRate),
                 DpiPercent: values.DpiPercent, Hdr: hdrAvailable ? values.HdrEnabled : null)
             : null;
 
@@ -166,12 +167,12 @@ internal static class ConfigMigrations
 
     private static List<PluginActionStep> Steps(LegacyDisplayRouteBinding? binding) =>
         binding?.Plugin is { } plugin && !string.IsNullOrWhiteSpace(binding.ActionId)
-            ? [new()
+            ? [new PluginActionStep
             {
                 Plugin = plugin,
                 ActionId = binding.ActionId,
-                Arguments = new(binding.Arguments ?? []),
-                TimeoutSeconds = Math.Clamp(binding.TimeoutSeconds, 1, 120),
+                Arguments = new Dictionary<string, PluginValue>(binding.Arguments ?? []),
+                TimeoutSeconds = Math.Clamp(binding.TimeoutSeconds, 1, 120)
             }]
             : [];
 
@@ -180,14 +181,14 @@ internal static class ConfigMigrations
     private static IEnumerable<KnownDisplay> Catalog(GameModeLaunchConfiguration launch)
     {
         List<DisplayTargetIdentity> seen = [];
-        foreach (DisplayTargetIdentity target in new[] { launch.WaitForDisplay }
+        foreach (var target in new[] { launch.WaitForDisplay }
             .Concat(launch.GameLayout?.Outputs.Select(output => output.Target) ?? [])
             .Concat(launch.DesktopLayout?.Outputs.Select(output => output.Target) ?? [])
             .OfType<DisplayTargetIdentity>())
         {
             if (target.DevicePath.Length == 0 || seen.Exists(other => other.Matches(target))) { continue; }
             seen.Add(target);
-            yield return new() { Target = target };
+            yield return new KnownDisplay { Target = target };
         }
     }
 

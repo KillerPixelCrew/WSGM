@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -41,7 +42,7 @@ public partial class OverlayWindow
         Control Create() => new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync);
         ManualTdpHost.Tag = "section.device.manual-tdp";
         ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
-        Control view = Create();
+        var view = Create();
         view.PropertyChanged += (_, change) =>
         {
             if (change.Property == IsVisibleProperty) { ManualTdpHost.IsVisible = view.IsVisible; }
@@ -50,7 +51,7 @@ public partial class OverlayWindow
         _controlPinFactories["section.device.manual-tdp"] = ("Manual power mode", Create);
         RenderPins();
     }
-    internal void AttachBrightness(NativeQamBrightnessService service, Func<Task<WindowsDeviceControl.DisplayModeSnapshot?>>? readMode = null)
+    internal void AttachBrightness(NativeQamBrightnessService service, Func<Task<DisplayModeSnapshot?>>? readMode = null)
     {
         DisplayBrightnessHost.Tag = "section.display";
         PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
@@ -59,7 +60,7 @@ public partial class OverlayWindow
         _controlPinFactories["section.display"] = ("Display", () => new StackPanel
         {
             Spacing = 4,
-            Children = { new DisplayBrightnessView(service), new DisplayModeView(readMode) },
+            Children = { new DisplayBrightnessView(service), new DisplayModeView(readMode) }
         });
         RenderPins();
     }
@@ -71,7 +72,7 @@ public partial class OverlayWindow
     {
         void Refresh()
         {
-            SteamControllerHandoff? owner = getOwner();
+            var owner = getOwner();
             SteamOwnershipStatus.Text = owner?.State switch
             {
                 SteamControllerOwnership.Wsgm => "Owned by WSGM",
@@ -79,7 +80,7 @@ public partial class OverlayWindow
                 SteamControllerOwnership.Steam => owner.ManualRelease ? "Released to Steam (manual)" : "Released to Steam (temporary)",
                 SteamControllerOwnership.Reacquiring => "Reacquiring",
                 SteamControllerOwnership.RecoveryRequired => "Failed: controller recovery required",
-                _ => "Unavailable",
+                _ => "Unavailable"
             };
             ReleaseSteamOwnership.IsEnabled = owner is
             {
@@ -167,7 +168,7 @@ public partial class OverlayWindow
     /// its Steam storage page can drive it. Called by the controller right after
     /// construction (the manager outlives the window).</summary>
     /// <param name="format">The controller-owned format manager.</param>
-    internal void AttachFormatManager(Shell.SdFormatManager format)
+    internal void AttachFormatManager(SdFormatManager format)
     {
         _format = format;
         PanelFormat.DataContext = format;
@@ -192,14 +193,14 @@ public partial class OverlayWindow
                 // Plugins category too: selecting the destination alone now lands on the tiles.
                 SelectDestination(OverlayDestination.System);
                 EnterSubView(OverlayPage.SystemPlugins);
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
+                Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
             }));
         }
     }
 
     /// <summary>Supplies the reader behind the Device page's missing-prerequisites banner.</summary>
     /// <param name="prerequisites">The reader, or null in a preview with no session behind it.</param>
-    internal void AttachDevicePrerequisites(Shell.DevicePrerequisiteSource? prerequisites)
+    internal void AttachDevicePrerequisites(DevicePrerequisiteSource? prerequisites)
     {
         _devicePrerequisites = prerequisites;
         RefreshDevicePrerequisites();

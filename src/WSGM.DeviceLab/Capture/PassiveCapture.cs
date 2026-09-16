@@ -92,14 +92,14 @@ internal sealed class PassiveCaptureTimeline
     public CaptureStreamEvent Record(PassiveObservation observation)
     {
         ArgumentNullException.ThrowIfNull(observation);
-        long qpc = _clock.GetTimestamp();
+        var qpc = _clock.GetTimestamp();
 
         lock (_gate)
         {
-            SourceState source = _sources.TryGetValue(observation.SourceId, out SourceState? existing)
+            var source = _sources.TryGetValue(observation.SourceId, out var existing)
                 ? existing
                 : new SourceState();
-            EventLossState loss = observation.Loss;
+            var loss = observation.Loss;
             if (loss is EventLossState.None
                 && source.HasSequence
                 && observation.SourceSequence > source.LastSequence + 1)
@@ -107,17 +107,17 @@ internal sealed class PassiveCaptureTimeline
                 loss = EventLossState.SequenceGap;
             }
 
-            EventDiscontinuity discontinuity = observation.Discontinuity;
-            bool explicitSegment = discontinuity is EventDiscontinuity.SourceRestarted
+            var discontinuity = observation.Discontinuity;
+            var explicitSegment = discontinuity is EventDiscontinuity.SourceRestarted
                 or EventDiscontinuity.ClockReset
                 or EventDiscontinuity.SuspendResume
                 or EventDiscontinuity.DeviceGenerationChanged;
-            bool sourceClockReset = source.LastSourceTime is { } previousSourceTime
-                && observation.SourceTime is { } currentSourceTime
-                && string.Equals(previousSourceTime.ClockId, currentSourceTime.ClockId, StringComparison.Ordinal)
-                && currentSourceTime.Value < previousSourceTime.Value;
-            bool generationChanged = _deviceGeneration is { } generation
-                && observation.DeviceGeneration != generation;
+            var sourceClockReset = source.LastSourceTime is { } previousSourceTime
+                                   && observation.SourceTime is { } currentSourceTime
+                                   && string.Equals(previousSourceTime.ClockId, currentSourceTime.ClockId, StringComparison.Ordinal)
+                                   && currentSourceTime.Value < previousSourceTime.Value;
+            var generationChanged = _deviceGeneration is { } generation
+                                    && observation.DeviceGeneration != generation;
 
             if (sourceClockReset)
             {
@@ -162,7 +162,7 @@ internal sealed class PassiveCaptureTimeline
                 Loss = loss,
                 Discontinuity = discontinuity,
                 TimedOut = observation.TimedOut,
-                Access = observation.Access,
+                Access = observation.Access
             };
             _events.Add(captureEvent);
             return captureEvent;
@@ -187,7 +187,7 @@ internal sealed class PassiveCaptureTimeline
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
         lock (_gate)
         {
-            if (!_sources.TryGetValue(sourceId, out SourceState? source) || !source.HasSequence)
+            if (!_sources.TryGetValue(sourceId, out var source) || !source.HasSequence)
             {
                 return 0;
             }
@@ -206,7 +206,7 @@ internal sealed class PassiveCaptureTimeline
         Length = payload.Length,
         Disposition = payload.Disposition,
         Bytes = payload.Bytes is null ? null : [.. payload.Bytes],
-        Sha256 = payload.Sha256,
+        Sha256 = payload.Sha256
     };
 
     private sealed class SourceState
@@ -251,7 +251,7 @@ internal sealed class PassiveCaptureCoordinator
         ArgumentNullException.ThrowIfNull(sources);
         _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         Dictionary<string, IPassiveCaptureSource> indexed = new(StringComparer.Ordinal);
-        foreach (IPassiveCaptureSource source in sources)
+        foreach (var source in sources)
         {
             if (string.IsNullOrWhiteSpace(source.SourceId) || !indexed.TryAdd(source.SourceId, source))
             {
@@ -275,16 +275,16 @@ internal sealed class PassiveCaptureCoordinator
             throw new InvalidDataException("Passive capture recipe failed its closed schema or duration bounds.");
         }
 
-        foreach (ObservationStep step in recipe.Steps)
+        foreach (var step in recipe.Steps)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_sources.TryGetValue(step.SourceId, out IPassiveCaptureSource? source))
+            if (!_sources.TryGetValue(step.SourceId, out var source))
             {
                 RecordUnavailable(step);
                 continue;
             }
 
-            using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(step.DurationMilliseconds);
             try
             {
@@ -317,7 +317,7 @@ internal sealed class PassiveCaptureCoordinator
         SourceSequence = _timeline.NextSourceSequence(step.SourceId),
         DeviceGeneration = 0,
         Payload = EmptyPayload(),
-        Access = EventAccessState.Unavailable,
+        Access = EventAccessState.Unavailable
     });
 
     private void RecordTimedOut(ObservationStep step) => _timeline.Record(new PassiveObservation
@@ -327,13 +327,13 @@ internal sealed class PassiveCaptureCoordinator
         SourceSequence = _timeline.NextSourceSequence(step.SourceId),
         DeviceGeneration = 0,
         Payload = EmptyPayload(),
-        TimedOut = true,
+        TimedOut = true
     });
 
     private static CapturedPayload EmptyPayload() => new()
     {
         Length = 0,
-        Disposition = PayloadDisposition.NotCaptured,
+        Disposition = PayloadDisposition.NotCaptured
     };
 }
 
@@ -365,7 +365,7 @@ internal enum GuidedOperatorMarkerKind
     OemSettingBefore,
 
     /// <summary>Record state after that externally performed OEM-utility change.</summary>
-    OemSettingAfter,
+    OemSettingAfter
 }
 
 /// <summary>Decodes passive operator-marker observations found in imported captures.</summary>
@@ -438,6 +438,6 @@ internal static class PassiveCaptureLimitations
         "Low-level hook events cannot always be attributed to one physical device.",
         "There is no safe generic ACPI, EC, SMBus, or I2C observation path.",
         "Multi-source snapshots are not atomic.",
-        "Timing correlation is a candidate relationship, not proof of causality.",
+        "Timing correlation is a candidate relationship, not proof of causality."
     ];
 }

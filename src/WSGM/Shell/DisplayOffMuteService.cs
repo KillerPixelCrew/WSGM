@@ -20,7 +20,7 @@ internal enum DisplayMuteAction
 
     /// <summary>The last download stopped while the screen remains dark — restore
     /// after the completion grace period unless activity resumes.</summary>
-    DelayRestore,
+    DelayRestore
 }
 
 /// <summary>Pure decision logic for <see cref="DisplayOffMuteService"/>. Kept separate so
@@ -201,7 +201,7 @@ public sealed class DisplayOffMuteService : IDisposable
             DisplayMuteDecider.DisplayOff => "off",
             DisplayMuteDecider.DisplayOn => "on",
             DisplayMuteDecider.DisplayDimmed => "dimmed",
-            _ => $"unknown ({state})",
+            _ => $"unknown ({state})"
         };
         // The source is part of the line on purpose: when a wake is missed, which of the
         // three settings did and did not speak is the only thing that identifies it.
@@ -280,7 +280,7 @@ public sealed class DisplayOffMuteService : IDisposable
         {
             _downloadCompletionRestore = new DispatcherTimer
             {
-                Interval = DisplayMuteDecider.DownloadCompletionRestoreDelay,
+                Interval = DisplayMuteDecider.DownloadCompletionRestoreDelay
             };
             _downloadCompletionRestore.Tick += (_, _) => OnDownloadCompletionRestore();
         }

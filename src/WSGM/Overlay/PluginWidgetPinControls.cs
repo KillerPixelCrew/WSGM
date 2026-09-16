@@ -11,8 +11,8 @@ internal sealed class PluginWidgetPinControls : CardButton
     {
         Title = title;
         IconGeometry = Icons.Pin;
-        bool pinned = false;
-        bool busy = false;
+        var pinned = false;
+        var busy = false;
         void ShowState()
         {
             IsPinned = pinned;
@@ -35,7 +35,7 @@ internal sealed class PluginWidgetPinControls : CardButton
             try
             {
                 if (read is not null) { pinned = await read(); }
-                bool next = !pinned;
+                var next = !pinned;
                 await save(next);
                 pinned = next;
                 ShowState();

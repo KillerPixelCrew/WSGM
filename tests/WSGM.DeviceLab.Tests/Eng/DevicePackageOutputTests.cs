@@ -15,16 +15,16 @@ public sealed class DevicePackageOutputTests
         bool destinationExists, bool replaceExisting, bool locked, bool succeeds)
     {
         using TemporaryDirectory directory = new();
-        string staged = directory.GetPath("staged.wsgmpkg");
-        string archive = directory.GetPath("package.wsgmpkg");
+        var staged = directory.GetPath("staged.wsgmpkg");
+        var archive = directory.GetPath("package.wsgmpkg");
         File.WriteAllText(staged, "new package");
         if (destinationExists)
         {
             File.WriteAllText(archive, "previous package");
         }
-        string root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
-        string helper = Path.Combine(root, "eng", "device-package-output.ps1");
-        using FileStream? held = locked
+        var root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
+        var helper = Path.Combine(root, "eng", "device-package-output.ps1");
+        using var held = locked
             ? new FileStream(archive, FileMode.Open, FileAccess.Read, FileShare.Read)
             : null;
         ProcessStartInfo start = new()
@@ -33,7 +33,7 @@ public sealed class DevicePackageOutputTests
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            RedirectStandardError = true
         };
         start.ArgumentList.Add("-NoLogo");
         start.ArgumentList.Add("-NoProfile");
@@ -46,9 +46,9 @@ public sealed class DevicePackageOutputTests
         start.Environment["WSGM_TEST_STAGED_ARCHIVE"] = staged;
         start.Environment["WSGM_TEST_ARCHIVE"] = archive;
         start.Environment["WSGM_TEST_REPLACE"] = replaceExisting ? "1" : "0";
-        using Process process = Process.Start(start) ?? throw new InvalidOperationException("PowerShell did not start.");
-        Task<string> output = process.StandardOutput.ReadToEndAsync();
-        Task<string> error = process.StandardError.ReadToEndAsync();
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("PowerShell did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
         using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(20));
         try
         {
@@ -62,9 +62,9 @@ public sealed class DevicePackageOutputTests
                 await process.WaitForExitAsync();
             }
         }
-        string diagnostic = (await output) + (await error);
+        var diagnostic = await output + await error;
 
-        Assert.True((process.ExitCode == 0) == succeeds, diagnostic);
+        Assert.True(process.ExitCode == 0 == succeeds, diagnostic);
         if (succeeds)
         {
             Assert.Equal("new package", File.ReadAllText(archive));

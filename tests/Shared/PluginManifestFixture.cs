@@ -19,7 +19,7 @@ internal static class PluginManifestFixture
         Version = "1.0.0",
         ApiVersion = DeviceApi.Version,
         EntryAssembly = "Synthetic.Dock.dll",
-        EntryType = "Synthetic.Dock.Plugin",
+        EntryType = "Synthetic.Dock.Plugin"
     };
 
     internal static byte[] Serialize(PluginManifest manifest) =>

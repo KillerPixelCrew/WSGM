@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Microsoft.Win32;
 using WSGM.Interop;
 
@@ -55,7 +56,7 @@ internal sealed class RtssDiscovery
         "SaveProfile",
         "GetProfileProperty",
         "SetProfileProperty",
-        "UpdateProfiles",
+        "UpdateProfiles"
     ];
 
     private readonly IRtssDiscoveryEnvironment _environment;
@@ -78,9 +79,9 @@ internal sealed class RtssDiscovery
         }
 
         List<(RtssInstallRecord Record, string Root, Version Version)> accepted = [];
-        foreach (RtssInstallRecord record in records.Take(8))
+        foreach (var record in records.Take(8))
         {
-            if (!TryValidateRegistration(record, out string? root, out Version? version))
+            if (!TryValidateRegistration(record, out var root, out var version))
             {
                 continue;
             }
@@ -100,9 +101,9 @@ internal sealed class RtssDiscovery
             return Failure(RtssAvailability.Incompatible, "Multiple verified RTSS installations are registered.");
         }
 
-        (RtssInstallRecord _, string installRoot, Version registrationVersion) = accepted[0];
-        string executable = Path.Combine(installRoot, "RTSS.exe");
-        string api = Path.Combine(
+        var (_, installRoot, registrationVersion) = accepted[0];
+        var executable = Path.Combine(installRoot, "RTSS.exe");
+        var api = Path.Combine(
             installRoot,
             Environment.Is64BitProcess ? "RTSSHooks64.dll" : "RTSSHooks.dll");
         RtssFileIdentity executableIdentity;
@@ -164,7 +165,7 @@ internal sealed class RtssDiscovery
                 executable);
         }
 
-        RtssProcessIdentity process = processes[0];
+        var process = processes[0];
         long generation = HashCode.Combine(
             executable.ToUpperInvariant(),
             registrationVersion,
@@ -187,7 +188,7 @@ internal sealed class RtssDiscovery
     {
         root = null;
         version = null;
-        string expectedVersionedName = $"RivaTuner Statistics Server {record.DisplayVersion}";
+        var expectedVersionedName = $"RivaTuner Statistics Server {record.DisplayVersion}";
         if ((!string.Equals(record.DisplayName, "RivaTuner Statistics Server", StringComparison.Ordinal)
                 && !string.Equals(record.DisplayName, expectedVersionedName, StringComparison.Ordinal))
             || !string.Equals(record.Publisher?.Trim(), "Unwinder", StringComparison.Ordinal)
@@ -197,11 +198,11 @@ internal sealed class RtssDiscovery
             return false;
         }
 
-        string? candidate = record.InstallLocation;
+        var candidate = record.InstallLocation;
         if (string.IsNullOrWhiteSpace(candidate))
         {
-            string? installer = ExtractExecutable(record.UninstallString)
-                ?? ExtractExecutable(record.DisplayIcon);
+            var installer = ExtractExecutable(record.UninstallString)
+                            ?? ExtractExecutable(record.DisplayIcon);
             candidate = installer is null ? null : Path.GetDirectoryName(installer);
         }
 
@@ -219,7 +220,7 @@ internal sealed class RtssDiscovery
             return false;
         }
 
-        string resolvedRoot = root;
+        var resolvedRoot = root;
         return _environment.ProtectedInstallRoots.Any(protectedRoot =>
             IsUnder(resolvedRoot, protectedRoot));
     }
@@ -234,7 +235,7 @@ internal sealed class RtssDiscovery
             return false;
         }
 
-        return Version.TryParse(NormalizeVersion(identity.FileVersion), out Version? fileVersion)
+        return Version.TryParse(NormalizeVersion(identity.FileVersion), out var fileVersion)
             && fileVersion >= MinimumVersion
             && fileVersion.Major == registrationVersion.Major;
     }
@@ -252,14 +253,14 @@ internal sealed class RtssDiscovery
             return null;
         }
 
-        string value = command.Trim();
+        var value = command.Trim();
         if (value[0] == '"')
         {
-            int closing = value.IndexOf('"', 1);
+            var closing = value.IndexOf('"', 1);
             return closing > 1 ? value[1..closing] : null;
         }
 
-        int end = value.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        var end = value.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
         return end < 0 ? null : value[..(end + 4)];
     }
 
@@ -270,8 +271,8 @@ internal sealed class RtssDiscovery
             return null;
         }
 
-        string normalized = value.Replace(',', '.').Trim();
-        int separator = normalized.IndexOf(' ');
+        var normalized = value.Replace(',', '.').Trim();
+        var separator = normalized.IndexOf(' ');
         return separator < 0 ? normalized : normalized[..separator];
     }
 
@@ -282,7 +283,7 @@ internal sealed class RtssDiscovery
             return false;
         }
 
-        string canonicalRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var canonicalRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         return path.Equals(canonicalRoot, StringComparison.OrdinalIgnoreCase)
             || path.StartsWith(canonicalRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
@@ -326,18 +327,18 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
     public IReadOnlyList<string> ProtectedInstallRoots { get; } =
     [
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
     ];
 
     public IReadOnlyList<RtssInstallRecord> ReadInstallRecords()
     {
         List<RtssInstallRecord> records = [];
-        foreach (RegistryView view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
+        foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
         {
             try
             {
-                using RegistryKey machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
-                using RegistryKey? key = machine.OpenSubKey(UninstallKey, writable: false);
+                using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var key = machine.OpenSubKey(UninstallKey, writable: false);
                 if (key is null)
                 {
                     continue;
@@ -370,14 +371,14 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
             FileInfo file = new(path);
             if (!file.Exists || file.Length > 32L * 1024 * 1024)
             {
-                return new(false, 0, null, null, false,
+                return new RtssFileIdentity(false, 0, null, null, false,
                     new HashSet<string>(StringComparer.Ordinal), false);
             }
 
-            DateTime lastWrite = file.LastWriteTimeUtc;
+            var lastWrite = file.LastWriteTimeUtc;
             lock (_identityGate)
             {
-                if (_identities.TryGetValue(path, out CachedFileIdentity? cached)
+                if (_identities.TryGetValue(path, out var cached)
                     && cached.Length == file.Length
                     && cached.LastWriteTimeUtc == lastWrite)
                 {
@@ -385,12 +386,12 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                 }
             }
 
-            FileVersionInfo version = FileVersionInfo.GetVersionInfo(path);
-            bool is64Bit = false;
-            IReadOnlySet<string> exports = Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
+            var version = FileVersionInfo.GetVersionInfo(path);
+            var is64Bit = false;
+            var exports = Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
                 ? PeExportReader.Read(path, out is64Bit)
                 : new HashSet<string>(StringComparer.Ordinal);
-            bool signatureValid = NativeAuthenticode.VerifyFile(path) == 0;
+            var signatureValid = NativeAuthenticode.VerifyFile(path) == 0;
             RtssFileIdentity identity = new(
                 true,
                 file.Length,
@@ -401,7 +402,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                 signatureValid);
             lock (_identityGate)
             {
-                _identities[path] = new(file.Length, lastWrite, identity);
+                _identities[path] = new CachedFileIdentity(file.Length, lastWrite, identity);
             }
 
             return identity;
@@ -412,7 +413,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                 $"rtss.discovery.file.{Path.GetFileName(path)}",
                 $"RTSS discovery could not inspect {Path.GetFileName(path)}: {ex.Message}",
                 LogLevel.Warn);
-            return new(false, 0, null, null, false,
+            return new RtssFileIdentity(false, 0, null, null, false,
                 new HashSet<string>(StringComparer.Ordinal), false);
         }
     }
@@ -420,16 +421,16 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
     public IReadOnlyList<RtssProcessIdentity> ReadProcesses()
     {
         List<RtssProcessIdentity> result = [];
-        foreach (Process process in Process.GetProcessesByName("RTSS").Take(8))
+        foreach (var process in Process.GetProcessesByName("RTSS").Take(8))
         {
             using (process)
             {
                 try
                 {
-                    string? path = process.MainModule?.FileName;
+                    var path = process.MainModule?.FileName;
                     if (!string.IsNullOrWhiteSpace(path))
                     {
-                        result.Add(new(process.Id, path, process.StartTime.ToUniversalTime()));
+                        result.Add(new RtssProcessIdentity(process.Id, path, process.StartTime.ToUniversalTime()));
                     }
                 }
                 catch (Exception ex)
@@ -468,7 +469,7 @@ internal static class PeExportReader
         }
 
         stream.Position = 0x3c;
-        uint peOffset = reader.ReadUInt32();
+        var peOffset = reader.ReadUInt32();
         if (peOffset > stream.Length - 24)
         {
             return Empty();
@@ -481,17 +482,17 @@ internal static class PeExportReader
         }
 
         reader.ReadUInt16();
-        ushort sectionCount = reader.ReadUInt16();
+        var sectionCount = reader.ReadUInt16();
         stream.Position += 12;
-        ushort optionalSize = reader.ReadUInt16();
+        var optionalSize = reader.ReadUInt16();
         stream.Position += 2;
-        long optionalOffset = stream.Position;
-        ushort magic = reader.ReadUInt16();
-        int dataDirectoryOffset = magic switch
+        var optionalOffset = stream.Position;
+        var magic = reader.ReadUInt16();
+        var dataDirectoryOffset = magic switch
         {
             0x10b => 96,
             0x20b => 112,
-            _ => -1,
+            _ => -1
         };
         if (dataDirectoryOffset < 0 || optionalSize < dataDirectoryOffset + 8)
         {
@@ -501,7 +502,7 @@ internal static class PeExportReader
         is64Bit = magic == 0x20b;
 
         stream.Position = optionalOffset + dataDirectoryOffset;
-        uint exportRva = reader.ReadUInt32();
+        var exportRva = reader.ReadUInt32();
         if (exportRva == 0 || sectionCount == 0 || sectionCount > 96)
         {
             return Empty();
@@ -509,29 +510,29 @@ internal static class PeExportReader
 
         stream.Position = optionalOffset + optionalSize;
         List<PeSection> sections = [];
-        for (int index = 0; index < sectionCount; index++)
+        for (var index = 0; index < sectionCount; index++)
         {
             stream.Position += 8;
-            uint virtualSize = reader.ReadUInt32();
-            uint virtualAddress = reader.ReadUInt32();
-            uint rawSize = reader.ReadUInt32();
-            uint rawOffset = reader.ReadUInt32();
+            var virtualSize = reader.ReadUInt32();
+            var virtualAddress = reader.ReadUInt32();
+            var rawSize = reader.ReadUInt32();
+            var rawOffset = reader.ReadUInt32();
             stream.Position += 16;
-            sections.Add(new(virtualAddress, Math.Max(virtualSize, rawSize), rawOffset, rawSize));
+            sections.Add(new PeSection(virtualAddress, Math.Max(virtualSize, rawSize), rawOffset, rawSize));
         }
 
-        if (!TryMap(exportRva, sections, stream.Length, out long exportOffset))
+        if (!TryMap(exportRva, sections, stream.Length, out var exportOffset))
         {
             return Empty();
         }
 
         stream.Position = exportOffset + 24;
-        uint nameCount = reader.ReadUInt32();
+        var nameCount = reader.ReadUInt32();
         stream.Position += 4;
-        uint namesRva = reader.ReadUInt32();
+        var namesRva = reader.ReadUInt32();
         if (nameCount > MaxExportNames
-            || !TryMap(namesRva, sections, stream.Length, out long namesOffset)
-            || namesOffset + (nameCount * 4L) > stream.Length)
+            || !TryMap(namesRva, sections, stream.Length, out var namesOffset)
+            || namesOffset + nameCount * 4L > stream.Length)
         {
             return Empty();
         }
@@ -539,18 +540,18 @@ internal static class PeExportReader
         HashSet<string> exports = new(StringComparer.Ordinal);
         for (uint index = 0; index < nameCount; index++)
         {
-            stream.Position = namesOffset + (index * 4L);
-            uint nameRva = reader.ReadUInt32();
-            if (!TryMap(nameRva, sections, stream.Length, out long nameOffset))
+            stream.Position = namesOffset + index * 4L;
+            var nameRva = reader.ReadUInt32();
+            if (!TryMap(nameRva, sections, stream.Length, out var nameOffset))
             {
                 continue;
             }
 
             stream.Position = nameOffset;
             List<byte> bytes = [];
-            for (int byteIndex = 0; byteIndex < MaxExportNameBytes && stream.Position < stream.Length; byteIndex++)
+            for (var byteIndex = 0; byteIndex < MaxExportNameBytes && stream.Position < stream.Length; byteIndex++)
             {
-                byte value = reader.ReadByte();
+                var value = reader.ReadByte();
                 if (value == 0)
                 {
                     break;
@@ -567,7 +568,7 @@ internal static class PeExportReader
 
             if (bytes.Count > 0)
             {
-                exports.Add(System.Text.Encoding.ASCII.GetString(bytes.ToArray()));
+                exports.Add(Encoding.ASCII.GetString(bytes.ToArray()));
             }
         }
 
@@ -580,9 +581,9 @@ internal static class PeExportReader
         long fileLength,
         out long offset)
     {
-        foreach (PeSection section in sections)
+        foreach (var section in sections)
         {
-            ulong end = (ulong)section.VirtualAddress + section.VirtualSpan;
+            var end = (ulong)section.VirtualAddress + section.VirtualSpan;
             if (rva < section.VirtualAddress || rva >= end)
             {
                 continue;
@@ -594,7 +595,7 @@ internal static class PeExportReader
                 break;
             }
 
-            ulong candidate = section.RawOffset + delta;
+            var candidate = section.RawOffset + delta;
             if (candidate < (ulong)fileLength)
             {
                 offset = (long)candidate;

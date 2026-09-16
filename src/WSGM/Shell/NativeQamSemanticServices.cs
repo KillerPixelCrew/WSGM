@@ -51,7 +51,7 @@ internal static class NativeQamUi
         CommandProgress.Completed => "completed",
         CommandProgress.Failed => "failed",
         CommandProgress.Uncertain => "uncertain",
-        _ => string.Empty,
+        _ => string.Empty
     };
 
     /// <summary>The bounded status line for a device control.</summary>
@@ -62,8 +62,8 @@ internal static class NativeQamUi
     /// <returns>The status line.</returns>
     internal static string StatusText(DeviceCapabilityView view, bool available, string unavailable, string outOfRange)
     {
-        string? detail = view.LastResult?.Reason?.Detail
-            ?? view.Projection.State.Reason?.Detail;
+        var detail = view.LastResult?.Reason?.Detail
+                     ?? view.Projection.State.Reason?.Detail;
         if (!available && string.IsNullOrWhiteSpace(detail))
         {
             detail = unavailable;
@@ -82,7 +82,7 @@ internal static class NativeQamUi
     /// <returns>Success when the value reached the device, else the failure with its reason.</returns>
     internal static SteamUiCommandResult CommandResult(CapabilityCommandResult result, string fallback)
     {
-        bool succeeded = result.Outcome.IsApplied();
+        var succeeded = result.Outcome.IsApplied();
         return new SteamUiCommandResult(succeeded, succeeded ? null : result.Reason?.Detail ?? fallback);
     }
 
@@ -125,10 +125,10 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     {
         get
         {
-            NativeQamPerfSupport? support = PerfSupport?.Invoke();
-            bool available = support?.VariableRefreshRateSupported == true
-                && ApplyVariableRefreshRate is not null;
-            bool enabled = support?.VariableRefreshRateEnabled == true;
+            var support = PerfSupport?.Invoke();
+            var available = support?.VariableRefreshRateSupported == true
+                            && ApplyVariableRefreshRate is not null;
+            var enabled = support?.VariableRefreshRateEnabled == true;
             return new SteamVariableRefreshState(
                 available,
                 enabled,
@@ -182,7 +182,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             {
                 SteamSettingPersistence.Global => PerformancePersistenceTarget.Global,
                 SteamSettingPersistence.Application => PerformancePersistenceTarget.Application,
-                _ => PerformancePersistenceTarget.Automatic,
+                _ => PerformancePersistenceTarget.Automatic
             },
             correlationId,
             cancellationToken);
@@ -232,7 +232,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     /// </remarks>
     private int EnableFrameLimitWatts()
     {
-        int desired = _service.Current.Desired.FrameLimit ?? 0;
+        var desired = _service.Current.Desired.FrameLimit ?? 0;
         return desired > 0
             ? desired
             : NativeQamPerfProjection.LowestOption(PerfSupport?.Invoke().FrameLimitOptions ?? []);
@@ -243,9 +243,9 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     {
         get
         {
-            PerformanceState current = _service.Current;
-            NativeQamPerfSupport support = PerfSupport?.Invoke()
-                ?? new NativeQamPerfSupport([], false, false, null, null);
+            var current = _service.Current;
+            var support = PerfSupport?.Invoke()
+                          ?? new NativeQamPerfSupport([], false, false, null, null);
 
             return NativeQamPerfProjection.Project(
                 current.Desired,
@@ -283,12 +283,12 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         if (delta.SteamAppId is { } requestedAppId
             && _service.Current.Target?.SteamAppId != requestedAppId)
         {
-            string current = _service.Current.Target?.SteamAppId is { } currentAppId
+            var current = _service.Current.Target?.SteamAppId is { } currentAppId
                 ? $"AppID {currentAppId}"
                 : "no Steam application";
-            string error = $"The performance delta targets stale AppID {requestedAppId}; {current} is current.";
+            var error = $"The performance delta targets stale AppID {requestedAppId}; {current} is current.";
             Log.Warn($"Native QAM performance delta refused: {error}");
-            return new(false, error);
+            return new SteamUiCommandResult(false, error);
         }
 
         if (delta.ResetToDefault)
@@ -306,15 +306,15 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         {
             Log.Info(
                 "Native QAM performance delta contained nothing WSGM backs; no change was made.");
-            return new(false, "The performance delta carried no supported change.");
+            return new SteamUiCommandResult(false, "The performance delta carried no supported change.");
         }
 
         string? failure = null;
-        foreach (SteamPerformanceChange received in delta.Recognized)
+        foreach (var received in delta.Recognized)
         {
             // The overlay level travels as Valve's enum value, not the notch the user picked —
             // see SteamOverlayLevelWire. Everything downstream speaks notches.
-            SteamPerformanceChange change = received.Kind is SteamPerformanceSetting.OverlayLevel
+            var change = received.Kind is SteamPerformanceSetting.OverlayLevel
                 ? received with { Value = SteamOverlayLevelWire.ToNotch(received.Value) }
                 : received;
 
@@ -333,7 +333,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                 continue;
             }
 
-            SteamUiCommandResult result = await ApplyPerfChangeAsync(
+            var result = await ApplyPerfChangeAsync(
                 change,
                 correlationId,
                 cancellationToken).ConfigureAwait(false);
@@ -348,7 +348,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             failure ??= result.Error;
         }
 
-        return new(failure is null, failure);
+        return new SteamUiCommandResult(failure is null, failure);
     }
 
     /// <summary>Whether a delta field only restates the value WSGM already wants.</summary>
@@ -359,14 +359,14 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     /// display-owned settings pass through; their owners are idempotent.</remarks>
     private bool RestatesDesired(SteamPerformanceChange change)
     {
-        PerformanceValues desired = _service.Current.Desired;
+        var desired = _service.Current.Desired;
         return change.Kind switch
         {
             SteamPerformanceSetting.OverlayLevel => desired.OverlayLevel == change.Value,
             SteamPerformanceSetting.FrameLimit => desired.FrameLimit == change.Value,
             SteamPerformanceSetting.FrameLimitEnabled =>
-                change.AsFlag == (desired.FrameLimit is > 0),
-            _ => false,
+                change.AsFlag == desired.FrameLimit is > 0,
+            _ => false
         };
     }
 
@@ -437,7 +437,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             _ => Task.FromResult(
                 new SteamUiCommandResult(
                     false,
-                    $"The performance setting {change.Kind} has no WSGM backend yet.")),
+                    $"The performance setting {change.Kind} has no WSGM backend yet."))
         };
 
     internal async Task<SteamUiCommandResult> SetAsync(
@@ -447,14 +447,14 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         string correlationId,
         CancellationToken cancellationToken)
     {
-        PerformanceCommandState result = await _service.SetAsync(
+        var result = await _service.SetAsync(
             control,
             value,
             persistence,
             "native-qam",
             correlationId,
             cancellationToken).ConfigureAwait(false);
-        bool succeeded = result.Phase is
+        var succeeded = result.Phase is
             PerformanceCommandPhase.Deferred
             or PerformanceCommandPhase.SucceededVerified
             or PerformanceCommandPhase.AppliedUnverified;
@@ -497,7 +497,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                     + "running.");
         }
 
-        bool changed = await _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken)
+        var changed = await _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken)
             .ConfigureAwait(false);
         return changed || _service.Current.ApplicationProfileEnabled == enabled
             ? new SteamUiCommandResult(true, null)
@@ -518,7 +518,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         string what,
         CancellationToken cancellationToken)
     {
-        bool applied = await apply(enabled, cancellationToken).ConfigureAwait(false);
+        var applied = await apply(enabled, cancellationToken).ConfigureAwait(false);
         return applied
             ? new SteamUiCommandResult(true, null)
             : new SteamUiCommandResult(
@@ -539,17 +539,17 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         bool enabled,
         NativeQamPerfSupport? support = null)
     {
-        RtssCapabilities? capabilities = state.Probe.Capabilities;
-        bool supported = capabilities?.Supports(PerformanceControl.FrameLimit) == true;
-        bool available = enabled
-            && state.Probe.Availability == RtssAvailability.Ready
-            && supported;
+        var capabilities = state.Probe.Capabilities;
+        var supported = capabilities?.Supports(PerformanceControl.FrameLimit) == true;
+        var available = enabled
+                        && state.Probe.Availability == RtssAvailability.Ready
+                        && supported;
 
         // Zero is "off" and is never a slider position, so it is filtered out of both bookends.
-        IReadOnlyList<int> caps = support?.FrameLimitOptions ?? [];
-        int panelMinimum = NativeQamPerfProjection.LowestOption(caps);
-        int panelMaximum = 0;
-        foreach (int cap in caps)
+        var caps = support?.FrameLimitOptions ?? [];
+        var panelMinimum = NativeQamPerfProjection.LowestOption(caps);
+        var panelMaximum = 0;
+        foreach (var cap in caps)
         {
             if (cap > panelMaximum)
             {
@@ -614,7 +614,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             PerformanceCommandPhase.Indeterminate => "indeterminate",
             PerformanceCommandPhase.Failed => "failed",
             PerformanceCommandPhase.ExternalChange => "external-change",
-            _ => "idle",
+            _ => "idle"
         };
     }
 
@@ -633,7 +633,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         PerformanceControl control,
         bool available)
     {
-        string fault = FaultText(state.Command, control);
+        var fault = FaultText(state.Command, control);
         if (!string.IsNullOrEmpty(fault))
         {
             return fault;
@@ -641,14 +641,14 @@ internal sealed class PerformanceServiceNativeQamAdapter :
 
         if (!available)
         {
-            return SteamUiText.Bound(state.Probe.Diagnostic ?? (state.Probe.Availability switch
+            return SteamUiText.Bound(state.Probe.Diagnostic ?? state.Probe.Availability switch
             {
                 RtssAvailability.NotInstalled => "RTSS is not installed.",
                 RtssAvailability.NotRunning => "RTSS is not running.",
                 RtssAvailability.Incompatible => "The installed RTSS version is incompatible.",
                 RtssAvailability.AdapterUnavailable => "The RTSS profile adapter is unavailable.",
-                _ => "RTSS performance control is not currently available.",
-            }));
+                _ => "RTSS performance control is not currently available."
+            });
         }
 
         return state.Target switch
@@ -658,7 +658,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                 SteamUiText.Bound($"RTSS application profile: {profile}"),
             { SteamAppId: { } appId } => SteamUiText.Bound(
                 $"Steam AppID {appId}; waiting for its foreground executable."),
-            _ => "Waiting for the foreground application's executable profile.",
+            _ => "Waiting for the foreground application's executable profile."
         };
     }
 
@@ -668,7 +668,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         PerformanceCommandPhase.TimedOut => "The RTSS command timed out.",
         PerformanceCommandPhase.Indeterminate => "The RTSS command result is indeterminate.",
         PerformanceCommandPhase.Failed => "The RTSS command failed.",
-        _ => "The RTSS command did not complete.",
+        _ => "The RTSS command did not complete."
     };
 }
 
@@ -714,7 +714,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         _coordinator?.Capabilities.Snapshot() ?? []) with
     {
         Unified = _coordinator?.ManualTdpUnified == true,
-        CanSelectMode = _coordinator?.ManualTdpMode.Available == true,
+        CanSelectMode = _coordinator?.ManualTdpMode.Available == true
     };
 
     public async Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken)
@@ -752,7 +752,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
             return new SteamUiCommandResult(false, UnavailableState.StatusText);
         }
 
-        TdpProjection projection = Project(_coordinator.Capabilities.Snapshot(), role);
+        var projection = Project(_coordinator.Capabilities.Snapshot(), role);
         if (!projection.State.Available
             || projection.State.MinimumWatts is not int minimum
             || projection.State.MaximumWatts is not int maximum
@@ -765,13 +765,13 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 "The requested power limit is unavailable or outside its current descriptor.");
         }
 
-        CapabilityCommandResult result = await _coordinator.ExecuteCapabilityAsync(
+        var result = await _coordinator.ExecuteCapabilityAsync(
             projection.CapabilityId!,
             projection.InstanceId,
             new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = watts,
+                IntegerValue = watts
             },
             CommandTimeout,
             // A person moved the TDP control in the Steam menu, so AutoTDP steps aside for it.
@@ -801,21 +801,21 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         IReadOnlyList<DeviceCapabilityView> views,
         CapabilityRole role = CapabilityRole.PowerSustainedLimit)
     {
-        DeviceCapabilityView[] matches = views
+        var matches = views
             .Where(view => view.Descriptor.Role == role)
             .ToArray();
         if (matches.Length != 1)
         {
-            string detail = matches.Length == 0
+            var detail = matches.Length == 0
                 ? "The active device does not publish a requested power limit."
                 : "The active device published an ambiguous requested power limit.";
             return new TdpProjection(Unavailable(detail), null);
         }
 
-        DeviceCapabilityView view = matches[0];
-        CapabilityDescriptor descriptor = view.Descriptor;
-        CapabilityProjection projection = view.Projection;
-        CapabilityState state = projection.State;
+        var view = matches[0];
+        var descriptor = view.Descriptor;
+        var projection = view.Projection;
+        var state = projection.State;
         if (descriptor.Role != role
             || descriptor.ValueKind is not CapabilityValueKind.Integer
             || descriptor.Unit is not CapabilityUnit.Watt
@@ -835,12 +835,12 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 descriptor.InstanceId, descriptor.CapabilityId);
         }
 
-        int? desired = NativeQamUi.ValidInteger(projection.DesiredValue, minimum, maximum, step);
-        int? observed = NativeQamUi.ValidInteger(state.ObservedValue, minimum, maximum, step);
-        bool available = state.Available
-            && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified
-            && observed.HasValue;
-        string status = StatusText(view, available);
+        var desired = NativeQamUi.ValidInteger(projection.DesiredValue, minimum, maximum, step);
+        var observed = NativeQamUi.ValidInteger(state.ObservedValue, minimum, maximum, step);
+        var available = state.Available
+                        && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified
+                        && observed.HasValue;
+        var status = StatusText(view, available);
         return new TdpProjection(
             new NativeQamTdpState(
                 available,
@@ -878,7 +878,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         CommandOutcome.Rejected => "The requested power-limit command was rejected.",
         CommandOutcome.TimedOut => "The requested power-limit command timed out.",
         CommandOutcome.Indeterminate => "The requested power-limit result is indeterminate.",
-        _ => "The requested power-limit command did not complete.",
+        _ => "The requested power-limit command did not complete."
     };
 
     internal sealed record TdpProjection(NativeQamTdpState State, string? InstanceId, string? CapabilityId = null);
@@ -934,17 +934,17 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         if (_coordinator is null)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return new(false, "Device Integration is not active in this session.");
+            return new SteamUiCommandResult(false, "Device Integration is not active in this session.");
         }
 
-        DeviceCapabilityView[] matches = _coordinator.Capabilities.Snapshot()
+        var matches = _coordinator.Capabilities.Snapshot()
             .Where(view => view.Descriptor.Role is CapabilityRole.LightingZoneColor
                 && string.Equals(view.Descriptor.InstanceId, zone, StringComparison.Ordinal))
             .ToArray();
         if (matches.Length != 1 || !WritableColor(matches[0]))
         {
             Log.Warn($"Native QAM lighting color refused: zone='{zone}', matches={matches.Length}.");
-            return new(false, "That lighting zone is unavailable or incompatible.");
+            return new SteamUiCommandResult(false, "That lighting zone is unavailable or incompatible.");
         }
 
         return await ExecuteAsync(
@@ -952,7 +952,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             new CapabilityValue
             {
                 Kind = CapabilityValueKind.Color,
-                ColorValue = color,
+                ColorValue = color
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -966,19 +966,19 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         if (_coordinator is null)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return new(false, "Device Integration is not active in this session.");
+            return new SteamUiCommandResult(false, "Device Integration is not active in this session.");
         }
 
-        DeviceCapabilityView[] matches = _coordinator.Capabilities.Snapshot()
+        var matches = _coordinator.Capabilities.Snapshot()
             .Where(view => view.Descriptor.Role == role)
             .ToArray();
         if (matches.Length != 1 || !WritableRange(matches[0], role, out _, out _, out _))
         {
             Log.Warn($"Native QAM device range refused: role={role}, matches={matches.Length}.");
-            return new(false, "That device control is unavailable or incompatible.");
+            return new SteamUiCommandResult(false, "That device control is unavailable or incompatible.");
         }
 
-        CapabilityDescriptor descriptor = matches[0].Descriptor;
+        var descriptor = matches[0].Descriptor;
         if (descriptor.Minimum is not int minimum
             || descriptor.Maximum is not int maximum
             || descriptor.Step is not int step
@@ -986,7 +986,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             || value > maximum
             || (value - minimum) % step != 0)
         {
-            return new(false, "The value is outside the device's current descriptor.");
+            return new SteamUiCommandResult(false, "The value is outside the device's current descriptor.");
         }
 
         return await ExecuteAsync(
@@ -994,7 +994,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = value,
+                IntegerValue = value
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -1004,7 +1004,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         CapabilityValue value,
         CancellationToken cancellationToken)
     {
-        CapabilityCommandResult result = await _coordinator!.ExecuteCapabilityAsync(
+        var result = await _coordinator!.ExecuteCapabilityAsync(
             view.Descriptor.CapabilityId,
             view.Descriptor.InstanceId,
             value,
@@ -1031,28 +1031,28 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
     internal static SteamDeviceControlsState Project(
         IReadOnlyList<DeviceCapabilityView> views)
     {
-        SteamDeviceRangeState? charge = ProjectUniqueRange(
+        var charge = ProjectUniqueRange(
             views,
             CapabilityRole.ChargeLimit);
-        SteamDeviceRangeState? brightness = ProjectUniqueRange(
+        var brightness = ProjectUniqueRange(
             views,
             CapabilityRole.LightingBrightness);
         List<SteamLightingZoneState> zones = [];
-        IEnumerable<IGrouping<string, DeviceCapabilityView>> zoneGroups = views
+        var zoneGroups = views
             .Where(candidate => candidate.Descriptor.Role is CapabilityRole.LightingZoneColor
                 && !string.IsNullOrWhiteSpace(candidate.Descriptor.InstanceId)
                 && candidate.Descriptor.InstanceId.Length <= 64)
             .GroupBy(
                 candidate => candidate.Descriptor.InstanceId!,
                 StringComparer.Ordinal);
-        foreach (IGrouping<string, DeviceCapabilityView> group in zoneGroups
+        foreach (var group in zoneGroups
             .Where(candidate => candidate.Count() == 1)
             .Take(16))
         {
-            DeviceCapabilityView view = group.Single();
-            CapabilityDescriptor descriptor = view.Descriptor;
-            string instanceId = group.Key;
-            bool compatible = WritableColor(view);
+            var view = group.Single();
+            var descriptor = view.Descriptor;
+            var instanceId = group.Key;
+            var compatible = WritableColor(view);
             zones.Add(new SteamLightingZoneState(
                 instanceId,
                 descriptor.Display.Key is DisplayKey.Custom
@@ -1073,7 +1073,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         IReadOnlyList<DeviceCapabilityView> views,
         CapabilityRole role)
     {
-        DeviceCapabilityView[] matches = views
+        var matches = views
             .Where(view => view.Descriptor.Role == role)
             .ToArray();
         if (matches.Length == 0)
@@ -1081,14 +1081,14 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             return null;
         }
         if (matches.Length != 1
-            || !WritableRange(matches[0], role, out int minimum, out int maximum, out int step))
+            || !WritableRange(matches[0], role, out var minimum, out var maximum, out var step))
         {
             return new SteamDeviceRangeState(
                 false, 0, 100, 1, null, null, string.Empty,
                 $"The device published an incompatible or ambiguous {role} control.");
         }
 
-        DeviceCapabilityView view = matches[0];
+        var view = matches[0];
         return new SteamDeviceRangeState(
             true,
             minimum,
@@ -1107,11 +1107,11 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
         out int maximum,
         out int step)
     {
-        CapabilityDescriptor descriptor = view.Descriptor;
+        var descriptor = view.Descriptor;
         minimum = descriptor.Minimum ?? 0;
         maximum = descriptor.Maximum ?? 0;
         step = descriptor.Step ?? 0;
-        CapabilityState state = view.Projection.State;
+        var state = view.Projection.State;
         return descriptor.Role == expectedRole
             && descriptor.ValueKind is CapabilityValueKind.Integer
             && descriptor.Unit is CapabilityUnit.Percent
@@ -1128,8 +1128,8 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
 
     private static bool WritableColor(DeviceCapabilityView view)
     {
-        CapabilityDescriptor descriptor = view.Descriptor;
-        CapabilityState state = view.Projection.State;
+        var descriptor = view.Descriptor;
+        var state = view.Projection.State;
         return descriptor.Role is CapabilityRole.LightingZoneColor
             && descriptor.ValueKind is CapabilityValueKind.Color
             && descriptor.SupportsRead
@@ -1143,7 +1143,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
     private static int? ValidColor(CapabilityValue? value) => value is
     {
         Kind: CapabilityValueKind.Color,
-        ColorValue: >= 0 and <= 0xFFFFFF,
+        ColorValue: >= 0 and <= 0xFFFFFF
     }
             ? value.ColorValue
             : null;
@@ -1227,7 +1227,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        SteamAutoTdpState state = Current;
+        var state = Current;
         if (_coordinator is null || !state.Available)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1303,7 +1303,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 SteamUiText.Bound(enabled ? "Starting." : string.Empty));
         }
 
-        bool controlling = status.State is AutoTdpState.Controlling;
+        var controlling = status.State is AutoTdpState.Controlling;
         return new SteamAutoTdpState(
             // Unavailable is the one state where the switch must not be operable: it means AutoTDP
             // cannot run on this device however the setting is left.
@@ -1315,7 +1315,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
             {
                 AutoTdpState.Controlling => "completed",
                 AutoTdpState.Unavailable => "failed",
-                _ => string.Empty,
+                _ => string.Empty
             },
             SteamUiText.Bound(status.Detail));
     }
@@ -1393,25 +1393,25 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        SteamControllerTargetState state = Current;
+        var state = Current;
         if (_coordinator is null || !state.Available)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new SteamUiCommandResult(false, state.StatusText);
         }
 
-        if (!TryParseTarget(target, out ManagedControllerTarget parsed))
+        if (!TryParseTarget(target, out var parsed))
         {
             return new SteamUiCommandResult(false, $"'{target}' is not a controller target.");
         }
 
-        ControllerManagerStatus status = await _coordinator
+        var status = await _coordinator
             .SetControllerTargetAsync(parsed, cancellationToken)
             .ConfigureAwait(false);
 
         // Truthful rather than optimistic: the setting is stored either way, but a manager that
         // could not bring the new target up is not a success the menu should show as one.
-        bool succeeded = status.State is not
+        var succeeded = status.State is not
             (ControllerManagementState.Faulted or ControllerManagementState.Unavailable);
         return new SteamUiCommandResult(succeeded, succeeded ? null : status.Detail);
     }
@@ -1467,24 +1467,24 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
             {
                 (Target: ManagedControllerTarget.SteamDeckComposite, Label: "Steam Deck"),
                 (Target: ManagedControllerTarget.Xbox360, Label: "Xbox 360"),
-                (Target: ManagedControllerTarget.DualShock4, Label: "DualShock 4"),
+                (Target: ManagedControllerTarget.DualShock4, Label: "DualShock 4")
             }
                 .Where(option => supportedTargets.Contains(option.Target))
                 .Select(option => new SteamControllerTargetOption(
                     option.Target.ToString(),
                     option.Label,
-                    true)),
+                    true))
         ];
 
-        bool available = status.State is
+        var available = status.State is
             ControllerManagementState.Idle or ControllerManagementState.Active;
-        string selected = status.Target is { } target ? target.ToString() : string.Empty;
+        var selected = status.Target is { } target ? target.ToString() : string.Empty;
 
         // Observed is what a target actually exists for right now, which is only true while Active.
         // Reporting the selection back as if it were observed would hide a target that was chosen
         // but never came up.
-        string observed = status.State is ControllerManagementState.Active ? selected : string.Empty;
-        string detail = status.Detail;
+        var observed = status.State is ControllerManagementState.Active ? selected : string.Empty;
+        var detail = status.Detail;
         if (available && string.IsNullOrWhiteSpace(detail) && !packageInstalled)
         {
             detail = "No device package is installed, so no physical controller is being captured.";
@@ -1521,7 +1521,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         ControllerManagementState.Active => "completed",
         ControllerManagementState.Idle => string.Empty,
         ControllerManagementState.Faulted => "failed",
-        _ => string.Empty,
+        _ => string.Empty
     };
 
     private void OnControllerStatusChanged(ControllerManagerStatus status) =>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using Xunit;
@@ -10,19 +11,19 @@ namespace WSGM.Plugin.Ir.Tests;
 public sealed class IrRemoteActionTests
 {
     private static IrRemoteCatalog Catalog() => new([
-        new("hdmi-switch", "HDMI switch",
-            [new("port-1", "Port 1 (PC)"), new("port-3", "Port 3 (Android box)"), new("power", "Power")],
-            [new("android-audio-reset", "Android box with audio reset")]),
-        new("koenic-ac", "Koenic KAC 12020", [new("off", "Off")], [],
-            new("MIDEA", ["cool", "auto", "fan", "dry"], ["auto", "low", "medium", "high"], 17, 30,
-                Celsius: true, Swing: "toggle")),
+        new IrRemote("hdmi-switch", "HDMI switch",
+            [new IrRemoteButton("port-1", "Port 1 (PC)"), new IrRemoteButton("port-3", "Port 3 (Android box)"), new IrRemoteButton("power", "Power")],
+            [new IrRemoteButton("android-audio-reset", "Android box with audio reset")]),
+        new IrRemote("koenic-ac", "Koenic KAC 12020", [new IrRemoteButton("off", "Off")], [],
+            new IrRemoteClimate("MIDEA", ["cool", "auto", "fan", "dry"], ["auto", "low", "medium", "high"], 17, 30,
+                Celsius: true, Swing: "toggle"))
     ]);
 
     private static async Task WithPlugin(FakeEndpoint endpoint,
         Func<IrPlugin, PluginContext, Task> body)
     {
         using TemporaryDirectory temporary = new();
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         await using IrPlugin plugin = new(_ => endpoint);
         await plugin.StartAsync(new RecordingPluginHost(), context, default);
         await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
@@ -32,12 +33,12 @@ public sealed class IrRemoteActionTests
     [Fact]
     public async Task OlderFirmwareCarriesNoRemotesAndIsRefusedWithoutEmitting()
     {
-        FakeEndpoint endpoint = new() { Firmware = "0.3.0", Catalog = new([]) };
+        FakeEndpoint endpoint = new() { Firmware = "0.3.0", Catalog = new IrRemoteCatalog([]) };
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult result = await InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "port-1")));
+            var result = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-1")));
 
             Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
             Assert.Contains("0.4.0", result.Detail);
@@ -52,15 +53,15 @@ public sealed class IrRemoteActionTests
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult result = await InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "port-1")));
+            var result = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-1")));
 
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(["press hdmi-switch/port-1"], endpoint.RemoteCalls);
             // The catalog was unknown, so it was read once; the next press reuses it.
             Assert.Equal(1, endpoint.CatalogReads);
             await InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")));
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")));
             Assert.Equal(1, endpoint.CatalogReads);
         });
     }
@@ -71,12 +72,12 @@ public sealed class IrRemoteActionTests
         FakeEndpoint endpoint = new() { Catalog = Catalog() };
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            var elapsed = System.Diagnostics.Stopwatch.StartNew();
-            Task<PluginActionResult> off = InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")),
-                ("delay-ms", new(Number: 3000))).AsTask();
-            Task<PluginActionResult> on = InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power"))).AsTask();
+            var elapsed = Stopwatch.StartNew();
+            var off = InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")),
+                ("delay-ms", new PluginValue(Number: 3000))).AsTask();
+            var on = InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power"))).AsTask();
 
             Assert.False(off.IsCompleted);
             Assert.False(on.IsCompleted);
@@ -94,22 +95,22 @@ public sealed class IrRemoteActionTests
     public async Task WifiReturnUsesAFreshIdentifiedConnectionAndNeverRetriesAPress(bool failReturn)
     {
         using TemporaryDirectory temporary = new();
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         FakeEndpoint entry = new() { Catalog = Catalog() };
         FakeEndpoint leave = new() { Catalog = Catalog(), FailPress = failReturn };
-        int opened = 0;
+        var opened = 0;
         await new IrPairing(new string('a', 48), "test.invalid", "192.0.2.1")
             .SaveAsync(Path.Combine(temporary.Root, "endpoint.json"), default);
         await using IrPlugin plugin = new(_ => ++opened == 1 ? entry : leave);
         await plugin.StartAsync(new RecordingPluginHost(), context, default);
         await plugin.ConfigureAsync(Configuration(transport: "wifi"), context, default);
         Assert.Equal(PluginActionOutcome.Dispatched, (await InvokeAutomated(plugin, context, "remote-press",
-            ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "port-1")))).Outcome);
+            ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-1")))).Outcome);
         // Simulate the firmware's idle close while the old identity remains cached.
         entry.FailPress = true;
         Assert.NotNull(entry.Identity);
-        PluginActionResult result = await InvokeAutomated(plugin, context, "remote-press",
-            ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "port-3")));
+        var result = await InvokeAutomated(plugin, context, "remote-press",
+            ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-3")));
         Assert.Equal(failReturn ? PluginActionOutcome.Unconfirmed : PluginActionOutcome.Dispatched, result.Outcome);
         Assert.True(entry.Disposed);
         Assert.Equal(2, opened);
@@ -125,10 +126,10 @@ public sealed class IrRemoteActionTests
         await WithPlugin(endpoint, async (plugin, context) =>
         {
             using CancellationTokenSource cancellation = new();
-            Task<PluginActionResult> press = plugin.ExecuteActionAsync(new(Guid.NewGuid(), "remote-press",
+            var press = plugin.ExecuteActionAsync(new PluginActionRequest(Guid.NewGuid(), "remote-press",
                 PluginActionOrigin.SessionAutomation, Arguments(plugin, "remote-press",
-                    ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")),
-                    ("delay-ms", new(Number: 3000)))), context, cancellation.Token).AsTask();
+                    ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")),
+                    ("delay-ms", new PluginValue(Number: 3000)))), context, cancellation.Token).AsTask();
             Assert.Single(endpoint.RemoteCalls);
             Assert.False(press.IsCompleted);
             cancellation.Cancel();
@@ -146,9 +147,9 @@ public sealed class IrRemoteActionTests
         FakeEndpoint endpoint = new() { Catalog = Catalog() };
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult result = await InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "power")),
-                ("delay-ms", new(Number: delay)));
+            var result = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")),
+                ("delay-ms", new PluginValue(Number: delay)));
             Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
             Assert.Empty(endpoint.RemoteCalls);
         });
@@ -161,13 +162,13 @@ public sealed class IrRemoteActionTests
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult unknownRemote = await InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "nope")), ("button", new(Text: "port-1")));
+            var unknownRemote = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "nope")), ("button", new PluginValue(Text: "port-1")));
             Assert.Equal(PluginActionOutcome.Rejected, unknownRemote.Outcome);
             Assert.Contains("no remote", unknownRemote.Detail);
 
-            PluginActionResult unknownButton = await InvokeAutomated(plugin, context, "remote-press",
-                ("remote", new(Text: "hdmi-switch")), ("button", new(Text: "nope")));
+            var unknownButton = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "nope")));
             Assert.Equal(PluginActionOutcome.Rejected, unknownButton.Outcome);
             Assert.Contains("no button", unknownButton.Detail);
 
@@ -182,17 +183,17 @@ public sealed class IrRemoteActionTests
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult tooWarm = await InvokeAutomated(plugin, context, "remote-climate",
-                ("remote", new(Text: "koenic-ac")), ("degrees", new(Number: 45)));
+            var tooWarm = await InvokeAutomated(plugin, context, "remote-climate",
+                ("remote", new PluginValue(Text: "koenic-ac")), ("degrees", new PluginValue(Number: 45)));
             Assert.Equal(PluginActionOutcome.Rejected, tooWarm.Outcome);
             Assert.Contains("17-30", tooWarm.Detail);
 
-            PluginActionResult noHeat = await InvokeAutomated(plugin, context, "remote-climate",
-                ("remote", new(Text: "koenic-ac")), ("mode", new(Text: "heat")));
+            var noHeat = await InvokeAutomated(plugin, context, "remote-climate",
+                ("remote", new PluginValue(Text: "koenic-ac")), ("mode", new PluginValue(Text: "heat")));
             Assert.Equal(PluginActionOutcome.Rejected, noHeat.Outcome);
 
-            PluginActionResult notAnAc = await InvokeAutomated(plugin, context, "remote-climate",
-                ("remote", new(Text: "hdmi-switch")));
+            var notAnAc = await InvokeAutomated(plugin, context, "remote-climate",
+                ("remote", new PluginValue(Text: "hdmi-switch")));
             Assert.Equal(PluginActionOutcome.Rejected, notAnAc.Outcome);
             Assert.Contains("not an air conditioner", notAnAc.Detail);
 
@@ -207,10 +208,10 @@ public sealed class IrRemoteActionTests
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult result = await InvokeAutomated(plugin, context, "remote-climate",
-                ("remote", new(Text: "koenic-ac")), ("mode", new(Text: "cool")),
-                ("degrees", new(Number: 20)), ("fan", new(Text: "medium")),
-                ("toggle-swing", new(Boolean: true)));
+            var result = await InvokeAutomated(plugin, context, "remote-climate",
+                ("remote", new PluginValue(Text: "koenic-ac")), ("mode", new PluginValue(Text: "cool")),
+                ("degrees", new PluginValue(Number: 20)), ("fan", new PluginValue(Text: "medium")),
+                ("toggle-swing", new PluginValue(Boolean: true)));
 
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(["climate koenic-ac power=True cool 20 medium swing=True"], endpoint.RemoteCalls);
@@ -224,8 +225,8 @@ public sealed class IrRemoteActionTests
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            PluginActionResult result = await InvokeAutomated(plugin, context, "remote-run",
-                ("remote", new(Text: "hdmi-switch")), ("sequence", new(Text: "android-audio-reset")));
+            var result = await InvokeAutomated(plugin, context, "remote-run",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("sequence", new PluginValue(Text: "android-audio-reset")));
 
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(["run hdmi-switch/android-audio-reset"], endpoint.RemoteCalls);
@@ -242,13 +243,13 @@ public sealed class IrRemoteActionTests
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
-            Dictionary<string, PluginValue> arguments = Arguments(plugin, "remote-run",
-                ("remote", new(Text: "hdmi-switch")), ("sequence", new(Text: "android-audio-reset")));
-            ValueTask<PluginActionResult> running = plugin.ExecuteActionAsync(
-                new(Guid.NewGuid(), "remote-run", PluginActionOrigin.SessionAutomation, arguments),
+            var arguments = Arguments(plugin, "remote-run",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("sequence", new PluginValue(Text: "android-audio-reset")));
+            var running = plugin.ExecuteActionAsync(
+                new PluginActionRequest(Guid.NewGuid(), "remote-run", PluginActionOrigin.SessionAutomation, arguments),
                 context, cancellation.Token);
             await cancellation.CancelAsync();
-            PluginActionResult result = await running;
+            var result = await running;
 
             Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
             Assert.True(endpoint.Cancelled);
@@ -261,7 +262,7 @@ public sealed class IrRemoteActionTests
         FakeEndpoint endpoint = new() { Catalog = Catalog() };
         RecordingPluginHost host = new();
         using TemporaryDirectory temporary = new();
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         await using IrPlugin plugin = new(_ => endpoint);
         await plugin.StartAsync(host, context, default);
         await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
@@ -269,7 +270,7 @@ public sealed class IrRemoteActionTests
         Assert.Equal(PluginActionOutcome.AppliedVerified,
             (await InvokeAutomated(plugin, context, "remote-refresh")).Outcome);
 
-        string published = host.States.Last(state => state.Key == "remotes").Value.Text ?? "";
+        var published = host.States.Last(state => state.Key == "remotes").Value.Text ?? "";
         Assert.Contains("hdmi-switch", published);
         Assert.Contains("android-audio-reset", published);
         Assert.Contains("climate", published);

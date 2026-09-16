@@ -123,7 +123,7 @@ public sealed class BootSplash
     // pool, one at a time, and only its answer comes back to the UI thread.
     private async Task ProbeBigPictureAsync()
     {
-        bool visible = false;
+        var visible = false;
         try
         {
             visible = await Task.Run(() => Steam.IsBigPictureVisible);

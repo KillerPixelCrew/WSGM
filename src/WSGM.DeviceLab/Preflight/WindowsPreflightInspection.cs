@@ -30,13 +30,13 @@ internal sealed class DeviceLabOwnerReservation : IDisposable
     /// <summary>Closes an unretained handle so another process may create the owner object.</summary>
     public void Dispose()
     {
-        IDisposable? handle = Interlocked.Exchange(ref _handle, null);
+        var handle = Interlocked.Exchange(ref _handle, null);
         handle?.Dispose();
     }
 
     internal void RetainForProcessLifetime()
     {
-        IDisposable? handle = Interlocked.Exchange(ref _handle, null);
+        var handle = Interlocked.Exchange(ref _handle, null);
         if (handle is null)
         {
             return;
@@ -76,11 +76,11 @@ internal static class DeviceLabOwnerInspector
     {
         try
         {
-            bool present = Mutex.TryOpenExisting(OwnerObjectName(), out Mutex? owner);
+            var present = Mutex.TryOpenExisting(OwnerObjectName(), out var owner);
             owner?.Dispose();
             return new DeviceLabOwnerInspection
             {
-                State = present ? DeviceOwnerDiscoveryState.Present : DeviceOwnerDiscoveryState.Absent,
+                State = present ? DeviceOwnerDiscoveryState.Present : DeviceOwnerDiscoveryState.Absent
             };
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException
@@ -90,7 +90,7 @@ internal static class DeviceLabOwnerInspector
             return new DeviceLabOwnerInspection
             {
                 State = DeviceOwnerDiscoveryState.Unknown,
-                Detail = exception.GetType().Name,
+                Detail = exception.GetType().Name
             };
         }
     }
@@ -115,7 +115,7 @@ internal static class DeviceLabOwnerInspector
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerObjectName);
         try
         {
-            Mutex handle = new(initiallyOwned: false, ownerObjectName, out bool createdNew);
+            Mutex handle = new(initiallyOwned: false, ownerObjectName, out var createdNew);
             if (!createdNew)
             {
                 handle.Dispose();
@@ -142,8 +142,8 @@ internal static class DeviceLabOwnerInspector
             Inspection = new DeviceLabOwnerInspection
             {
                 State = state,
-                Detail = detail,
+                Detail = detail
             },
-            Reservation = reservation,
+            Reservation = reservation
         };
 }

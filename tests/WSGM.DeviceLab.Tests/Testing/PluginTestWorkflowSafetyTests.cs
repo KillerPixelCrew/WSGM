@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Identity;
@@ -7,6 +8,7 @@ using WSGM.Device.Sdk.Plugin;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
+using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Testing;
 
 namespace WSGM.Device.Tests;
@@ -15,7 +17,7 @@ public sealed class PluginTestWorkflowSafetyTests
 {
     private static string WorkerExecutablePath()
     {
-        string repositoryRoot = Assert.IsType<string>(
+        var repositoryRoot = Assert.IsType<string>(
             DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
         return Path.Combine(
             repositoryRoot,
@@ -23,7 +25,7 @@ public sealed class PluginTestWorkflowSafetyTests
             "WSGM.DeviceLab",
             "bin",
             typeof(PluginTestWorkflowSafetyTests).Assembly
-                .GetCustomAttributes<System.Reflection.AssemblyConfigurationAttribute>().Single().Configuration,
+                .GetCustomAttributes<AssemblyConfigurationAttribute>().Single().Configuration,
             "net10.0-windows",
             "win-x64",
             "wsgm-device.exe");
@@ -33,13 +35,13 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task Detection_RunsThroughTheAuthorizedDisposableWorker()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             OwnerReservationLifetimePlugin.Id,
             typeof(OwnerReservationLifetimePlugin).FullName!);
 
-        string executablePath = WorkerExecutablePath();
-        PluginTestReport report = await PluginTestWorkerSupervisor.TestDetectionAsync(
+        var executablePath = WorkerExecutablePath();
+        var report = await PluginTestWorkerSupervisor.TestDetectionAsync(
             package,
             new DeviceIdentitySnapshot(),
             executablePath,
@@ -54,18 +56,18 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task Detection_HardDeadlineKillsAnUncooperativePluginProcess()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             HangingDetectionPlugin.Id,
             typeof(HangingDetectionPlugin).FullName!);
-        string executablePath = WorkerExecutablePath();
-        Stopwatch elapsed = Stopwatch.StartNew();
-        string descendantMarker = Path.Combine(package, HangingDetectionPlugin.DescendantMarker);
+        var executablePath = WorkerExecutablePath();
+        var elapsed = Stopwatch.StartNew();
+        var descendantMarker = Path.Combine(package, HangingDetectionPlugin.DescendantMarker);
 
         int? descendantPid = null;
         try
         {
-            PluginTestReport report = await PluginTestWorkerSupervisor.TestDetectionAsync(
+            var report = await PluginTestWorkerSupervisor.TestDetectionAsync(
                 package,
                 new DeviceIdentitySnapshot(),
                 executablePath,
@@ -77,7 +79,7 @@ public sealed class PluginTestWorkflowSafetyTests
             Assert.Contains("deadline", report.Error, StringComparison.OrdinalIgnoreCase);
             descendantPid = int.Parse(
                 File.ReadAllText(descendantMarker),
-                System.Globalization.CultureInfo.InvariantCulture);
+                CultureInfo.InvariantCulture);
             Assert.True(
                 SpinWait.SpinUntil(() => !IsProcessRunning(descendantPid.Value), TimeSpan.FromSeconds(3)),
                 "The worker job did not terminate the plugin's descendant process.");
@@ -86,7 +88,7 @@ public sealed class PluginTestWorkflowSafetyTests
         {
             if (descendantPid is { } pid && IsProcessRunning(pid))
             {
-                using Process descendant = Process.GetProcessById(pid);
+                using var descendant = Process.GetProcessById(pid);
                 descendant.Kill(entireProcessTree: true);
                 descendant.WaitForExit(2_000);
             }
@@ -97,28 +99,28 @@ public sealed class PluginTestWorkflowSafetyTests
     public void HiddenWorkersRejectDirectInvocationWithoutInheritedAuthorization()
     {
         Assert.Equal(64, PluginTestWorker.Run([]));
-        Assert.Equal(64, WSGM.DeviceLab.Probes.ReadProbeWorker.Run([]));
+        Assert.Equal(64, ReadProbeWorker.Run([]));
     }
 
     [Fact]
     public void WorkerSessionFilesMustUseExactNamesInOneNonLinkedDirectory()
     {
         using TemporaryDirectory temporary = new();
-        string session = temporary.GetPath("session");
-        string escaped = temporary.GetPath("other");
+        var session = temporary.GetPath("session");
+        var escaped = temporary.GetPath("other");
         Directory.CreateDirectory(session);
         Directory.CreateDirectory(escaped);
-        string request = Path.Combine(session, "probe-request.json");
+        var request = Path.Combine(session, "probe-request.json");
         File.WriteAllText(request, "{}");
 
-        bool accepted = SelfWorkerAuthorization.TryConstrainSessionFiles(
+        var accepted = SelfWorkerAuthorization.TryConstrainSessionFiles(
             request,
             Path.Combine(session, "probe-result.json"),
             "probe-request.json",
             "probe-result.json",
-            out string? constrainedRequest,
-            out string? constrainedResult);
-        bool escapedResult = SelfWorkerAuthorization.TryConstrainSessionFiles(
+            out var constrainedRequest,
+            out var constrainedResult);
+        var escapedResult = SelfWorkerAuthorization.TryConstrainSessionFiles(
             request,
             Path.Combine(escaped, "probe-result.json"),
             "probe-request.json",
@@ -136,11 +138,11 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_UnconfirmedActionRefusesBeforeLoadingTheDeclaredAssembly()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackageWithUnresolvableEntryType(temporary);
-        string stateDirectory = temporary.GetPath("new-state");
-        int reservationAttempts = 0;
+        var package = CreatePackageWithUnresolvableEntryType(temporary);
+        var stateDirectory = temporary.GetPath("new-state");
+        var reservationAttempts = 0;
 
-        PluginTestReport report = await PluginTestWorkflow.RunAttendedAsync(
+        var report = await PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             stateDirectory,
@@ -167,12 +169,12 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_ExistingStateDirectoryRefusesBeforeLoadingTheDeclaredAssembly()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackageWithUnresolvableEntryType(temporary);
-        string stateDirectory = temporary.GetPath("existing-state");
+        var package = CreatePackageWithUnresolvableEntryType(temporary);
+        var stateDirectory = temporary.GetPath("existing-state");
         Directory.CreateDirectory(stateDirectory);
-        int reservationAttempts = 0;
+        var reservationAttempts = 0;
 
-        PluginTestReport report = await PluginTestWorkflow.RunAttendedAsync(
+        var report = await PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             stateDirectory,
@@ -197,11 +199,11 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_ExistingProductionOwnerRefusesBeforeLoadingTheDeclaredAssembly()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackageWithUnresolvableEntryType(temporary);
-        string stateDirectory = temporary.GetPath("new-state");
-        int reservationAttempts = 0;
+        var package = CreatePackageWithUnresolvableEntryType(temporary);
+        var stateDirectory = temporary.GetPath("new-state");
+        var reservationAttempts = 0;
 
-        PluginTestReport report = await PluginTestWorkflow.RunAttendedAsync(
+        var report = await PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             stateDirectory,
@@ -228,13 +230,13 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_OwnerReservationOutlivesPluginDisposal()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             OwnerReservationLifetimePlugin.Id,
             typeof(OwnerReservationLifetimePlugin).FullName!);
-        string marker = Path.Combine(package, OwnerReservationLifetimePlugin.DisposalMarker);
-        string stateDirectory = temporary.GetPath("new-state");
-        bool reservationDisposed = false;
+        var marker = Path.Combine(package, OwnerReservationLifetimePlugin.DisposalMarker);
+        var stateDirectory = temporary.GetPath("new-state");
+        var reservationDisposed = false;
         var handle = new CallbackDisposable(() =>
         {
             Assert.True(
@@ -243,7 +245,7 @@ public sealed class PluginTestWorkflowSafetyTests
             reservationDisposed = true;
         });
 
-        PluginTestReport report = await PluginTestWorkflow.RunAttendedAsync(
+        var report = await PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             stateDirectory,
@@ -254,7 +256,7 @@ public sealed class PluginTestWorkflowSafetyTests
             CancellationToken.None);
 
         Assert.False(report.Passed);
-        PluginDetectionResult detection = Assert.IsType<PluginDetectionResult>(report.Detection);
+        var detection = Assert.IsType<PluginDetectionResult>(report.Detection);
         Assert.False(detection.Matched);
         Assert.False(report.Started);
         Assert.Contains(report.Preflight!.Checks, check => check.Code == "identity.mismatch");
@@ -266,17 +268,17 @@ public sealed class PluginTestWorkflowSafetyTests
     [Fact]
     public async Task LocalPluginPackage_ThrowingDisposalUnloadsAndRetainsOwnerForProcessLifetime()
     {
-        string ownerName = $@"Local\WSGM.DeviceOwner.DisposeFailure.{Guid.NewGuid():N}";
-        DeviceLabOwnerReservationResult owner = DeviceLabOwnerInspector.Reserve(ownerName);
+        var ownerName = $@"Local\WSGM.DeviceOwner.DisposeFailure.{Guid.NewGuid():N}";
+        var owner = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Absent, owner.Inspection.State);
-        DeviceLabOwnerReservation reservation =
+        var reservation =
             Assert.IsType<DeviceLabOwnerReservation>(owner.Reservation);
         using (reservation)
         {
             var disposalFailure = new InvalidOperationException("plugin disposal failed");
-            bool unloaded = false;
+            var unloaded = false;
 
-            InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 LocalPluginPackage.DisposePluginAndUnloadAsync(
                     () => ValueTask.FromException(disposalFailure),
                     () => unloaded = true,
@@ -286,7 +288,7 @@ public sealed class PluginTestWorkflowSafetyTests
             Assert.True(unloaded);
         }
 
-        DeviceLabOwnerReservationResult competing = DeviceLabOwnerInspector.Reserve(ownerName);
+        var competing = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Present, competing.Inspection.State);
         Assert.Null(competing.Reservation);
     }
@@ -295,13 +297,13 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_ThrowingPluginDisposalKeepsTheAtomicOwnerReservationUnavailable()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             ThrowingDisposePlugin.Id,
             typeof(ThrowingDisposePlugin).FullName!);
-        string ownerName = $@"Local\WSGM.DeviceOwner.WorkflowDisposeFailure.{Guid.NewGuid():N}";
+        var ownerName = $@"Local\WSGM.DeviceOwner.WorkflowDisposeFailure.{Guid.NewGuid():N}";
 
-        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             PluginTestWorkflow.RunAttendedAsync(
                 package,
                 new DeviceIdentitySnapshot(),
@@ -313,7 +315,7 @@ public sealed class PluginTestWorkflowSafetyTests
                 CancellationToken.None));
 
         Assert.Contains("plugin disposal failed", failure.Message, StringComparison.Ordinal);
-        DeviceLabOwnerReservationResult competing = DeviceLabOwnerInspector.Reserve(ownerName);
+        var competing = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Present, competing.Inspection.State);
         Assert.Null(competing.Reservation);
     }
@@ -322,13 +324,13 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_ThrowingPluginConstructorKeepsTheAtomicOwnerReservationUnavailable()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             ThrowingConstructorPlugin.Id,
             typeof(ThrowingConstructorPlugin).FullName!);
-        string ownerName = $@"Local\WSGM.DeviceOwner.ConstructorFailure.{Guid.NewGuid():N}";
+        var ownerName = $@"Local\WSGM.DeviceOwner.ConstructorFailure.{Guid.NewGuid():N}";
 
-        string? failure = await CaptureFailureAsync(() => PluginTestWorkflow.RunAttendedAsync(
+        var failure = await CaptureFailureAsync(() => PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
@@ -341,7 +343,7 @@ public sealed class PluginTestWorkflowSafetyTests
         CollectPluginLoadContexts();
 
         Assert.True(File.Exists(Path.Combine(package, ThrowingConstructorPlugin.ConstructorMarker)));
-        DeviceLabOwnerReservationResult competing = DeviceLabOwnerInspector.Reserve(ownerName);
+        var competing = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Present, competing.Inspection.State);
         Assert.Null(competing.Reservation);
     }
@@ -350,13 +352,13 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_ThrowingPackageIdAndDisposalKeepsOwnerReservationUnavailable()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             ThrowingPackageIdPlugin.Id,
             typeof(ThrowingPackageIdPlugin).FullName!);
-        string ownerName = $@"Local\WSGM.DeviceOwner.PackageIdFailure.{Guid.NewGuid():N}";
+        var ownerName = $@"Local\WSGM.DeviceOwner.PackageIdFailure.{Guid.NewGuid():N}";
 
-        string? failure = await CaptureFailureAsync(() => PluginTestWorkflow.RunAttendedAsync(
+        var failure = await CaptureFailureAsync(() => PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
@@ -369,7 +371,7 @@ public sealed class PluginTestWorkflowSafetyTests
         CollectPluginLoadContexts();
 
         Assert.True(File.Exists(Path.Combine(package, ThrowingPackageIdPlugin.DisposalMarker)));
-        DeviceLabOwnerReservationResult competing = DeviceLabOwnerInspector.Reserve(ownerName);
+        var competing = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Present, competing.Inspection.State);
         Assert.Null(competing.Reservation);
     }
@@ -378,13 +380,13 @@ public sealed class PluginTestWorkflowSafetyTests
     public async Task RunAttended_ThrowingPackageIdWithCleanDisposalKeepsOwnerReservationUnavailable()
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             ThrowingPackageIdCleanDisposePlugin.Id,
             typeof(ThrowingPackageIdCleanDisposePlugin).FullName!);
-        string ownerName = $@"Local\WSGM.DeviceOwner.CleanDisposePackageIdFailure.{Guid.NewGuid():N}";
+        var ownerName = $@"Local\WSGM.DeviceOwner.CleanDisposePackageIdFailure.{Guid.NewGuid():N}";
 
-        string? failure = await CaptureFailureAsync(() => PluginTestWorkflow.RunAttendedAsync(
+        var failure = await CaptureFailureAsync(() => PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
@@ -397,7 +399,7 @@ public sealed class PluginTestWorkflowSafetyTests
         CollectPluginLoadContexts();
 
         Assert.True(File.Exists(Path.Combine(package, OwnerReservationLifetimePlugin.DisposalMarker)));
-        DeviceLabOwnerReservationResult competing = DeviceLabOwnerInspector.Reserve(ownerName);
+        var competing = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Present, competing.Inspection.State);
         Assert.Null(competing.Reservation);
     }
@@ -422,13 +424,13 @@ public sealed class PluginTestWorkflowSafetyTests
         string expectedError)
     {
         using TemporaryDirectory temporary = new();
-        string package = CreatePackage(
+        var package = CreatePackage(
             temporary,
             packageId,
             pluginType.FullName!);
-        string ownerName = $@"Local\WSGM.DeviceOwner.UnverifiedAttendedStop.{Guid.NewGuid():N}";
+        var ownerName = $@"Local\WSGM.DeviceOwner.UnverifiedAttendedStop.{Guid.NewGuid():N}";
 
-        PluginTestReport report = await PluginTestWorkflow.RunAttendedAsync(
+        var report = await PluginTestWorkflow.RunAttendedAsync(
             package,
             new DeviceIdentitySnapshot(),
             temporary.GetPath("new-state"),
@@ -441,7 +443,7 @@ public sealed class PluginTestWorkflowSafetyTests
         Assert.True(report.Started);
         Assert.False(report.CleanedUp);
         Assert.Contains(expectedError, report.Error, StringComparison.Ordinal);
-        DeviceLabOwnerReservationResult competing = DeviceLabOwnerInspector.Reserve(ownerName);
+        var competing = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Present, competing.Inspection.State);
         Assert.Null(competing.Reservation);
     }
@@ -449,20 +451,20 @@ public sealed class PluginTestWorkflowSafetyTests
     [Fact]
     public async Task OwnerReservation_UsesAtomicNamedObjectLifetimeWithoutThreadOwnership()
     {
-        string ownerName = $@"Local\WSGM.DeviceOwner.Test.{Guid.NewGuid():N}";
-        DeviceLabOwnerReservationResult first = DeviceLabOwnerInspector.Reserve(ownerName);
+        var ownerName = $@"Local\WSGM.DeviceOwner.Test.{Guid.NewGuid():N}";
+        var first = DeviceLabOwnerInspector.Reserve(ownerName);
         Assert.Equal(DeviceOwnerDiscoveryState.Absent, first.Inspection.State);
-        DeviceLabOwnerReservation firstReservation = Assert.IsType<DeviceLabOwnerReservation>(first.Reservation);
+        var firstReservation = Assert.IsType<DeviceLabOwnerReservation>(first.Reservation);
         try
         {
-            DeviceLabOwnerReservationResult concurrent = DeviceLabOwnerInspector.Reserve(ownerName);
+            var concurrent = DeviceLabOwnerInspector.Reserve(ownerName);
             Assert.Equal(DeviceOwnerDiscoveryState.Present, concurrent.Inspection.State);
             Assert.Null(concurrent.Reservation);
 
             await Task.Run(firstReservation.Dispose);
-            DeviceLabOwnerReservationResult afterRelease = DeviceLabOwnerInspector.Reserve(ownerName);
+            var afterRelease = DeviceLabOwnerInspector.Reserve(ownerName);
             Assert.Equal(DeviceOwnerDiscoveryState.Absent, afterRelease.Inspection.State);
-            DeviceLabOwnerReservation afterReleaseReservation =
+            var afterReleaseReservation =
                 Assert.IsType<DeviceLabOwnerReservation>(afterRelease.Reservation);
             afterReleaseReservation.Dispose();
         }
@@ -484,24 +486,24 @@ public sealed class PluginTestWorkflowSafetyTests
             ReserveOwner = reserveOwner,
             IsElevated = true,
             IsUserInteractive = true,
-            IsContinuousIntegration = false,
+            IsContinuousIntegration = false
         };
 
     private static DeviceLabOwnerReservationResult Reserved(IDisposable handle) => new()
     {
         Inspection = new DeviceLabOwnerInspection
         {
-            State = DeviceOwnerDiscoveryState.Absent,
+            State = DeviceOwnerDiscoveryState.Absent
         },
-        Reservation = new DeviceLabOwnerReservation(handle),
+        Reservation = new DeviceLabOwnerReservation(handle)
     };
 
     private static DeviceLabOwnerReservationResult OwnerPresent() => new()
     {
         Inspection = new DeviceLabOwnerInspection
         {
-            State = DeviceOwnerDiscoveryState.Present,
-        },
+            State = DeviceOwnerDiscoveryState.Present
+        }
     };
 
     private sealed class CallbackDisposable(Action callback) : IDisposable
@@ -510,7 +512,7 @@ public sealed class PluginTestWorkflowSafetyTests
 
         public void Dispose()
         {
-            Action? callback = Interlocked.Exchange(ref _callback, null);
+            var callback = Interlocked.Exchange(ref _callback, null);
             callback?.Invoke();
         }
     }
@@ -526,9 +528,9 @@ public sealed class PluginTestWorkflowSafetyTests
         string packageId,
         string entryType)
     {
-        string package = temporary.GetPath("package");
+        var package = temporary.GetPath("package");
         Directory.CreateDirectory(package);
-        string assemblyName = Path.GetFileName(typeof(PluginTestWorkflowSafetyTests).Assembly.Location);
+        var assemblyName = Path.GetFileName(typeof(PluginTestWorkflowSafetyTests).Assembly.Location);
         File.Copy(
             typeof(PluginTestWorkflowSafetyTests).Assembly.Location,
             Path.Combine(package, assemblyName));
@@ -539,7 +541,7 @@ public sealed class PluginTestWorkflowSafetyTests
             Version = "1.0.0",
             ApiVersion = DeviceApi.Version,
             EntryAssembly = assemblyName,
-            EntryType = entryType,
+            EntryType = entryType
         };
         File.WriteAllBytes(
             Path.Combine(package, PluginPackageWorkflow.ManifestPath),
@@ -549,7 +551,7 @@ public sealed class PluginTestWorkflowSafetyTests
 
     private static AttendedPluginActionRequest Action() => new()
     {
-        Kind = AttendedPluginActionKind.ControllerManagement,
+        Kind = AttendedPluginActionKind.ControllerManagement
     };
 
     private static async Task<string?> CaptureFailureAsync(Func<Task> operation)
@@ -576,7 +578,7 @@ public sealed class PluginTestWorkflowSafetyTests
     {
         try
         {
-            using Process process = Process.GetProcessById(processId);
+            using var process = Process.GetProcessById(processId);
             return !process.HasExited;
         }
         catch (ArgumentException)

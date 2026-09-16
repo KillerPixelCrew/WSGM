@@ -58,7 +58,7 @@ internal static class GlyphPackageImportWorkflow
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         List<PluginPackageValidationIssue> issues = [];
-        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceDirectory));
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceDirectory));
         cancellationToken.ThrowIfCancellationRequested();
         DeviceLabPackageSnapshot snapshot;
         try
@@ -72,14 +72,14 @@ internal static class GlyphPackageImportWorkflow
             return Failure("invalid-root", string.Empty, exception.GetType().Name);
         }
 
-        using DeviceLabPackageSnapshot captured = snapshot;
+        using var captured = snapshot;
         if (issues.Count > 0)
         {
             return Report([], issues);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        GlyphPackageImportResult imported = GlyphPackageImporter.Import(
+        var imported = GlyphPackageImporter.Import(
             new SnapshotGlyphPackageSource(captured, cancellationToken));
         cancellationToken.ThrowIfCancellationRequested();
         if (!imported.IsValid)
@@ -103,7 +103,7 @@ internal static class GlyphPackageImportWorkflow
                 "The fixed glyph profile directory contains no profiles to import.");
         }
 
-        ImportedGlyphProfileSummary[] profiles = imported.Profiles.Select(profile =>
+        var profiles = imported.Profiles.Select(profile =>
             new ImportedGlyphProfileSummary
             {
                 ProfileId = profile.Manifest.ProfileId,
@@ -112,7 +112,7 @@ internal static class GlyphPackageImportWorkflow
                 NoticePath = profile.Manifest.NoticePath,
                 AssetCount = profile.Assets.Count,
                 ControlCount = profile.Manifest.Controls.Count,
-                AliasCount = profile.Manifest.Aliases.Count,
+                AliasCount = profile.Manifest.Aliases.Count
             }).OrderBy(profile => profile.ProfileId, StringComparer.Ordinal).ToArray();
         return Report(profiles, []);
     }
@@ -126,6 +126,6 @@ internal static class GlyphPackageImportWorkflow
         {
             Valid = issues.Count == 0,
             Issues = issues,
-            Profiles = profiles,
+            Profiles = profiles
         };
 }

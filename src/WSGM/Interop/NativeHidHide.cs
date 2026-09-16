@@ -52,7 +52,7 @@ internal static partial class NativeHidHide
     {
         byte raw = 0;
         uint returned;
-        bool success = DeviceIoControl(
+        var success = DeviceIoControl(
             handle,
             controlCode,
             null,
@@ -79,9 +79,9 @@ internal static partial class NativeHidHide
         out IReadOnlyList<string> values,
         out int error)
     {
-        for (int size = InitialBufferBytes; size <= MaximumBufferBytes; size *= 2)
+        for (var size = InitialBufferBytes; size <= MaximumBufferBytes; size *= 2)
         {
-            byte[] buffer = new byte[size];
+            var buffer = new byte[size];
             uint returned;
             bool success;
             fixed (byte* output = buffer)
@@ -129,7 +129,7 @@ internal static partial class NativeHidHide
         out int error)
     {
         ArgumentNullException.ThrowIfNull(values);
-        byte[] buffer = EncodeMultiString(values);
+        var buffer = EncodeMultiString(values);
         uint returned;
         bool success;
         fixed (byte* input = buffer)
@@ -161,12 +161,12 @@ internal static partial class NativeHidHide
             return true;
         }
 
-        string text = Encoding.Unicode.GetString(bytes);
+        var text = Encoding.Unicode.GetString(bytes);
         List<string> result = [];
-        int start = 0;
+        var start = 0;
         while (start < text.Length)
         {
-            int terminator = text.IndexOf('\0', start);
+            var terminator = text.IndexOf('\0', start);
             if (terminator < 0)
             {
                 values = [];
@@ -193,7 +193,7 @@ internal static partial class NativeHidHide
     private static byte[] EncodeMultiString(IReadOnlyList<string> values)
     {
         StringBuilder builder = new();
-        foreach (string value in values)
+        foreach (var value in values)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(value);
             if (value.Contains('\0'))

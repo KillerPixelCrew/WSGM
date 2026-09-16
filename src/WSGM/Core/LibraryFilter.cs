@@ -53,7 +53,7 @@ public enum FilterKind
     SdCard,
 
     /// <summary>A nested group of child filters combined by <see cref="FilterNode.Mode"/>.</summary>
-    Merge,
+    Merge
 }
 
 /// <summary>Combination logic for a group / multi-value filter.</summary>
@@ -63,7 +63,7 @@ public enum FilterMode
     And,
 
     /// <summary>At least one child / value must match.</summary>
-    Or,
+    Or
 }
 
 /// <summary>Threshold comparison direction.</summary>
@@ -73,7 +73,7 @@ public enum ThresholdCondition
     Above,
 
     /// <summary>Value below the threshold (dates: before).</summary>
-    Below,
+    Below
 }
 
 /// <summary>Which review score a <see cref="FilterKind.ReviewScore"/> filter reads.</summary>
@@ -83,7 +83,7 @@ public enum ReviewScoreType
     Metacritic,
 
     /// <summary>Steam positive-review percentage (0–100).</summary>
-    SteamPercent,
+    SteamPercent
 }
 
 /// <summary>Time unit for a <see cref="FilterKind.TimePlayed"/> threshold.</summary>
@@ -96,7 +96,7 @@ public enum TimeUnit
     Hours,
 
     /// <summary>Days.</summary>
-    Days,
+    Days
 }
 
 /// <summary>Steam app vs non-Steam shortcut, for <see cref="FilterKind.Platform"/>.</summary>
@@ -106,7 +106,7 @@ public enum PlatformKind
     Steam,
 
     /// <summary>A non-Steam shortcut.</summary>
-    NonSteam,
+    NonSteam
 }
 
 /// <summary>Which card(s) a <see cref="FilterKind.SdCard"/> filter matches.</summary>
@@ -119,7 +119,7 @@ public enum SdCardScope
     Any,
 
     /// <summary>One specific card, by content id (<see cref="FilterNode.ContentId"/>).</summary>
-    Specific,
+    Specific
 }
 
 /// <summary>One node in a custom tab's filter tree. A flat shape (all params on one
@@ -215,7 +215,7 @@ public sealed class FilterNode
         Month = Month,
         Day = Day,
         CardScope = CardScope,
-        ContentId = ContentId,
+        ContentId = ContentId
     };
 }
 
@@ -252,7 +252,7 @@ public static class LibraryFilter
         Hidden = 16,
 
         /// <summary>Soundtracks / music.</summary>
-        Music = 8192,
+        Music = 8192
     }
 
     /// <summary>Whether a kind's invert toggle is meaningful (the others already
@@ -276,7 +276,7 @@ public static class LibraryFilter
             || !string.IsNullOrEmpty(node.ContentId),
         FilterKind.Merge => node.Children.Count > 0 && node.Children.All(IsValid),
         // Installed/Platform/thresholds are always well-formed (a threshold of 0 is legal).
-        _ => true,
+        _ => true
     };
 
     private static bool IsSafeRegex(string pattern)
@@ -573,7 +573,7 @@ public static class LibraryFilter
         {
             TimeUnit.Hours => 60.0,
             TimeUnit.Days => 1440.0,
-            _ => 1.0,
+            _ => 1.0
         };
         return "((Number(a.minutes_playtime_forever)||0)" + Cmp(node.Condition)
             + Num(node.Threshold * perUnit) + ")";

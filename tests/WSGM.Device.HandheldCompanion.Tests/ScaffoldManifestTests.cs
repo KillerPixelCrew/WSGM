@@ -9,7 +9,7 @@ public sealed class ScaffoldManifestTests
     [Fact]
     public void ManifestTargetsTheSharedSdkApiLevel()
     {
-        using JsonDocument manifest = JsonDocument.Parse(
+        using var manifest = JsonDocument.Parse(
             File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "plugin.wsgm.json")));
 
         Assert.Equal(DeviceApi.Version, manifest.RootElement.GetProperty("apiVersion").GetInt32());

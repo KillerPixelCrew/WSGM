@@ -27,7 +27,7 @@ public sealed class ModernStandbyTests
     [Fact]
     public void AnUnexplainedWakeOnADarkIdleMachineGoesBackToSleep()
     {
-        ModernStandbyDecision decision = Decide();
+        var decision = Decide();
 
         Assert.Equal(ModernStandbyOutcome.Resuspend, decision.Outcome);
         Assert.True(decision.ShouldResuspend);
@@ -47,7 +47,7 @@ public sealed class ModernStandbyTests
         // The gate that does not depend on Windows counting a device as input: a gamepad does not
         // advance the last-input time, so a player holding a controller reads as idle. Suspending
         // the machine under their hands is the one failure this must never produce.
-        ModernStandbyDecision decision = Decide(displayOn: true, sinceInputSeconds: 100_000);
+        var decision = Decide(displayOn: true, sinceInputSeconds: 100_000);
 
         Assert.Equal(ModernStandbyOutcome.DisplayOn, decision.Outcome);
         Assert.False(decision.ShouldResuspend);
@@ -72,7 +72,7 @@ public sealed class ModernStandbyTests
     [Fact]
     public void AWakeIsGivenTimeToSettleBeforeItIsActedOn()
     {
-        ModernStandbyDecision decision = Decide(sinceWakeSeconds: 5, sinceInputSeconds: 600);
+        var decision = Decide(sinceWakeSeconds: 5, sinceInputSeconds: 600);
 
         Assert.Equal(ModernStandbyOutcome.TooSoon, decision.Outcome);
         Assert.False(decision.ShouldResuspend);
@@ -84,13 +84,13 @@ public sealed class ModernStandbyTests
     {
         // Every other refusal is a fact about this wake that will not change while it lasts, so a
         // timer that kept polling past one could never reach a decision.
-        foreach (ModernStandbyDecision decision in new[]
+        foreach (var decision in new[]
         {
             Decide(enabled: false),
             Decide(unattended: false),
             Decide(displayOn: true),
             Decide(sinceInputSeconds: 1),
-            Decide(attempts: ModernStandbyPolicy.MaximumAttemptsPerWake),
+            Decide(attempts: ModernStandbyPolicy.MaximumAttemptsPerWake)
         })
         {
             Assert.False(decision.ShouldKeepWatching);
@@ -103,7 +103,7 @@ public sealed class ModernStandbyTests
     {
         // A machine waking for a reason WSGM cannot see would otherwise be suspended in a loop the
         // user cannot escape, which is worse than the drain this exists to stop.
-        for (int attempt = 0; attempt < ModernStandbyPolicy.MaximumAttemptsPerWake; attempt++)
+        for (var attempt = 0; attempt < ModernStandbyPolicy.MaximumAttemptsPerWake; attempt++)
         {
             Assert.Equal(ModernStandbyOutcome.Resuspend, Decide(attempts: attempt).Outcome);
         }
@@ -141,7 +141,7 @@ public sealed class ModernStandbyTests
         // The number is formatted for the user's culture, so the expectation is built the same way
         // rather than assuming a decimal point — this box runs in German, where it is a comma.
         // The last case is the reference handheld's measured 22h43m standby.
-        string expected = unit == "hours"
+        var expected = unit == "hours"
             ? string.Create(CultureInfo.CurrentCulture, $"{value:0.0} {unit}")
             : string.Create(CultureInfo.CurrentCulture, $"{value:0} {unit}");
 
@@ -153,7 +153,7 @@ public sealed class ModernStandbyTests
     {
         // A diagnostic that could throw would take the settings page with it, and one that could
         // return nothing would leave a blank row that reads as a bug.
-        ModernStandbyReport report = ModernStandbyDiagnostics.Read();
+        var report = ModernStandbyDiagnostics.Read();
 
         Assert.False(string.IsNullOrWhiteSpace(report.Summary));
         Assert.NotNull(report.ArmedWakeSources);
@@ -164,7 +164,7 @@ public sealed class ModernStandbyTests
     {
         // "Degrade safely on machines that do not support Modern Standby" is only honest if the
         // machine is told; a supported one must never carry the unsupported wording.
-        ModernStandbyReport report = ModernStandbyDiagnostics.Read();
+        var report = ModernStandbyDiagnostics.Read();
 
         if (report.Supported)
         {
@@ -181,7 +181,7 @@ public sealed class ModernStandbyTests
     {
         // Windows exposes no documented call for what woke the machine. Naming one would be a guess
         // presented as a diagnosis, which is the specific thing this text refuses to do.
-        ModernStandbyReport report = ModernStandbyDiagnostics.Read();
+        var report = ModernStandbyDiagnostics.Read();
 
         Assert.DoesNotContain("woken by", report.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("caused by", report.Summary, StringComparison.OrdinalIgnoreCase);

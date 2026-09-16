@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Themes;
 
 namespace WSGM.Core;
 
@@ -94,7 +95,7 @@ public enum GlyphStyle
     PlayStation,
 
     /// <summary>Nintendo ABXY labels and artwork.</summary>
-    Nintendo,
+    Nintendo
 }
 
 /// <summary>One display's pre-game scaling, keyed by the GDI source device name
@@ -149,7 +150,7 @@ public enum SessionStartMode
     /// <summary>Stay beside Explorer as a resident desktop session.</summary>
     Desktop,
     /// <summary>Take the session over and run Big Picture.</summary>
-    Game,
+    Game
 }
 
 /// <summary>One power scheme's CONSOLELOCK values as they were before WSGM wrote
@@ -194,7 +195,7 @@ public enum SplashPlacementAnchor
     BottomCenter,
 
     /// <summary>Bottom-right corner of the screen.</summary>
-    BottomRight,
+    BottomRight
 }
 
 /// <summary>How a boot-splash element is positioned on screen.</summary>
@@ -210,7 +211,7 @@ public enum SplashPlacementMode
 
     /// <summary>Rendered inside the text stack (spinner/logo only), following the
     /// text element wherever it is placed.</summary>
-    WithText,
+    WithText
 }
 
 /// <summary>Visual style of the boot-splash progress spinner.</summary>
@@ -251,7 +252,7 @@ public enum SplashSpinnerStyle
     SweepLine,
 
     /// <summary>No spinner at all (no animation timer is created).</summary>
-    Off,
+    Off
 }
 
 /// <summary>Which screen edge the sweep-line spinner travels along.</summary>
@@ -261,7 +262,7 @@ public enum SweepEdge
     Bottom,
 
     /// <summary>Sweep along the top edge of the screen.</summary>
-    Top,
+    Top
 }
 
 /// <summary>Position of one boot-splash element (text, spinner, or logo).</summary>
@@ -425,7 +426,7 @@ public enum LaunchConfigurationKind
     Wrapper,
 
     /// <summary>A Steam-native executable or script launch action.</summary>
-    CustomAction,
+    CustomAction
 }
 
 /// <summary>One Steam library on a removable drive (a MicroSD card or external
@@ -462,7 +463,7 @@ public sealed class CardLibraryConfig
 public sealed class CustomTabConfig
 {
     /// <summary>Stable unique identity, independent of the editable display name.</summary>
-    public string Id { get; set; } = System.Guid.NewGuid().ToString("N");
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
     /// <summary>Display name (also the Steam collection's name).</summary>
     public string Name { get; set; } = "";
@@ -745,7 +746,7 @@ public sealed class AppConfig
 
     /// <summary>UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
     /// to the Fluent theme and the Hc accent tokens at startup and on save.</summary>
-    public string AccentColor { get; set; } = Themes.AccentPalette.DefaultAccent;
+    public string AccentColor { get; set; } = AccentPalette.DefaultAccent;
     /// <summary>Whether the logon service starts WSGM at sign-in. Projected into boot.json
     /// (see Core\BootManifest) because the SYSTEM service never parses this file. False leaves
     /// the sign-in alone entirely; <see cref="StartMode"/> decides what a start becomes.</summary>

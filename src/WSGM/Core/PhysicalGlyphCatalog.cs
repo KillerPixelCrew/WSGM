@@ -14,7 +14,7 @@ internal enum PhysicalGlyphFallbackReason
     SourceNotHandheld,
     ControlAbsent,
     ArtworkMissing,
-    RenderRejected,
+    RenderRejected
 }
 
 internal sealed record PhysicalGlyphSelectionResult(
@@ -62,11 +62,11 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(profiles);
-        ImportedGlyphProfile[] snapshot = profiles
+        var snapshot = profiles
             .OrderBy(profile => profile.Manifest.ProfileId, StringComparer.Ordinal)
             .ToArray();
         Dictionary<string, ImportedGlyphProfile> replacement = new(StringComparer.Ordinal);
-        foreach (ImportedGlyphProfile profile in snapshot)
+        foreach (var profile in snapshot)
         {
             if (!replacement.TryAdd(profile.Manifest.ProfileId, profile))
             {
@@ -91,7 +91,7 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_gate)
         {
-            string? activeDeviceId = _activeDeviceId;
+            var activeDeviceId = _activeDeviceId;
 
             // Every glyph surface funnels through here, so log the decisive inputs once whenever
             // the selection changes and make every fallback remotely diagnosable.
@@ -109,12 +109,12 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
                 return Fallback(PhysicalGlyphFallbackReason.NativeSteamSelected);
             }
 
-            bool missingManual = false;
+            var missingManual = false;
             if (selectionMode is DeviceGlyphSelection.ManualReviewedProfile)
             {
                 if (manualProfileId is { Length: > 0 }
                     && activeDeviceId is { Length: > 0 }
-                    && _profiles.TryGetValue(manualProfileId, out ImportedGlyphProfile? manual)
+                    && _profiles.TryGetValue(manualProfileId, out var manual)
                     && manual.Manifest.ExactDeviceIds.Contains(activeDeviceId, StringComparer.Ordinal))
                 {
                     return new PhysicalGlyphSelectionResult(
@@ -139,7 +139,7 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
             // Automatic selection is the package's own profile for the matched device. Naming the
             // device is the whole discriminator; a package wanting a different profile for the same
             // device uses the manual selection above.
-            ImportedGlyphProfile? automatic = _profiles.Values
+            var automatic = _profiles.Values
                 .Where(profile =>
                     profile.Manifest.ExactDeviceIds.Contains(activeDeviceId, StringComparer.Ordinal))
                 .OrderBy(profile => profile.Manifest.ProfileId, StringComparer.Ordinal)

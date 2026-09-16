@@ -19,8 +19,8 @@ internal sealed class TemporaryDirectory : IDisposable
 
     public string GetPath(params string[] segments)
     {
-        string path = Root;
-        foreach (string segment in segments)
+        var path = Root;
+        foreach (var segment in segments)
         {
             path = Path.Combine(path, segment);
         }
@@ -30,7 +30,7 @@ internal sealed class TemporaryDirectory : IDisposable
 
     public void Dispose()
     {
-        for (int attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
+        for (var attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
         {
             try
             {

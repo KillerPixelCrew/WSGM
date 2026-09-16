@@ -9,7 +9,7 @@ internal static class DeviceLabExecutable
     {
         get
         {
-            string appHost = Path.Combine(AppContext.BaseDirectory, "wsgm-device.exe");
+            var appHost = Path.Combine(AppContext.BaseDirectory, "wsgm-device.exe");
             if (File.Exists(appHost))
             {
                 return Path.GetFullPath(appHost);

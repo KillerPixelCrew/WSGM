@@ -9,7 +9,7 @@ public sealed class ConsoleToolTests
     {
         var process = new FaultingConsoleToolProcess();
 
-        Task<ConsoleToolRunOutcome> run = ConsoleTool.RunUntilAsync(
+        var run = ConsoleTool.RunUntilAsync(
             "inert-test-tool.exe",
             "/Run",
             DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1),
@@ -19,7 +19,7 @@ public sealed class ConsoleToolTests
         await process.KillRequested.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.False(run.IsCompleted);
         process.CompleteExit();
-        ConsoleToolRunOutcome outcome = await run.WaitAsync(TimeSpan.FromSeconds(1));
+        var outcome = await run.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.Equal(ConsoleToolRunOutcome.Unknown, outcome);
         Assert.Equal(1, process.KillCalls);
@@ -33,7 +33,7 @@ public sealed class ConsoleToolTests
         var process = new FaultingConsoleToolProcess();
         using var cancellation = new CancellationTokenSource();
 
-        Task<ConsoleToolRunOutcome> run = ConsoleTool.RunUntilAsync(
+        var run = ConsoleTool.RunUntilAsync(
             "inert-test-tool.exe",
             "/Create",
             DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1),

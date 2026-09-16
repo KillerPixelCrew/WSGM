@@ -45,7 +45,7 @@ public class SplashStyleTests
         {
             Anchor = SplashPlacementAnchor.TopLeft,
             PaddingX = 40,
-            PaddingY = 24,
+            PaddingY = 24
         });
 
         Assert.Equal(new Thickness(40, 24, 0, 0), layout.Margin);
@@ -58,7 +58,7 @@ public class SplashStyleTests
         {
             Anchor = SplashPlacementAnchor.TopRight,
             PaddingX = 40,
-            PaddingY = 24,
+            PaddingY = 24
         });
 
         Assert.Equal(new Thickness(0, 24, 40, 0), layout.Margin);
@@ -71,7 +71,7 @@ public class SplashStyleTests
         {
             Anchor = SplashPlacementAnchor.Center,
             PaddingX = 99,
-            PaddingY = 77,
+            PaddingY = 77
         });
 
         Assert.Equal(new Thickness(0), layout.Margin);
@@ -84,7 +84,7 @@ public class SplashStyleTests
         {
             Anchor = SplashPlacementAnchor.TopCenter,
             PaddingX = 99,
-            PaddingY = 30,
+            PaddingY = 30
         });
 
         Assert.Equal(new Thickness(0, 30, 0, 0), layout.Margin);
@@ -97,7 +97,7 @@ public class SplashStyleTests
         {
             Anchor = SplashPlacementAnchor.CenterLeft,
             PaddingX = 55,
-            PaddingY = 99,
+            PaddingY = 99
         });
 
         Assert.Equal(new Thickness(55, 0, 0, 0), layout.Margin);
@@ -110,7 +110,7 @@ public class SplashStyleTests
         {
             Anchor = SplashPlacementAnchor.TopLeft,
             PaddingX = -50,
-            PaddingY = -50,
+            PaddingY = -50
         });
 
         Assert.Equal(new Thickness(0), layout.Margin);
@@ -136,7 +136,7 @@ public class SplashStyleTests
         var layout = Map(new SplashElementPlacement
         {
             Anchor = SplashPlacementAnchor.BottomCenter,
-            PaddingY = 200,
+            PaddingY = 200
         });
 
         Assert.Equal(200, layout.Margin.Bottom);
@@ -148,7 +148,7 @@ public class SplashStyleTests
         var layout = Map(new SplashElementPlacement
         {
             Anchor = SplashPlacementAnchor.TopCenter,
-            PaddingY = 10,
+            PaddingY = 10
         });
 
         Assert.Equal(0, layout.Margin.Bottom);
@@ -164,7 +164,7 @@ public class SplashStyleTests
         {
             Mode = SplashPlacementMode.Absolute,
             X = 300,
-            Y = 400,
+            Y = 400
         });
 
         Assert.True(layout.IsAbsolute);
@@ -179,7 +179,7 @@ public class SplashStyleTests
         {
             Mode = SplashPlacementMode.Absolute,
             X = 5000,
-            Y = 5000,
+            Y = 5000
         });
 
         // Screen 1920x1080, element hint 200x100 → max top-left is 1720/980.
@@ -194,7 +194,7 @@ public class SplashStyleTests
         {
             Mode = SplashPlacementMode.Absolute,
             X = -500,
-            Y = -1,
+            Y = -1
         });
 
         Assert.Equal(0, layout.CanvasX);
@@ -223,7 +223,7 @@ public class SplashStyleTests
             PaddingX = 64,
             PaddingY = 64,
             X = 10,
-            Y = 20,
+            Y = 20
         });
 
         Assert.True(layout.IsAbsolute);

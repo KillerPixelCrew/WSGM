@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Interop;
@@ -26,7 +27,7 @@ public enum DisplayStateSource
 
     /// <summary>GUID_MONITOR_POWER_ON — the superseded pre-Windows-8 setting. Modern
     /// Windows may never send it; treated as a best-effort wake source only.</summary>
-    LegacyMonitor,
+    LegacyMonitor
 }
 
 /// <summary>A raw message-only (HWND_MESSAGE) window whose queue is pumped by the
@@ -34,7 +35,6 @@ public enum DisplayStateSource
 public sealed unsafe class MessageWindow : IDisposable
 {
     private static MessageWindow? _instance;
-    private nint _hwnd;
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
     private nint _displayNotify;
@@ -55,7 +55,7 @@ public sealed unsafe class MessageWindow : IDisposable
     }
 
     /// <summary>Gets the native handle of the message-only window.</summary>
-    public nint Handle => _hwnd;
+    public nint Handle { get; private set; }
 
     /// <summary>Raised on the Avalonia UI thread with the hotkey id.</summary>
     public event Action<int>? HotkeyPressed;
@@ -125,7 +125,7 @@ public sealed unsafe class MessageWindow : IDisposable
 
         var hwnd = CreateMessageOnlyWindow(
             "WSGM.MessageWindow", &WndProc, "Failed to create message window");
-        _instance = new MessageWindow { _hwnd = hwnd };
+        _instance = new MessageWindow { Handle = hwnd };
         _instance.RegisterSessionNotifications();
         return _instance;
     }
@@ -147,7 +147,7 @@ public sealed unsafe class MessageWindow : IDisposable
             Log.Warn($"RegisterWindowMessage(SHELLHOOK) failed (error {Marshal.GetLastWin32Error()}).");
             return false;
         }
-        if (!NativeMethods.RegisterShellHookWindow(_hwnd))
+        if (!NativeMethods.RegisterShellHookWindow(Handle))
         {
             Log.Warn($"RegisterShellHookWindow failed (error {Marshal.GetLastWin32Error()}).");
             _shellHookMessage = 0;
@@ -167,7 +167,7 @@ public sealed unsafe class MessageWindow : IDisposable
             return;
         }
 
-        if (!NativeMethods.DeregisterShellHookWindow(_hwnd))
+        if (!NativeMethods.DeregisterShellHookWindow(Handle))
         {
             Log.Warn($"DeregisterShellHookWindow failed (error {Marshal.GetLastWin32Error()}).");
         }
@@ -193,17 +193,17 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             return true;
         }
-        _displayNotify = WindowsDeviceControl.WindowsPower.RegisterSettingNotification(
-            _hwnd, NativeMethods.GuidSessionDisplayStatus);
+        _displayNotify = WindowsPower.RegisterSettingNotification(
+            Handle, NativeMethods.GuidSessionDisplayStatus);
         if (_displayNotify == 0)
         {
             Log.Warn("RegisterPowerSettingNotification(session display status) failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
         }
-        _consoleDisplayNotify = WindowsDeviceControl.WindowsPower.RegisterSettingNotification(
-            _hwnd, NativeMethods.GuidConsoleDisplayState);
-        _legacyDisplayNotify = WindowsDeviceControl.WindowsPower.RegisterSettingNotification(
-            _hwnd, NativeMethods.GuidMonitorPowerOn);
+        _consoleDisplayNotify = WindowsPower.RegisterSettingNotification(
+            Handle, NativeMethods.GuidConsoleDisplayState);
+        _legacyDisplayNotify = WindowsPower.RegisterSettingNotification(
+            Handle, NativeMethods.GuidMonitorPowerOn);
         Log.Info($"Display-state notifications registered (session={_displayNotify != 0}, "
             + $"console={_consoleDisplayNotify != 0}, legacy={_legacyDisplayNotify != 0}).");
         return _displayNotify != 0;
@@ -227,7 +227,7 @@ public sealed unsafe class MessageWindow : IDisposable
     private void RegisterSessionNotifications()
     {
         _sessionNotify = NativeMethods.WTSRegisterSessionNotification(
-            _hwnd,
+            Handle,
             NativeMethods.NotifyForThisSession);
         if (!_sessionNotify)
         {
@@ -242,7 +242,7 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             return;
         }
-        if (!NativeMethods.WTSUnRegisterSessionNotification(_hwnd))
+        if (!NativeMethods.WTSUnRegisterSessionNotification(Handle))
         {
             Log.Warn("WTSUnRegisterSessionNotification failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
@@ -271,10 +271,10 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             Size = (uint)Marshal.SizeOf<NativeMethods.DevBroadcastDeviceInterface>(),
             DeviceType = NativeMethods.DbtDevTypDeviceInterface,
-            ClassGuid = NativeMethods.GuidDevInterfaceVolume,
+            ClassGuid = NativeMethods.GuidDevInterfaceVolume
         };
         _volumeNotify = NativeMethods.RegisterDeviceNotification(
-            _hwnd, filter, NativeMethods.DeviceNotifyWindowHandle);
+            Handle, filter, NativeMethods.DeviceNotifyWindowHandle);
         if (_volumeNotify == 0)
         {
             Log.Warn("RegisterDeviceNotification(volume interface) failed "
@@ -319,7 +319,7 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             return;
         }
-        if (!WindowsDeviceControl.WindowsPower.UnregisterSettingNotification(handle))
+        if (!WindowsPower.UnregisterSettingNotification(handle))
         {
             Log.Warn($"UnregisterPowerSettingNotification({name}) failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
@@ -346,7 +346,7 @@ public sealed unsafe class MessageWindow : IDisposable
             {
                 lpfnWndProc = wndProc,
                 hInstance = hInstance,
-                lpszClassName = (nint)pClassName,
+                lpszClassName = (nint)pClassName
             };
             if (NativeMethods.RegisterClassW(&wc) == 0)
             {
@@ -369,7 +369,7 @@ public sealed unsafe class MessageWindow : IDisposable
         return hwnd;
     }
 
-    [System.Runtime.InteropServices.UnmanagedCallersOnly]
+    [UnmanagedCallersOnly]
     private static nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam)
     {
         var instance = _instance;
@@ -471,14 +471,14 @@ public sealed unsafe class MessageWindow : IDisposable
         DeregisterDisplayStateNotifications();
         UnregisterSessionNotifications();
         UnregisterVolumeNotifications();
-        if (_hwnd != 0)
+        if (Handle != 0)
         {
-            if (!NativeMethods.DestroyWindow(_hwnd))
+            if (!NativeMethods.DestroyWindow(Handle))
             {
                 // Fails from the wrong thread; the handle then leaks until exit.
                 Log.Warn($"DestroyWindow(message window) failed (error {Marshal.GetLastWin32Error()}).");
             }
-            _hwnd = 0;
+            Handle = 0;
         }
         _instance = null;
     }

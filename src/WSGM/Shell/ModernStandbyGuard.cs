@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -36,7 +37,6 @@ internal sealed class ModernStandbyGuard : IDisposable
     // Lit until the console display tells us otherwise. A guard that assumed darkness before any
     // notification arrived could suspend a machine on its very first tick.
     private bool _displayOn = true;
-    private int _attempts;
     private bool _suspending;
     private bool _disposed;
 
@@ -77,13 +77,13 @@ internal sealed class ModernStandbyGuard : IDisposable
     internal ModernStandbyOutcome LastOutcome { get; private set; } = ModernStandbyOutcome.Disabled;
 
     /// <summary>How many times the current wake has been slept through.</summary>
-    internal int Attempts => _attempts;
+    internal int Attempts { get; private set; }
 
     private void OnSystemResumed()
     {
         // SystemResumed fires for both PBT codes and can arrive twice for one resume, so the count
         // is reset from the wake itself rather than incremented per notification.
-        _attempts = 0;
+        Attempts = 0;
         Evaluate();
     }
 
@@ -121,7 +121,7 @@ internal sealed class ModernStandbyGuard : IDisposable
                 _sinceWake(),
                 _sinceUserInput(),
                 _grace,
-                _attempts);
+                Attempts);
         }
         catch (Exception ex)
         {
@@ -146,12 +146,12 @@ internal sealed class ModernStandbyGuard : IDisposable
             return;
         }
 
-        _attempts++;
+        Attempts++;
         _suspending = true;
         Log.Change(
             "power.modern-standby.resuspend",
             $"Modern Standby guard: unexplained wake {_sinceWake().TotalSeconds:F0}s ago with the "
-                + $"display off and no input; suspending again (attempt {_attempts} of "
+                + $"display off and no input; suspending again (attempt {Attempts} of "
                 + $"{ModernStandbyPolicy.MaximumAttemptsPerWake}).");
         _ = SuspendAsync();
     }
@@ -178,7 +178,7 @@ internal sealed class ModernStandbyGuard : IDisposable
 
     private static TimeSpan ReadSinceUserInput()
     {
-        NativeMethods.LastInputInfo info = new() { CbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.LastInputInfo>() };
+        NativeMethods.LastInputInfo info = new() { CbSize = (uint)Marshal.SizeOf<NativeMethods.LastInputInfo>() };
         if (!NativeMethods.GetLastInputInfo(ref info))
         {
             // Unreadable input time reads as "somebody just touched it", which refuses the suspend.
@@ -187,7 +187,7 @@ internal sealed class ModernStandbyGuard : IDisposable
 
         // Both are 32-bit tick counts that wrap every 49.7 days; the unchecked subtraction is
         // correct across the wrap and the cast keeps it unsigned.
-        uint elapsed = unchecked((uint)Environment.TickCount - info.DwTime);
+        var elapsed = unchecked((uint)Environment.TickCount - info.DwTime);
         return TimeSpan.FromMilliseconds(elapsed);
     }
 

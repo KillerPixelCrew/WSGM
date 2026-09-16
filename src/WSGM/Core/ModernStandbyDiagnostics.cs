@@ -39,7 +39,7 @@ public static class ModernStandbyDiagnostics
     {
         try
         {
-            ModernStandbySupport support = ModernStandby.Query();
+            var support = ModernStandby.Query();
             if (!support.LowPowerIdle)
             {
                 return new ModernStandbyReport(
@@ -48,8 +48,8 @@ public static class ModernStandbyDiagnostics
                     []);
             }
 
-            IReadOnlyList<string> armed = ReadArmedWakeSources();
-            StandbyTiming timing = ModernStandby.ReadStandbyTiming();
+            var armed = ReadArmedWakeSources();
+            var timing = ModernStandby.ReadStandbyTiming();
             if (timing.Slept <= TimeSpan.Zero)
             {
                 return new ModernStandbyReport(
@@ -57,7 +57,7 @@ public static class ModernStandbyDiagnostics
             }
 
             // Windows attributes the resume; it does not say what caused it, and neither does this.
-            string attribution = ModernStandby.WasLastResumeUnattended()
+            var attribution = ModernStandby.WasLastResumeUnattended()
                 ? "Windows did not attribute the last wake to a person"
                 : "Windows attributed the last wake to a person";
             return new ModernStandbyReport(
@@ -87,7 +87,7 @@ public static class ModernStandbyDiagnostics
         try
         {
             List<string> armed = [];
-            foreach (WakeDevice device in ModernStandby.EnumerateWakeDevices())
+            foreach (var device in ModernStandby.EnumerateWakeDevices())
             {
                 if (device.Armed && armed.Count < MaximumReportedWakeSources)
                 {

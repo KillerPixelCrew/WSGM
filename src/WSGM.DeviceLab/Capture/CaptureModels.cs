@@ -56,7 +56,7 @@ internal enum CapturePrivacy
     PrivateWorking,
 
     /// <summary>Redacted capture explicitly prepared for sharing.</summary>
-    ShareableSanitized,
+    ShareableSanitized
 }
 
 /// <summary>
@@ -283,7 +283,7 @@ internal enum ObservationStepKind
     OperatorMarker,
 
     /// <summary>Observe already-available telemetry or readback.</summary>
-    TelemetryReadback,
+    TelemetryReadback
 }
 
 /// <summary>One timestamp supplied by an observed source.</summary>
@@ -329,7 +329,7 @@ internal enum PayloadDisposition
     NotCaptured,
 
     /// <summary>Opaque bytes were excluded because they could not be safely rewritten.</summary>
-    Quarantined,
+    Quarantined
 }
 
 /// <summary>One raw observation in a QPC-aligned capture stream.</summary>
@@ -395,7 +395,7 @@ internal enum EventLossState
     SourceReported,
 
     /// <summary>The bounded capture queue overflowed.</summary>
-    QueueOverflow,
+    QueueOverflow
 }
 
 /// <summary>Discontinuity state carried by every capture event.</summary>
@@ -418,7 +418,7 @@ internal enum EventDiscontinuity
     DeviceGenerationChanged,
 
     /// <summary>The event arrived after a later-QPC event and was retained rather than reordered away.</summary>
-    LateArrival,
+    LateArrival
 }
 
 /// <summary>Access state carried by every capture event.</summary>
@@ -432,7 +432,7 @@ internal enum EventAccessState
     AccessDenied,
 
     /// <summary>The source or prerequisite was unavailable.</summary>
-    Unavailable,
+    Unavailable
 }
 
 /// <summary>One derived interpretation that links back to raw event IDs.</summary>

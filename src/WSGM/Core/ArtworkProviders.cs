@@ -22,7 +22,7 @@ public enum ArtworkProviderReadiness
     Disabled,
 
     /// <summary>Needs credentials that are not configured.</summary>
-    MissingCredentials,
+    MissingCredentials
 }
 
 /// <summary>Whether a provider can be searched, and what to say when it cannot.</summary>
@@ -281,7 +281,7 @@ public static class ArtworkSearch
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var candidates = new List<ArtworkCandidate>();
         var counts = new int[providers.Count];
-        for (int index = 0; index < providers.Count; index++)
+        for (var index = 0; index < providers.Count; index++)
         {
             foreach (var candidate in answers[index].Candidates)
             {

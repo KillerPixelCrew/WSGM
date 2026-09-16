@@ -13,7 +13,7 @@ public enum SteamAutostartKind
     /// <summary>A shortcut in a Startup folder.</summary>
     StartupShortcut,
     /// <summary>A scheduled task with a logon trigger.</summary>
-    ScheduledTask,
+    ScheduledTask
 }
 
 /// <summary>Whether a source belongs to this user or to the machine.</summary>
@@ -22,7 +22,7 @@ public enum SteamAutostartScope
     /// <summary>Per-user; WSGM can change it without elevation.</summary>
     User,
     /// <summary>Machine-wide or a scheduled task; changing it needs elevation.</summary>
-    Machine,
+    Machine
 }
 
 /// <summary>One place Windows starts Steam from.</summary>
@@ -51,7 +51,7 @@ public sealed record SteamAutostartSource(
     {
         SteamAutostartKind.RunValue => $"Startup entry \"{Name}\" ({Location})",
         SteamAutostartKind.StartupShortcut => $"Startup shortcut \"{Name}\"",
-        _ => $"Scheduled task \"{Location}\"",
+        _ => $"Scheduled task \"{Location}\""
     };
 }
 
@@ -120,34 +120,34 @@ public static class SteamAutostartScanner
     {
         ArgumentNullException.ThrowIfNull(system);
         List<SteamAutostartSource> found = [];
-        foreach (SteamAutostartScope scope in new[] { SteamAutostartScope.User, SteamAutostartScope.Machine })
+        foreach (var scope in new[] { SteamAutostartScope.User, SteamAutostartScope.Machine })
         {
-            foreach (bool wow64 in new[] { false, true })
+            foreach (var wow64 in new[] { false, true })
             {
-                string list = wow64 ? Run32List : RunList;
-                foreach ((string name, string command) in Read(() => system.ReadRunValues(scope, wow64)))
+                var list = wow64 ? Run32List : RunList;
+                foreach (var (name, command) in Read(() => system.ReadRunValues(scope, wow64)))
                 {
                     if (!LaunchesSteam(command, steamExePath)) { continue; }
-                    found.Add(new(SteamAutostartKind.RunValue, scope,
+                    found.Add(new SteamAutostartSource(SteamAutostartKind.RunValue, scope,
                         (scope is SteamAutostartScope.User ? "HKCU" : "HKLM") + (wow64 ? " (32-bit)" : "") + @"\...\Run",
                         name, command, IsApproved(system, scope, list, name), wow64));
                 }
             }
 
-            foreach ((string file, string target) in Read(() => system.ReadStartupShortcuts(scope)))
+            foreach (var (file, target) in Read(() => system.ReadStartupShortcuts(scope)))
             {
                 if (!LaunchesSteam(target, steamExePath)) { continue; }
-                found.Add(new(SteamAutostartKind.StartupShortcut, scope,
+                found.Add(new SteamAutostartSource(SteamAutostartKind.StartupShortcut, scope,
                     scope is SteamAutostartScope.User ? "Startup folder" : "Common Startup folder",
                     file, target, IsApproved(system, scope, StartupFolderList, file)));
             }
         }
 
-        foreach ((string path, string command) in Read(system.ReadLogonTasks))
+        foreach (var (path, command) in Read(system.ReadLogonTasks))
         {
             if (!LaunchesSteam(command, steamExePath)) { continue; }
             // A task always needs elevation to change, whoever registered it.
-            found.Add(new(SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine,
+            found.Add(new SteamAutostartSource(SteamAutostartKind.ScheduledTask, SteamAutostartScope.Machine,
                 path, path, command, IsTaskEnabled(system, path)));
         }
 
@@ -162,7 +162,7 @@ public static class SteamAutostartScanner
     /// <returns>True when the first token is Steam's executable.</returns>
     internal static bool LaunchesSteam(string? command, string? steamExePath)
     {
-        string? executable = FirstToken(command);
+        var executable = FirstToken(command);
         if (executable is null) { return false; }
         if (!executable.EndsWith("steam.exe", StringComparison.OrdinalIgnoreCase)) { return false; }
         if (string.IsNullOrEmpty(steamExePath))
@@ -194,13 +194,13 @@ public static class SteamAutostartScanner
     internal static string? FirstToken(string? command)
     {
         if (string.IsNullOrWhiteSpace(command)) { return null; }
-        string text = Environment.ExpandEnvironmentVariables(command).Trim();
+        var text = Environment.ExpandEnvironmentVariables(command).Trim();
         if (text.StartsWith('"'))
         {
-            int closing = text.IndexOf('"', 1);
+            var closing = text.IndexOf('"', 1);
             return closing > 1 ? text[1..closing] : null;
         }
-        for (int space = text.IndexOf(' '); space > 0; space = text.IndexOf(' ', space + 1))
+        for (var space = text.IndexOf(' '); space > 0; space = text.IndexOf(' ', space + 1))
         {
             if (text[..space].EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) { return text[..space]; }
         }

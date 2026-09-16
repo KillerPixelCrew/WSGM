@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using WSGM.Controls;
 using WSGM.Core;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
@@ -130,9 +132,9 @@ public sealed class WifiNetworkEntry : ObservableObject
 
     /// <summary>Gets the icon state: off is never used here (a listed network
     /// implies a live radio), so this is connected or merely visible.</summary>
-    public Controls.RadioIconState IconState => Connected
-        ? Controls.RadioIconState.Connected
-        : Controls.RadioIconState.Disconnected;
+    public RadioIconState IconState => Connected
+        ? RadioIconState.Connected
+        : RadioIconState.Disconnected;
 
     /// <summary>Gets the second line under the name.</summary>
     public string StatusLine => Connected
@@ -145,7 +147,7 @@ public sealed class WifiNetworkEntry : ObservableObject
             WifiSecurity.Unsupported => "WEP network (not supported here)",
             WifiSecurity.Open => Saved ? "Open, saved" : "Open",
             WifiSecurity.EnhancedOpen => Saved ? "Open (encrypted), saved" : "Open (encrypted)",
-            _ => Saved ? "Saved" : "Secured",
+            _ => Saved ? "Saved" : "Secured"
         };
 
     /// <summary>Gets the label for this row's action button.</summary>
@@ -172,7 +174,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
     /// <summary>Gets the current pairable Windows endpoint.</summary>
     public string PairingEndpointId { get; internal set; }
 
-    internal System.Collections.Generic.IReadOnlyList<string> EndpointIds { get; set; } = [];
+    internal IReadOnlyList<string> EndpointIds { get; set; } = [];
 
     private string _name = "";
     /// <summary>Gets the display name, or a placeholder when the device has not
@@ -353,9 +355,9 @@ public sealed class BluetoothDeviceEntry : ObservableObject
 
     /// <summary>Gets the icon state: accent only for a live connection, muted
     /// for everything else — the same rule as the taskbar tile.</summary>
-    public Controls.RadioIconState IconState => Connected
-        ? Controls.RadioIconState.Connected
-        : Controls.RadioIconState.Disconnected;
+    public RadioIconState IconState => Connected
+        ? RadioIconState.Connected
+        : RadioIconState.Disconnected;
 
     /// <summary>Gets the second line under the name.</summary>
     public string StatusLine => Busy

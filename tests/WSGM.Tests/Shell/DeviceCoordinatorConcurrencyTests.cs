@@ -10,8 +10,8 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public void ApplicationEntryPoint_IsTheSynchronousStaMainWrapper()
     {
-        MethodInfo entryPoint = typeof(Program).Assembly.EntryPoint
-            ?? throw new InvalidOperationException("WSGM has no assembly entry point.");
+        var entryPoint = typeof(Program).Assembly.EntryPoint
+                         ?? throw new InvalidOperationException("WSGM has no assembly entry point.");
 
         Assert.Equal(typeof(Program), entryPoint.DeclaringType);
         Assert.Equal(nameof(Program.Main), entryPoint.Name);
@@ -23,9 +23,9 @@ public sealed class DeviceCoordinatorConcurrencyTests
     public async Task CanceledStart_CleansPartialOwnershipRestoresRetryStateAndRethrows()
     {
         using var cancellation = new CancellationTokenSource();
-        DeviceCycleState state = DeviceCycleState.Faulted;
-        bool cleaned = false;
-        bool restartPending = true;
+        var state = DeviceCycleState.Faulted;
+        var cleaned = false;
+        var restartPending = true;
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             DeviceCoordinator.RunCancellationSafeStartAsync(
@@ -53,7 +53,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public async Task CanceledStart_LifetimeCancellationPreservesClientForShutdown()
     {
-        bool callerCleanupRan = false;
+        var callerCleanupRan = false;
 
         await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
             lifetimeCancellationRequested: true,
@@ -72,9 +72,9 @@ public sealed class DeviceCoordinatorConcurrencyTests
         using var canceledCaller = new CancellationTokenSource();
         canceledCaller.Cancel();
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
-        TimeSpan budget = TimeSpan.FromSeconds(5);
+        var budget = TimeSpan.FromSeconds(5);
         DateTimeOffset receivedDeadline = default;
-        CancellationToken receivedToken = canceledCaller.Token;
+        var receivedToken = canceledCaller.Token;
 
         await DeviceCoordinator.RunCanceledStartCleanupPolicyAsync(
             lifetimeCancellationRequested: false,
@@ -99,7 +99,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
     {
         List<string> order = [];
 
-        DeviceClientTeardownResult teardown = await DeviceCoordinator.RunClientTeardownAsync(
+        var teardown = await DeviceCoordinator.RunClientTeardownAsync(
             _ =>
             {
                 order.Add("controller");
@@ -133,7 +133,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         var transitionFailure = new InvalidOperationException("state subscriber failed");
         List<string> order = [];
 
-        DeviceClientTeardownResult teardown =
+        var teardown =
             await DeviceCoordinator.RunClientTeardownWithStateNotificationsAsync(
                 () =>
                 {
@@ -180,7 +180,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 "stop",
                 "detach",
                 "dispose",
-                "disabled",
+                "disabled"
             ],
             order);
     }
@@ -188,20 +188,20 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public async Task ClientTeardown_UnverifiedResponsesAreRetainedThroughDisposal()
     {
-        bool disposed = false;
-        ControllerHandoff handoff = VerifiedHandoff() with
+        var disposed = false;
+        var handoff = VerifiedHandoff() with
         {
             Step = ControllerHandoffStep.TopologyUnverified,
-            Result = ControllerHandoffResult.ReleasedVerified,
+            Result = ControllerHandoffResult.ReleasedVerified
         };
-        DevicePluginState stopped = VerifiedStop() with
+        var stopped = VerifiedStop() with
         {
             Reason = new CapabilityReason(
                 CapabilityReasonCode.TransportFaulted,
-                "restore readback failed"),
+                "restore readback failed")
         };
 
-        DeviceClientTeardownResult teardown = await DeviceCoordinator.RunClientTeardownAsync(
+        var teardown = await DeviceCoordinator.RunClientTeardownAsync(
             _ => Task.FromResult(handoff),
             _ => Task.FromResult(stopped),
             static () => ValueTask.CompletedTask,
@@ -228,7 +228,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         var stopFailure = new TimeoutException("plugin stop timed out");
         List<string> order = [];
 
-        DeviceClientTeardownResult teardown = await DeviceCoordinator.RunClientTeardownAsync(
+        var teardown = await DeviceCoordinator.RunClientTeardownAsync(
             _ =>
             {
                 order.Add("controller");
@@ -254,7 +254,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.Contains(controllerFailure, teardown.Failures);
         Assert.Contains(stopFailure, teardown.Failures);
         Assert.Equal(["controller", "stop", "detach", "dispose"], order);
-        InvalidOperationException reported = Assert.Throws<InvalidOperationException>(() =>
+        var reported = Assert.Throws<InvalidOperationException>(() =>
             DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
                 teardown,
                 CancellationToken.None));
@@ -268,7 +268,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         cancellation.Cancel();
         List<string> order = [];
 
-        DeviceClientTeardownResult teardown = await DeviceCoordinator.RunClientTeardownAsync(
+        var teardown = await DeviceCoordinator.RunClientTeardownAsync(
             token =>
             {
                 order.Add("controller");
@@ -293,7 +293,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
 
         Assert.Equal(["controller", "stop", "detach", "dispose"], order);
         Assert.Equal(2, teardown.Failures.Count);
-        OperationCanceledException canceled = Assert.ThrowsAny<OperationCanceledException>(() =>
+        var canceled = Assert.ThrowsAny<OperationCanceledException>(() =>
             DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
                 teardown,
                 cancellation.Token));
@@ -307,7 +307,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        OperationCanceledException canceled = Assert.ThrowsAny<OperationCanceledException>(() =>
+        var canceled = Assert.ThrowsAny<OperationCanceledException>(() =>
             DeviceCoordinator.ThrowIfDeviceTeardownIncomplete(
                 DeviceClientTeardownResult.Clean,
                 cancellation.Token));
@@ -323,7 +323,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
             "fault while shutdown waited for the transition");
 
         tracker.Retain(hostExitFailure);
-        IReadOnlyList<Exception> drained = tracker.Drain();
+        var drained = tracker.Drain();
 
         Assert.Single(drained);
         Assert.Same(hostExitFailure, drained[0]);
@@ -348,10 +348,10 @@ public sealed class DeviceCoordinatorConcurrencyTests
         using var lifetime = new CancellationTokenSource();
         using var transitionGate = new SemaphoreSlim(0, 1);
         var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using CancellationTokenRegistration registration = lifetime.Token.Register(
+        using var registration = lifetime.Token.Register(
             () => canceled.TrySetResult());
 
-        Task waiting = DeviceCoordinator.CancelLifetimeAndWaitForTransitionAsync(
+        var waiting = DeviceCoordinator.CancelLifetimeAndWaitForTransitionAsync(
             lifetime,
             transitionGate);
         try
@@ -376,15 +376,15 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public void OwnerMarkerCreationFailure_FailsClosed()
     {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.Failure.{Guid.NewGuid():N}";
+        var name = $@"Local\WSGM.Tests.DeviceOwner.Failure.{Guid.NewGuid():N}";
 
-        Mutex? owner = DeviceCoordinator.TryCreateOwnerMutex(
+        var owner = DeviceCoordinator.TryCreateOwnerMutex(
             name,
             static _ => throw new IOException("simulated named-object failure"));
-        Mutex? denied = DeviceCoordinator.TryCreateOwnerMutex(
+        var denied = DeviceCoordinator.TryCreateOwnerMutex(
             name,
             static _ => throw new UnauthorizedAccessException("simulated access denial"));
-        Mutex? unavailable = DeviceCoordinator.TryCreateOwnerMutex(
+        var unavailable = DeviceCoordinator.TryCreateOwnerMutex(
             name,
             static _ => throw new WaitHandleCannotBeOpenedException("simulated object failure"));
 
@@ -396,12 +396,12 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public void OwnerMarker_IsUnownedAndItsHandleMayBeDisposedOnAnotherThread()
     {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.Lifetime.{Guid.NewGuid():N}";
-        Mutex marker = Assert.IsType<Mutex>(DeviceCoordinator.TryCreateOwnerMutex(name));
-        Mutex? ownerForCleanup = marker;
+        var name = $@"Local\WSGM.Tests.DeviceOwner.Lifetime.{Guid.NewGuid():N}";
+        var marker = Assert.IsType<Mutex>(DeviceCoordinator.TryCreateOwnerMutex(name));
+        var ownerForCleanup = marker;
         try
         {
-            Mutex? duplicate = DeviceCoordinator.TryCreateOwnerMutex(name);
+            var duplicate = DeviceCoordinator.TryCreateOwnerMutex(name);
             try
             {
                 Assert.Null(duplicate);
@@ -411,7 +411,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 duplicate?.Dispose();
             }
 
-            bool acquiredOnWorker = false;
+            var acquiredOnWorker = false;
             Exception? acquireFailure = null;
             var acquireThread = new Thread(() =>
             {
@@ -456,7 +456,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
             Assert.Null(disposeFailure);
             ownerForCleanup = null;
 
-            using Mutex reacquired = Assert.IsType<Mutex>(
+            using var reacquired = Assert.IsType<Mutex>(
                 DeviceCoordinator.TryCreateOwnerMutex(name));
         }
         finally
@@ -477,24 +477,24 @@ public sealed class DeviceCoordinatorConcurrencyTests
         // Plugin maintenance holds this exact reservation across the whole slot operation
         // (a using scope around the maintenance body in Program), so exclusivity while held
         // and reacquirability after release are the load-bearing marker semantics.
-        string name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
-        using (Mutex reservation = Assert.IsType<Mutex>(
+        var name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
+        using (var reservation = Assert.IsType<Mutex>(
             DeviceCoordinator.TryCreateOwnerMutex(name)))
         {
             Assert.Null(DeviceCoordinator.TryCreateOwnerMutex(name));
         }
 
-        using Mutex reacquired = Assert.IsType<Mutex>(
+        using var reacquired = Assert.IsType<Mutex>(
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
     [Fact]
     public async Task DevicePluginMaintenance_HoldsOwnerReservationThroughTheWholeOperation()
     {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
+        var name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<int> maintenance = Program.RunDevicePluginMaintenanceWithOwnerReservationAsync(
+        var maintenance = Program.RunDevicePluginMaintenanceWithOwnerReservationAsync(
             name,
             "test maintenance",
             async () =>
@@ -503,7 +503,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 await release.Task.ConfigureAwait(false);
                 return 23;
             });
-        int outcome = 0;
+        var outcome = 0;
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -516,20 +516,20 @@ public sealed class DeviceCoordinatorConcurrencyTests
         }
 
         Assert.Equal(23, outcome);
-        using Mutex reacquired = Assert.IsType<Mutex>(
+        using var reacquired = Assert.IsType<Mutex>(
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
     private static ControllerHandoff VerifiedHandoff() => new()
     {
         Step = ControllerHandoffStep.TopologyVerified,
-        Result = ControllerHandoffResult.ReleasedVerified,
+        Result = ControllerHandoffResult.ReleasedVerified
     };
 
     private static DevicePluginState VerifiedStop() => new()
     {
         State = DeviceCycleState.Disabled,
-        CycleGeneration = 1,
+        CycleGeneration = 1
     };
 
 }

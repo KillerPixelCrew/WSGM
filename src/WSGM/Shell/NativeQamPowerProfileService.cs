@@ -21,13 +21,13 @@ internal sealed class NativeQamPowerProfileService(PowerSchemes schemes, Action<
             try
             {
                 var options = schemes.Enumerate();
-                Guid active = schemes.ReadActive();
+                var active = schemes.ReadActive();
                 if (options.Count > 64)
                 {
-                    return new(false, [], string.Empty, "Windows returned more than 64 power profiles.");
+                    return new SteamPowerProfileState(false, [], string.Empty, "Windows returned more than 64 power profiles.");
                 }
                 _requiresRead = false;
-                return new(options.Count > 0,
+                return new SteamPowerProfileState(options.Count > 0,
                     options.Select(scheme => new SteamPowerProfileOption(scheme.Id.ToString("D"),
                         options.Count(other => other.Name == scheme.Name) > 1
                             ? $"{scheme.Name} ({scheme.Id:D})" : scheme.Name)).ToArray(),
@@ -37,14 +37,14 @@ internal sealed class NativeQamPowerProfileService(PowerSchemes schemes, Action<
             catch (Exception ex)
             {
                 _requiresRead = true;
-                return new(false, [], string.Empty, ex.Message);
+                return new SteamPowerProfileState(false, [], string.Empty, ex.Message);
             }
         }
     }));
 
     public Task<SteamUiCommandResult> SetPowerProfileAsync(string option, CancellationToken cancellationToken)
     {
-        if (!Guid.TryParseExact(option, "D", out Guid id) || id == Guid.Empty)
+        if (!Guid.TryParseExact(option, "D", out var id) || id == Guid.Empty)
         {
             return Task.FromResult(new SteamUiCommandResult(false, "Invalid power-profile GUID."));
         }

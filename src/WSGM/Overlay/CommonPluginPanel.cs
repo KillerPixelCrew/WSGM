@@ -4,7 +4,9 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -78,9 +80,9 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             return false;
         }
-        for (int index = 0; index < instances.Length; index++)
+        for (var index = 0; index < instances.Length; index++)
         {
-            PluginOverlayInstance instance = instances[index];
+            var instance = instances[index];
             if (_structure[index] != (instance.Identity, instance.Generation, instance.Controls is not null, instance.Error))
             {
                 return false;
@@ -92,7 +94,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private void AddInstance(PluginOverlayInstance instance)
     {
         if (_widget is null) { Children.Add(new TextBlock { Text = instance.Name, Classes = { "eyebrow" } }); }
-        var health = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var health = new TextBlock { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
         Children.Add(health);
         var owner = instance;
         _refresh.Add(() =>
@@ -110,17 +112,17 @@ internal sealed class CommonPluginPanel : StackPanel
             DockPanel heading = new() { LastChildFill = true };
             if (WidgetIcon(widget.Icon) is { } geometry)
             {
-                Avalonia.Controls.Shapes.Path icon = new()
+                Path icon = new()
                 {
                     Data = geometry,
                     Width = 20,
                     Height = 20,
                     Stretch = Stretch.Uniform,
                     StrokeThickness = 2,
-                    Margin = new(0, 0, 8, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center
                 };
-                icon.Bind(Avalonia.Controls.Shapes.Shape.StrokeProperty, new Binding("Foreground") { Source = title });
+                icon.Bind(Shape.StrokeProperty, new Binding("Foreground") { Source = title });
                 DockPanel.SetDock(icon, Dock.Left);
                 heading.Children.Add(icon);
             }
@@ -132,7 +134,7 @@ internal sealed class CommonPluginPanel : StackPanel
                 open.Click += (_, _) => _navigate(pinned, category);
                 Children.Add(open);
             }
-            int firstControl = Children.Count;
+            var firstControl = Children.Count;
             foreach (var id in widget.ContributionIds)
             { AddContribution(instance, owner, actions.Contributions.First(item => item.Id == id)); }
             var controls = Children.Skip(firstControl).ToArray();
@@ -142,8 +144,8 @@ internal sealed class CommonPluginPanel : StackPanel
             {
                 var states = _source.State(instance.Identity).Where(value => value.Generation == owner.Generation).ToArray();
                 bool Predicate(string? key) => key is null || states.FirstOrDefault(value => value.Key == key)?.Value.Boolean == true;
-                bool available = Predicate(widget.VisibleStateKey);
-                bool enabled = available && Predicate(widget.EnabledStateKey);
+                var available = Predicate(widget.VisibleStateKey);
+                var enabled = available && Predicate(widget.EnabledStateKey);
                 foreach (var control in controls) { control.IsEnabled = enabled; }
                 secondary.Text = !available ? "Widget unavailable" : widget.SecondaryStateKey is { } key
                     ? states.FirstOrDefault(value => value.Key == key) is { } state ? Format(state.Value) : "No confirmed value" : "";
@@ -165,7 +167,7 @@ internal sealed class CommonPluginPanel : StackPanel
             {
                 Text = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(group.Key.Replace('-', ' ').Replace('_', ' ')),
                 Classes = { "eyebrow" },
-                Focusable = true,
+                Focusable = true
             };
             _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = anchor;
             Children.Add(anchor);
@@ -182,9 +184,9 @@ internal sealed class CommonPluginPanel : StackPanel
 
     private void AddContribution(PluginOverlayInstance instance, PluginOverlayInstance owner, PluginUiContribution contribution)
     {
-        long generation = owner.Generation;
+        var generation = owner.Generation;
         var row = new StackPanel { Spacing = 4 };
-        var effective = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "caption" } };
+        var effective = new TextBlock { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
         if (contribution.Kind != PluginUiKind.Action) { row.Children.Add(new TextBlock { Text = contribution.Label, Classes = { "setting-title" } }); }
         if (contribution.StateKey is not null) { row.Children.Add(effective); }
         Children.Add(contribution.Kind == PluginUiKind.Action ? row : new Border { Classes = { "tile" }, Child = row });
@@ -213,7 +215,7 @@ internal sealed class CommonPluginPanel : StackPanel
                 {
                     var editor = new ToggleSwitch { IsChecked = field.Default.Boolean };
                     inputs.Children.Add(editor);
-                    argumentReaders.Add(field.Key, () => new(Boolean: editor.IsChecked == true));
+                    argumentReaders.Add(field.Key, () => new PluginValue(Boolean: editor.IsChecked == true));
                 }
                 else if (field.Kind == PluginSettingKind.Number)
                 {
@@ -225,7 +227,7 @@ internal sealed class CommonPluginPanel : StackPanel
                 {
                     var editor = new ComboBox { ItemsSource = choices, SelectedItem = field.Default.Text };
                     inputs.Children.Add(editor);
-                    argumentReaders.Add(field.Key, () => new(Text: editor.SelectedItem as string ?? ""));
+                    argumentReaders.Add(field.Key, () => new PluginValue(Text: editor.SelectedItem as string ?? ""));
                 }
                 else
                 {
@@ -264,9 +266,9 @@ internal sealed class CommonPluginPanel : StackPanel
             Tag = $"plugin.{instance.Identity.PluginId}.{instance.Identity.InstanceId}.{contribution.Id}"
         };
         inputs.Children.Add(apply);
-        var result = new TextBlock { Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap, IsVisible = false };
+        var result = new TextBlock { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap, IsVisible = false };
         row.Children.Add(result);
-        bool busy = false;
+        var busy = false;
         _refresh.Add(() => apply.IsEnabled = !busy && _observed.Any(value => value.Identity == instance.Identity && value.CanInvoke && value.Generation == generation));
         apply.Click += async (_, _) =>
         {
@@ -311,19 +313,19 @@ internal sealed class CommonPluginPanel : StackPanel
         "display" => Icons.Monitor,
         "settings" => Icons.Gear,
         "action" => Icons.Play,
-        _ => null,
+        _ => null
     };
 
-    private static string Format(PluginValue value) => value.Boolean is { } boolean ? (boolean ? "On" : "Off")
+    private static string Format(PluginValue value) => value.Boolean is { } boolean ? boolean ? "On" : "Off"
         : value.Number?.ToString("G", CultureInfo.CurrentCulture) ?? value.Text ?? "No confirmed value";
 
     internal static (Button Editor, Func<PluginValue> Read) CreateTextArgumentEditor(PluginSetting field)
     {
-        string draft = field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture) ?? "";
+        var draft = field.Default.Text ?? field.Default.Number?.ToString("G", CultureInfo.CurrentCulture) ?? "";
         Button editor = new() { Content = draft.Length > 0 ? draft : "Enter value" };
         editor.Click += (_, _) =>
         {
-            bool opened = KeyboardService.Request(field.Label, draft, field.Kind == PluginSettingKind.Number ? 64 : 4096, value =>
+            var opened = KeyboardService.Request(field.Label, draft, field.Kind == PluginSettingKind.Number ? 64 : 4096, value =>
             {
                 draft = value;
                 editor.Content = draft.Length > 0 ? draft : "Enter value";
@@ -331,7 +333,7 @@ internal sealed class CommonPluginPanel : StackPanel
             if (!opened) { editor.Content = "Keyboard unavailable. Reopen the overlay to retry."; }
         };
         return (editor, () => field.Kind == PluginSettingKind.Number
-            ? new(Number: double.TryParse(draft, NumberStyles.Float, CultureInfo.CurrentCulture, out double number) ? number : double.NaN)
-            : new(Text: draft));
+            ? new PluginValue(Number: double.TryParse(draft, NumberStyles.Float, CultureInfo.CurrentCulture, out var number) ? number : double.NaN)
+            : new PluginValue(Text: draft));
     }
 }

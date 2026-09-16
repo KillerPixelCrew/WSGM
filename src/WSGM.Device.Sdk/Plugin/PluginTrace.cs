@@ -21,7 +21,7 @@ public enum DeviceTraceLevel
     /// Declared last so the numeric values of the levels that existed before it do not move. Order
     /// here is declaration order, not severity: the host maps each level explicitly.
     /// </remarks>
-    Debug,
+    Debug
 }
 
 /// <summary>
@@ -102,7 +102,7 @@ public static class PluginTrace
         DeviceTraceLevel level = DeviceTraceLevel.Info)
     {
         ArgumentException.ThrowIfNullOrEmpty(key);
-        IPluginHostAdapter? sink = _sink;
+        var sink = _sink;
         if (sink is null || string.IsNullOrEmpty(message))
         {
             return;
@@ -141,7 +141,7 @@ public static class PluginTrace
 
     private static void Write(DeviceTraceLevel level, string scope, string message)
     {
-        IPluginHostAdapter? sink = _sink;
+        var sink = _sink;
         if (sink is null || string.IsNullOrEmpty(message))
         {
             return;

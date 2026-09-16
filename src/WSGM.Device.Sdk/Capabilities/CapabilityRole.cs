@@ -114,7 +114,7 @@ public enum CapabilityRole
     GenericText,
 
     /// <summary>A device-specific read-only value with no more specific role.</summary>
-    GenericReadOnly,
+    GenericReadOnly
 }
 
 /// <summary>The shape of a capability's value, which decides how it is rendered and validated.</summary>
@@ -147,7 +147,7 @@ public enum CapabilityValueKind
     /// <see cref="CapabilityDisplay.CustomLabel"/>: a declared maximum length with control and
     /// bidirectional formatting characters rejected.
     /// </remarks>
-    Text,
+    Text
 }
 
 /// <summary>Units a numeric capability may carry.</summary>
@@ -183,7 +183,7 @@ public enum CapabilityUnit
     Megahertz,
 
     /// <summary>Milliseconds.</summary>
-    Millisecond,
+    Millisecond
 }
 
 /// <summary>Questions about a <see cref="CapabilityRole"/> that more than one layer asks.</summary>

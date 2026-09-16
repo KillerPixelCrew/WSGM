@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -27,7 +28,7 @@ internal sealed class DevicePrerequisiteSource(
         {
             // A banner is not worth failing an overlay open over.
             Log.Warn("Reading the device prerequisites failed: " + ex.Message);
-            return new("", false, false);
+            return new DevicePrerequisiteAdvice("", false, false);
         }
     }
 
@@ -56,8 +57,8 @@ internal sealed class DevicePrerequisiteSource(
     /// <returns>True when the driver is installed.</returns>
     internal static bool HidHideInstalled()
     {
-        if (!WSGM.Interop.NativeHidHide.TryOpen(
-            out Microsoft.Win32.SafeHandles.SafeFileHandle handle, out _))
+        if (!NativeHidHide.TryOpen(
+            out var handle, out _))
         {
             return false;
         }

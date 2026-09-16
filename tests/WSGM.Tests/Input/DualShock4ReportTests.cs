@@ -10,7 +10,7 @@ public sealed class DualShock4ReportTests
     [Fact]
     public void ButtonsUseTheDualShockLayoutAndBothPadClicksShareItsOneClick()
     {
-        byte[] frame = Frame(Sample(
+        var frame = Frame(Sample(
             CanonicalButtons.A | CanonicalButtons.B | CanonicalButtons.X | CanonicalButtons.Y
             | CanonicalButtons.LeftShoulder | CanonicalButtons.RightShoulder
             | CanonicalButtons.View | CanonicalButtons.Menu
@@ -23,14 +23,14 @@ public sealed class DualShock4ReportTests
     [Fact]
     public void DPadSticksAndTriggersUseDualShockCoordinates()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.DPadUp | CanonicalButtons.DPadRight) with
+        var frame = Frame(Sample(CanonicalButtons.DPadUp | CanonicalButtons.DPadRight) with
         {
             LeftStickX = -1f,
             LeftStickY = 1f,
             RightStickX = 0.5f,
             RightStickY = -0.5f,
             LeftTrigger = 0.2f,
-            RightTrigger = 1f,
+            RightTrigger = 1f
         });
 
         Assert.Equal(unchecked((byte)-127), frame[0]);
@@ -48,13 +48,13 @@ public sealed class DualShock4ReportTests
     [Fact]
     public void TwoCanonicalContactsMapOntoTheSingleTwoFingerTouchpad()
     {
-        byte[] frame = Frame(Sample(
+        var frame = Frame(Sample(
             CanonicalButtons.LeftPadTouch | CanonicalButtons.RightPadTouch) with
         {
             LeftPadX = -1f,
             LeftPadY = 1f,
             RightPadX = 1f,
-            RightPadY = -1f,
+            RightPadY = -1f
         });
 
         Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame[9..11]));
@@ -68,7 +68,7 @@ public sealed class DualShock4ReportTests
     [Fact]
     public void MotionUsesViipersFixedPhysicalUnits()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
             Motion = new MotionSample
             {
@@ -79,8 +79,8 @@ public sealed class DualShock4ReportTests
                 HasAccelerometer = true,
                 AccelX = 1f,
                 AccelY = -0.5f,
-                AccelZ = 0.25f,
-            },
+                AccelZ = 0.25f
+            }
         });
 
         Assert.Equal(1600, BinaryPrimitives.ReadInt16LittleEndian(frame[19..21]));
@@ -94,7 +94,7 @@ public sealed class DualShock4ReportTests
     [Fact]
     public void AbsentMotionIsNotInvented()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None));
+        var frame = Frame(Sample(CanonicalButtons.None));
 
         Assert.Equal(new byte[12], frame[19..31]);
     }
@@ -105,7 +105,7 @@ public sealed class DualShock4ReportTests
 
     private static byte[] Frame(CanonicalControllerSample sample)
     {
-        byte[] frame = new byte[DualShock4Report.Length];
+        var frame = new byte[DualShock4Report.Length];
         DualShock4Report.Write(sample, frame);
         return frame;
     }

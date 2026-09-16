@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -180,7 +181,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     private void Refresh()
     {
         var now = DateTime.Now;
-        long minute = now.Ticks / TimeSpan.TicksPerMinute;
+        var minute = now.Ticks / TimeSpan.TicksPerMinute;
         if (minute != _formattedMinute)
         {
             // Both change at most once a minute; formatting them on every tick only allocates.
@@ -189,7 +190,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
             DateText = FormatDate(now, CultureInfo.CurrentCulture);
         }
 
-        var ok = WindowsDeviceControl.WindowsPower.TryGetStatus(out var power);
+        var ok = WindowsPower.TryGetStatus(out var power);
         var (hasBattery, percent, text) = InterpretBattery(ok, power.BatteryFlag, power.BatteryLifePercent);
         HasBattery = hasBattery;
         BatteryPercent = percent;

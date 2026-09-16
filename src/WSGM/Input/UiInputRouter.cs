@@ -11,7 +11,7 @@ internal enum UiInputSource
     ManagedCanonical,
 
     /// <summary>The SDL fallback while a focused surface owns the Steam Input lease.</summary>
-    SdlWithSteamLease,
+    SdlWithSteamLease
 }
 
 /// <summary>
@@ -62,7 +62,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         (CanonicalButtons.Guide, GamepadButtons.Steam),
         (CanonicalButtons.QuickAccess, GamepadButtons.QuickAccess),
         (CanonicalButtons.LeftPadClick, GamepadButtons.LeftPadPress),
-        (CanonicalButtons.RightPadClick, GamepadButtons.RightPadPress),
+        (CanonicalButtons.RightPadClick, GamepadButtons.RightPadPress)
     ];
 
     /// <summary>How far a trigger travels before it counts as a press on the managed source.</summary>
@@ -75,7 +75,6 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
 
     private readonly IUiButtonSource _fallback;
     private readonly TimeProvider _time;
-    private UiInputSource _current = UiInputSource.SdlWithSteamLease;
     private GamepadButtons _suppressed;
     private GamepadButtons _managedHeld;
     private DateTimeOffset _switchedAt;
@@ -96,7 +95,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
     public event Action<GamepadButtons>? ButtonPressed;
 
     /// <summary>Which source WSGM's navigation is currently being driven by.</summary>
-    internal UiInputSource Current => _current;
+    internal UiInputSource Current { get; private set; } = UiInputSource.SdlWithSteamLease;
 
     /// <summary>Feeds one canonical sample from the plugin.</summary>
     /// <param name="sample">The sample the plugin published.</param>
@@ -113,7 +112,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
             return;
         }
 
-        GamepadButtons held = Translate(sample);
+        var held = Translate(sample);
         if (!_managedHealthy)
         {
             _managedHealthy = true;
@@ -128,9 +127,9 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         // once, and a canonical stream reports a held button on every sample. The held state keeps
         // tracking while the fallback is current, so it is already correct at the moment a later
         // switch happens rather than starting from nothing.
-        GamepadButtons pressed = held & ~_managedHeld;
+        var pressed = held & ~_managedHeld;
         _managedHeld = held;
-        if (_current is not UiInputSource.ManagedCanonical)
+        if (Current is not UiInputSource.ManagedCanonical)
         {
             return;
         }
@@ -138,7 +137,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         ReleaseSuppressed(held);
         // Neither a press edge nor a release edge is emitted for a suppressed control: the user
         // made neither, so reporting either would be inventing input.
-        GamepadButtons allowed = pressed & ~_suppressed;
+        var allowed = pressed & ~_suppressed;
         if (allowed != 0)
         {
             ButtonPressed?.Invoke(allowed);
@@ -161,7 +160,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         {
             Log.Change(
                 "ui-input-source-lost",
-                $"UI input source loss ignored: current={_current}, managedHealthy=false.");
+                $"UI input source loss ignored: current={Current}, managedHealthy=false.");
             return;
         }
 
@@ -189,21 +188,21 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
     /// </param>
     private void BeginSwitch(UiInputSource to, GamepadButtons? incomingHeld = null)
     {
-        if (_current == to)
+        if (Current == to)
         {
             Log.Change(
                 "ui-input-source-switch",
-                $"UI input source switch skipped: current={_current}, requested={to}.");
+                $"UI input source switch skipped: current={Current}, requested={to}.");
             return;
         }
 
-        UiInputSource from = _current;
+        var from = Current;
         // What the outgoing source had held is what must not produce edges on the incoming one.
         _suppressed = to is UiInputSource.ManagedCanonical
             ? incomingHeld ?? _managedHeld
             : 0;
         _switchedAt = _time.GetUtcNow();
-        _current = to;
+        Current = to;
         if (to is not UiInputSource.ManagedCanonical)
         {
             // The managed source is no longer current, so its held state is stale. Leaving it would
@@ -233,7 +232,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
 
     private void OnFallbackPressed(GamepadButtons buttons)
     {
-        if (_current is UiInputSource.SdlWithSteamLease)
+        if (Current is UiInputSource.SdlWithSteamLease)
         {
             ButtonPressed?.Invoke(buttons);
         }
@@ -243,7 +242,7 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
     internal static GamepadButtons Translate(CanonicalControllerSample sample)
     {
         GamepadButtons held = 0;
-        foreach ((CanonicalButtons canonical, GamepadButtons ui) in Map)
+        foreach (var (canonical, ui) in Map)
         {
             if ((sample.Buttons & canonical) != 0)
             {

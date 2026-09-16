@@ -23,7 +23,7 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         remove { if (SampleSource is { } source) { source.PhysicalSampleReceived -= value; } else { throw new InvalidOperationException("Unexpected physical input subscription removal"); } }
     }
     internal DeviceOverlaySnapshot State { get; set; } = new(true, "Fixture handheld", "Ready", null,
-        [new("fixture.temperature", null, DeviceOverlaySection.Overview, DescriptorStatus.Available,
+        [new DeviceOverlayCapability("fixture.temperature", null, DeviceOverlaySection.Overview, DescriptorStatus.Available,
             "Processor temperature", "Synthetic sensor", "45 °C", false)]);
     public DeviceOverlaySnapshot Snapshot() => State;
     internal void Notify() => _changed?.Invoke();

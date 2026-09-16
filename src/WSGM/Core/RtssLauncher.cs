@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -81,19 +82,19 @@ internal sealed class RtssLauncher
             return false;
         }
 
-        long now = _timeProvider.GetUtcNow().UtcTicks;
-        long last = Volatile.Read(ref _lastAttemptTicks);
+        var now = _timeProvider.GetUtcNow().UtcTicks;
+        var last = Volatile.Read(ref _lastAttemptTicks);
         if ((last != long.MinValue && now - last < RestartCooldown.Ticks)
             || Interlocked.CompareExchange(ref _lastAttemptTicks, now, last) != last)
         {
             return false;
         }
 
-        string executable = probe.ExecutablePath!;
+        var executable = probe.ExecutablePath!;
         Log.Info($"RTSS is installed but not running; starting it: {executable}");
         try
         {
-            bool started = await _start(executable).ConfigureAwait(false);
+            var started = await _start(executable).ConfigureAwait(false);
             if (!started)
             {
                 Log.Warn(
@@ -138,9 +139,9 @@ internal sealed class RtssLauncher
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = System.IO.Path.GetDirectoryName(executable) ?? string.Empty,
+            WorkingDirectory = Path.GetDirectoryName(executable) ?? string.Empty
         };
-        using Process? process = Process.Start(start);
+        using var process = Process.Start(start);
         return Task.FromResult(process is not null);
     }
 }

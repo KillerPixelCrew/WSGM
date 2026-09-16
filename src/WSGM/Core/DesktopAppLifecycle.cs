@@ -41,7 +41,7 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
         new("DisplayFusion", ["DisplayFusion"], "DisplayFusionCommand.exe", "-closeall", ""),
         new("Wallpaper Engine", ["wallpaper32", "wallpaper64"], null, "", "-silent", ExitWindowClass: "WPEEventWindow"),
         new("LittleBigMouse UI", ["LittleBigMouse.Ui.Avalonia"], null, "", "", CloseMainWindowFirst: true),
-        new("LittleBigMouse hook", ["LittleBigMouse.Hook"], null, "", "", CreateNoWindow: true),
+        new("LittleBigMouse hook", ["LittleBigMouse.Hook"], null, "", "", CreateNoWindow: true)
     ];
 
     private readonly List<DesktopAppInstance> _pending = [];
@@ -49,10 +49,10 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
     internal static bool MatchesPath(string path)
     {
         if (AppLauncher.IsProtocol(path)) { return false; }
-        string name = Path.GetFileNameWithoutExtension(path);
-        foreach (DesktopAppRule rule in Rules)
+        var name = Path.GetFileNameWithoutExtension(path);
+        foreach (var rule in Rules)
         {
-            foreach (string processName in rule.ProcessNames)
+            foreach (var processName in rule.ProcessNames)
             {
                 if (string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)) { return true; }
             }
@@ -67,15 +67,15 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
         List<DesktopAppInstance> captured = [];
         try
         {
-            foreach (DesktopAppRule rule in Rules) { captured.AddRange(backend.Capture(rule)); }
-            foreach (DesktopAppInstance instance in captured)
+            foreach (var rule in Rules) { captured.AddRange(backend.Capture(rule)); }
+            foreach (var instance in captured)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 // Remember before dispatch: a timeout can mean the app exited just afterwards.
                 _pending.Add(instance);
                 await backend.StopAsync(instance, cancellationToken).ConfigureAwait(false);
             }
-            foreach (DesktopAppRule rule in Rules)
+            foreach (var rule in Rules)
             {
                 if (backend.Capture(rule).Count != 0)
                 {
@@ -95,9 +95,9 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
     internal async Task RestoreAsync(DateTimeOffset deadline)
     {
         // Start hooks before their supervising UI, which might otherwise spawn another hook.
-        DesktopAppInstance[] pending = _pending.ToArray();
+        var pending = _pending.ToArray();
         Array.Reverse(pending);
-        foreach (DesktopAppInstance instance in pending)
+        foreach (var instance in pending)
         {
             if (!_pending.Contains(instance)) { continue; }
             try
@@ -108,7 +108,7 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
                     ForgetExecutable(instance);
                     continue;
                 }
-                ScheduledTaskLaunchDisposition result = await backend.RestartAsync(instance, deadline)
+                var result = await backend.RestartAsync(instance, deadline)
                     .ConfigureAwait(false);
                 if (result is not ScheduledTaskLaunchDisposition.NotDispatched)
                 {

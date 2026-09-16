@@ -6,8 +6,8 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
-using WSGM.DeviceLab.Inventory;
 
 namespace WSGM.DeviceLab.Capture;
 
@@ -33,7 +33,7 @@ internal enum CaptureBundleReadFailure
     InvalidSchema,
 
     /// <summary>The input could not be read.</summary>
-    Unreadable,
+    Unreadable
 }
 
 /// <summary>Bounded result of importing one <c>.wsgmcap</c>.</summary>
@@ -87,7 +87,7 @@ internal static class CaptureBundleReader
 
             Dictionary<string, ZipArchiveEntry> entries = new(StringComparer.OrdinalIgnoreCase);
             long uncompressedTotal = 0;
-            foreach (ZipArchiveEntry entry in archive.Entries)
+            foreach (var entry in archive.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!CaptureBundleLayout.IsSafeRelativePath(entry.FullName)
@@ -107,7 +107,7 @@ internal static class CaptureBundleReader
                 }
             }
 
-            foreach (string required in RequiredRootEntries())
+            foreach (var required in RequiredRootEntries())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!entries.ContainsKey(required))
@@ -119,35 +119,35 @@ internal static class CaptureBundleReader
             if (!TryVerifyHashes(
                 entries,
                 cancellationToken,
-                out Dictionary<string, string> hashes,
-                out string? hashError))
+                out var hashes,
+                out var hashError))
             {
                 return Failure(CaptureBundleReadFailure.HashMismatch, hashError);
             }
 
-            ShareableCaptureManifest manifest = Deserialize(
+            var manifest = Deserialize(
                 entries[CaptureBundleLayout.ManifestPath],
                 DeviceLabJsonContext.Default.ShareableCaptureManifest,
                 cancellationToken);
-            ObserveOnlyRecipe recipe = Deserialize(
+            var recipe = Deserialize(
                 entries[CaptureBundleLayout.RecipePath],
                 DeviceLabJsonContext.Default.ObserveOnlyRecipe,
                 cancellationToken);
-            MachineInventory inventory = Deserialize(
+            var inventory = Deserialize(
                 entries[CaptureBundleLayout.InventoryPath],
                 DeviceLabJsonContext.Default.MachineInventory,
                 cancellationToken);
-            CaptureRedactionManifest redaction = Deserialize(
+            var redaction = Deserialize(
                 entries[CaptureBundleLayout.RedactionPath],
                 DeviceLabJsonContext.Default.CaptureRedactionManifest,
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
             List<CaptureStreamFile> streams = [];
-            foreach (CaptureStreamDescriptor descriptor in manifest.Streams)
+            foreach (var descriptor in manifest.Streams)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!entries.TryGetValue(descriptor.Path, out ZipArchiveEntry? entry))
+                if (!entries.TryGetValue(descriptor.Path, out var entry))
                 {
                     return Failure(CaptureBundleReadFailure.MissingEntry, $"Stream '{descriptor.Path}' is absent.");
                 }
@@ -158,15 +158,15 @@ internal static class CaptureBundleReader
                     Events = DeserializeLines(
                         entry,
                         DeviceLabCompactJson.CaptureStreamEvent,
-                        cancellationToken),
+                        cancellationToken)
                 });
             }
 
             List<CaptureAnalysisFile> analysis = [];
-            foreach (CaptureAnalysisDescriptor descriptor in manifest.Analysis)
+            foreach (var descriptor in manifest.Analysis)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!entries.TryGetValue(descriptor.Path, out ZipArchiveEntry? entry))
+                if (!entries.TryGetValue(descriptor.Path, out var entry))
                 {
                     return Failure(CaptureBundleReadFailure.MissingEntry, $"Analysis '{descriptor.Path}' is absent.");
                 }
@@ -177,15 +177,15 @@ internal static class CaptureBundleReader
                     Results = DeserializeLines(
                         entry,
                         DeviceLabCompactJson.CaptureAnalysisResult,
-                        cancellationToken),
+                        cancellationToken)
                 });
             }
 
             List<CaptureBlobFile> blobs = [];
-            foreach (CaptureBlobDescriptor descriptor in manifest.Blobs)
+            foreach (var descriptor in manifest.Blobs)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!entries.TryGetValue(descriptor.Path, out ZipArchiveEntry? entry))
+                if (!entries.TryGetValue(descriptor.Path, out var entry))
                 {
                     return Failure(CaptureBundleReadFailure.MissingEntry, $"Blob '{descriptor.Path}' is absent.");
                 }
@@ -193,7 +193,7 @@ internal static class CaptureBundleReader
                 blobs.Add(new CaptureBlobFile
                 {
                     Descriptor = descriptor,
-                    Bytes = ReadEntry(entry, cancellationToken),
+                    Bytes = ReadEntry(entry, cancellationToken)
                 });
             }
 
@@ -203,7 +203,7 @@ internal static class CaptureBundleReader
                 CaptureBundleLayout.RecipePath,
                 CaptureBundleLayout.InventoryPath,
                 CaptureBundleLayout.RedactionPath,
-                CaptureBundleLayout.HashesPath,
+                CaptureBundleLayout.HashesPath
             };
             declared.UnionWith(manifest.Streams.Select(stream => stream.Path));
             declared.UnionWith(manifest.Analysis.Select(item => item.Path));
@@ -222,9 +222,9 @@ internal static class CaptureBundleReader
                 Streams = streams,
                 Analysis = analysis,
                 Blobs = blobs,
-                Redaction = redaction,
+                Redaction = redaction
             };
-            IReadOnlyList<CaptureValidationError> errors = CaptureSchemaValidator.Validate(
+            var errors = CaptureSchemaValidator.Validate(
                 bundle,
                 cancellationToken);
             return errors.Count == 0
@@ -232,7 +232,7 @@ internal static class CaptureBundleReader
                 {
                     Failure = CaptureBundleReadFailure.None,
                     Bundle = bundle,
-                    EntryHashes = hashes,
+                    EntryHashes = hashes
                 }
                 : Failure(CaptureBundleReadFailure.InvalidSchema, errors[0].Message);
         }
@@ -254,7 +254,7 @@ internal static class CaptureBundleReader
         CaptureBundleLayout.RecipePath,
         CaptureBundleLayout.InventoryPath,
         CaptureBundleLayout.RedactionPath,
-        CaptureBundleLayout.HashesPath,
+        CaptureBundleLayout.HashesPath
     ];
 
     private static byte[] ReadEntry(ZipArchiveEntry entry, CancellationToken cancellationToken)
@@ -264,13 +264,13 @@ internal static class CaptureBundleReader
             throw new InvalidDataException("Entry exceeds the in-memory decode budget.");
         }
 
-        byte[] bytes = new byte[(int)entry.Length];
-        using Stream input = entry.Open();
-        int offset = 0;
+        var bytes = new byte[(int)entry.Length];
+        using var input = entry.Open();
+        var offset = 0;
         while (offset < bytes.Length)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = input.Read(bytes, offset, bytes.Length - offset);
+            var read = input.Read(bytes, offset, bytes.Length - offset);
             if (read == 0)
             {
                 throw new InvalidDataException("Archive entry ended before its declared length.");
@@ -298,7 +298,7 @@ internal static class CaptureBundleReader
         string text;
         try
         {
-            ZipArchiveEntry hashEntry = entries[CaptureBundleLayout.HashesPath];
+            var hashEntry = entries[CaptureBundleLayout.HashesPath];
             if (hashEntry.Length > MaximumHashManifestBytes)
             {
                 error = "Hash manifest exceeds its decode budget.";
@@ -314,7 +314,7 @@ internal static class CaptureBundleReader
             return false;
         }
 
-        foreach (string line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (line.Length < 67 || line[64..66] != "  ")
@@ -323,8 +323,8 @@ internal static class CaptureBundleReader
                 return false;
             }
 
-            string hash = line[..64];
-            string path = line[66..].TrimEnd('\r');
+            var hash = line[..64];
+            var path = line[66..].TrimEnd('\r');
             if (hash.Any(character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
                 || !CaptureBundleLayout.IsSafeRelativePath(path)
                 || string.Equals(path, CaptureBundleLayout.HashesPath, StringComparison.OrdinalIgnoreCase)
@@ -343,7 +343,7 @@ internal static class CaptureBundleReader
             return false;
         }
 
-        foreach ((string path, string expected) in hashes)
+        foreach (var (path, expected) in hashes)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!string.Equals(HashEntry(entries[path], cancellationToken), expected,
@@ -361,14 +361,14 @@ internal static class CaptureBundleReader
         ZipArchiveEntry entry,
         CancellationToken cancellationToken)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        using Stream input = entry.Open();
-        byte[] buffer = new byte[64 * 1024];
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var input = entry.Open();
+        var buffer = new byte[64 * 1024];
         long total = 0;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = input.Read(buffer, 0, buffer.Length);
+            var read = input.Read(buffer, 0, buffer.Length);
             if (read == 0)
             {
                 break;
@@ -393,11 +393,11 @@ internal static class CaptureBundleReader
 
     private static T Deserialize<T>(
         ZipArchiveEntry entry,
-        System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
+        JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken)
         where T : class
     {
-        using Stream input = entry.Open();
+        using var input = entry.Open();
         return JsonSerializer.DeserializeAsync(input, typeInfo, cancellationToken)
             .AsTask().GetAwaiter().GetResult()
             ?? throw new InvalidDataException("A required JSON entry decoded to null.");
@@ -405,19 +405,19 @@ internal static class CaptureBundleReader
 
     private static IReadOnlyList<T> DeserializeLines<T>(
         ZipArchiveEntry entry,
-        System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
+        JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken)
         where T : class
     {
         List<T> values = [];
-        using Stream input = entry.Open();
+        using var input = entry.Open();
         using MemoryStream line = new(capacity: Math.Min(MaximumJsonLineBytes, 64 * 1024));
-        byte[] buffer = new byte[64 * 1024];
+        var buffer = new byte[64 * 1024];
         long total = 0;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = input.Read(buffer, 0, buffer.Length);
+            var read = input.Read(buffer, 0, buffer.Length);
             if (read == 0)
             {
                 break;
@@ -429,8 +429,8 @@ internal static class CaptureBundleReader
                 throw new InvalidDataException("Archive entry exceeded its declared length.");
             }
 
-            int start = 0;
-            for (int offset = 0; offset < read; offset++)
+            var start = 0;
+            for (var offset = 0; offset < read; offset++)
             {
                 if (buffer[offset] != (byte)'\n')
                 {
@@ -468,10 +468,10 @@ internal static class CaptureBundleReader
     private static void DecodeLine<T>(
         MemoryStream line,
         ICollection<T> values,
-        System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
+        JsonTypeInfo<T> typeInfo)
         where T : class
     {
-        int length = checked((int)line.Length);
+        var length = checked((int)line.Length);
         if (length == 0)
         {
             return;
@@ -493,7 +493,7 @@ internal static class CaptureBundleReader
     private static CaptureBundleReadResult Failure(CaptureBundleReadFailure failure, string? detail) => new()
     {
         Failure = failure,
-        Detail = detail,
+        Detail = detail
     };
 }
 
@@ -538,7 +538,7 @@ internal static class CaptureWorkbench
             Limitations = [.. bundle.Analysis.SelectMany(stream => stream.Results)
                 .SelectMany(result => result.Limitations)
                 .Distinct(StringComparer.Ordinal)
-                .OrderBy(value => value, StringComparer.Ordinal)],
+                .OrderBy(value => value, StringComparer.Ordinal)]
         };
     }
 
@@ -555,10 +555,10 @@ internal static class CaptureWorkbench
         SortedSet<string> paths = new(left.Keys, StringComparer.Ordinal);
         paths.UnionWith(right.Keys);
         List<CaptureEntryDifference> differences = [];
-        foreach (string path in paths)
+        foreach (var path in paths)
         {
-            bool hasLeft = left.TryGetValue(path, out string? leftHash);
-            bool hasRight = right.TryGetValue(path, out string? rightHash);
+            var hasLeft = left.TryGetValue(path, out var leftHash);
+            var hasRight = right.TryGetValue(path, out var rightHash);
             if (!hasLeft || !hasRight || !string.Equals(leftHash, rightHash, StringComparison.Ordinal))
             {
                 differences.Add(new CaptureEntryDifference(path, leftHash, rightHash));

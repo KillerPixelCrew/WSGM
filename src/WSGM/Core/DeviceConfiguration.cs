@@ -246,7 +246,7 @@ public enum ManagedControllerTarget
     Xbox360,
 
     /// <summary>DualShock 4 target with native motion where supported.</summary>
-    DualShock4,
+    DualShock4
 }
 
 /// <summary>How WSGM chooses a device glyph profile.</summary>
@@ -259,7 +259,7 @@ public enum DeviceGlyphSelection
     NativeSteam,
 
     /// <summary>Use an explicitly selected reviewed catalog profile.</summary>
-    ManualReviewedProfile,
+    ManualReviewedProfile
 }
 
 /// <summary>All persistent desired state for one local device identity.</summary>
@@ -367,7 +367,7 @@ public enum OemAction
     VirtualTargetRearButton2,
 
     /// <summary>Invoke Steam's native Home/Overlay button for the active Steam window.</summary>
-    ToggleSteamOverlay,
+    ToggleSteamOverlay
 }
 
 /// <summary>One allowlisted OEM-control assignment.</summary>
@@ -411,7 +411,7 @@ public enum DeviceDesiredValueSource
     HardwareProfile,
 
     /// <summary>Matched application override.</summary>
-    ApplicationOverride,
+    ApplicationOverride
 }
 
 /// <summary>Result of resolving the frozen desired-state precedence.</summary>
@@ -435,29 +435,29 @@ public static class DeviceDesiredStateResolver
         string? applicationId)
     {
         ArgumentNullException.ThrowIfNull(preference);
-        CapabilityValue? application = preference.ApplicationOverrides.FirstOrDefault(
+        var application = preference.ApplicationOverrides.FirstOrDefault(
             value => string.Equals(value.ApplicationId, applicationId, StringComparison.Ordinal))?.Value;
         if (application is not null)
         {
-            return new(application, DeviceDesiredValueSource.ApplicationOverride);
+            return new ResolvedDeviceDesiredValue(application, DeviceDesiredValueSource.ApplicationOverride);
         }
 
-        CapabilityValue? profile = preference.HardwareProfiles.FirstOrDefault(
+        var profile = preference.HardwareProfiles.FirstOrDefault(
             value => string.Equals(value.ProfileId, hardwareProfileId, StringComparison.Ordinal))?.Value;
         if (profile is not null)
         {
-            return new(profile, DeviceDesiredValueSource.HardwareProfile);
+            return new ResolvedDeviceDesiredValue(profile, DeviceDesiredValueSource.HardwareProfile);
         }
 
-        CapabilityValue? power = onAcPower ? preference.AcPolicy : preference.DcPolicy;
+        var power = onAcPower ? preference.AcPolicy : preference.DcPolicy;
         if (power is not null)
         {
-            return new(power, DeviceDesiredValueSource.PowerPolicy);
+            return new ResolvedDeviceDesiredValue(power, DeviceDesiredValueSource.PowerPolicy);
         }
 
         return preference.GlobalDefault is null
-            ? new(null, DeviceDesiredValueSource.None)
-            : new(preference.GlobalDefault, DeviceDesiredValueSource.GlobalDefault);
+            ? new ResolvedDeviceDesiredValue(null, DeviceDesiredValueSource.None)
+            : new ResolvedDeviceDesiredValue(preference.GlobalDefault, DeviceDesiredValueSource.GlobalDefault);
     }
 }
 
@@ -496,7 +496,7 @@ public static class DeviceDesiredStateWriter
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(value);
-        DeviceDesiredProfile? profile = device.Profiles.FirstOrDefault(item => string.Equals(
+        var profile = device.Profiles.FirstOrDefault(item => string.Equals(
             item.DeviceIdentityKey,
             deviceIdentityKey,
             StringComparison.Ordinal));
@@ -506,7 +506,7 @@ public static class DeviceDesiredStateWriter
             device.Profiles.Add(profile);
         }
 
-        DeviceCapabilityPreference? preference = profile.Capabilities.FirstOrDefault(
+        var preference = profile.Capabilities.FirstOrDefault(
             item => string.Equals(item.CapabilityId, capabilityId, StringComparison.Ordinal)
                 && string.Equals(item.InstanceId, instanceId, StringComparison.Ordinal));
         if (preference is null)
@@ -514,7 +514,7 @@ public static class DeviceDesiredStateWriter
             preference = new DeviceCapabilityPreference
             {
                 CapabilityId = capabilityId,
-                InstanceId = instanceId,
+                InstanceId = instanceId
             };
             profile.Capabilities.Add(preference);
         }
@@ -525,7 +525,7 @@ public static class DeviceDesiredStateWriter
             return;
         }
 
-        DeviceApplicationDesiredValue? entry = preference.ApplicationOverrides.FirstOrDefault(
+        var entry = preference.ApplicationOverrides.FirstOrDefault(
             item => string.Equals(item.ApplicationId, applicationId, StringComparison.Ordinal));
         if (entry is null)
         {

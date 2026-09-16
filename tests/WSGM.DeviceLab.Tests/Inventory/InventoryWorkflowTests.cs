@@ -11,7 +11,7 @@ public sealed class InventoryWorkflowTests
         using ManualResetEventSlim started = new();
         using ManualResetEventSlim release = new();
         using CancellationTokenSource cancellation = new();
-        Task<int> call = Task.Run(() => worker.Run(
+        var call = Task.Run(() => worker.Run(
             _ =>
             {
                 started.Set();
@@ -33,7 +33,7 @@ public sealed class InventoryWorkflowTests
             release.Set();
         }
 
-        int next = await Task.Run(() => worker.Run(_ => 2, CancellationToken.None))
+        var next = await Task.Run(() => worker.Run(_ => 2, CancellationToken.None))
             .WaitAsync(TimeSpan.FromSeconds(2));
         Assert.Equal(2, next);
     }
@@ -42,7 +42,7 @@ public sealed class InventoryWorkflowTests
     public void WhitespaceAfterEnvironmentExpansionHasNoExecutablePath()
     {
         const string variable = "WSGM_TEST_EMPTY_COMMAND";
-        string? previous = Environment.GetEnvironmentVariable(variable);
+        var previous = Environment.GetEnvironmentVariable(variable);
         try
         {
             Environment.SetEnvironmentVariable(variable, "   ");
@@ -58,10 +58,10 @@ public sealed class InventoryWorkflowTests
     public void CancelledInventoryReportsALockedTemporaryFileAndRemovesItOnceReleased()
     {
         using TemporaryDirectory directory = new();
-        string path = directory.GetPath("inventory.tmp");
+        var path = directory.GetPath("inventory.tmp");
         using (FileStream locked = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
-            DeviceLabInventoryResult result = Assert.IsType<DeviceLabInventoryResult>(
+            var result = Assert.IsType<DeviceLabInventoryResult>(
                 DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));
             Assert.Equal(DeviceLabInventoryStatus.WriteFailed, result.Status);
             Assert.Contains(path, result.Error);

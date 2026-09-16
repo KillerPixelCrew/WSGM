@@ -80,7 +80,7 @@ public sealed class WindowsMotionSourceTests
         TaskCompletionSource blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
         SensorOwner sensors = new();
         CancellationTokenSource cancellation = new();
-        int opens = 0;
+        var opens = 0;
         WindowsClawMotionSource source = new(_ =>
         {
             opens++;

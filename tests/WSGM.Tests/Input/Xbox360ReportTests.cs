@@ -25,7 +25,7 @@ public sealed class Xbox360ReportTests
     [InlineData(CanonicalButtons.Y, 0x8000u)]
     public void EachSupportedButtonUsesTheXInputBit(CanonicalButtons button, uint expected)
     {
-        byte[] frame = Frame(Sample(button));
+        var frame = Frame(Sample(button));
 
         Assert.Equal(expected, BinaryPrimitives.ReadUInt32LittleEndian(frame));
     }
@@ -33,14 +33,14 @@ public sealed class Xbox360ReportTests
     [Fact]
     public void SticksAndTriggersUseTheFullXInputRanges()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
             LeftTrigger = 0.5f,
             RightTrigger = 1f,
             LeftStickX = -1f,
             LeftStickY = 1f,
             RightStickX = 0.5f,
-            RightStickY = -0.5f,
+            RightStickY = -0.5f
         });
 
         Assert.Equal(128, frame[4]);
@@ -55,7 +55,7 @@ public sealed class Xbox360ReportTests
     [Fact]
     public void ControlsTheXboxTargetCannotRepresentAreDropped()
     {
-        byte[] frame = Frame(Sample(
+        var frame = Frame(Sample(
             CanonicalButtons.RearPaddle1
             | CanonicalButtons.LeftPadTouch
             | CanonicalButtons.QuickAccess));
@@ -69,7 +69,7 @@ public sealed class Xbox360ReportTests
 
     private static byte[] Frame(CanonicalControllerSample sample)
     {
-        byte[] frame = new byte[Xbox360Report.Length];
+        var frame = new byte[Xbox360Report.Length];
         Xbox360Report.Write(sample, frame);
         return frame;
     }

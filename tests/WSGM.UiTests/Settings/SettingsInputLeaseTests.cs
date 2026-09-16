@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
-using WSGM.Settings;
 
 namespace WSGM.UiTests;
 
@@ -28,7 +27,7 @@ public sealed class SettingsInputLeaseTests
             Assert.False(Dispatcher.UIThread.CheckAccess());
             released.TrySetResult(owner);
         };
-        SettingsWindow window = fixture.Settings(gameModeSurface: handoff);
+        var window = fixture.Settings(gameModeSurface: handoff);
         try
         {
             await acquiring.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -50,7 +49,7 @@ public sealed class SettingsInputLeaseTests
         TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.AcquireSteamInput = _ => acquiring.TrySetResult();
         fixture.ReleaseSteamInput = (_, _) => released.TrySetResult();
-        SettingsWindow window = fixture.Settings();
+        var window = fixture.Settings();
         window.Activate();
         await acquiring.Task.WaitAsync(TimeSpan.FromSeconds(5));
         window.WindowState = WindowState.Minimized;
@@ -65,7 +64,7 @@ public sealed class SettingsInputLeaseTests
         fixture.Saved.SteamInputLeaseEnabled = false;
         fixture.ClaimSteamInput = _ => throw new InvalidOperationException("Unexpected claim");
         fixture.AcquireSteamInput = _ => throw new InvalidOperationException("Unexpected acquisition");
-        SettingsWindow window = fixture.Settings(gameModeSurface: true);
+        var window = fixture.Settings(gameModeSurface: true);
         window.Activate();
         UiFixture.Key(window, Key.Escape);
         Assert.False(window.IsVisible);

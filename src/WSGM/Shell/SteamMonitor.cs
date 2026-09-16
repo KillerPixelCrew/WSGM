@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia.Threading;
 using WSGM.Core;
 
@@ -52,7 +53,7 @@ public sealed class SteamMonitor : IDisposable
         // UI thread, with only the resulting boolean marshalled back, so the 16 ms
         // gamepad poll and the overlay animations never wait on it. All monitor
         // state stays UI-thread owned in Apply.
-        _ = System.Threading.Tasks.Task.Run(() =>
+        _ = Task.Run(() =>
         {
             bool alive;
             try

@@ -9,7 +9,7 @@ public sealed class RtssDiscoveryTests
     {
         var environment = FakeDiscoveryEnvironment.Valid();
 
-        RtssProbe probe = new RtssDiscovery(environment).Probe();
+        var probe = new RtssDiscovery(environment).Probe();
 
         Assert.Equal(RtssAvailability.AdapterUnavailable, probe.Availability);
         Assert.Equal("7.3.7", probe.Version);
@@ -25,10 +25,10 @@ public sealed class RtssDiscoveryTests
             new RtssProcessIdentity(
                 999,
                 @"C:\Users\player\Downloads\RTSS.exe",
-                DateTimeOffset.UnixEpoch),
+                DateTimeOffset.UnixEpoch)
         ];
 
-        RtssProbe probe = new RtssDiscovery(environment).Probe();
+        var probe = new RtssDiscovery(environment).Probe();
 
         Assert.Equal(RtssAvailability.NotRunning, probe.Availability);
         Assert.Equal(0L, probe.Generation);
@@ -40,10 +40,10 @@ public sealed class RtssDiscoveryTests
         var environment = FakeDiscoveryEnvironment.Valid();
         environment.Records =
         [
-            environment.Records[0] with { DisplayVersion = "7.2.3" },
+            environment.Records[0] with { DisplayVersion = "7.2.3" }
         ];
 
-        RtssProbe probe = new RtssDiscovery(environment).Probe();
+        var probe = new RtssDiscovery(environment).Probe();
 
         Assert.Equal(RtssAvailability.Incompatible, probe.Availability);
     }
@@ -59,11 +59,11 @@ public sealed class RtssDiscoveryTests
                 "LoadProfile",
                 "SaveProfile",
                 "GetProfileProperty",
-                "SetProfileProperty",
-            },
+                "SetProfileProperty"
+            }
         };
 
-        RtssProbe probe = new RtssDiscovery(environment).Probe();
+        var probe = new RtssDiscovery(environment).Probe();
 
         Assert.Equal(RtssAvailability.Incompatible, probe.Availability);
     }
@@ -78,11 +78,11 @@ public sealed class RtssDiscoveryTests
             {
                 InstallLocation = @"C:\Users\player\AppData\Local\RTSS",
                 UninstallString = null,
-                DisplayIcon = null,
-            },
+                DisplayIcon = null
+            }
         ];
 
-        RtssProbe probe = new RtssDiscovery(environment).Probe();
+        var probe = new RtssDiscovery(environment).Probe();
 
         Assert.Equal(RtssAvailability.Incompatible, probe.Availability);
     }
@@ -93,7 +93,7 @@ public sealed class RtssDiscoveryTests
 
         public IReadOnlyList<RtssInstallRecord> Records { get; set; } = [];
 
-        public RtssFileIdentity ExecutableIdentity { get; set; } = new(
+        public RtssFileIdentity ExecutableIdentity { get; } = new(
             true,
             500_000,
             "RTSS",
@@ -113,7 +113,7 @@ public sealed class RtssDiscoveryTests
                 "SaveProfile",
                 "GetProfileProperty",
                 "SetProfileProperty",
-                "UpdateProfiles",
+                "UpdateProfiles"
             });
 
         public IReadOnlyList<RtssProcessIdentity> Processes { get; set; } = [];
@@ -121,7 +121,7 @@ public sealed class RtssDiscoveryTests
         public IReadOnlyList<string> ProtectedInstallRoots { get; } =
         [
             @"C:\Program Files",
-            @"C:\Program Files (x86)",
+            @"C:\Program Files (x86)"
         ];
 
         public IReadOnlyList<RtssInstallRecord> ReadInstallRecords() => Records;
@@ -144,15 +144,15 @@ public sealed class RtssDiscoveryTests
                     "Unwinder",
                     string.Empty,
                     $"\"{InstallRoot}\\uninstall.exe\"",
-                    $"\"{InstallRoot}\\uninstall.exe\""),
+                    $"\"{InstallRoot}\\uninstall.exe\"")
             ],
             Processes =
             [
                 new RtssProcessIdentity(
                     321,
                     $"{InstallRoot}\\RTSS.exe",
-                    DateTimeOffset.UnixEpoch),
-            ],
+                    DateTimeOffset.UnixEpoch)
+            ]
         };
     }
 }

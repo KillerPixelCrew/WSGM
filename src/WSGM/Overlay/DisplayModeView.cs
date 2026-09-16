@@ -1,7 +1,10 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
+using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
@@ -13,8 +16,8 @@ namespace WSGM.Overlay;
 internal sealed class DisplayModeView : StackPanel
 {
     private readonly TextBlock _status = new();
-    private readonly ComboBox _resolution = new() { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
-    private readonly ComboBox _refresh = new() { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
+    private readonly ComboBox _resolution = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox _refresh = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly CardButton _apply = new() { Title = "Apply display mode", IconGeometry = Icons.Monitor, IsEnabled = false };
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(5) };
     private DisplayModeSnapshot? _snapshot;
@@ -37,7 +40,7 @@ internal sealed class DisplayModeView : StackPanel
         Children.Add(Selector("Resolution", _resolution));
         Children.Add(Selector("Refresh rate", _refresh));
         Children.Add(_apply);
-        _refresh.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
+        _refresh.ItemTemplate = new FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
         _resolution.SelectionChanged += (_, _) => { if (!_synchronizing) { UpdateRates(); } };
         _apply.Click += async (_, _) => await ApplyAsync();
         // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
@@ -48,9 +51,9 @@ internal sealed class DisplayModeView : StackPanel
 
     private static Control Selector(string label, ComboBox selector)
     {
-        Avalonia.Automation.AutomationProperties.SetName(selector, label);
+        AutomationProperties.SetName(selector, label);
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,240"), ColumnSpacing = 12 };
-        grid.Children.Add(new TextBlock { Text = label, Classes = { "setting-title" }, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+        grid.Children.Add(new TextBlock { Text = label, Classes = { "setting-title" }, VerticalAlignment = VerticalAlignment.Center });
         Grid.SetColumn(selector, 1);
         grid.Children.Add(selector);
         return new Border { Classes = { "tile" }, Child = grid };
@@ -63,7 +66,7 @@ internal sealed class DisplayModeView : StackPanel
         if (_snapshot is null) { return; }
         var rates = _snapshot.Supported.Where(mode => Resolution(mode) == _resolution.SelectedItem as string)
             .Select(mode => mode.RefreshHz).Distinct().ToArray();
-        int? selected = _refresh.SelectedItem as int?;
+        var selected = _refresh.SelectedItem as int?;
         _refresh.ItemsSource = rates;
         _refresh.SelectedItem = selected is { } hz && rates.Contains(hz) ? hz
             : rates.Contains(_snapshot.Current.RefreshHz) ? _snapshot.Current.RefreshHz : rates.FirstOrDefault();
@@ -77,8 +80,8 @@ internal sealed class DisplayModeView : StackPanel
         {
             var next = await _read();
             if (_closed) { return; }
-            bool changed = _snapshot?.Path != next?.Path || _snapshot?.Current != next?.Current
-                || !(_snapshot?.Supported.SequenceEqual(next?.Supported ?? []) ?? next is null);
+            var changed = _snapshot?.Path != next?.Path || _snapshot?.Current != next?.Current
+                                                        || !(_snapshot?.Supported.SequenceEqual(next?.Supported ?? []) ?? next is null);
             _snapshot = next;
             _apply.IsEnabled = next is not null && next.Supported.Count > 0;
             _resolution.IsEnabled = _refresh.IsEnabled = _apply.IsEnabled;

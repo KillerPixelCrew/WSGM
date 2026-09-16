@@ -15,7 +15,7 @@ public enum BigPictureShortcut
     SteamMenu,
 
     /// <summary>Ctrl+2, equivalent to Steam's Quick Access button and right-side menu.</summary>
-    QuickAccess,
+    QuickAccess
 }
 
 /// <summary>Everything WSGM knows about Steam. WSGM is Steam-exclusive: Steam is
@@ -258,7 +258,7 @@ public static class Steam
         // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
         // from a medium-integrity process, the ordinary launch already produces a
         // medium-integrity Steam without the task-scheduler round trip.
-        bool deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
+        var deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
         if (deElevate && UnelevatedLauncher.TryStartViaScheduledTask(exe, arguments))
         {
             Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
@@ -325,7 +325,7 @@ public static class Steam
     {
         BigPictureShortcut.SteamMenu => 0x31,
         BigPictureShortcut.QuickAccess => 0x32,
-        _ => throw new ArgumentOutOfRangeException(nameof(shortcut)),
+        _ => throw new ArgumentOutOfRangeException(nameof(shortcut))
     };
 
     /// <summary>Requests a graceful Steam shutdown for an application update.</summary>
@@ -342,33 +342,33 @@ public static class Steam
             throw new ArgumentOutOfRangeException(nameof(budget));
         }
 
-        Stopwatch elapsed = Stopwatch.StartNew();
-        Process[] runningSteam = CurrentSessionProcesses(MainProcessName);
+        var elapsed = Stopwatch.StartNew();
+        var runningSteam = CurrentSessionProcesses(MainProcessName);
         if (runningSteam.Length > 0)
         {
-            foreach (Process process in runningSteam)
+            foreach (var process in runningSteam)
             {
                 process.Dispose();
             }
             Log.Info("Update requested — closing Steam to release the Steam Input payload.");
             AppLauncher.StartProtocol(ExitUrl);
-            TimeSpan gracefulDeadline = budget < UpdateGracefulExitBudget
+            var gracefulDeadline = budget < UpdateGracefulExitBudget
                 ? budget
                 : UpdateGracefulExitBudget;
             while (elapsed.Elapsed < gracefulDeadline)
             {
-                Process[] remaining = CurrentSessionProcesses(MainProcessName);
+                var remaining = CurrentSessionProcesses(MainProcessName);
                 if (remaining.Length == 0)
                 {
                     Log.Info("Steam exited gracefully for update.");
                     break;
                 }
-                foreach (Process process in remaining)
+                foreach (var process in remaining)
                 {
                     process.Dispose();
                 }
 
-                TimeSpan delay = gracefulDeadline - elapsed.Elapsed;
+                var delay = gracefulDeadline - elapsed.Elapsed;
                 if (delay > TimeSpan.Zero)
                 {
                     Thread.Sleep(delay < TimeSpan.FromMilliseconds(250)
@@ -377,8 +377,8 @@ public static class Steam
                 }
             }
 
-            Process[] remainingSteam = CurrentSessionProcesses(MainProcessName);
-            foreach (Process process in remainingSteam)
+            var remainingSteam = CurrentSessionProcesses(MainProcessName);
+            foreach (var process in remainingSteam)
             {
                 try
                 {
@@ -393,7 +393,7 @@ public static class Steam
             }
         }
 
-        TimeSpan helperBudget = budget - elapsed.Elapsed;
+        var helperBudget = budget - elapsed.Elapsed;
         if (helperBudget > TimeSpan.Zero)
         {
             LaunchWrapperCommand.StopRunningHelpers("update", helperBudget);
@@ -406,9 +406,9 @@ public static class Steam
 
     private static Process[] CurrentSessionProcesses(string processName)
     {
-        int sessionId = WindowFinder.CurrentSessionId;
+        var sessionId = WindowFinder.CurrentSessionId;
         var matches = new List<Process>();
-        foreach (Process process in Process.GetProcessesByName(processName))
+        foreach (var process in Process.GetProcessesByName(processName))
         {
             try
             {

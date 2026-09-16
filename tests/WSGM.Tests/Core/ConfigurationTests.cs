@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using System.Text.Json;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Tests;
 
@@ -48,7 +51,7 @@ public sealed class ConfigurationTests
         }
         """;
 
-        AppConfig? config = ConfigStore.DeserializeConfig(json);
+        var config = ConfigStore.DeserializeConfig(json);
 
         Assert.NotNull(config);
         // The unrelated setting survived, which is the point of repairing rather than discarding.
@@ -61,10 +64,10 @@ public sealed class ConfigurationTests
         Assert.Equal(
             ManagedControllerTarget.SteamDeckComposite,
             Assert.Single(config.DeviceIntegration.ControllerTargets).Target);
-        DeviceDesiredProfile profile = Assert.Single(config.DeviceIntegration.Profiles);
+        var profile = Assert.Single(config.DeviceIntegration.Profiles);
         Assert.Equal(OemAction.Disabled, Assert.Single(profile.OemAssignments).Action);
         Assert.Equal(
-            WSGM.Device.Sdk.Capabilities.CapabilityValueKind.None,
+            CapabilityValueKind.None,
             Assert.Single(profile.Capabilities).GlobalDefault!.Kind);
     }
 
@@ -98,7 +101,7 @@ public sealed class ConfigurationTests
         }
         """;
 
-        AppConfig? config = ConfigStore.DeserializeConfig(json);
+        var config = ConfigStore.DeserializeConfig(json);
 
         Assert.NotNull(config);
         Assert.Equal("#FF00AA", config.AccentColor);
@@ -122,13 +125,13 @@ public sealed class ConfigurationTests
                     {
                         ApplicationId = "steam:10",
                         RtssProfileName = null!,
-                        UsePerGameProfile = true,
-                    },
-                ],
-            },
+                        UsePerGameProfile = true
+                    }
+                ]
+            }
         };
 
-        PerformanceApplicationConfig application = Assert.Single(
+        var application = Assert.Single(
             ConfigStore.Normalize(config).Performance.Applications);
 
         Assert.Equal(string.Empty, application.RtssProfileName);
@@ -158,7 +161,7 @@ public sealed class ConfigurationTests
             KnownNativeTabs = null!,
             SteamGridDbApiKey = null!,
             AccentColor = null!,
-            Splash = null!,
+            Splash = null!
         };
 
         var normalized = ConfigStore.Normalize(config);
@@ -195,7 +198,7 @@ public sealed class ConfigurationTests
             StartupApps = [null!, new StartupAppConfig { Path = null!, Args = null! }],
             SavedDisplayScaleEntries = [null!, new DisplayScaleEntry { DeviceName = null! }],
             PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }],
-            SgdbLinks = [null!, new SgdbLinkConfig { Name = null! }],
+            SgdbLinks = [null!, new SgdbLinkConfig { Name = null! }]
         };
 
         var normalized = ConfigStore.Normalize(config);
@@ -226,20 +229,20 @@ public sealed class ConfigurationTests
                     HardwareProfiles =
                     [
                         new DeviceNamedDesiredValue { ProfileId = " handheld " },
-                        new DeviceNamedDesiredValue { ProfileId = "handheld" },
+                        new DeviceNamedDesiredValue { ProfileId = "handheld" }
                     ],
                     ApplicationOverrides =
                     [
                         new DeviceApplicationDesiredValue { ApplicationId = " steam:42 " },
-                        new DeviceApplicationDesiredValue { ApplicationId = "steam:42" },
-                    ],
+                        new DeviceApplicationDesiredValue { ApplicationId = "steam:42" }
+                    ]
                 },
                 new DeviceCapabilityPreference
                 {
                     CapabilityId = "fan.mode",
-                    GlobalDefault = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 2 },
-                },
-            ],
+                    GlobalDefault = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 2 }
+                }
+            ]
         });
 
         var normalized = ConfigStore.Normalize(config);
@@ -267,8 +270,8 @@ public sealed class ConfigurationTests
                 LogoImagePath = null!,
                 TextPlacement = null!,
                 SpinnerPlacement = null!,
-                LogoPlacement = null!,
-            },
+                LogoPlacement = null!
+            }
         };
 
         var splash = ConfigStore.Normalize(config).Splash;
@@ -298,8 +301,8 @@ public sealed class ConfigurationTests
             {
                 Kind = (FilterKind)999,
                 Mode = (FilterMode)999,
-                CardScope = (SdCardScope)999,
-            },
+                CardScope = (SdCardScope)999
+            }
         };
 
         var normalized = ConfigStore.Normalize(new AppConfig { CustomTabs = [tab] });
@@ -325,10 +328,10 @@ public sealed class ConfigurationTests
                 PaddingX = int.MaxValue,
                 PaddingY = int.MinValue,
                 X = -5,
-                Y = int.MaxValue,
+                Y = int.MaxValue
             },
             SpinnerPlacement = new SplashElementPlacement { PaddingX = 8192, PaddingY = -1, X = 40000, Y = -40000 },
-            LogoPlacement = new SplashElementPlacement { PaddingX = -3, PaddingY = 100000, X = int.MinValue, Y = 20000 },
+            LogoPlacement = new SplashElementPlacement { PaddingX = -3, PaddingY = 100000, X = int.MinValue, Y = 20000 }
         };
 
         ConfigStore.NormalizeSplash(splash);
@@ -369,8 +372,8 @@ public sealed class ConfigurationTests
                 PaddingX = 64,
                 PaddingY = 4096,
                 X = 0,
-                Y = 16384,
-            },
+                Y = 16384
+            }
         };
 
         ConfigStore.NormalizeSplash(splash);
@@ -400,8 +403,8 @@ public sealed class ConfigurationTests
             TextPlacement = new SplashElementPlacement
             {
                 Mode = (SplashPlacementMode)42,
-                Anchor = (SplashPlacementAnchor)(-1),
-            },
+                Anchor = (SplashPlacementAnchor)(-1)
+            }
         };
 
         ConfigStore.NormalizeSplash(splash);
@@ -434,7 +437,7 @@ public sealed class ConfigurationTests
         var splash = new SplashConfig
         {
             LogoImagePath = @"C:\pictures\ spaced logo .png",
-            BackgroundImagePath = @"\\server\share\bg.jpg",
+            BackgroundImagePath = @"\\server\share\bg.jpg"
         };
 
         ConfigStore.NormalizeSplash(splash);
@@ -457,7 +460,7 @@ public sealed class ConfigurationTests
             TextColor = "#" + new string('F', 500),
             CaptionColor = new string('c', 33),
             SpinnerColor = new string('d', 64),
-            BackgroundColor = new string('e', 1_000_000),
+            BackgroundColor = new string('e', 1_000_000)
         };
 
         ConfigStore.NormalizeSplash(splash);
@@ -484,7 +487,7 @@ public sealed class ConfigurationTests
             TextColor = "#FFFFFF",
             CaptionColor = "#80FF9D3D",
             SpinnerColor = "LightGoldenrodYellow",
-            BackgroundColor = "#0B0B0D",
+            BackgroundColor = "#0B0B0D"
         };
 
         ConfigStore.NormalizeSplash(splash);
@@ -526,7 +529,7 @@ public sealed class ConfigurationTests
             {
                 Text = new string('T', 250_000),
                 Caption = new string('C', 250_000),
-                BackgroundColor = new string('#', 900),
+                BackgroundColor = new string('#', 900)
             };
             // Export does not normalize, so this writes exactly the archive a
             // malicious sharer would hand out.
@@ -558,7 +561,7 @@ public sealed class ConfigurationTests
         // Normalize is what ConfigStore.Load runs over a persisted config.json.
         var config = new AppConfig
         {
-            Splash = new SplashConfig { SpinnerSize = 2147483647, LogoMaxSize = 999999 },
+            Splash = new SplashConfig { SpinnerSize = 2147483647, LogoMaxSize = 999999 }
         };
 
         var splash = ConfigStore.Normalize(config).Splash;
@@ -578,7 +581,7 @@ public sealed class ConfigurationTests
         // real kernel lock rather than only the thread-local recursion counter.
         Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
 
-        var nested = System.Diagnostics.Stopwatch.StartNew();
+        var nested = Stopwatch.StartNew();
         using (ConfigStore.AcquireLock())
         {
             // The nested acquisition is granted immediately (per-thread recursion
@@ -589,7 +592,7 @@ public sealed class ConfigurationTests
 
         // The inner release only decremented the recursion count: the outer scope
         // still owns the mutex, so another acquisition is still immediate.
-        var afterInnerRelease = System.Diagnostics.Stopwatch.StartNew();
+        var afterInnerRelease = Stopwatch.StartNew();
         using (ConfigStore.AcquireLock())
         {
         }
@@ -602,9 +605,9 @@ public sealed class ConfigurationTests
         // …and the lock is still EXCLUSIVE while the outer scope lives: the nested
         // release must not have handed the mutex to another saver mid-transaction.
         var acquiredElsewhere = true;
-        var probeThread = new System.Threading.Thread(() =>
+        var probeThread = new Thread(() =>
         {
-            using var probe = new System.Threading.Mutex(false, @"Local\WSGM.Config");
+            using var probe = new Mutex(false, @"Local\WSGM.Config");
             acquiredElsewhere = probe.WaitOne(200);
             if (acquiredElsewhere)
             {
@@ -640,7 +643,7 @@ public sealed class ConfigurationTests
             Assert.Equal(1, ConfigStore.LockDepth);
 
             // A nested scope left through an exception still pops exactly one level.
-            Action nestedStepThatThrows = () =>
+            var nestedStepThatThrows = () =>
             {
                 using (ConfigStore.AcquireLock())
                 {
@@ -702,9 +705,9 @@ public sealed class ConfigurationTests
     private static bool MutexTakenOnAnotherThread(int timeoutMs)
     {
         var acquired = false;
-        var probeThread = new System.Threading.Thread(() =>
+        var probeThread = new Thread(() =>
         {
-            using var probe = new System.Threading.Mutex(false, @"Local\WSGM.Config");
+            using var probe = new Mutex(false, @"Local\WSGM.Config");
             acquired = probe.WaitOne(timeoutMs);
             if (acquired)
             {
@@ -731,9 +734,9 @@ public sealed class ConfigurationTests
 
         // Another thread can take it again — the mutex really was released.
         var acquiredElsewhere = false;
-        var probeThread = new System.Threading.Thread(() =>
+        var probeThread = new Thread(() =>
         {
-            using var probe = new System.Threading.Mutex(false, @"Local\WSGM.Config");
+            using var probe = new Mutex(false, @"Local\WSGM.Config");
             acquiredElsewhere = probe.WaitOne(2000);
             if (acquiredElsewhere)
             {
@@ -800,20 +803,20 @@ public sealed class ConfigurationTests
                     Mode = SplashPlacementMode.Anchor,
                     Anchor = SplashPlacementAnchor.BottomLeft,
                     PaddingX = 32,
-                    PaddingY = 160,
+                    PaddingY = 160
                 },
                 SpinnerPlacement = new SplashElementPlacement
                 {
                     Mode = SplashPlacementMode.Absolute,
                     X = 640,
-                    Y = 360,
+                    Y = 360
                 },
                 LogoPlacement = new SplashElementPlacement
                 {
                     Mode = SplashPlacementMode.Anchor,
-                    Anchor = SplashPlacementAnchor.TopRight,
-                },
-            },
+                    Anchor = SplashPlacementAnchor.TopRight
+                }
+            }
         };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
@@ -948,12 +951,12 @@ public sealed class ConfigurationTests
             PreviousShellValue = "explorer.exe",
             StartupApps =
             [
-                new StartupAppConfig { Path = "C:\\Tools\\companion.exe", Args = "--silent", Elevated = true },
+                new StartupAppConfig { Path = "C:\\Tools\\companion.exe", Args = "--silent", Elevated = true }
             ],
             SavedDisplayScaleEntries =
             [
-                new DisplayScaleEntry { DeviceName = "\\\\.\\DISPLAY1", Percent = 150 },
-            ],
+                new DisplayScaleEntry { DeviceName = "\\\\.\\DISPLAY1", Percent = 150 }
+            ]
         };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
@@ -1017,27 +1020,27 @@ public sealed class ConfigurationTests
     [Fact]
     public void ALaunchLayoutAndItsActionStepsRoundTrip()
     {
-        WindowsDeviceControl.DisplayTargetIdentity target =
+        DisplayTargetIdentity target =
             new(@"\\?\DISPLAY#TV0001", null, null, "Living room TV", 0, 0, 3);
         var original = new AppConfig();
         original.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
-        original.GameModeLaunch.GameLayout = new([
-            new(target, 0, 0, 3840, 2160, WindowsDeviceControl.DisplayRefresh.FromHertz(120),
+        original.GameModeLaunch.GameLayout = new DisplayLayout([
+            new DisplayLayoutOutput(target, 0, 0, 3840, 2160, DisplayRefresh.FromHertz(120),
                 DpiPercent: 150, Hdr: true)]);
         original.GameModeLaunch.WaitForDisplay = target;
         original.GameModeLaunch.EnterActions =
         [
-            new()
+            new PluginActionStep
             {
-                Plugin = new("wsgm.ir", "blaster"),
+                Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
                 ActionId = "remote-press",
-                Arguments = { ["remote"] = new(Text: "hdmi-switch") },
-                TimeoutSeconds = 20,
-            },
+                Arguments = { ["remote"] = new PluginValue(Text: "hdmi-switch") },
+                TimeoutSeconds = 20
+            }
         ];
 
-        var json = System.Text.Json.JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
-        var restored = System.Text.Json.JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!;
+        var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
+        var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!;
 
         var output = Assert.Single(restored.GameModeLaunch.GameLayout!.Outputs);
         Assert.Equal((3840, 2160), (output.Width, output.Height));
@@ -1055,16 +1058,16 @@ public sealed class ConfigurationTests
     [Fact]
     public void NormalizeDropsALayoutThatCouldNeverDescribeADesktop()
     {
-        WindowsDeviceControl.DisplayTargetIdentity first =
+        DisplayTargetIdentity first =
             new(@"\\?\a", null, null, "A", 0, 0, 1);
-        WindowsDeviceControl.DisplayTargetIdentity second =
+        DisplayTargetIdentity second =
             new(@"\\?\b", null, null, "B", 0, 0, 2);
         var config = new AppConfig();
         // Two displays both claiming the origin: no primary can be chosen, so the file was either
         // hand-edited or written by something that did not check.
-        config.GameModeLaunch.GameLayout = new([
-            new(first, 0, 0, 1920, 1080, WindowsDeviceControl.DisplayRefresh.FromHertz(60)),
-            new(second, 0, 0, 1920, 1080, WindowsDeviceControl.DisplayRefresh.FromHertz(60))]);
+        config.GameModeLaunch.GameLayout = new DisplayLayout([
+            new DisplayLayoutOutput(first, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)),
+            new DisplayLayoutOutput(second, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
 
         ConfigStore.Normalize(config);
 
@@ -1077,8 +1080,8 @@ public sealed class ConfigurationTests
         var config = new AppConfig();
         config.GameModeLaunch.EnterActions =
         [
-            new() { ActionId = "orphan" },
-            new() { Plugin = new("wsgm.ir", "blaster"), ActionId = "press", TimeoutSeconds = 9000 },
+            new PluginActionStep { ActionId = "orphan" },
+            new PluginActionStep { Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"), ActionId = "press", TimeoutSeconds = 9000 }
         ];
 
         ConfigStore.Normalize(config);
@@ -1095,7 +1098,7 @@ public sealed class ConfigurationTests
         {
             StartAtSignIn = false,
             StartMode = SessionStartMode.Desktop,
-            ExplorerLogonSettleMs = 250,
+            ExplorerLogonSettleMs = 250
         };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
@@ -1123,9 +1126,9 @@ public sealed class ConfigurationTests
                     OriginalStartDir = null!,
                     Name = null!,
                     CustomActionPath = null!,
-                    CustomArguments = null!,
-                },
-            ],
+                    CustomArguments = null!
+                }
+            ]
         };
 
         var normalized = ConfigStore.Normalize(config);
@@ -1268,7 +1271,7 @@ public sealed class ConfigurationTests
             Text = "Custom",
             TextPlacement = textPlacement,
             SpinnerPlacement = spinnerPlacement,
-            LogoPlacement = logoPlacement,
+            LogoPlacement = logoPlacement
         };
         var config = new AppConfig
         {
@@ -1277,7 +1280,7 @@ public sealed class ConfigurationTests
             GamepadChord = chord,
             Gestures = gestures,
             Splash = splash,
-            AccentColor = "#FF123456",
+            AccentColor = "#FF123456"
         };
 
         var normalized = ConfigStore.Normalize(config);

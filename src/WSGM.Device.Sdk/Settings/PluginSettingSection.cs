@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -39,7 +40,7 @@ public enum SettingSectionKey
     Advanced,
 
     /// <summary>"Diagnostics".</summary>
-    Diagnostics,
+    Diagnostics
 }
 
 /// <summary>
@@ -87,7 +88,7 @@ public sealed record PluginSettingSection
             return false;
         }
 
-        if (!System.Enum.IsDefined(Key))
+        if (!Enum.IsDefined(Key))
         {
             error = $"section '{SectionId}' has an undefined key '{Key}'.";
             return false;

@@ -31,7 +31,7 @@ internal sealed class SteamInputLeaseHost : IDisposable
             // Injection is opt-in and reachable only through --input-lease-inject.
             // Plain --input-lease connects to the shim Steam loaded itself, so the
             // wrapper cannot write into the Steam process on the default route.
-            AllowInjection = options.InputLeaseInject,
+            AllowInjection = options.InputLeaseInject
         });
     }
 

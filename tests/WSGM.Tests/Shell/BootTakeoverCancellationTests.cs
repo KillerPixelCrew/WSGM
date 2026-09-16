@@ -47,7 +47,7 @@ public sealed class BootTakeoverCancellationTests
         using var takeover = new BootTakeoverCancellation();
         takeover.RequestDesktop();
 
-        bool accepted = takeover.RequestShutdown();
+        var accepted = takeover.RequestShutdown();
 
         Assert.True(accepted);
         Assert.True(takeover.ShutdownRequested);

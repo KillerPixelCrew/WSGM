@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -79,7 +80,7 @@ public sealed class StartupAppWatcher : IDisposable
             {
                 continue;
             }
-            var name = System.IO.Path.GetFileNameWithoutExtension(app.Path);
+            var name = Path.GetFileNameWithoutExtension(app.Path);
             if (name.Length == 0)
             {
                 continue;
@@ -96,7 +97,7 @@ public sealed class StartupAppWatcher : IDisposable
         // the resulting booleans marshalled back, so the 16 ms gamepad poll and the
         // overlay animations never wait on it. All watcher state stays UI-thread owned
         // in Apply.
-        CancellationToken lifetime = _lifetime.Token;
+        var lifetime = _lifetime.Token;
         Log.Observe(Task.Run(() =>
         {
             var alive = new bool[probes.Count];
@@ -144,7 +145,7 @@ public sealed class StartupAppWatcher : IDisposable
                 _states.Remove(path);
                 continue;
             }
-            int generation = LaunchGeneration?.Invoke(path) ?? 0;
+            var generation = LaunchGeneration?.Invoke(path) ?? 0;
             if (!_states.TryGetValue(path, out var state) || state.LaunchGeneration != generation)
             {
                 state = new WatchState { LaunchGeneration = generation };
@@ -201,8 +202,8 @@ public sealed class StartupAppWatcher : IDisposable
     private void Relaunch(string path, string name, WatchState state)
     {
         state.RelaunchPending = false;
-        if (!_states.TryGetValue(path, out WatchState? current) || !ReferenceEquals(current, state)
-            || state.LaunchGeneration != (LaunchGeneration?.Invoke(path) ?? 0)) { return; }
+        if (!_states.TryGetValue(path, out var current) || !ReferenceEquals(current, state)
+                                                        || state.LaunchGeneration != (LaunchGeneration?.Invoke(path) ?? 0)) { return; }
         var app = _apps.Find(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase));
         if (app is null || !app.Enabled || !app.AutoRelaunch || IsLaunchSuppressed?.Invoke(path) == true)
         {

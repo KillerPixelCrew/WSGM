@@ -16,7 +16,7 @@ public enum RadioIconState
     Disconnected,
 
     /// <summary>Connected. Drawn in the accent color.</summary>
-    Connected,
+    Connected
 }
 
 /// <summary>A Wi-Fi or Bluetooth status icon that shows its state at a glance.
@@ -105,7 +105,7 @@ public sealed class RadioIcon : Control
         >= 70 => 3,
         >= 40 => 2,
         >= 10 => 1,
-        _ => 0,
+        _ => 0
     };
 
     /// <inheritdoc />
@@ -142,8 +142,8 @@ public sealed class RadioIcon : Control
             var pen = new Pen(muted, size * 0.09, lineCap: PenLineCap.Round);
             context.DrawLine(
                 pen,
-                new Point(origin.X + (size * 0.16), origin.Y + (size * 0.16)),
-                new Point(origin.X + (size * 0.84), origin.Y + (size * 0.84)));
+                new Point(origin.X + size * 0.16, origin.Y + size * 0.16),
+                new Point(origin.X + size * 0.84, origin.Y + size * 0.84));
         }
     }
 
@@ -156,20 +156,20 @@ public sealed class RadioIcon : Control
         IBrush dim,
         bool connected)
     {
-        var centre = new Point(origin.X + (size / 2), origin.Y + (size * 0.82));
+        var centre = new Point(origin.X + size / 2, origin.Y + size * 0.82);
         var arcs = State == RadioIconState.Off ? 0 : ArcsForSignal(Signal);
         // The dot is the base station: always drawn, so an icon with no bars is
         // still recognisably Wi-Fi rather than an empty box.
-        var dotBrush = State == RadioIconState.Off ? muted : (connected ? accent : dim);
+        var dotBrush = State == RadioIconState.Off ? muted : connected ? accent : dim;
         context.DrawEllipse(dotBrush, null, centre, size * 0.07, size * 0.07);
 
         for (var i = 0; i < 3; i++)
         {
-            var radius = size * (0.22 + (i * 0.17));
+            var radius = size * (0.22 + i * 0.17);
             var isLit = i < arcs;
             var brush = State == RadioIconState.Off
                 ? muted
-                : isLit ? (connected ? accent : muted) : dim;
+                : isLit ? connected ? accent : muted : dim;
             var pen = new Pen(brush, size * 0.085, lineCap: PenLineCap.Round);
             // A 120-degree fan centred on straight up, which is the Windows shape.
             var geometry = new StreamGeometry();
@@ -193,31 +193,31 @@ public sealed class RadioIcon : Control
     {
         var radians = degrees * Math.PI / 180.0;
         return new Point(
-            centre.X + (radius * Math.Cos(radians)),
-            centre.Y + (radius * Math.Sin(radians)));
+            centre.X + radius * Math.Cos(radians),
+            centre.Y + radius * Math.Sin(radians));
     }
 
     private void DrawBluetooth(
         DrawingContext context, Point origin, double size, IBrush lit, IBrush dim, bool connected)
     {
-        var brush = State == RadioIconState.Off ? lit : (connected ? lit : dim);
+        var brush = State == RadioIconState.Off ? lit : connected ? lit : dim;
         var pen = new Pen(brush, size * 0.09, lineCap: PenLineCap.Round,
             lineJoin: PenLineJoin.Round);
         // The standard rune: a vertical stroke with two bowties crossing it.
-        var x = origin.X + (size / 2);
-        var top = origin.Y + (size * 0.12);
-        var bottom = origin.Y + (size * 0.88);
+        var x = origin.X + size / 2;
+        var top = origin.Y + size * 0.12;
+        var bottom = origin.Y + size * 0.88;
         var wing = size * 0.22;
 
         var geometry = new StreamGeometry();
         using (var sink = geometry.Open())
         {
-            sink.BeginFigure(new Point(x - wing, origin.Y + (size * 0.30)), false);
-            sink.LineTo(new Point(x + wing, origin.Y + (size * 0.70)));
+            sink.BeginFigure(new Point(x - wing, origin.Y + size * 0.30), false);
+            sink.LineTo(new Point(x + wing, origin.Y + size * 0.70));
             sink.LineTo(new Point(x, bottom));
             sink.LineTo(new Point(x, top));
-            sink.LineTo(new Point(x + wing, origin.Y + (size * 0.30)));
-            sink.LineTo(new Point(x - wing, origin.Y + (size * 0.70)));
+            sink.LineTo(new Point(x + wing, origin.Y + size * 0.30));
+            sink.LineTo(new Point(x - wing, origin.Y + size * 0.70));
             sink.EndFigure(false);
         }
         context.DrawGeometry(null, pen, geometry);

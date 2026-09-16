@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Interop;
 using WSGM.Shell;
 
 namespace WSGM;
@@ -21,7 +25,7 @@ public enum RunMode
     Settings,
 
     /// <summary>Runs the manual overlay smoke-test session.</summary>
-    OverlayTest,
+    OverlayTest
 }
 
 internal enum DevicePluginMaintenanceMode
@@ -29,7 +33,7 @@ internal enum DevicePluginMaintenanceMode
     None,
     Install,
     Remove,
-    Invalid,
+    Invalid
 }
 
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
@@ -67,7 +71,7 @@ public static class Program
         // semantics across a shell transition. It must run before logging, package discovery,
         // elevation, Avalonia, or any other WSGM service. The mode accepts no executable or
         // argument input and can start only the canonical Windows Explorer path.
-        if (ExplorerShellAnchor.TryRunProcessMode(args, out int anchorExitCode))
+        if (ExplorerShellAnchor.TryRunProcessMode(args, out var anchorExitCode))
         {
             return anchorExitCode;
         }
@@ -112,7 +116,7 @@ public static class Program
             return 0;
         }
 
-        DevicePluginMaintenanceMode pluginMaintenance = ParseDevicePluginMaintenance(args);
+        var pluginMaintenance = ParseDevicePluginMaintenance(args);
         if (pluginMaintenance is not DevicePluginMaintenanceMode.None)
         {
             Log.Init();
@@ -203,7 +207,7 @@ public static class Program
             AppConfig? config = null;
             // Read before the load, which creates the file: it is the only way to tell a first
             // install from a repair or an upgrade, and the install mode may only seed the first.
-            bool freshInstall = !System.IO.File.Exists(ConfigStore.ConfigPath);
+            var freshInstall = !File.Exists(ConfigStore.ConfigPath);
             try
             {
                 config = ConfigStore.LoadForMutation();
@@ -213,7 +217,7 @@ public static class Program
                 Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest", ex);
             }
             if (config is not null
-                && InstallProfile.TryParse(InstallProfile.Read(args), out InstallProfileKind profile)
+                && InstallProfile.TryParse(InstallProfile.Read(args), out var profile)
                 && InstallProfile.Apply(config, profile, freshInstall))
             {
                 ConfigStore.Save(config);
@@ -269,13 +273,13 @@ public static class Program
                 + $"roots={inventory.PackageRoots.Count}.");
             if (inventory.Cardinality is DevicePackageCardinality.Multiple)
             {
-                string packages = string.Join(
+                var packages = string.Join(
                     Environment.NewLine,
                     inventory.PackageRoots.Select(path => $"- {Path.GetFileName(path)}: {path}"));
-                string detail = "WSGM found more than one Device Plugin package root and refused "
-                    + "normal startup. No package was opened or selected. Remove the extra package "
-                    + "with setup or --remove-device-plugin, then start WSGM again."
-                    + Environment.NewLine + Environment.NewLine + packages;
+                var detail = "WSGM found more than one Device Plugin package root and refused "
+                             + "normal startup. No package was opened or selected. Remove the extra package "
+                             + "with setup or --remove-device-plugin, then start WSGM again."
+                             + Environment.NewLine + Environment.NewLine + packages;
                 Log.Error(detail);
                 ShowDevicePackageStartupRefusal(detail);
                 return 2;
@@ -314,7 +318,7 @@ public static class Program
         }
 
         using EventWaitHandle? activation = Mode == RunMode.Shell
-            ? new(false, EventResetMode.AutoReset, SessionActivation.EventName) : null;
+            ? new EventWaitHandle(false, EventResetMode.AutoReset, SessionActivation.EventName) : null;
         if (Mode == RunMode.Shell)
         {
             if (flags.Contains("--activate")) { activation!.Set(); }
@@ -371,7 +375,7 @@ public static class Program
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             Panic("UnhandledException", e.ExceptionObject as Exception);
-        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
+        TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             Log.Error("UnobservedTaskException", e.Exception);
             e.SetObserved();
@@ -412,7 +416,7 @@ public static class Program
     // A --restore-shell run from another process: the normal shutdown path restores Explorer and
     // retires this shell's taskbar before that process touches the desktop.
     private static void RequestRestoreShellExit() =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(() =>
         {
             ApplicationShutdownRequest.Request(ApplicationShutdownReason.Normal);
             ApplicationShutdownRequest.ShutdownLifetime();
@@ -420,7 +424,7 @@ public static class Program
 
     private static void RequestInstallerExit(ApplicationShutdownReason reason) =>
         // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => RunInstallerExitRequest(
+        Dispatcher.UIThread.Post(() => RunInstallerExitRequest(
             reason,
             Steam.StopForUpdate,
             ApplicationShutdownRequest.Request,
@@ -498,8 +502,8 @@ public static class Program
         }
 
         string? sourceDirectory = null;
-        string elevatedArguments = "--remove-device-plugin";
-        string operation = "removal";
+        var elevatedArguments = "--remove-device-plugin";
+        var operation = "removal";
         if (mode is DevicePluginMaintenanceMode.Install)
         {
             try
@@ -517,7 +521,7 @@ public static class Program
             operation = "installation";
         }
 
-        bool? elevated = ElevationCheck.IsCurrentProcessElevated();
+        var elevated = ElevationCheck.IsCurrentProcessElevated();
         if (elevated is false)
         {
             return SelfElevation.RunElevatedAction(
@@ -582,7 +586,7 @@ public static class Program
         Func<Task<int>> maintenance)
     {
         ArgumentNullException.ThrowIfNull(maintenance);
-        using Mutex? ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(ownerName);
+        using var ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(ownerName);
         if (ownerReservation is null)
         {
             Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
@@ -608,7 +612,7 @@ public static class Program
                 return 0;
             }
 
-            InstalledDevicePackage installed = await DevicePackageStager.StageAsync(
+            var installed = await DevicePackageStager.StageAsync(
                 sourceDirectory!,
                 DeviceInstallationPaths.InstalledPackageRoot).ConfigureAwait(false);
             Log.Info("Device plugin maintenance: installed "
@@ -642,7 +646,7 @@ public static class Program
     /// </remarks>
     internal static LogVerbosity ApplyLogVerbosity(string[] args)
     {
-        LogVerbosity verbosity = LogVerbosity.Normal;
+        var verbosity = LogVerbosity.Normal;
         if (HasVerboseFlag(args))
         {
             verbosity = LogVerbosity.Verbose;
@@ -654,7 +658,7 @@ public static class Program
                 verbosity = ConfigStore.Load().LogVerbosity;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                or InvalidDataException or System.Text.Json.JsonException)
+                or InvalidDataException or JsonException)
             {
                 Log.Warn($"Log verbosity fell back to {verbosity}: {ex.Message}");
             }
@@ -667,8 +671,8 @@ public static class Program
     internal static DevicePluginMaintenanceMode ParseDevicePluginMaintenance(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        bool hasInstall = args.Contains("--install-device-plugin", StringComparer.OrdinalIgnoreCase);
-        bool hasRemove = args.Contains("--remove-device-plugin", StringComparer.OrdinalIgnoreCase);
+        var hasInstall = args.Contains("--install-device-plugin", StringComparer.OrdinalIgnoreCase);
+        var hasRemove = args.Contains("--remove-device-plugin", StringComparer.OrdinalIgnoreCase);
         if (!hasInstall && !hasRemove)
         {
             return DevicePluginMaintenanceMode.None;
@@ -741,7 +745,7 @@ public static class Program
             "--uninstall-restore",
             "--setup",
             "--install-device-plugin",
-            "--remove-device-plugin",
+            "--remove-device-plugin"
         ];
         return !args.Any(argument => bypass.Contains(argument, StringComparer.OrdinalIgnoreCase));
     }
@@ -750,11 +754,11 @@ public static class Program
     {
         try
         {
-            _ = Interop.NativeMethods.MessageBoxW(
+            _ = NativeMethods.MessageBoxW(
                 0,
                 detail,
                 "WSGM Device Plugin startup refused",
-                Interop.NativeMethods.MbOk | Interop.NativeMethods.MbIconError);
+                NativeMethods.MbOk | NativeMethods.MbIconError);
         }
         catch
         {
@@ -798,7 +802,7 @@ public static class Program
             // explorer's taskbar comes back.
             try
             {
-                Shell.TrayHost.DestroyActive();
+                TrayHost.DestroyActive();
             }
             catch { /* recovery must not throw */ }
             if (!ExplorerControl.IsRunningInSession())
@@ -878,7 +882,7 @@ internal static class CrashLoopBreaker
 
             var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(2);
             var all = File.ReadAllLines(MarkerPath)
-                .Select(l => DateTime.TryParse(l, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
+                .Select(l => DateTime.TryParse(l, null, DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
                 .Where(t => t != DateTime.MinValue)
                 .ToArray();
             var recent = all.Count(t => t > cutoff);

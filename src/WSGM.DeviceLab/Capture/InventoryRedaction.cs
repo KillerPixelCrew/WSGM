@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using WSGM.DeviceLab.Inventory;
 
@@ -29,7 +30,7 @@ internal static class InventoryRedaction
         ArgumentNullException.ThrowIfNull(inventory);
 
         CaptureRedactor redactor = new();
-        MachineInventory shareable = ToShareable(inventory, redactor);
+        var shareable = ToShareable(inventory, redactor);
         removed = redactor.Summarize();
         return shareable;
     }
@@ -44,31 +45,31 @@ internal static class InventoryRedaction
         ArgumentNullException.ThrowIfNull(redactor);
         inventory = MachineInventoryNormalizer.Normalize(inventory);
 
-        MachineInventory shareable = inventory with
+        var shareable = inventory with
         {
             GraphicsAdapters = [.. inventory.GraphicsAdapters.Select(adapter => adapter with
             {
-                InstanceId = redactor.Redact(adapter.InstanceId),
+                InstanceId = redactor.Redact(adapter.InstanceId)
             })],
             UsbInterfaces = [.. inventory.UsbInterfaces.Select(i => i with
             {
                 InstanceId = redactor.Redact(i.InstanceId),
                 LocationPath = Tokenize(redactor, i.LocationPath),
-                DeviceLevelLocationPath = Tokenize(redactor, i.DeviceLevelLocationPath),
+                DeviceLevelLocationPath = Tokenize(redactor, i.DeviceLevelLocationPath)
             })],
             SerialEndpoints = [.. inventory.SerialEndpoints.Select(endpoint => endpoint with
             {
                 InstanceId = redactor.Redact(endpoint.InstanceId),
                 Name = endpoint.Name is null ? null : redactor.Redact(endpoint.Name),
                 LocationPath = Tokenize(redactor, endpoint.LocationPath),
-                AssociationId = Tokenize(redactor, endpoint.AssociationId),
+                AssociationId = Tokenize(redactor, endpoint.AssociationId)
             })],
             Sensors = [.. inventory.Sensors.Select(sensor => sensor with
             {
                 InstanceId = redactor.Redact(sensor.InstanceId),
                 Name = sensor.Name is null ? null : redactor.Redact(sensor.Name),
                 AssociationId = Tokenize(redactor, sensor.AssociationId),
-                DeviceLevelLocationPath = Tokenize(redactor, sensor.DeviceLevelLocationPath),
+                DeviceLevelLocationPath = Tokenize(redactor, sensor.DeviceLevelLocationPath)
             })],
             InputBackends = [.. inventory.InputBackends.Select(backend => backend with
             {
@@ -78,13 +79,13 @@ internal static class InventoryRedaction
                         $"{backend.Backend}:{endpoint.EndpointId}"),
                     InstanceId = endpoint.InstanceId is null ? null : redactor.Redact(endpoint.InstanceId),
                     Name = endpoint.Name is null ? null : redactor.Redact(endpoint.Name),
-                    AssociationId = Tokenize(redactor, endpoint.AssociationId),
-                })],
+                    AssociationId = Tokenize(redactor, endpoint.AssociationId)
+                })]
             })],
             NativeBinaries = [.. inventory.NativeBinaries.Select(binary => binary with
             {
-                Path = System.IO.Path.GetFileName(binary.Name) ?? string.Empty,
-                Name = System.IO.Path.GetFileName(binary.Name) ?? string.Empty,
+                Path = Path.GetFileName(binary.Name) ?? string.Empty,
+                Name = Path.GetFileName(binary.Name) ?? string.Empty
             })],
             Processes = [.. inventory.Processes.Select(process => process with
             {
@@ -95,7 +96,7 @@ internal static class InventoryRedaction
                 Path = null,
                 CommandLine = null,
                 LoadedModulePaths = [.. process.LoadedModulePaths.Select(path =>
-                    System.IO.Path.GetFileName(path) ?? string.Empty)],
+                    Path.GetFileName(path) ?? string.Empty)]
             })],
             Services = [.. inventory.Services.Select(service => service with
             {
@@ -103,11 +104,11 @@ internal static class InventoryRedaction
                     ? redactor.TokenizeSessionIdentifier($"process:{processId}")
                     : Tokenize(redactor, service.ProcessToken),
                 ProcessId = null,
-                PathName = null,
+                PathName = null
             })],
             ScheduledTasks = [.. inventory.ScheduledTasks.Select(task => task with
             {
-                Path = redactor.Redact(task.Path),
+                Path = redactor.Redact(task.Path)
             })],
             Providers = [.. inventory.Providers.Select(provider => provider with
             {
@@ -117,13 +118,13 @@ internal static class InventoryRedaction
                 HostProcessId = null,
                 ModulePath = provider.ModulePath is null
                     ? null
-                    : System.IO.Path.GetFileName(provider.ModulePath),
+                    : Path.GetFileName(provider.ModulePath)
             })],
             TopologyGenerations = [.. inventory.TopologyGenerations.Select(observation => observation with
             {
                 InstanceId = redactor.Redact(observation.InstanceId),
-                AssociationId = Tokenize(redactor, observation.AssociationId),
-            })],
+                AssociationId = Tokenize(redactor, observation.AssociationId)
+            })]
         };
 
         return shareable;

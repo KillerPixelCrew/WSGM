@@ -3,6 +3,7 @@ using System.Linq;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Data;
+using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Core;
 
@@ -15,8 +16,8 @@ public sealed class PowerSchemeView : UserControl
     private readonly ComboBox _profiles = new()
     {
         DisplayMemberBinding = new Binding(nameof(PowerScheme.Name)),
-        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-        Tag = "system.power-profile.choice",
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        Tag = "system.power-profile.choice"
     };
     private readonly Button _apply = new() { Content = "Apply", Tag = "system.power-profile.apply" };
     private readonly Button _refresh = new() { Content = "Refresh", Tag = "system.power-profile.refresh" };
@@ -28,7 +29,7 @@ public sealed class PowerSchemeView : UserControl
     public PowerSchemeView()
     {
         AutomationProperties.SetName(_profiles, "Windows power profile");
-        var choices = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8 };
+        var choices = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         choices.Children.Add(_apply);
         choices.Children.Add(_refresh);
         Content = new Border
@@ -42,9 +43,9 @@ public sealed class PowerSchemeView : UserControl
                     new TextBlock { Text = "Windows power profile", Classes = { "setting-title" } },
                     _profiles,
                     choices,
-                    _status,
-                },
-            },
+                    _status
+                }
+            }
         };
         _profiles.SelectionChanged += (_, _) => UpdateButtons();
         _apply.Click += async (_, _) =>
@@ -89,7 +90,7 @@ public sealed class PowerSchemeView : UserControl
             _profiles.SelectedIndex = -1;
             if (_items is not null)
             {
-                for (int i = 0; i < _items.Count; i++)
+                for (var i = 0; i < _items.Count; i++)
                 {
                     if (_items[i].Id == _model?.ActiveId)
                     {

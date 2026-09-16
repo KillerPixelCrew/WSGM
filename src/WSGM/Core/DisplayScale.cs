@@ -248,8 +248,8 @@ public static unsafe class DisplayScale
                 Type = GetDpiScaleType,
                 Size = (uint)Marshal.SizeOf<DpiScaleGet>(),
                 AdapterId = source.Adapter,
-                Id = source.SourceId,
-            },
+                Id = source.SourceId
+            }
         };
         if (DisplayConfigGetDeviceInfo(ref get) != 0)
         {
@@ -291,9 +291,9 @@ public static unsafe class DisplayScale
                 Type = SetDpiScaleType,
                 Size = (uint)Marshal.SizeOf<DpiScaleSet>(),
                 AdapterId = source.Adapter,
-                Id = source.SourceId,
+                Id = source.SourceId
             },
-            ScaleRel = idx - recIdx,
+            ScaleRel = idx - recIdx
         };
         var ok = DisplayConfigSetDeviceInfo(ref set) == 0;
         if (!ok)
@@ -367,8 +367,8 @@ public static unsafe class DisplayScale
                 Type = GetSourceNameType,
                 Size = (uint)sizeof(SourceDeviceName),
                 AdapterId = adapterId,
-                Id = sourceId,
-            },
+                Id = sourceId
+            }
         };
         if (DisplayConfigGetDeviceInfo(ref packet) != 0)
         {

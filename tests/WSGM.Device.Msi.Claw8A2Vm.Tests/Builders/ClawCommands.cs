@@ -18,6 +18,6 @@ internal static class ClawCommands
             RequestedValue = value,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = CycleGeneration,
-            Deadline = DateTimeOffset.UtcNow.AddMinutes(1),
+            Deadline = DateTimeOffset.UtcNow.AddMinutes(1)
         };
 }

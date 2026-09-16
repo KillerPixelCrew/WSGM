@@ -24,14 +24,14 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
                     {
                         VendorId = ClawHardwareFacts.UsbVendorId,
                         ProductId = ClawHardwareFacts.XInputProductId,
-                        DeviceRelease = ClawHardwareFacts.McuFirmware,
-                    },
-                ],
+                        DeviceRelease = ClawHardwareFacts.McuFirmware
+                    }
+                ]
             },
             ExactMachineMatch = true,
             WmiFirmwareVerified = true,
             McuFirmwareVerified = true,
-            OnAcPower = true,
+            OnAcPower = true
         });
     }
 }
@@ -107,14 +107,14 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
         }
 
         Writes.Add((methodName, [.. package]));
-        byte selector = package[0];
+        var selector = package[0];
         if (methodName == "Set_Data")
         {
             _responses[("Get_Data", selector)] = Response(package[1], package[2], package[3], package[4]);
         }
         else
         {
-            string getter = methodName == "Set_Fan" ? "Get_Fan" : "Get_Temperature";
+            var getter = methodName == "Set_Fan" ? "Get_Fan" : "Get_Temperature";
             byte[] response = [.. package];
             response[0] = 1;
             _responses[(getter, selector)] = response;
@@ -128,7 +128,7 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
 
     private static byte[] Data(int value)
     {
-        byte[] response = new byte[32];
+        var response = new byte[32];
         response[0] = 1;
         BinaryPrimitives.WriteInt32LittleEndian(response.AsSpan(1, sizeof(int)), value);
         return response;
@@ -136,7 +136,7 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
 
     private static byte[] Response(params byte[] payload)
     {
-        byte[] response = new byte[32];
+        var response = new byte[32];
         response[0] = 1;
         payload.CopyTo(response, 1);
         return response;
@@ -208,12 +208,12 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        byte[] write = payload.ToArray();
+        var write = payload.ToArray();
         ProfileWrites.Add([.. write]);
-        Func<byte[], byte[]>? transform = TransformNextWrite;
+        var transform = TransformNextWrite;
         TransformNextWrite = null;
         _profile = transform is null ? write : transform([.. write]);
-        Action? afterWrite = AfterNextWrite;
+        var afterWrite = AfterNextWrite;
         AfterNextWrite = null;
         afterWrite?.Invoke();
         cancellationToken.ThrowIfCancellationRequested();

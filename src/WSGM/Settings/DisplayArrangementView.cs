@@ -62,9 +62,9 @@ public sealed class DisplayArrangementView : Canvas
         if (Editor is not { } editor) { Children.Clear(); _screens.Clear(); return; }
         foreach (var row in _screens.Keys.Where(row => !editor.Rows.Contains(row)).ToArray())
         { Children.Remove(_screens[row]); _screens.Remove(row); }
-        foreach (DisplayLayoutEditorRow row in editor.Rows)
+        foreach (var row in editor.Rows)
         {
-            if (!_screens.TryGetValue(row, out Button? button))
+            if (!_screens.TryGetValue(row, out var button))
             {
                 button = new Button { Classes = { "display-monitor" }, Tag = row };
                 button.Click += (_, _) => editor.Selected = row;
@@ -90,8 +90,8 @@ public sealed class DisplayArrangementView : Canvas
         if (active.Length > 0 && _press is null)
         {
             double left = active.Min(pair => pair.Key.X), top = active.Min(pair => pair.Key.Y);
-            double width = active.Max(pair => (double)pair.Key.X + pair.Key.Mode!.Width) - left;
-            double height = active.Max(pair => (double)pair.Key.Y + pair.Key.Mode!.Height) - top;
+            var width = active.Max(pair => (double)pair.Key.X + pair.Key.Mode!.Width) - left;
+            var height = active.Max(pair => (double)pair.Key.Y + pair.Key.Mode!.Height) - top;
             _scale = Math.Max(.001, Math.Min((finalSize.Width - 32) / width, (finalSize.Height - 24) / height));
             double offsetX = (finalSize.Width - width * _scale) / 2, offsetY = (finalSize.Height - height * _scale) / 2;
             foreach (var (row, button) in active)
@@ -109,8 +109,8 @@ public sealed class DisplayArrangementView : Canvas
     {
         if (sender is not Button { Tag: DisplayLayoutEditorRow row } button || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) { return; }
         _press = e.GetPosition(this);
-        _original = new(row.X, row.Y);
-        _buttonOrigin = new(GetLeft(button), GetTop(button));
+        _original = new Point(row.X, row.Y);
+        _buttonOrigin = new Point(GetLeft(button), GetTop(button));
         _dragging = false;
         if (Editor is { } editor) { editor.Selected = row; }
         e.Pointer.Capture(button);
@@ -134,11 +134,11 @@ public sealed class DisplayArrangementView : Canvas
         if (_dragging && Editor is { } editor && row.Mode is { } mode)
         {
             int x = (int)Math.Round(_original.X + delta.X / _scale), y = (int)Math.Round(_original.Y + delta.Y / _scale);
-            foreach (DisplayLayoutEditorRow other in editor.Rows.Where(item => item != row && item.Active && item.Mode is not null))
+            foreach (var other in editor.Rows.Where(item => item != row && item.Active && item.Mode is not null))
             {
-                foreach (int candidate in new[] { other.X - mode.Width, other.X + other.Mode!.Width })
+                foreach (var candidate in new[] { other.X - mode.Width, other.X + other.Mode!.Width })
                 { if (Math.Abs((double)x - candidate) * _scale < 14) { x = candidate; } }
-                foreach (int candidate in new[] { other.Y, other.Y + other.Mode!.Height - mode.Height,
+                foreach (var candidate in new[] { other.Y, other.Y + other.Mode!.Height - mode.Height,
                     other.Y - mode.Height, other.Y + other.Mode.Height })
                 { if (Math.Abs((double)y - candidate) * _scale < 14) { y = candidate; } }
             }

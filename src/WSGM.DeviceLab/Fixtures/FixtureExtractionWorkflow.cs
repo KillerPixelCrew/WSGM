@@ -44,7 +44,7 @@ internal static class FixtureExtractionWorkflow
             throw new IOException("Fixture output must be a new directory.");
         }
 
-        DeviceLabOutputPathDecision decision = DeviceLabOutputPathPolicy.Evaluate(
+        var decision = DeviceLabOutputPathPolicy.Evaluate(
             outputDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
@@ -60,9 +60,9 @@ internal static class FixtureExtractionWorkflow
                 DeviceLabJsonContext.Default.MachineInventory)),
             ["input/recipe.json"] = WithNewline(JsonSerializer.SerializeToUtf8Bytes(
                 bundle.Recipe,
-                DeviceLabJsonContext.Default.ObserveOnlyRecipe)),
+                DeviceLabJsonContext.Default.ObserveOnlyRecipe))
         };
-        foreach (CaptureStreamFile stream in bundle.Streams.OrderBy(stream => stream.SourceId, StringComparer.Ordinal))
+        foreach (var stream in bundle.Streams.OrderBy(stream => stream.SourceId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
             inputs[$"input/streams/{SafeName(stream.SourceId)}.ndjson"] = Ndjson(
@@ -74,7 +74,7 @@ internal static class FixtureExtractionWorkflow
         }
 
         SortedDictionary<string, byte[]> expected = new(StringComparer.Ordinal);
-        foreach (CaptureAnalysisFile analysis in bundle.Analysis.OrderBy(item => item.AnalyzerId, StringComparer.Ordinal))
+        foreach (var analysis in bundle.Analysis.OrderBy(item => item.AnalyzerId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
             expected[$"expected/analysis/{SafeName(analysis.AnalyzerId)}.ndjson"] = Ndjson(
@@ -93,17 +93,17 @@ internal static class FixtureExtractionWorkflow
             ExtractorVersion = ExtractorVersion,
             ReplayPolicy = FixtureReplayPolicy.SimulatorOnly,
             Inputs = [.. inputs.Select(pair => Artifact(pair.Key, pair.Value))],
-            ExpectedOutputs = [.. expected.Select(pair => Artifact(pair.Key, pair.Value))],
+            ExpectedOutputs = [.. expected.Select(pair => Artifact(pair.Key, pair.Value))]
         };
-        IReadOnlyList<CaptureValidationError> errors = FixtureSchemaValidator.Validate(manifest);
+        var errors = FixtureSchemaValidator.Validate(manifest);
         if (errors.Count != 0)
         {
             throw new InvalidDataException(errors[0].Message);
         }
 
-        string parent = Path.GetDirectoryName(decision.FullPath)
-            ?? throw new IOException("Fixture output has no parent directory.");
-        string temporary = Path.Combine(
+        var parent = Path.GetDirectoryName(decision.FullPath)
+                     ?? throw new IOException("Fixture output has no parent directory.");
+        var temporary = Path.Combine(
             parent,
             $".{Path.GetFileName(decision.FullPath)}.{Guid.NewGuid():N}.tmp");
         try
@@ -111,7 +111,7 @@ internal static class FixtureExtractionWorkflow
             Directory.CreateDirectory(parent);
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(temporary);
-            DeviceLabOutputPathDecision recheck = DeviceLabOutputPathPolicy.Evaluate(
+            var recheck = DeviceLabOutputPathPolicy.Evaluate(
                 decision.FullPath,
                 DeviceLabOutputTargetKind.Directory,
                 boundaries);
@@ -120,7 +120,7 @@ internal static class FixtureExtractionWorkflow
                 throw new IOException(recheck.Reason ?? "Fixture path changed before write.");
             }
 
-            foreach ((string path, byte[] bytes) in inputs.Concat(expected))
+            foreach (var (path, bytes) in inputs.Concat(expected))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 WriteNew(temporary, path, bytes, cancellationToken);
@@ -155,7 +155,7 @@ internal static class FixtureExtractionWorkflow
             ? "application/x-ndjson"
             : "application/json",
         Length = bytes.Length,
-        Sha256 = CaptureHashFile.Hash(bytes),
+        Sha256 = CaptureHashFile.Hash(bytes)
     };
 
     private static void WriteNew(
@@ -164,7 +164,7 @@ internal static class FixtureExtractionWorkflow
         byte[] bytes,
         CancellationToken cancellationToken)
     {
-        string path = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var path = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
         if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new IOException("Fixture artifact escaped its output directory.");
@@ -173,11 +173,11 @@ internal static class FixtureExtractionWorkflow
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         DurableFile.WriteNew(path, output =>
         {
-            int offset = 0;
+            var offset = 0;
             while (offset < bytes.Length)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                int length = Math.Min(64 * 1024, bytes.Length - offset);
+                var length = Math.Min(64 * 1024, bytes.Length - offset);
                 output.Write(bytes, offset, length);
                 offset += length;
             }
@@ -195,21 +195,21 @@ internal static class FixtureExtractionWorkflow
     /// </remarks>
     private static string SafeName(string value)
     {
-        string sanitized = string.Concat(value.Select(character =>
+        var sanitized = string.Concat(value.Select(character =>
             char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' ? character : '-'));
         if (string.IsNullOrWhiteSpace(sanitized))
         {
             sanitized = "unknown";
         }
 
-        string digest = Convert.ToHexStringLower(
+        var digest = Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..8];
         return $"{sanitized}-{digest}";
     }
 
     private static byte[] WithNewline(byte[] bytes)
     {
-        byte[] output = new byte[bytes.Length + 1];
+        var output = new byte[bytes.Length + 1];
         bytes.CopyTo(output, 0);
         output[^1] = (byte)'\n';
         return output;
@@ -221,7 +221,7 @@ internal static class FixtureExtractionWorkflow
         CancellationToken cancellationToken)
     {
         using MemoryStream output = new();
-        foreach (T value in values)
+        foreach (var value in values)
         {
             cancellationToken.ThrowIfCancellationRequested();
             output.Write(serializer(value));

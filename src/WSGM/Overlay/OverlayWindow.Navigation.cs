@@ -39,32 +39,32 @@ public partial class OverlayWindow
         // The category pages: each destination root is a menu, and its groups of controls are
         // pages one level down. Nesting is what the stack is for, so a page opened from inside a
         // category names that category as its parent rather than the destination root.
-        new(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam),
-        new(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam),
-        new(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System),
-        new(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem,
+        new SubView(OverlayPage.SteamLibrary, PanelSteamLibrary, PanelSteam, OverlayDestination.Steam),
+        new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam),
+        new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem,
             OverlayDestination.System),
-        new(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System),
-        new(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System),
-        new(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
-        new(OverlayPage.SystemController, PanelSystemController, PanelSystem,
+        new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System),
+        new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System),
-        new(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power),
-        new(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power),
-        new(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),
-        new(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power),
+        new SubView(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power),
+        new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power),
+        new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power),
+        new SubView(OverlayPage.PowerSession, PanelPowerSession, PanelPower, OverlayDestination.Power),
 
-        new(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteamLibrary, OverlayDestination.Steam,
+        new SubView(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteamLibrary, OverlayDestination.Steam,
             () =>
             {
                 _pendingTarget = null;
                 _formatReturnsToCards = false;
             }),
-        new(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
-        new(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
-        new(OverlayPage.SteamArtwork, ArtworkHost, PanelSteamLibrary, OverlayDestination.Steam,
+        new SubView(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
+        new SubView(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
+        new SubView(OverlayPage.SteamArtwork, ArtworkHost, PanelSteamLibrary, OverlayDestination.Steam,
             () => ArtworkHost.Close()),
-        new(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
+        new SubView(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
             OverlayDestination.Steam,
             () =>
             {
@@ -76,9 +76,9 @@ public partial class OverlayWindow
                     InitializeLaunchFixLabels(viewModel);
                 }
             }),
-        new(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
-        new(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device,
-            RefreshDevicePanel),
+        new SubView(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPowerWake, OverlayDestination.Power),
+        new SubView(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device,
+            RefreshDevicePanel)
     ];
 
     /// <summary>The nested page currently owning the surface, or null at a destination root.</summary>
@@ -91,7 +91,7 @@ public partial class OverlayWindow
 
     private void EnterSubView(OverlayPage page)
     {
-        SubView view = SubViews.First(candidate => candidate.Page == page);
+        var view = SubViews.First(candidate => candidate.Page == page);
         if (!_navigation.Push(page, CurrentSemanticFocusKey()))
         {
             return;
@@ -118,7 +118,7 @@ public partial class OverlayWindow
             return;
         }
 
-        string? returnFocusKey = _navigation.Pop();
+        var returnFocusKey = _navigation.Pop();
         view.OnLeave?.Invoke();
         // Closes any peer keyboard the page opened; without it the keyboard can outlive its
         // sub-view and keep writing back to a now-hidden field.
@@ -148,9 +148,9 @@ public partial class OverlayWindow
             UpdateGlyphInputObservation(false);
         }
 
-        OverlayDestination previous = _navigation.Destination;
-        bool deviceAvailable = showDevice || _powerSchemeSelection is not null;
-        bool visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null);
+        var previous = _navigation.Destination;
+        var deviceAvailable = showDevice || _powerSchemeSelection is not null;
+        var visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null);
         if (!visibilityChanged && Tabs.Tabs is not null)
         {
             return;
@@ -165,7 +165,7 @@ public partial class OverlayWindow
         PlacePerformanceSection(deviceAvailable);
 
         Tabs.Tabs = _navigation.VisibleDestinations.Select(CreateDestinationTab).ToList();
-        int selectedIndex = DestinationIndex(_navigation.Destination);
+        var selectedIndex = DestinationIndex(_navigation.Destination);
         // Rebuilding a dynamic strip can change the meaning of an unchanged numeric
         // index (System 2 becomes Device 2). Force one descriptor-based selection.
         Tabs.SelectedIndex = -1;
@@ -182,7 +182,7 @@ public partial class OverlayWindow
         OverlayDestination.Device => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Gear, (int)destination),
         OverlayDestination.System => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Wrench, (int)destination),
         OverlayDestination.Power => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Power, (int)destination),
-        _ => throw new ArgumentOutOfRangeException(nameof(destination)),
+        _ => throw new ArgumentOutOfRangeException(nameof(destination))
     };
 
     /// <summary>The user-facing name of a destination — the strip label and the header eyebrow.</summary>
@@ -193,17 +193,17 @@ public partial class OverlayWindow
         OverlayDestination.Device => "Device",
         OverlayDestination.System => "Tools",
         OverlayDestination.Power => "Power",
-        _ => throw new ArgumentOutOfRangeException(nameof(destination)),
+        _ => throw new ArgumentOutOfRangeException(nameof(destination))
     };
 
     private int DestinationIndex(OverlayDestination destination)
     {
-        IReadOnlyList<TabStripItem>? tabs = Tabs.Tabs;
+        var tabs = Tabs.Tabs;
         if (tabs is null)
         {
             return 0;
         }
-        for (int i = 0; i < tabs.Count; i++)
+        for (var i = 0; i < tabs.Count; i++)
         {
             if (tabs[i].Tag == (int)destination)
             {
@@ -288,14 +288,14 @@ public partial class OverlayWindow
     /// </remarks>
     internal bool TryCancelSubView()
     {
-        bool handled = CancelOpenPage();
+        var handled = CancelOpenPage();
         SyncBackAffordance();
         return handled;
     }
 
     private bool CancelOpenPage()
     {
-        bool confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown;
+        var confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown;
         switch (_navigation.BackAction(popupOpen: false, dialogOpen: confirmationOpen))
         {
             case OverlayBackAction.CloseDialog:
@@ -360,7 +360,7 @@ public partial class OverlayWindow
             return;
         }
 
-        OverlayDestination destination = (OverlayDestination)e.SelectedItem.Tag;
+        var destination = (OverlayDestination)e.SelectedItem.Tag;
         RememberDestinationState(_navigation.Destination);
         LeaveAllNestedPages();
         if (!_navigation.Select(destination))
@@ -379,7 +379,7 @@ public partial class OverlayWindow
             destination = OverlayDestination.QuickAccess;
         }
 
-        int index = DestinationIndex(destination);
+        var index = DestinationIndex(destination);
         if (Tabs.SelectedIndex != index)
         {
             Tabs.SelectedIndex = index;
@@ -443,13 +443,13 @@ public partial class OverlayWindow
         OverlayDestination.Device => PanelDevice,
         OverlayDestination.System => PanelSystem,
         OverlayDestination.Power => PanelPower,
-        _ => PanelQuickAccess,
+        _ => PanelQuickAccess
     };
 
     private void RememberDestinationState(OverlayDestination destination)
     {
-        OverlayFocusState previous = _session.Focus.Recall(destination);
-        string? semanticKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        var previous = _session.Focus.Recall(destination);
+        var semanticKey = GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control { Tag: string key }
             ? key
             : previous.SemanticKey;
@@ -457,14 +457,14 @@ public partial class OverlayWindow
     }
 
     private string? CurrentSemanticFocusKey()
-        => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        => GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control { Tag: string key }
             ? key
             : null;
 
     private void RestoreRootFocus(string? semanticKey)
     {
-        OverlayFocusState state = _session.Focus.Recall(_navigation.Destination);
+        var state = _session.Focus.Recall(_navigation.Destination);
         _session.Focus.Remember(
             _navigation.Destination,
             semanticKey ?? state.SemanticKey,
@@ -474,7 +474,7 @@ public partial class OverlayWindow
 
     private void RestoreDestinationState(bool focus)
     {
-        OverlayFocusState state = _session.Focus.Recall(_navigation.Destination);
+        var state = _session.Focus.Recall(_navigation.Destination);
         ContentScroller.Offset = new Vector(0, state.ScrollOffset);
         if (!focus)
         {
@@ -488,14 +488,14 @@ public partial class OverlayWindow
                 return;
             }
 
-            Control panel = DestinationPanel();
+            var panel = DestinationPanel();
             if (state.SemanticKey is not null
                 && FocusSearch.First<Control>(panel, control => control is
                 {
                     Tag: string key,
                     Focusable: true,
                     IsEffectivelyEnabled: true,
-                    IsEffectivelyVisible: true,
+                    IsEffectivelyVisible: true
                 } && string.Equals(key, state.SemanticKey, StringComparison.Ordinal)) is { } target)
             {
                 target.Focus(NavigationMethod.Directional);
@@ -511,7 +511,7 @@ public partial class OverlayWindow
         // Unwound rather than named one by one: a category page can have another page open above
         // it, and the list of every sub-view that had to be closed here went stale the moment a
         // page was added. Each pop runs that page's own OnLeave, innermost first.
-        for (int depth = 0; depth < OverlayNavigation.MaximumDepth && AnySubView; depth++)
+        for (var depth = 0; depth < OverlayNavigation.MaximumDepth && AnySubView; depth++)
         {
             LeaveActiveSubView();
         }

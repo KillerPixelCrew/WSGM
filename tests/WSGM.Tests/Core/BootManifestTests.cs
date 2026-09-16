@@ -12,7 +12,7 @@ public sealed class BootManifestTests
         {
             GameModeBoot = true,
             Elevate = true,
-            ExePath = @"C:\Users\me\AppData\Local\WSGM\bin\WSGM.exe",
+            ExePath = @"C:\Users\me\AppData\Local\WSGM\bin\WSGM.exe"
         };
 
         var json = JsonSerializer.Serialize(original, BootManifestJsonContext.Default.BootManifest);
@@ -60,7 +60,7 @@ public sealed class BootManifestTests
             {
                 GameModeBoot = false,
                 Elevate = true,
-                ExePath = @"C:\x\WSGM.exe",
+                ExePath = @"C:\x\WSGM.exe"
             });
             var loaded = BootManifestStore.TryLoad(path);
 

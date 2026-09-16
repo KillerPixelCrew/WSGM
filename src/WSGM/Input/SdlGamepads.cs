@@ -73,7 +73,7 @@ internal static unsafe class SdlGamepads
         // Deck trackpad clicks (best-effort: depends on the bundled SDL version's
         // Deck mapping; on DS4/DualSense the single pad click lands on TOUCHPAD).
         (SDL_GamepadButton.SDL_GAMEPAD_BUTTON_TOUCHPAD, GamepadButtons.LeftPadPress),
-        (SDL_GamepadButton.SDL_GAMEPAD_BUTTON_MISC2, GamepadButtons.RightPadPress),
+        (SDL_GamepadButton.SDL_GAMEPAD_BUTTON_MISC2, GamepadButtons.RightPadPress)
     ];
 
     /// <summary>Initializes SDL's gamepad subsystem once for the process.</summary>
@@ -126,7 +126,7 @@ internal static unsafe class SdlGamepads
         Snapshot.Clear();
         if (active)
         {
-            foreach (nint handle in Pads.Values) { SDL_CloseGamepad((SDL_Gamepad*)handle); }
+            foreach (var handle in Pads.Values) { SDL_CloseGamepad((SDL_Gamepad*)handle); }
             Pads.Clear();
         }
         else
@@ -224,8 +224,8 @@ internal static unsafe class SdlGamepads
         }
         if (_awaitNeutral)
         {
-            bool held = false;
-            foreach (PadSnapshot pad in Snapshot) { held |= pad.Buttons != 0; }
+            var held = false;
+            foreach (var pad in Snapshot) { held |= pad.Buttons != 0; }
             if (held) { Snapshot.Clear(); }
             else if (Snapshot.Count > 0) { _awaitNeutral = false; }
         }

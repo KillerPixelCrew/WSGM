@@ -13,7 +13,7 @@ public sealed class SafetyPreflightTests
             ResourceId = "wsgm.device.synthetic.dock-x1",
             Access = DeviceLabOperationAccess.AttendedPluginAction,
             ExactDeviceMatched = true,
-            RequiresElevation = true,
+            RequiresElevation = true
         };
         DeviceLabSafetySnapshot snapshot = new()
         {
@@ -21,21 +21,21 @@ public sealed class SafetyPreflightTests
             IsElevated = true,
             IsUserInteractive = true,
             IsContinuousIntegration = false,
-            AttendedActionConfirmed = false,
+            AttendedActionConfirmed = false
         };
 
-        DeviceLabPreflightDecision unconfirmed = DeviceLabSafetyPreflight.Evaluate(
+        var unconfirmed = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             snapshot);
-        DeviceLabPreflightDecision confirmed = DeviceLabSafetyPreflight.Evaluate(
+        var confirmed = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             snapshot with { AttendedActionConfirmed = true });
-        DeviceLabPreflightDecision owned = DeviceLabSafetyPreflight.Evaluate(
+        var owned = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             snapshot with
             {
                 AttendedActionConfirmed = true,
-                OwnerDiscovery = DeviceOwnerDiscoveryState.Present,
+                OwnerDiscovery = DeviceOwnerDiscoveryState.Present
             });
 
         Assert.Equal(DeviceLabAccessRoute.None, unconfirmed.Route);

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -442,7 +443,7 @@ public sealed class LibraryTabsView : OverlaySubView
         (FilterKind.Platform, "Platform", "Steam or non-Steam"),
         (FilterKind.Whitelist, "Whitelist", "Only these games"),
         (FilterKind.Blacklist, "Blacklist", "Exclude these games"),
-        (FilterKind.Merge, "Merge group", "Nested AND/OR of filters"),
+        (FilterKind.Merge, "Merge group", "Nested AND/OR of filters")
     ];
 
     private FilterNode? _replacingFilter;
@@ -594,14 +595,14 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     TimeUnit.Minutes => "Minutes",
                     TimeUnit.Days => "Days",
-                    _ => "Hours",
+                    _ => "Hours"
                 }, () =>
                 {
                     node.Units = node.Units switch
                     {
                         TimeUnit.Minutes => TimeUnit.Hours,
                         TimeUnit.Hours => TimeUnit.Days,
-                        _ => TimeUnit.Minutes,
+                        _ => TimeUnit.Minutes
                     };
                     Replace(() => RenderFilterEditor(node));
                 }));
@@ -628,7 +629,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     SdCardScope.Inserted => "Currently inserted",
                     SdCardScope.Any => "Any tracked card",
-                    _ => CardName(node.ContentId),
+                    _ => CardName(node.ContentId)
                 }, () => CycleCardScope(node)));
                 break;
 
@@ -833,10 +834,10 @@ public sealed class LibraryTabsView : OverlaySubView
         {
             Text = $"{label}: {value.ToString("0.##", CultureInfo.InvariantCulture)}",
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Avalonia.Thickness(4, 0, 0, 0),
+            Margin = new Thickness(4, 0, 0, 0)
         };
         Grid.SetColumn(text, 0);
-        var minus = new Button { Content = "−", Width = 46, Margin = new Avalonia.Thickness(4, 0, 4, 0) };
+        var minus = new Button { Content = "−", Width = 46, Margin = new Thickness(4, 0, 4, 0) };
         Grid.SetColumn(minus, 1);
         minus.Click += (_, _) => onChange(Math.Clamp(value - step, min, max));
         var plus = new Button { Content = "+", Width = 46 };
@@ -959,7 +960,7 @@ public sealed class LibraryTabsView : OverlaySubView
             FilterKind.Whitelist => $"Whitelist ({node.AppIds.Count})",
             FilterKind.Blacklist => $"Blacklist ({node.AppIds.Count})",
             FilterKind.Merge => $"Group ({node.Children.Count})",
-            _ => node.Kind.ToString(),
+            _ => node.Kind.ToString()
         };
     }
 
@@ -972,6 +973,6 @@ public sealed class LibraryTabsView : OverlaySubView
         Enabled = t.Enabled,
         Position = t.Position,
         Categories = t.Categories,
-        FilterTree = t.FilterTree?.Clone() ?? new FilterNode { Kind = FilterKind.Merge },
+        FilterTree = t.FilterTree?.Clone() ?? new FilterNode { Kind = FilterKind.Merge }
     };
 }

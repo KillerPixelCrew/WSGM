@@ -51,7 +51,7 @@ internal sealed class ApplicationPerformanceReconciler(
         // a profile belongs to the application, not the focused window, so reconcile only when the
         // identity actually changes. A mid-game change reaches the device through the manual funnels,
         // not here.
-        string identityKey = applicationId ?? string.Empty;
+        var identityKey = applicationId ?? string.Empty;
         if (string.Equals(identityKey, _lastReconciledApplicationId, StringComparison.Ordinal))
         {
             return;
@@ -62,8 +62,8 @@ internal sealed class ApplicationPerformanceReconciler(
             return;
         }
 
-        DeviceCapabilityView? power = FindPowerLimitCapability();
-        DeviceCapabilityView? vrr = FindVariableRefreshCapability();
+        var power = FindPowerLimitCapability();
+        var vrr = FindVariableRefreshCapability();
         if (power is null && vrr is null)
         {
             // No manageable device value: nothing this transition can do. The identity is not
@@ -73,8 +73,8 @@ internal sealed class ApplicationPerformanceReconciler(
 
         _lastReconciledApplicationId = identityKey;
 
-        PerformanceApplicationConfig? entry = readConfig().Performance.FindApplication(applicationId);
-        bool perGameActive = entry?.UsePerGameProfile ?? false;
+        var entry = readConfig().Performance.FindApplication(applicationId);
+        var perGameActive = entry?.UsePerGameProfile ?? false;
 
         if (power is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
         {
@@ -107,9 +107,9 @@ internal sealed class ApplicationPerformanceReconciler(
     {
         var (effective, paired) = ManualTdpPolicy.ResolveTarget(readConfig().Performance, entry, perGameActive);
         var manualProfile = ManualTdpPolicy.Resolve(readConfig().Performance, entry, perGameActive);
-        int ceiling = power.Descriptor.Maximum ?? 0;
-        bool autoTdpEnabled = coordinator.AutoTdpEnabled;
-        PerAppPowerDecision decision = PerApplicationPowerPolicy.DecideOnTargetChange(
+        var ceiling = power.Descriptor.Maximum ?? 0;
+        var autoTdpEnabled = coordinator.AutoTdpEnabled;
+        var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
             effective,
             _profilePowerImposed,
             autoTdpEnabled,
@@ -118,8 +118,8 @@ internal sealed class ApplicationPerformanceReconciler(
         switch (decision.Action)
         {
             case PerAppPowerAction.Apply:
-                bool splitPair = manualProfile is { Unified: false, BoostWatts: not null };
-                bool applied = splitPair
+                var splitPair = manualProfile is { Unified: false, BoostWatts: not null };
+                var applied = splitPair
                     ? await coordinator.RestoreSplitPowerAsync(power, decision.Watts, manualProfile!.BoostWatts!.Value,
                         cancellationToken).ConfigureAwait(false)
                     : await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired).ConfigureAwait(false);
@@ -175,11 +175,11 @@ internal sealed class ApplicationPerformanceReconciler(
         string? applicationId,
         CancellationToken cancellationToken)
     {
-        bool? effective = PerApplicationVrrPolicy.ResolveEffective(
+        var effective = PerApplicationVrrPolicy.ResolveEffective(
             readConfig().Performance.VariableRefreshRate,
             entry?.VariableRefreshRate,
             perGameActive);
-        PerAppVrrDecision decision = PerApplicationVrrPolicy.DecideOnTargetChange(
+        var decision = PerApplicationVrrPolicy.DecideOnTargetChange(
             effective,
             _profileVrrImposed);
         if (decision.Action is not PerAppVrrAction.Apply)
@@ -209,8 +209,8 @@ internal sealed class ApplicationPerformanceReconciler(
     /// </remarks>
     internal void PersistManualPowerLimit(int watts)
     {
-        (string? applicationId, PerformanceApplicationConfig? entry, bool applicationLayer) = ActivePerformanceLayer();
-        int? current = applicationLayer ? entry!.TdpWatts : readConfig().Performance.TdpWatts;
+        var (applicationId, entry, applicationLayer) = ActivePerformanceLayer();
+        var current = applicationLayer ? entry!.TdpWatts : readConfig().Performance.TdpWatts;
         var manual = ManualTdpPolicy.Resolve(readConfig().Performance, entry, applicationLayer);
         if (manual is not null) { current = manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts; }
 
@@ -268,8 +268,8 @@ internal sealed class ApplicationPerformanceReconciler(
     /// </remarks>
     internal void PersistManualVariableRefresh(bool enabled)
     {
-        (string? applicationId, PerformanceApplicationConfig? entry, bool applicationLayer) = ActivePerformanceLayer();
-        bool? current = applicationLayer ? entry!.VariableRefreshRate : readConfig().Performance.VariableRefreshRate;
+        var (applicationId, entry, applicationLayer) = ActivePerformanceLayer();
+        var current = applicationLayer ? entry!.VariableRefreshRate : readConfig().Performance.VariableRefreshRate;
 
         _profileVrrImposed = true;
         if (current == enabled)
@@ -288,8 +288,8 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <summary>The running application's performance entry and whether its own layer is in force.</summary>
     private (string? ApplicationId, PerformanceApplicationConfig? Entry, bool ApplicationLayer) ActivePerformanceLayer()
     {
-        string? applicationId = readPerformance()?.Current.Target?.ApplicationId;
-        PerformanceApplicationConfig? entry = readConfig().Performance.FindApplication(applicationId);
+        var applicationId = readPerformance()?.Current.Target?.ApplicationId;
+        var entry = readConfig().Performance.FindApplication(applicationId);
         return (applicationId, entry, entry is { UsePerGameProfile: true });
     }
 
@@ -341,7 +341,7 @@ internal sealed class ApplicationPerformanceReconciler(
             return false;
         }
 
-        CapabilityCommandResult result = await coordinator.ExecuteCapabilityAsync(
+        var result = await coordinator.ExecuteCapabilityAsync(
             power.Descriptor.CapabilityId,
             power.Descriptor.InstanceId,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
@@ -353,7 +353,7 @@ internal sealed class ApplicationPerformanceReconciler(
             expectedCycle: power.Projection.State.CycleGeneration,
             expectedDescriptors: power.Projection.State.DescriptorGeneration,
             applyPowerPair: paired).ConfigureAwait(false);
-        bool applied = paired
+        var applied = paired
             ? result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == watts
             : result.Outcome.IsApplied();
         if (!applied)
@@ -390,7 +390,7 @@ internal sealed class ApplicationPerformanceReconciler(
             return false;
         }
 
-        DeviceCapabilityView? view = coordinator.Capabilities.Snapshot().FirstOrDefault(candidate =>
+        var view = coordinator.Capabilities.Snapshot().FirstOrDefault(candidate =>
             candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
             && candidate.Projection.State.Available);
         if (view is null)
@@ -399,7 +399,7 @@ internal sealed class ApplicationPerformanceReconciler(
             return false;
         }
 
-        CapabilityCommandResult result = await coordinator.ExecuteCapabilityAsync(
+        var result = await coordinator.ExecuteCapabilityAsync(
             view.Descriptor.CapabilityId,
             view.Descriptor.InstanceId,
             new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },

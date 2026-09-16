@@ -83,7 +83,7 @@ public sealed class GlyphInputTestMapTests
     [Fact]
     public void HoldingSeveralControlsLightsAllOfThem()
     {
-        HashSet<GlyphControlId> pressed = GlyphInputTestMap.Pressed(Sample(
+        var pressed = GlyphInputTestMap.Pressed(Sample(
             CanonicalButtons.A | CanonicalButtons.RightShoulder | CanonicalButtons.QuickAccess,
             leftTrigger: 1f));
 
@@ -93,7 +93,7 @@ public sealed class GlyphInputTestMapTests
                 GlyphControlId.FaceSouth,
                 GlyphControlId.RightShoulder,
                 GlyphControlId.QuickAccess,
-                GlyphControlId.LeftTrigger,
+                GlyphControlId.LeftTrigger
             },
             pressed);
     }

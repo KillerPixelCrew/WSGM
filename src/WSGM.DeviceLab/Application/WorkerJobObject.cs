@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
@@ -22,10 +23,10 @@ internal sealed partial class WorkerJobObject : IDisposable
 
     internal static unsafe WorkerJobObject Create()
     {
-        SafeFileHandle handle = CreateJobObjectW(0, null);
+        var handle = CreateJobObjectW(0, null);
         if (handle.IsInvalid)
         {
-            int error = Marshal.GetLastPInvokeError();
+            var error = Marshal.GetLastPInvokeError();
             handle.Dispose();
             throw new Win32Exception(error, "Could not create the disposable worker job.");
         }
@@ -38,7 +39,7 @@ internal sealed partial class WorkerJobObject : IDisposable
                 &information,
                 (uint)sizeof(JobObjectExtendedLimitInformation)))
         {
-            int error = Marshal.GetLastPInvokeError();
+            var error = Marshal.GetLastPInvokeError();
             handle.Dispose();
             throw new Win32Exception(error, "Could not configure disposable worker containment.");
         }
@@ -49,8 +50,8 @@ internal sealed partial class WorkerJobObject : IDisposable
     internal void Assign(Process process)
     {
         ArgumentNullException.ThrowIfNull(process);
-        SafeFileHandle handle = _handle
-            ?? throw new ObjectDisposedException(nameof(WorkerJobObject));
+        var handle = _handle
+                     ?? throw new ObjectDisposedException(nameof(WorkerJobObject));
         if (!AssignProcessToJobObject(handle, process.Handle))
         {
             throw new Win32Exception(
@@ -69,9 +70,9 @@ internal sealed partial class WorkerJobObject : IDisposable
             throw new ArgumentOutOfRangeException(nameof(timeout));
         }
 
-        SafeFileHandle handle = _handle
-            ?? throw new ObjectDisposedException(nameof(WorkerJobObject));
-        if (!TryGetActiveProcessCount(handle, out uint activeProcesses))
+        var handle = _handle
+                     ?? throw new ObjectDisposedException(nameof(WorkerJobObject));
+        if (!TryGetActiveProcessCount(handle, out var activeProcesses))
         {
             return false;
         }
@@ -86,7 +87,7 @@ internal sealed partial class WorkerJobObject : IDisposable
             return false;
         }
 
-        Stopwatch elapsed = Stopwatch.StartNew();
+        var elapsed = Stopwatch.StartNew();
         do
         {
             if (!TryGetActiveProcessCount(handle, out activeProcesses))
@@ -128,7 +129,7 @@ internal sealed partial class WorkerJobObject : IDisposable
 
     public void Dispose()
     {
-        SafeFileHandle? handle = System.Threading.Interlocked.Exchange(ref _handle, null);
+        var handle = Interlocked.Exchange(ref _handle, null);
         handle?.Dispose();
     }
 

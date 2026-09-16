@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,39 +35,39 @@ internal static class SyntheticPluginFixture
     {
         List<string> checks = [];
         await using SyntheticDockPlugin plugin = new();
-        PluginDetectionResult mismatch = await plugin.DetectAsync(
+        var mismatch = await plugin.DetectAsync(
             new PluginDetectionContext
             {
                 Identity = new DeviceIdentitySnapshot
                 {
                     SystemManufacturer = "Micro-Star International Co., Ltd.",
-                    BaseboardProduct = "MS-1T52",
-                },
+                    BaseboardProduct = "MS-1T52"
+                }
             },
             cancellationToken).ConfigureAwait(false);
         Check(!mismatch.Matched, "different-device-rejected", checks);
 
-        PluginDetectionResult exact = await plugin.DetectAsync(
+        var exact = await plugin.DetectAsync(
             new PluginDetectionContext
             {
-                Identity = SyntheticDockPlugin.Identity,
+                Identity = SyntheticDockPlugin.Identity
             },
             cancellationToken).ConfigureAwait(false);
         Check(exact.Matched && exact.DeviceDefinitionId == SyntheticDockPlugin.DeviceId,
             "synthetic-dock-exact-match", checks);
 
         TestPluginHostAdapter host = new(cycleGeneration: 7);
-        PluginStartResult start = await plugin.StartAsync(
+        var start = await plugin.StartAsync(
             new PluginStartContext
             {
                 Host = host,
                 CycleGeneration = 7,
                 DeviceDefinitionId = SyntheticDockPlugin.DeviceId,
                 StateDirectory = PathForFixtureOnly(),
-                ControllerManagementEnabled = false,
+                ControllerManagementEnabled = false
             },
             cancellationToken).ConfigureAwait(false);
-        PluginPublicationSummary activation = PluginPublicationSummary.From(host);
+        var activation = PluginPublicationSummary.From(host);
         Check(start.State is PluginOperationalState.Degraded
             && start.Reason?.Code is CapabilityReasonCode.PrerequisiteMissing
             && activation.DescriptorSets == 1
@@ -78,7 +80,7 @@ internal static class SyntheticPluginFixture
             && host.ControllerSamples[0].Motion is { HasGyro: true },
             "canonical-input-published", checks);
 
-        CapabilityCommandResult applied = await plugin.ExecuteCommandAsync(
+        var applied = await plugin.ExecuteCommandAsync(
             Command(expectedDeviceGeneration: 7),
             cancellationToken).ConfigureAwait(false);
         Check(applied.Outcome is CommandOutcome.AppliedVerified
@@ -91,7 +93,7 @@ internal static class SyntheticPluginFixture
             LowFrequency = 0.75f,
             HighFrequency = 0.25f,
             LeftTrigger = 0.5f,
-            Timestamp = DateTimeOffset.UtcNow,
+            Timestamp = DateTimeOffset.UtcNow
         };
         await plugin.ApplyHapticOutputAsync(output, cancellationToken).ConfigureAwait(false);
         Check(plugin.LastHapticOutput is
@@ -99,14 +101,14 @@ internal static class SyntheticPluginFixture
             LowFrequency: 0.75f,
             HighFrequency: 0.25f,
             LeftTrigger: 0,
-            RightTrigger: 0,
+            RightTrigger: 0
         },
             "canonical-output-applied", checks);
 
         using (CancellationTokenSource cancelled = new())
         {
             cancelled.Cancel();
-            bool observed = false;
+            var observed = false;
             try
             {
                 _ = await plugin.GetDiagnosticsAsync(cancelled.Token).ConfigureAwait(false);
@@ -119,32 +121,32 @@ internal static class SyntheticPluginFixture
             Check(observed, "cancellation-observed", checks);
         }
 
-        CapabilityCommandResult stale = await plugin.ExecuteCommandAsync(
+        var stale = await plugin.ExecuteCommandAsync(
             Command(expectedDeviceGeneration: 6),
             cancellationToken).ConfigureAwait(false);
         Check(stale.Outcome is CommandOutcome.Rejected
             && stale.Reason?.Code is CapabilityReasonCode.GenerationChanged,
             "stale-generation-rejected", checks);
 
-        PluginStopResult stop = await plugin.StopAsync(
+        var stop = await plugin.StopAsync(
             new PluginStopContext(
                 PluginStopReason.IntegrationDisabled,
                 DateTimeOffset.UtcNow.AddSeconds(5)),
             cancellationToken).ConfigureAwait(false);
-        PluginDiagnostics diagnostics = await plugin.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
+        var diagnostics = await plugin.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false);
         Check(stop.Status is PluginStopStatus.Clean
             && host.CapabilityStates[^1].ObservedValue?.BooleanValue is false
             && plugin.LastHapticOutput?.IsSilent is true,
             "stop-restores-original-state-and-output", checks);
-        Check(diagnostics.Values.TryGetValue("state", out string? state) && state == "stopped"
-            && diagnostics.Values.TryGetValue("restorations", out string? restorations)
-            && restorations == "1",
+        Check(diagnostics.Values.TryGetValue("state", out var state) && state == "stopped"
+                                                                     && diagnostics.Values.TryGetValue("restorations", out var restorations)
+                                                                     && restorations == "1",
             "cleanup-diagnostics-reported", checks);
 
         return new SyntheticPluginFixtureReport
         {
             Passed = checks.Count == 10,
-            Checks = checks,
+            Checks = checks
         };
     }
 
@@ -155,7 +157,7 @@ internal static class SyntheticPluginFixture
         RequestedValue = CapabilityValue.Boolean(true),
         ExpectedDescriptorGeneration = 1,
         ExpectedCycleGeneration = expectedDeviceGeneration,
-        Deadline = DateTimeOffset.UtcNow.AddSeconds(5),
+        Deadline = DateTimeOffset.UtcNow.AddSeconds(5)
     };
 
     private static void Check(bool condition, string name, ICollection<string> checks)
@@ -169,7 +171,7 @@ internal static class SyntheticPluginFixture
     }
 
     private static string PathForFixtureOnly() =>
-        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "wsgm-device-synthetic-state-not-written");
+        Path.Combine(Path.GetTempPath(), "wsgm-device-synthetic-state-not-written");
 }
 
 internal sealed class SyntheticDockPlugin : IDevicePlugin
@@ -200,14 +202,14 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             new PluginSettingSection
             {
                 SectionId = "dock.general",
-                Key = SettingSectionKey.General,
+                Key = SettingSectionKey.General
             },
             new PluginSettingSection
             {
                 SectionId = "dock.advanced",
                 Key = SettingSectionKey.Advanced,
-                SortOrder = 10,
-            },
+                SortOrder = 10
+            }
         ],
         Settings =
         [
@@ -218,14 +220,14 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Display = new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
-                    CustomLabel = "Poll interval",
+                    CustomLabel = "Poll interval"
                 },
                 SectionId = "dock.general",
                 Minimum = 100,
                 Maximum = 5000,
                 Step = 100,
                 Unit = CapabilityUnit.Millisecond,
-                Default = CapabilityValue.Integer(1000),
+                Default = CapabilityValue.Integer(1000)
             },
             new PluginSettingDescriptor
             {
@@ -234,10 +236,10 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Display = new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
-                    CustomLabel = "Verbose tracing",
+                    CustomLabel = "Verbose tracing"
                 },
                 SectionId = "dock.advanced",
-                Default = CapabilityValue.Boolean(false),
+                Default = CapabilityValue.Boolean(false)
             },
             new PluginSettingDescriptor
             {
@@ -246,7 +248,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Display = new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
-                    CustomLabel = "Dock mode",
+                    CustomLabel = "Dock mode"
                 },
                 SectionId = "dock.advanced",
                 Choices =
@@ -254,15 +256,15 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                     new CapabilityChoice("quiet", new CapabilityDisplay
                     {
                         Key = DisplayKey.Custom,
-                        CustomLabel = "Quiet",
+                        CustomLabel = "Quiet"
                     }),
                     new CapabilityChoice("balanced", new CapabilityDisplay
                     {
                         Key = DisplayKey.Custom,
-                        CustomLabel = "Balanced",
-                    }),
+                        CustomLabel = "Balanced"
+                    })
                 ],
-                Default = CapabilityValue.Choice("balanced"),
+                Default = CapabilityValue.Choice("balanced")
             },
             new PluginSettingDescriptor
             {
@@ -271,10 +273,10 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Display = new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
-                    CustomLabel = "Indicator tint",
+                    CustomLabel = "Indicator tint"
                 },
                 SectionId = "dock.advanced",
-                Default = CapabilityValue.Color(0x00A0FF),
+                Default = CapabilityValue.Color(0x00A0FF)
             },
             new PluginSettingDescriptor
             {
@@ -283,11 +285,11 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Display = new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
-                    CustomLabel = "Dock label",
+                    CustomLabel = "Dock label"
                 },
                 SectionId = "dock.general",
                 MaximumLength = 32,
-                Default = CapabilityValue.Text("Dock"),
+                Default = CapabilityValue.Text("Dock")
             },
             new PluginSettingDescriptor
             {
@@ -296,12 +298,12 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 Display = new CapabilityDisplay
                 {
                     Key = DisplayKey.Custom,
-                    CustomLabel = "Stray control",
+                    CustomLabel = "Stray control"
                 },
                 SectionId = "dock.never-declared",
-                Default = CapabilityValue.Boolean(false),
-            },
-        ],
+                Default = CapabilityValue.Boolean(false)
+            }
+        ]
     };
 
     private static readonly HapticCapabilities OutputCapabilities = new()
@@ -309,7 +311,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         LowFrequency = OutputChannelSupport.Native,
         HighFrequency = OutputChannelSupport.Native,
         LeftTrigger = OutputChannelSupport.Unsupported,
-        RightTrigger = OutputChannelSupport.Unsupported,
+        RightTrigger = OutputChannelSupport.Unsupported
     };
 
     private TestPluginHostAdapter? _host;
@@ -333,9 +335,9 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             {
                 VendorId = "CAFE",
                 ProductId = "BEEF",
-                DeviceRelease = "0100",
-            },
-        ],
+                DeviceRelease = "0100"
+            }
+        ]
     };
 
     public string PackageId => "wsgm.device.synthetic.dock-x1";
@@ -345,16 +347,16 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        bool matched = IdentityText.Matches(context.Identity.SystemManufacturer, Identity.SystemManufacturer)
-            && IdentityText.Matches(context.Identity.BaseboardProduct, Identity.BaseboardProduct)
-            && context.Identity.UsbEndpoints.Count == 1
-            && string.Equals(context.Identity.UsbEndpoints[0].VendorId, "CAFE", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(context.Identity.UsbEndpoints[0].ProductId, "BEEF", StringComparison.OrdinalIgnoreCase);
+        var matched = IdentityText.Matches(context.Identity.SystemManufacturer, Identity.SystemManufacturer)
+                      && IdentityText.Matches(context.Identity.BaseboardProduct, Identity.BaseboardProduct)
+                      && context.Identity.UsbEndpoints.Count == 1
+                      && string.Equals(context.Identity.UsbEndpoints[0].VendorId, "CAFE", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(context.Identity.UsbEndpoints[0].ProductId, "BEEF", StringComparison.OrdinalIgnoreCase);
         return ValueTask.FromResult(new PluginDetectionResult
         {
             Matched = matched,
             DeviceDefinitionId = matched ? DeviceId : null,
-            Reason = matched ? null : new CapabilityReason(CapabilityReasonCode.Unsupported),
+            Reason = matched ? null : new CapabilityReason(CapabilityReasonCode.Unsupported)
         });
     }
 
@@ -391,11 +393,11 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                         Display = new CapabilityDisplay
                         {
                             Key = DisplayKey.Custom,
-                            CustomLabel = "Dock beacon",
+                            CustomLabel = "Dock beacon"
                         },
                         SupportsRead = true,
                         SupportsWrite = true,
-                        Persistence = CapabilityPersistence.Volatile,
+                        Persistence = CapabilityPersistence.Volatile
                     },
                     new CapabilityDescriptor
                     {
@@ -405,13 +407,13 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                         Display = new CapabilityDisplay
                         {
                             Key = DisplayKey.Custom,
-                            CustomLabel = "Ambient temperature",
+                            CustomLabel = "Ambient temperature"
                         },
                         SupportsRead = true,
                         Unit = CapabilityUnit.Celsius,
-                        Persistence = CapabilityPersistence.Volatile,
-                    },
-                ],
+                        Persistence = CapabilityPersistence.Volatile
+                    }
+                ]
             },
             cancellationToken).ConfigureAwait(false);
         await context.Host.PublishSettingsManifestAsync(
@@ -428,7 +430,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                     "Synthetic dock temperature provider is intentionally absent."),
                 Quality = HardwareStateQuality.Unknown,
                 DescriptorGeneration = 1,
-                CycleGeneration = _cycleGeneration,
+                CycleGeneration = _cycleGeneration
             },
             cancellationToken).ConfigureAwait(false);
         await context.Host.PublishControllerSampleAsync(
@@ -443,8 +445,8 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 {
                     HasGyro = true,
                     GyroZ = 12.5f,
-                    SensorTimestamp = DateTimeOffset.UtcNow,
-                },
+                    SensorTimestamp = DateTimeOffset.UtcNow
+                }
             },
             cancellationToken).ConfigureAwait(false);
         return new PluginStartResult
@@ -452,7 +454,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             State = PluginOperationalState.Degraded,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.PrerequisiteMissing,
-                "The optional synthetic temperature provider is intentionally absent."),
+                "The optional synthetic temperature provider is intentionally absent.")
         };
     }
 
@@ -481,7 +483,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             CommandId = command.CommandId,
             Outcome = CommandOutcome.AppliedVerified,
             ReadbackValue = command.RequestedValue,
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
     }
 
@@ -503,7 +505,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             State = PluginOperationalState.Degraded,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.PrerequisiteMissing,
-                "The optional synthetic temperature provider is intentionally absent."),
+                "The optional synthetic temperature provider is intentionally absent.")
         });
     }
 
@@ -519,8 +521,8 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
                 ["haptic-output"] = LastHapticOutput is null
                     ? "not-observed"
                     : LastHapticOutput.IsSilent ? "silent" : "active",
-                ["restorations"] = _restorationCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            },
+                ["restorations"] = _restorationCount.ToString(CultureInfo.InvariantCulture)
+            }
         });
     }
 
@@ -540,7 +542,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         return ValueTask.FromResult(new PluginControllerRelease
         {
             Step = ControllerHandoffStep.WsgmStateRemoved,
-            Result = ControllerHandoffResult.ReleasedVerified,
+            Result = ControllerHandoffResult.ReleasedVerified
         });
     }
 
@@ -562,7 +564,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             _beaconValue = _capturedBeaconValue;
             await _host.PublishCapabilityStateAsync(State(_beaconValue), cancellationToken)
                 .ConfigureAwait(false);
-            long targetGeneration = LastHapticOutput?.TargetGeneration ?? 0;
+            var targetGeneration = LastHapticOutput?.TargetGeneration ?? 0;
             LastHapticOutput = HapticOutputFrame.Stop(targetGeneration, DateTimeOffset.UtcNow);
             _restorationCount++;
         }
@@ -581,7 +583,7 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
         Quality = HardwareStateQuality.Verified,
         ObservedAt = DateTimeOffset.UtcNow,
         DescriptorGeneration = 1,
-        CycleGeneration = _cycleGeneration,
+        CycleGeneration = _cycleGeneration
     };
 
     private static CapabilityCommandResult Result(
@@ -592,6 +594,6 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
             CommandId = command.CommandId,
             Outcome = outcome,
             Reason = new CapabilityReason(reason),
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
 }

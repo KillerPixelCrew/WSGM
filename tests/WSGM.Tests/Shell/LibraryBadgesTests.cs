@@ -14,16 +14,16 @@ public sealed class LibraryBadgesTests
         {
             ContentId = "blue",
             Name = "Blue card",
-            AppIds = [70, 400],
+            AppIds = [70, 400]
         });
         config.CardLibraries.Add(new CardLibraryConfig
         {
             ContentId = "red",
             Name = "Red card",
-            AppIds = [220],
+            AppIds = [220]
         });
 
-        SteamLibraryBadgeState state = LibraryBadges.Build(config, new HashSet<string> { "red" }, revision: 3);
+        var state = LibraryBadges.Build(config, new HashSet<string> { "red" }, revision: 3);
 
         Assert.Equal(3, state.Revision);
         Assert.Equal("Internal", state.InternalLabel);
@@ -52,12 +52,12 @@ public sealed class LibraryBadgesTests
             Name = "Blue card",
             Hidden = true,
             Enabled = false,
-            AppIds = [70],
+            AppIds = [70]
         });
 
-        SteamLibraryBadgeState state = LibraryBadges.Build(config, new HashSet<string>());
+        var state = LibraryBadges.Build(config, new HashSet<string>());
 
-        SteamLibraryBadgeLibrary library = Assert.Single(state.Libraries);
+        var library = Assert.Single(state.Libraries);
         Assert.Equal("Blue card", library.Name);
         Assert.False(library.Connected);
     }
@@ -75,7 +75,7 @@ public sealed class LibraryBadgesTests
     [Fact]
     public void UpdatingReplacesTheReadingAndRaisesChanged()
     {
-        int raised = 0;
+        var raised = 0;
         void OnChanged() => raised++;
         LibraryBadges.Changed += OnChanged;
         try
@@ -84,7 +84,7 @@ public sealed class LibraryBadgesTests
             config.CardLibraries.Add(new CardLibraryConfig { ContentId = "c", Name = "Card", AppIds = [5] });
 
             LibraryBadges.Update(config, new HashSet<string> { "c" });
-            long first = LibraryBadges.Current!.Revision;
+            var first = LibraryBadges.Current!.Revision;
             LibraryBadges.Update(config, new HashSet<string>());
 
             Assert.Equal(2, raised);

@@ -45,13 +45,13 @@ internal sealed class MainWindow : Window
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter() }
     };
 
     public MainWindow()
     {
-        string? repositoryRoot = DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
-            ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
+        var repositoryRoot = DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
+                             ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
         _application = new DeviceLabApplication(repositoryRoot, DeviceLabExecutable.CurrentPath);
 
         Title = "WSGM Device Lab";
@@ -65,18 +65,18 @@ internal sealed class MainWindow : Window
         {
             ItemsSource = new[] { "Hardware Owner", "Plugin Developer" },
             SelectedIndex = 0,
-            Width = 190,
+            Width = 190
         };
         _mode.SelectionChanged += (_, _) => ApplyMode();
         _cancel = new Button { Content = "Cancel current operation", IsEnabled = false };
         _cancel.Click += (_, _) => _operation?.Cancel();
 
-        TabItem safety = BuildSafetyTab();
-        TabItem candidates = BuildCandidatesTab();
-        TabItem capture = BuildCaptureTab();
-        TabItem workbench = BuildWorkbenchTab();
-        TabItem scaffold = BuildScaffoldTab();
-        TabItem package = BuildPackageTab();
+        var safety = BuildSafetyTab();
+        var candidates = BuildCandidatesTab();
+        var capture = BuildCaptureTab();
+        var workbench = BuildWorkbenchTab();
+        var scaffold = BuildScaffoldTab();
+        var package = BuildPackageTab();
         _ownerTabs = [safety, candidates, capture, workbench];
         _developerTabs = [safety, candidates, capture, workbench, scaffold, package];
         _tabs = new TabControl { ItemsSource = _ownerTabs };
@@ -87,7 +87,7 @@ internal sealed class MainWindow : Window
             IsReadOnly = true,
             TextWrapping = TextWrapping.Wrap,
             MinHeight = 175,
-            FontFamily = FontFamily.Default,
+            FontFamily = FontFamily.Default
         };
         ScrollViewer.SetVerticalScrollBarVisibility(_result, ScrollBarVisibility.Auto);
         ScrollViewer.SetHorizontalScrollBarVisibility(_result, ScrollBarVisibility.Auto);
@@ -95,21 +95,21 @@ internal sealed class MainWindow : Window
         {
             Text = _displayState.StatusText,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brushes.Silver,
+            Foreground = Brushes.Silver
         };
 
         Grid root = new()
         {
             Margin = new Thickness(18),
             RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto,180"),
-            RowSpacing = 10,
+            RowSpacing = 10
         };
         root.Children.Add(Header());
         Grid.SetRow(_operationStatus, 1);
         root.Children.Add(_operationStatus);
         Grid.SetRow(_tabs, 2);
         root.Children.Add(_tabs);
-        TextBlock resultHeading = Heading("Result / preview");
+        var resultHeading = Heading("Result / preview");
         Grid.SetRow(resultHeading, 3);
         root.Children.Add(resultHeading);
         Grid.SetRow(_result, 4);
@@ -122,19 +122,19 @@ internal sealed class MainWindow : Window
         Grid header = new()
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"),
-            ColumnSpacing = 12,
+            ColumnSpacing = 12
         };
         StackPanel title = new() { Spacing = 3 };
         title.Children.Add(new TextBlock
         {
             Text = "WSGM Device Lab",
             FontSize = 25,
-            FontWeight = FontWeight.SemiBold,
+            FontWeight = FontWeight.SemiBold
         });
         title.Children.Add(new TextBlock
         {
             Text = "Read-only by default. Only the attended local plugin action may touch hardware.",
-            Foreground = Brushes.Silver,
+            Foreground = Brushes.Silver
         });
         header.Children.Add(title);
         Grid.SetColumn(_mode, 1);
@@ -146,24 +146,24 @@ internal sealed class MainWindow : Window
 
     private TabItem BuildSafetyTab()
     {
-        TextBox output = PathInput("inventory-output", PathSelectionKind.Folder, DefaultOutputDirectory());
+        var output = PathInput("inventory-output", PathSelectionKind.Folder, DefaultOutputDirectory());
         CheckBox shareable = new()
         {
             Content = "Create a shareable inventory (redact unique identifiers)",
-            IsChecked = true,
+            IsChecked = true
         };
         Button doctor = new() { Content = "Run doctor" };
         doctor.Click += async (_, _) =>
         {
-            string outputPath = output.Text!;
+            var outputPath = output.Text!;
             await RunAsync(token => Task.Run<object?>(
                 () => _application.Doctor(outputPath, DateTimeOffset.UtcNow, token), token));
         };
         Button inventory = new() { Content = "Collect inventory" };
         inventory.Click += async (_, _) =>
         {
-            string outputPath = output.Text!;
-            bool sanitize = shareable.IsChecked is true;
+            var outputPath = output.Text!;
+            var sanitize = shareable.IsChecked is true;
             await RunAsync(token => Task.Run<object?>(() => _application.Inventory(
                 outputPath,
                 sanitize,
@@ -180,24 +180,24 @@ internal sealed class MainWindow : Window
 
     private TabItem BuildCandidatesTab()
     {
-        TextBox inventoryPath = PathInput("inventory-file", PathSelectionKind.OpenFile);
+        var inventoryPath = PathInput("inventory-file", PathSelectionKind.OpenFile);
         TextBox deviceId = new() { PlaceholderText = "Optional exact logical device ID" };
         TextBox probeId = new() { PlaceholderText = "Reviewed probe ID from candidate output" };
-        TextBox probeOutput = PathInput("probe-output", PathSelectionKind.Folder, DefaultOutputDirectory());
+        var probeOutput = PathInput("probe-output", PathSelectionKind.Folder, DefaultOutputDirectory());
         Button assess = new() { Content = "Compare candidates and read probes" };
         assess.Click += async (_, _) =>
         {
-            string inventoryFile = inventoryPath.Text!;
-            string? targetDevice = string.IsNullOrWhiteSpace(deviceId.Text) ? null : deviceId.Text;
+            var inventoryFile = inventoryPath.Text!;
+            var targetDevice = string.IsNullOrWhiteSpace(deviceId.Text) ? null : deviceId.Text;
             await RunAsync(token => Task.Run<object?>(
                 () => _application.Candidates(inventoryFile, targetDevice, token), token));
         };
         Button runProbe = new() { Content = "Run selected reviewed read probe" };
         runProbe.Click += async (_, _) =>
         {
-            string inventoryFile = inventoryPath.Text!;
-            string selectedProbe = probeId.Text!;
-            string outputPath = probeOutput.Text!;
+            var inventoryFile = inventoryPath.Text!;
+            var selectedProbe = probeId.Text!;
+            var outputPath = probeOutput.Text!;
             await RunAsync(token => Task.Run<object?>(async () => await _application.RunReadProbeAsync(
                 inventoryFile,
                 selectedProbe,
@@ -218,17 +218,17 @@ internal sealed class MainWindow : Window
 
     private TabItem BuildCaptureTab()
     {
-        TextBox recipe = PathInput("capture-recipe", PathSelectionKind.OpenFile);
-        TextBox output = PathInput("capture-output", PathSelectionKind.Folder, DefaultOutputDirectory());
+        var recipe = PathInput("capture-recipe", PathSelectionKind.OpenFile);
+        var output = PathInput("capture-output", PathSelectionKind.Folder, DefaultOutputDirectory());
         CheckBox scope = new()
         {
             Content = "I reviewed the observation scope; unknown observers remain unavailable",
-            IsEnabled = false,
+            IsEnabled = false
         };
         CheckBox exportReview = new()
         {
             Content = "I reviewed the bounded preview of every sanitized shareable-content lane below",
-            IsEnabled = false,
+            IsEnabled = false
         };
         Button review = new() { Content = "Review exact recipe scope" };
         Button prepare = new() { Content = "Prepare private observe-only capture" };
@@ -242,14 +242,14 @@ internal sealed class MainWindow : Window
         review.Click += async (_, _) =>
         {
             _reviewedRecipeHash = null;
-            string recipePath = recipe.Text!;
+            var recipePath = recipe.Text!;
             await RunAsync(
                 token => Task.Run<object?>(
                     () => _application.ReviewCaptureRecipe(recipePath, token),
                     token),
                 accepted =>
                 {
-                    ObserveOnlyRecipeReview reviewed = (ObserveOnlyRecipeReview)accepted!;
+                    var reviewed = (ObserveOnlyRecipeReview)accepted!;
                     _reviewedRecipeHash = reviewed.RecipeSha256;
                     scope.IsEnabled = true;
                 });
@@ -260,20 +260,20 @@ internal sealed class MainWindow : Window
             export.IsEnabled = false;
             exportReview.IsEnabled = false;
             exportReview.IsChecked = false;
-            string recipePath = recipe.Text!;
-            string outputPath = output.Text!;
-            string reviewedHash = _reviewedRecipeHash ?? string.Empty;
-            bool scopeConfirmed = scope.IsChecked is true;
+            var recipePath = recipe.Text!;
+            var outputPath = output.Text!;
+            var reviewedHash = _reviewedRecipeHash ?? string.Empty;
+            var scopeConfirmed = scope.IsChecked is true;
             await RunAsync(async token =>
             {
-                ObserveOnlyCaptureResult prepared = await Task.Run(() => _application.PrepareCaptureAsync(
+                var prepared = await Task.Run(() => _application.PrepareCaptureAsync(
                     new ObserveOnlyCaptureRequest
                     {
                         RecipePath = recipePath,
                         OutputDirectory = outputPath,
                         ReviewedRecipeSha256 = reviewedHash,
                         IsLocalInteractive = Environment.UserInteractive,
-                        ObservationScopeConfirmed = scopeConfirmed,
+                        ObservationScopeConfirmed = scopeConfirmed
                     },
                     DateTimeOffset.UtcNow,
                     token), token).ConfigureAwait(false);
@@ -287,15 +287,15 @@ internal sealed class MainWindow : Window
                         prepared.ExportPlan.Prompts,
                         privacyPreview = CapturePrivacyPreview.Create(prepared.ExportPlan.Bundle),
                         prepared.ExportPlan.Limitations,
-                        shareableWritten = false,
+                        shareableWritten = false
                     };
                 return new PreparedCaptureOperation(prepared.ExportPlan, display);
             },
             accepted =>
             {
-                PreparedCaptureOperation prepared = (PreparedCaptureOperation)accepted!;
+                var prepared = (PreparedCaptureOperation)accepted!;
                 _captureExportPlan = prepared.ExportPlan;
-                bool ready = _captureExportPlan is not null;
+                var ready = _captureExportPlan is not null;
                 export.IsEnabled = ready;
                 exportReview.IsEnabled = ready;
             },
@@ -303,8 +303,8 @@ internal sealed class MainWindow : Window
         };
         export.Click += async (_, _) =>
         {
-            CaptureExportPlan? plan = _captureExportPlan;
-            bool previewConfirmed = exportReview.IsChecked is true;
+            var plan = _captureExportPlan;
+            var previewConfirmed = exportReview.IsChecked is true;
             await RunAsync(token => Task.Run<object?>(() =>
             {
                 if (plan is null)
@@ -329,29 +329,29 @@ internal sealed class MainWindow : Window
 
     private TabItem BuildWorkbenchTab()
     {
-        TextBox left = PathInput("capture-a", PathSelectionKind.OpenFile);
-        TextBox right = PathInput("capture-b", PathSelectionKind.OpenFile);
+        var left = PathInput("capture-a", PathSelectionKind.OpenFile);
+        var right = PathInput("capture-b", PathSelectionKind.OpenFile);
         TextBox action = new() { PlaceholderText = "Operator action ID" };
         TextBox sources = new() { PlaceholderText = "Comma-separated source IDs" };
         Button inspect = new() { Content = "Inspect capture A" };
         inspect.Click += async (_, _) =>
         {
-            string capturePath = left.Text!;
+            var capturePath = left.Text!;
             await RunAsync(token => Task.Run<object?>(() => _application.Inspect(capturePath, token), token));
         };
         Button diff = new() { Content = "Diff A ↔ B" };
         diff.Click += async (_, _) =>
         {
-            string leftPath = left.Text!;
-            string rightPath = right.Text!;
+            var leftPath = left.Text!;
+            var rightPath = right.Text!;
             await RunAsync(token => Task.Run<object?>(() => _application.Diff(leftPath, rightPath, token), token));
         };
         Button correlate = new() { Content = "Correlate action" };
         correlate.Click += async (_, _) =>
         {
-            string capturePath = left.Text!;
-            string actionId = action.Text!;
-            HashSet<string> sourceIds = (sources.Text ?? string.Empty)
+            var capturePath = left.Text!;
+            var actionId = action.Text!;
+            var sourceIds = (sources.Text ?? string.Empty)
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .ToHashSet(StringComparer.Ordinal);
             await RunAsync(token => Task.Run<object?>(
@@ -370,21 +370,21 @@ internal sealed class MainWindow : Window
 
     private TabItem BuildScaffoldTab()
     {
-        TextBox capture = PathInput("scaffold-capture", PathSelectionKind.OpenFile);
-        TextBox output = PathInput(
+        var capture = PathInput("scaffold-capture", PathSelectionKind.OpenFile);
+        var output = PathInput(
             "scaffold-output",
             PathSelectionKind.NewFolder,
             suggestedName: "new-device-plugin");
         TextBox usbInstance = new()
         {
-            PlaceholderText = "Required when the capture contains multiple exact USB endpoints",
+            PlaceholderText = "Required when the capture contains multiple exact USB endpoints"
         };
         TextBox fixtureId = new() { PlaceholderText = "Stable fixture ID" };
         Button scaffold = new() { Content = "Copy minimal plugin template" };
         scaffold.Click += async (_, _) =>
         {
-            string capturePath = capture.Text!;
-            string outputPath = output.Text!;
+            var capturePath = capture.Text!;
+            var outputPath = output.Text!;
             await RunAsync(token => Task.Run<object?>(
                 () => _application.Scaffold(
                     capturePath,
@@ -395,9 +395,9 @@ internal sealed class MainWindow : Window
         Button fixture = new() { Content = "Extract simulator-only fixture" };
         fixture.Click += async (_, _) =>
         {
-            string capturePath = capture.Text!;
-            string selectedFixture = fixtureId.Text!;
-            string outputPath = output.Text!;
+            var capturePath = capture.Text!;
+            var selectedFixture = fixtureId.Text!;
+            var outputPath = output.Text!;
             await RunAsync(token => Task.Run<object?>(
                 () => _application.ExtractFixture(capturePath, selectedFixture, outputPath, token), token));
         };
@@ -413,27 +413,27 @@ internal sealed class MainWindow : Window
 
     private TabItem BuildPackageTab()
     {
-        TextBox packageDirectory = PathInput("plugin-package", PathSelectionKind.Folder);
-        TextBox packageOutput = PathInput("plugin-package-output", PathSelectionKind.SaveFile);
-        TextBox inventory = PathInput("plugin-inventory", PathSelectionKind.OpenFile);
-        TextBox stateDirectory = PathInput(
+        var packageDirectory = PathInput("plugin-package", PathSelectionKind.Folder);
+        var packageOutput = PathInput("plugin-package-output", PathSelectionKind.SaveFile);
+        var inventory = PathInput("plugin-inventory", PathSelectionKind.OpenFile);
+        var stateDirectory = PathInput(
             "plugin-state",
             PathSelectionKind.NewFolder,
             suggestedName: "new-plugin-state");
         ComboBox hardwareAction = new()
         {
             ItemsSource = new[] { "Capability value", "Haptic pulse", "Controller management" },
-            SelectedIndex = 0,
+            SelectedIndex = 0
         };
         TextBox capabilityId = new() { PlaceholderText = "For example power.sustained-limit" };
         TextBox capabilityInstance = new() { PlaceholderText = "Optional exact instance ID" };
         TextBox capabilityValue = new()
         {
-            PlaceholderText = "true | 24 | choice | #RRGGBB | 40:20,70:60 | plain text",
+            PlaceholderText = "true | 24 | choice | #RRGGBB | 40:20,70:60 | plain text"
         };
         void ApplyHardwareActionSelection()
         {
-            bool capabilitySelected = hardwareAction.SelectedIndex == 0;
+            var capabilitySelected = hardwareAction.SelectedIndex == 0;
             capabilityId.IsEnabled = capabilitySelected;
             capabilityInstance.IsEnabled = true;
             capabilityValue.IsEnabled = capabilitySelected;
@@ -443,20 +443,20 @@ internal sealed class MainWindow : Window
         Button validate = new() { Content = "Validate offline" };
         validate.Click += async (_, _) =>
         {
-            string packagePath = packageDirectory.Text!;
+            var packagePath = packageDirectory.Text!;
             await RunAsync(token => Task.Run<object?>(() => _application.ValidateOffline(packagePath, token), token));
         };
         Button pack = new() { Content = "Validate and pack" };
         pack.Click += async (_, _) =>
         {
-            string packagePath = packageDirectory.Text!;
-            string outputPath = packageOutput.Text!;
+            var packagePath = packageDirectory.Text!;
+            var outputPath = packageOutput.Text!;
             await RunAsync(token => Task.Run<object?>(() => _application.Pack(packagePath, outputPath, token), token));
         };
         Button generateGlyphs = new() { Content = "Import glyphs" };
         generateGlyphs.Click += async (_, _) =>
         {
-            string packagePath = packageDirectory.Text!;
+            var packagePath = packageDirectory.Text!;
             await RunAsync(token => Task.Run<object?>(() => _application.ImportGlyphs(packagePath, token), token));
         };
         Button testSample = new() { Content = "Test synthetic sample" };
@@ -467,8 +467,8 @@ internal sealed class MainWindow : Window
         Button testPlugin = new() { Content = "Test plugin detection" };
         testPlugin.Click += async (_, _) =>
         {
-            string packagePath = packageDirectory.Text!;
-            string inventoryPath = inventory.Text!;
+            var packagePath = packageDirectory.Text!;
+            var inventoryPath = inventory.Text!;
             await RunAsync(async token => await _application.TestPluginAsync(
                 packagePath,
                 inventoryPath,
@@ -477,21 +477,21 @@ internal sealed class MainWindow : Window
         Button runHardware = new() { Content = "Run attended hardware action" };
         runHardware.Click += async (_, _) =>
         {
-            AttendedPluginActionRequest action = hardwareAction.SelectedIndex switch
+            var action = hardwareAction.SelectedIndex switch
             {
                 1 => new AttendedPluginActionRequest
                 {
                     Kind = AttendedPluginActionKind.HapticPulse,
                     InstanceId = string.IsNullOrWhiteSpace(capabilityInstance.Text)
                         ? null
-                        : capabilityInstance.Text,
+                        : capabilityInstance.Text
                 },
                 2 => new AttendedPluginActionRequest
                 {
                     Kind = AttendedPluginActionKind.ControllerManagement,
                     InstanceId = string.IsNullOrWhiteSpace(capabilityInstance.Text)
                         ? null
-                        : capabilityInstance.Text,
+                        : capabilityInstance.Text
                 },
                 _ => new AttendedPluginActionRequest
                 {
@@ -500,8 +500,8 @@ internal sealed class MainWindow : Window
                     InstanceId = string.IsNullOrWhiteSpace(capabilityInstance.Text)
                         ? null
                         : capabilityInstance.Text,
-                    ValueText = capabilityValue.Text,
-                },
+                    ValueText = capabilityValue.Text
+                }
             };
             if (action.Kind is AttendedPluginActionKind.CapabilityValue
                 && (string.IsNullOrWhiteSpace(action.CapabilityId)
@@ -517,9 +517,9 @@ internal sealed class MainWindow : Window
                 return;
             }
 
-            string packagePath = packageDirectory.Text!;
-            string inventoryPath = inventory.Text!;
-            string statePath = stateDirectory.Text!;
+            var packagePath = packageDirectory.Text!;
+            var inventoryPath = inventory.Text!;
+            var statePath = stateDirectory.Text!;
             await RunAsync(async token => await _application.RunAttendedPluginAsync(
                 packagePath,
                 inventoryPath,
@@ -565,12 +565,12 @@ internal sealed class MainWindow : Window
                     new TextBlock
                     {
                         Text = $"Selected action: {DescribeHardwareAction(action)}. This loads the selected plugin on the exact target and may access or change hardware. Device Integration must be stopped. Type RUN HARDWARE for this run only.",
-                        TextWrapping = TextWrapping.Wrap,
+                        TextWrapping = TextWrapping.Wrap
                     },
                     confirmation,
-                    Buttons(cancel, run),
-                },
-            },
+                    Buttons(cancel, run)
+                }
+            }
         };
         cancel.Click += (_, _) => dialog.Close(false);
         run.Click += (_, _) => dialog.Close(string.Equals(
@@ -593,7 +593,7 @@ internal sealed class MainWindow : Window
             action.InstanceId is null
                 ? "acquire controller management once and restore its verified topology"
                 : $"acquire controller instance {action.InstanceId} once and restore its verified topology",
-        _ => action.Kind.ToString(),
+        _ => action.Kind.ToString()
     };
 
     private async Task RunAsync(
@@ -621,9 +621,9 @@ internal sealed class MainWindow : Window
             // Async workflows can validate packages, load plugins, or enumerate the machine before
             // their first await. Start every workflow on a worker so that synchronous prefix never
             // stalls Avalonia's UI thread.
-            object? result = await Task.Run(() => operation(current.Token), current.Token);
+            var result = await Task.Run(() => operation(current.Token), current.Token);
             current.Token.ThrowIfCancellationRequested();
-            string serialized = JsonSerializer.Serialize(display?.Invoke(result) ?? result, DisplayJson);
+            var serialized = JsonSerializer.Serialize(display?.Invoke(result) ?? result, DisplayJson);
             accepted?.Invoke(result);
             ApplyDisplayState(_displayState.Succeeded(serialized));
         }
@@ -663,7 +663,7 @@ internal sealed class MainWindow : Window
     private static string OperationFailureMessage(Exception exception)
     {
         const int maximumCharacters = 1024;
-        string message = string.IsNullOrWhiteSpace(exception.Message)
+        var message = string.IsNullOrWhiteSpace(exception.Message)
             ? exception.GetType().Name
             : exception.Message;
         return message.Length <= maximumCharacters ? message : message[..maximumCharacters];
@@ -698,9 +698,9 @@ internal sealed class MainWindow : Window
             Text = description,
             TextWrapping = TextWrapping.Wrap,
             Foreground = Brushes.Silver,
-            Margin = new Thickness(0, 0, 0, 5),
+            Margin = new Thickness(0, 0, 0, 5)
         });
-        foreach (Control control in controls)
+        foreach (var control in controls)
         {
             content.Children.Add(control);
         }
@@ -711,8 +711,8 @@ internal sealed class MainWindow : Window
             Content = new ScrollViewer
             {
                 Content = content,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            },
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            }
         };
     }
 
@@ -721,14 +721,14 @@ internal sealed class MainWindow : Window
         Grid row = new()
         {
             ColumnDefinitions = new ColumnDefinitions("190,*"),
-            ColumnSpacing = 10,
+            ColumnSpacing = 10
         };
         row.Children.Add(new TextBlock
         {
             Text = label,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         });
-        Control renderedInput = input is PathTextBox pathInput
+        var renderedInput = input is PathTextBox pathInput
             ? PathPicker(pathInput)
             : input;
         Grid.SetColumn(renderedInput, 1);
@@ -742,9 +742,9 @@ internal sealed class MainWindow : Window
         {
             Orientation = Orientation.Horizontal,
             Spacing = 9,
-            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Left
         };
-        foreach (Button button in buttons)
+        foreach (var button in buttons)
         {
             panel.Children.Add(button);
         }
@@ -756,7 +756,7 @@ internal sealed class MainWindow : Window
     {
         Text = text,
         FontSize = 15,
-        FontWeight = FontWeight.SemiBold,
+        FontWeight = FontWeight.SemiBold
     };
 
     private TextBox PathInput(
@@ -765,8 +765,8 @@ internal sealed class MainWindow : Window
         string? initial = null,
         string? suggestedName = null)
     {
-        string? remembered = _recentPaths.GetValueOrDefault(recentKey);
-        string? value = remembered ?? initial;
+        var remembered = _recentPaths.GetValueOrDefault(recentKey);
+        var value = remembered ?? initial;
         if (selectionKind is PathSelectionKind.NewFolder && remembered is not null)
         {
             try
@@ -787,7 +787,7 @@ internal sealed class MainWindow : Window
             SelectionKind = selectionKind,
             SuggestedName = suggestedName,
             Text = value,
-            PlaceholderText = "Absolute path",
+            PlaceholderText = "Absolute path"
         };
         input.LostFocus += (_, _) => RememberPath(input);
         return input;
@@ -798,7 +798,7 @@ internal sealed class MainWindow : Window
         Grid picker = new()
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            ColumnSpacing = 8,
+            ColumnSpacing = 8
         };
         picker.Children.Add(input);
         Button browse = new() { Content = "Browse…", MinWidth = 88 };
@@ -817,11 +817,11 @@ internal sealed class MainWindow : Window
             {
                 case PathSelectionKind.Folder:
                 case PathSelectionKind.NewFolder:
-                    IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(
+                    var folders = await StorageProvider.OpenFolderPickerAsync(
                         new FolderPickerOpenOptions
                         {
                             Title = "Select folder",
-                            AllowMultiple = false,
+                            AllowMultiple = false
                         });
                     selected = folders.FirstOrDefault()?.Path.LocalPath;
                     if (selected is not null && input.SelectionKind is PathSelectionKind.NewFolder)
@@ -830,22 +830,22 @@ internal sealed class MainWindow : Window
                     }
                     break;
                 case PathSelectionKind.SaveFile:
-                    IStorageFile? saved = await StorageProvider.SaveFilePickerAsync(
+                    var saved = await StorageProvider.SaveFilePickerAsync(
                         new FilePickerSaveOptions
                         {
                             Title = "Select new file",
                             SuggestedFileName = string.IsNullOrWhiteSpace(input.Text)
                                 ? null
-                                : Path.GetFileName(input.Text),
+                                : Path.GetFileName(input.Text)
                         });
                     selected = saved?.Path.LocalPath;
                     break;
                 default:
-                    IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(
+                    var files = await StorageProvider.OpenFilePickerAsync(
                         new FilePickerOpenOptions
                         {
                             Title = "Select file",
-                            AllowMultiple = false,
+                            AllowMultiple = false
                         });
                     selected = files.FirstOrDefault()?.Path.LocalPath;
                     break;
@@ -895,8 +895,8 @@ internal sealed class MainWindow : Window
 
     private static string NextAvailableDirectory(string parent, string suggestedName)
     {
-        string candidate = Path.Combine(parent, suggestedName);
-        for (int suffix = 2; Directory.Exists(candidate) || File.Exists(candidate); suffix++)
+        var candidate = Path.Combine(parent, suggestedName);
+        for (var suffix = 2; Directory.Exists(candidate) || File.Exists(candidate); suffix++)
         {
             if (suffix > 100)
             {
@@ -913,14 +913,14 @@ internal sealed class MainWindow : Window
     {
         try
         {
-            string path = RecentPathsFile();
+            var path = RecentPathsFile();
             FileInfo file = new(path);
             if (!file.Exists || file.Length is <= 0 or > MaximumRecentPathsBytes)
             {
                 return new Dictionary<string, string>(StringComparer.Ordinal);
             }
 
-            Dictionary<string, string>? loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(
                 File.ReadAllBytes(path));
             return loaded is null
                 ? new Dictionary<string, string>(StringComparer.Ordinal)
@@ -945,21 +945,21 @@ internal sealed class MainWindow : Window
         string? temporary = null;
         try
         {
-            string path = RecentPathsFile();
-            string directory = Path.GetDirectoryName(path)!;
+            var path = RecentPathsFile();
+            var directory = Path.GetDirectoryName(path)!;
             Directory.CreateDirectory(directory);
             temporary = Path.Combine(directory, $"recent-paths.{Guid.NewGuid():N}.tmp");
-            Dictionary<string, string> bounded = paths
+            var bounded = paths
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
                     && pair.Key.Length <= 128
                     && !string.IsNullOrWhiteSpace(pair.Value)
                     && pair.Value.Length <= MaximumRememberedPathCharacters)
                 .Take(MaximumRecentPathCount)
                 .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-            byte[] json = JsonSerializer.SerializeToUtf8Bytes(bounded);
+            var json = JsonSerializer.SerializeToUtf8Bytes(bounded);
             while (json.Length > MaximumRecentPathsBytes && bounded.Count > 0)
             {
-                KeyValuePair<string, string> longest = bounded.MaxBy(pair => pair.Value.Length);
+                var longest = bounded.MaxBy(pair => pair.Value.Length);
                 bounded.Remove(longest.Key);
                 json = JsonSerializer.SerializeToUtf8Bytes(bounded);
             }
@@ -1011,7 +1011,7 @@ internal sealed class MainWindow : Window
         OpenFile,
         SaveFile,
         Folder,
-        NewFolder,
+        NewFolder
     }
 
     private sealed class PathTextBox : TextBox

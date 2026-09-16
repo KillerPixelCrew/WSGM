@@ -29,7 +29,7 @@ internal enum HybridCoreMode
     PerformanceOnly,
 
     /// <summary>Only efficiency cores are eligible.</summary>
-    EfficiencyOnly,
+    EfficiencyOnly
 }
 
 /// <summary>One offered mode with the wording the user reads.</summary>
@@ -79,7 +79,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
         new(HybridCoreMode.PerformanceOnly, "Performance cores only",
             "Nothing runs on the efficient cores. Highest draw, and fewer cores in total."),
         new(HybridCoreMode.EfficiencyOnly, "Efficiency cores only",
-            "Nothing runs on the fast cores. Lowest draw, for light or idle sessions."),
+            "Nothing runs on the fast cores. Lowest draw, for light or idle sessions.")
     ];
 
     /// <summary>The scheduling policy pair a mode writes, for ordinary and short-running threads.</summary>
@@ -94,7 +94,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
         HybridCoreMode.PreferEfficiency => HybridSchedulingPolicy.PreferEfficientProcessors,
         HybridCoreMode.PerformanceOnly => HybridSchedulingPolicy.PerformantProcessors,
         HybridCoreMode.EfficiencyOnly => HybridSchedulingPolicy.EfficientProcessors,
-        _ => HybridSchedulingPolicy.Automatic,
+        _ => HybridSchedulingPolicy.Automatic
     };
 
     /// <summary>The mode a stored pair reads back as, or null when it matches none WSGM offers.</summary>
@@ -109,7 +109,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
         {
             return null;
         }
-        foreach (HybridCoreOption option in Offered)
+        foreach (var option in Offered)
         {
             if (PolicyFor(option.Mode) == state.Threads)
             {
@@ -133,7 +133,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
         HybridCoreMode.PreferEfficiency => "prefer-efficiency",
         HybridCoreMode.PerformanceOnly => "performance-only",
         HybridCoreMode.EfficiencyOnly => "efficiency-only",
-        _ => "automatic",
+        _ => "automatic"
     };
 
     /// <summary>The mode an id names, or null when it names none.</summary>
@@ -141,7 +141,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// <returns>The mode, or null for an id this build does not know.</returns>
     internal static HybridCoreMode? ModeForId(string id)
     {
-        foreach (HybridCoreOption option in Offered)
+        foreach (var option in Offered)
         {
             if (string.Equals(IdFor(option.Mode), id, StringComparison.Ordinal))
             {
@@ -155,28 +155,28 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// <returns>What to offer, and what is in effect for each power source.</returns>
     internal HybridCoreStatus Read()
     {
-        Guid scheme = api.ReadActiveScheme();
-        HybridCoreSupport support = api.Query(scheme);
+        var scheme = api.ReadActiveScheme();
+        var support = api.Query(scheme);
         if (!support.Hybrid || !support.Configurable)
         {
-            return new(false, 0, 0, [], null, null);
+            return new HybridCoreStatus(false, 0, 0, [], null, null);
         }
 
-        int performance = 0;
-        int efficiency = 0;
+        var performance = 0;
+        var efficiency = 0;
         byte best = 0;
-        foreach (HybridCoreClass observed in support.Classes)
+        foreach (var observed in support.Classes)
         {
             best = Math.Max(best, observed.EfficiencyClass);
         }
-        foreach (HybridCoreClass observed in support.Classes)
+        foreach (var observed in support.Classes)
         {
             if (observed.EfficiencyClass == best) { performance += observed.Cores; }
             else { efficiency += observed.Cores; }
         }
 
         List<HybridCoreOption> options = [];
-        foreach (HybridCoreOption option in Offered)
+        foreach (var option in Offered)
         {
             // Only modes this Windows build actually publishes a value for. A mode offered here that
             // the machine will not accept is a control that does nothing when pressed.
@@ -187,7 +187,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
             }
         }
 
-        return new(
+        return new HybridCoreStatus(
             options.Count > 0,
             performance,
             efficiency,
@@ -207,19 +207,19 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// <exception cref="InvalidOperationException">Windows did not report the mode back.</exception>
     internal void Apply(HybridCoreMode mode, CancellationToken cancellationToken = default)
     {
-        Guid scheme = api.ReadActiveScheme();
-        HybridSchedulingPolicy policy = PolicyFor(mode);
+        var scheme = api.ReadActiveScheme();
+        var policy = PolicyFor(mode);
         lock (MutationGate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (bool onBattery in (bool[])[false, true])
+            foreach (var onBattery in (bool[])[false, true])
             {
-                HybridCoreState previous = api.Read(scheme, onBattery);
+                var previous = api.Read(scheme, onBattery);
                 api.Write(scheme, onBattery, previous with { Threads = policy, ShortThreads = policy });
             }
 
             api.RefreshActiveScheme();
-            foreach (bool onBattery in (bool[])[false, true])
+            foreach (var onBattery in (bool[])[false, true])
             {
                 if (ModeFor(api.Read(scheme, onBattery)) != mode)
                 {

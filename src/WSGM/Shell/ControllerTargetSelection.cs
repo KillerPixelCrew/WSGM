@@ -11,7 +11,7 @@ internal enum ControllerTargetSource
     GlobalDefault,
 
     /// <summary>An override stored for the running application.</summary>
-    ApplicationOverride,
+    ApplicationOverride
 }
 
 /// <summary>
@@ -39,9 +39,9 @@ internal sealed record ControllerSelection(
     internal static ControllerSelection From(DeviceIntegrationConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        bool enabled = config.Enabled && config.ControllerManagementEnabled;
-        string detail = enabled ? string.Empty : "Controller management is off.";
-        return new(enabled, config.ControllerTarget, config.ControllerTargets, detail);
+        var enabled = config.Enabled && config.ControllerManagementEnabled;
+        var detail = enabled ? string.Empty : "Controller management is off.";
+        return new ControllerSelection(enabled, config.ControllerTarget, config.ControllerTargets, detail);
     }
 }
 
@@ -82,15 +82,15 @@ internal static class ControllerTargetSelection
         ArgumentNullException.ThrowIfNull(overrides);
         if (!string.IsNullOrWhiteSpace(applicationId))
         {
-            foreach (DeviceApplicationTargetOverride candidate in overrides)
+            foreach (var candidate in overrides)
             {
                 if (string.Equals(candidate.ApplicationId, applicationId, StringComparison.Ordinal))
                 {
-                    return new(candidate.Target, ControllerTargetSource.ApplicationOverride, applicationId);
+                    return new ResolvedControllerTarget(candidate.Target, ControllerTargetSource.ApplicationOverride, applicationId);
                 }
             }
         }
 
-        return new(globalDefault, ControllerTargetSource.GlobalDefault, null);
+        return new ResolvedControllerTarget(globalDefault, ControllerTargetSource.GlobalDefault, null);
     }
 }

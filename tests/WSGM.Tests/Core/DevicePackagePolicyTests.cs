@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using WSGM.Core;
@@ -16,8 +17,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void EmptySlot_StartsWithoutADevicePackage()
     {
-        DevicePackageInventory inventory = DevicePackagePolicy.Inventory(_root);
-        DevicePackageDiscovery discovery = Discover();
+        var inventory = DevicePackagePolicy.Inventory(_root);
+        var discovery = Discover();
 
         Assert.Equal(DevicePackageCardinality.Empty, inventory.Cardinality);
         Assert.Null(discovery.InstalledPackage);
@@ -35,7 +36,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageRootThatDisappearsFromTheEnumeratedSnapshot_FailsClosed()
     {
-        string packagePath = Directory.CreateDirectory(Path.Combine(_root, "vanished")).FullName;
+        var packagePath = Directory.CreateDirectory(Path.Combine(_root, "vanished")).FullName;
 
         Assert.Throws<IOException>(() => DevicePackagePolicy.Inventory(
             _root,
@@ -49,8 +50,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
     {
         CreatePackage("valid");
 
-        DevicePackageInventory inventory = DevicePackagePolicy.Inventory(_root);
-        InstalledDevicePackage package = Assert.IsType<InstalledDevicePackage>(
+        var inventory = DevicePackagePolicy.Inventory(_root);
+        var package = Assert.IsType<InstalledDevicePackage>(
             Discover().InstalledPackage);
 
         Assert.Equal(DevicePackageCardinality.Single, inventory.Cardinality);
@@ -61,10 +62,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void TruncatedAmd64Header_IsRejectedAsNotManagedAssembly()
     {
-        string packagePath = CreatePackage("truncated-pe");
+        var packagePath = CreatePackage("truncated-pe");
         WriteTruncatedAmd64Header(Path.Combine(packagePath, "plugin.dll"));
 
-        InstalledDevicePackage package = Assert.IsType<InstalledDevicePackage>(
+        var package = Assert.IsType<InstalledDevicePackage>(
             Discover().InstalledPackage);
 
         Assert.False(package.Valid);
@@ -74,13 +75,13 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageDiscovery_TotalEntryBoundCountsDirectoriesBeforeValidation()
     {
-        string packagePath = CreatePackage("entry-bound");
-        for (int index = 0; index < 1023; index++)
+        var packagePath = CreatePackage("entry-bound");
+        for (var index = 0; index < 1023; index++)
         {
             Directory.CreateDirectory(Path.Combine(packagePath, $"directory-{index:D4}"));
         }
 
-        InstalledDevicePackage package = Assert.IsType<InstalledDevicePackage>(
+        var package = Assert.IsType<InstalledDevicePackage>(
             Discover().InstalledPackage);
 
         Assert.False(package.Valid);
@@ -94,10 +95,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void OneMalformedPackage_ReportsTheDeviceErrorWithoutSelectingIt()
     {
-        string packagePath = Directory.CreateDirectory(Path.Combine(_root, "malformed")).FullName;
+        var packagePath = Directory.CreateDirectory(Path.Combine(_root, "malformed")).FullName;
         File.WriteAllText(Path.Combine(packagePath, "plugin.wsgm.json"), "not-json", Encoding.UTF8);
 
-        InstalledDevicePackage package = Assert.IsType<InstalledDevicePackage>(
+        var package = Assert.IsType<InstalledDevicePackage>(
             Discover().InstalledPackage);
 
         Assert.False(package.Valid);
@@ -109,7 +110,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
     {
         CreatePackage("future", apiVersion: DeviceApi.Version + 1);
 
-        InstalledDevicePackage package = Assert.IsType<InstalledDevicePackage>(
+        var package = Assert.IsType<InstalledDevicePackage>(
             Discover().InstalledPackage);
 
         Assert.False(package.Valid);
@@ -119,12 +120,12 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void TwoValidRoots_AreRefusedBeforeEitherManifestIsRead()
     {
-        string first = CreatePackage("first");
-        string second = CreatePackage("second");
+        var first = CreatePackage("first");
+        var second = CreatePackage("second");
         File.WriteAllText(Path.Combine(first, "plugin.wsgm.json"), "broken", Encoding.UTF8);
         File.WriteAllText(Path.Combine(second, "plugin.wsgm.json"), "also-broken", Encoding.UTF8);
 
-        DevicePackageDiscovery discovery = Discover();
+        var discovery = Discover();
 
         Assert.Equal(2, discovery.Inventory.PackageRoots.Count);
         Assert.Null(discovery.InstalledPackage);
@@ -137,8 +138,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
         CreatePackage("valid");
         Directory.CreateDirectory(Path.Combine(_root, "malformed"));
 
-        DevicePackageInventory inventory = DevicePackagePolicy.Inventory(_root);
-        DevicePackageDiscovery discovery = Discover();
+        var inventory = DevicePackagePolicy.Inventory(_root);
+        var discovery = Discover();
 
         Assert.Equal(DevicePackageCardinality.Multiple, inventory.Cardinality);
         Assert.Equal(2, discovery.Inventory.PackageRoots.Count);
@@ -149,17 +150,17 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_ReplacesTheWholeSlotAndLeavesOneRoot()
     {
-        string installed = Path.Combine(_root, "installed");
+        var installed = Path.Combine(_root, "installed");
         Directory.CreateDirectory(installed);
-        string oldRoot = CreatePackage("old", installed);
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("new", sourceParent);
+        var oldRoot = CreatePackage("old", installed);
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("new", sourceParent);
 
-        InstalledDevicePackage installedPackage = await DevicePackageStager.StageAsync(
+        var installedPackage = await DevicePackageStager.StageAsync(
             source,
             installed);
 
-        DevicePackageInventory inventory = DevicePackagePolicy.Inventory(installed);
+        var inventory = DevicePackagePolicy.Inventory(installed);
         Assert.Equal(DevicePackageCardinality.Single, inventory.Cardinality);
         Assert.Equal("new", Path.GetFileName(Assert.Single(inventory.PackageRoots)));
         Assert.Equal(Path.Combine(installed, "new"), installedPackage.PackagePath);
@@ -169,12 +170,12 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_NormalizesTrailingSourceAndSlotSeparators()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("old", installed);
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("new", sourceParent);
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("new", sourceParent);
 
-        InstalledDevicePackage installedPackage = await DevicePackageStager.StageAsync(
+        var installedPackage = await DevicePackageStager.StageAsync(
             source + Path.DirectorySeparatorChar,
             installed + Path.DirectorySeparatorChar);
 
@@ -187,15 +188,15 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_ReplacesAnAmbiguousSlotWithExactlyOneRoot()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("old-a", installed);
         CreatePackage("old-b", installed);
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("new", sourceParent);
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("new", sourceParent);
 
         await DevicePackageStager.StageAsync(source, installed);
 
-        DevicePackageInventory inventory = DevicePackagePolicy.Inventory(installed);
+        var inventory = DevicePackagePolicy.Inventory(installed);
         Assert.Equal(DevicePackageCardinality.Single, inventory.Cardinality);
         Assert.Equal("new", Path.GetFileName(Assert.Single(inventory.PackageRoots)));
     }
@@ -203,9 +204,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_InvalidReplacementPreservesTheExistingSlot()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string oldRoot = CreatePackage("old", installed);
-        string source = CreatePackage("invalid-source");
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var oldRoot = CreatePackage("old", installed);
+        var source = CreatePackage("invalid-source");
         File.WriteAllBytes(Path.Combine(source, "plugin.dll"), [0, 1, 2, 3]);
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
@@ -220,10 +221,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_MoveFailureRestoresThePreviousSlotAndClearsRecoveryState()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string oldRoot = CreatePackage("old", installed);
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("new", sourceParent);
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var oldRoot = CreatePackage("old", installed);
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("new", sourceParent);
 
         await Assert.ThrowsAsync<IOException>(() => DevicePackageStager.StageAsync(
             source,
@@ -238,10 +239,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_CallerCancellationAfterParkingRestoresThePreviousSlot()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string oldRoot = CreatePackage("old", installed);
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("new", sourceParent);
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var oldRoot = CreatePackage("old", installed);
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("new", sourceParent);
         using var cancellation = new CancellationTokenSource();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DevicePackageStager.StageAsync(
@@ -258,9 +259,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageUpdate_CrashAfterParkingThePreviousSlotRestoresItDuringReconciliation()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("old", installed);
-        string recovery = DevicePackageStager.ReplacementRecoveryRoot(installed);
+        var recovery = DevicePackageStager.ReplacementRecoveryRoot(installed);
         Directory.Move(installed, recovery);
 
         DevicePackageStager.ReconcileInstalledPackage(installed);
@@ -272,9 +273,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_ReconcilesAParkedPreviousSlotBeforeRejectingTheSource()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("old", installed);
-        string recovery = DevicePackageStager.ReplacementRecoveryRoot(installed);
+        var recovery = DevicePackageStager.ReplacementRecoveryRoot(installed);
         Directory.Move(installed, recovery);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => DevicePackageStager.StageAsync(
@@ -288,9 +289,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageUpdate_CrashAfterPublishingReplacementRetiresPreviousSlotDuringReconciliation()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("old", installed);
-        string recovery = DevicePackageStager.ReplacementRecoveryRoot(installed);
+        var recovery = DevicePackageStager.ReplacementRecoveryRoot(installed);
         Directory.Move(installed, recovery);
         Directory.CreateDirectory(installed);
         CreatePackage("new", installed);
@@ -305,8 +306,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageUpdate_UsesTheInstallerCanonicalSiblingNames()
     {
-        string installed = Path.Combine(_root, "installed");
-        string installedWithSeparator = installed + Path.DirectorySeparatorChar;
+        var installed = Path.Combine(_root, "installed");
+        var installedWithSeparator = installed + Path.DirectorySeparatorChar;
 
         Assert.Equal(@"Global\WSGM.DevicePackageSlot", DevicePackageSlotGate.ProductionName);
         Assert.Equal(Path.Combine(_root, ".staging"),
@@ -322,8 +323,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageUpdate_ReconciliationRemovesTheDeterministicStagingRoot()
     {
-        string installed = Path.Combine(_root, "installed");
-        string staging = Directory.CreateDirectory(
+        var installed = Path.Combine(_root, "installed");
+        var staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(staging, "partial"), "partial");
 
@@ -340,18 +341,18 @@ public sealed class DevicePackagePolicyTests : IDisposable
     public void PackageUpdate_AttributeAccessFailurePreventsAnyRecoveryOrCleanupMutation(
         string inaccessiblePath)
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string recovery = Directory.CreateDirectory(
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string staging = Directory.CreateDirectory(
+        var staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
         string[] protectedRoots = [installed, recovery, staging];
-        foreach (string protectedRoot in protectedRoots)
+        foreach (var protectedRoot in protectedRoots)
         {
             File.WriteAllText(Path.Combine(protectedRoot, "must-survive"), protectedRoot);
         }
 
-        string inaccessible = string.Equals(inaccessiblePath, "parent", StringComparison.Ordinal)
+        var inaccessible = string.Equals(inaccessiblePath, "parent", StringComparison.Ordinal)
             ? _root
             : Path.Combine(_root, inaccessiblePath);
 
@@ -369,10 +370,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_ParentInspectionFailurePreventsProtectedNamespaceCreation()
     {
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("package", sourceParent);
-        string protectedParent = Path.Combine(_root, "protected");
-        string installed = Path.Combine(protectedParent, "installed");
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("package", sourceParent);
+        var protectedParent = Path.Combine(_root, "protected");
+        var installed = Path.Combine(protectedParent, "installed");
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             DevicePackageStager.StageAsync(
@@ -392,19 +393,19 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_RejectsAPathThatOverlapsTheInstalledSlot()
     {
-        string sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
-        string source = CreatePackage("new", sourceParent);
-        string nestedDestination = Path.Combine(source, "installed");
+        var sourceParent = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var source = CreatePackage("new", sourceParent);
+        var nestedDestination = Path.Combine(source, "installed");
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(source, nestedDestination));
 
         Assert.Contains("separate", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(Directory.Exists(nestedDestination));
 
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string nestedSource = CreatePackage("nested-source", installed);
-        string recovery = Directory.CreateDirectory(
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var nestedSource = CreatePackage("nested-source", installed);
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
         await Assert.ThrowsAsync<InvalidDataException>(() =>
@@ -419,13 +420,13 @@ public sealed class DevicePackagePolicyTests : IDisposable
     public async Task PackageUpdate_RejectsReservedSiblingSourcesBeforeReconciliation(
         string reservedSibling)
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("live", installed);
-        string reservedRoot = Directory.CreateDirectory(
+        var reservedRoot = Directory.CreateDirectory(
             Path.Combine(_root, reservedSibling)).FullName;
-        string source = CreatePackage("source", reservedRoot);
+        var source = CreatePackage("source", reservedRoot);
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(source, installed));
 
         Assert.Contains("staging or recovery", error.Message, StringComparison.OrdinalIgnoreCase);
@@ -436,17 +437,17 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_RejectsAReparseAliasedSourceBeforeReconciliation()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("live", installed);
-        string recovery = Directory.CreateDirectory(
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
-        string sourceParent = Directory.CreateDirectory(
+        var sourceParent = Directory.CreateDirectory(
             Path.Combine(_root, "external-source")).FullName;
-        string source = CreatePackage("source", sourceParent);
-        bool inspected = false;
+        var source = CreatePackage("source", sourceParent);
+        var inspected = false;
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(
                 source,
                 installed,
@@ -466,15 +467,15 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_RejectsMissingReparseAliasedSourceBeforeReconciliation()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("live", installed);
-        string recovery = Directory.CreateDirectory(
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
-        string missingSource = Path.Combine(_root, "missing-link", "package");
-        bool inspected = false;
+        var missingSource = Path.Combine(_root, "missing-link", "package");
+        var inspected = false;
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(
                 missingSource,
                 installed,
@@ -493,23 +494,23 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_RejectsFileIdentityAliasedSourceBeforeReconciliation()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("live", installed);
-        string recovery = Directory.CreateDirectory(
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
-        string sourceParent = Directory.CreateDirectory(
+        var sourceParent = Directory.CreateDirectory(
             Path.Combine(_root, "alternate-spelling")).FullName;
-        string source = CreatePackage("source", sourceParent);
+        var source = CreatePackage("source", sourceParent);
         NativePathIdentity aliasedIdentity = new(42, 84);
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(
                 source,
                 installed,
                 pathIdentityReader: path =>
-                    (string.Equals(path, source, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(path, recovery, StringComparison.OrdinalIgnoreCase))
+                    string.Equals(path, source, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(path, recovery, StringComparison.OrdinalIgnoreCase)
                         ? aliasedIdentity
                         : null));
 
@@ -522,19 +523,19 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_RejectsSourceIdentityRaceAfterNoFollowHandlesAreAcquired()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("live", installed);
-        string recovery = Directory.CreateDirectory(
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
-        string sourceParent = Directory.CreateDirectory(
+        var sourceParent = Directory.CreateDirectory(
             Path.Combine(_root, "identity-race")).FullName;
-        string source = CreatePackage("source", sourceParent);
-        NativePathIdentity originalIdentity = NativePathIdentityReader.Read(source)
-            ?? throw new InvalidOperationException("The source identity was not available.");
-        bool sourceSecured = false;
+        var source = CreatePackage("source", sourceParent);
+        var originalIdentity = NativePathIdentityReader.Read(source)
+                               ?? throw new InvalidOperationException("The source identity was not available.");
+        var sourceSecured = false;
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(
                 source,
                 installed,
@@ -553,13 +554,13 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageSource_NoFollowHandlesBlockRootAndFileReplacementUntilDisposed()
     {
-        string source = CreatePackage("locked-source");
-        string movedSource = Path.Combine(_root, "moved-source");
-        string plugin = Path.Combine(source, "plugin.dll");
-        string movedPlugin = Path.Combine(source, "moved-plugin.dll");
-        using NativePackageSource packageSource = Assert.IsType<NativePackageSource>(
+        var source = CreatePackage("locked-source");
+        var movedSource = Path.Combine(_root, "moved-source");
+        var plugin = Path.Combine(source, "plugin.dll");
+        var movedPlugin = Path.Combine(source, "moved-plugin.dll");
+        using var packageSource = Assert.IsType<NativePackageSource>(
             NativePackageSource.TryOpen(source));
-        using NativePackageSourceEntry sourceEntry = packageSource.OpenEntry(plugin);
+        using var sourceEntry = packageSource.OpenEntry(plugin);
 
         Assert.Throws<IOException>(() => Directory.Move(source, movedSource));
         Assert.Throws<IOException>(() => File.Move(plugin, movedPlugin));
@@ -571,15 +572,15 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageUpdate_TotalEntryBoundCountsDirectoriesBeforeStagingThem()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("live", installed);
-        string source = CreatePackage("entry-bound-source");
-        for (int index = 0; index < 1023; index++)
+        var source = CreatePackage("entry-bound-source");
+        for (var index = 0; index < 1023; index++)
         {
             Directory.CreateDirectory(Path.Combine(source, $"directory-{index:D4}"));
         }
 
-        InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(source, installed));
 
         // The entry ceiling, not the size ceiling: directories cost an entry and no bytes.
@@ -591,7 +592,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageRemoval_RemovesTheWholeSlotAndIsIdempotent()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         CreatePackage("old-a", installed);
         CreatePackage("old-b", installed);
 
@@ -604,10 +605,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageRemoval_RetiresLiveRecoveryAndStagingNamespacesWithoutResurrection()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string recovery = Directory.CreateDirectory(
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string staging = Directory.CreateDirectory(
+        var staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
         CreatePackage("live", installed);
         CreatePackage("recovery", recovery);
@@ -623,13 +624,13 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageRemoval_StagingInspectionIoFailurePreventsEveryNamespaceMutation()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string recovery = Directory.CreateDirectory(
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string staging = Directory.CreateDirectory(
+        var staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
         string[] protectedRoots = [installed, recovery, staging];
-        foreach (string protectedRoot in protectedRoots)
+        foreach (var protectedRoot in protectedRoots)
         {
             File.WriteAllText(Path.Combine(protectedRoot, "must-survive"), protectedRoot);
         }
@@ -650,8 +651,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void PackageRemoval_RecoveryCleanupFailureLeavesTheLiveSlotInPlace()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string recovery = Directory.CreateDirectory(
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         CreatePackage("live", installed);
         CreatePackage("recovery", recovery);
@@ -675,25 +676,25 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageSlotGate_ExcludesConcurrentStartupAndMaintenanceOwners()
     {
-        string name = $@"Local\WSGM.Tests.DevicePackageSlot.{Guid.NewGuid():N}";
-        DevicePackageSlotGate first = Assert.IsType<DevicePackageSlotGate>(
+        var name = $@"Local\WSGM.Tests.DevicePackageSlot.{Guid.NewGuid():N}";
+        var first = Assert.IsType<DevicePackageSlotGate>(
             await DevicePackageSlotGate.TryAcquireAsync(name, TimeSpan.Zero));
         await using (first)
         {
             Assert.Null(await DevicePackageSlotGate.TryAcquireAsync(name, TimeSpan.Zero));
         }
 
-        await using DevicePackageSlotGate reacquired = Assert.IsType<DevicePackageSlotGate>(
+        await using var reacquired = Assert.IsType<DevicePackageSlotGate>(
             await DevicePackageSlotGate.TryAcquireAsync(name, TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
     public async Task PackageSlotGate_RecoversWhenTheOwningProcessExitsWithoutReleasing()
     {
-        string suffix = Guid.NewGuid().ToString("N");
-        string mutexName = $@"Local\WSGM.Tests.DevicePackageSlot.Crash.{suffix}";
-        string readyName = $@"Local\WSGM.Tests.DevicePackageSlot.Ready.{suffix}";
-        string exitName = $@"Local\WSGM.Tests.DevicePackageSlot.Exit.{suffix}";
+        var suffix = Guid.NewGuid().ToString("N");
+        var mutexName = $@"Local\WSGM.Tests.DevicePackageSlot.Crash.{suffix}";
+        var readyName = $@"Local\WSGM.Tests.DevicePackageSlot.Ready.{suffix}";
+        var exitName = $@"Local\WSGM.Tests.DevicePackageSlot.Exit.{suffix}";
         using var ready = new EventWaitHandle(
             initialState: false,
             EventResetMode.ManualReset,
@@ -702,7 +703,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
             initialState: false,
             EventResetMode.ManualReset,
             exitName);
-        string powershell = Path.Combine(
+        var powershell = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System),
             "WindowsPowerShell",
             "v1.0",
@@ -710,7 +711,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         var startInfo = new ProcessStartInfo(powershell)
         {
             CreateNoWindow = true,
-            UseShellExecute = false,
+            UseShellExecute = false
         };
         startInfo.ArgumentList.Add("-NoLogo");
         startInfo.ArgumentList.Add("-NoProfile");
@@ -725,8 +726,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
                 + "$null=$exit.WaitOne();"
                 + "[Environment]::Exit(23)");
 
-        using Process holder = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not start the mutex-holder test process.");
+        using var holder = Process.Start(startInfo)
+                           ?? throw new InvalidOperationException("Could not start the mutex-holder test process.");
         Task<DevicePackageSlotGate?>? recovery = null;
         DevicePackageSlotGate? recovered = null;
         Exception? testFailure = null;
@@ -807,7 +808,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
 
             if (testFailure is null && cleanupFailure is not null)
             {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
             }
         }
     }
@@ -815,15 +816,15 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public async Task PackageSlotGate_CallerCancellationIsPropagatedAndDoesNotKeepOwnership()
     {
-        string name = $@"Local\WSGM.Tests.DevicePackageSlot.Cancel.{Guid.NewGuid():N}";
-        DevicePackageSlotGate first = Assert.IsType<DevicePackageSlotGate>(
+        var name = $@"Local\WSGM.Tests.DevicePackageSlot.Cancel.{Guid.NewGuid():N}";
+        var first = Assert.IsType<DevicePackageSlotGate>(
             await DevicePackageSlotGate.TryAcquireAsync(name, TimeSpan.Zero));
         await using (first)
         {
             using var cancellation = new CancellationTokenSource();
             var waitStarted = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            Task<DevicePackageSlotGate?> waiting = DevicePackageSlotGate.TryAcquireAsync(
+            var waiting = DevicePackageSlotGate.TryAcquireAsync(
                 name,
                 TimeSpan.FromSeconds(10),
                 cancellation.Token,
@@ -836,20 +837,20 @@ public sealed class DevicePackagePolicyTests : IDisposable
                 await waiting.ConfigureAwait(false));
         }
 
-        await using DevicePackageSlotGate reacquired = Assert.IsType<DevicePackageSlotGate>(
+        await using var reacquired = Assert.IsType<DevicePackageSlotGate>(
             await DevicePackageSlotGate.TryAcquireAsync(name, TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
     public async Task StartupInventory_WaitsForPackageSlotReplacementBeforeReading()
     {
-        string installed = Path.Combine(_root, "installed");
-        string name = $@"Local\WSGM.Tests.DevicePackageSlot.Inventory.{Guid.NewGuid():N}";
-        DevicePackageSlotGate maintenance = Assert.IsType<DevicePackageSlotGate>(
+        var installed = Path.Combine(_root, "installed");
+        var name = $@"Local\WSGM.Tests.DevicePackageSlot.Inventory.{Guid.NewGuid():N}";
+        var maintenance = Assert.IsType<DevicePackageSlotGate>(
             await DevicePackageSlotGate.TryAcquireAsync(name, TimeSpan.Zero));
         var waitStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<DevicePackageInventory?> inventoryTask = Task.Run(() =>
+        var inventoryTask = Task.Run(() =>
             DevicePackageSlotGate.TryRunSynchronously(
                 name,
                 TimeSpan.FromSeconds(10),
@@ -891,11 +892,11 @@ public sealed class DevicePackagePolicyTests : IDisposable
 
             if (testFailure is null && cleanupFailure is not null)
             {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
             }
         }
 
-        DevicePackageInventory completedInventory = Assert.IsType<DevicePackageInventory>(inventory);
+        var completedInventory = Assert.IsType<DevicePackageInventory>(inventory);
         Assert.Equal(DevicePackageCardinality.Single, completedInventory.Cardinality);
         Assert.Single(completedInventory.PackageRoots);
     }
@@ -903,14 +904,14 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void StartupInventory_RefusesMultiplePackagesParkedInTheEffectiveRecoverySlot()
     {
-        string installed = Path.Combine(_root, "installed");
-        string recovery = Directory.CreateDirectory(
+        var installed = Path.Combine(_root, "installed");
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string first = CreatePackage("first", recovery);
-        string second = CreatePackage("second", recovery);
-        string gateName = $@"Local\WSGM.Tests.DevicePackageSlot.RecoveryInventory.{Guid.NewGuid():N}";
+        var first = CreatePackage("first", recovery);
+        var second = CreatePackage("second", recovery);
+        var gateName = $@"Local\WSGM.Tests.DevicePackageSlot.RecoveryInventory.{Guid.NewGuid():N}";
 
-        DevicePackageInventory inventory = Assert.IsType<DevicePackageInventory>(
+        var inventory = Assert.IsType<DevicePackageInventory>(
             DevicePackageSlotGate.TryRunSynchronously(
                 gateName,
                 TimeSpan.Zero,
@@ -930,13 +931,13 @@ public sealed class DevicePackagePolicyTests : IDisposable
         // An interrupted swap left the packages parked. Startup inventories the slot that would
         // become active after recovery, so an ambiguous parked set is refused before any UI runs
         // rather than after reconciliation has already moved it into place.
-        string installed = Path.Combine(_root, "installed");
-        string recovery = Directory.CreateDirectory(
+        var installed = Path.Combine(_root, "installed");
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string first = CreatePackage("first", recovery);
-        string second = CreatePackage("second", recovery);
+        var first = CreatePackage("first", recovery);
+        var second = CreatePackage("second", recovery);
 
-        DevicePackageInventory inventory = DevicePackageStager.InventoryEffectiveInstalledPackage(
+        var inventory = DevicePackageStager.InventoryEffectiveInstalledPackage(
             installed);
 
         Assert.Equal(DevicePackageCardinality.Multiple, inventory.Cardinality);
@@ -948,8 +949,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Fact]
     public void StartupInventory_RecoveryInspectionFailureIsNotTreatedAsAnAbsentSlot()
     {
-        string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
-        string recovery = Directory.CreateDirectory(
+        var installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
+        var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
         File.WriteAllText(Path.Combine(installed, "must-survive"), "live");
         File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
@@ -1001,7 +1002,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
             ["--remove-device-plugin", "unexpected"],
             ["--settings", "--install-device-plugin", "C:\\expanded"],
             ["--install-device-plugin", "--remove-device-plugin"],
-            ["--install-device-plugin", "C:\\expanded", "--settings"],
+            ["--install-device-plugin", "C:\\expanded", "--settings"]
         ];
         Assert.All(invalid, arguments => Assert.Equal(
             DevicePluginMaintenanceMode.Invalid,
@@ -1039,7 +1040,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
 
     private string CreatePackage(string id, string? parent = null, int? apiVersion = null)
     {
-        string package = Directory.CreateDirectory(Path.Combine(parent ?? _root, id)).FullName;
+        var package = Directory.CreateDirectory(Path.Combine(parent ?? _root, id)).FullName;
         PluginManifest manifest = new()
         {
             Id = id,
@@ -1047,7 +1048,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
             Version = "1.0.0",
             ApiVersion = apiVersion ?? DeviceApi.Version,
             EntryAssembly = "plugin.dll",
-            EntryType = "Fixtures.Plugin",
+            EntryType = "Fixtures.Plugin"
         };
         File.WriteAllBytes(
             Path.Combine(package, "plugin.wsgm.json"),
@@ -1062,7 +1063,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
 
     private static void WriteTruncatedAmd64Header(string path)
     {
-        byte[] bytes = new byte[70];
+        var bytes = new byte[70];
         bytes[0] = (byte)'M';
         bytes[1] = (byte)'Z';
         BitConverter.GetBytes(64).CopyTo(bytes, 60);

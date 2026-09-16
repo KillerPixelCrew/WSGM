@@ -20,14 +20,14 @@ public sealed class PerformanceOverlayBridgeTests
                 new PerformanceValues(60, 2),
                 Array.Empty<PerformanceApplicationPolicy>()));
         using PerformanceOverlayBridge bridge = new(service);
-        using IDisposable observation = bridge.AcquireObservation();
+        using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
 
-        PerformanceOverlaySnapshot before = bridge.Snapshot();
-        DescriptorRow overlay = before.Rows.Single(row => row.Id == "overlay-level");
+        var before = bridge.Snapshot();
+        var overlay = before.Rows.Single(row => row.Id == "overlay-level");
         await bridge.InvokeAsync(overlay, CancellationToken.None);
 
-        PerformanceOverlaySnapshot after = bridge.Snapshot();
+        var after = bridge.Snapshot();
         Assert.True(after.Visible);
         Assert.Equal("3", after.Rows.Single(row => row.Id == "overlay-level").TrailingText);
         Assert.Equal(3, service.Current.Desired.OverlayLevel);
@@ -42,10 +42,10 @@ public sealed class PerformanceOverlayBridgeTests
             static (_, _) => Task.CompletedTask,
             new PerformancePolicy(new PerformanceValues(60, 2), []));
         using PerformanceOverlayBridge bridge = new(service, static () => (30, 120));
-        using IDisposable observation = bridge.AcquireObservation();
+        using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
 
-        DescriptorRange range = bridge.Snapshot().Rows
+        var range = bridge.Snapshot().Rows
             .Single(row => row.Id == "frame-limit").Range!.Value;
 
         // Zero stays reachable because it is how the overlay switches the cap off, and the panel's
@@ -63,10 +63,10 @@ public sealed class PerformanceOverlayBridgeTests
             static (_, _) => Task.CompletedTask,
             new PerformancePolicy(new PerformanceValues(60, 2), []));
         using PerformanceOverlayBridge bridge = new(service);
-        using IDisposable observation = bridge.AcquireObservation();
+        using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
 
-        DescriptorRange range = bridge.Snapshot().Rows
+        var range = bridge.Snapshot().Rows
             .Single(row => row.Id == "frame-limit").Range!.Value;
 
         Assert.Equal(0, range.Minimum);
@@ -87,7 +87,7 @@ public sealed class PerformanceOverlayBridgeTests
                 Enabled: false));
         using PerformanceOverlayBridge bridge = new(service);
 
-        PerformanceOverlaySnapshot snapshot = bridge.Snapshot();
+        var snapshot = bridge.Snapshot();
 
         Assert.False(snapshot.Visible);
         Assert.Empty(snapshot.Rows);
@@ -106,7 +106,7 @@ public sealed class PerformanceOverlayBridgeTests
             new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
         await service.RefreshAsync();
 
-        PerformanceOverlaySnapshot before = bridge.Snapshot();
+        var before = bridge.Snapshot();
 
         Assert.Collection(
             before.ProfileRows,
@@ -120,10 +120,10 @@ public sealed class PerformanceOverlayBridgeTests
         // and thermals, where they render; the enable toggle is the headline on the Device root, so
         // it is not counted into any section.
         DeviceOverlaySnapshot device = new(true, "Ready", string.Empty, null, []);
-        DeviceOverlaySectionEntry power = Assert.Single(
+        var power = Assert.Single(
             DeviceOverlaySectionPages.Build(device, before));
         Assert.Equal(DeviceOverlaySection.PowerAndThermals, power.Section);
-        int toggleRows = before.ProfileRows.Count(row =>
+        var toggleRows = before.ProfileRows.Count(row =>
             row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId);
         Assert.Equal(1, toggleRows);
         Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count + 1, power.Count);
@@ -131,7 +131,7 @@ public sealed class PerformanceOverlayBridgeTests
         await bridge.InvokeAsync(before.ProfileRows.Single(row =>
             row.Id == "application-profile"));
 
-        PerformanceOverlaySnapshot after = bridge.Snapshot();
+        var after = bridge.Snapshot();
         Assert.True(service.Current.ApplicationProfileEnabled);
         Assert.Equal(
             "Application",
@@ -147,10 +147,10 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task TheOverlayProjectionRendersItsRowsWithNoDevicePlatformPresent()
     {
-        await using PerformanceService service = Service();
+        await using var service = Service();
         using PerformanceOverlayBridge bridge = new(service);
 
-        PerformanceOverlaySnapshot snapshot = bridge.Snapshot();
+        var snapshot = bridge.Snapshot();
 
         Assert.True(snapshot.Visible);
         Assert.Collection(
@@ -162,11 +162,11 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task ObservationIsLeasedByTheOverlayRatherThanByTheDeviceCycle()
     {
-        await using PerformanceService service = Service();
+        await using var service = Service();
         using PerformanceOverlayBridge bridge = new(service);
 
         Assert.Equal(0, service.ObserverCount);
-        IDisposable lease = bridge.AcquireObservation();
+        var lease = bridge.AcquireObservation();
         Assert.Equal(1, service.ObserverCount);
 
         // Polling exists for a rendered control, so it stops when the last UI client leaves — never

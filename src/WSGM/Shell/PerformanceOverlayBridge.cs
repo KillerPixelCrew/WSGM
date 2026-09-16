@@ -38,7 +38,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         (1, "Minimal"),
         (2, "Extended"),
         (3, "Full"),
-        (4, "Custom"),
+        (4, "Custom")
     ];
     private readonly PerformanceService _service;
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
@@ -69,14 +69,14 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     public PerformanceOverlaySnapshot Snapshot()
     {
-        PerformanceState state = _service.Current;
+        var state = _service.Current;
         if (!_service.Enabled)
         {
             return new PerformanceOverlaySnapshot(false, string.Empty, [], []);
         }
 
-        RtssCapabilities? capabilities = state.Probe.Capabilities;
-        bool ready = state.Probe.Availability == RtssAvailability.Ready && capabilities is not null;
+        var capabilities = state.Probe.Capabilities;
+        var ready = state.Probe.Availability == RtssAvailability.Ready && capabilities is not null;
         List<DescriptorRow> rows = [];
         rows.Add(BuildRow(
             "frame-limit",
@@ -87,7 +87,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             StatusFor(state, PerformanceControl.FrameLimit)) with
         {
             Range = ready ? FrameLimitRange(capabilities!) : null,
-            Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0,
+            Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0
         });
         rows.Add(BuildRow(
             "overlay-level",
@@ -98,7 +98,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             StatusFor(state, PerformanceControl.OverlayLevel)) with
         {
             Options = ready ? OverlayLevelOptions(capabilities!) : [],
-            Value = PreferredValue(state, PerformanceControl.OverlayLevel),
+            Value = PreferredValue(state, PerformanceControl.OverlayLevel)
         });
         List<DescriptorRow> profileRows =
         [
@@ -123,7 +123,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     : "Clear the global performance defaults.",
                 "Reset",
                 true,
-                DescriptorStatus.None),
+                DescriptorStatus.None)
         ];
         return new PerformanceOverlaySnapshot(true, DescribeStatus(state), rows, profileRows);
     }
@@ -144,14 +144,14 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        PerformanceControl control = rowId switch
+        var control = rowId switch
         {
             "frame-limit" => PerformanceControl.FrameLimit,
             "overlay-level" => PerformanceControl.OverlayLevel,
-            _ => throw new InvalidOperationException($"The row '{rowId}' carries no value."),
+            _ => throw new InvalidOperationException($"The row '{rowId}' carries no value.")
         };
 
-        PerformanceState state = _service.Current;
+        var state = _service.Current;
         if (state.Probe.Capabilities?.IsValid(control, value) is not true)
         {
             Log.Warn($"Performance {control} not set to {value}: RTSS does not accept that value.");
@@ -176,7 +176,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         PerformanceControl? control = row.Id switch
         {
             "overlay-level" => PerformanceControl.OverlayLevel,
-            _ => null,
+            _ => null
         };
         if (control is { } performanceControl)
         {
@@ -205,7 +205,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        PerformanceState state = _service.Current;
+        var state = _service.Current;
         if (!_service.Enabled
             || state.Probe.Availability is not RtssAvailability.Ready
             || state.Probe.Capabilities?.Supports(PerformanceControl.OverlayLevel) is not true)
@@ -213,7 +213,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             return false;
         }
 
-        PerformanceCommandState result = await SetNextAsync(
+        var result = await SetNextAsync(
             PerformanceControl.OverlayLevel,
             origin,
             cancellationToken).ConfigureAwait(false);
@@ -232,10 +232,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         string origin,
         CancellationToken cancellationToken)
     {
-        PerformanceState state = _service.Current;
-        RtssCapabilities capabilities = state.Probe.Capabilities
-            ?? throw new InvalidOperationException("RTSS capabilities are unavailable.");
-        int next = NextOverlayLevel(state, capabilities);
+        var state = _service.Current;
+        var capabilities = state.Probe.Capabilities
+                           ?? throw new InvalidOperationException("RTSS capabilities are unavailable.");
+        var next = NextOverlayLevel(state, capabilities);
         return await _service.SetAsync(
             control,
             next,
@@ -300,14 +300,14 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 null => "RTSS · global profile",
                 { RtssProfileName: { Length: > 0 } profile } => $"RTSS · {profile}",
                 { SteamAppId: { } appId } => $"Steam AppID {appId} · executable pending",
-                _ => "Foreground application · executable pending",
+                _ => "Foreground application · executable pending"
             },
             RtssAvailability.Unknown => "Checking RTSS…",
             RtssAvailability.NotInstalled => "RTSS is not installed.",
             RtssAvailability.NotRunning => "RTSS is not running.",
             RtssAvailability.Incompatible => "The installed RTSS version is not supported.",
             RtssAvailability.AdapterUnavailable => "The RTSS profile API is unavailable.",
-            _ => state.Probe.Diagnostic ?? "RTSS performance controls are unavailable.",
+            _ => state.Probe.Diagnostic ?? "RTSS performance controls are unavailable."
         };
     }
 
@@ -319,19 +319,19 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 $"Application override · {profile}",
             PerformancePolicyLayer.Application => "Application override · executable pending",
             PerformancePolicyLayer.Global => "Global default",
-            _ => "RTSS profile",
+            _ => "RTSS profile"
         };
 
     private static DescriptorRow BuildApplicationRow(PerformanceState state)
     {
-        string trailing = state.Target switch
+        var trailing = state.Target switch
         {
             null => "None",
             { SteamAppId: { } appId } => $"Steam {appId}",
             { RtssProfileName: { Length: > 0 } profile } => profile,
-            _ => "Detected",
+            _ => "Detected"
         };
-        string description = state.Target switch
+        var description = state.Target switch
         {
             null => "No Steam game or usable foreground application is active.",
             { RtssProfileName: { Length: > 0 } profile, SteamAppId: { } appId } =>
@@ -340,7 +340,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 $"Steam AppID {appId} is active; waiting for its foreground executable.",
             { RtssProfileName: { Length: > 0 } profile } =>
                 $"Foreground application profile {profile}.",
-            _ => "An application identity is active but its executable is not known yet.",
+            _ => "An application identity is active but its executable is not known yet."
         };
         return BuildRow(
             "detected-application",
@@ -353,7 +353,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private static DescriptorRow BuildActiveProfileRow(PerformanceState state)
     {
-        string description = state.ApplicationProfileEnabled
+        var description = state.ApplicationProfileEnabled
             ? state.Target?.RtssProfileName is { Length: > 0 } profile
                 ? $"Settings are stored for {profile}."
                 : "Settings are stored for this application and will reach RTSS once its executable is known."
@@ -371,24 +371,24 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private static string FormatFrameLimit(PerformanceState state)
     {
-        int? value = PreferredValue(state, PerformanceControl.FrameLimit);
+        var value = PreferredValue(state, PerformanceControl.FrameLimit);
         return value switch
         {
             null => "Unavailable",
             0 => "Off",
-            _ => string.Create(CultureInfo.InvariantCulture, $"{value} FPS"),
+            _ => string.Create(CultureInfo.InvariantCulture, $"{value} FPS")
         };
     }
 
     private static string FormatOverlayLevel(PerformanceState state)
     {
-        int? value = PreferredValue(state, PerformanceControl.OverlayLevel);
+        var value = PreferredValue(state, PerformanceControl.OverlayLevel);
         return value switch
         {
             0 => "Off",
             1 => "On",
             null => "Unavailable",
-            _ => value.Value.ToString(CultureInfo.InvariantCulture),
+            _ => value.Value.ToString(CultureInfo.InvariantCulture)
         };
     }
 
@@ -414,7 +414,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             }
         }
 
-        PerformanceReadbackQuality quality = control == PerformanceControl.FrameLimit
+        var quality = control == PerformanceControl.FrameLimit
             ? state.FrameLimitQuality
             : state.OverlayLevelQuality;
         return quality switch
@@ -423,7 +423,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             PerformanceReadbackQuality.AppliedUnverified => DescriptorStatus.Warning,
             _ => state.Probe.Availability == RtssAvailability.Ready
                 ? DescriptorStatus.Warning
-                : DescriptorStatus.Unsupported,
+                : DescriptorStatus.Unsupported
         };
     }
 
@@ -441,11 +441,11 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// </remarks>
     private DescriptorRange FrameLimitRange(RtssCapabilities capabilities)
     {
-        int ceiling = Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit);
+        var ceiling = Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit);
         if (_panelFrameLimitRange() is { } panel)
         {
-            int floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
-            int top = Math.Min(panel.Maximum, ceiling);
+            var floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
+            var top = Math.Min(panel.Maximum, ceiling);
             if (top >= floor)
             {
                 return new DescriptorRange(0, top, Step: 1, OffBelow: floor);
@@ -466,8 +466,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private static int NextOverlayLevel(PerformanceState state, RtssCapabilities capabilities)
     {
-        int current = PreferredValue(state, PerformanceControl.OverlayLevel) ?? int.MinValue;
-        int[] choices = capabilities.OverlayLevels.Order().ToArray();
+        var current = PreferredValue(state, PerformanceControl.OverlayLevel) ?? int.MinValue;
+        var choices = capabilities.OverlayLevels.Order().ToArray();
         if (choices.Length == 0)
         {
             throw new InvalidOperationException("RTSS published no usable overlay levels.");

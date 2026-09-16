@@ -54,5 +54,5 @@ public enum DeviceCycleState
     /// keeps a working controller, while desired state is retained because a fault is not a change of
     /// intent.
     /// </remarks>
-    Faulted,
+    Faulted
 }

@@ -71,7 +71,7 @@ public enum CommandOutcome
     TimedOut,
 
     /// <summary>Interrupted mid-operation. Whether it was applied is unknown.</summary>
-    Indeterminate,
+    Indeterminate
 }
 
 /// <summary>
@@ -118,5 +118,5 @@ public enum RollbackResult
     RestoredUnverified,
 
     /// <summary>The restore failed. The resource is faulted and journalled for reconciliation.</summary>
-    RestoreFailed,
+    RestoreFailed
 }

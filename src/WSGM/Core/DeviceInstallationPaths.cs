@@ -10,7 +10,7 @@ internal static class DeviceInstallationPaths
     {
         get
         {
-            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             if (string.IsNullOrWhiteSpace(programFiles))
             {
                 throw new DirectoryNotFoundException(

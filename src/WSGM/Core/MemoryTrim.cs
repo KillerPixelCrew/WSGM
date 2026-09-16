@@ -1,5 +1,6 @@
 using System;
 using System.Runtime;
+using WSGM.Interop;
 
 namespace WSGM.Core;
 
@@ -19,7 +20,7 @@ public static class MemoryTrim
             GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
             GC.WaitForPendingFinalizers();
-            Interop.NativeMethods.EmptyWorkingSet(Interop.NativeMethods.GetCurrentProcess());
+            NativeMethods.EmptyWorkingSet(NativeMethods.GetCurrentProcess());
             var after = Environment.WorkingSet;
             Log.Info($"Memory trimmed ({reason}): working set {before / (1024 * 1024)} -> {after / (1024 * 1024)} MB.");
         }

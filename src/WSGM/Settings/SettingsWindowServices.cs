@@ -21,7 +21,7 @@ internal sealed record SettingsWindowServices(
     internal static SettingsWindowServices Create(SettingsViewModel viewModel)
     {
         GamepadService gamepad = new();
-        return new(gamepad, gamepad.Start, gamepad.Stop,
+        return new SettingsWindowServices(gamepad, gamepad.Start, gamepad.Stop,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             viewModel.RefreshDeviceOwnerStatusAsync, () => ConfigStore.Load().AccentColor,
             SteamInputBlocker.ClaimFor, SteamInputBlocker.AcquireFor, SteamInputBlocker.ReleaseFor);

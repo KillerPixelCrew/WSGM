@@ -1,6 +1,7 @@
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -9,9 +10,9 @@ public sealed class HybridCoreTests
     [Fact]
     public void ANonHybridMachineOffersNothing()
     {
-        FakeHybridCoreApi api = new() { Classes = [new(0, 8, 16)] };
+        FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 8, 16)] };
 
-        HybridCoreStatus status = new HybridCores(api).Read();
+        var status = new HybridCores(api).Read();
 
         Assert.False(status.Supported);
         Assert.Empty(status.Options);
@@ -29,9 +30,9 @@ public sealed class HybridCoreTests
     public void CoresAreCountedWithTheHighestEfficiencyClassAsThePerformanceOne()
     {
         // Lunar Lake reports two classes: four performance cores and four low-power efficiency ones.
-        FakeHybridCoreApi api = new() { Classes = [new(0, 4, 4), new(1, 4, 4)] };
+        FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 4, 4), new HybridCoreClass(1, 4, 4)] };
 
-        HybridCoreStatus status = new HybridCores(api).Read();
+        var status = new HybridCores(api).Read();
 
         Assert.Equal(4, status.PerformanceCores);
         Assert.Equal(4, status.EfficiencyCores);
@@ -40,9 +41,9 @@ public sealed class HybridCoreTests
     [Fact]
     public void EveryClassBelowTheTopCountsAsEfficiency()
     {
-        FakeHybridCoreApi api = new() { Classes = [new(0, 4, 4), new(1, 8, 8), new(2, 2, 4)] };
+        FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 4, 4), new HybridCoreClass(1, 8, 8), new HybridCoreClass(2, 2, 4)] };
 
-        HybridCoreStatus status = new HybridCores(api).Read();
+        var status = new HybridCores(api).Read();
 
         Assert.Equal(2, status.PerformanceCores);
         Assert.Equal(12, status.EfficiencyCores);
@@ -57,8 +58,8 @@ public sealed class HybridCoreTests
             Policies =
             [
                 HybridSchedulingPolicy.Automatic,
-                HybridSchedulingPolicy.PreferPerformantProcessors,
-            ],
+                HybridSchedulingPolicy.PreferPerformantProcessors
+            ]
         };
 
         var modes = new HybridCores(api).Read().Options.Select(option => option.Mode).ToArray();
@@ -75,12 +76,12 @@ public sealed class HybridCoreTests
             (HybridSchedulingPolicy.PreferPerformantProcessors, HybridCoreMode.PreferPerformance),
             (HybridSchedulingPolicy.PreferEfficientProcessors, HybridCoreMode.PreferEfficiency),
             (HybridSchedulingPolicy.PerformantProcessors, HybridCoreMode.PerformanceOnly),
-            (HybridSchedulingPolicy.EfficientProcessors, HybridCoreMode.EfficiencyOnly),
+            (HybridSchedulingPolicy.EfficientProcessors, HybridCoreMode.EfficiencyOnly)
         ];
 
-        foreach ((HybridSchedulingPolicy policy, HybridCoreMode mode) in expected)
+        foreach (var (policy, mode) in expected)
         {
-            Assert.Equal(mode, HybridCores.ModeFor(new(0, policy, policy)));
+            Assert.Equal(mode, HybridCores.ModeFor(new HybridCoreState(0, policy, policy)));
         }
     }
 
@@ -89,7 +90,7 @@ public sealed class HybridCoreTests
     {
         // Ordinary threads steered one way and short-lived threads another is a placement WSGM
         // never writes, so reporting it as one of WSGM's modes would claim WSGM put it there.
-        Assert.Null(HybridCores.ModeFor(new(
+        Assert.Null(HybridCores.ModeFor(new HybridCoreState(
             0,
             HybridSchedulingPolicy.PreferPerformantProcessors,
             HybridSchedulingPolicy.PreferEfficientProcessors)));
@@ -97,14 +98,14 @@ public sealed class HybridCoreTests
 
     [Fact]
     public void APolicyValueWindowsDoesNotNameIsNoOfferedMode()
-        => Assert.Null(HybridCores.ModeFor(new(0, (HybridSchedulingPolicy)9, (HybridSchedulingPolicy)9)));
+        => Assert.Null(HybridCores.ModeFor(new HybridCoreState(0, (HybridSchedulingPolicy)9, (HybridSchedulingPolicy)9)));
 
     [Fact]
     public void AllProcessorsIsReportedAsUnknownRatherThanAsAutomatic()
     {
         // Windows names 0 "all processors" and 5 "automatic"; they are different placements and
         // only the second is what WSGM's Automatic writes.
-        Assert.Null(HybridCores.ModeFor(new(
+        Assert.Null(HybridCores.ModeFor(new HybridCoreState(
             0, HybridSchedulingPolicy.AllProcessors, HybridSchedulingPolicy.AllProcessors)));
     }
 
@@ -112,12 +113,12 @@ public sealed class HybridCoreTests
     public void TheEffectiveModeIsReadSeparatelyForEachPowerSource()
     {
         FakeHybridCoreApi api = new();
-        api.States[false] = new(0, HybridSchedulingPolicy.PreferPerformantProcessors,
+        api.States[false] = new HybridCoreState(0, HybridSchedulingPolicy.PreferPerformantProcessors,
             HybridSchedulingPolicy.PreferPerformantProcessors);
-        api.States[true] = new(4, HybridSchedulingPolicy.PreferEfficientProcessors,
+        api.States[true] = new HybridCoreState(4, HybridSchedulingPolicy.PreferEfficientProcessors,
             HybridSchedulingPolicy.PreferEfficientProcessors);
 
-        HybridCoreStatus status = new HybridCores(api).Read();
+        var status = new HybridCores(api).Read();
 
         Assert.Equal(HybridCoreMode.PreferPerformance, status.OnAc);
         Assert.Equal(HybridCoreMode.PreferEfficiency, status.OnBattery);
@@ -171,7 +172,7 @@ public sealed class HybridCoreTests
 
         new HybridCores(api).Apply(HybridCoreMode.PreferPerformance);
 
-        int refresh = api.Calls.IndexOf("refresh");
+        var refresh = api.Calls.IndexOf("refresh");
         Assert.True(refresh >= 0);
         Assert.True(api.Calls.LastIndexOf("write") < refresh);
         Assert.True(api.Calls.LastIndexOf("read") > refresh);
@@ -200,21 +201,21 @@ public sealed class HybridCoreTests
     public void AnUnsupportedMachineSaysThereIsNothingToChoose()
         => Assert.Contains(
             "nothing to choose",
-            HybridCoreSelection.Describe(new(false, 0, 0, [], null, null)),
+            HybridCoreSelection.Describe(new HybridCoreStatus(false, 0, 0, [], null, null)),
             StringComparison.Ordinal);
 
     [Fact]
     public void TheCoreCountsAreReportedInTheDescription()
         => Assert.Contains(
             "4 performance and 4 efficiency cores",
-            HybridCoreSelection.Describe(new(true, 4, 4, [], HybridCoreMode.Automatic, HybridCoreMode.Automatic)),
+            HybridCoreSelection.Describe(new HybridCoreStatus(true, 4, 4, [], HybridCoreMode.Automatic, HybridCoreMode.Automatic)),
             StringComparison.Ordinal);
 
     [Fact]
     public async Task TheSteamDropdownAndTheOverlayShareOneIdVocabularyAndOnePolicy()
     {
         FakeHybridCoreApi api = new();
-        var qam = new WSGM.Shell.NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(new HybridCores(api));
 
         var state = await qam.ReadAsync();
 
@@ -233,7 +234,7 @@ public sealed class HybridCoreTests
     public async Task TheSteamDropdownRefusesAnIdItNeverPublished()
     {
         FakeHybridCoreApi api = new();
-        var qam = new WSGM.Shell.NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(new HybridCores(api));
         await qam.ReadAsync();
 
         Assert.False((await qam.SetHybridCoresAsync("turbo", default)).Succeeded);
@@ -246,11 +247,11 @@ public sealed class HybridCoreTests
         // The same rule the power-profile row follows: after a write Windows did not confirm, WSGM
         // does not know what is applied, and a second write on top of that is a guess.
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
-        var qam = new WSGM.Shell.NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(new HybridCores(api));
         await qam.ReadAsync();
 
         Assert.False((await qam.SetHybridCoresAsync("efficiency-only", default)).Succeeded);
-        SteamUiCommandResult second = await qam.SetHybridCoresAsync("efficiency-only", default);
+        var second = await qam.SetHybridCoresAsync("efficiency-only", default);
 
         Assert.False(second.Succeeded);
         Assert.Contains("must be refreshed", second.Error!, StringComparison.Ordinal);
@@ -260,8 +261,8 @@ public sealed class HybridCoreTests
     public async Task ANonHybridMachinePublishesTheRowAsUnavailableRatherThanWithholdingIt()
     {
         // A silently absent control cannot be told apart from a broken one.
-        FakeHybridCoreApi api = new() { Classes = [new(0, 8, 16)] };
-        var qam = new WSGM.Shell.NativeQamHybridCoreService(new HybridCores(api));
+        FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 8, 16)] };
+        var qam = new NativeQamHybridCoreService(new HybridCores(api));
 
         var state = await qam.ReadAsync();
 
@@ -273,9 +274,9 @@ public sealed class HybridCoreTests
     [Fact]
     public void EveryOfferedModeHasAnIdThatRoundTripsAndFitsTheBridgeRules()
     {
-        foreach (HybridCoreOption option in new HybridCores(new FakeHybridCoreApi()).Read().Options)
+        foreach (var option in new HybridCores(new FakeHybridCoreApi()).Read().Options)
         {
-            string id = HybridCores.IdFor(option.Mode);
+            var id = HybridCores.IdFor(option.Mode);
             Assert.Matches("^[A-Za-z0-9._-]{1,64}$", id);
             Assert.Equal(option.Mode, HybridCores.ModeForId(id));
         }

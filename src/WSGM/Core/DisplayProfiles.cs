@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
 using Microsoft.Win32;
 using WindowsDeviceControl;
 using static WSGM.Interop.NativeDisplay;
@@ -106,7 +107,7 @@ public static unsafe class DisplayProfiles
         }
 
         HashSet<CandidateMode> enumerated = [];
-        foreach (PrimaryDisplayMode mode in DisplayModes.EnumeratePrimaryModes())
+        foreach (var mode in DisplayModes.EnumeratePrimaryModes())
         {
             if (keep(mode, current))
             {
@@ -116,14 +117,14 @@ public static unsafe class DisplayProfiles
 
         List<CandidateMode> accepted = [];
         List<string> refused = [];
-        foreach (CandidateMode mode in enumerated
+        foreach (var mode in enumerated
             .OrderBy(entry => (long)entry.Width * entry.Height)
             .ThenBy(entry => entry.Width)
             .ThenBy(entry => entry.RefreshHz))
         {
-            bool isCurrent = mode.Width == current.Width
-                && mode.Height == current.Height
-                && mode.RefreshHz == current.RefreshHz;
+            var isCurrent = mode.Width == current.Width
+                            && mode.Height == current.Height
+                            && mode.RefreshHz == current.RefreshHz;
             if (isCurrent || DisplayModes.TestPrimaryMode(mode.Width, mode.Height, mode.RefreshHz))
             {
                 accepted.Add(mode);
@@ -207,8 +208,8 @@ public static unsafe class DisplayProfiles
             return true;
         }
 
-        PrimaryDisplayMode target = retarget(current);
-        int status = DisplayModes.ApplyPrimaryModeTransient(target.Width, target.Height, target.RefreshHz);
+        var target = retarget(current);
+        var status = DisplayModes.ApplyPrimaryModeTransient(target.Width, target.Height, target.RefreshHz);
         if (status != 0)
         {
             Log.Warn($"Display modes: {what} refused with status {status} (was {was(current)}).");
@@ -243,7 +244,7 @@ public static unsafe class DisplayProfiles
     /// </remarks>
     public static IReadOnlyList<int> ReadAdvertisedRefreshRates()
     {
-        string? instance = ReadPrimaryMonitorInstanceId();
+        var instance = ReadPrimaryMonitorInstanceId();
         if (instance is null)
         {
             Log.Warn("Display modes: primary monitor instance unreadable; no advertised rates.");
@@ -252,7 +253,7 @@ public static unsafe class DisplayProfiles
 
         try
         {
-            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(
+            using var key = Registry.LocalMachine.OpenSubKey(
                 $@"SYSTEM\CurrentControlSet\Enum\{instance}\Device Parameters");
             if (key?.GetValue("EDID") is not byte[] edid)
             {
@@ -260,11 +261,11 @@ public static unsafe class DisplayProfiles
                 return [];
             }
 
-            IReadOnlyList<int> rates = EdidModes.ReadAdvertisedRefreshRates(edid);
+            var rates = EdidModes.ReadAdvertisedRefreshRates(edid);
             Log.Info($"Display modes: panel advertises [{string.Join(",", rates)}].");
             return rates;
         }
-        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException)
         {
             Log.Warn($"Display modes: EDID unreadable for '{instance}': {ex.Message}");
             return [];
@@ -297,15 +298,15 @@ public static unsafe class DisplayProfiles
             }
 
             // \\?\DISPLAY#CSW0801#4&8f346&1&UID8388688#{guid} -> DISPLAY\CSW0801\4&8f346&1&UID8388688
-            string id = FixedString(monitor.DeviceId, 128);
-            int start = id.IndexOf("DISPLAY#", StringComparison.OrdinalIgnoreCase);
+            var id = FixedString(monitor.DeviceId, 128);
+            var start = id.IndexOf("DISPLAY#", StringComparison.OrdinalIgnoreCase);
             if (start < 0)
             {
                 return null;
             }
 
-            string trimmed = id[start..];
-            int guid = trimmed.IndexOf("#{", StringComparison.Ordinal);
+            var trimmed = id[start..];
+            var guid = trimmed.IndexOf("#{", StringComparison.Ordinal);
             if (guid > 0)
             {
                 trimmed = trimmed[..guid];

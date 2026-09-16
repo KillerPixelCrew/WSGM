@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Media.Immutable;
 using Avalonia.Platform;
 using WSGM.Core;
+using Path = Avalonia.Controls.Shapes.Path;
 
 namespace WSGM.Overlay;
 
@@ -68,7 +69,7 @@ public sealed partial class GlyphIcon : ContentControl
     }
 
     /// <inheritdoc />
-    protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         if (Content is null)
@@ -83,12 +84,12 @@ public sealed partial class GlyphIcon : ContentControl
         {
             GlyphStyle.PlayStation => "playstation",
             GlyphStyle.Nintendo => "nintendo",
-            _ => "xbox",
+            _ => "xbox"
         };
 
         try
         {
-            string key = $"{styleName}/{Button}";
+            var key = $"{styleName}/{Button}";
             if (!ParsedGlyphs.TryGetValue(key, out var paths))
             {
                 var uri = new Uri($"avares://WSGM/Assets/Glyphs/{key}.svg");
@@ -120,7 +121,7 @@ public sealed partial class GlyphIcon : ContentControl
             {
                 // Default fill rule (EvenOdd) turns inner subpaths (letters,
                 // symbols) into holes — matching how these SVGs are drawn.
-                canvas.Children.Add(new Avalonia.Controls.Shapes.Path { Data = data, Fill = fill });
+                canvas.Children.Add(new Path { Data = data, Fill = fill });
             }
 
             if (canvas.Children.Count == 0)

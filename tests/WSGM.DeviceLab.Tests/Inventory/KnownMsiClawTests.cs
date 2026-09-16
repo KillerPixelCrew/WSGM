@@ -9,8 +9,8 @@ public sealed class KnownMsiClawTests
     [Fact]
     public void KnownMsiClaw_ExactFingerprintOwnsExactlyFiveCompiledReadProbes()
     {
-        KnownDeviceFingerprint fingerprint = KnownMsiClaw.Create();
-        CandidateAssessment exact = KnownDeviceMatcher.Assess(
+        var fingerprint = KnownMsiClaw.Create();
+        var exact = KnownDeviceMatcher.Assess(
             Inventory(fingerprint),
             fingerprint,
             fingerprint.DeviceId);
@@ -24,9 +24,9 @@ public sealed class KnownMsiClawTests
             Assert.True(BuiltInReadProbeRegistry.TryResolve(probe.Id, probe.Version, out _));
         });
 
-        MachineInventory mismatch = Inventory(fingerprint) with
+        var mismatch = Inventory(fingerprint) with
         {
-            Firmware = Inventory(fingerprint).Firmware with { BaseboardProduct = "NOT-MS-1T52" },
+            Firmware = Inventory(fingerprint).Firmware with { BaseboardProduct = "NOT-MS-1T52" }
         };
         Assert.False(KnownDeviceMatcher.Assess(
             mismatch,
@@ -37,21 +37,21 @@ public sealed class KnownMsiClawTests
     [Fact]
     public void KnownMsiClaw_UnavailableWmiNamespaceDoesNotSatisfyTheExactProviderGate()
     {
-        KnownDeviceFingerprint fingerprint = KnownMsiClaw.Create();
-        MachineInventory inventory = Inventory(fingerprint);
-        MachineInventory unavailable = inventory with
+        var fingerprint = KnownMsiClaw.Create();
+        var inventory = Inventory(fingerprint);
+        var unavailable = inventory with
         {
             WmiClasses =
             [
-                inventory.WmiClasses[0] with { Access = WmiAccess.NamespaceUnavailable },
-            ],
+                inventory.WmiClasses[0] with { Access = WmiAccess.NamespaceUnavailable }
+            ]
         };
-        MachineInventory accessDenied = inventory with
+        var accessDenied = inventory with
         {
             WmiClasses =
             [
-                inventory.WmiClasses[0] with { Access = WmiAccess.AccessDenied },
-            ],
+                inventory.WmiClasses[0] with { Access = WmiAccess.AccessDenied }
+            ]
         };
 
         Assert.False(KnownDeviceMatcher.Assess(
@@ -67,21 +67,21 @@ public sealed class KnownMsiClawTests
     [Fact]
     public void PluginIdentity_UnavailableWmiNamespaceDoesNotClaimAProviderSignature()
     {
-        KnownDeviceFingerprint fingerprint = KnownMsiClaw.Create();
-        MachineInventory inventory = Inventory(fingerprint);
-        MachineInventory unavailable = inventory with
+        var fingerprint = KnownMsiClaw.Create();
+        var inventory = Inventory(fingerprint);
+        var unavailable = inventory with
         {
             WmiClasses =
             [
-                inventory.WmiClasses[0] with { Access = WmiAccess.NamespaceUnavailable },
-            ],
+                inventory.WmiClasses[0] with { Access = WmiAccess.NamespaceUnavailable }
+            ]
         };
-        MachineInventory accessDenied = inventory with
+        var accessDenied = inventory with
         {
             WmiClasses =
             [
-                inventory.WmiClasses[0] with { Access = WmiAccess.AccessDenied },
-            ],
+                inventory.WmiClasses[0] with { Access = WmiAccess.AccessDenied }
+            ]
         };
 
         string[] expected = [$"{fingerprint.WmiNamespace}:{fingerprint.WmiClass}"];
@@ -96,7 +96,7 @@ public sealed class KnownMsiClawTests
         {
             SystemManufacturer = fingerprint.SystemManufacturer,
             BaseboardProduct = fingerprint.BaseboardProduct,
-            SystemSku = fingerprint.SystemSku,
+            SystemSku = fingerprint.SystemSku
         },
         UsbInterfaces =
         [
@@ -106,8 +106,8 @@ public sealed class KnownMsiClawTests
                 VendorId = fingerprint.UsbVendorId,
                 ProductId = fingerprint.UsbProductIds[0],
                 DeviceRelease = fingerprint.UsbDeviceRelease,
-                Present = true,
-            },
+                Present = true
+            }
         ],
         WmiClasses =
         [
@@ -115,9 +115,9 @@ public sealed class KnownMsiClawTests
             {
                 Namespace = fingerprint.WmiNamespace,
                 ClassName = fingerprint.WmiClass,
-                Access = WmiAccess.Available,
-            },
+                Access = WmiAccess.Available
+            }
         ],
-        CapturedAt = DateTimeOffset.UnixEpoch,
+        CapturedAt = DateTimeOffset.UnixEpoch
     };
 }

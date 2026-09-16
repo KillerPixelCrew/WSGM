@@ -45,7 +45,7 @@ public sealed record HapticOutputFrame
     public static HapticOutputFrame Stop(long targetGeneration, DateTimeOffset timestamp) => new()
     {
         TargetGeneration = targetGeneration,
-        Timestamp = timestamp,
+        Timestamp = timestamp
     };
 
     /// <summary>Whether this frame commands no output at all.</summary>
@@ -66,7 +66,7 @@ public enum OutputChannelSupport
     Native,
 
     /// <summary>The channel is not present and its output is discarded.</summary>
-    Unsupported,
+    Unsupported
 }
 
 /// <summary>What the physical device can do with output.</summary>
@@ -122,7 +122,7 @@ public sealed record HapticCapabilities
             LowFrequency = LowFrequency is OutputChannelSupport.Native ? frame.LowFrequency : 0,
             HighFrequency = HighFrequency is OutputChannelSupport.Native ? frame.HighFrequency : 0,
             LeftTrigger = LeftTrigger is OutputChannelSupport.Native ? frame.LeftTrigger : 0,
-            RightTrigger = RightTrigger is OutputChannelSupport.Native ? frame.RightTrigger : 0,
+            RightTrigger = RightTrigger is OutputChannelSupport.Native ? frame.RightTrigger : 0
         };
     }
 }

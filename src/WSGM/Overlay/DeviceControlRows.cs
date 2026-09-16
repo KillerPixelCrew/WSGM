@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
@@ -67,9 +70,9 @@ internal static class DeviceControlRows
             Focusable = enabled,
             HorizontalAlignment = HorizontalAlignment.Right,
             OffContent = null,
-            OnContent = null,
+            OnContent = null
         };
-        bool syncing = true;
+        var syncing = true;
         toggle.IsCheckedChanged += (_, _) =>
         {
             if (syncing)
@@ -102,21 +105,21 @@ internal static class DeviceControlRows
         Action<string> onChanged)
     {
         ArgumentNullException.ThrowIfNull(onChanged);
-        List<ChoiceItem> items = choices
+        var items = choices
             .Select(choice => new ChoiceItem(choice.Value, LabelFor(choice)))
             .ToList();
         var combo = new ComboBox
         {
             ItemsSource = items,
-            DisplayMemberBinding = new Avalonia.Data.Binding(nameof(ChoiceItem.Label)),
+            DisplayMemberBinding = new Binding(nameof(ChoiceItem.Label)),
             SelectedIndex = Math.Max(0, items.FindIndex(item =>
                 string.Equals(item.Value, selected, StringComparison.Ordinal))),
             IsEnabled = enabled,
             Focusable = enabled,
             MinWidth = 160,
-            HorizontalAlignment = HorizontalAlignment.Right,
+            HorizontalAlignment = HorizontalAlignment.Right
         };
-        bool syncing = true;
+        var syncing = true;
         combo.SelectionChanged += (_, _) =>
         {
             if (syncing || combo.SelectedItem is not ChoiceItem item)
@@ -149,18 +152,18 @@ internal static class DeviceControlRows
         Action<string> onCommit)
     {
         ArgumentNullException.ThrowIfNull(onCommit);
-        string draft = text ?? string.Empty;
-        var editor = new WSGM.Controls.CardButton
+        var draft = text ?? string.Empty;
+        var editor = new CardButton
         {
             Title = title,
             Description = draft,
             Tag = key,
             IsEnabled = enabled,
-            IconGeometry = WSGM.Controls.Icons.Gear,
+            IconGeometry = Icons.Gear
         };
         editor.Click += (_, _) =>
         {
-            if (!WSGM.Core.KeyboardService.Request(title, draft, maximumLength ?? 4096, value =>
+            if (!KeyboardService.Request(title, draft, maximumLength ?? 4096, value =>
             {
                 draft = value;
                 editor.Description = value;

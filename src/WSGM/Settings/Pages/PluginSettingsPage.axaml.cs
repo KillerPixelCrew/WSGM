@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -123,7 +124,7 @@ public partial class PluginSettingsPage : UserControl
         SettingsWindow window,
         string initial,
         string title,
-        System.Action<string> apply) =>
+        Action<string> apply) =>
         window.ShowOnScreenKeyboard(initial, 9, title, value =>
         {
             if (!Color.TryParse(value, out _))

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Layout;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
@@ -27,7 +28,7 @@ public partial class OverlayWindow
         }
 
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
-        PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();
+        var snapshot = _performanceSource?.Snapshot();
         PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
         DevicePerformanceCard.IsVisible = PerformanceSection.IsVisible && _navigation.IsVisible(OverlayDestination.Device);
         // The Tools root offers Performance only while the rows live there: with Device visible they
@@ -52,14 +53,14 @@ public partial class OverlayWindow
         }
 
         PerformanceRows.Children.Clear();
-        string? focusedKey = CurrentSemanticFocusKey();
+        var focusedKey = CurrentSemanticFocusKey();
         DescriptorStatusRow? restoreFocus = null;
         // On Device the per-application enable toggle is promoted to the headline toggle on the root,
         // so the Power and thermals rows are the detail (detected application, active layer, reset)
         // plus the shared frame-limit and overlay rows. On System there is no Device root to host the
         // toggle, so it stays inline with the rest.
-        bool onDevice = _navigation.IsVisible(OverlayDestination.Device);
-        IEnumerable<DescriptorRow> descriptors = onDevice
+        var onDevice = _navigation.IsVisible(OverlayDestination.Device);
+        var descriptors = onDevice
             ? snapshot.ProfileRows
                 .Where(row => !string.Equals(
                     row.Id,
@@ -70,17 +71,17 @@ public partial class OverlayWindow
 
         StackPanel details = new() { Spacing = 4 };
 
-        foreach (DescriptorRow descriptor in descriptors)
+        foreach (var descriptor in descriptors)
         {
             Panel target = onDevice && snapshot.ProfileRows.Contains(descriptor) ? details : PerformanceRows;
-            string key = $"performance.{descriptor.Id}";
+            var key = $"performance.{descriptor.Id}";
             if (TryCreatePerformanceControl(descriptor, key) is { } control)
             {
                 target.Children.Add(control);
                 continue;
             }
 
-            DescriptorStatusRow button = CreatePerformanceRow(descriptor, key);
+            var button = CreatePerformanceRow(descriptor, key);
             target.Children.Add(button);
             if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
             {
@@ -95,8 +96,8 @@ public partial class OverlayWindow
                 Header = "Profile details and reset",
                 Content = details,
                 IsExpanded = _performanceDetailsExpanded,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
             };
             more.PropertyChanged += (_, change) =>
             { if (change.Property == Expander.IsExpandedProperty) { _performanceDetailsExpanded = more.IsExpanded; } };
@@ -143,10 +144,10 @@ public partial class OverlayWindow
                     new CapabilityDisplay
                     {
                         Key = DisplayKey.Custom,
-                        CustomLabel = option.Label,
+                        CustomLabel = option.Label
                     }))];
-            string? selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
-            (Border row, _) = DeviceControlRows.Choice(
+            var selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
+            var (row, _) = DeviceControlRows.Choice(
                 key,
                 descriptor.Title,
                 descriptor.Description,
@@ -155,7 +156,7 @@ public partial class OverlayWindow
                 descriptor.CanInvoke,
                 value =>
                 {
-                    if (int.TryParse(value, CultureInfo.InvariantCulture, out int level))
+                    if (int.TryParse(value, CultureInfo.InvariantCulture, out var level))
                     {
                         WritePerformanceValue(descriptor.Id, level);
                     }
@@ -182,7 +183,7 @@ public partial class OverlayWindow
 
     private void WritePerformanceValue(string rowId, int value)
     {
-        PerformanceOverlayBridge? source = _performanceSource;
+        var source = _performanceSource;
         if (source is null || _closed)
         {
             return;
@@ -215,7 +216,7 @@ public partial class OverlayWindow
         button.Apply(descriptor with { Id = focusKey });
         button.Click += async (_, _) =>
         {
-            PerformanceOverlayBridge? source = _performanceSource;
+            var source = _performanceSource;
             if (source is null || _closed || !descriptor.CanInvoke)
             {
                 return;
@@ -244,7 +245,7 @@ public partial class OverlayWindow
         Func<CancellationToken, Task> command,
         string failure)
     {
-        bool restoreAfterInvoke = restoreFocus && button.IsFocused;
+        var restoreAfterInvoke = restoreFocus && button.IsFocused;
         button.IsEnabled = false;
         try
         {
@@ -277,7 +278,7 @@ public partial class OverlayWindow
     /// serves its overview and Power page, beside the Windows and device power controls.</remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
-        StackPanel target = deviceVisible ? DevicePerformanceColumn : PanelSystemPerformance;
+        var target = deviceVisible ? DevicePerformanceColumn : PanelSystemPerformance;
         if (!target.Children.Contains(PerformanceSection))
         {
             DevicePerformanceColumn.Children.Remove(PerformanceSection);

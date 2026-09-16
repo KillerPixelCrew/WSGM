@@ -12,7 +12,7 @@ internal enum SteamPhysicalRestoreResult
 {
     Restored,
     OwnerChanged,
-    Unverified,
+    Unverified
 }
 
 /// <summary>Owns native claims around the device coordinator's physical handoff.</summary>
@@ -101,8 +101,8 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
             // With Steam confirmed exited, no native reader remains to block. Its old pipe
             // cannot acknowledge a transition, and must not prevent physical restoration.
             _gate.Dispose();
-            bool restoredWithoutSteam = !_usesPhysical
-                || await _restorePhysical(cancellationToken).ConfigureAwait(false) != SteamPhysicalRestoreResult.Unverified;
+            var restoredWithoutSteam = !_usesPhysical
+                                       || await _restorePhysical(cancellationToken).ConfigureAwait(false) != SteamPhysicalRestoreResult.Unverified;
             await _captureUi(false, cancellationToken).ConfigureAwait(false);
             return restoredWithoutSteam;
         }
@@ -110,7 +110,7 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
         {
             return false;
         }
-        SteamPhysicalRestoreResult restored = _usesPhysical
+        var restored = _usesPhysical
             ? await _restorePhysical(cancellationToken).ConfigureAwait(false) : SteamPhysicalRestoreResult.Restored;
         if (restored == SteamPhysicalRestoreResult.OwnerChanged)
         {
@@ -182,7 +182,7 @@ internal sealed class NativeSteamControllerGate : ISteamControllerGate
         // A game lease may have ended during the surface interaction. Own a temporary block
         // independently so Steam cannot keep reading while physical acquisition returns to WSGM.
         _transitionLease = _client.Acquire();
-        SteamInputPassThrough claim = _passThrough;
+        var claim = _passThrough;
         _passThrough = null;
         SteamInputStatus status;
         if (OriginalSteamExited)
@@ -224,11 +224,11 @@ internal sealed class NativeSteamControllerGate : ISteamControllerGate
 
     private static Process? FindSteamProcess()
     {
-        Process[] processes = Process.GetProcessesByName("steam");
+        var processes = Process.GetProcessesByName("steam");
         Process? selected = null;
         try
         {
-            Process[] candidates = processes.Where(process => process.SessionId == WindowFinder.CurrentSessionId).ToArray();
+            var candidates = processes.Where(process => process.SessionId == WindowFinder.CurrentSessionId).ToArray();
             if (candidates.Length > 1)
             {
                 throw new InvalidOperationException("Steam process identity is ambiguous in this session.");
@@ -238,7 +238,7 @@ internal sealed class NativeSteamControllerGate : ISteamControllerGate
         }
         finally
         {
-            foreach (Process process in processes)
+            foreach (var process in processes)
             {
                 if (!ReferenceEquals(process, selected)) { process.Dispose(); }
             }

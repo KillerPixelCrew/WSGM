@@ -36,9 +36,9 @@ public sealed class RtssLauncherTests
             RtssAvailability.Degraded,
             RtssAvailability.Unknown,
             RtssAvailability.AdapterUnavailable,
-            RtssAvailability.Ready,
+            RtssAvailability.Ready
         ];
-        foreach (RtssAvailability availability in others)
+        foreach (var availability in others)
         {
             Assert.False(RtssLauncher.ShouldStart(Probe(availability), enabled: true));
         }
@@ -56,7 +56,7 @@ public sealed class RtssLauncherTests
     {
         // The path comes from discovery, which only accepts a signed RTSS under a protected install
         // root. Without one there is nothing WSGM is willing to launch.
-        RtssProbe probe = Probe(RtssAvailability.NotRunning) with { ExecutablePath = null };
+        var probe = Probe(RtssAvailability.NotRunning) with { ExecutablePath = null };
 
         Assert.False(RtssLauncher.ShouldStart(probe, enabled: true));
     }
@@ -85,7 +85,7 @@ public sealed class RtssLauncherTests
         // The probe runs on every poll. Immediate retries would mean launching a single-instance
         // program repeatedly, which at best wastes work and at worst produces the "multiple
         // processes match" case discovery already treats as degraded.
-        int starts = 0;
+        var starts = 0;
         ManualTimeProvider clock = new(DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
         RtssLauncher launcher = new(
             _ =>
@@ -95,7 +95,7 @@ public sealed class RtssLauncherTests
             },
             clock);
 
-        RtssProbe probe = Probe(RtssAvailability.NotRunning);
+        var probe = Probe(RtssAvailability.NotRunning);
         Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
         Assert.False(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
         clock.Now += RtssLauncher.RestartCooldown - TimeSpan.FromSeconds(1);
@@ -111,7 +111,7 @@ public sealed class RtssLauncherTests
         // RTSS's window has no close-to-tray, so one accidental X used to end the frame limit, OSD
         // and AutoTDP frametimes for the rest of the session. A later NotRunning probe past the
         // cooldown starts it again; the probe state already guarantees no second copy exists.
-        int starts = 0;
+        var starts = 0;
         ManualTimeProvider clock = new(DateTimeOffset.Parse("2026-09-02T12:00:00Z"));
         RtssLauncher launcher = new(
             _ =>
@@ -121,7 +121,7 @@ public sealed class RtssLauncherTests
             },
             clock);
 
-        RtssProbe probe = Probe(RtssAvailability.NotRunning);
+        var probe = Probe(RtssAvailability.NotRunning);
         Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
         clock.Now += RtssLauncher.RestartCooldown;
         Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));

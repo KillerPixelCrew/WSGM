@@ -142,7 +142,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             {
                 try
                 {
-                    AppConfig persisted = ConfigStore.Mutate(
+                    var persisted = ConfigStore.Mutate(
                         config => CacheDeclaration(config, device, plugin, manifest));
                     lock (_gate)
                     {
@@ -170,8 +170,8 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         PluginSettingsManifest manifest
     )
     {
-        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
-        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
+        var scopes = config.DeviceIntegration.PluginSettings;
+        var scope = scopes.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, device, StringComparison.Ordinal)
             && string.Equals(candidate.PluginId, plugin, StringComparison.Ordinal));
         if (scope is null)
@@ -183,7 +183,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         // Only the active scope may describe the page. Keep older scopes' authored values and
         // profiles for a future device match, but clear their presentation cache so Settings never
         // renders a declaration from a device definition that is no longer active.
-        foreach (PluginSettingsScope candidate in scopes)
+        foreach (var candidate in scopes)
         {
             if (!ReferenceEquals(candidate, scope))
             {
@@ -216,8 +216,8 @@ internal sealed class PluginSettingsCoordinator : IDisposable
                 return;
             }
 
-            PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(manifest, stored);
-            foreach (EffectivePluginSetting rejected in resolution.Values.Where(
+            var resolution = PluginSettingsResolver.Resolve(manifest, stored);
+            foreach (var rejected in resolution.Values.Where(
                 value => value.Origin is PluginSettingOrigin.Rejected))
             {
                 Log.Warn(
@@ -267,11 +267,11 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         PluginSettingsResolution resolution
     )
     {
-        Dictionary<string, CapabilityValue> byId = resolution.Values.ToDictionary(
+        var byId = resolution.Values.ToDictionary(
             value => value.SettingId,
             value => value.Value,
             StringComparer.Ordinal);
-        Dictionary<string, PluginSettingOrigin> originById = resolution.Values.ToDictionary(
+        var originById = resolution.Values.ToDictionary(
             value => value.SettingId,
             value => value.Origin,
             StringComparer.Ordinal);
@@ -282,14 +282,14 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         Dictionary<string, List<PluginSettingView>> grouped = new(StringComparer.Ordinal);
         // Declaration order is the tiebreak, so an ordering the plugin left unset still renders the
         // same way every time rather than following dictionary iteration.
-        foreach (PluginSettingDescriptor setting in manifest.Settings
+        foreach (var setting in manifest.Settings
             .Select((setting, index) => (setting, index))
             .OrderBy(pair => pair.setting.SortOrder)
             .ThenBy(pair => pair.index)
             .Select(pair => pair.setting))
         {
-            string section = setting.SectionId is { Length: > 0 } named
-                && declaredSections.Contains(named)
+            var section = setting.SectionId is { Length: > 0 } named
+                          && declaredSections.Contains(named)
                 ? named
                 : FallbackSectionId;
             if (section == FallbackSectionId && setting.SectionId is { Length: > 0 } missing)
@@ -299,7 +299,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
                     + "drawn under the fallback section.");
             }
 
-            if (!grouped.TryGetValue(section, out List<PluginSettingView>? list))
+            if (!grouped.TryGetValue(section, out var list))
             {
                 list = [];
                 grouped[section] = list;
@@ -328,10 +328,10 @@ internal sealed class PluginSettingsCoordinator : IDisposable
                     {
                         SectionId = FallbackSectionId,
                         Key = SettingSectionKey.General,
-                        SortOrder = int.MaxValue,
-                    },
+                        SortOrder = int.MaxValue
+                    }
                 }
-                : [],
+                : []
         ];
 
         return new PluginSettingsView(

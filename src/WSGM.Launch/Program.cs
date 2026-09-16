@@ -576,7 +576,7 @@ internal static class Program
         var startInfo = new ProcessStartInfo(target)
         {
             UseShellExecute = false,
-            WorkingDirectory = workingDirectory,
+            WorkingDirectory = workingDirectory
         };
         for (var i = 1; i < payload.Arguments.Length; i++)
         {

@@ -34,12 +34,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     /// <summary>A static six-point monotonic curve, matching the A2VM firmware contract.</summary>
     private static readonly IReadOnlyList<CurvePoint> PreviewCurve =
     [
-        new CurvePoint(0, 0),
-        new CurvePoint(40, 10),
-        new CurvePoint(55, 25),
-        new CurvePoint(70, 45),
-        new CurvePoint(85, 70),
-        new CurvePoint(100, 100),
+        new(0, 0),
+        new(40, 10),
+        new(55, 25),
+        new(70, 45),
+        new(85, 70),
+        new(100, 100)
     ];
 
     /// <summary>
@@ -48,30 +48,30 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     /// </summary>
     private static readonly IReadOnlyList<DeviceOverlayPluginSection> PreviewSections =
     [
-        new DeviceOverlayPluginSection(
+        new(
             "power",
             "Power",
             "Performance scenario, power limits, and charging",
             SectionIcon.Power,
             [
                 new DeviceOverlayCategory("limits", "Limits"),
-                new DeviceOverlayCategory("charging", "Charging"),
+                new DeviceOverlayCategory("charging", "Charging")
             ]) { Key = SettingSectionKey.Power },
-        new DeviceOverlayPluginSection(
+        new(
             "cooling",
             "Fans",
             "Fan control, curves, and thermal readings",
             SectionIcon.Fan,
             [
                 new DeviceOverlayCategory("control", "Control"),
-                new DeviceOverlayCategory("readings", "Readings"),
+                new DeviceOverlayCategory("readings", "Readings")
             ]),
-        new DeviceOverlayPluginSection(
+        new(
             DeviceSections.RgbId,
             "RGB",
             "Ring and button lighting",
             SectionIcon.Lighting,
-            [new DeviceOverlayCategory("zones", "Zones")]) { Key = SettingSectionKey.Lighting },
+            [new DeviceOverlayCategory("zones", "Zones")]) { Key = SettingSectionKey.Lighting }
     ];
 
     public event Action? Changed;
@@ -91,7 +91,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 {
                     0 => "AUTO",
                     1 => "STEAM",
-                    _ => "REVIEWED",
+                    _ => "REVIEWED"
                 },
                 CanInvoke: true,
                 DescriptorStatus.Available),
@@ -133,17 +133,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _tdp,
+                        IntegerValue = _tdp
                     },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _tdp >= 30 ? 8 : _tdp + 1,
+                        IntegerValue = _tdp >= 30 ? 8 : _tdp + 1
                     })
                 {
                     Role = CapabilityRole.PowerSustainedLimit,
                     PluginSectionId = "power",
-                    CategoryId = "limits",
+                    CategoryId = "limits"
                 },
                 new DeviceOverlayCapability(
                     "preview.battery.charge-limit",
@@ -157,17 +157,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _chargeLimit,
+                        IntegerValue = _chargeLimit
                     },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _chargeLimit >= 100 ? 60 : _chargeLimit + 20,
+                        IntegerValue = _chargeLimit >= 100 ? 60 : _chargeLimit + 20
                     })
                 {
                     Role = CapabilityRole.ChargeLimit,
                     PluginSectionId = "power",
-                    CategoryId = "charging",
+                    CategoryId = "charging"
                 },
                 new DeviceOverlayCapability(
                     "preview.fan.mode",
@@ -181,17 +181,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Choice,
-                        ChoiceValue = fanModes[_fanMode],
+                        ChoiceValue = fanModes[_fanMode]
                     },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Choice,
-                        ChoiceValue = fanModes[(_fanMode + 1) % fanModes.Length],
+                        ChoiceValue = fanModes[(_fanMode + 1) % fanModes.Length]
                     })
                 {
                     Role = CapabilityRole.FanMode,
                     PluginSectionId = "cooling",
-                    CategoryId = "control",
+                    CategoryId = "control"
                 },
                 new DeviceOverlayCapability(
                     "preview.fan.curve",
@@ -205,14 +205,14 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Curve,
-                        CurveValue = PreviewCurve,
+                        CurveValue = PreviewCurve
                     },
                     NextValue: null)
                 {
                     Role = CapabilityRole.FanCurve,
                     PluginSectionId = "cooling",
                     CategoryId = "control",
-                    SortOrder = 1,
+                    SortOrder = 1
                 },
                 new DeviceOverlayCapability(
                     "preview.lighting",
@@ -226,16 +226,16 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Boolean,
-                        BooleanValue = _lighting,
+                        BooleanValue = _lighting
                     },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Boolean,
-                        BooleanValue = !_lighting,
+                        BooleanValue = !_lighting
                     })
                 {
                     Role = CapabilityRole.LightingPower,
-                    PluginSectionId = DeviceSections.RgbId,
+                    PluginSectionId = DeviceSections.RgbId
                 },
                 new DeviceOverlayCapability(
                     "preview.lighting.brightness",
@@ -249,17 +249,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _brightness,
+                        IntegerValue = _brightness
                     },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _brightness >= 100 ? 20 : _brightness + 20,
+                        IntegerValue = _brightness >= 100 ? 20 : _brightness + 20
                     })
                 {
                     Role = CapabilityRole.LightingBrightness,
                     PluginSectionId = DeviceSections.RgbId,
-                    SortOrder = 1,
+                    SortOrder = 1
                 },
                 new DeviceOverlayCapability(
                     "preview.lighting.rings",
@@ -273,13 +273,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     CurrentValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Color,
-                        ColorValue = _ringColor,
+                        ColorValue = _ringColor
                     },
                     NextValue: null)
                 {
                     Role = CapabilityRole.LightingZoneColor,
                     PluginSectionId = DeviceSections.RgbId,
-                    CategoryId = "zones",
+                    CategoryId = "zones"
                 },
                 new DeviceOverlayCapability(
                     "preview.temperature.cpu",
@@ -295,7 +295,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 {
                     Role = CapabilityRole.Telemetry,
                     PluginSectionId = "cooling",
-                    CategoryId = "readings",
+                    CategoryId = "readings"
                 },
                 new DeviceOverlayCapability(
                     "preview.rumble",
@@ -311,12 +311,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 {
                     // Deliberately unplaced: the row proves the WSGM fallback home still renders
                     // beside a declared layout.
-                    Role = CapabilityRole.HapticSink,
-                },
+                    Role = CapabilityRole.HapticSink
+                }
             ])
         {
             GlyphMode = (DeviceGlyphSelection)_glyphSelection,
-            PluginSections = PreviewSections,
+            PluginSections = PreviewSections
         };
     }
 

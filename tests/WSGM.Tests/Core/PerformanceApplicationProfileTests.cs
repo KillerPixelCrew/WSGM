@@ -14,7 +14,7 @@ public sealed class PerformanceApplicationProfileTests
     {
         // There is no application to attach a profile to, and silently writing the global layer
         // instead is the wrong reading of a per-game toggle.
-        PerformanceService service = Service(Global(60));
+        var service = Service(Global(60));
 
         Assert.False(await service.SetApplicationProfileEnabledAsync(true));
     }
@@ -24,8 +24,8 @@ public sealed class PerformanceApplicationProfileTests
     {
         // A per-game profile that started empty would drop the user to the global defaults the
         // instant they created it, which reads as the toggle having reset their settings.
-        PerformanceService service = Service(Global(60));
-        using IDisposable observation = service.AcquireObservation();
+        var service = Service(Global(60));
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
@@ -35,8 +35,8 @@ public sealed class PerformanceApplicationProfileTests
     [Fact]
     public async Task EnablingTwiceReportsNoSecondChange()
     {
-        PerformanceService service = Service(Global(60));
-        using IDisposable observation = service.AcquireObservation();
+        var service = Service(Global(60));
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
@@ -46,8 +46,8 @@ public sealed class PerformanceApplicationProfileTests
     [Fact]
     public async Task DisablingReturnsTheApplicationToTheGlobalProfile()
     {
-        PerformanceService service = Service(Global(60));
-        using IDisposable observation = service.AcquireObservation();
+        var service = Service(Global(60));
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
         await service.SetApplicationProfileEnabledAsync(true);
 
@@ -58,8 +58,8 @@ public sealed class PerformanceApplicationProfileTests
     [Fact]
     public async Task DisablingWhenItWasNeverEnabledReportsNoChange()
     {
-        PerformanceService service = Service(Global(60));
-        using IDisposable observation = service.AcquireObservation();
+        var service = Service(Global(60));
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.False(await service.SetApplicationProfileEnabledAsync(false));
@@ -68,8 +68,8 @@ public sealed class PerformanceApplicationProfileTests
     [Fact]
     public async Task ResetClearsTheGlobalProfileWhenNothingIsRunning()
     {
-        PerformanceService service = Service(Global(60));
-        using IDisposable observation = service.AcquireObservation();
+        var service = Service(Global(60));
+        using var observation = service.AcquireObservation();
 
         Assert.True(await service.ResetProfileAsync());
         Assert.Null(service.Current.Desired.FrameLimit);
@@ -80,10 +80,10 @@ public sealed class PerformanceApplicationProfileTests
     {
         // With a per-application profile active the user is looking at that profile; clearing the
         // global one underneath it would appear to do nothing.
-        PerformanceService service = Service(new PerformancePolicy(
+        var service = Service(new PerformancePolicy(
             new PerformanceValues(60, 2),
             [new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(30, 1))]));
-        using IDisposable observation = service.AcquireObservation();
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.True(await service.ResetProfileAsync());
@@ -96,10 +96,10 @@ public sealed class PerformanceApplicationProfileTests
     {
         // Removing the entry is what the toggle means; reset must not turn that toggle off as a
         // side effect.
-        PerformanceService service = Service(new PerformancePolicy(
+        var service = Service(new PerformancePolicy(
             new PerformanceValues(60, 2),
             [new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(30, 1))]));
-        using IDisposable observation = service.AcquireObservation();
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
         await service.ResetProfileAsync();
 
@@ -110,8 +110,8 @@ public sealed class PerformanceApplicationProfileTests
     [Fact]
     public async Task ResettingAnAlreadyDefaultProfileChangesNothing()
     {
-        PerformanceService service = Service(PerformancePolicy.Empty);
-        using IDisposable observation = service.AcquireObservation();
+        var service = Service(PerformancePolicy.Empty);
+        using var observation = service.AcquireObservation();
 
         Assert.False(await service.ResetProfileAsync());
     }
@@ -119,10 +119,10 @@ public sealed class PerformanceApplicationProfileTests
     [Fact]
     public async Task AnotherApplicationsProfileIsLeftAlone()
     {
-        PerformanceService service = Service(new PerformancePolicy(
+        var service = Service(new PerformancePolicy(
             new PerformanceValues(60, 2),
             [new PerformanceApplicationPolicy("steam:1", "other.exe", new PerformanceValues(30, 1))]));
-        using IDisposable observation = service.AcquireObservation();
+        using var observation = service.AcquireObservation();
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         await service.SetApplicationProfileEnabledAsync(true);

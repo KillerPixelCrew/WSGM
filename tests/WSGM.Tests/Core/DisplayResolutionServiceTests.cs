@@ -7,7 +7,7 @@ public sealed class DisplayResolutionServiceTests
     private static readonly DisplayResolution[] Accepted =
     [
         new(1280, 800),
-        new(1920, 1200),
+        new(1920, 1200)
     ];
 
     private static DisplayResolutionService Service(
@@ -15,7 +15,7 @@ public sealed class DisplayResolutionServiceTests
         int[]? discoveryCount = null,
         bool applySucceeds = true)
     {
-        int[] counter = discoveryCount ?? new int[1];
+        var counter = discoveryCount ?? new int[1];
         return new DisplayResolutionService(
             () =>
             {
@@ -48,7 +48,7 @@ public sealed class DisplayResolutionServiceTests
     public void DiscoveryIsCachedBecauseTestingEveryModeIsNotCheap()
     {
         int[] count = [0];
-        DisplayResolutionService service = Service([], count);
+        var service = Service([], count);
 
         service.Options();
         service.Options();
@@ -62,7 +62,7 @@ public sealed class DisplayResolutionServiceTests
         // One that was never validated may not display at all, and recovering from a mode the user
         // cannot see is not something to leave them to do.
         List<DisplayResolution> applied = [];
-        DisplayResolutionService service = Service(applied);
+        var service = Service(applied);
 
         Assert.False(service.Apply(new DisplayResolution(3840, 2160)));
         Assert.Empty(applied);
@@ -72,7 +72,7 @@ public sealed class DisplayResolutionServiceTests
     public void AnAcceptedResolutionIsApplied()
     {
         List<DisplayResolution> applied = [];
-        DisplayResolutionService service = Service(applied);
+        var service = Service(applied);
 
         Assert.True(service.Apply(new DisplayResolution(1280, 800)));
         Assert.Equal(new DisplayResolution(1280, 800), Assert.Single(applied));
@@ -82,7 +82,7 @@ public sealed class DisplayResolutionServiceTests
     public void RestoringWithoutHavingMovedTheDisplayDoesNothing()
     {
         List<DisplayResolution> applied = [];
-        DisplayResolutionService service = Service(applied);
+        var service = Service(applied);
 
         Assert.True(service.Restore());
         Assert.Empty(applied);
@@ -92,7 +92,7 @@ public sealed class DisplayResolutionServiceTests
     public void ApplyingMarksTheDisplayAsHeldUntilRestored()
     {
         List<DisplayResolution> applied = [];
-        DisplayResolutionService service = Service(applied);
+        var service = Service(applied);
 
         service.Apply(new DisplayResolution(1280, 800));
         applied.Clear();
@@ -107,7 +107,7 @@ public sealed class DisplayResolutionServiceTests
         // Captured once: applying a second resolution before restoring must not overwrite the
         // user's own mode with the first one WSGM chose.
         List<DisplayResolution> applied = [];
-        DisplayResolutionService service = Service(applied);
+        var service = Service(applied);
 
         service.Apply(new DisplayResolution(1280, 800));
         service.Apply(new DisplayResolution(1920, 1200));
@@ -121,11 +121,11 @@ public sealed class DisplayResolutionServiceTests
     public void RestoreIsIdempotentSoASecondCallCannotReapplyAnOldMode()
     {
         List<DisplayResolution> applied = [];
-        DisplayResolutionService service = Service(applied);
+        var service = Service(applied);
         service.Apply(new DisplayResolution(1280, 800));
 
         service.Restore();
-        int afterFirst = applied.Count;
+        var afterFirst = applied.Count;
         service.Restore();
 
         Assert.Equal(afterFirst, applied.Count);
@@ -134,7 +134,7 @@ public sealed class DisplayResolutionServiceTests
     [Fact]
     public void FailedRestoreKeepsTheDisplayHeldForARetry()
     {
-        int attempts = 0;
+        var attempts = 0;
         DisplayResolutionService service = new(
             () => Accepted,
             (_, _) => ++attempts != 2,

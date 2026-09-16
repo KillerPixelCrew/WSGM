@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using static WSGM.Tests.PluginBuilders;
@@ -16,7 +17,7 @@ public sealed class CommonPluginActionTests
         try
         {
             var result = await new PluginHostActionInvoker(host).InvokeAsync(
-                new WSGM.Core.PluginActionStep { Plugin = registration.Identity, ActionId = "send" },
+                new PluginActionStep { Plugin = registration.Identity, ActionId = "send" },
                 Deadline, default);
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(PluginActionOrigin.SessionAutomation, plugin.Request!.Origin);
@@ -83,7 +84,7 @@ public sealed class CommonPluginActionTests
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Provider plugin = new()
         {
-            Work = async token => { entered.SetResult(); await Task.Delay(Timeout.InfiniteTimeSpan, token); },
+            Work = async token => { entered.SetResult(); await Task.Delay(Timeout.InfiniteTimeSpan, token); }
         };
         var registration = Admit(host, plugin);
         await registration.StartAsync(Deadline, default);
@@ -99,9 +100,9 @@ public sealed class CommonPluginActionTests
     [Fact]
     public void UiContributionsCannotReferToMissingActionsOrMismatchedArgumentTypes()
     {
-        var missing = new Provider { Ui = [new("quick", "Quick", "remote", PluginUiKind.Action, ActionId: "missing")] };
+        var missing = new Provider { Ui = [new PluginUiContribution("quick", "Quick", "remote", PluginUiKind.Action, ActionId: "missing")] };
         Assert.Throws<ArgumentException>(() => new CommonPluginActions(missing));
-        var wrongType = new Provider { Ui = [new("quick", "Quick", "remote", PluginUiKind.Toggle, "value", "send", "value")] };
+        var wrongType = new Provider { Ui = [new PluginUiContribution("quick", "Quick", "remote", PluginUiKind.Toggle, "value", "send", "value")] };
         Assert.Throws<ArgumentException>(() => new CommonPluginActions(wrongType));
     }
 
@@ -109,7 +110,7 @@ public sealed class CommonPluginActionTests
     {
         public string Id => "test.remote";
         public IReadOnlyList<PluginAction> Actions =>
-            [new("send", "Send command", [new("value", "Value", PluginSettingKind.Number, new(Number: 1), 0, 10)])];
+            [new("send", "Send command", [new PluginSetting("value", "Value", PluginSettingKind.Number, new PluginValue(Number: 1), 0, 10)])];
         public IReadOnlyList<PluginUiContribution> Contributions => Ui;
         internal IReadOnlyList<PluginUiContribution> Ui { get; init; } =
             [new("level", "Level", "remote", PluginUiKind.Slider, "value", "send", "value")];
@@ -128,7 +129,7 @@ public sealed class CommonPluginActionTests
             Request = request;
             if (Fail) { throw new IOException("Fixture endpoint failure after dispatch"); }
             if (Work is not null) { await Work(cancellationToken); }
-            return new(WrongIdentity ? Guid.NewGuid() : request.OperationId, PluginActionOutcome.Dispatched);
+            return new PluginActionResult(WrongIdentity ? Guid.NewGuid() : request.OperationId, PluginActionOutcome.Dispatched);
         }
         public ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
         { Stopped = true; return ValueTask.FromResult(true); }

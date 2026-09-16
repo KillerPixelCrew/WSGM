@@ -62,7 +62,7 @@ public enum GamepadButtons : uint
     /// <summary>Press on the left touchpad.</summary>
     LeftPadPress = 0x0100_0000,
     /// <summary>Press on the right touchpad.</summary>
-    RightPadPress = 0x0200_0000,
+    RightPadPress = 0x0200_0000
 }
 
 /// <summary>Polls all connected controllers through SDL3 on the UI thread while
@@ -256,7 +256,7 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
         (GamepadButtons.L4, "L4"), (GamepadButtons.R4, "R4"),
         (GamepadButtons.L5, "L5"), (GamepadButtons.R5, "R5"),
         (GamepadButtons.Steam, "Steam"), (GamepadButtons.QuickAccess, "Quick Access"),
-        (GamepadButtons.LeftPadPress, "L-Pad"), (GamepadButtons.RightPadPress, "R-Pad"),
+        (GamepadButtons.LeftPadPress, "L-Pad"), (GamepadButtons.RightPadPress, "R-Pad")
     ];
 
     /// <summary>Stops this service's timer. SDL stays initialized process-wide.</summary>

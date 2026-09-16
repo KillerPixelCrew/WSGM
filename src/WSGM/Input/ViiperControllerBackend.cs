@@ -1,7 +1,10 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -36,13 +39,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <summary>The one bus WSGM owns.</summary>
     internal const uint BusId = 1;
 
-    private static readonly IReadOnlyList<ManagedControllerTarget> Supported =
-    [
-        ManagedControllerTarget.SteamDeckComposite,
-        ManagedControllerTarget.Xbox360,
-        ManagedControllerTarget.DualShock4,
-    ];
-
     /// <summary>Steam haptic command identifiers in the Deck's feedback report.</summary>
     private const byte HapticPulseCommandId = 0x8F;
     private const byte HapticCommandId = 0xEA;
@@ -57,13 +53,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// haptic gain set, and the empty frame. Anything outside this set is a protocol novelty and
     /// is worth its bounded log line.
     /// </remarks>
-    private static readonly System.Collections.Frozen.FrozenSet<byte> KnownIgnoredFeedback =
-        System.Collections.Frozen.FrozenSet.ToFrozenSet<byte>(
+    private static readonly FrozenSet<byte> KnownIgnoredFeedback =
+        FrozenSet.ToFrozenSet<byte>(
             [0x00, 0x81, 0x83, 0x85, 0x87, 0x8E, 0xAE, 0xC1, HapticGainCommandId]);
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<byte, int> _undecodedFeedback = new();
+    private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private GCHandle _self;
     private bool _initialized;
     private uint _deviceId;
@@ -75,7 +71,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private bool _disposed;
 
     /// <summary>The targets for which this build carries complete VIIPER wire encoders.</summary>
-    internal static IReadOnlyList<ManagedControllerTarget> SupportedTargets => Supported;
+    internal static IReadOnlyList<ManagedControllerTarget> SupportedTargets { get; } =
+    [
+        ManagedControllerTarget.SteamDeckComposite,
+        ManagedControllerTarget.Xbox360,
+        ManagedControllerTarget.DualShock4
+    ];
 
     /// <inheritdoc/>
     public event EventHandler<HidTargetOutput>? OutputReceived;
@@ -90,7 +91,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!TryInitializeUnderGate(out string detail))
+            if (!TryInitializeUnderGate(out var detail))
             {
                 return new HidBackendHealth(HidBackendHealthState.Unavailable, detail);
             }
@@ -98,7 +99,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             return new HidBackendHealth(
                 HidBackendHealthState.Ready,
                 "The VIIPER controller backend is ready.",
-                new HidBackendCapabilities(Supported));
+                new HidBackendCapabilities(SupportedTargets));
         }
         finally
         {
@@ -114,7 +115,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     {
         ArgumentNullException.ThrowIfNull(initialNeutralState);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!Supported.Contains(kind))
+        if (!SupportedTargets.Contains(kind))
         {
             throw new InvalidOperationException($"The backend cannot create a {kind} target.");
         }
@@ -127,19 +128,19 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 throw new InvalidOperationException("A virtual target already exists.");
             }
 
-            if (!TryInitializeUnderGate(out string detail))
+            if (!TryInitializeUnderGate(out var detail))
             {
                 throw new InvalidOperationException(detail);
             }
 
-            string deviceType = kind switch
+            var deviceType = kind switch
             {
                 ManagedControllerTarget.SteamDeckComposite => "steamdeck",
                 ManagedControllerTarget.Xbox360 => "xbox360",
                 ManagedControllerTarget.DualShock4 => "dualshock4",
-                _ => throw new InvalidOperationException($"The backend cannot create a {kind} target."),
+                _ => throw new InvalidOperationException($"The backend cannot create a {kind} target.")
             };
-            Check(NativeViiper.DeviceAdd(BusId, deviceType, out uint deviceId), "add the device");
+            Check(NativeViiper.DeviceAdd(BusId, deviceType, out var deviceId), "add the device");
             Volatile.Write(ref _deviceId, deviceId);
             _deviceKind = kind;
             try
@@ -147,7 +148,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // Neutral before attach: the host enumerates the device and starts polling
                 // immediately, and the first frame it reads must not be uninitialised memory.
                 Check(
-                    NativeViiper.DeviceOpenFast(BusId, deviceId, out uint handle),
+                    NativeViiper.DeviceOpenFast(BusId, deviceId, out var handle),
                     "open the submission handle");
                 _fastHandle = handle;
                 if (!SubmitUnderGate(initialNeutralState))
@@ -224,7 +225,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             // bookkeeping, and both leak for the rest of the process otherwise.
             lost = true;
             Volatile.Write(ref _target, null);
-            bool removed = RemoveDeviceUnderGate();
+            var removed = RemoveDeviceUnderGate();
             _removalUnverifiedGeneration = removed ? null : target.Generation;
         }
         finally
@@ -275,7 +276,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             // Make the native callback inert before plugout. VIIPER can have one host feedback
             // callback already in flight while it detaches the usbip-win2 port.
             Volatile.Write(ref _target, null);
-            bool removed = RemoveDeviceUnderGate();
+            var removed = RemoveDeviceUnderGate();
             // Removal is reported from what the library actually did, not from WSGM's bookkeeping;
             // the handle is dropped either way because an unaddressable target must not keep being
             // written to.
@@ -320,7 +321,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             _disposed = true;
             if (_target is not null)
             {
-                long generation = _target.Generation;
+                var generation = _target.Generation;
                 Volatile.Write(ref _target, null);
                 RemoveDeviceUnderGate();
                 TargetLost?.Invoke(this, generation);
@@ -412,7 +413,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             _self = GCHandle.Alloc(this);
         }
 
-        int result = NativeViiper.DeviceSetFeedbackCallback(
+        var result = NativeViiper.DeviceSetFeedbackCallback(
             BusId,
             deviceId,
             &OnFeedback,
@@ -427,7 +428,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static unsafe void OnFeedback(
         uint busId,
         uint deviceId,
@@ -452,7 +453,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return;
             }
 
-            HidTargetHandle? target = Volatile.Read(ref backend._target);
+            var target = Volatile.Read(ref backend._target);
             if (target is null)
             {
                 return;
@@ -467,7 +468,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // would otherwise read as "rumble is broken" with no evidence.
                 if (!KnownIgnoredFeedback.Contains(report[0]))
                 {
-                    int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
+                    var seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
                     if (seen <= 4)
                     {
                         Log.Warn(
@@ -488,7 +489,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                         TargetGeneration = target.Generation,
                         LowFrequency = feedback.LowFrequency,
                         HighFrequency = feedback.HighFrequency,
-                        Timestamp = DateTimeOffset.UtcNow,
+                        Timestamp = DateTimeOffset.UtcNow
                     },
                     target.Kind,
                     feedback.StopAfter));
@@ -520,7 +521,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // live gameplay on this machine delivers values past 0x8B00 (Hitman,
                 // device-observed 2026-09-02) — a signed divisor clamps the whole upper half of
                 // the envelope to full strength and crushes the dynamics.
-                return new(
+                return new DecodedHapticFeedback(
                     BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
                         / (float)ushort.MaxValue,
                     BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
@@ -534,15 +535,15 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // SC2-generation protocol documents as side and command (0 stop, 1 click,
                 // 2 strong click). Protocol intent; the output router renders it against the
                 // plugin's declared motor physics.
-                float strength = report[3] switch
+                var strength = report[3] switch
                 {
                     0 => 0f,
                     1 => 0.5f,
-                    _ => 1f,
+                    _ => 1f
                 };
                 return strength <= 0f
-                    ? new(0f, 0f)
-                    : new(strength, strength, TimeSpan.FromMilliseconds(150));
+                    ? new DecodedHapticFeedback(0f, 0f)
+                    : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(150));
             }
 
             if (report.Length >= 2 && report[0] == HapticGainCommandId)
@@ -560,29 +561,29 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // level 2. Scaling the level as a byte made every click near-zero. This decode
                 // is protocol intent only — level over the enum range as a bounded click — and
                 // the output router renders it against the plugin's declared motor physics.
-                float strength = Math.Min(1f, report[4] / 3f);
+                var strength = Math.Min(1f, report[4] / 3f);
                 return strength <= 0f
-                    ? new(0f, 0f)
-                    : new(strength, strength, TimeSpan.FromMilliseconds(35));
+                    ? new DecodedHapticFeedback(0f, 0f)
+                    : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(35));
             }
 
             if (report.Length >= 10 && report[0] == HapticPulseCommandId)
             {
-                ushort period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
-                ushort count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
-                int value = Math.Min(byte.MaxValue, (count * 16) + report[9]);
+                var period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
+                var count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
+                var value = Math.Min(byte.MaxValue, count * 16 + report[9]);
                 // Protocol intent only: Steam's gyro ticks legitimately request one millisecond
                 // at sub-percent intensity, and whether that is renderable is the plugin's
                 // declared motor physics, applied by the output router.
-                float strength = value / (float)byte.MaxValue;
-                double requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
-                TimeSpan stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
+                var strength = value / (float)byte.MaxValue;
+                var requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
+                var stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
                     requestedMilliseconds,
                     1,
                     MaxEmulatedPulseDuration.TotalMilliseconds));
                 return strength <= 0f
-                    ? new(0f, 0f)
-                    : new(strength, strength, stopAfter);
+                    ? new DecodedHapticFeedback(0f, 0f)
+                    : new DecodedHapticFeedback(strength, strength, stopAfter);
             }
 
             return null;
@@ -590,27 +591,27 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
         return kind switch
         {
-            ManagedControllerTarget.Xbox360 when report.Length >= 2 => new(
+            ManagedControllerTarget.Xbox360 when report.Length >= 2 => new DecodedHapticFeedback(
                 report[0] / (float)byte.MaxValue,
                 report[1] / (float)byte.MaxValue),
             // DS4 orders the small/high-frequency motor first and the large/low-frequency motor
             // second, followed by LED and flash state that WSGM deliberately does not own.
-            ManagedControllerTarget.DualShock4 when report.Length >= 7 => new(
+            ManagedControllerTarget.DualShock4 when report.Length >= 7 => new DecodedHapticFeedback(
                 report[1] / (float)byte.MaxValue,
                 report[0] / (float)byte.MaxValue),
-            _ => null,
+            _ => null
         };
     }
 
     private unsafe bool SubmitUnderGate(CanonicalControllerSample sample)
     {
         Span<byte> frame = stackalloc byte[SteamDeckNeptuneReport.Length];
-        int length = _deviceKind switch
+        var length = _deviceKind switch
         {
             ManagedControllerTarget.SteamDeckComposite => SteamDeckNeptuneReport.Length,
             ManagedControllerTarget.Xbox360 => Xbox360Report.Length,
             ManagedControllerTarget.DualShock4 => DualShock4Report.Length,
-            _ => 0,
+            _ => 0
         };
         switch (_deviceKind)
         {
@@ -661,17 +662,17 @@ internal sealed class ViiperControllerBackend : IHidBackend
             return true;
         }
 
-        uint deviceId = _deviceId;
-        ManagedControllerTarget? kind = _deviceKind;
+        var deviceId = _deviceId;
+        var kind = _deviceKind;
         Volatile.Write(ref _deviceId, 0);
         _fastHandle = 0;
         _deviceKind = null;
-        bool removed = false;
+        var removed = false;
         Log.Info($"Virtual controller removal started: {kind} as VIIPER device {BusId}:{deviceId}.");
         SafeNative(
             () =>
             {
-                int status = NativeViiper.DeviceRemove(BusId, deviceId);
+                var status = NativeViiper.DeviceRemove(BusId, deviceId);
                 removed = status == NativeViiper.Ok;
                 if (!removed)
                 {

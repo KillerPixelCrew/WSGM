@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -32,7 +33,7 @@ internal static partial class WindowsInventoryCollector
         "rtss",
         "rivatuner",
         "xinput",
-        "gamepad",
+        "gamepad"
     ];
 
     private static IReadOnlyList<GraphicsAdapterInventory> CollectGraphicsAdapters(
@@ -41,27 +42,27 @@ internal static partial class WindowsInventoryCollector
         List<GraphicsAdapterInventory> adapters = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT PNPDeviceID, Name, DriverVersion FROM Win32_VideoController");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? instanceId = Text(item, "PNPDeviceID");
+                    var instanceId = Text(item, "PNPDeviceID");
                     if (instanceId is null)
                     {
                         continue;
                     }
 
-                    Match identifiers = PciIdentifiers().Match(instanceId);
+                    var identifiers = PciIdentifiers().Match(instanceId);
                     adapters.Add(new GraphicsAdapterInventory
                     {
                         InstanceId = instanceId,
                         Name = Text(item, "Name"),
                         VendorId = identifiers.Success ? identifiers.Groups["ven"].Value.ToUpperInvariant() : null,
                         DeviceId = identifiers.Success ? identifiers.Groups["dev"].Value.ToUpperInvariant() : null,
-                        DriverVersion = Text(item, "DriverVersion"),
+                        DriverVersion = Text(item, "DriverVersion")
                     });
                     if (adapters.Count >= InventoryLimits.MaximumEndpointsPerLane)
                     {
@@ -75,7 +76,7 @@ internal static partial class WindowsInventoryCollector
             collectionIssues.Add(new InventoryCollectionIssue
             {
                 Lane = "graphics",
-                Error = exception.ErrorCode.ToString(),
+                Error = exception.ErrorCode.ToString()
             });
         }
         catch (UnauthorizedAccessException)
@@ -83,7 +84,7 @@ internal static partial class WindowsInventoryCollector
             collectionIssues.Add(new InventoryCollectionIssue
             {
                 Lane = "graphics",
-                Error = "AccessDenied",
+                Error = "AccessDenied"
             });
         }
 
@@ -95,20 +96,20 @@ internal static partial class WindowsInventoryCollector
         List<SerialEndpointInventory> endpoints = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, PNPDeviceID, Name, Description, BaudRate, ByteSize, Parity, StopBits "
                     + "FROM Win32_SerialPort");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string instanceId = Text(item, "PNPDeviceID") ?? Text(item, "DeviceID") ?? "unknown-serial";
+                    var instanceId = Text(item, "PNPDeviceID") ?? Text(item, "DeviceID") ?? "unknown-serial";
                     List<SerialFramingCandidate> candidates = [];
-                    uint? baud = UInt32(item, "BaudRate");
-                    byte? dataBits = Byte(item, "ByteSize");
-                    byte? parity = Byte(item, "Parity");
-                    byte? stopBits = Byte(item, "StopBits");
+                    var baud = UInt32(item, "BaudRate");
+                    var dataBits = Byte(item, "ByteSize");
+                    var parity = Byte(item, "Parity");
+                    var stopBits = Byte(item, "StopBits");
                     if (baud is not null || dataBits is not null || parity is not null || stopBits is not null)
                     {
                         candidates.Add(new SerialFramingCandidate
@@ -117,7 +118,7 @@ internal static partial class WindowsInventoryCollector
                             DataBits = dataBits,
                             Parity = parity,
                             StopBits = stopBits,
-                            Source = "Win32_SerialPort-current-driver-state",
+                            Source = "Win32_SerialPort-current-driver-state"
                         });
                     }
 
@@ -131,7 +132,7 @@ internal static partial class WindowsInventoryCollector
                         AssociationId = DeviceProperties.ResolveParentInstanceId(instanceId),
                         Present = true,
                         Access = InventoryAccess.Available,
-                        FramingCandidates = candidates,
+                        FramingCandidates = candidates
                     });
                     if (endpoints.Count >= InventoryLimits.MaximumEndpointsPerLane)
                     {
@@ -147,42 +148,42 @@ internal static partial class WindowsInventoryCollector
                 endpoints.Add(new SerialEndpointInventory
                 {
                     InstanceId = "serial-inventory",
-                    Access = InventoryAccess.AccessDenied,
+                    Access = InventoryAccess.AccessDenied
                 });
             }
         }
 
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, Name, Manufacturer, Status FROM Win32_PnPEntity "
                     + "WHERE PNPClass = 'Ports'");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? instanceId = Text(item, "DeviceID");
+                    var instanceId = Text(item, "DeviceID");
                     if (instanceId is null)
                     {
                         continue;
                     }
 
-                    string? name = Text(item, "Name");
-                    bool present = string.Equals(Text(item, "Status"), "OK", StringComparison.OrdinalIgnoreCase);
-                    int existingIndex = endpoints.FindIndex(endpoint => string.Equals(
+                    var name = Text(item, "Name");
+                    var present = string.Equals(Text(item, "Status"), "OK", StringComparison.OrdinalIgnoreCase);
+                    var existingIndex = endpoints.FindIndex(endpoint => string.Equals(
                         endpoint.InstanceId,
                         instanceId,
                         StringComparison.OrdinalIgnoreCase));
                     if (existingIndex >= 0)
                     {
-                        SerialEndpointInventory existing = endpoints[existingIndex];
+                        var existing = endpoints[existingIndex];
                         endpoints[existingIndex] = existing with
                         {
                             Name = existing.Name ?? name,
                             Manufacturer = Text(item, "Manufacturer") ?? existing.Manufacturer,
                             Present = present,
-                            Access = present ? existing.Access : InventoryAccess.Disconnected,
+                            Access = present ? existing.Access : InventoryAccess.Disconnected
                         };
                     }
                     else
@@ -198,7 +199,7 @@ internal static partial class WindowsInventoryCollector
                             LocationPath = DeviceProperties.ResolveLocationPath(instanceId),
                             AssociationId = DeviceProperties.ResolveParentInstanceId(instanceId),
                             Present = present,
-                            Access = present ? InventoryAccess.Available : InventoryAccess.Disconnected,
+                            Access = present ? InventoryAccess.Available : InventoryAccess.Disconnected
                         });
                     }
 
@@ -222,32 +223,32 @@ internal static partial class WindowsInventoryCollector
         List<SensorEndpointInventory> sensors = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, Name, PNPClass, Status FROM Win32_PnPEntity "
                     + "WHERE PNPClass = 'Sensor' OR PNPClass = 'HIDClass'");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? instanceId = Text(item, "DeviceID");
-                    string? name = Text(item, "Name");
-                    string? deviceClass = Text(item, "PNPClass");
-                    bool namedSensor = name?.Contains("sensor", StringComparison.OrdinalIgnoreCase) is true
-                        || name?.Contains("accelerometer", StringComparison.OrdinalIgnoreCase) is true
-                        || name?.Contains("gyroscope", StringComparison.OrdinalIgnoreCase) is true
-                        || name?.Contains("inclinometer", StringComparison.OrdinalIgnoreCase) is true;
+                    var instanceId = Text(item, "DeviceID");
+                    var name = Text(item, "Name");
+                    var deviceClass = Text(item, "PNPClass");
+                    var namedSensor = name?.Contains("sensor", StringComparison.OrdinalIgnoreCase) is true
+                                      || name?.Contains("accelerometer", StringComparison.OrdinalIgnoreCase) is true
+                                      || name?.Contains("gyroscope", StringComparison.OrdinalIgnoreCase) is true
+                                      || name?.Contains("inclinometer", StringComparison.OrdinalIgnoreCase) is true;
                     if (instanceId is null || (!string.Equals(deviceClass, "Sensor", StringComparison.OrdinalIgnoreCase)
                         && !namedSensor))
                     {
                         continue;
                     }
 
-                    bool controllerSensor = string.Equals(
+                    var controllerSensor = string.Equals(
                         deviceClass,
                         "HIDClass",
                         StringComparison.OrdinalIgnoreCase);
-                    string? association = DeviceProperties.ResolveParentInstanceId(instanceId);
+                    var association = DeviceProperties.ResolveParentInstanceId(instanceId);
 
                     sensors.Add(new SensorEndpointInventory
                     {
@@ -263,7 +264,7 @@ internal static partial class WindowsInventoryCollector
                             DeviceProperties.ResolveLocationPath(instanceId)),
                         Access = string.Equals(Text(item, "Status"), "OK", StringComparison.OrdinalIgnoreCase)
                             ? InventoryAccess.Available
-                            : InventoryAccess.Disconnected,
+                            : InventoryAccess.Disconnected
                     });
                     if (sensors.Count >= InventoryLimits.MaximumEndpointsPerLane)
                     {
@@ -280,7 +281,7 @@ internal static partial class WindowsInventoryCollector
                 {
                     InstanceId = "sensor-inventory",
                     Api = SensorApiKind.Pnp,
-                    Access = InventoryAccess.AccessDenied,
+                    Access = InventoryAccess.AccessDenied
                 });
             }
         }
@@ -298,20 +299,20 @@ internal static partial class WindowsInventoryCollector
             ("Windows.Devices.Sensors.Gyrometer", "gyrometer", "degrees-per-second"),
             ("Windows.Devices.Sensors.Inclinometer", "inclinometer", "degrees"),
             ("Windows.Devices.Sensors.Compass", "compass", "degrees"),
-            ("Windows.Devices.Sensors.OrientationSensor", "orientation", "quaternion"),
+            ("Windows.Devices.Sensors.OrientationSensor", "orientation", "quaternion")
         ];
         List<SensorEndpointInventory> sensors = [];
-        foreach ((string typeName, string kind, string unit) in definitions)
+        foreach (var (typeName, kind, unit) in definitions)
         {
-            string endpointId = $"winrt:{kind}";
+            var endpointId = $"winrt:{kind}";
             try
             {
                 // The type list and parameterless GetDefault member are closed here. Inventory never
                 // reads a sensor sample, sets ReportInterval, or subscribes to ReadingChanged.
-                Type? sensorType = Type.GetType(
+                var sensorType = Type.GetType(
                     $"{typeName}, Windows, ContentType=WindowsRuntime",
                     throwOnError: false);
-                MethodInfo? getDefault = sensorType?.GetMethod(
+                var getDefault = sensorType?.GetMethod(
                     "GetDefault",
                     BindingFlags.Public | BindingFlags.Static,
                     binder: null,
@@ -325,12 +326,12 @@ internal static partial class WindowsInventoryCollector
                         Kind = kind,
                         Api = SensorApiKind.WinRt,
                         Unit = unit,
-                        Access = InventoryAccess.Unsupported,
+                        Access = InventoryAccess.Unsupported
                     });
                     continue;
                 }
 
-                object? sensor = getDefault.Invoke(null, null);
+                var sensor = getDefault.Invoke(null, null);
                 if (sensor is null)
                 {
                     sensors.Add(new SensorEndpointInventory
@@ -339,13 +340,13 @@ internal static partial class WindowsInventoryCollector
                         Kind = kind,
                         Api = SensorApiKind.WinRt,
                         Unit = unit,
-                        Access = InventoryAccess.Disconnected,
+                        Access = InventoryAccess.Disconnected
                     });
                     continue;
                 }
 
-                string? deviceId = sensorType!.GetProperty("DeviceId")?.GetValue(sensor)?.ToString();
-                object? intervalValue = sensorType.GetProperty("MinimumReportInterval")?.GetValue(sensor);
+                var deviceId = sensorType!.GetProperty("DeviceId")?.GetValue(sensor)?.ToString();
+                var intervalValue = sensorType.GetProperty("MinimumReportInterval")?.GetValue(sensor);
                 uint? interval = intervalValue is null
                     ? null
                     : Convert.ToUInt32(intervalValue, CultureInfo.InvariantCulture);
@@ -359,7 +360,7 @@ internal static partial class WindowsInventoryCollector
                     MinimumReportIntervalMilliseconds = interval,
                     SupportedReportIntervalsMilliseconds = interval is { } value ? [value] : [],
                     Unit = unit,
-                    Access = InventoryAccess.Available,
+                    Access = InventoryAccess.Available
                 });
             }
             catch (TargetInvocationException exception)
@@ -371,7 +372,7 @@ internal static partial class WindowsInventoryCollector
                     Kind = kind,
                     Api = SensorApiKind.WinRt,
                     Unit = unit,
-                    Access = InventoryAccess.AccessDenied,
+                    Access = InventoryAccess.AccessDenied
                 });
             }
             catch (UnauthorizedAccessException)
@@ -382,7 +383,7 @@ internal static partial class WindowsInventoryCollector
                     Kind = kind,
                     Api = SensorApiKind.WinRt,
                     Unit = unit,
-                    Access = InventoryAccess.AccessDenied,
+                    Access = InventoryAccess.AccessDenied
                 });
             }
             catch (TargetInvocationException)
@@ -393,7 +394,7 @@ internal static partial class WindowsInventoryCollector
                     Kind = kind,
                     Api = SensorApiKind.WinRt,
                     Unit = unit,
-                    Access = InventoryAccess.Unsupported,
+                    Access = InventoryAccess.Unsupported
                 });
             }
             catch (Exception exception) when (exception is PlatformNotSupportedException
@@ -410,7 +411,7 @@ internal static partial class WindowsInventoryCollector
                     Kind = kind,
                     Api = SensorApiKind.WinRt,
                     Unit = unit,
-                    Access = InventoryAccess.Unsupported,
+                    Access = InventoryAccess.Unsupported
                 });
             }
         }
@@ -426,7 +427,7 @@ internal static partial class WindowsInventoryCollector
             CollectDirectInputView(),
             CollectSdlView(),
             CollectRawInput(),
-            CollectRawHidView(),
+            CollectRawHidView()
         ];
     }
 
@@ -437,7 +438,7 @@ internal static partial class WindowsInventoryCollector
         {
             for (uint slot = 0; slot < 4; slot++)
             {
-                uint result = XInputGetCapabilities(slot, 0, out XInputCapabilities capabilities);
+                var result = XInputGetCapabilities(slot, 0, out var capabilities);
                 if (result == ErrorSuccess)
                 {
                     endpoints.Add(new InputEndpointInventory
@@ -445,7 +446,7 @@ internal static partial class WindowsInventoryCollector
                         EndpointId = $"xinput:{slot}",
                         Name = "XInput controller",
                         DeviceType = $"{capabilities.Type:x2}:{capabilities.SubType:x2}",
-                        Connected = true,
+                        Connected = true
                     });
                 }
                 else if (result != ErrorDeviceNotConnected)
@@ -457,7 +458,7 @@ internal static partial class WindowsInventoryCollector
                         View = InputBackendViewKind.LiveApi,
                         RuntimeAvailable = true,
                         Endpoints = endpoints,
-                        Limitation = $"XInputGetCapabilities returned {result}.",
+                        Limitation = $"XInputGetCapabilities returned {result}."
                     };
                 }
             }
@@ -478,7 +479,7 @@ internal static partial class WindowsInventoryCollector
             View = InputBackendViewKind.LiveApi,
             RuntimeAvailable = true,
             Endpoints = endpoints,
-            Limitation = "XInput exposes slots, not stable physical device identities.",
+            Limitation = "XInput exposes slots, not stable physical device identities."
         };
     }
 
@@ -501,16 +502,16 @@ internal static partial class WindowsInventoryCollector
         List<InputEndpointInventory> endpoints = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT DeviceID, Name, Service, Status FROM Win32_PnPEntity WHERE PNPClass = 'HIDClass'");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? instanceId = Text(item, "DeviceID");
-                    string? name = Text(item, "Name");
-                    string? service = Text(item, "Service");
+                    var instanceId = Text(item, "DeviceID");
+                    var name = Text(item, "Name");
+                    var service = Text(item, "Service");
                     if (instanceId is null || !predicate(name, service))
                     {
                         continue;
@@ -534,7 +535,7 @@ internal static partial class WindowsInventoryCollector
                         AssociationId = DeviceProperties.ToDeviceLevelPath(
                             DeviceProperties.ResolveLocationPath(instanceId)),
                         DescriptorAccess = InventoryAccess.Unsupported,
-                        Connected = string.Equals(Text(item, "Status"), "OK", StringComparison.OrdinalIgnoreCase),
+                        Connected = string.Equals(Text(item, "Status"), "OK", StringComparison.OrdinalIgnoreCase)
                     });
                     if (endpoints.Count >= InventoryLimits.MaximumEndpointsPerLane)
                     {
@@ -553,7 +554,7 @@ internal static partial class WindowsInventoryCollector
                     : InventoryAccess.Unsupported,
                 View = InputBackendViewKind.PassiveCompatibility,
                 RuntimeAvailable = BackendRuntimeAvailable(backend),
-                Limitation = limitation,
+                Limitation = limitation
             };
         }
 
@@ -564,14 +565,14 @@ internal static partial class WindowsInventoryCollector
             View = InputBackendViewKind.PassiveCompatibility,
             RuntimeAvailable = BackendRuntimeAvailable(backend),
             Endpoints = [.. endpoints.OrderBy(endpoint => endpoint.EndpointId, StringComparer.Ordinal)],
-            Limitation = limitation,
+            Limitation = limitation
         };
     }
 
     private static InputBackendInventory CollectSdlView()
     {
-        string appLocal = Path.Combine(AppContext.BaseDirectory, "SDL3.dll");
-        string? path = File.Exists(appLocal) ? appLocal : null;
+        var appLocal = Path.Combine(AppContext.BaseDirectory, "SDL3.dll");
+        var path = File.Exists(appLocal) ? appLocal : null;
         return new InputBackendInventory
         {
             Backend = InputBackendKind.Sdl,
@@ -580,14 +581,14 @@ internal static partial class WindowsInventoryCollector
             RuntimeAvailable = path is not null,
             Limitation = path is null
                 ? "SDL3.dll is not installed beside Device Lab; no runtime was loaded."
-                : "SDL is present but Device Lab does not initialize its gamepad subsystem during inventory.",
+                : "SDL is present but Device Lab does not initialize its gamepad subsystem during inventory."
         };
     }
 
     private static unsafe InputBackendInventory CollectRawInput()
     {
         uint count = 0;
-        uint structureSize = (uint)Marshal.SizeOf<RawInputDeviceList>();
+        var structureSize = (uint)Marshal.SizeOf<RawInputDeviceList>();
         if (GetRawInputDeviceList(null, ref count, structureSize) == uint.MaxValue)
         {
             return UnavailableBackend(InputBackendKind.RawInput, "Raw Input device count was unavailable.");
@@ -600,11 +601,11 @@ internal static partial class WindowsInventoryCollector
                 Access = InventoryAccess.Malformed,
                 View = InputBackendViewKind.LiveApi,
                 RuntimeAvailable = true,
-                Limitation = "Raw Input reported more devices than the bounded inventory accepts.",
+                Limitation = "Raw Input reported more devices than the bounded inventory accepts."
             };
         }
 
-        RawInputDeviceList[] devices = new RawInputDeviceList[count];
+        var devices = new RawInputDeviceList[count];
         uint enumerationResult = 0;
         if (count != 0)
         {
@@ -619,7 +620,7 @@ internal static partial class WindowsInventoryCollector
         }
 
         List<InputEndpointInventory> endpoints = [];
-        for (int index = 0; index < count; index++)
+        for (var index = 0; index < count; index++)
         {
             uint characters = 0;
             _ = GetRawInputDeviceInfo(devices[index].Device, RidiDeviceName, null, ref characters);
@@ -631,11 +632,11 @@ internal static partial class WindowsInventoryCollector
                     DeviceType = "malformed-name",
                     Access = InventoryAccess.Malformed,
                     DescriptorAccess = InventoryAccess.Malformed,
-                    Connected = true,
+                    Connected = true
                 });
                 continue;
             }
-            char[] name = new char[Math.Max(characters, 1)];
+            var name = new char[Math.Max(characters, 1)];
             uint nameResult;
             fixed (char* namePointer = name)
             {
@@ -646,10 +647,10 @@ internal static partial class WindowsInventoryCollector
                     ref characters);
             }
 
-            int terminator = Array.IndexOf(name, '\0');
-            int nameLength = terminator >= 0 ? terminator : Math.Min((int)characters, name.Length);
-            string? deviceName = nameResult == uint.MaxValue ? null : new string(name, 0, nameLength);
-            string? instanceId = CanonicalRawInputInstance(deviceName);
+            var terminator = Array.IndexOf(name, '\0');
+            var nameLength = terminator >= 0 ? terminator : Math.Min((int)characters, name.Length);
+            var deviceName = nameResult == uint.MaxValue ? null : new string(name, 0, nameLength);
+            var instanceId = CanonicalRawInputInstance(deviceName);
             endpoints.Add(new InputEndpointInventory
             {
                 EndpointId = string.Empty,
@@ -664,7 +665,7 @@ internal static partial class WindowsInventoryCollector
                     RimTypeMouse => "mouse",
                     RimTypeKeyboard => "keyboard",
                     RimTypeHid => "hid",
-                    _ => $"type-{devices[index].Type}",
+                    _ => $"type-{devices[index].Type}"
                 },
                 VendorId = instanceId is null || UsbIdentifiers().Match(instanceId) is not { Success: true } ids
                     ? null
@@ -676,11 +677,11 @@ internal static partial class WindowsInventoryCollector
                     ? null
                     : DeviceProperties.ToDeviceLevelPath(
                         DeviceProperties.ResolveLocationPath(instanceId)),
-                Connected = true,
+                Connected = true
             });
         }
 
-        InputEndpointInventory[] ordered = endpoints
+        var ordered = endpoints
             .OrderBy(endpoint => endpoint.InstanceId, StringComparer.OrdinalIgnoreCase)
             .ThenBy(endpoint => endpoint.DeviceType, StringComparer.Ordinal)
             .Select((endpoint, index) => endpoint with { EndpointId = $"rawinput:{index}" })
@@ -693,7 +694,7 @@ internal static partial class WindowsInventoryCollector
             View = InputBackendViewKind.LiveApi,
             RuntimeAvailable = true,
             Endpoints = ordered,
-            Limitation = "Raw Input names are session observations and do not prove exclusive ownership.",
+            Limitation = "Raw Input names are session observations and do not prove exclusive ownership."
         };
     }
 
@@ -702,14 +703,14 @@ internal static partial class WindowsInventoryCollector
         Backend = backend,
         Access = InventoryAccess.Unsupported,
         View = InputBackendViewKind.LiveApi,
-        Limitation = limitation,
+        Limitation = limitation
     };
 
     private static bool BackendRuntimeAvailable(InputBackendKind backend) => backend switch
     {
         InputBackendKind.RawHid => true,
         InputBackendKind.DirectInput => File.Exists(Path.Combine(Environment.SystemDirectory, "dinput8.dll")),
-        _ => false,
+        _ => false
     };
 
     private static string? CanonicalRawInputInstance(string? deviceName)
@@ -719,10 +720,10 @@ internal static partial class WindowsInventoryCollector
             return null;
         }
 
-        string value = deviceName.StartsWith(@"\\?\", StringComparison.Ordinal)
+        var value = deviceName.StartsWith(@"\\?\", StringComparison.Ordinal)
             ? deviceName[4..]
             : deviceName;
-        int classGuid = value.LastIndexOf("#{", StringComparison.Ordinal);
+        var classGuid = value.LastIndexOf("#{", StringComparison.Ordinal);
         if (classGuid >= 0)
         {
             value = value[..classGuid];
@@ -733,9 +734,9 @@ internal static partial class WindowsInventoryCollector
 
     private static IReadOnlyList<ProcessInventory> CollectRelevantProcesses()
     {
-        Dictionary<int, string?> commandLines = QueryProcessCommandLines();
+        var commandLines = QueryProcessCommandLines();
         List<ProcessInventory> observations = [];
-        foreach (Process process in Process.GetProcesses())
+        foreach (var process in Process.GetProcesses())
         {
             using (process)
             {
@@ -756,7 +757,7 @@ internal static partial class WindowsInventoryCollector
 
                 string? path = null;
                 List<string> modules = [];
-                InventoryAccess access = InventoryAccess.Available;
+                var access = InventoryAccess.Available;
                 try
                 {
                     path = process.MainModule?.FileName;
@@ -773,7 +774,7 @@ internal static partial class WindowsInventoryCollector
                     }
                 }
                 catch (Exception exception) when (exception is InvalidOperationException
-                    or System.ComponentModel.Win32Exception or NotSupportedException)
+                    or Win32Exception or NotSupportedException)
                 {
                     // Access is represented by missing optional fields; process presence remains useful.
                     access = InventoryAccess.AccessDenied;
@@ -787,7 +788,7 @@ internal static partial class WindowsInventoryCollector
                     Path = path,
                     CommandLine = commandLines.GetValueOrDefault(process.Id),
                     LoadedModulePaths = [.. modules.Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(module => module, StringComparer.OrdinalIgnoreCase)],
+                        .OrderBy(module => module, StringComparer.OrdinalIgnoreCase)]
                 });
                 if (observations.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                 {
@@ -805,15 +806,15 @@ internal static partial class WindowsInventoryCollector
         Dictionary<int, string?> lines = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT ProcessId, Name, CommandLine FROM Win32_Process");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
                     if (IsRelevant(Text(item, "Name"))
-                        && int.TryParse(Text(item, "ProcessId"), CultureInfo.InvariantCulture, out int processId))
+                        && int.TryParse(Text(item, "ProcessId"), CultureInfo.InvariantCulture, out var processId))
                     {
                         lines[processId] = Text(item, "CommandLine");
                     }
@@ -833,16 +834,16 @@ internal static partial class WindowsInventoryCollector
         List<ServiceInventory> services = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT Name, DisplayName, State, PathName, ProcessId FROM Win32_Service");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? name = Text(item, "Name");
-                    string? displayName = Text(item, "DisplayName");
-                    string? path = Text(item, "PathName");
+                    var name = Text(item, "Name");
+                    var displayName = Text(item, "DisplayName");
+                    var path = Text(item, "PathName");
                     if (name is null || !(IsRelevant(name) || IsRelevant(displayName) || IsRelevant(path)))
                     {
                         continue;
@@ -855,10 +856,10 @@ internal static partial class WindowsInventoryCollector
                         DisplayName = displayName,
                         State = Text(item, "State"),
                         PathName = path,
-                        ProcessId = int.TryParse(Text(item, "ProcessId"), CultureInfo.InvariantCulture, out int id)
+                        ProcessId = int.TryParse(Text(item, "ProcessId"), CultureInfo.InvariantCulture, out var id)
                             && id != 0
                                 ? id
-                                : null,
+                                : null
                     });
                     if (services.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                     {
@@ -874,7 +875,7 @@ internal static partial class WindowsInventoryCollector
                 services.Add(new ServiceInventory
                 {
                     Name = "service-inventory",
-                    Access = InventoryAccess.AccessDenied,
+                    Access = InventoryAccess.AccessDenied
                 });
             }
         }
@@ -887,15 +888,15 @@ internal static partial class WindowsInventoryCollector
         List<ScheduledTaskInventory> tasks = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\Microsoft\\Windows\\TaskScheduler",
                 "SELECT TaskName, TaskPath, State, Enabled FROM MSFT_ScheduledTask");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? name = Text(item, "TaskName");
-                    string? path = Text(item, "TaskPath");
+                    var name = Text(item, "TaskName");
+                    var path = Text(item, "TaskPath");
                     if (!(IsRelevant(name) || IsRelevant(path)))
                     {
                         continue;
@@ -906,7 +907,7 @@ internal static partial class WindowsInventoryCollector
                         Path = $"{path}{name}",
                         Access = InventoryAccess.Available,
                         State = Text(item, "State"),
-                        Enabled = bool.TryParse(Text(item, "Enabled"), out bool enabled) ? enabled : null,
+                        Enabled = bool.TryParse(Text(item, "Enabled"), out var enabled) ? enabled : null
                     });
                     if (tasks.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                     {
@@ -922,7 +923,7 @@ internal static partial class WindowsInventoryCollector
                 Path = "task-inventory",
                 Access = exception.ErrorCode == ManagementStatus.AccessDenied
                     ? InventoryAccess.AccessDenied
-                    : InventoryAccess.Unsupported,
+                    : InventoryAccess.Unsupported
             });
         }
 
@@ -934,20 +935,20 @@ internal static partial class WindowsInventoryCollector
         IReadOnlyList<ServiceInventory> services)
     {
         HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-        string systemDirectory = Environment.SystemDirectory;
-        foreach (string name in new[] { "xinput1_4.dll", "hid.dll", "setupapi.dll", "cfgmgr32.dll" })
+        var systemDirectory = Environment.SystemDirectory;
+        foreach (var name in new[] { "xinput1_4.dll", "hid.dll", "setupapi.dll", "cfgmgr32.dll" })
         {
             paths.Add(Path.Combine(systemDirectory, name));
         }
 
-        foreach (ProcessInventory process in processes)
+        foreach (var process in processes)
         {
             if (process.Path is not null)
             {
                 paths.Add(process.Path);
             }
 
-            foreach (string module in process.LoadedModulePaths)
+            foreach (var module in process.LoadedModulePaths)
             {
                 if (IsRelevant(Path.GetFileName(module)))
                 {
@@ -956,9 +957,9 @@ internal static partial class WindowsInventoryCollector
             }
         }
 
-        foreach (ServiceInventory service in services)
+        foreach (var service in services)
         {
-            string? executable = ExtractExecutablePath(service.PathName);
+            var executable = ExtractExecutablePath(service.PathName);
             if (executable is not null)
             {
                 paths.Add(executable);
@@ -966,9 +967,9 @@ internal static partial class WindowsInventoryCollector
         }
 
         List<NativeBinaryInventory> binaries = [];
-        foreach (string path in paths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        foreach (var path in paths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
-            NativeBinaryInventory binary = NativePeInspector.Inspect(path);
+            var binary = NativePeInspector.Inspect(path);
             binaries.Add(binary);
             if (binaries.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
             {
@@ -985,15 +986,15 @@ internal static partial class WindowsInventoryCollector
         List<ProviderInventory> providers = [];
         try
         {
-            using ManagementObjectSearcher searcher = CreateSearcher(
+            using var searcher = CreateSearcher(
                 "root\\CIMV2",
                 "SELECT Namespace, Provider, HostProcessIdentifier FROM MSFT_Providers");
-            foreach (ManagementBaseObject item in searcher.Get())
+            foreach (var item in searcher.Get())
             {
                 using (item)
                 {
-                    string? name = Text(item, "Provider");
-                    string? context = Text(item, "Namespace");
+                    var name = Text(item, "Provider");
+                    var context = Text(item, "Namespace");
                     if (name is null || !(IsRelevant(name) || IsRelevant(context)))
                     {
                         continue;
@@ -1007,11 +1008,11 @@ internal static partial class WindowsInventoryCollector
                         HostProcessId = int.TryParse(
                             Text(item, "HostProcessIdentifier"),
                             CultureInfo.InvariantCulture,
-                            out int processId)
+                            out var processId)
                                 ? processId
                                 : null,
                         Loaded = true,
-                        Access = InventoryAccess.Available,
+                        Access = InventoryAccess.Available
                     });
                     if (providers.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                     {
@@ -1029,14 +1030,14 @@ internal static partial class WindowsInventoryCollector
                     Kind = "WMI-loaded-provider-lane",
                     Name = "provider-inventory",
                     Loaded = false,
-                    Access = InventoryAccess.AccessDenied,
+                    Access = InventoryAccess.AccessDenied
                 });
             }
         }
 
-        foreach (ProcessInventory process in processes)
+        foreach (var process in processes)
         {
-            foreach (string module in process.LoadedModulePaths.Where(module =>
+            foreach (var module in process.LoadedModulePaths.Where(module =>
                 IsRelevant(Path.GetFileName(module))))
             {
                 providers.Add(new ProviderInventory
@@ -1047,7 +1048,7 @@ internal static partial class WindowsInventoryCollector
                     HostProcessId = process.ProcessId,
                     ModulePath = module,
                     Loaded = true,
-                    Access = process.Access,
+                    Access = process.Access
                 });
                 if (providers.Count >= InventoryLimits.MaximumSystemEntriesPerLane)
                 {
@@ -1077,12 +1078,12 @@ internal static partial class WindowsInventoryCollector
         IReadOnlyList<NativeBinaryInventory> nativeBinaries)
     {
         List<ResourceConflictInventory> conflicts = [];
-        foreach (string owner in processes.Select(process => process.Name)
+        foreach (var owner in processes.Select(process => process.Name)
             .Concat(services.Select(service => service.Name))
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            string? resource = owner.Contains("hidhide", StringComparison.OrdinalIgnoreCase)
-                || owner.Contains("hidmaestro", StringComparison.OrdinalIgnoreCase)
+            var resource = owner.Contains("hidhide", StringComparison.OrdinalIgnoreCase)
+                           || owner.Contains("hidmaestro", StringComparison.OrdinalIgnoreCase)
                 ? "controller-routing"
                 : owner.Contains("msi", StringComparison.OrdinalIgnoreCase)
                     || owner.Contains("center", StringComparison.OrdinalIgnoreCase)
@@ -1095,19 +1096,19 @@ internal static partial class WindowsInventoryCollector
                 {
                     ResourceId = resource,
                     Owner = owner,
-                    Signal = ConflictSignalKind.PresenceOnly,
+                    Signal = ConflictSignalKind.PresenceOnly
                 });
             }
         }
 
-        foreach (NativeBinaryInventory binary in nativeBinaries.Where(binary =>
+        foreach (var binary in nativeBinaries.Where(binary =>
             binary.Access is InventoryAccess.ExclusiveAccessDenied))
         {
             conflicts.Add(new ResourceConflictInventory
             {
                 ResourceId = $"native-file:{binary.Name}",
                 Owner = "unidentified-holder",
-                Signal = ConflictSignalKind.ExclusiveAccessDenied,
+                Signal = ConflictSignalKind.ExclusiveAccessDenied
             });
         }
 
@@ -1122,10 +1123,10 @@ internal static partial class WindowsInventoryCollector
         && fragments.Any(fragment => value.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     private static uint? UInt32(ManagementBaseObject source, string property) =>
-        uint.TryParse(Text(source, property), CultureInfo.InvariantCulture, out uint value) ? value : null;
+        uint.TryParse(Text(source, property), CultureInfo.InvariantCulture, out var value) ? value : null;
 
     private static byte? Byte(ManagementBaseObject source, string property) =>
-        byte.TryParse(Text(source, property), CultureInfo.InvariantCulture, out byte value) ? value : null;
+        byte.TryParse(Text(source, property), CultureInfo.InvariantCulture, out var value) ? value : null;
 
     internal static string? ExtractExecutablePath(string? command)
     {
@@ -1134,7 +1135,7 @@ internal static partial class WindowsInventoryCollector
             return null;
         }
 
-        string trimmed = Environment.ExpandEnvironmentVariables(command.Trim()).Trim();
+        var trimmed = Environment.ExpandEnvironmentVariables(command.Trim()).Trim();
         if (trimmed.Length == 0)
         {
             return null;
@@ -1142,11 +1143,11 @@ internal static partial class WindowsInventoryCollector
 
         if (trimmed[0] == '"')
         {
-            int close = trimmed.IndexOf('"', 1);
+            var close = trimmed.IndexOf('"', 1);
             return close > 1 ? trimmed[1..close] : null;
         }
 
-        int exe = trimmed.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        var exe = trimmed.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
         return exe >= 0 ? trimmed[..(exe + 4)] : null;
     }
 

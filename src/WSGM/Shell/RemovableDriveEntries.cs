@@ -12,7 +12,7 @@ public enum EjectKind
     /// <summary>Removable media in a non-removable device (microSD in a built-in
     /// reader): media-level dismount and eject. A device-level eject here would
     /// disable the reader itself until reboot.</summary>
-    Media = 1,
+    Media = 1
 }
 
 /// <summary>One row in the Safe Eject list — a physical removable device (all of

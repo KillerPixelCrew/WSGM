@@ -21,7 +21,7 @@ public sealed class DevicePrerequisiteBannerTests
     /// neither is what these tests are about.</summary>
     private static OverlayWindow Device(UiFixture fixture, DevicePrerequisiteSource source)
     {
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         UiFixture.Named<Control>(window, "PanelDevice").IsVisible = true;
         window.AttachDevicePrerequisites(source);
         return window;
@@ -33,10 +33,10 @@ public sealed class DevicePrerequisiteBannerTests
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(() => State(), () => Task.CompletedTask);
 
-        OverlayWindow window = Device(fixture, source);
+        var window = Device(fixture, source);
 
-        Border banner = UiFixture.Named<Border>(window, "DevicePrerequisiteBanner");
-        TextBlock detail = UiFixture.Named<TextBlock>(window, "DevicePrerequisiteDetail");
+        var banner = UiFixture.Named<Border>(window, "DevicePrerequisiteBanner");
+        var detail = UiFixture.Named<TextBlock>(window, "DevicePrerequisiteDetail");
         Assert.True(banner.IsVisible);
         Assert.Contains("Device Integration is switched off", detail.Text!, StringComparison.Ordinal);
         Assert.Contains("Re-run the WSGM setup", detail.Text!, StringComparison.Ordinal);
@@ -48,13 +48,13 @@ public sealed class DevicePrerequisiteBannerTests
         // INV-020: the runtime never installs a driver. The banner may switch Device Integration
         // on, because that is WSGM's own setting, and must only point at setup for the rest.
         using UiFixture fixture = new();
-        bool enabled = false;
+        var enabled = false;
         DevicePrerequisiteSource source = new(
             () => State(integration: enabled),
             () => { enabled = true; return Task.CompletedTask; });
 
-        OverlayWindow window = Device(fixture, source);
-        Button enable = UiFixture.Named<Button>(window, "DevicePrerequisiteEnable");
+        var window = Device(fixture, source);
+        var enable = UiFixture.Named<Button>(window, "DevicePrerequisiteEnable");
         Assert.True(enable.IsVisible);
         Assert.Equal("Enable Device Integration", enable.Content);
         Assert.DoesNotContain(
@@ -76,7 +76,7 @@ public sealed class DevicePrerequisiteBannerTests
         DevicePrerequisiteSource source = new(
             () => State(package: false), () => Task.CompletedTask);
 
-        OverlayWindow window = Device(fixture, source);
+        var window = Device(fixture, source);
 
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
     }
@@ -88,7 +88,7 @@ public sealed class DevicePrerequisiteBannerTests
         DevicePrerequisiteSource source = new(
             () => State(integration: true, library: true, hidHide: true), () => Task.CompletedTask);
 
-        OverlayWindow window = Device(fixture, source);
+        var window = Device(fixture, source);
 
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
     }
@@ -102,7 +102,7 @@ public sealed class DevicePrerequisiteBannerTests
             () => throw new InvalidOperationException("the slot is unreadable"),
             () => Task.CompletedTask);
 
-        OverlayWindow window = Device(fixture, source);
+        var window = Device(fixture, source);
 
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
     }

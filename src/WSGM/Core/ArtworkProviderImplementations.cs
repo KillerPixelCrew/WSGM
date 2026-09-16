@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
@@ -42,7 +43,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         ArgumentNullException.ThrowIfNull(config);
         var matches = await SteamGridDb.SearchGamesAsync(
             term, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
-        string trimmed = (term ?? "").Trim();
+        var trimmed = (term ?? "").Trim();
         return matches
             .Select(game => new ArtworkGameMatch(
                 Id,
@@ -57,7 +58,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         ArtworkAsset asset, string gameId, AppConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        if (!int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out int id))
+        if (!int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
             return [];
         }
@@ -119,7 +120,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     private static readonly HttpClient Http = new()
     {
         Timeout = TimeSpan.FromSeconds(20),
-        MaxResponseContentBufferSize = MaxJsonResponseBytes,
+        MaxResponseContentBufferSize = MaxJsonResponseBytes
     };
 
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
@@ -133,7 +134,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         [ArtworkAsset.Hero] = ["fanart", "ss", "sstitle"],
         [ArtworkAsset.Logo] = ["wheel", "wheel-hd", "screenmarquee"],
         [ArtworkAsset.Wide] = ["screenmarquee", "marquee", "fanart"],
-        [ArtworkAsset.Icon] = ["box-2D", "wheel"],
+        [ArtworkAsset.Icon] = ["box-2D", "wheel"]
     };
 
     /// <summary>Region preference: a world release first, then the common regional ones.</summary>
@@ -163,7 +164,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         string term, AppConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-        string trimmed = (term ?? "").Trim();
+        var trimmed = (term ?? "").Trim();
         if (trimmed.Length == 0)
         {
             return [];
@@ -185,7 +186,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             {
                 continue;
             }
-            string gameId = id.ValueKind == JsonValueKind.String
+            var gameId = id.ValueKind == JsonValueKind.String
                 ? id.GetString() ?? ""
                 : id.ToString();
             if (gameId.Length == 0)
@@ -193,7 +194,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 continue;
             }
 
-            string name = ReadName(game);
+            var name = ReadName(game);
             matches.Add(new ArtworkGameMatch(
                 Id, gameId, name, string.Equals(name, trimmed, StringComparison.OrdinalIgnoreCase)));
         }
@@ -215,7 +216,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             return [];
         }
 
-        string[] wanted = MediaTypes.TryGetValue(asset, out string[]? types) ? types : MediaTypes[ArtworkAsset.Grid];
+        var wanted = MediaTypes.TryGetValue(asset, out var types) ? types : MediaTypes[ArtworkAsset.Grid];
         var candidates = new List<(int TypeRank, int RegionRank, ArtworkCandidate Candidate)>();
         foreach (var media in medias.EnumerateArray())
         {
@@ -226,23 +227,23 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 continue;
             }
 
-            string type = typeElement.GetString() ?? "";
-            int typeRank = Array.IndexOf(wanted, type);
+            var type = typeElement.GetString() ?? "";
+            var typeRank = Array.IndexOf(wanted, type);
             if (typeRank < 0)
             {
                 continue;
             }
 
-            string url = urlElement.GetString() ?? "";
-            string? extension = ExtensionOf(media, url);
+            var url = urlElement.GetString() ?? "";
+            var extension = ExtensionOf(media, url);
             if (extension is null)
             {
                 continue;
             }
 
-            string region = media.TryGetProperty("region", out var regionElement)
+            var region = media.TryGetProperty("region", out var regionElement)
                 ? regionElement.GetString() ?? "" : "";
-            int regionRank = Array.IndexOf(RegionPreference, region);
+            var regionRank = Array.IndexOf(RegionPreference, region);
             candidates.Add((
                 typeRank,
                 regionRank < 0 ? RegionPreference.Length : regionRank,
@@ -272,12 +273,12 @@ public sealed class ScreenscraperProvider : IArtworkProvider
             "output=json",
             $"softname={Uri.EscapeDataString(ScreenscraperCredentials.SoftName)}",
             $"devid={Uri.EscapeDataString(ScreenscraperCredentials.DevId)}",
-            $"devpassword={Uri.EscapeDataString(ScreenscraperCredentials.DevPassword)}",
+            $"devpassword={Uri.EscapeDataString(ScreenscraperCredentials.DevPassword)}"
         };
 
         // The user account is optional and only raises the quota, so its absence is not a refusal.
-        string user = (config.ScreenscraperUser ?? "").Trim();
-        string password = (config.ScreenscraperUserPassword ?? "").Trim();
+        var user = (config.ScreenscraperUser ?? "").Trim();
+        var password = (config.ScreenscraperUserPassword ?? "").Trim();
         if (user.Length > 0 && password.Length > 0)
         {
             parts.Add($"ssid={Uri.EscapeDataString(user)}");
@@ -298,7 +299,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         // Screenscraper returns names as a region-tagged list, so the same preference applies.
         if (game.TryGetProperty("noms", out var names) && names.ValueKind == JsonValueKind.Array)
         {
-            foreach (string region in RegionPreference)
+            foreach (var region in RegionPreference)
             {
                 foreach (var entry in names.EnumerateArray())
                 {
@@ -323,13 +324,13 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     /// <summary>The image format, from the media's own field or the URL, and only if static.</summary>
     private static string? ExtensionOf(JsonElement media, string url)
     {
-        string declared = media.TryGetProperty("format", out var format)
+        var declared = media.TryGetProperty("format", out var format)
             ? (format.GetString() ?? "").ToLowerInvariant() : "";
-        string candidate = declared switch
+        var candidate = declared switch
         {
             "png" => "png",
             "jpg" or "jpeg" => "jpg",
-            _ => "",
+            _ => ""
         };
         if (candidate.Length > 0)
         {
@@ -341,11 +342,11 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         {
             return null;
         }
-        return System.IO.Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
+        return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "jpg",
             ".png" => "png",
-            _ => null,
+            _ => null
         };
     }
 
@@ -366,11 +367,11 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                         + "A free Screenscraper account, set in Settings, raises it.",
                     431 => "Screenscraper stopped answering for today after too many titles it "
                         + "does not have. A free Screenscraper account, set in Settings, raises it.",
-                    _ => $"Screenscraper returned HTTP {(int)response.StatusCode}.",
+                    _ => $"Screenscraper returned HTTP {(int)response.StatusCode}."
                 });
             }
 
-            string json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);
             return document.RootElement.Clone();
         }

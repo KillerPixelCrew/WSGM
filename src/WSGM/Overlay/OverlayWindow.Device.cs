@@ -6,8 +6,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
@@ -44,7 +48,7 @@ public partial class OverlayWindow
     /// </remarks>
     private bool IsEditingValueIn(Control list)
     {
-        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        if (GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is not Control focused)
         {
             return false;
@@ -81,8 +85,8 @@ public partial class OverlayWindow
     /// <summary>Renders what a device package on this install is missing, if anything.</summary>
     private void RefreshDevicePrerequisites()
     {
-        WSGM.Core.DevicePrerequisiteAdvice advice = _devicePrerequisites?.Read()
-            ?? new WSGM.Core.DevicePrerequisiteAdvice("", false, false);
+        var advice = _devicePrerequisites?.Read()
+                     ?? new DevicePrerequisiteAdvice("", false, false);
         // No page check: the banner is a child of PanelDevice, so that panel's own visibility is
         // the gate. It stays up on the Device sub-pages too, which is where someone hunting a dead
         // device most likely ends up.
@@ -94,7 +98,7 @@ public partial class OverlayWindow
         DevicePrerequisiteEnable.IsVisible = advice.CanEnableIntegration;
     }
 
-    private async void OnEnableDeviceIntegration(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e)
     {
         if (_devicePrerequisites is not { } prerequisites) { return; }
         DevicePrerequisiteEnable.IsEnabled = false;
@@ -135,7 +139,7 @@ public partial class OverlayWindow
     {
         if (Interlocked.CompareExchange(ref _liveRefreshScheduled, 1, 0) == 0)
         {
-            this.Dispatcher.Post(ProcessLiveRefreshes, DispatcherPriority.Background);
+            Dispatcher.Post(ProcessLiveRefreshes, DispatcherPriority.Background);
         }
     }
 
@@ -147,13 +151,13 @@ public partial class OverlayWindow
             return;
         }
 
-        int refreshes = Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        Vector offset = ContentScroller.Offset;
-        OverlayPage page = _navigation.Page;
-        string? sectionId = _navigation.SectionId;
+        var refreshes = Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
+        var offset = ContentScroller.Offset;
+        var page = _navigation.Page;
+        var sectionId = _navigation.SectionId;
         void KeepViewport(object? sender, RequestBringIntoViewEventArgs args) => args.Handled = true;
-        PanelDevice.AddHandler(Control.RequestBringIntoViewEvent, KeepViewport);
-        PanelSystem.AddHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+        PanelDevice.AddHandler(RequestBringIntoViewEvent, KeepViewport);
+        PanelSystem.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         try
         {
             if ((refreshes & PerformanceLiveRefresh) != 0)
@@ -175,8 +179,8 @@ public partial class OverlayWindow
         }
         finally
         {
-            PanelDevice.RemoveHandler(Control.RequestBringIntoViewEvent, KeepViewport);
-            PanelSystem.RemoveHandler(Control.RequestBringIntoViewEvent, KeepViewport);
+            PanelDevice.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
+            PanelSystem.RemoveHandler(RequestBringIntoViewEvent, KeepViewport);
         }
 
         if (Volatile.Read(ref _pendingLiveRefreshes) != 0)
@@ -222,15 +226,15 @@ public partial class OverlayWindow
             return;
         }
 
-        DeviceOverlaySnapshot snapshot = _deviceBridge?.Snapshot()
-            ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
-        PerformanceOverlaySnapshot? performance = _performanceSource?.Snapshot();
+        var snapshot = _deviceBridge?.Snapshot()
+                       ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
+        var performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
-        bool powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
-            || (_navigation.Page == OverlayPage.DevicePluginSection
-                && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
-                    == DeviceOverlaySection.PowerAndThermals);
+        var powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
+                        || (_navigation.Page == OverlayPage.DevicePluginSection
+                            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
+                            == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
         DeviceWindowsPower.IsVisible = _powerSchemeSelection is not null;
         DevicePowerPresetContainer.IsVisible = powerPage && _navigation.Page != OverlayPage.Device && snapshot.Visible && DevicePowerPresetHost.IsVisible;
@@ -255,9 +259,9 @@ public partial class OverlayWindow
         if (_renderedDevicePage == _navigation.Page && _renderedDeviceSection == _navigation.SectionId
             && IsEditingValueIn(DeviceCapabilityList))
         {
-            foreach (DeviceSliderRow row in DeviceCapabilityList.GetLogicalDescendants().OfType<DeviceSliderRow>())
+            foreach (var row in DeviceCapabilityList.GetLogicalDescendants().OfType<DeviceSliderRow>())
             {
-                DeviceOverlayCapability? capability = snapshot.Capabilities.FirstOrDefault(item =>
+                var capability = snapshot.Capabilities.FirstOrDefault(item =>
                     Equals(row.Tag, item.InstanceId is { Length: > 0 }
                         ? $"{item.CapabilityId}#{item.InstanceId}" : item.CapabilityId));
                 if (capability is not null && RendersAsSlider(capability))
@@ -274,7 +278,7 @@ public partial class OverlayWindow
             }
             return;
         }
-        string? focusedKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+        var focusedKey = GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control focused
             ? focused.Tag as string
             : null;
@@ -291,18 +295,18 @@ public partial class OverlayWindow
             DeviceCapabilityList.Children.Add(new TextBlock
             {
                 Text = "No device-plugin controls are available.",
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                Margin = new Thickness(2, 4),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(2, 4)
             });
             return;
         }
 
         // Shared sections group related controls into cards; fallback sections keep their own renderer.
-        DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
-        string? openPluginSection = _navigation.Page is OverlayPage.DevicePluginSection
+        var openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
+        var openPluginSection = _navigation.Page is OverlayPage.DevicePluginSection
             ? _navigation.SectionId
             : null;
-        DescriptorStatusRow? restoreFocus = openSection is { } section
+        var restoreFocus = openSection is { } section
             ? RenderDeviceSection(snapshot, section, focusedKey)
             : openPluginSection is { } pluginSectionId
                 ? RenderDevicePluginSection(snapshot, pluginSectionId, focusedKey)
@@ -359,7 +363,7 @@ public partial class OverlayWindow
                 StringComparison.Ordinal)) is { } applicationProfile)
         {
             const string toggleFocusKey = "device.application-profile";
-            DescriptorStatusRow toggle = CreatePerformanceRow(applicationProfile, toggleFocusKey);
+            var toggle = CreatePerformanceRow(applicationProfile, toggleFocusKey);
             toggle.Margin = new Thickness(0, 0, 0, 12);
             DeviceCapabilityList.Children.Add(toggle);
             if (string.Equals(toggleFocusKey, focusedKey, StringComparison.Ordinal))
@@ -370,12 +374,12 @@ public partial class OverlayWindow
 
         // A grid of tile cards rather than a stretched stack: the sheet is wide, and
         // a full-width row per section read as the old sidebar scaled up.
-        var grid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 2 };
-        foreach (DeviceOverlaySectionEntry entry in sectionPages)
+        var grid = new UniformGrid { Columns = 2 };
+        foreach (var entry in sectionPages)
         {
             if (!snapshot.Visible && (entry.Section == DeviceOverlaySection.PowerAndThermals
                 || entry.PluginSectionId == DeviceSections.PowerId)) { continue; }
-            string key = DeviceOverlaySectionPages.FocusKey(entry);
+            var key = DeviceOverlaySectionPages.FocusKey(entry);
             DescriptorStatusRow row = new();
             row.Classes.Add("tile");
             row.Margin = new Thickness(0, 0, 10, 10);
@@ -391,7 +395,7 @@ public partial class OverlayWindow
                 row.IconGeometry = sectionIcon;
             }
 
-            DeviceOverlaySectionEntry captured = entry;
+            var captured = entry;
             row.Click += (_, _) =>
             {
                 if (captured.PluginSectionId is { } pluginSection)
@@ -423,14 +427,14 @@ public partial class OverlayWindow
     {
         if (DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId) == DeviceOverlaySection.ControllerAndMotion)
         { return RenderControllerPage(snapshot, focusedKey, "section.device.plugin." + sectionId + ".configuration"); }
-        DeviceOverlayPluginSection? pluginSection = snapshot.PluginSections
+        var pluginSection = snapshot.PluginSections
             .FirstOrDefault(candidate => string.Equals(
                 candidate.SectionId,
                 sectionId,
                 StringComparison.Ordinal));
-        IReadOnlyList<DeviceOverlayCapability> capabilities =
+        var capabilities =
             DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, sectionId);
-        DeviceOverlaySection? absorbed =
+        var absorbed =
             DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId);
         if (pluginSection is null || (capabilities.Count == 0 && absorbed is null))
         {
@@ -439,8 +443,8 @@ public partial class OverlayWindow
             DeviceCapabilityList.Children.Add(new TextBlock
             {
                 Text = "This device section is no longer available.",
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                Margin = new Thickness(2, 4),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(2, 4)
             });
             return null;
         }
@@ -448,9 +452,9 @@ public partial class OverlayWindow
         DescriptorStatusRow? restoreFocus = null;
         var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 12, 0, 0) };
         StackPanel[] stacks = [new() { Spacing = 16 }, new() { Spacing = 16 }];
-        for (int i = 0; i < stacks.Length; i++) { Grid.SetColumn(stacks[i], i); columns.Children.Add(stacks[i]); }
+        for (var i = 0; i < stacks.Length; i++) { Grid.SetColumn(stacks[i], i); columns.Children.Add(stacks[i]); }
         DeviceCapabilityList.Children.Add(columns);
-        int groupIndex = 0;
+        var groupIndex = 0;
         foreach (var section in DevicePinSections(snapshot).Where(section => section.PluginSectionId == sectionId))
         {
             var content = CreateSection(section.Id, section.Title);
@@ -463,7 +467,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
-    private static Avalonia.Media.Geometry? SectionIconFor(SectionIcon icon) => icon switch
+    private static Geometry? SectionIconFor(SectionIcon icon) => icon switch
     {
         SectionIcon.Power => Icons.Power,
         SectionIcon.Fan => Icons.Snowflake,
@@ -473,7 +477,7 @@ public partial class OverlayWindow
         SectionIcon.Display => Icons.Monitor,
         SectionIcon.Gauge => Icons.ListLines,
         SectionIcon.Wrench => Icons.Wrench,
-        _ => null,
+        _ => null
     };
 
     private DescriptorStatusRow? RenderDeviceSection(
@@ -670,7 +674,7 @@ public partial class OverlayWindow
         {
             Text = $"{preview.ProfileName} · {preview.Detail}",
             Margin = new Thickness(2, 6, 2, 2),
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            TextWrapping = TextWrapping.Wrap
         };
         caption.Classes.Add("caption");
         target.Children.Add(caption);
@@ -681,13 +685,13 @@ public partial class OverlayWindow
                 ? "Press a control on the device to light it here."
                 : "Input test unavailable · WSGM is not reading this device's controls.",
             Margin = new Thickness(2, 0, 2, 4),
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            TextWrapping = TextWrapping.Wrap
         };
         hint.Classes.Add("caption");
         target.Children.Add(hint);
 
         WrapPanel tiles = new() { Margin = new Thickness(2, 0, 2, 4) };
-        foreach (DeviceOverlayGlyphPreviewItem item in preview.Items)
+        foreach (var item in preview.Items)
         {
             Border tile = new()
             {
@@ -695,7 +699,7 @@ public partial class OverlayWindow
                 Height = 72,
                 Margin = new Thickness(0, 0, 6, 6),
                 CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(4),
+                Padding = new Thickness(4)
             };
             tile.Classes.Add("glyph-tile");
             StackPanel stack = new() { Spacing = 2 };
@@ -704,17 +708,17 @@ public partial class OverlayWindow
                 Plan = item.Plan,
                 Width = 40,
                 Height = 40,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
             };
             stack.Children.Add(image);
             TextBlock label = new()
             {
                 Text = item.Label,
                 FontSize = 10,
-                TextAlignment = Avalonia.Media.TextAlignment.Center,
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
                 MaxLines = 2,
-                TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
             stack.Children.Add(label);
             tile.Child = stack;
@@ -733,7 +737,7 @@ public partial class OverlayWindow
     /// </remarks>
     private void ApplyGlyphInputTest()
     {
-        foreach ((GlyphControlId control, Border tile) in _glyphTiles)
+        foreach (var (control, tile) in _glyphTiles)
         {
             tile.Classes.Set("pressed", _pressedGlyphControls.Contains(control));
         }
@@ -753,7 +757,7 @@ public partial class OverlayWindow
         string description,
         Func<IDeviceOverlaySource, CancellationToken, Task> command)
     {
-        IDeviceOverlaySource? bridge = _deviceBridge;
+        var bridge = _deviceBridge;
         if (bridge is null || _closed)
         {
             return;
@@ -821,8 +825,8 @@ public partial class OverlayWindow
     private void LeaveDeviceSection(DeviceOverlaySection section)
     {
         UpdateGlyphInputObservation(false);
-        string? returnFocusKey = _navigation.Pop()
-            ?? DeviceOverlaySectionPages.FocusKey(section);
+        var returnFocusKey = _navigation.Pop()
+                             ?? DeviceOverlaySectionPages.FocusKey(section);
         RefreshDevicePanel();
         RefreshPerformancePanel();
         RestoreRootFocus(returnFocusKey);
@@ -836,10 +840,10 @@ public partial class OverlayWindow
     /// </remarks>
     private void LeaveDevicePluginSection()
     {
-        string? sectionId = _navigation.SectionId;
+        var sectionId = _navigation.SectionId;
         UpdateGlyphInputObservation(false);
-        string? returnFocusKey = _navigation.Pop()
-            ?? (sectionId is null ? null : "device.section.plugin." + sectionId);
+        var returnFocusKey = _navigation.Pop()
+                             ?? (sectionId is null ? null : "device.section.plugin." + sectionId);
         RefreshDevicePanel();
         RefreshPerformancePanel();
         RestoreRootFocus(returnFocusKey);
@@ -854,7 +858,7 @@ public partial class OverlayWindow
     /// </remarks>
     private void UpdateGlyphInputObservation(bool observe)
     {
-        if (observe == (_glyphInputObservation is not null))
+        if (observe == _glyphInputObservation is not null)
         {
             return;
         }
@@ -872,7 +876,7 @@ public partial class OverlayWindow
             return;
         }
 
-        IDeviceOverlaySource? bridge = _deviceBridge;
+        var bridge = _deviceBridge;
         if (bridge is null || _closed)
         {
             return;
@@ -891,7 +895,7 @@ public partial class OverlayWindow
     /// </remarks>
     private void OnPhysicalGlyphSample(CanonicalControllerSample sample)
     {
-        HashSet<GlyphControlId> pressed = GlyphInputTestMap.Pressed(sample);
+        var pressed = GlyphInputTestMap.Pressed(sample);
         if (pressed.SetEquals(_pressedGlyphControls))
         {
             return;

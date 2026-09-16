@@ -5,7 +5,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Device.Sdk.Capabilities;
@@ -73,8 +75,8 @@ internal sealed class DeviceSliderRow : Border
         _commit = new DispatcherTimer { Interval = CommitDelay };
         _commit.Tick += OnCommitTick;
 
-        int tick = Math.Max(1, step);
-        int clamped = Math.Clamp(valueNow, minimum, maximum);
+        var tick = Math.Max(1, step);
+        var clamped = Math.Clamp(valueNow, minimum, maximum);
 
         Classes.Add("tile");
         Tag = key;
@@ -85,20 +87,20 @@ internal sealed class DeviceSliderRow : Border
         _value = new TextBlock
         {
             Text = Format(clamped),
-            HorizontalAlignment = HorizontalAlignment.Right,
+            HorizontalAlignment = HorizontalAlignment.Right
         };
         _value.Classes.Add("setting-title");
 
         var titleRow = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*,Auto")
         };
         Grid.SetColumn(header, 0);
         Grid.SetColumn(_value, 1);
         titleRow.Children.Add(header);
         titleRow.Children.Add(_value);
 
-        var caption = new TextBlock { Text = description, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var caption = new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap };
         caption.Classes.Add("caption");
 
         // Matches the color view's channel sliders, which are known to drive from the pad: the
@@ -115,13 +117,13 @@ internal sealed class DeviceSliderRow : Border
             Tag = key,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 6, 0, 0),
+            Margin = new Thickness(0, 6, 0, 0)
         };
         _slider.ValueChanged += OnSliderValueChanged;
         _slider.AddHandler(PointerPressedEvent, (_, _) => _pointerEditing = true,
-            Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            RoutingStrategies.Tunnel);
         _slider.AddHandler(PointerReleasedEvent, (_, _) => _pointerEditing = false,
-            Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            RoutingStrategies.Tunnel);
         _slider.PointerCaptureLost += (_, _) => _pointerEditing = false;
         // The Fluent Slider template contains focusable inner RepeatButtons on either side of the
         // thumb. Directional (XY) focus lands on THOSE rather than the Slider, so the pad handler's
@@ -129,7 +131,7 @@ internal sealed class DeviceSliderRow : Border
         // before and after the dot". Once templated, leave only the Slider itself focusable.
         _slider.AttachedToVisualTree += (_, _) =>
         {
-            foreach (InputElement descendant in _slider.GetVisualDescendants().OfType<InputElement>())
+            foreach (var descendant in _slider.GetVisualDescendants().OfType<InputElement>())
             {
                 if (!ReferenceEquals(descendant, _slider))
                 {
@@ -198,6 +200,6 @@ internal sealed class DeviceSliderRow : Border
         CapabilityUnit.Celsius => " °C",
         CapabilityUnit.Rpm => " RPM",
         CapabilityUnit.Milliampere => " mA",
-        _ => string.Empty,
+        _ => string.Empty
     };
 }

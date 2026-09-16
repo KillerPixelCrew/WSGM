@@ -36,7 +36,7 @@ internal static partial class NativeAuthenticode
             WinTrustFileInfo file = new()
             {
                 StructSize = (uint)sizeof(WinTrustFileInfo),
-                FilePath = pathPointer,
+                FilePath = pathPointer
             };
             WinTrustData data = new()
             {
@@ -60,9 +60,9 @@ internal static partial class NativeAuthenticode
                 //
                 // What is still enforced is what actually matters: a trusted chain, an intact
                 // signature over these exact bytes, and whole-chain revocation.
-                ProviderFlags = WtdRevocationCheckChainExcludeRoot,
+                ProviderFlags = WtdRevocationCheckChainExcludeRoot
             };
-            Guid action = GenericVerifyV2;
+            var action = GenericVerifyV2;
             return WinVerifyTrust(0, ref action, ref data);
         }
     }

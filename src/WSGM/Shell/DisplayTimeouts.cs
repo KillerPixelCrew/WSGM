@@ -23,7 +23,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     private static readonly (string Row, PowerTimeoutKind Kind, string Label)[] Rows =
     [
         ("battery", PowerTimeoutKind.DisplayDc, "Turn display off after (on battery)"),
-        ("plugged-in", PowerTimeoutKind.DisplayAc, "Turn display off after (plugged in)"),
+        ("plugged-in", PowerTimeoutKind.DisplayAc, "Turn display off after (plugged in)")
     ];
 
     private readonly Func<PowerTimeoutKind, int?> _read;
@@ -97,13 +97,13 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         lock (PowerSchemes.MutationGate)
         {
             // A failed read refuses to write blind.
-            int? current = _read(kind);
+            var current = _read(kind);
             if (current is null)
             {
                 return false;
             }
 
-            int next = DisplayTimeoutPolicy.DisplayKinds.Contains(kind)
+            var next = DisplayTimeoutPolicy.DisplayKinds.Contains(kind)
                 ? DisplayTimeoutPolicy.NextAllowed(current.Value, Minimum(kind))
                 : PowerTimeouts.NextPreset(current.Value);
             written = _write(kind, next);
@@ -118,11 +118,11 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     internal SteamScreensaverState ReadState()
     {
         List<SteamTimeoutRow> rows = new(Rows.Length);
-        foreach ((string row, PowerTimeoutKind kind, string label) in Rows)
+        foreach (var (row, kind, label) in Rows)
         {
-            int? current = _read(kind);
-            int? minimum = Minimum(kind);
-            SteamTimeoutOption[] options = current is null
+            var current = _read(kind);
+            var minimum = Minimum(kind);
+            var options = current is null
                 ? []
                 : DisplayTimeoutPolicy.Choices(current.Value, minimum)
                     .Select(static seconds => new SteamTimeoutOption(seconds, PowerTimeouts.Describe(seconds)))
@@ -155,7 +155,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
             $"Steam screensaver starts after {DescribeScreensaver(report.PluggedInSeconds)} plugged in, "
                 + $"{(report.BatterySeconds is int battery ? DescribeScreensaver(battery) : "unset")} on battery; "
                 + $"Steam {(report.Battery ? "keeps them apart" : "applies the plugged-in timeout everywhere")}.");
-        foreach (PowerTimeoutKind kind in DisplayTimeoutPolicy.DisplayKinds)
+        foreach (var kind in DisplayTimeoutPolicy.DisplayKinds)
         {
             RaiseBelowBound(kind);
         }
@@ -167,7 +167,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetTimeoutAsync(string row, int seconds, CancellationToken cancellationToken)
     {
-        (string Row, PowerTimeoutKind Kind, string Label) target = Rows.FirstOrDefault(entry => entry.Row == row);
+        var target = Rows.FirstOrDefault(entry => entry.Row == row);
         if (target.Row is null)
         {
             return Refuse("That timeout row is not one of WSGM's.");
@@ -176,7 +176,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         bool written;
         lock (PowerSchemes.MutationGate)
         {
-            int? minimum = Minimum(target.Kind);
+            var minimum = Minimum(target.Kind);
             if (!DisplayTimeoutPolicy.Allows(seconds, minimum))
             {
                 return Refuse(
@@ -196,14 +196,14 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     {
         lock (PowerSchemes.MutationGate)
         {
-            int? minimum = Minimum(kind);
-            int? current = _read(kind);
+            var minimum = Minimum(kind);
+            var current = _read(kind);
             if (minimum is null || current is null || DisplayTimeoutPolicy.Allows(current.Value, minimum))
             {
                 return;
             }
 
-            int raised = DisplayTimeoutPolicy.Raised(minimum.Value);
+            var raised = DisplayTimeoutPolicy.Raised(minimum.Value);
             if (_write(kind, raised))
             {
                 Log.Info($"Display timeout {kind} raised from {PowerTimeouts.Describe(current.Value)} to "

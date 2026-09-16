@@ -83,8 +83,8 @@ internal sealed class DevicePluginCompatibilityAdapter(
 
     private PluginHealth Publish(PluginContext context, DeviceCycleState state)
     {
-        PluginHealth health = Health(state);
-        _host?.PublishHealth(new(context.Instance, context.Generation, health, LastState?.Reason?.Detail));
+        var health = Health(state);
+        _host?.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, health, LastState?.Reason?.Detail));
         return health;
     }
 
@@ -92,13 +92,13 @@ internal sealed class DevicePluginCompatibilityAdapter(
     {
         DeviceCycleState.Active => PluginHealth.Ready,
         DeviceCycleState.Faulted => PluginHealth.Failed,
-        _ => PluginHealth.Unavailable,
+        _ => PluginHealth.Unavailable
     };
 
     private void OnLifecycleState(DevicePluginState state)
     {
         LastState = state;
         if (_instance is { } instance)
-        { _host?.PublishHealth(new(instance, state.CycleGeneration, Health(state.State), state.Reason?.Detail)); }
+        { _host?.PublishHealth(new PluginHealthPublication(instance, state.CycleGeneration, Health(state.State), state.Reason?.Detail)); }
     }
 }

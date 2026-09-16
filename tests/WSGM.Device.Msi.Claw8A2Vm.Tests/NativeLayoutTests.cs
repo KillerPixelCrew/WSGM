@@ -14,12 +14,12 @@ public sealed class NativeLayoutTests
     [InlineData("ctl_intel_arc_sync_profile_params_t", 28)]
     public void ArcSync_ManagedMirrors_MatchTheNativeHeaderExactly(string native, int expected)
     {
-        (int init, int monitor, int profile) = ArcSyncTransport.NativeStructureSizes;
-        int actual = native switch
+        var (init, monitor, profile) = ArcSyncTransport.NativeStructureSizes;
+        var actual = native switch
         {
             "ctl_init_args_t" => init,
             "ctl_intel_arc_sync_monitor_params_t" => monitor,
-            _ => profile,
+            _ => profile
         };
 
         Assert.Equal(expected, actual);
@@ -35,7 +35,7 @@ public sealed class NativeLayoutTests
     [InlineData("ctl_endurance_gaming_t", 8)]
     public void Intel3dFeature_ManagedMirrors_MatchTheNativeHeaderExactly(string native, int expected)
     {
-        (int getSet, int endurance) = Intel3dFeatureTransport.NativeStructureSizes;
+        var (getSet, endurance) = Intel3dFeatureTransport.NativeStructureSizes;
 
         Assert.Equal(expected, native == "ctl_3d_feature_getset_t" ? getSet : endurance);
     }

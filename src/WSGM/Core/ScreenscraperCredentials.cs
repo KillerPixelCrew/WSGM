@@ -33,7 +33,7 @@ public static class ScreenscraperCredentials
     private static readonly byte[] Key =
     [
         78, 122, 55, 113, 76, 50, 118, 88, 57, 107, 82, 52,
-        109, 66, 56, 112, 87, 49, 115, 68, 54, 116, 71, 51,
+        109, 66, 56, 112, 87, 49, 115, 68, 54, 116, 71, 51
     ];
 
     private static readonly byte[] FoldedDevId =
@@ -76,8 +76,8 @@ public static class ScreenscraperCredentials
 
     private static string Unfold(byte[] folded)
     {
-        char[] chars = new char[folded.Length];
-        for (int i = 0; i < folded.Length; i++)
+        var chars = new char[folded.Length];
+        for (var i = 0; i < folded.Length; i++)
         {
             chars[i] = (char)(folded[i] ^ Key[i]);
         }
@@ -86,7 +86,7 @@ public static class ScreenscraperCredentials
 
     private static string BuildSoftName()
     {
-        Version? version = typeof(ScreenscraperCredentials).Assembly.GetName().Version;
+        var version = typeof(ScreenscraperCredentials).Assembly.GetName().Version;
         return version is null ? "WSGM" : $"WSGM-{version.Major}.{version.Minor}.{version.Build}";
     }
 }

@@ -78,7 +78,7 @@ public static class AccentPalette
     /// <summary>WCAG relative luminance of an sRGB color (0 = black, 1 = white).</summary>
     internal static double RelativeLuminance(Color color)
     {
-        return (0.2126 * Linearize(color.R)) + (0.7152 * Linearize(color.G)) + (0.0722 * Linearize(color.B));
+        return 0.2126 * Linearize(color.R) + 0.7152 * Linearize(color.G) + 0.0722 * Linearize(color.B);
     }
 
     private static double Linearize(byte channel)

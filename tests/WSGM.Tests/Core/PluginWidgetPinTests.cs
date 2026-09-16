@@ -26,7 +26,7 @@ public sealed class PluginWidgetPinTests
     {
         PluginWidgetPin first = new("b", "default", "status");
         PluginWidgetPin second = new("a", "default", "status");
-        var pins = PluginWidgetPins.Normalize([first, second, first, new("", "default", "status")]);
+        var pins = PluginWidgetPins.Normalize([first, second, first, new PluginWidgetPin("", "default", "status")]);
         PluginWidgetPins.ResetOrder(pins);
         Assert.Equal([second, first], pins);
         PluginWidgetPins.Move(pins, second, -1);

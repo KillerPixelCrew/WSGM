@@ -52,7 +52,7 @@ public sealed class DevicePlugin : IDevicePlugin
             CommandId = command.CommandId,
             Outcome = CommandOutcome.Rejected,
             Reason = ScaffoldReason,
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         });
     }
 
@@ -82,8 +82,8 @@ public sealed class DevicePlugin : IDevicePlugin
             {
                 ["implementation"] = "scaffold",
                 ["identity-validation"] = "pending",
-                ["hardware-acquired"] = "false",
-            },
+                ["hardware-acquired"] = "false"
+            }
         });
     }
 
@@ -104,7 +104,7 @@ public sealed class DevicePlugin : IDevicePlugin
         return ValueTask.FromResult(new PluginControllerRelease
         {
             Step = ControllerHandoffStep.NotStarted,
-            Result = ControllerHandoffResult.ReleasedUnverified,
+            Result = ControllerHandoffResult.ReleasedUnverified
         });
     }
 
@@ -131,6 +131,6 @@ public sealed class DevicePlugin : IDevicePlugin
     private static PluginStartResult PassiveResult() => new()
     {
         State = PluginOperationalState.Passive,
-        Reason = ScaffoldReason,
+        Reason = ScaffoldReason
     };
 }

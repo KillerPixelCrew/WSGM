@@ -28,7 +28,7 @@ public sealed class SettingsStartupTests
             release.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
             return [SteamEntry];
         };
-        SettingsWindow window = fixture.Settings(1024, 640);
+        var window = fixture.Settings(1024, 640);
         try
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -52,9 +52,9 @@ public sealed class SettingsStartupTests
         using UiFixture fixture = new();
         fixture.Saved.QuickSetupRevision = 0;
         fixture.ScanSteamAutostart = () => [SteamEntry];
-        SettingsWindow window = fixture.Settings(1024, 640);
+        var window = fixture.Settings(1024, 640);
         await window.SteamAutostartScan.WaitAsync(TimeSpan.FromSeconds(5));
-        Button next = UiFixture.Named<Button>(window, "QuickSetupContinueButton");
+        var next = UiFixture.Named<Button>(window, "QuickSetupContinueButton");
         Assert.False(next.IsEnabled);
         Assert.Contains("Fixture Steam", UiFixture.Named<TextBlock>(window, "QuickSetupAutostartList").Text);
         UiFixture.Click(window, UiFixture.Named<CheckBox>(window, "QuickSetupAutostart"));
@@ -72,7 +72,7 @@ public sealed class SettingsStartupTests
         using UiFixture fixture = new();
         fixture.Saved.QuickSetupRevision = 0;
         fixture.ScanSteamAutostart = () => throw new IOException("fixture scan failure");
-        SettingsWindow window = fixture.Settings();
+        var window = fixture.Settings();
         await window.SteamAutostartScan.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(UiFixture.Named<Button>(window, "QuickSetupContinueButton").IsEnabled);
         Assert.Contains("Could not check", UiFixture.Named<TextBlock>(window, "QuickSetupScanStatus").Text);
@@ -90,15 +90,15 @@ public sealed class SettingsStartupTests
         using UiFixture fixture = new();
         fixture.Saved.SteamAutostartTakeoverAccepted = true;
         fixture.ScanSteamAutostart = () => [SteamEntry];
-        int writes = 0;
+        var writes = 0;
         fixture.ApplySteamAutostart = sources =>
         {
             Assert.False(Dispatcher.UIThread.CheckAccess());
             Assert.Equal(SteamEntry, Assert.Single(sources));
             Interlocked.Increment(ref writes);
-            return new([SteamEntry], [], []);
+            return new SteamAutostartTakeoverResult([SteamEntry], [], []);
         };
-        SettingsWindow window = fixture.Settings();
+        var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         TaskCompletionSource completed = new();
         model.PropertyChanged += (_, args) =>
@@ -124,7 +124,7 @@ public sealed class SettingsStartupTests
         using UiFixture fixture = new();
         TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        int scans = 0;
+        var scans = 0;
         fixture.ScanSteamAutostart = () =>
         {
             Assert.False(Dispatcher.UIThread.CheckAccess());
@@ -133,7 +133,7 @@ public sealed class SettingsStartupTests
             release.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
             return [];
         };
-        SettingsWindow window = fixture.Settings();
+        var window = fixture.Settings();
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         TaskCompletionSource completed = new();
         model.TakeOverSteamAutostartCommand.CanExecuteChanged += (_, _) =>

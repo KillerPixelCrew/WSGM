@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Threading;
 using WSGM.Interop;
 
@@ -65,18 +67,18 @@ public static class UpdateExitWatcher
         {
             ApplicationShutdownReason.Update => $"{EventName}.Completed",
             ApplicationShutdownReason.Uninstall => $"{UninstallEventName}.Completed",
-            _ => null,
+            _ => null
         };
 
     internal static void ReportHandoff(
         ApplicationShutdownReason reason,
         ApplicationShutdownOutcome outcome)
     {
-        nint handoffEvent = reason switch
+        var handoffEvent = reason switch
         {
             ApplicationShutdownReason.Update => _updateCompletionEvent,
             ApplicationShutdownReason.Uninstall => _uninstallCompletionEvent,
-            _ => 0,
+            _ => 0
         };
         if (handoffEvent == 0
             && reason is not (ApplicationShutdownReason.Update
@@ -96,7 +98,7 @@ public static class UpdateExitWatcher
         {
             Log.Warn(
                 $"Installer shutdown completion could not be published ({reason}; "
-                + $"error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
+                + $"error {Marshal.GetLastWin32Error()}).");
         }
     }
 
@@ -113,7 +115,7 @@ public static class UpdateExitWatcher
         try
         {
             string? userSid;
-            using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+            using (var identity = WindowsIdentity.GetCurrent())
             {
                 userSid = identity.User?.Value;
             }
@@ -154,7 +156,7 @@ public static class UpdateExitWatcher
     /// is left running; the caller then falls back to its own recovery.</remarks>
     internal static bool RequestResidentShellExit(TimeSpan timeout)
     {
-        nint request = NativeMethods.OpenEventW(NativeMethods.EventModifyState, false, RestoreShellEventName);
+        var request = NativeMethods.OpenEventW(NativeMethods.EventModifyState, false, RestoreShellEventName);
         if (request == 0)
         {
             return false;
@@ -171,12 +173,12 @@ public static class UpdateExitWatcher
             Win32Common.CloseHandle(request);
         }
 
-        int self = Environment.ProcessId;
+        var self = Environment.ProcessId;
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            bool residentAlive = false;
-            foreach (uint pid in WindowFinder.FindProcessIds("WSGM"))
+            var residentAlive = false;
+            foreach (var pid in WindowFinder.FindProcessIds("WSGM"))
             {
                 if (pid != self)
                 {
@@ -198,8 +200,8 @@ public static class UpdateExitWatcher
         string operation,
         string? userSid)
     {
-        string eventName = HandoffEventNameFor(reason)
-            ?? throw new InvalidOperationException("Installer handoff reason has no event name.");
+        var eventName = HandoffEventNameFor(reason)
+                        ?? throw new InvalidOperationException("Installer handoff reason has no event name.");
         return CreateOrOpenEvent(
             eventName,
             $"{operation} completion",
@@ -213,7 +215,7 @@ public static class UpdateExitWatcher
         string? userSid,
         Action callback)
     {
-        nint exitEvent = CreateOrOpenEvent(
+        var exitEvent = CreateOrOpenEvent(
             eventName,
             $"{operation}-exit watcher",
             userSid,
@@ -238,7 +240,7 @@ public static class UpdateExitWatcher
         })
         {
             IsBackground = true,
-            Name = $"WSGM.{operation}Exit",
+            Name = $"WSGM.{operation}Exit"
         };
         thread.Start();
     }
@@ -252,12 +254,12 @@ public static class UpdateExitWatcher
         if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(
             BuildEventSddl(userSid),
             1,
-            out nint securityDescriptor,
+            out var securityDescriptor,
             out _))
         {
             Log.Warn(
                 $"{operation}: SDDL conversion failed "
-                + $"(error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
+                + $"(error {Marshal.GetLastWin32Error()}).");
             return 0;
         }
 
@@ -267,16 +269,16 @@ public static class UpdateExitWatcher
         {
             var attributes = new NativeMethods.SecurityAttributes
             {
-                nLength = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.SecurityAttributes>(),
+                nLength = Marshal.SizeOf<NativeMethods.SecurityAttributes>(),
                 lpSecurityDescriptor = securityDescriptor,
-                bInheritHandle = 0,
+                bInheritHandle = 0
             };
             exitEvent = NativeMethods.CreateEventW(
                 ref attributes,
                 manualReset: true,
                 initialState: false,
                 eventName);
-            createError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            createError = Marshal.GetLastWin32Error();
         }
         finally
         {
@@ -293,7 +295,7 @@ public static class UpdateExitWatcher
             {
                 Log.Warn(
                     $"{operation}: OpenEvent fallback failed "
-                    + $"(error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
+                    + $"(error {Marshal.GetLastWin32Error()}).");
                 return 0;
             }
         }
@@ -307,7 +309,7 @@ public static class UpdateExitWatcher
         {
             Log.Warn(
                 $"{operation}: could not clear stale signal "
-                + $"(error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
+                + $"(error {Marshal.GetLastWin32Error()}).");
         }
 
         return exitEvent;

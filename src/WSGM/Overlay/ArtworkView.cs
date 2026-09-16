@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -24,7 +26,7 @@ namespace WSGM.Overlay;
 /// plumbing.</summary>
 public sealed class ArtworkView : OverlaySubView
 {
-    private static readonly System.Threading.SemaphoreSlim ThumbnailGate = new(4, 4);
+    private static readonly SemaphoreSlim ThumbnailGate = new(4, 4);
 
     private long _appId;
     private string _appName = "";
@@ -214,7 +216,7 @@ public sealed class ArtworkView : OverlaySubView
         if (page + 1 < pageCount)
         {
             stack.Children.Add(Row("Next page",
-                $"Games {((page + 1) * GamePageSize) + 1}–{Math.Min(games.Count, (page + 2) * GamePageSize)}",
+                $"Games {(page + 1) * GamePageSize + 1}–{Math.Min(games.Count, (page + 2) * GamePageSize)}",
                 Icons.Play, () => Replace(() => RenderGamePage(current + 1))));
         }
         stack.Children.Add(Row("Back", "Close", Icons.ExitFullscreen, () => Back()));
@@ -229,7 +231,7 @@ public sealed class ArtworkView : OverlaySubView
         (ArtworkAsset.Hero, "Hero banner", "The wide banner on the game page"),
         (ArtworkAsset.Logo, "Logo", "The transparent title logo"),
         (ArtworkAsset.Wide, "Wide capsule", "The horizontal cover (460×215)"),
-        (ArtworkAsset.Icon, "Icon", "Small icon (Steam games only)"),
+        (ArtworkAsset.Icon, "Icon", "Small icon (Steam games only)")
     ];
 
     private void RenderAssetTypes()
@@ -252,8 +254,8 @@ public sealed class ArtworkView : OverlaySubView
                 Stretch = Stretch.Uniform,
                 MaxHeight = 64,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Avalonia.Thickness(10, 0, 0, 4),
-                IsVisible = false,
+                Margin = new Thickness(10, 0, 0, 4),
+                IsVisible = false
             };
             stack.Children.Add(preview);
             _ = LoadCurrentArtAsync(preview, _appId, a, _navigationGeneration);
@@ -282,7 +284,7 @@ public sealed class ArtworkView : OverlaySubView
             var stack = NewStack("Search SteamGridDB");
             stack.Children.Add(Caption("Type the game's name — used to find art (applies to "
                 + $"{_appName})."));
-            var box = new TextBox { Text = _appName, Margin = new Avalonia.Thickness(0, 0, 0, 4) };
+            var box = new TextBox { Text = _appName, Margin = new Thickness(0, 0, 0, 4) };
             stack.Children.Add(box);
             var keyboard = new OnScreenKeyboard { Target = box };
             keyboard.Accepted += (_, _) => DoSgdbSearch(box.Text ?? "", inlineKeyboardLevel: true);
@@ -343,7 +345,7 @@ public sealed class ArtworkView : OverlaySubView
                 {
                     _match = g;
                     _sgdbGameId = g.ProviderId == "steamgriddb"
-                        && int.TryParse(g.Id, out int sgdbId) ? sgdbId : 0;
+                        && int.TryParse(g.Id, out var sgdbId) ? sgdbId : 0;
                     _appName = g.Name;
                     if (_sgdbGameId > 0)
                     {
@@ -454,7 +456,7 @@ public sealed class ArtworkView : OverlaySubView
         }
 
         // One provider failing must not read as the other's answer, so every refusal is named.
-        foreach (string message in result.Failures.Concat(result.Skipped))
+        foreach (var message in result.Failures.Concat(result.Skipped))
         {
             stack.Children.Add(Caption(message));
         }
@@ -472,8 +474,8 @@ public sealed class ArtworkView : OverlaySubView
             Content = image,
             Width = w,
             Height = h,
-            Padding = new Avalonia.Thickness(2),
-            Margin = new Avalonia.Thickness(3),
+            Padding = new Thickness(2),
+            Margin = new Thickness(3)
         };
         button.Click += (_, _) => onClick();
         _ = LoadThumbAsync(image, string.IsNullOrEmpty(art.Thumb) ? art.Url : art.Thumb, _navigationGeneration);
@@ -555,7 +557,7 @@ public sealed class ArtworkView : OverlaySubView
                 return;
             }
             // Decoded on the pool like the current-art preview; only the swap touches the UI thread.
-            Bitmap? bitmap = await Task.Run(() =>
+            var bitmap = await Task.Run(() =>
             {
                 try
                 {
@@ -674,7 +676,7 @@ public sealed class ArtworkView : OverlaySubView
             {
                 AppId = appId,
                 SgdbGameId = sgdbGameId,
-                Name = name,
+                Name = name
             });
             return null;
         }), "remember SGDB link");
@@ -690,7 +692,7 @@ public sealed class ArtworkView : OverlaySubView
         ArtworkAsset.Logo => (160, 96),
         ArtworkAsset.Wide => (200, 94),
         ArtworkAsset.Icon => (80, 80),
-        _ => (120, 180),
+        _ => (120, 180)
     };
 
     // Replacing a level drops its decoded bitmaps immediately rather than waiting for a

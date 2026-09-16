@@ -29,7 +29,7 @@ internal sealed class GameWindowReturn(
             return;
         }
 
-        bool steamCompleted = false;
+        var steamCompleted = false;
         try
         {
             // A selected console remains a valid switcher destination, but it is never a reason
@@ -52,7 +52,7 @@ internal sealed class GameWindowReturn(
             log("Game return: selected window disappeared or changed owner during Steam activation.");
             return;
         }
-        bool foreground = focus(hwnd);
+        var foreground = focus(hwnd);
         log($"Game return: pid={processId}, hwnd=0x{hwnd:X}, Steam call completed={steamCompleted}, "
             + $"foreground verified={foreground}. Overlay recovery remains unverified.");
     }
@@ -60,14 +60,14 @@ internal sealed class GameWindowReturn(
     private static uint ReadProcessId(nint hwnd)
     {
         if (!NativeMethods.IsWindow(hwnd)) { return 0; }
-        NativeMethods.GetWindowThreadProcessId(hwnd, out uint processId);
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var processId);
         return processId;
     }
 
     private static bool IsConsole(nint hwnd)
     {
-        char[] buffer = new char[256];
-        uint length = NativeMethods.RealGetWindowClassW(hwnd, buffer, (uint)buffer.Length);
+        var buffer = new char[256];
+        var length = NativeMethods.RealGetWindowClassW(hwnd, buffer, (uint)buffer.Length);
         string name = new(buffer, 0, (int)length);
         return name is "ConsoleWindowClass" or "CASCADIA_HOSTING_WINDOW_CLASS";
     }

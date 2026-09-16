@@ -17,7 +17,7 @@ internal sealed class BluetoothAudioConnection(
     {
         cancellationToken.ThrowIfCancellationRequested();
         await Task.Run(() => write(container, connected), cancellationToken).ConfigureAwait(false);
-        for (int attempt = 0; attempt < 12; attempt++)
+        for (var attempt = 0; attempt < 12; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var containers = await Task.Run(read, cancellationToken).ConfigureAwait(false);

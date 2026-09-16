@@ -58,8 +58,8 @@ internal static class SteamUiReadiness
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentNullException.ThrowIfNull(attemptAsync);
-        bool waitingForBigPicture = false;
-        for (int attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
+        var waitingForBigPicture = false;
+        for (var attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
         {
             try
             {

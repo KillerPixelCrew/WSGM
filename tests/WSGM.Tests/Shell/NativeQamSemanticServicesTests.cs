@@ -13,9 +13,9 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void TdpProjectionUsesTheAuthoritativeDesiredObservedAndProgressState()
     {
-        DeviceCapabilityView view = PrimaryLimitView("pl1");
+        var view = PrimaryLimitView("pl1");
 
-        DeviceCoordinatorNativeQamTdpService.TdpProjection projection =
+        var projection =
             DeviceCoordinatorNativeQamTdpService.Project([view]);
 
         Assert.True(projection.State.Available);
@@ -31,7 +31,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void TdpProjectionFailsClosedWhenPrimaryLimitIsAmbiguous()
     {
-        DeviceCoordinatorNativeQamTdpService.TdpProjection projection =
+        var projection =
             DeviceCoordinatorNativeQamTdpService.Project(
                 [PrimaryLimitView("first"), PrimaryLimitView("second")]);
 
@@ -43,15 +43,15 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void PowerSlidersPublishIndependentObservedValuesAndTrackProfiles()
     {
-        DeviceCapabilityView pl1 = PrimaryLimitView("pl1");
-        DeviceCapabilityView pl2 = pl1 with
+        var pl1 = PrimaryLimitView("pl1");
+        var pl2 = pl1 with
         {
             Descriptor = pl1.Descriptor with
             {
                 CapabilityId = "vendor.boost",
                 InstanceId = "pl2",
                 Role = CapabilityRole.PowerSlowLimit,
-                Maximum = 37,
+                Maximum = 37
             },
             Projection = pl1.Projection with
             {
@@ -59,11 +59,11 @@ public sealed class NativeQamSemanticServicesTests
                 {
                     CapabilityId = "vendor.boost",
                     InstanceId = "pl2",
-                    ObservedValue = CapabilityValue.Integer(30),
-                },
-            },
+                    ObservedValue = CapabilityValue.Integer(30)
+                }
+            }
         };
-        SteamPowerLimitState state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
+        var state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
         Assert.Equal(17, state.Sustained.ObservedWatts);
         Assert.Equal(30, state.Boost.ObservedWatts);
         Assert.Equal("vendor.boost", DeviceCoordinatorNativeQamTdpService.Project(
@@ -74,15 +74,15 @@ public sealed class NativeQamSemanticServicesTests
             Descriptor = pl1.Descriptor with { Maximum = 37 },
             Projection = pl1.Projection with
             {
-                State = pl1.Projection.State with { ObservedValue = CapabilityValue.Integer(37) },
-            },
+                State = pl1.Projection.State with { ObservedValue = CapabilityValue.Integer(37) }
+            }
         };
         pl2 = pl2 with
         {
             Projection = pl2.Projection with
             {
-                State = pl2.Projection.State with { ObservedValue = CapabilityValue.Integer(37) },
-            },
+                State = pl2.Projection.State with { ObservedValue = CapabilityValue.Integer(37) }
+            }
         };
         state = DeviceCoordinatorNativeQamTdpService.ProjectPowerLimits([pl1, pl2]);
         Assert.Equal(37, state.Sustained.ObservedWatts);
@@ -104,7 +104,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void DeviceControlsProjectionUsesSemanticRolesAndIndependentLightingZones()
     {
-        SteamDeviceControlsState state =
+        var state =
             DeviceCoordinatorNativeQamDeviceControlsService.Project(
             [
                 IntegerDeviceView(
@@ -124,7 +124,7 @@ public sealed class NativeQamSemanticServicesTests
                     desired: 50,
                     observed: 45),
                 ColorDeviceView("vendor.color", "right-ring", "Right ring", 0xFF8000),
-                ColorDeviceView("vendor.color", "buttons", "Buttons", 0x0080FF),
+                ColorDeviceView("vendor.color", "buttons", "Buttons", 0x0080FF)
             ]);
 
         Assert.True(state.ChargeLimit?.Available);
@@ -146,7 +146,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void DeviceControlsProjectionFailsClosedForAmbiguousChargeRole()
     {
-        DeviceCapabilityView first = IntegerDeviceView(
+        var first = IntegerDeviceView(
             "first",
             CapabilityRole.ChargeLimit,
             DisplayKey.ChargeLimit,
@@ -154,7 +154,7 @@ public sealed class NativeQamSemanticServicesTests
             100,
             desired: 80,
             observed: 80);
-        DeviceCapabilityView second = IntegerDeviceView(
+        var second = IntegerDeviceView(
             "second",
             CapabilityRole.ChargeLimit,
             DisplayKey.ChargeLimit,
@@ -163,7 +163,7 @@ public sealed class NativeQamSemanticServicesTests
             desired: 80,
             observed: 80);
 
-        SteamDeviceControlsState state =
+        var state =
             DeviceCoordinatorNativeQamDeviceControlsService.Project([first, second]);
 
         Assert.False(state.ChargeLimit?.Available);
@@ -176,7 +176,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void AmbiguousLightingZoneIsDroppedWithoutHidingIndependentControls()
     {
-        SteamDeviceControlsState state =
+        var state =
             DeviceCoordinatorNativeQamDeviceControlsService.Project(
             [
                 IntegerDeviceView(
@@ -189,11 +189,11 @@ public sealed class NativeQamSemanticServicesTests
                     observed: 80),
                 ColorDeviceView("first", "ring", "First ring", 0xFF0000),
                 ColorDeviceView("second", "ring", "Second ring", 0x0000FF),
-                ColorDeviceView("buttons", "button zone", "Buttons", 0x00FF00),
+                ColorDeviceView("buttons", "button zone", "Buttons", 0x00FF00)
             ]);
 
         Assert.True(state.ChargeLimit?.Available);
-        SteamLightingZoneState zone = Assert.Single(state.LightingZones);
+        var zone = Assert.Single(state.LightingZones);
         Assert.Equal("button zone", zone.Id);
     }
 
@@ -202,7 +202,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         using var service = new DeviceCoordinatorNativeQamControllerTargetService(null);
 
-        SteamControllerTargetState state = service.Current;
+        var state = service.Current;
 
         Assert.False(state.Available);
         Assert.Empty(state.Targets);
@@ -218,11 +218,11 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void PerformanceProjectionPublishesExactAdapterCapabilitiesAndReadback()
     {
-        PerformanceState state = PerformanceStateFixture(
+        var state = PerformanceStateFixture(
             new HashSet<int> { 0, 1 },
             PerformanceCommandState.Idle);
 
-        SteamFrameLimitState frame =
+        var frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
         Assert.True(frame.Available);
         Assert.Equal(0, frame.MinimumFps);
@@ -242,9 +242,9 @@ public sealed class NativeQamSemanticServicesTests
             60,
             PerformanceCommandPhase.TimedOut,
             "RTSS readback timed out.");
-        PerformanceState state = PerformanceStateFixture(new HashSet<int> { 0, 1 }, command);
+        var state = PerformanceStateFixture(new HashSet<int> { 0, 1 }, command);
 
-        SteamFrameLimitState frame =
+        var frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
         Assert.Equal("timed-out", frame.Progress);
         Assert.Equal("RTSS readback timed out.", frame.Fault);
@@ -261,11 +261,11 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void EveryCommandPhaseProjectsToAProgressTermTheInjectedRowAccepts()
     {
-        IReadOnlyList<string> accepted = InjectedProgressVocabulary();
+        var accepted = InjectedProgressVocabulary();
 
-        foreach (PerformanceCommandPhase phase in Enum.GetValues<PerformanceCommandPhase>())
+        foreach (var phase in Enum.GetValues<PerformanceCommandPhase>())
         {
-            PerformanceState state = PerformanceStateFixture(
+            var state = PerformanceStateFixture(
                 new HashSet<int> { 0, 1 },
                 new PerformanceCommandState(
                     1,
@@ -276,7 +276,7 @@ public sealed class NativeQamSemanticServicesTests
                     phase,
                     null));
 
-            SteamFrameLimitState frame =
+            var frame =
                 PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
 
             Assert.Contains(frame.Progress, accepted);
@@ -286,12 +286,12 @@ public sealed class NativeQamSemanticServicesTests
     /// <summary>The progress terms the injected frame-limit row will accept, from the built asset.</summary>
     private static IReadOnlyList<string> InjectedProgressVocabulary()
     {
-        string source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
         const string Marker = "validEnum(value.progress, [";
-        int start = source.IndexOf(Marker, StringComparison.Ordinal);
+        var start = source.IndexOf(Marker, StringComparison.Ordinal);
         Assert.True(start >= 0, "The injected asset no longer validates a progress vocabulary.");
         start += Marker.Length;
-        int end = source.IndexOf("])", start, StringComparison.Ordinal);
+        var end = source.IndexOf("])", start, StringComparison.Ordinal);
         Assert.True(end > start, "The progress vocabulary in the injected asset is unterminated.");
 
         string[] terms = [.. Regex
@@ -337,7 +337,7 @@ public sealed class NativeQamSemanticServicesTests
             Maximum = 30,
             Step = 1,
             Unit = CapabilityUnit.Watt,
-            Persistence = CapabilityPersistence.Volatile,
+            Persistence = CapabilityPersistence.Volatile
         };
         CapabilityState state = new()
         {
@@ -348,7 +348,7 @@ public sealed class NativeQamSemanticServicesTests
             Quality = HardwareStateQuality.Verified,
             ObservedAt = DateTimeOffset.UtcNow,
             DescriptorGeneration = 4,
-            CycleGeneration = 3,
+            CycleGeneration = 3
         };
         return new DeviceCapabilityView(
             descriptor,
@@ -358,7 +358,7 @@ public sealed class NativeQamSemanticServicesTests
                 DesiredValue = CapabilityValue.Integer(18),
                 DesiredSource = DeviceDesiredValueSource.ApplicationOverride,
                 PendingValue = CapabilityValue.Integer(19),
-                Progress = CommandProgress.Pending,
+                Progress = CommandProgress.Pending
             },
             null);
     }
@@ -384,7 +384,7 @@ public sealed class NativeQamSemanticServicesTests
             Maximum = maximum,
             Step = 1,
             Unit = CapabilityUnit.Percent,
-            Persistence = CapabilityPersistence.DevicePersistent,
+            Persistence = CapabilityPersistence.DevicePersistent
         };
         return DeviceView(descriptor, CapabilityValue.Integer(desired), CapabilityValue.Integer(observed));
     }
@@ -404,12 +404,12 @@ public sealed class NativeQamSemanticServicesTests
             Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
             SupportsRead = true,
             SupportsWrite = true,
-            Persistence = CapabilityPersistence.DevicePersistent,
+            Persistence = CapabilityPersistence.DevicePersistent
         };
         CapabilityValue value = new()
         {
             Kind = CapabilityValueKind.Color,
-            ColorValue = color,
+            ColorValue = color
         };
         return DeviceView(descriptor, value, value);
     }
@@ -428,7 +428,7 @@ public sealed class NativeQamSemanticServicesTests
             Quality = HardwareStateQuality.Verified,
             ObservedAt = DateTimeOffset.UtcNow,
             DescriptorGeneration = 4,
-            CycleGeneration = 3,
+            CycleGeneration = 3
         };
         return new DeviceCapabilityView(
             descriptor,
@@ -437,7 +437,7 @@ public sealed class NativeQamSemanticServicesTests
                 State = state,
                 DesiredValue = desired,
                 DesiredSource = DeviceDesiredValueSource.GlobalDefault,
-                Progress = CommandProgress.Idle,
+                Progress = CommandProgress.Idle
             },
             null);
     }
@@ -451,7 +451,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // Better absent than present and silently ineffective: there is nothing for AutoTDP to
         // drive, so offering the switch would be a promise the device cannot keep.
-        SteamAutoTdpState state = Project(enabled: true, status: null, powerLimitAvailable: false);
+        var state = Project(enabled: true, status: null, powerLimitAvailable: false);
 
         Assert.False(state.Available);
         Assert.Contains("No primary power limit", state.StatusText, StringComparison.Ordinal);
@@ -460,7 +460,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void SwitchedOnBeforeTheServiceReportsAnythingSaysItIsStarting()
     {
-        SteamAutoTdpState state = Project(enabled: true, status: null);
+        var state = Project(enabled: true, status: null);
 
         Assert.True(state.Available);
         Assert.True(state.Enabled);
@@ -472,7 +472,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void SwitchedOffIsQuietRatherThanReportingAnythingToExplain()
     {
-        SteamAutoTdpState state = Project(enabled: false, status: null);
+        var state = Project(enabled: false, status: null);
 
         Assert.True(state.Available);
         Assert.False(state.Enabled);
@@ -483,7 +483,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void ControllingCarriesTheLimitItSettledOn()
     {
-        SteamAutoTdpState state = Project(
+        var state = Project(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Controlling, 17, 14.2, 16.6, "steam:70", "sustained-miss"));
 
@@ -497,7 +497,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // Paused is a state the user caused by moving the slider. Locking the switch would leave
         // them unable to act on what they are being told.
-        SteamAutoTdpState state = Project(
+        var state = Project(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Paused, 22, null, null, null, "Paused by a manual change."));
 
@@ -511,7 +511,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // It means AutoTDP cannot run on this device however the setting is left, so operating the
         // switch could not change anything.
-        SteamAutoTdpState state = Project(
+        var state = Project(
             enabled: true,
             new AutoTdpStatus(
                 AutoTdpState.Unavailable,
@@ -528,7 +528,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void WaitingForAGameIsNotReportedAsControlling()
     {
-        SteamAutoTdpState state = Project(
+        var state = Project(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Idle, 15, null, null, null, "No application is rendering."));
 
@@ -542,7 +542,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // The switch shows the setting, not the outcome. A user who turned it on and hit an
         // unsupported device should still see their own choice reflected back.
-        SteamAutoTdpState state = Project(enabled: true, status: null, powerLimitAvailable: false);
+        var state = Project(enabled: true, status: null, powerLimitAvailable: false);
 
         Assert.True(state.Enabled);
     }
@@ -555,7 +555,7 @@ public sealed class NativeQamSemanticServicesTests
         using DeviceCoordinatorNativeQamAutoTdpService service = new(null, null);
 
         Assert.False(service.Current.Available);
-        SteamUiCommandResult result = await service.SetEnabledAsync(true, CancellationToken.None);
+        var result = await service.SetEnabledAsync(true, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(service.Current.StatusText, result.Error);
@@ -574,7 +574,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void ManagementSwitchedOffOffersNothingAndSaysWhy()
     {
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: false,
             Status(ControllerManagementState.Off, null, "Controller management is off.", source: UiInputSource.SdlWithSteamLease));
 
@@ -589,14 +589,14 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void EveryTargetTheBackendCanBuildIsOfferedOnceManagementRuns()
     {
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, source: UiInputSource.SdlWithSteamLease),
             supportedTargets:
             [
                 ManagedControllerTarget.SteamDeckComposite,
                 ManagedControllerTarget.Xbox360,
-                ManagedControllerTarget.DualShock4,
+                ManagedControllerTarget.DualShock4
             ]);
 
         Assert.True(state.Available);
@@ -614,7 +614,7 @@ public sealed class NativeQamSemanticServicesTests
         // Offering one is worse than offering fewer: the selection persists, target creation is
         // refused, and controller management reports itself unavailable until the user finds the
         // setting again. The production backend supports only the Deck composite today.
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite, source: UiInputSource.SdlWithSteamLease),
             supportedTargets: [ManagedControllerTarget.SteamDeckComposite]);
@@ -630,7 +630,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // Idle means the selection is stored and nothing is present for it. Echoing the selection
         // back as observed would make a target that never came up look like it had.
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.DualShock4, source: UiInputSource.SdlWithSteamLease));
 
@@ -641,7 +641,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void AnActiveTargetIsReportedAsBothSelectedAndObserved()
     {
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite, source: UiInputSource.SdlWithSteamLease));
 
@@ -653,7 +653,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void AFaultedManagerIsUnavailableRatherThanQuietlySelectable()
     {
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(
                 ControllerManagementState.Faulted,
@@ -670,7 +670,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // A game holds the target it launched with, so a change reaches it only next launch. Saying
         // so is the difference between a control that looks broken and one the user understands.
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(
                 ControllerManagementState.Active,
@@ -683,7 +683,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void NoRunningGameNeedsNoRestart()
     {
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360, source: UiInputSource.SdlWithSteamLease));
 
@@ -695,7 +695,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         // Controller management runs without a plugin, but with nothing capturing the physical
         // controller the result is a target that never moves. That is worth saying.
-        SteamControllerTargetState state = ProjectTarget(
+        var state = ProjectTarget(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, detail: string.Empty, source: UiInputSource.SdlWithSteamLease),
             packageInstalled: false);
@@ -725,11 +725,11 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void EveryProjectedTargetSurvivesTheHostPayloadBoundary()
     {
-        foreach (ManagedControllerTarget target in Enum.GetValues<ManagedControllerTarget>())
+        foreach (var target in Enum.GetValues<ManagedControllerTarget>())
         {
-            using JsonDocument payload = JsonDocument.Parse($$"""{"target":"{{target}}"}""");
+            using var payload = JsonDocument.Parse($$"""{"target":"{{target}}"}""");
 
-            Assert.True(SteamUiPayload.TryReadTarget(payload.RootElement, out string parsed));
+            Assert.True(SteamUiPayload.TryReadTarget(payload.RootElement, out var parsed));
             Assert.Equal(target.ToString(), parsed);
         }
     }

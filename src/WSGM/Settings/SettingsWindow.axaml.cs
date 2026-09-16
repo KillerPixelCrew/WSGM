@@ -1,15 +1,21 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Themes;
 
 namespace WSGM.Settings;
 
@@ -28,7 +34,7 @@ public partial class SettingsWindow : Window
     private Window? _keyboardDialog;
     private bool _closed;
     private IDisposable? _handoffFallback;
-    private System.Collections.Generic.IReadOnlyList<SteamAutostartSource> _quickSetupSteamAutostart = [];
+    private IReadOnlyList<SteamAutostartSource> _quickSetupSteamAutostart = [];
     private bool _quickSetupScanComplete;
     internal Task SteamAutostartScan { get; private set; } = Task.CompletedTask;
 
@@ -55,10 +61,10 @@ public partial class SettingsWindow : Window
     // else does" — and its release then drops the block out from under whichever
     // surface is still on screen; see docs\steam-input.md.
     private readonly string _leaseOwner =
-        $"settings-window#{System.Threading.Interlocked.Increment(ref _nextLeaseOwnerId)}";
+        $"settings-window#{Interlocked.Increment(ref _nextLeaseOwnerId)}";
     private readonly object _leaseSync = new();
     private readonly SettingsLeaseReconciler _leaseReconciler = new();
-    private bool _leaseEnabled;
+    private readonly bool _leaseEnabled;
     private bool _leaseHandoffPending;
 
     // In game mode WSGM hosts the only taskbar, and it excludes own-process windows
@@ -90,7 +96,7 @@ public partial class SettingsWindow : Window
 
         // The one page table: it drives the tab strip, the visibility toggle and
         // the focus landing alike (the XAML hosts the same pages in this order).
-        (string Title, Avalonia.Media.StreamGeometry Icon, Control Page)[] pages =
+        (string Title, StreamGeometry Icon, Control Page)[] pages =
         [
             ("System", Icons.Monitor, PageSystem),
             ("Steam", Icons.SteamLike, PageSteam),
@@ -103,7 +109,7 @@ public partial class SettingsWindow : Window
             // Last, because its content belongs to whichever plugin is installed: WSGM's own pages
             // keep their positions on every machine rather than shifting around a tab that may not
             // be there.
-            ("Plugin", Icons.Wrench, PagePluginSettings),
+            ("Plugin", Icons.Wrench, PagePluginSettings)
         ];
         _pages = [.. pages.Select(static entry => entry.Page)];
         Tabs.Tabs = [.. pages.Select((entry, index) => new TabStripItem(entry.Title, entry.Icon, index))];
@@ -148,8 +154,8 @@ public partial class SettingsWindow : Window
             // permanent owner claim.
             if (_gameModeSurface)
             {
-                _handoffFallback = Avalonia.Threading.DispatcherTimer.RunOnce(
-                    CompleteSteamInputLeaseHandoff, System.TimeSpan.FromSeconds(1));
+                _handoffFallback = DispatcherTimer.RunOnce(
+                    CompleteSteamInputLeaseHandoff, TimeSpan.FromSeconds(1));
             }
             if (_gameModeSurface)
             {
@@ -197,10 +203,10 @@ public partial class SettingsWindow : Window
             // surface, so re-apply the persisted accent here (after a save this
             // re-applies the same color; after an abandoned preview it restores
             // the saved one).
-            if (Avalonia.Application.Current is { } app)
+            if (Application.Current is { } app)
             {
-                Themes.AccentPalette.Apply(
-                    app, Themes.AccentPalette.Parse(_services.ReadSavedAccent()));
+                AccentPalette.Apply(
+                    app, AccentPalette.Parse(_services.ReadSavedAccent()));
             }
             // Recorder disposal keeps its historical slot and order (key recorder
             // first, chord second) so the hooks are gone on every close path.
@@ -346,7 +352,7 @@ public partial class SettingsWindow : Window
         viewModel.SaveCommand.Execute(null);
     }
 
-    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(SettingsViewModel.IsSaving))
         {
@@ -451,7 +457,7 @@ public partial class SettingsWindow : Window
             Text = initialValue ?? string.Empty,
             MaxLength = Math.Max(0, maximumLength),
             Margin = new Thickness(12, 12, 12, 0),
-            MinHeight = 44,
+            MinHeight = 44
         };
         editor.CaretIndex = editor.Text?.Length ?? 0;
         editor.SelectionStart = editor.CaretIndex;
@@ -460,8 +466,8 @@ public partial class SettingsWindow : Window
         var validation = new TextBlock
         {
             IsVisible = false,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Margin = new Thickness(12, 8, 12, 0),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(12, 8, 12, 0)
         };
         var content = new StackPanel();
         content.Children.Add(editor);
@@ -473,13 +479,13 @@ public partial class SettingsWindow : Window
             Width = 760,
             Height = 460,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = content,
+            Content = content
         };
         keyboard.Accepted += (_, _) =>
         {
             try
             {
-                string? error = accept(editor.Text ?? string.Empty);
+                var error = accept(editor.Text ?? string.Empty);
                 if (!string.IsNullOrEmpty(error))
                 {
                     validation.Text = error;
@@ -777,7 +783,7 @@ public partial class SettingsWindow : Window
     private static void Observe(Task task, string operation) =>
         task.ContinueWith(
             t => Log.Error($"{operation} failed", t.Exception!),
-            System.Threading.CancellationToken.None,
+            CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
 

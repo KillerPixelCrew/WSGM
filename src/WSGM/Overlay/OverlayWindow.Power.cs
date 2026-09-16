@@ -1,7 +1,9 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
+using WSGM.Core;
 
 namespace WSGM.Overlay;
 
@@ -35,13 +37,13 @@ public partial class OverlayWindow
     private void OnStandby(object? sender, RoutedEventArgs e)
     {
         Dismissed?.Invoke();
-        Core.PowerActions.Standby();
+        PowerActions.Standby();
     }
 
     private void OnHibernate(object? sender, RoutedEventArgs e)
     {
         Dismissed?.Invoke();
-        Core.PowerActions.Hibernate();
+        PowerActions.Hibernate();
     }
 
     // Deliberately no dismiss: the row is a toggle, and the updated description/badge
@@ -54,19 +56,19 @@ public partial class OverlayWindow
     /// unknown. Brushes come from the palette tokens; set from the controller's
     /// indicator poll.</summary>
     /// <param name="state">The system-wide wake-lock state.</param>
-    internal void SetKeepAwakeStatus(Core.WakeLockState state)
+    internal void SetKeepAwakeStatus(WakeLockState state)
         => KeepAwakeButton.StatusBrush = this.FindResource(state switch
         {
-            Core.WakeLockState.DisplayHeld => "HcDangerBrush",
-            Core.WakeLockState.SystemHeld => "HcWarningBrush",
-            Core.WakeLockState.Free => "HcSuccessBrush",
-            _ => "HcTextMutedBrush",
-        }) as Avalonia.Media.IBrush;
+            WakeLockState.DisplayHeld => "HcDangerBrush",
+            WakeLockState.SystemHeld => "HcWarningBrush",
+            WakeLockState.Free => "HcSuccessBrush",
+            _ => "HcTextMutedBrush"
+        }) as IBrush;
 
     /// <summary>Cycles the idle timeout a row names in its CommandParameter.</summary>
     private void OnCyclePowerTimeout(object? sender, RoutedEventArgs e)
     {
-        if (sender is Button { CommandParameter: Core.PowerTimeoutKind kind })
+        if (sender is Button { CommandParameter: PowerTimeoutKind kind })
         {
             PowerTimeoutCycleRequested?.Invoke(kind);
         }
@@ -81,7 +83,7 @@ public partial class OverlayWindow
             ArmConfirmReset();
             return;
         }
-        Core.PowerActions.Restart();
+        PowerActions.Restart();
     }
 
     private void OnShutdown(object? sender, RoutedEventArgs e)
@@ -93,7 +95,7 @@ public partial class OverlayWindow
             ArmConfirmReset();
             return;
         }
-        Core.PowerActions.Shutdown();
+        PowerActions.Shutdown();
     }
 
     /// <summary>Armed "Really?" confirms revert on their own — after ~5 s and when

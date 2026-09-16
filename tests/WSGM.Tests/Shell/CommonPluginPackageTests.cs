@@ -1,4 +1,5 @@
 using WSGM.Device.Tests;
+using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
@@ -10,9 +11,9 @@ public sealed class CommonPluginPackageTests
     public async Task RealIrPackageLoadsAlongsideDeviceCategoryAndPersistsLibraryWithoutHardware()
     {
         using TemporaryDirectory temporary = new();
-        string root = temporary.GetPath("ir-package");
+        var root = temporary.GetPath("ir-package");
         Directory.CreateDirectory(root);
-        string assembly = typeof(WSGM.Plugin.Ir.IrPlugin).Assembly.Location;
+        var assembly = typeof(IrPlugin).Assembly.Location;
         File.Copy(assembly, Path.Combine(root, "WSGM.Plugin.Ir.dll"));
         await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), """
             {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
@@ -21,14 +22,14 @@ public sealed class CommonPluginPackageTests
         var manifest = CommonPluginPackage.ReadManifest(root);
         var package = await CommonPluginPackage.LoadAsync(root, manifest, default);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
-        string deviceState = temporary.GetPath("device-state");
-        string irState = temporary.GetPath("ir-state");
+        var deviceState = temporary.GetPath("device-state");
+        var irState = temporary.GetPath("ir-state");
         Directory.CreateDirectory(deviceState);
         Directory.CreateDirectory(irState);
-        var device = host.Admit(new CommonPluginFixture(), new("test.common-fixture", "device"),
+        var device = host.Admit(new CommonPluginFixture(), new PluginInstanceIdentity("test.common-fixture", "device"),
             PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, deviceState);
-        var ir = host.Admit(package, new(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, irState);
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        var ir = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, irState);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
         await device.StartAsync(deadline, default);
         await ir.StartAsync(deadline, default);
         Assert.Equal(2, host.Snapshot().Length);
@@ -50,10 +51,10 @@ public sealed class CommonPluginPackageTests
     public async Task ACollectibleNonDevicePackageRunsConfigurationActionsAndResidentTransitions()
     {
         using TemporaryDirectory temporary = new();
-        string root = temporary.GetPath("package");
+        var root = temporary.GetPath("package");
         Directory.CreateDirectory(root);
-        string assembly = typeof(CommonPluginFixture).Assembly.Location;
-        string name = Path.GetFileName(assembly);
+        var assembly = typeof(CommonPluginFixture).Assembly.Location;
+        var name = Path.GetFileName(assembly);
         File.Copy(assembly, Path.Combine(root, name));
         await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
             {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
@@ -62,10 +63,10 @@ public sealed class CommonPluginPackageTests
         var manifest = CommonPluginPackage.ReadManifest(root);
         var package = await CommonPluginPackage.LoadAsync(root, manifest, default);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
-        string state = temporary.GetPath("state");
+        var state = temporary.GetPath("state");
         Directory.CreateDirectory(state);
-        var registration = host.Admit(package, new(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, state);
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var registration = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, state);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         await registration.StartAsync(deadline, default);
         Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value.Boolean);
         await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["label"] = new(Text: "hello") }, deadline, default);
@@ -85,9 +86,9 @@ public sealed class CommonPluginPackageTests
     public async Task CommonPackageAdmissionRejectsOversizedMetadataAndDeviceCategory()
     {
         using TemporaryDirectory temporary = new();
-        string root = temporary.GetPath("package");
+        var root = temporary.GetPath("package");
         Directory.CreateDirectory(root);
-        string path = Path.Combine(root, "plugin.wsgm.json");
+        var path = Path.Combine(root, "plugin.wsgm.json");
         await File.WriteAllTextAsync(path, new string(' ', PluginManifestReader.MaximumBytes + 1));
         Assert.Throws<InvalidDataException>(() => CommonPluginPackage.ReadManifest(root));
         await File.WriteAllTextAsync(path, """

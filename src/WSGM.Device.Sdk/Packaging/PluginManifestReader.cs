@@ -35,7 +35,7 @@ public static class PluginManifestReader
     private static readonly DeviceJsonContext ReadContext =
         new(new JsonSerializerOptions(DeviceJsonContext.Default.Options)
         {
-            MaxDepth = ManifestLimits.MaxDepth,
+            MaxDepth = ManifestLimits.MaxDepth
         });
 
     /// <summary>

@@ -41,7 +41,7 @@ internal static class DeviceLabCompactJson
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         RespectNullableAnnotations = true,
-        WriteIndented = false,
+        WriteIndented = false
     });
 
     internal static JsonTypeInfo<CaptureStreamEvent> CaptureStreamEvent => Context.CaptureStreamEvent;

@@ -13,7 +13,7 @@ public sealed class CommonPluginManagerTests
     public async Task ExplicitInstancesRunWithoutDeviceAndDisableIndependently()
     {
         using TemporaryDirectory temporary = new();
-        string installed = await Catalog(temporary, "test.plugin");
+        var installed = await Catalog(temporary, "test.plugin");
         PluginHost host = new(action => action());
         List<FakePlugin> created = [];
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"), action => action(),
@@ -40,9 +40,9 @@ public sealed class CommonPluginManagerTests
     public async Task AFailedPackageDoesNotBlockIndependentStartupOrAutomaticallyReload()
     {
         using TemporaryDirectory temporary = new();
-        string installed = await Catalog(temporary, "a.bad", "b.good");
-        int loads = 0;
-        CommonPluginManager manager = new(new(action => action()), installed, temporary.GetPath("state"), action => action(),
+        var installed = await Catalog(temporary, "a.bad", "b.good");
+        var loads = 0;
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
             (package, _) =>
             {
                 loads++;
@@ -63,10 +63,10 @@ public sealed class CommonPluginManagerTests
     public async Task UnconfirmedCleanupRetainsTheInstanceAndPreventsReplacement()
     {
         using TemporaryDirectory temporary = new();
-        string installed = await Catalog(temporary, "test.plugin");
-        int loads = 0;
+        var installed = await Catalog(temporary, "test.plugin");
+        var loads = 0;
         FakePlugin plugin = new("test.plugin") { Released = false };
-        CommonPluginManager manager = new(new(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
             (_, _) => { loads++; return Task.FromResult<IPlugin>(plugin); });
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([configuration], default);
@@ -85,14 +85,14 @@ public sealed class CommonPluginManagerTests
     public async Task ShutdownRetainsAnUnfinishedLoadAndDisposesItOnlyAfterCompletion()
     {
         using TemporaryDirectory temporary = new();
-        string installed = await Catalog(temporary, "test.plugin");
+        var installed = await Catalog(temporary, "test.plugin");
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         FakePlugin plugin = new("test.plugin");
-        CommonPluginManager manager = new(new(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
             async (_, _) => { entered.SetResult(); await release.Task; return plugin; });
         using CancellationTokenSource cancellation = new();
-        var start = manager.ReconcileAsync([new() { PluginId = plugin.Id, Enabled = true }], cancellation.Token);
+        var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], cancellation.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         cancellation.Cancel();
         await start;
@@ -107,10 +107,10 @@ public sealed class CommonPluginManagerTests
 
     private static async Task<string> Catalog(TemporaryDirectory temporary, params string[] ids)
     {
-        string installed = temporary.GetPath("plugins");
-        foreach (string id in ids)
+        var installed = temporary.GetPath("plugins");
+        foreach (var id in ids)
         {
-            string root = Path.Combine(installed, id);
+            var root = Path.Combine(installed, id);
             Directory.CreateDirectory(root);
             await File.WriteAllTextAsync(Path.Combine(root, "Fixture.dll"), "Metadata fixture");
             await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
@@ -127,7 +127,7 @@ public sealed class CommonPluginManagerTests
     public async Task NewEnableIntentCannotStartAnObsoleteLoad(bool reenable)
     {
         using TemporaryDirectory temporary = new();
-        string installed = await Catalog(temporary, "test.plugin");
+        var installed = await Catalog(temporary, "test.plugin");
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         List<FakePlugin> created = [];
@@ -157,11 +157,11 @@ public sealed class CommonPluginManagerTests
     public async Task RepeatedPowerMessagesAdvanceEachInstanceOnlyOncePerTransition()
     {
         using TemporaryDirectory temporary = new();
-        string installed = await Catalog(temporary, "test.plugin");
+        var installed = await Catalog(temporary, "test.plugin");
         FakePlugin plugin = new("test.plugin");
-        CommonPluginManager manager = new(new(action => action()), installed, temporary.GetPath("state"), action => action(),
+        CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
             (_, _) => Task.FromResult<IPlugin>(plugin));
-        await manager.ReconcileAsync([new() { PluginId = plugin.Id, Enabled = true }], default);
+        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], default);
         await manager.PowerTransitionAsync(true, default);
         await manager.PowerTransitionAsync(true, default);
         await manager.PowerTransitionAsync(false, default);

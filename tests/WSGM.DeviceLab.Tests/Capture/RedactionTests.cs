@@ -11,9 +11,9 @@ public sealed class RedactionTests
         CaptureStreamFile[] streams =
         [
             new() { SourceId = @"HID\VID_1234&PID_5678\private-unit", Events = [] },
-            new() { SourceId = @"HID\VID_1234&PID_5678\PRIVATE-UNIT", Events = [] },
+            new() { SourceId = @"HID\VID_1234&PID_5678\PRIVATE-UNIT", Events = [] }
         ];
-        InvalidDataException error = Assert.Throws<InvalidDataException>(
+        var error = Assert.Throws<InvalidDataException>(
             () => ObserveOnlyCaptureWorkflow.RedactStreams(streams, new CaptureRedactor()));
 
         Assert.Contains("duplicate", error.Message);
@@ -30,14 +30,14 @@ public sealed class RedactionTests
             SchemaVersion = 1,
             CapturedAt = DateTimeOffset.UnixEpoch,
             Firmware = new FirmwareInventory(),
-            UsbInterfaces = [new() { InstanceId = first }],
+            UsbInterfaces = [new UsbInterfaceInventory { InstanceId = first }]
         };
         CaptureRedactor redactor = new();
-        MachineInventory inventory = InventoryRedaction.ToShareable(original, redactor);
-        IReadOnlyList<CaptureStreamFile> streams = ObserveOnlyCaptureWorkflow.RedactStreams(
-            [new() { SourceId = second, Events = [] }, new() { SourceId = first, Events = [] }], redactor);
+        var inventory = InventoryRedaction.ToShareable(original, redactor);
+        var streams = ObserveOnlyCaptureWorkflow.RedactStreams(
+            [new CaptureStreamFile { SourceId = second, Events = [] }, new CaptureStreamFile { SourceId = first, Events = [] }], redactor);
 
-        string inventoryId = Assert.Single(inventory.UsbInterfaces).InstanceId;
+        var inventoryId = Assert.Single(inventory.UsbInterfaces).InstanceId;
         Assert.Equal(inventoryId, streams[1].SourceId);
         Assert.NotEqual(inventoryId, streams[0].SourceId);
         Assert.Equal(first, original.UsbInterfaces[0].InstanceId);
@@ -49,7 +49,7 @@ public sealed class RedactionTests
     {
         const string UnitPath = @"USB\VID_0DB0&PID_1901\00006F64096B22E7";
 
-        string redacted = new CaptureRedactor().Redact(UnitPath);
+        var redacted = new CaptureRedactor().Redact(UnitPath);
 
         Assert.Contains("VID_0DB0&PID_1901", redacted, StringComparison.Ordinal);
         Assert.DoesNotContain("00006F64096B22E7", redacted, StringComparison.Ordinal);

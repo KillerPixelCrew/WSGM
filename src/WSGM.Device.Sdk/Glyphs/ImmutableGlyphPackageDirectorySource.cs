@@ -35,7 +35,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
     /// <inheritdoc />
     public IReadOnlyList<string> EnumerateProfileIds()
     {
-        string directory = Path.Combine(_root, "glyphs", "profiles");
+        var directory = Path.Combine(_root, "glyphs", "profiles");
         FileAttributes attributes;
         try
         {
@@ -91,7 +91,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
     public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
     {
         bytes = [];
-        if (maximumBytes <= 0 || !TryConstrain(relativePath, out string path))
+        if (maximumBytes <= 0 || !TryConstrain(relativePath, out var path))
         {
             return false;
         }
@@ -115,7 +115,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
                 return false;
             }
 
-            byte[] owned = new byte[(int)stream.Length];
+            var owned = new byte[(int)stream.Length];
             stream.ReadExactly(owned);
             if (!PathChainIsPlain(path))
             {
@@ -145,7 +145,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
 
         try
         {
-            string candidate = Path.GetFullPath(Path.Combine(
+            var candidate = Path.GetFullPath(Path.Combine(
                 _root,
                 relativePath.Replace('/', Path.DirectorySeparatorChar)));
             if (!candidate.StartsWith(_prefix, StringComparison.OrdinalIgnoreCase))
@@ -171,8 +171,8 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             return false;
         }
 
-        string current = _root;
-        foreach (string segment in Path.GetRelativePath(_root, path).Split(
+        var current = _root;
+        foreach (var segment in Path.GetRelativePath(_root, path).Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
             StringSplitOptions.RemoveEmptyEntries))
         {

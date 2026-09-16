@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -28,7 +29,7 @@ public enum ArtworkAsset
     Wide = 3,
 
     /// <summary>Icon.</summary>
-    Icon = 4,
+    Icon = 4
 }
 
 /// <summary>One artwork candidate from SteamGridDB.</summary>
@@ -74,7 +75,7 @@ public static class SteamGridDb
     private static readonly HttpClient Http = new()
     {
         Timeout = TimeSpan.FromSeconds(20),
-        MaxResponseContentBufferSize = MaxJsonResponseBytes,
+        MaxResponseContentBufferSize = MaxJsonResponseBytes
     };
 
     /// <summary>The user's configured API key (trimmed), or empty. There is no bundled
@@ -146,7 +147,7 @@ public static class SteamGridDb
             ArtworkAsset.Hero => ("heroes", null),
             ArtworkAsset.Logo => ("logos", null),
             ArtworkAsset.Icon => ("icons", null),
-            _ => ("grids", null),
+            _ => ("grids", null)
         };
         var url = $"{ApiBase}/{segment}/{idKind}/{id}?types=static";
         if (dimensions is not null)
@@ -253,11 +254,11 @@ public static class SteamGridDb
                 Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
                 throw new SteamGridDbException(response.StatusCode switch
                 {
-                    System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
                         => "SteamGridDB rejected the API key.",
-                    System.Net.HttpStatusCode.TooManyRequests
+                    HttpStatusCode.TooManyRequests
                         => "SteamGridDB rate limit reached. Try again later.",
-                    _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}.",
+                    _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}."
                 });
             }
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -290,7 +291,7 @@ public static class SteamGridDb
         {
             ".jpg" or ".jpeg" => "jpg",
             ".png" => "png",
-            _ => null,
+            _ => null
         };
     }
 }

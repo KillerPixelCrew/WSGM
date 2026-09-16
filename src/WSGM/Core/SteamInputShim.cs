@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Text;
 
 namespace WSGM.Core;
 
@@ -17,7 +18,7 @@ public enum SteamInputShimVector
 
     /// <summary>Deployed as <c>dinput8.dll</c>. The fallback, used when something
     /// else already owns the primary name.</summary>
-    DInput8,
+    DInput8
 }
 
 /// <summary>What the shim deployment looks like on disk.</summary>
@@ -40,7 +41,7 @@ public enum SteamInputShimState
     Blocked,
 
     /// <summary>The deployment could not be carried out (access denied, I/O error).</summary>
-    Failed,
+    Failed
 }
 
 /// <summary>A snapshot of the shim deployment.</summary>
@@ -94,7 +95,7 @@ public static class SteamInputShim
     private static readonly SteamInputShimVector[] Vectors =
     [
         SteamInputShimVector.XInput14,
-        SteamInputShimVector.DInput8,
+        SteamInputShimVector.DInput8
     ];
 
     /// <summary>Serializes reconciles: the config watcher and a Settings save can
@@ -207,7 +208,7 @@ public static class SteamInputShim
     {
         SteamInputShimVector.XInput14 => "XInput1_4.dll",
         SteamInputShimVector.DInput8 => "dinput8.dll",
-        _ => "",
+        _ => ""
     };
 
     /// <summary>Path of the payload staged beside the running executable.</summary>
@@ -279,9 +280,9 @@ public static class SteamInputShim
                 if (IsOurs(deployed))
                 {
                     var state = enabled
-                        ? (IsStale(sourcePath, deployed, MarkerPath(steamDirectory, vector))
+                        ? IsStale(sourcePath, deployed, MarkerPath(steamDirectory, vector))
                             ? SteamInputShimState.UpdatePending
-                            : SteamInputShimState.Deployed)
+                            : SteamInputShimState.Deployed
                         : SteamInputShimState.Deployed;
                     return new SteamInputShimStatus(state, vector, deployed, null);
                 }
@@ -321,7 +322,7 @@ public static class SteamInputShim
             foreach (var path in new[]
                      {
                          Path.Combine(steamDirectory, FileNameFor(vector)),
-                         ParkedPath(steamDirectory, vector),
+                         ParkedPath(steamDirectory, vector)
                      })
             {
                 if (!IsOurs(path))
@@ -516,7 +517,7 @@ public static class SteamInputShim
             {
                 return false;
             }
-            var signature = System.Text.Encoding.ASCII.GetBytes(OwnershipSignature);
+            var signature = Encoding.ASCII.GetBytes(OwnershipSignature);
             var content = File.ReadAllBytes(path);
             return content.AsSpan().IndexOf(signature) >= 0;
         }

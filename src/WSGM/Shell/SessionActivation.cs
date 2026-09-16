@@ -14,7 +14,7 @@ internal sealed class SessionActivation : IDisposable
 
     internal SessionActivation(Action activate, string eventName = EventName)
     {
-        _signal = new(false, EventResetMode.AutoReset, eventName);
+        _signal = new EventWaitHandle(false, EventResetMode.AutoReset, eventName);
         _wait = ThreadPool.RegisterWaitForSingleObject(_signal,
             (_, _) => Dispatcher.UIThread.Post(() => { if (!_disposed) { activate(); } }),
             null, Timeout.Infinite, executeOnlyOnce: false);

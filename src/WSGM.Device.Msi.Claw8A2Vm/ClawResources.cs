@@ -15,12 +15,12 @@ internal static class ClawDiagnosticText
     public static string FromException(string context, Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        string message = $"{context} ({exception.GetType().Name}): {exception.Message}";
-        int length = Math.Min(message.Length, PluginTrace.MaxMessageLength);
-        char[] bounded = new char[length];
-        for (int index = 0; index < bounded.Length; index++)
+        var message = $"{context} ({exception.GetType().Name}): {exception.Message}";
+        var length = Math.Min(message.Length, PluginTrace.MaxMessageLength);
+        var bounded = new char[length];
+        for (var index = 0; index < bounded.Length; index++)
         {
-            char character = message[index];
+            var character = message[index];
             bounded[index] = PlainText.IsUnsafe(character) ? ' ' : character;
         }
 
@@ -37,7 +37,7 @@ internal enum ClawServiceState
     Degraded,
     Releasing,
     ReleasedUnverified,
-    Faulted,
+    Faulted
 }
 
 internal readonly record struct ClawCycleContext(
@@ -119,7 +119,7 @@ internal sealed class OemEventService(
         CancellationToken cancellationToken)
     {
         _cycleGeneration = context.CycleGeneration;
-        bool started = await _source.StartAsync(PublishAsync, cancellationToken).ConfigureAwait(false);
+        var started = await _source.StartAsync(PublishAsync, cancellationToken).ConfigureAwait(false);
         return started
             ? Set(ClawServiceState.Owned)
             : Set(ClawServiceState.Passive, new CapabilityReason(
@@ -146,7 +146,7 @@ internal sealed class OemEventService(
             0x29 => ("oem1", OemPressKind.Short),
             0x58 => ("oem2", OemPressKind.Short),
             0x2A => ("oem2", OemPressKind.Long),
-            _ => null,
+            _ => null
         };
         if (mapped is null)
         {
@@ -157,11 +157,11 @@ internal sealed class OemEventService(
         // the right one its Quick Access button. Latched into the controller sample so Steam sees
         // its own controller press them, rather than WSGM acting on the user's behalf. A long press
         // on OEM2 is still only that button — the duration belongs to whatever reads it.
-        CanonicalButtons button = mapped.Value.controlId switch
+        var button = mapped.Value.controlId switch
         {
             "oem1" => CanonicalButtons.Guide,
             "oem2" => CanonicalButtons.QuickAccess,
-            _ => CanonicalButtons.None,
+            _ => CanonicalButtons.None
         };
         if (button != CanonicalButtons.None)
         {
@@ -198,7 +198,7 @@ internal sealed class PowerService(
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        ClawIdentityState identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, FirmwareReason(identity));
@@ -225,7 +225,7 @@ internal sealed class PowerService(
             return Set(ClawServiceState.Idle);
         }
 
-        if (!ClawRecoveryValues.TryPower(_journal.OriginalStateFor(ServiceId), out PowerPair? restoreSnapshot)
+        if (!ClawRecoveryValues.TryPower(_journal.OriginalStateFor(ServiceId), out var restoreSnapshot)
             || restoreSnapshot is null)
         {
             return Set(ClawServiceState.Faulted, new CapabilityReason(
@@ -283,7 +283,7 @@ internal sealed class ChargeLimitService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        ClawIdentityState identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, FirmwareReason(identity));
@@ -333,7 +333,7 @@ internal sealed class FanService(
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        ClawIdentityState identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -364,7 +364,7 @@ internal sealed class FanService(
             return Set(ClawServiceState.Idle);
         }
 
-        if (!ClawRecoveryValues.TryFans(_journal.OriginalStateFor(ServiceId), out FanSnapshot? restoreSnapshot)
+        if (!ClawRecoveryValues.TryFans(_journal.OriginalStateFor(ServiceId), out var restoreSnapshot)
             || restoreSnapshot is null)
         {
             return Set(ClawServiceState.Faulted, new CapabilityReason(
@@ -416,7 +416,7 @@ internal sealed class TelemetryService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        ClawIdentityState identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -456,7 +456,7 @@ internal sealed class LightingService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        ClawIdentityState identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!identity.ExactMachineMatch || !identity.McuFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -554,12 +554,12 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
                 + "holding rest (decayed angular velocity, last measured acceleration) until they resume.");
         }
 
-        Vector3 average = _resampler.FrameAverage(now);
+        var average = _resampler.FrameAverage(now);
         return sample with
         {
             GyroX = average.X,
             GyroY = average.Y,
-            GyroZ = average.Z,
+            GyroZ = average.Z
         };
     }
 
@@ -570,7 +570,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
         Volatile.Write(ref _latest, null);
         Interlocked.Exchange(ref _staleReported, 0);
         _resampler.Reset();
-        bool started = await _source.StartAsync(
+        var started = await _source.StartAsync(
             sample =>
             {
                 Volatile.Write(ref _latest, sample);
@@ -677,7 +677,7 @@ internal sealed class GyroFrameResampler
                 return _omega;
             }
 
-            Vector3 average = _pendingDegrees / (float)(now - previous).TotalSeconds;
+            var average = _pendingDegrees / (float)(now - previous).TotalSeconds;
             _pendingDegrees = Vector3.Zero;
             _lastFrame = now;
             return average;
@@ -699,7 +699,7 @@ internal sealed class GyroFrameResampler
 
         // The held velocity covers time only up to the quiet cap; beyond it the sensor's silence
         // means stillness and the integral stops growing.
-        DateTimeOffset covered = to < _quietCap ? to : _quietCap;
+        var covered = to < _quietCap ? to : _quietCap;
         if (covered > from)
         {
             _pendingDegrees += _omega * (float)(covered - from).TotalSeconds;
@@ -724,7 +724,6 @@ internal sealed class ControllerService(
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private ControllerTopology? _original;
-    private ControllerTopology? _current;
     private CanonicalButtons _rearButtons;
     private readonly object _hapticGate = new();
     private readonly SemaphoreSlim _outputSerializer = new(1, 1);
@@ -734,7 +733,7 @@ internal sealed class ControllerService(
 
     public bool Enabled { get; set; }
 
-    public ControllerTopology? CurrentTopology => _current;
+    public ControllerTopology? CurrentTopology { get; private set; }
 
     public IReadOnlyList<PhysicalDeviceIdentity> LastReleasedDevices { get; private set; } = [];
 
@@ -756,7 +755,7 @@ internal sealed class ControllerService(
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        ClawIdentityState identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
         if (!identity.ExactMachineMatch || !identity.McuFirmwareVerified)
         {
             _host.Trace(
@@ -770,7 +769,7 @@ internal sealed class ControllerService(
                 "Controller ownership is gated to exact MS-1T52 firmware 0x0229."));
         }
 
-        ControllerTopology? observed = await _source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        var observed = await _source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
 
         // Discovery is where the answer to "why didn't it switch to DirectInput?" lives, and it was
         // invisible: the mode, the product id and the endpoint list are all decided here and none
@@ -803,8 +802,8 @@ internal sealed class ControllerService(
                 "The physical controller or its composite USB location was unavailable."));
         }
 
-        _current = observed;
-        if (_current.Mode is not ClawControllerMode.DirectInput)
+        CurrentTopology = observed;
+        if (CurrentTopology.Mode is not ClawControllerMode.DirectInput)
         {
             ClawWriteBudget.Require(context.Deadline, "controller mode acquisition");
             _ = await _journal.BeginAsync(
@@ -816,10 +815,10 @@ internal sealed class ControllerService(
             _host.Trace(
                 DeviceTraceLevel.Info,
                 "controller",
-                $"switching MCU mode {_current.Mode} -> DirectInput at '{_original.PhysicalLocation}'.");
+                $"switching MCU mode {CurrentTopology.Mode} -> DirectInput at '{_original.PhysicalLocation}'.");
             try
             {
-                _current = await _mcu.SwitchModeAsync(
+                CurrentTopology = await _mcu.SwitchModeAsync(
                     ClawControllerMode.DirectInput,
                     _original.PhysicalLocation,
                     context.Deadline,
@@ -839,13 +838,13 @@ internal sealed class ControllerService(
             // hardware actually settled into. Those differed on the reference unit, and nothing
             // said so.
             _host.Trace(
-                _current.Mode is ClawControllerMode.DirectInput
+                CurrentTopology.Mode is ClawControllerMode.DirectInput
                     ? DeviceTraceLevel.Info
                     : DeviceTraceLevel.Warn,
                 "controller",
-                $"mode switch settled at {_current.Mode}, product=0x{_current.ProductId:X4}, "
-                    + $"physicalDevices={_current.PhysicalDevices.Count}, "
-                    + $"endpoints=[{_current.ObservedEndpoints}]");
+                $"mode switch settled at {CurrentTopology.Mode}, product=0x{CurrentTopology.ProductId:X4}, "
+                    + $"physicalDevices={CurrentTopology.PhysicalDevices.Count}, "
+                    + $"endpoints=[{CurrentTopology.ObservedEndpoints}]");
         }
         else
         {
@@ -855,13 +854,13 @@ internal sealed class ControllerService(
                 "controller already in DirectInput; no mode switch needed.");
         }
 
-        if (_current.PhysicalDevices.Count == 0)
+        if (CurrentTopology.PhysicalDevices.Count == 0)
         {
             // Captured before the restore, which clears _current: the whole point of this reason is
             // to say what was observed, and reading it afterwards is reading nothing.
-            string detail = "No exact DirectInput physical interface identity was available for "
-                + $"handoff. Mode={_current.Mode}, product={_current.ProductId}, "
-                + $"endpoints=[{_current.ObservedEndpoints}]";
+            var detail = "No exact DirectInput physical interface identity was available for "
+                         + $"handoff. Mode={CurrentTopology.Mode}, product={CurrentTopology.ProductId}, "
+                         + $"endpoints=[{CurrentTopology.ObservedEndpoints}]";
             _host.Trace(DeviceTraceLevel.Warn, "controller", detail);
             await RestoreAfterFailedAcquireAsync(context.Deadline).ConfigureAwait(false);
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -878,7 +877,7 @@ internal sealed class ControllerService(
                 cancellationToken).ConfigureAwait(false);
 
             await _host.PublishPhysicalDevicesAsync(
-                _current.PhysicalDevices,
+                CurrentTopology.PhysicalDevices,
                 OutputCapabilities,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -895,14 +894,14 @@ internal sealed class ControllerService(
         _host.Trace(
             DeviceTraceLevel.Info,
             "controller",
-            $"owned: published {_current.PhysicalDevices.Count} physical identities for hiding, "
+            $"owned: published {CurrentTopology.PhysicalDevices.Count} physical identities for hiding, "
                 + $"haptics={OutputCapabilities is not null}.");
         return Set(ClawServiceState.Owned);
     }
 
     private void ReportControllerReaderFault(Exception exception)
     {
-        string detail = ClawDiagnosticText.FromException(
+        var detail = ClawDiagnosticText.FromException(
             "The controller reader stopped",
             exception);
         CapabilityReason reason = new(
@@ -916,7 +915,7 @@ internal sealed class ControllerService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        CapabilityReason? stopFailure = await StopOutputAndAcquisitionAsync(cancellationToken)
+        var stopFailure = await StopOutputAndAcquisitionAsync(cancellationToken)
             .ConfigureAwait(false);
         return stopFailure is null
             ? Set(ClawServiceState.Idle)
@@ -927,7 +926,7 @@ internal sealed class ControllerService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        ControllerHandoffResult result = await ReleaseControllerAsync(context.Deadline, cancellationToken)
+        var result = await ReleaseControllerAsync(context.Deadline, cancellationToken)
             .ConfigureAwait(false);
         return result is ControllerHandoffResult.ReleasedVerified
             ? Set(ClawServiceState.Idle)
@@ -941,7 +940,7 @@ internal sealed class ControllerService(
         CancellationToken cancellationToken)
     {
         _ = Set(ClawServiceState.Releasing);
-        CapabilityReason? stopFailure = await StopOutputAndAcquisitionAsync(cancellationToken)
+        var stopFailure = await StopOutputAndAcquisitionAsync(cancellationToken)
             .ConfigureAwait(false);
         if (ReconciliationBlockReason is not null)
         {
@@ -949,9 +948,9 @@ internal sealed class ControllerService(
             return ControllerHandoffResult.ReleasedUnverified;
         }
 
-        if (_original is null || _current is null)
+        if (_original is null || CurrentTopology is null)
         {
-            _current = null;
+            CurrentTopology = null;
             LastReleasedDevices = [];
             if (_journal.HasUnrestoredMutation(ServiceId))
             {
@@ -975,7 +974,7 @@ internal sealed class ControllerService(
             return ControllerHandoffResult.ReleasedVerified;
         }
 
-        if (_current.Mode != _original.Mode)
+        if (CurrentTopology.Mode != _original.Mode)
         {
             ClawWriteBudget.Require(deadline, "controller mode restoration");
             ControllerTopology restored;
@@ -1006,7 +1005,7 @@ internal sealed class ControllerService(
                     StringComparison.OrdinalIgnoreCase)
                 || restored.Mode != _original.Mode)
             {
-                _current = restored;
+                CurrentTopology = restored;
                 LastReleasedDevices = restored.PhysicalDevices;
                 _ = Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
                     CapabilityReasonCode.TransportFaulted,
@@ -1018,11 +1017,11 @@ internal sealed class ControllerService(
                 return ControllerHandoffResult.ReleasedUnverified;
             }
 
-            _current = restored;
+            CurrentTopology = restored;
         }
 
-        LastReleasedDevices = _current.PhysicalDevices;
-        _current = null;
+        LastReleasedDevices = CurrentTopology.PhysicalDevices;
+        CurrentTopology = null;
         _rearButtons = CanonicalButtons.None;
         await _journal.CompleteServiceRestorationAsync(
             ServiceId,
@@ -1060,7 +1059,7 @@ internal sealed class ControllerService(
         // reliable to about 10 ms (below that the sleep granularity dominates); continuous
         // rumble is felt down to 24/255, which is why the floor applies to bounded events only.
         MinimumStartIntensity = 56f / 255f,
-        MinimumPulse = TimeSpan.FromMilliseconds(10),
+        MinimumPulse = TimeSpan.FromMilliseconds(10)
     };
 
     public async ValueTask ApplyHapticsAsync(
@@ -1075,8 +1074,8 @@ internal sealed class ControllerService(
                 return;
             }
 
-            byte weak = ToByte(frame.HighFrequency);
-            byte strong = ToByte(frame.LowFrequency);
+            var weak = ToByte(frame.HighFrequency);
+            var strong = ToByte(frame.LowFrequency);
             DateTimeOffset now;
             lock (_hapticGate)
             {
@@ -1111,7 +1110,7 @@ internal sealed class ControllerService(
         CancellationToken cancellationToken)
     {
         CapabilityReason? failure = null;
-        bool ownsOutput = false;
+        var ownsOutput = false;
         try
         {
             await _outputSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -1171,9 +1170,9 @@ internal sealed class ControllerService(
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
-        CanonicalButtons current = sample.Buttons
-            & (CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2);
-        CanonicalButtons changed = current ^ _rearButtons;
+        var current = sample.Buttons
+                      & (CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2);
+        var changed = current ^ _rearButtons;
         if ((changed & CanonicalButtons.RearPaddle1) != 0)
         {
             await PublishRearEventAsync(
@@ -1220,11 +1219,11 @@ internal sealed class ControllerService(
     {
         try
         {
-            ControllerTopology? observed = await _source.DiscoverAsync(CancellationToken.None)
+            var observed = await _source.DiscoverAsync(CancellationToken.None)
                 .ConfigureAwait(false);
             if (observed is null)
             {
-                _current = null;
+                CurrentTopology = null;
                 CapabilityReason reason = new(
                     CapabilityReasonCode.TransportFaulted,
                     "Controller topology vanished during acquisition rollback.");
@@ -1236,7 +1235,7 @@ internal sealed class ControllerService(
                 return;
             }
 
-            _current = observed;
+            CurrentTopology = observed;
             _ = await ReleaseControllerAsync(deadline, CancellationToken.None).ConfigureAwait(false);
         }
         catch
@@ -1277,7 +1276,7 @@ internal sealed class ChordSuppressorService(
                 "Chord suppression starts only when the device-identified MSI OEM event source is healthy."));
         }
 
-        bool started = await _suppressor.StartAsync(ReportFault, cancellationToken).ConfigureAwait(false);
+        var started = await _suppressor.StartAsync(ReportFault, cancellationToken).ConfigureAwait(false);
         return started
             ? Set(ClawServiceState.Owned)
             : Set(ClawServiceState.Degraded, new CapabilityReason(
@@ -1287,7 +1286,7 @@ internal sealed class ChordSuppressorService(
 
     private void ReportFault(Exception exception)
     {
-        string detail = ClawDiagnosticText.FromException(
+        var detail = ClawDiagnosticText.FromException(
             "The firmware chord suppressor stopped",
             exception);
         CapabilityReason reason = new(
@@ -1347,7 +1346,7 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     /// <returns><see langword="true"/> when variable refresh can be driven.</returns>
     public bool TryAcquire()
     {
-        bool available = _arcSync.TryOpen();
+        var available = _arcSync.TryOpen();
 
         // Independent of variable refresh: a driver can answer for one and not the other, and a
         // panel without variable refresh must not cost the device its Endurance Gaming row.
@@ -1441,7 +1440,7 @@ internal sealed class DisplayService : ClawServiceStatus, IDisposable
     /// </remarks>
     public bool Restore()
     {
-        bool restored = _arcSync.TryRestore();
+        var restored = _arcSync.TryRestore();
 
         // Only what was captured at acquire, and only when it actually moved. Writing the driver's
         // state back over itself on every make-safe would be a device write nobody asked for.

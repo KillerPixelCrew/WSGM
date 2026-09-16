@@ -34,21 +34,21 @@ public sealed class SdkPluginSettingsTests
     public void TryValidate_TextCarryingABidirectionalOverride_IsRejected()
     {
         // The character that lets a label render in an order other than the one it is written in.
-        Assert.False(PlainText.TryValidate("safe‮txet", 48, "label", out string? error));
+        Assert.False(PlainText.TryValidate("safe‮txet", 48, "label", out var error));
         Assert.Contains("bidirectional", error);
     }
 
     [Fact]
     public void TryValidate_TextCarryingAControlCharacter_IsRejected()
     {
-        Assert.False(PlainText.TryValidate("one\nline", 48, "label", out string? error));
+        Assert.False(PlainText.TryValidate("one\nline", 48, "label", out var error));
         Assert.Contains("control", error);
     }
 
     [Fact]
     public void TryValidate_TextLongerThanTheBound_NamesTheField()
     {
-        Assert.False(PlainText.TryValidate(new string('a', 49), 48, "customLabel", out string? error));
+        Assert.False(PlainText.TryValidate(new string('a', 49), 48, "customLabel", out var error));
         Assert.Contains("customLabel", error);
         Assert.Contains("48", error);
     }
@@ -59,10 +59,10 @@ public sealed class SdkPluginSettingsTests
         PluginSettingSection section = new()
         {
             SectionId = "advanced",
-            Key = SettingSectionKey.Custom,
+            Key = SettingSectionKey.Custom
         };
 
-        Assert.False(section.TryValidate(out string? error));
+        Assert.False(section.TryValidate(out var error));
         Assert.Contains("customTitle", error);
     }
 
@@ -73,10 +73,10 @@ public sealed class SdkPluginSettingsTests
         {
             SectionId = "power",
             Key = SettingSectionKey.Power,
-            CustomTitle = "Power",
+            CustomTitle = "Power"
         };
 
-        Assert.False(section.TryValidate(out string? error));
+        Assert.False(section.TryValidate(out var error));
         Assert.Contains("customTitle", error);
     }
 
@@ -88,11 +88,11 @@ public sealed class SdkPluginSettingsTests
             Sections =
             [
                 Section("power"),
-                Section("power"),
-            ],
+                Section("power")
+            ]
         };
 
-        Assert.False(manifest.TryValidate(out string? error));
+        Assert.False(manifest.TryValidate(out var error));
         Assert.Contains("power", error);
         Assert.Contains("more than once", error);
     }
@@ -103,10 +103,10 @@ public sealed class SdkPluginSettingsTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [.. Enumerable.Range(0, PluginSettingsManifest.MaxSections + 1)
-                .Select(i => Section($"s{i}"))],
+                .Select(i => Section($"s{i}"))]
         };
 
-        Assert.False(manifest.TryValidate(out string? error));
+        Assert.False(manifest.TryValidate(out var error));
         Assert.Contains($"{PluginSettingsManifest.MaxSections}", error);
     }
 
@@ -116,76 +116,76 @@ public sealed class SdkPluginSettingsTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [Section("power")],
-            Settings = [Toggle("ec.trace", section: "nonexistent")],
+            Settings = [Toggle("ec.trace", section: "nonexistent")]
         };
 
-        Assert.True(manifest.TryValidate(out string? error), error);
+        Assert.True(manifest.TryValidate(out var error), error);
     }
 
     [Fact]
     public void Setting_TextWithoutItsOwnBound_IsRejected()
     {
-        PluginSettingDescriptor setting = Toggle("label") with
+        var setting = Toggle("label") with
         {
             ValueKind = CapabilityValueKind.Text,
-            Default = new CapabilityValue { Kind = CapabilityValueKind.Text, TextValue = "x" },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Text, TextValue = "x" }
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("maximumLength", error);
     }
 
     [Fact]
     public void Setting_MaximumLengthOnANonTextKind_IsRejected()
     {
-        PluginSettingDescriptor setting = Toggle("ec.trace") with { MaximumLength = 16 };
+        var setting = Toggle("ec.trace") with { MaximumLength = 16 };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("maximumLength", error);
     }
 
     [Fact]
     public void Setting_DefaultOfTheWrongKind_IsRejected()
     {
-        PluginSettingDescriptor setting = Toggle("ec.trace") with
+        var setting = Toggle("ec.trace") with
         {
-            Default = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 1 },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 1 }
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("value kind", error);
     }
 
     [Fact]
     public void Setting_ActionShapedValue_IsRejectedBecauseThatIsACapability()
     {
-        PluginSettingDescriptor setting = Toggle("ec.reset") with
+        var setting = Toggle("ec.reset") with
         {
             ValueKind = CapabilityValueKind.None,
-            Default = new CapabilityValue { Kind = CapabilityValueKind.None },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.None }
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("capability", error);
     }
 
     [Fact]
     public void Setting_IntegerWithoutARange_IsRejected()
     {
-        PluginSettingDescriptor setting = Toggle("ec.poll") with
+        var setting = Toggle("ec.poll") with
         {
             ValueKind = CapabilityValueKind.Integer,
-            Default = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 10 },
+            Default = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 10 }
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("minimum", error);
     }
 
     [Fact]
     public void Setting_DefaultOutsideItsDeclaredRange_IsRejected()
     {
-        PluginSettingDescriptor setting = Toggle("ec.poll") with
+        var setting = Toggle("ec.poll") with
         {
             ValueKind = CapabilityValueKind.Integer,
             Minimum = 100,
@@ -194,11 +194,11 @@ public sealed class SdkPluginSettingsTests
             Default = new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = 50,
-            },
+                IntegerValue = 50
+            }
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("invalid default", error);
         Assert.Contains("outside", error);
     }
@@ -222,27 +222,27 @@ public sealed class SdkPluginSettingsTests
                     Default = new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
-                        IntegerValue = 1000,
-                    },
-                },
-            ],
+                        IntegerValue = 1000
+                    }
+                }
+            ]
         };
 
-        Assert.True(manifest.TryValidate(out string? error), error);
+        Assert.True(manifest.TryValidate(out var error), error);
     }
 
     [Fact]
     public void Display_EveryDefinedKey_IsAcceptedWithItsRequiredShape()
     {
-        foreach (DisplayKey key in Enum.GetValues<DisplayKey>())
+        foreach (var key in Enum.GetValues<DisplayKey>())
         {
             CapabilityDisplay display = new()
             {
                 Key = key,
-                CustomLabel = key is DisplayKey.Custom ? "Device feature" : null,
+                CustomLabel = key is DisplayKey.Custom ? "Device feature" : null
             };
 
-            Assert.True(display.TryValidate(out string? error), $"{key}: {error}");
+            Assert.True(display.TryValidate(out var error), $"{key}: {error}");
         }
     }
 
@@ -251,23 +251,23 @@ public sealed class SdkPluginSettingsTests
     {
         CapabilityDisplay display = new() { Key = (DisplayKey)int.MaxValue };
 
-        Assert.False(display.TryValidate(out string? error));
+        Assert.False(display.TryValidate(out var error));
         Assert.Contains("not defined", error);
     }
 
     [Fact]
     public void Section_EveryDefinedKey_IsAcceptedWithItsRequiredShape()
     {
-        foreach (SettingSectionKey key in Enum.GetValues<SettingSectionKey>())
+        foreach (var key in Enum.GetValues<SettingSectionKey>())
         {
             PluginSettingSection section = new()
             {
                 SectionId = $"section-{(int)key}",
                 Key = key,
-                CustomTitle = key is SettingSectionKey.Custom ? "Device settings" : null,
+                CustomTitle = key is SettingSectionKey.Custom ? "Device settings" : null
             };
 
-            Assert.True(section.TryValidate(out string? error), $"{key}: {error}");
+            Assert.True(section.TryValidate(out var error), $"{key}: {error}");
         }
     }
 
@@ -277,24 +277,24 @@ public sealed class SdkPluginSettingsTests
         PluginSettingSection section = new()
         {
             SectionId = "advanced",
-            Key = (SettingSectionKey)int.MaxValue,
+            Key = (SettingSectionKey)int.MaxValue
         };
 
-        Assert.False(section.TryValidate(out string? error));
+        Assert.False(section.TryValidate(out var error));
         Assert.Contains("undefined key", error);
     }
 
     [Fact]
     public void Setting_UndefinedValueKind_IsRejectedBeforeItCanBehaveLikeAnUnconstrainedKind()
     {
-        CapabilityValueKind undefined = (CapabilityValueKind)int.MaxValue;
-        PluginSettingDescriptor setting = Toggle() with
+        var undefined = (CapabilityValueKind)int.MaxValue;
+        var setting = Toggle() with
         {
             ValueKind = undefined,
-            Default = new CapabilityValue { Kind = undefined },
+            Default = new CapabilityValue { Kind = undefined }
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("undefined valueKind", error);
         Assert.False(setting.TryValidateValue(
             new CapabilityValue { Kind = undefined },
@@ -305,39 +305,39 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void Setting_UndefinedUnit_IsRejected()
     {
-        PluginSettingDescriptor setting = Toggle() with
+        var setting = Toggle() with
         {
-            Unit = (CapabilityUnit)int.MaxValue,
+            Unit = (CapabilityUnit)int.MaxValue
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("undefined unit", error);
     }
 
     [Fact]
     public void Setting_EveryDefinedUnit_IsAccepted()
     {
-        foreach (CapabilityUnit unit in Enum.GetValues<CapabilityUnit>())
+        foreach (var unit in Enum.GetValues<CapabilityUnit>())
         {
-            PluginSettingDescriptor setting = IntegerSetting(int.MinValue, step: 1) with
+            var setting = IntegerSetting(int.MinValue, step: 1) with
             {
-                Unit = unit,
+                Unit = unit
             };
 
-            Assert.True(setting.TryValidate(out string? error), $"{unit}: {error}");
+            Assert.True(setting.TryValidate(out var error), $"{unit}: {error}");
         }
     }
 
     [Fact]
     public void ChoiceSetting_ValidatesEveryChoiceDisplay()
     {
-        PluginSettingDescriptor setting = ChoiceSetting(
+        var setting = ChoiceSetting(
             Choice("quiet", "Quiet"),
             new CapabilityChoice(
                 "performance",
                 new CapabilityDisplay { Key = DisplayKey.Custom }));
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("performance", error);
         Assert.Contains("display metadata", error);
     }
@@ -345,87 +345,87 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void ChoiceSetting_AllValidChoiceDisplays_AreAccepted()
     {
-        PluginSettingDescriptor setting = ChoiceSetting(
+        var setting = ChoiceSetting(
             Choice("quiet", "Quiet"),
             Choice("performance", "Performance"));
 
-        Assert.True(setting.TryValidate(out string? error), error);
+        Assert.True(setting.TryValidate(out var error), error);
     }
 
     [Fact]
     public void ChoiceSetting_NullChoiceDisplay_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = ChoiceSetting(
+        var setting = ChoiceSetting(
             new CapabilityChoice("quiet", null!));
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("no display metadata", error);
     }
 
     [Fact]
     public void ChoiceSetting_NullChoiceItem_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = ChoiceSetting(Choice("quiet", "Quiet")) with
+        var setting = ChoiceSetting(Choice("quiet", "Quiet")) with
         {
-            Choices = [null!],
+            Choices = [null!]
         };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("null choice", error);
     }
 
     [Fact]
     public void Setting_NullChoicesCollection_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = Toggle() with { Choices = null! };
+        var setting = Toggle() with { Choices = null! };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("choices collection", error);
     }
 
     [Fact]
     public void Setting_NullDisplay_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = Toggle() with { Display = null! };
+        var setting = Toggle() with { Display = null! };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("no display metadata", error);
     }
 
     [Fact]
     public void Setting_NullDefault_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = Toggle() with { Default = null! };
+        var setting = Toggle() with { Default = null! };
 
-        Assert.False(setting.TryValidate(out string? error));
+        Assert.False(setting.TryValidate(out var error));
         Assert.Contains("default", error);
     }
 
     [Fact]
     public void ChoiceValueValidation_NullChoicesCollection_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = ChoiceSetting(Choice("quiet", "Quiet")) with
+        var setting = ChoiceSetting(Choice("quiet", "Quiet")) with
         {
-            Choices = null!,
+            Choices = null!
         };
 
         Assert.False(setting.TryValidateValue(
             new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "quiet" },
-            out string? error));
+            out var error));
         Assert.Contains("choices collection", error);
     }
 
     [Fact]
     public void ChoiceValueValidation_NullChoiceItem_IsRejectedWithoutThrowing()
     {
-        PluginSettingDescriptor setting = ChoiceSetting(Choice("quiet", "Quiet")) with
+        var setting = ChoiceSetting(Choice("quiet", "Quiet")) with
         {
-            Choices = [null!],
+            Choices = [null!]
         };
 
         Assert.False(setting.TryValidateValue(
             new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "quiet" },
-            out string? error));
+            out var error));
         Assert.Contains("null item", error);
     }
 
@@ -434,7 +434,7 @@ public sealed class SdkPluginSettingsTests
     {
         PluginSettingsManifest manifest = new() { Sections = null! };
 
-        Assert.False(manifest.TryValidate(out string? error));
+        Assert.False(manifest.TryValidate(out var error));
         Assert.Contains("sections collection", error);
     }
 
@@ -443,7 +443,7 @@ public sealed class SdkPluginSettingsTests
     {
         PluginSettingsManifest manifest = new() { Settings = null! };
 
-        Assert.False(manifest.TryValidate(out string? error));
+        Assert.False(manifest.TryValidate(out var error));
         Assert.Contains("settings collection", error);
     }
 
@@ -452,7 +452,7 @@ public sealed class SdkPluginSettingsTests
     {
         PluginSettingsManifest manifest = new() { Sections = [null!] };
 
-        Assert.False(manifest.TryValidate(out string? error));
+        Assert.False(manifest.TryValidate(out var error));
         Assert.Contains("null section", error);
         Assert.Contains("0", error);
     }
@@ -462,7 +462,7 @@ public sealed class SdkPluginSettingsTests
     {
         PluginSettingsManifest manifest = new() { Settings = [null!] };
 
-        Assert.False(manifest.TryValidate(out string? error));
+        Assert.False(manifest.TryValidate(out var error));
         Assert.Contains("null setting", error);
         Assert.Contains("0", error);
     }
@@ -470,14 +470,14 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void IntegerStepValidation_FullWidthDifferenceThatIsOnStep_IsAccepted()
     {
-        PluginSettingDescriptor setting = IntegerSetting(int.MaxValue, step: 3);
+        var setting = IntegerSetting(int.MaxValue, step: 3);
 
-        Assert.True(setting.TryValidate(out string? error), error);
+        Assert.True(setting.TryValidate(out var error), error);
         Assert.True(setting.TryValidateValue(
             new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = int.MaxValue,
+                IntegerValue = int.MaxValue
             },
             out error), error);
     }
@@ -485,22 +485,22 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void IntegerStepValidation_FullWidthDifferenceThatIsOffStep_IsRejected()
     {
-        PluginSettingDescriptor setting = IntegerSetting(int.MinValue, step: 3);
+        var setting = IntegerSetting(int.MinValue, step: 3);
 
         Assert.False(setting.TryValidateValue(
             new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = int.MaxValue - 1,
+                IntegerValue = int.MaxValue - 1
             },
-            out string? error));
+            out var error));
         Assert.Contains("not on", error);
     }
 
     private static PluginSettingSection Section(string id) => new()
     {
         SectionId = id,
-        Key = SettingSectionKey.General,
+        Key = SettingSectionKey.General
     };
 
     private static PluginSettingDescriptor Toggle(string id = "device.setting", string? section = null) => new()
@@ -509,7 +509,7 @@ public sealed class SdkPluginSettingsTests
         ValueKind = CapabilityValueKind.Boolean,
         Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device setting" },
         Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false },
-        SectionId = section,
+        SectionId = section
     };
 
     private static PluginSettingDescriptor ChoiceSetting(params CapabilityChoice[] choices) =>
@@ -520,8 +520,8 @@ public sealed class SdkPluginSettingsTests
             Default = new CapabilityValue
             {
                 Kind = CapabilityValueKind.Choice,
-                ChoiceValue = choices[0].Value,
-            },
+                ChoiceValue = choices[0].Value
+            }
         };
 
     private static CapabilityChoice Choice(string value, string label) => new(
@@ -538,7 +538,7 @@ public sealed class SdkPluginSettingsTests
             Default = new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = defaultValue,
-            },
+                IntegerValue = defaultValue
+            }
         };
 }

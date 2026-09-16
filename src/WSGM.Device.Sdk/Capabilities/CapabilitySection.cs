@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Settings;
@@ -40,7 +41,7 @@ public enum SectionIcon
     Gauge,
 
     /// <summary>A wrench.</summary>
-    Wrench,
+    Wrench
 }
 
 /// <summary>
@@ -92,7 +93,7 @@ public sealed record CapabilityCategory
             return false;
         }
 
-        if (!System.Enum.IsDefined(Key))
+        if (!Enum.IsDefined(Key))
         {
             error = $"category '{CategoryId}' has an undefined key '{Key}'.";
             return false;
@@ -196,13 +197,13 @@ public sealed record CapabilitySection
             return false;
         }
 
-        if (!System.Enum.IsDefined(Key))
+        if (!Enum.IsDefined(Key))
         {
             error = $"section '{SectionId}' has an undefined key '{Key}'.";
             return false;
         }
 
-        if (!System.Enum.IsDefined(Icon))
+        if (!Enum.IsDefined(Icon))
         {
             error = $"section '{SectionId}' has an undefined icon '{Icon}'.";
             return false;
@@ -248,8 +249,8 @@ public sealed record CapabilitySection
             return false;
         }
 
-        HashSet<string> ids = new(System.StringComparer.Ordinal);
-        foreach (CapabilityCategory category in Categories)
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        foreach (var category in Categories)
         {
             if (category is null)
             {

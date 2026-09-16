@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
-using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Testing;
@@ -26,7 +25,7 @@ internal static class DeviceLabCli
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter() }
     };
 
     internal static async Task<int> RunAsync(string[] args)
@@ -60,7 +59,7 @@ internal static class DeviceLabCli
                 "validate" => RunValidate(args.AsSpan(1)),
                 "test" => await RunTestAsync(args[1..]).ConfigureAwait(false),
                 "pack" => RunPack(args.AsSpan(1)),
-                _ => Unknown(args[0]),
+                _ => Unknown(args[0])
             };
         }
         catch (Exception exception)
@@ -80,20 +79,20 @@ internal static class DeviceLabCli
             return UsageError("doctor requires exactly --out-dir <directory>.");
         }
 
-        DeviceLabDoctorReport report = Application().Doctor(args[1], DateTimeOffset.UtcNow);
+        var report = Application().Doctor(args[1], DateTimeOffset.UtcNow);
         Console.Out.WriteLine(DeviceLabJson.Serialize(report));
         return report.Status is DeviceLabDoctorStatus.Blocked ? Failed : Success;
     }
 
     private static int RunInventory(ReadOnlySpan<string> args)
     {
-        string? output = Option(args, "--out-dir", "-o");
+        var output = Option(args, "--out-dir", "-o");
         if (output is null)
         {
             return UsageError("inventory requires --out-dir <directory> and accepts --shareable.");
         }
 
-        DeviceLabInventoryResult result = Application().Inventory(
+        var result = Application().Inventory(
             output,
             Flag(args, "--shareable"),
             DateTimeOffset.UtcNow);
@@ -110,7 +109,7 @@ internal static class DeviceLabCli
 
     private static int RunCandidates(ReadOnlySpan<string> args)
     {
-        string? input = Option(args, "--from", "-f");
+        var input = Option(args, "--from", "-f");
         if (input is null)
         {
             return UsageError("candidates requires --from <inventory.json>.");
@@ -123,24 +122,24 @@ internal static class DeviceLabCli
     private static async Task<int> RunProbeReadAsync(string[] args)
     {
         ReadOnlySpan<string> options = args;
-        string? input = Option(options, "--from", "-f");
+        var input = Option(options, "--from", "-f");
         if (input is null)
         {
             return UsageError("probe-read requires --from <inventory.json> and optionally --run <probe-id> --out-dir <directory>.");
         }
 
-        string executable = DeviceLabExecutable.CurrentPath;
+        var executable = DeviceLabExecutable.CurrentPath;
         DeviceLabApplication application = new(RepositoryRoot(), executable);
-        string? runId = Option(options, "--run");
+        var runId = Option(options, "--run");
         if (runId is not null)
         {
-            string? output = Option(options, "--out-dir", "-o");
+            var output = Option(options, "--out-dir", "-o");
             if (output is null)
             {
                 return UsageError("probe-read --run requires --out-dir <directory>.");
             }
 
-            DeviceLabReadProbeExecutionResult execution = await application.RunReadProbeAsync(
+            var execution = await application.RunReadProbeAsync(
                 input,
                 runId,
                 output,
@@ -149,43 +148,43 @@ internal static class DeviceLabCli
             return execution.Run?.Status is ReadProbeRunStatus.Accepted ? Success : Failed;
         }
 
-        DeviceLabCandidateResult result = application.Candidates(input);
+        var result = application.Candidates(input);
         WriteJson(new
         {
             probes = result.ReadOnlyProbes,
             workerExecutable = executable,
-            mode = "compiled-read-only",
+            mode = "compiled-read-only"
         });
         return Success;
     }
 
     private static async Task<int> RunCaptureAsync(ReadOnlyMemory<string> arguments)
     {
-        ReadOnlySpan<string> args = arguments.Span;
+        var args = arguments.Span;
         if (args.Length == 0 || args[0] is not "run")
         {
             return UsageError("capture requires 'run --recipe <recipe.json> --out-dir <directory>'.");
         }
 
-        ReadOnlySpan<string> options = args[1..];
-        string? recipe = Option(options, "--recipe");
-        string? output = Option(options, "--out-dir", "-o");
+        var options = args[1..];
+        var recipe = Option(options, "--recipe");
+        var output = Option(options, "--out-dir", "-o");
         if (recipe is null || output is null)
         {
             return UsageError("capture run requires --recipe <recipe.json> --out-dir <directory>.");
         }
 
-        bool interactive = Environment.UserInteractive
-            && !Console.IsInputRedirected
-            && !Console.IsOutputRedirected
-            && !string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase);
+        var interactive = Environment.UserInteractive
+                          && !Console.IsInputRedirected
+                          && !Console.IsOutputRedirected
+                          && !string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase);
         if (!interactive)
         {
             Console.Error.WriteLine("capture run refused: a local interactive terminal is mandatory.");
             return Failed;
         }
 
-        ObserveOnlyRecipeReview review = Application().ReviewCaptureRecipe(recipe);
+        var review = Application().ReviewCaptureRecipe(recipe);
         Console.Error.WriteLine("Observe-only capture scope: read-only inventory and locally compiled passive observers only.");
         Console.Error.WriteLine("Unknown observers remain unavailable; imported recipe data cannot open a device or authorize mutation.");
         Console.Error.WriteLine(JsonSerializer.Serialize(review, OutputJson));
@@ -213,7 +212,7 @@ internal static class DeviceLabCli
                     OutputDirectory = output,
                     ReviewedRecipeSha256 = review.RecipeSha256,
                     IsLocalInteractive = true,
-                    ObservationScopeConfirmed = true,
+                    ObservationScopeConfirmed = true
                 },
                 DateTimeOffset.UtcNow,
                 cancellation.Token).ConfigureAwait(false);
@@ -234,22 +233,22 @@ internal static class DeviceLabCli
             return Failed;
         }
 
-        CaptureExportPlan plan = prepared.ExportPlan;
+        var plan = prepared.ExportPlan;
         Console.Error.WriteLine($"Private session: {plan.PrivateWorkingDirectory}");
         Console.Error.WriteLine("Sanitized shareable-content preview:");
         Console.Error.WriteLine(JsonSerializer.Serialize(
             CapturePrivacyPreview.Create(plan.Bundle),
             OutputJson));
         Console.Error.Write("Type EXPORT to write the sanitized .wsgmcap, or press Enter to keep it private: ");
-        bool exportConfirmed = string.Equals(Console.ReadLine(), "EXPORT", StringComparison.Ordinal);
-        CaptureExportResult exported = Application().ExportCapture(plan, exportConfirmed);
+        var exportConfirmed = string.Equals(Console.ReadLine(), "EXPORT", StringComparison.Ordinal);
+        var exported = Application().ExportCapture(plan, exportConfirmed);
         WriteJson(new
         {
             prepared.Status,
             plan.PrivateWorkingDirectory,
             shareableOutputPath = exported.OutputPath,
             exported.Exported,
-            exported.Error,
+            exported.Error
         });
         return exported.Exported ? Success : Failed;
     }
@@ -274,7 +273,7 @@ internal static class DeviceLabCli
 
         WriteJson(new
         {
-            differences = Application().Diff(args[0], args[1]),
+            differences = Application().Diff(args[0], args[1])
         });
         return Success;
     }
@@ -286,8 +285,8 @@ internal static class DeviceLabCli
             return UsageError("correlate requires <capture> --action <id> --sources <id,id>.");
         }
 
-        string? action = Option(args[1..], "--action");
-        string? sources = Option(args[1..], "--sources");
+        var action = Option(args[1..], "--action");
+        var sources = Option(args[1..], "--sources");
         if (action is null || sources is null)
         {
             return UsageError("correlate requires <capture> --action <id> --sources <id,id>.");
@@ -308,10 +307,10 @@ internal static class DeviceLabCli
             return UsageError("fixture extract requires --from, --id, and --out-dir.");
         }
 
-        ReadOnlySpan<string> options = args[1..];
-        string? from = Option(options, "--from", "-f");
-        string? id = Option(options, "--id");
-        string? output = Option(options, "--out-dir", "-o");
+        var options = args[1..];
+        var from = Option(options, "--from", "-f");
+        var id = Option(options, "--id");
+        var output = Option(options, "--out-dir", "-o");
         if (from is null || id is null || output is null)
         {
             return UsageError("fixture extract requires --from, --id, and --out-dir.");
@@ -323,9 +322,9 @@ internal static class DeviceLabCli
 
     private static int RunScaffold(ReadOnlySpan<string> args)
     {
-        string? from = Option(args, "--from", "-f");
-        string? output = Option(args, "--out-dir", "-o");
-        string? usbInstance = Option(args, "--usb-instance");
+        var from = Option(args, "--from", "-f");
+        var output = Option(args, "--out-dir", "-o");
+        var usbInstance = Option(args, "--usb-instance");
         if (from is null || output is null)
         {
             return UsageError("scaffold requires --from <capture> --out-dir <new-directory>; use --usb-instance when the capture has multiple exact USB endpoints.");
@@ -345,7 +344,7 @@ internal static class DeviceLabCli
             return UsageError("validate requires one package directory.");
         }
 
-        PluginPackageValidationReport report = Application().ValidateOffline(args[0]);
+        var report = Application().ValidateOffline(args[0]);
         WriteJson(report);
         return report.Valid ? Success : Failed;
     }
@@ -367,9 +366,9 @@ internal static class DeviceLabCli
 
         if (args[0] is "plugin")
         {
-            string package = args[1];
+            var package = args[1];
             ReadOnlySpan<string> options = args.AsSpan(2);
-            string? inventory = Option(options, "--from", "-f");
+            var inventory = Option(options, "--from", "-f");
             if (inventory is null)
             {
                 return UsageError("test plugin requires --from <inventory.json>.");
@@ -383,14 +382,14 @@ internal static class DeviceLabCli
             return report.Passed ? Success : Failed;
         }
 
-        if (!HardwareTestCliArguments.TryParse(args.AsSpan(1), out HardwareTestCliArguments? parsed,
-            out string parseError))
+        if (!HardwareTestCliArguments.TryParse(args.AsSpan(1), out var parsed,
+            out var parseError))
         {
             return UsageError(parseError);
         }
 
-        HardwareTestCliArguments hardwareArguments = parsed!;
-        AttendedPluginActionRequest action = hardwareArguments.Action;
+        var hardwareArguments = parsed!;
+        var action = hardwareArguments.Action;
 
         if (Console.IsInputRedirected || Console.IsOutputRedirected || !Environment.UserInteractive
             || string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase))
@@ -403,7 +402,7 @@ internal static class DeviceLabCli
         Console.Error.WriteLine("This loads the selected local plugin and may access or change matched hardware.");
         Console.Error.WriteLine("WSGM Device Integration must be stopped. Cleanup runs immediately after activation.");
         Console.Error.Write("Type RUN HARDWARE to continue: ");
-        bool confirmed = string.Equals(Console.ReadLine(), "RUN HARDWARE", StringComparison.Ordinal);
+        var confirmed = string.Equals(Console.ReadLine(), "RUN HARDWARE", StringComparison.Ordinal);
         if (!confirmed)
         {
             Console.Error.WriteLine("Hardware action cancelled before plugin activation.");
@@ -459,7 +458,7 @@ internal static class DeviceLabCli
             return UsageError("glyph import requires one package directory.");
         }
 
-        GlyphPackageImportReport report = Application().ImportGlyphs(args[1]);
+        var report = Application().ImportGlyphs(args[1]);
         WriteJson(report);
         return report.Valid ? Success : Failed;
     }
@@ -471,11 +470,11 @@ internal static class DeviceLabCli
             return UsageError("pack requires <package-directory> --out <new-package.wsgmpkg>.");
         }
 
-        PluginPackageValidationReport report = Application().Pack(args[0], output);
+        var report = Application().Pack(args[0], output);
         WriteJson(new
         {
             validation = report,
-            output = report.Valid ? Path.GetFullPath(output) : null,
+            output = report.Valid ? Path.GetFullPath(output) : null
         });
         return report.Valid ? Success : Failed;
     }
@@ -509,7 +508,7 @@ internal static class DeviceLabCli
             "test" when tail.Length > 0 && tail[0] is "hardware" => null,
             "test" when tail.Length > 0 && tail[0] is "plugin" =>
                 UnknownToken(tail, 2, [], ["--from", "-f"]),
-            _ => null,
+            _ => null
         };
     }
 
@@ -519,10 +518,10 @@ internal static class DeviceLabCli
         string[] flags,
         string[] valuedOptions)
     {
-        int index = Math.Min(positionalCount, args.Length);
+        var index = Math.Min(positionalCount, args.Length);
         while (index < args.Length)
         {
-            string token = args[index];
+            var token = args[index];
             if (flags.Contains(token, StringComparer.Ordinal))
             {
                 index++;
@@ -548,7 +547,7 @@ internal static class DeviceLabCli
 
     private static bool Flag(ReadOnlySpan<string> args, string name)
     {
-        foreach (string value in args)
+        foreach (var value in args)
         {
             if (value == name)
             {
@@ -561,7 +560,7 @@ internal static class DeviceLabCli
 
     private static string? Option(ReadOnlySpan<string> args, params string[] names)
     {
-        for (int index = 0; index + 1 < args.Length; index++)
+        for (var index = 0; index + 1 < args.Length; index++)
         {
             if (names.Contains(args[index], StringComparer.Ordinal))
             {
@@ -612,6 +611,6 @@ internal static class DeviceLabCli
         AttendedPluginActionKind.HapticSweep => action.InstanceId is null
             ? "the interactive A/B-stepped haptic calibration sweep with zero-output cleanup"
             : $"the interactive A/B-stepped haptic calibration sweep on {action.InstanceId} with zero-output cleanup",
-        _ => action.Kind.ToString(),
+        _ => action.Kind.ToString()
     };
 }

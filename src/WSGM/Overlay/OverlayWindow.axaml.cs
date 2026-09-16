@@ -6,7 +6,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
+using WSGM.Interop;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -57,7 +59,7 @@ public partial class OverlayWindow : Window
     public event Action? KeepAwakeToggleRequested;
 
     /// <summary>Raised when an idle-timeout row is activated (cycle to the next preset).</summary>
-    public event Action<Core.PowerTimeoutKind>? PowerTimeoutCycleRequested;
+    public event Action<PowerTimeoutKind>? PowerTimeoutCycleRequested;
 
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
@@ -127,7 +129,7 @@ public partial class OverlayWindow : Window
         internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;
     }
     private IDeviceOverlaySource? _deviceBridge;
-    private Shell.DevicePrerequisiteSource? _devicePrerequisites;
+    private DevicePrerequisiteSource? _devicePrerequisites;
 
     /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
     /// <remarks>
@@ -142,7 +144,7 @@ public partial class OverlayWindow : Window
     private PerformanceOverlayBridge? _performanceSource;
     private IDisposable? _performanceObservation;
 
-    private Shell.SdFormatManager? _format;
+    private SdFormatManager? _format;
     private FormatTargetEntry? _pendingTarget;
     private readonly AppSwitcherViewModel _switcher;
 
@@ -207,7 +209,7 @@ public partial class OverlayWindow : Window
         // primary screen); the dock recomputes it against the real display width.
         TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
-        AddHandler(InputElement.HoldingEvent, OnHolding, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(HoldingEvent, OnHolding, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerPressedEvent, OnPointerPressedForPin, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnPointerReleasedForPin, RoutingStrategies.Tunnel);
         AddHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh, RoutingStrategies.Tunnel);
@@ -221,12 +223,12 @@ public partial class OverlayWindow : Window
         // re-summon of a still-open panel. Any nested page is torn down with it.
         Activated += OnActivated;
 
-        foreach (SubView view in SubViews)
+        foreach (var view in SubViews)
         {
             if (view.Host is OverlaySubView host)
             {
-                OverlayPage page = view.Page;
-                Action leave = () => LeaveSubView(page);
+                var page = view.Page;
+                var leave = () => LeaveSubView(page);
                 host.CloseRequested += leave;
                 _subViewCloseHandlers.Add((host, leave));
             }
@@ -254,7 +256,7 @@ public partial class OverlayWindow : Window
         // from the published reference assemblies.)
         Win32Properties.AddWndProcHookCallback(
             this,
-            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
+            NativeMethods.SwallowTouchSynthesizedMouse);
         Win32Properties.AddWndProcHookCallback(this, DeclineMouseActivationForPanels);
     }
 
@@ -271,10 +273,10 @@ public partial class OverlayWindow : Window
         nint lParam,
         ref bool handled)
     {
-        if (msg == Interop.NativeMethods.WmMouseActivate && SuppressMouseActivation)
+        if (msg == NativeMethods.WmMouseActivate && SuppressMouseActivation)
         {
             handled = true;
-            return Interop.NativeMethods.MaNoActivate;
+            return NativeMethods.MaNoActivate;
         }
 
         return nint.Zero;
@@ -303,7 +305,7 @@ public partial class OverlayWindow : Window
 
     private void RunRendersAwaitingOpen()
     {
-        int pending = _rendersAwaitingOpen;
+        var pending = _rendersAwaitingOpen;
         _rendersAwaitingOpen = 0;
         if ((pending & PerformanceRenderAwaitingOpen) != 0)
         {
@@ -363,7 +365,7 @@ public partial class OverlayWindow : Window
         PointerCaptureLost -= OnPointerCaptureLostForLiveRefresh;
         _pressedPointers.Clear();
         Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
-        foreach ((OverlaySubView host, Action leave) in _subViewCloseHandlers)
+        foreach (var (host, leave) in _subViewCloseHandlers)
         {
             host.CloseRequested -= leave;
         }

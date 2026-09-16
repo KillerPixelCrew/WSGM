@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using WSGM.Core;
 
 namespace WSGM.Controls;
 
@@ -89,7 +90,7 @@ internal sealed class PhysicalGlyphImage : Control
     /// <inheritdoc/>
     public override void Render(DrawingContext context)
     {
-        PhysicalGlyphRenderPlan? plan = Plan;
+        var plan = Plan;
         if (plan is null || !plan.UsesDeviceArtwork)
         {
             return;
@@ -113,22 +114,22 @@ internal sealed class PhysicalGlyphImage : Control
         }
 
         // Uniform, centred: a glyph stretched to a non-square row would read as a different symbol.
-        double scale = Math.Min(
+        var scale = Math.Min(
             bounds.Width / (double)viewBox.Width,
             bounds.Height / (double)viewBox.Height);
-        double offsetX = (bounds.Width - ((double)viewBox.Width * scale)) / 2;
-        double offsetY = (bounds.Height - ((double)viewBox.Height * scale)) / 2;
-        Matrix transform = Matrix.CreateScale(scale, scale)
-            * Matrix.CreateTranslation(
-                offsetX - ((double)viewBox.X * scale),
-                offsetY - ((double)viewBox.Y * scale));
+        var offsetX = (bounds.Width - (double)viewBox.Width * scale) / 2;
+        var offsetY = (bounds.Height - (double)viewBox.Height * scale) / 2;
+        var transform = Matrix.CreateScale(scale, scale)
+                        * Matrix.CreateTranslation(
+                            offsetX - (double)viewBox.X * scale,
+                            offsetY - (double)viewBox.Y * scale);
 
-        using DrawingContext.PushedState _ = context.PushTransform(transform);
-        IBrush? foreground = Foreground;
-        foreach (PhysicalGlyphPath path in plan.Paths)
+        using var _ = context.PushTransform(transform);
+        var foreground = Foreground;
+        foreach (var path in plan.Paths)
         {
-            IBrush? fill = Resolve(path.Fill, foreground);
-            IBrush? stroke = Resolve(path.Stroke, foreground);
+            var fill = Resolve(path.Fill, foreground);
+            var stroke = Resolve(path.Stroke, foreground);
             if (fill is null && stroke is null)
             {
                 continue;
@@ -136,7 +137,7 @@ internal sealed class PhysicalGlyphImage : Control
 
             // Stroke thickness is in the glyph's own coordinates, which the transform above is
             // already in — so it scales with the artwork rather than staying a constant hairline.
-            Pen? pen = stroke is null || path.StrokeWidth <= 0
+            var pen = stroke is null || path.StrokeWidth <= 0
                 ? null
                 : new Pen(
                     stroke,
@@ -151,20 +152,20 @@ internal sealed class PhysicalGlyphImage : Control
     {
         "round" => PenLineCap.Round,
         "square" => PenLineCap.Square,
-        _ => PenLineCap.Flat,
+        _ => PenLineCap.Flat
     };
 
     private static PenLineJoin LineJoinFor(string token) => token switch
     {
         "round" => PenLineJoin.Round,
         "bevel" => PenLineJoin.Bevel,
-        _ => PenLineJoin.Miter,
+        _ => PenLineJoin.Miter
     };
 
     /// <inheritdoc/>
     protected override Size MeasureOverride(Size availableSize)
     {
-        PhysicalGlyphRenderPlan? plan = Plan;
+        var plan = Plan;
         if (plan?.ViewBox is not { } viewBox || viewBox.Width <= 0 || viewBox.Height <= 0)
         {
             return default;
@@ -172,14 +173,14 @@ internal sealed class PhysicalGlyphImage : Control
 
         // The natural size is the glyph's own, so a row that does not constrain the control still
         // lays out sensibly; a constrained one keeps the aspect ratio through Render's uniform fit.
-        double width = (double)viewBox.Width;
-        double height = (double)viewBox.Height;
+        var width = (double)viewBox.Width;
+        var height = (double)viewBox.Height;
         if (double.IsInfinity(availableSize.Width) && double.IsInfinity(availableSize.Height))
         {
             return new Size(width, height);
         }
 
-        double scale = Math.Min(
+        var scale = Math.Min(
             double.IsInfinity(availableSize.Width) ? double.MaxValue : availableSize.Width / width,
             double.IsInfinity(availableSize.Height) ? double.MaxValue : availableSize.Height / height);
         return new Size(width * scale, height * scale);
@@ -187,21 +188,21 @@ internal sealed class PhysicalGlyphImage : Control
 
     private void RenderRaster(DrawingContext context, PhysicalGlyphRenderPlan plan, Rect bounds)
     {
-        Bitmap? bitmap = RasterFor(plan.RasterPng);
+        var bitmap = RasterFor(plan.RasterPng);
         if (bitmap is null)
         {
             return;
         }
 
-        Size source = bitmap.Size;
+        var source = bitmap.Size;
         if (source.Width <= 0 || source.Height <= 0)
         {
             return;
         }
 
-        double scale = Math.Min(bounds.Width / source.Width, bounds.Height / source.Height);
-        double width = source.Width * scale;
-        double height = source.Height * scale;
+        var scale = Math.Min(bounds.Width / source.Width, bounds.Height / source.Height);
+        var width = source.Width * scale;
+        var height = source.Height * scale;
         context.DrawImage(
             bitmap,
             new Rect(source),
@@ -240,7 +241,7 @@ internal sealed class PhysicalGlyphImage : Control
         }
         catch (Exception ex)
         {
-            Core.Log.Warn($"Glyph raster could not be decoded: {ex.Message}");
+            Log.Warn($"Glyph raster could not be decoded: {ex.Message}");
         }
 
         return _raster;
@@ -266,6 +267,6 @@ internal sealed class PhysicalGlyphImage : Control
             return foreground;
         }
 
-        return Color.TryParse(token, out Color color) ? new SolidColorBrush(color) : null;
+        return Color.TryParse(token, out var color) ? new SolidColorBrush(color) : null;
     }
 }

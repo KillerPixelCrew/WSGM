@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Microsoft.Win32.SafeHandles;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -236,7 +238,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         // Decimal units, matching how storage is sold and labeled. Invariant:
         // the app publishes with InvariantGlobalization, and the tests must see
         // the same digits regardless of the machine locale.
-        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        var invariant = CultureInfo.InvariantCulture;
         return bytes >= 1_000_000_000_000L
             ? (bytes / 1_000_000_000_000.0).ToString("0.#", invariant) + " TB"
             : bytes >= 1_000_000_000L
@@ -373,7 +375,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         foreach (var root in new[]
         {
             Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows)),
-            Path.GetPathRoot(AppContext.BaseDirectory),
+            Path.GetPathRoot(AppContext.BaseDirectory)
         })
         {
             if (root is not { Length: > 0 } || !char.IsAsciiLetter(root[0]))
@@ -556,9 +558,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         using var query = NativeStorage.OpenVolumeForQueryPath(path);
         if (query.IsInvalid || !NativeStorage.TryGetDeviceNumber(query, out _, out var disk)
             || ClassifyDisk(disk, ResolveSystemDisks()) != EjectKind.Media)
-        { return new(false, "The removable medium changed. Refresh and try again."); }
+        { return new EjectResult(false, "The removable medium changed. Refresh and try again."); }
         // Keep every exposed volume locked until the medium has been ejected.
-        var locks = new List<Microsoft.Win32.SafeHandles.SafeFileHandle>();
+        var locks = new List<SafeFileHandle>();
         try
         {
             foreach (var volumePath in NativeStorage.ListVolumeInterfaces())
@@ -569,17 +571,17 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 var locked = NativeStorage.OpenDeviceForMediaEject(volumePath);
                 locks.Add(locked);
                 if (locked.IsInvalid || !NativeStorage.LockVolume(locked))
-                { return new(false, "The card is still in use. Close its applications before ejecting it."); }
+                { return new EjectResult(false, "The card is still in use. Close its applications before ejecting it."); }
             }
             foreach (var locked in locks)
             {
                 if (!NativeStorage.DismountVolume(locked))
-                { return new(false, "Windows could not dismount the card. It has not been ejected."); }
+                { return new EjectResult(false, "Windows could not dismount the card. It has not been ejected."); }
             }
             using var handle = NativeStorage.OpenDeviceForMediaEject(path);
             if (handle.IsInvalid || !NativeStorage.EjectMedia(handle))
-            { return new(false, "Windows could not eject this medium. No safe-removal confirmation was received."); }
-            return new(true, "");
+            { return new EjectResult(false, "Windows could not eject this medium. No safe-removal confirmation was received."); }
+            return new EjectResult(true, "");
         }
         finally
         {
@@ -698,7 +700,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 "A Windows service is blocking removal.",
             NativeStorage.PnpVetoType.InsufficientRights =>
                 "Windows denied the removal (insufficient rights).",
-            _ => "Windows refused to remove this drive right now. Try again in a moment.",
+            _ => "Windows refused to remove this drive right now. Try again in a moment."
         };
 
 }

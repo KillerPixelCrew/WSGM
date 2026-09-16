@@ -35,7 +35,6 @@ public sealed unsafe class TrayHost : IDisposable
 
     private static TrayHost? _instance;
 
-    private readonly TrayIconTable _table = new();
     private nint _trayHwnd;
     private nint _notifyHwnd;
     private bool _loggedAppBar;
@@ -49,7 +48,7 @@ public sealed unsafe class TrayHost : IDisposable
     public event Action? IconsChanged;
 
     /// <summary>Gets the registered icons (hidden ones included; presentation filters).</summary>
-    public TrayIconTable Table => _table;
+    public TrayIconTable Table { get; } = new();
 
     private TrayHost()
     {
@@ -153,7 +152,7 @@ public sealed unsafe class TrayHost : IDisposable
             {
                 lpfnWndProc = &WndProc,
                 hInstance = hInstance,
-                lpszClassName = (nint)pClassName,
+                lpszClassName = (nint)pClassName
             };
             if (NativeMethods.RegisterClassW(&wc) == 0)
             {
@@ -268,7 +267,7 @@ public sealed unsafe class TrayHost : IDisposable
             return 0;
         }
 
-        var change = _table.Apply(parsed, out var icon);
+        var change = Table.Apply(parsed, out var icon);
         if (change == TrayChange.Rejected)
         {
             // Applications retry a rejected NIM_ADD on their own timer and never stop, so this was
@@ -339,7 +338,7 @@ public sealed unsafe class TrayHost : IDisposable
         TrayProtocol.NimDelete => "NIM_DELETE",
         TrayProtocol.NimSetFocus => "NIM_SETFOCUS",
         TrayProtocol.NimSetVersion => "NIM_SETVERSION",
-        _ => $"NIM_{nim}",
+        _ => $"NIM_{nim}"
     };
 
     // Double-click state: the host owns double-click detection (see SendClick).
@@ -477,12 +476,12 @@ public sealed unsafe class TrayHost : IDisposable
         {
             _instance = null;
         }
-        foreach (var icon in _table.Icons)
+        foreach (var icon in Table.Icons)
         {
             (icon.IconImage as Bitmap)?.Dispose();
             icon.IconImage = null;
         }
-        _table.Clear();
+        Table.Clear();
         if (_notifyHwnd != 0)
         {
             NativeMethods.DestroyWindow(_notifyHwnd);

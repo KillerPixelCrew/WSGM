@@ -154,7 +154,7 @@ internal static class ServiceInstaller
                         return 1;
                     }
 
-                    Stopwatch elapsed = Stopwatch.StartNew();
+                    var elapsed = Stopwatch.StartNew();
                     do
                     {
                         Thread.Sleep(250);
@@ -228,14 +228,14 @@ internal static class ServiceInstaller
                 Marshal.StructureToPtr(new NativeMethods.ScAction
                 {
                     Type = NativeMethods.ScActionRestart,
-                    Delay = delays[i],
+                    Delay = delays[i]
                 }, actions + i * actionSize, false);
             }
             Marshal.StructureToPtr(new NativeMethods.ServiceFailureActionsW
             {
                 dwResetPeriod = 86400,
                 cActions = 3,
-                lpsaActions = actions,
+                lpsaActions = actions
             }, info, false);
             if (!NativeMethods.ChangeServiceConfig2W(service, NativeMethods.ServiceConfigFailureActions, info))
             {

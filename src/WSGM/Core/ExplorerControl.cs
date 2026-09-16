@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using WSGM.Interop;
 
 namespace WSGM.Core;
 
@@ -32,19 +36,19 @@ public static class ExplorerControl
     /// Shell_TrayWnd, which is why the owner must be the canonical explorer.exe.</remarks>
     public static bool IsDesktopShellRunning()
     {
-        nint taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
+        var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
         if (!IsCurrentSessionWindow(taskbar))
         {
             return false;
         }
-        Interop.NativeMethods.GetWindowThreadProcessId(taskbar, out uint owner);
+        NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
         try
         {
-            using Process process = Process.GetProcessById(checked((int)owner));
+            using var process = Process.GetProcessById(checked((int)owner));
             return string.Equals(process.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException
-            or System.ComponentModel.Win32Exception or OverflowException)
+            or Win32Exception or OverflowException)
         {
             return false;
         }
@@ -77,11 +81,11 @@ public static class ExplorerControl
                     // deadlock against a captured context: the callers are terminal
                     // recovery paths that exit the process immediately afterwards, so
                     // an un-awaited verification would be torn down before it ran.
-                    System.Threading.Tasks.Task.Run(VerifyAndRepairElevation).GetAwaiter().GetResult();
+                    Task.Run(VerifyAndRepairElevation).GetAwaiter().GetResult();
                 }
                 else
                 {
-                    System.Threading.Tasks.Task.Run(VerifyAndRepairElevation);
+                    Task.Run(VerifyAndRepairElevation);
                 }
             }
         }
@@ -91,12 +95,12 @@ public static class ExplorerControl
         }
     }
 
-    private static async System.Threading.Tasks.Task VerifyAndRepairElevation()
+    private static async Task VerifyAndRepairElevation()
     {
         try
         {
             // The de-elevation hop goes through Task Scheduler; give it time to land.
-            await System.Threading.Tasks.Task.Delay(5000);
+            await Task.Delay(5000);
 
             var elevated = false;
             var undetermined = false;
@@ -178,13 +182,13 @@ public static class ExplorerControl
         lock (ExitGate)
         {
             var deadline = DateTime.UtcNow + timeout;
-            for (int attempt = 0; attempt < 2 && DateTime.UtcNow < deadline; attempt++)
+            for (var attempt = 0; attempt < 2 && DateTime.UtcNow < deadline; attempt++)
             {
-                nint taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
+                var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
                 if (taskbar == 0) { return WaitForShellAbsence(deadline); }
                 if (!IsCurrentSessionWindow(taskbar)) { return false; }
-                Interop.NativeMethods.GetWindowThreadProcessId(taskbar, out uint owner);
-                using Process original = Process.GetProcessById(checked((int)owner));
+                NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
+                using var original = Process.GetProcessById(checked((int)owner));
                 // Keep the handle, not merely the PID: PID reuse cannot authorize termination.
                 _ = original.Handle;
                 if (!string.Equals(original.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase))
@@ -192,14 +196,14 @@ public static class ExplorerControl
                     return false;
                 }
                 Log.Info($"Requesting orderly Explorer exit (pid {owner}).");
-                if (!Interop.NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0)) { return false; }
+                if (!NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0)) { return false; }
                 DateTime? absentSince = null;
-                bool replacement = false;
+                var replacement = false;
                 while (DateTime.UtcNow < deadline)
                 {
-                    nint currentTaskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
-                    nint shell = Interop.NativeMethods.GetShellWindow();
-                    bool surfaces = currentTaskbar != 0 || shell != 0;
+                    var currentTaskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
+                    var shell = NativeMethods.GetShellWindow();
+                    var surfaces = currentTaskbar != 0 || shell != 0;
                     if (currentTaskbar != 0 && !IsWindowOwnedByProcess(currentTaskbar, owner))
                     {
                         replacement = true;
@@ -207,8 +211,8 @@ public static class ExplorerControl
                         break;
                     }
                     absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
-                    TimeSpan absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
-                    ExplorerExitAction action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent);
+                    var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
+                    var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent);
                     if (action == ExplorerExitAction.Complete)
                     {
                         Log.Info("Explorer desktop exited and remained absent.");
@@ -220,14 +224,14 @@ public static class ExplorerControl
                         // not strand the next Explorer behind the old process's shell singleton.
                         Log.Warn($"Releasing retired Explorer pid {owner} after orderly shell shutdown.");
                         original.Kill();
-                        int remainingMs = (int)Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds);
+                        var remainingMs = (int)Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds);
                         if (!original.WaitForExit(Math.Min(2000, remainingMs))) { return false; }
                         absentSince = null; // Observe Winlogon after releasing the original process.
                     }
-                    System.Threading.Thread.Sleep(100);
+                    Thread.Sleep(100);
                 }
                 if (!replacement) { break; }
-                System.Threading.Thread.Sleep(300);
+                Thread.Sleep(300);
             }
             Log.Warn("Explorer desktop exit was not confirmed; desktop recovery is required.");
             return false;
@@ -239,25 +243,25 @@ public static class ExplorerControl
         DateTime? absentSince = null;
         while (DateTime.UtcNow < deadline)
         {
-            bool present = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0
-                || Interop.NativeMethods.GetShellWindow() != 0;
+            var present = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0
+                          || NativeMethods.GetShellWindow() != 0;
             absentSince = present ? null : absentSince ?? DateTime.UtcNow;
             if (absentSince is { } since && DateTime.UtcNow - since >= TimeSpan.FromMilliseconds(500))
             {
                 return true;
             }
-            System.Threading.Thread.Sleep(100);
+            Thread.Sleep(100);
         }
         return false;
     }
 
     private static bool IsWindowOwnedByProcess(nint window, uint processId)
     {
-        if (window == 0 || !Interop.NativeMethods.IsWindow(window))
+        if (window == 0 || !NativeMethods.IsWindow(window))
         {
             return false;
         }
-        Interop.NativeMethods.GetWindowThreadProcessId(window, out var currentOwner);
+        NativeMethods.GetWindowThreadProcessId(window, out var currentOwner);
         return currentOwner == processId;
     }
 
@@ -267,7 +271,7 @@ public static class ExplorerControl
         {
             return false;
         }
-        Interop.NativeMethods.GetWindowThreadProcessId(window, out var processId);
+        NativeMethods.GetWindowThreadProcessId(window, out var processId);
         if (processId == 0)
         {
             return false;

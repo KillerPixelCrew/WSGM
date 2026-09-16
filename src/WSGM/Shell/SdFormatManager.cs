@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -50,7 +51,7 @@ public sealed class SdFormatManager : ObservableObject
             return DefaultLabel;
         }
         var kept = new string(name.Trim()
-            .Where(c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9')
+            .Where(c => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9'
                 or ' ' or '-' or '_')
             .Take(32)
             .ToArray())
@@ -219,7 +220,7 @@ public sealed class SdFormatManager : ObservableObject
         var parts = new List<string>
         {
             RemovableDriveManager.FormatSize(target.SizeBytes),
-            DescribeBus(target.BusType),
+            DescribeBus(target.BusType)
         };
         if (target.Letters.Count > 0)
         {
@@ -240,7 +241,7 @@ public sealed class SdFormatManager : ObservableObject
     {
         NativeStorage.BusTypeSd or NativeStorage.BusTypeMmc => "SD card",
         NativeStorage.BusTypeUsb => "USB",
-        _ => "",
+        _ => ""
     };
 
     /// <summary>Merges a fresh target list into the bound collection without
@@ -665,7 +666,7 @@ public sealed class SdFormatManager : ObservableObject
 
         /// <summary>The disk number now belongs to something else — a different
         /// capacity or bus, no longer removable media, or a system disk.</summary>
-        Changed,
+        Changed
     }
 
     /// <summary>Decides whether the disk behind the target's number is still the card
@@ -1074,7 +1075,7 @@ public sealed class SdFormatManager : ObservableObject
         var scriptPath = Path.Combine(Log.Directory, $"format-disk-{Guid.NewGuid():N}.dp.txt");
         await using (var stream = new FileStream(scriptPath, FileMode.CreateNew, FileAccess.Write,
             FileShare.None, 4096, FileOptions.WriteThrough))
-        await using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)))
+        await using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
         {
             await writer.WriteAsync(script);
             await writer.FlushAsync();
@@ -1439,7 +1440,7 @@ public sealed class SdFormatManager : ObservableObject
     private static void WriteMarkerAndClientDll(
         string libraryPath, string contentId, string? steamExe, string label)
     {
-        var utf8NoBom = new System.Text.UTF8Encoding(false);
+        var utf8NoBom = new UTF8Encoding(false);
         File.WriteAllText(
             Path.Combine(libraryPath, "libraryfolder.vdf"),
             SteamLibraryVdf.BuildMarker(contentId, steamExe ?? "", label),

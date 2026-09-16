@@ -32,7 +32,7 @@ internal sealed class DeviceLightingRestore
                 return false;
             }
 
-            _attempts[new(view.Descriptor.CapabilityId, view.Descriptor.InstanceId)] =
+            _attempts[new DeviceCapabilityKey(view.Descriptor.CapabilityId, view.Descriptor.InstanceId)] =
                 (view.Projection.State.CycleGeneration, view.Projection.DesiredValue!);
             return true;
         }
@@ -63,7 +63,7 @@ internal sealed class DeviceLightingRestore
             return false;
         }
 
-        return !_attempts.TryGetValue(new(view.Descriptor.CapabilityId, view.Descriptor.InstanceId), out var previous)
+        return !_attempts.TryGetValue(new DeviceCapabilityKey(view.Descriptor.CapabilityId, view.Descriptor.InstanceId), out var previous)
             || previous.Cycle != projection.State.CycleGeneration || !DeviceCoordinator.SameValue(previous.Value, desired);
     }
 }

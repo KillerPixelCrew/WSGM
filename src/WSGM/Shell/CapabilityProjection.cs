@@ -21,7 +21,7 @@ public enum CommandProgress
     Failed,
 
     /// <summary>The last command finished without establishing what the hardware did.</summary>
-    Uncertain,
+    Uncertain
 }
 
 /// <summary>

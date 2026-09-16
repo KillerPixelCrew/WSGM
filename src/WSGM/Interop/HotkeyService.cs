@@ -56,7 +56,7 @@ public sealed class HotkeyService : IDisposable
             return;
         }
 
-        uint modifiers = NativeMethods.ModNoRepeat;
+        var modifiers = NativeMethods.ModNoRepeat;
         if (config.Ctrl)
         {
             modifiers |= NativeMethods.ModControl;

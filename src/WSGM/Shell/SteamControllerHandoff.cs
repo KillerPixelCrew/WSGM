@@ -13,7 +13,7 @@ internal enum SteamControllerOwnership
     Releasing,
     Steam,
     Reacquiring,
-    RecoveryRequired,
+    RecoveryRequired
 }
 
 /// <summary>Serializes a Steam interaction independently of the OEM dispatch deadline.</summary>
@@ -71,7 +71,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
                 {
                     try
                     {
-                        bool restored = await _restore(_shutdown.Token).ConfigureAwait(false);
+                        var restored = await _restore(_shutdown.Token).ConfigureAwait(false);
                         SetState(restored ? SteamControllerOwnership.Wsgm : SteamControllerOwnership.RecoveryRequired,
                             restored ? "manual recovery completed" : "manual recovery was unverified");
                     }
@@ -130,12 +130,12 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
         {
             return null;
         }
-        SteamWindowSideMenu[] overlays = windows.Where(window => window.ProcessId != 0).ToArray();
+        var overlays = windows.Where(window => window.ProcessId != 0).ToArray();
         return overlays.Length switch
         {
             0 => mainVisible ? windows[0] : null,
             1 => overlays[0],
-            _ => null,
+            _ => null
         };
     }
 
@@ -168,7 +168,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
 
     private async Task RunAsync(Func<CancellationToken, Task<bool>> replay)
     {
-        bool restorationAttempted = false;
+        var restorationAttempted = false;
         try
         {
             _trace("Steam handoff: releasing controller ownership.");
@@ -179,12 +179,12 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             }
 
             SetState(SteamControllerOwnership.Steam, "physical controller released");
-            bool sent = !_originalSteamExited()
-                && await _ownerIsCurrent(_shutdown.Token).ConfigureAwait(false)
-                && await replay(_shutdown.Token).ConfigureAwait(false);
+            var sent = !_originalSteamExited()
+                       && await _ownerIsCurrent(_shutdown.Token).ConfigureAwait(false)
+                       && await replay(_shutdown.Token).ConfigureAwait(false);
             _trace($"Steam handoff: semantic replay {(sent ? "accepted" : "refused")}.");
-            long started = _time.GetTimestamp();
-            bool opened = false;
+            var started = _time.GetTimestamp();
+            var opened = false;
             while (!_shutdown.IsCancellationRequested)
             {
                 // A manual override outlives native surfaces and Steam processes. Only explicit
@@ -200,8 +200,8 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
                     _trace("Steam handoff: device ownership changed; retiring the old interaction.");
                     break;
                 }
-                SteamSideMenuSnapshot snapshot = await _observe(_shutdown.Token).ConfigureAwait(false);
-                bool visible = snapshot.Windows?.Any(window =>
+                var snapshot = await _observe(_shutdown.Token).ConfigureAwait(false);
+                var visible = snapshot.Windows?.Any(window =>
                     window.Menu != SteamSideMenu.None || window.OverlayActive == true || window.KeyboardOpen == true) == true;
                 if (visible && !opened)
                 {
@@ -245,7 +245,7 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
             await _manualReplay.ConfigureAwait(false);
             SetState(SteamControllerOwnership.Reacquiring, "restoring controller ownership");
             restorationAttempted = true;
-            bool restored = await _restore(_shutdown.Token).ConfigureAwait(false);
+            var restored = await _restore(_shutdown.Token).ConfigureAwait(false);
             SetState(restored ? SteamControllerOwnership.Wsgm : SteamControllerOwnership.RecoveryRequired,
                 restored ? "controller handoff completed" : "restoration was unverified");
         }

@@ -53,7 +53,7 @@ internal sealed class CommonPluginOverlaySource(CommonPluginManager? manager, Pl
         var owner = instance.Registration;
         var actions = owner?.Actions;
         return new PluginOverlayInstance(instance.Identity, instance.Manifest.Name, owner?.Context.Generation ?? 0,
-            actions is null ? null : new(actions.Actions, actions.Contributions, actions.Widgets),
+            actions is null ? null : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
             owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
             owner is not null && !owner.IsStopping && !owner.Quarantined, instance.Error);
     }).Concat(device?.Snapshot() ?? []).ToArray();

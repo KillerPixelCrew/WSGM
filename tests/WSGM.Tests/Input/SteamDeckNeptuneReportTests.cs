@@ -21,7 +21,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void ANeutralSampleSetsNoButtonBitAnywhere()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None));
+        var frame = Frame(Sample(CanonicalButtons.None));
 
         Assert.Equal(new byte[7], frame[8..15]);
     }
@@ -61,7 +61,7 @@ public sealed class SteamDeckNeptuneReportTests
     [InlineData(CanonicalButtons.QuickAccess, 14, 0x04)]
     public void EachControlLandsOnItsAgreedBit(CanonicalButtons button, int index, int bit)
     {
-        byte[] frame = Frame(Sample(button));
+        var frame = Frame(Sample(button));
 
         Assert.Equal((byte)bit, frame[index]);
     }
@@ -69,7 +69,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void AllFourRearControlsAreDistinctAndSimultaneous()
     {
-        byte[] frame = Frame(Sample(
+        var frame = Frame(Sample(
             CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2
             | CanonicalButtons.RearPaddle3 | CanonicalButtons.RearPaddle4));
 
@@ -83,7 +83,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void BothStickTouchSensorsAreCarried()
     {
-        byte[] frame = Frame(Sample(
+        var frame = Frame(Sample(
             CanonicalButtons.LeftStickTouch | CanonicalButtons.RightStickTouch));
 
         Assert.Equal(0xC0, frame[13]);
@@ -92,7 +92,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void AnAnaloguePullAlsoSetsTheDigitalTriggerEdge()
     {
-        byte[] frame = Frame(
+        var frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.5f, RightTrigger = 1f });
 
         Assert.Equal(0x03, frame[8]);
@@ -109,7 +109,7 @@ public sealed class SteamDeckNeptuneReportTests
         // The edge and the analogue value must leave rest in the same frame. A mid-travel
         // threshold hands Steam Input a second, later activation per pull: desktop mode then
         // double-clicks every trigger and tears a held drag loose (device-observed 2026-09-02).
-        byte[] frame = Frame(
+        var frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.01f, RightTrigger = 0f });
 
         Assert.Equal(0x02, frame[8] & 0x03);
@@ -120,12 +120,12 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void StickAxesScaleOntoTheSignedWireRange()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
             LeftStickX = 1f,
             LeftStickY = -1f,
             RightStickX = 0f,
-            RightStickY = 0.5f,
+            RightStickY = 0.5f
         });
 
         Assert.Equal(short.MaxValue, BitConverter.ToInt16(frame, 48));
@@ -139,7 +139,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void TouchContactsAndForcesAreCarried()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
             LeftPadX = 1f,
             LeftPadY = -1f,
@@ -148,7 +148,7 @@ public sealed class SteamDeckNeptuneReportTests
             LeftPadForce = 1f,
             RightPadForce = 0.5f,
             LeftStickForce = 1f,
-            RightStickForce = 0f,
+            RightStickForce = 0f
         });
 
         Assert.Equal(short.MaxValue, BitConverter.ToInt16(frame, 16));
@@ -165,7 +165,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void MotionIsCarriedOnlyForTheSensorsTheDeviceHas()
     {
-        byte[] gyroOnly = Frame(Sample(CanonicalButtons.None) with
+        var gyroOnly = Frame(Sample(CanonicalButtons.None) with
         {
             Motion = new MotionSample
             {
@@ -173,8 +173,8 @@ public sealed class SteamDeckNeptuneReportTests
                 GyroX = 100,
                 GyroY = 200,
                 GyroZ = 300,
-                AccelX = 999,
-            },
+                AccelX = 999
+            }
         });
 
         Assert.Equal(1600, BitConverter.ToInt16(gyroOnly, 30));
@@ -188,15 +188,15 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void AccelerometerUsesTheDeckRangeAndApplicationAxisBasis()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
             Motion = new MotionSample
             {
                 HasAccelerometer = true,
                 AccelX = 0.5f,
                 AccelY = -0.25f,
-                AccelZ = 1f,
-            },
+                AccelZ = 1f
+            }
         });
 
         Assert.Equal(8192, BitConverter.ToInt16(frame, 24));
@@ -208,7 +208,7 @@ public sealed class SteamDeckNeptuneReportTests
     public void ApplicationBasisIsInvertedBackIntoThePhysicalDeckSlotsExactlyOnce()
     {
         // These application values are physical (X, Y, Z) transformed to (X, Z, -Y).
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
             Motion = new MotionSample
             {
@@ -219,8 +219,8 @@ public sealed class SteamDeckNeptuneReportTests
                 HasAccelerometer = true,
                 AccelX = 0.25f,
                 AccelY = -0.5f,
-                AccelZ = -0.75f,
-            },
+                AccelZ = -0.75f
+            }
         });
 
         Assert.Equal(16, BitConverter.ToInt16(frame, 30));
@@ -234,9 +234,9 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void TheOrientationQuaternionIsNeverPopulated()
     {
-        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        var frame = Frame(Sample(CanonicalButtons.None) with
         {
-            Motion = new MotionSample { HasGyro = true, HasAccelerometer = true, GyroX = 1 },
+            Motion = new MotionSample { HasGyro = true, HasAccelerometer = true, GyroX = 1 }
         });
 
         // A frozen identity quaternion makes Steam ignore raw angular velocity and collapse
@@ -247,7 +247,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void AWrongSizedDestinationIsRefused()
     {
-        byte[] tooSmall = new byte[32];
+        var tooSmall = new byte[32];
 
         Assert.Throws<ArgumentException>(() =>
             SteamDeckNeptuneReport.Write(Sample(CanonicalButtons.None), tooSmall));
@@ -255,7 +255,7 @@ public sealed class SteamDeckNeptuneReportTests
 
     private static byte[] Frame(CanonicalControllerSample sample)
     {
-        byte[] frame = new byte[SteamDeckNeptuneReport.Length];
+        var frame = new byte[SteamDeckNeptuneReport.Length];
         SteamDeckNeptuneReport.Write(sample, frame);
         return frame;
     }

@@ -1,8 +1,11 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Core;
 using static WSGM.Interop.Kernel32;
 
 namespace WSGM.Interop;
@@ -116,7 +119,7 @@ internal static unsafe partial class NativeStorage
         LegacyDriver = 11,
 
         /// <summary>The caller lacks the rights to eject.</summary>
-        InsufficientRights = 12,
+        InsufficientRights = 12
     }
 
     // ---- kernel32 ----
@@ -152,7 +155,7 @@ internal static unsafe partial class NativeStorage
     private static readonly DevPropKey DevicePropertyInstanceId = new()
     {
         Fmtid = new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"),
-        Pid = 256,
+        Pid = 256
     };
 
     [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_Device_Interface_PropertyW",
@@ -370,7 +373,7 @@ internal static unsafe partial class NativeStorage
             return [];
         }
         // Double-NUL-terminated multi-string.
-        var result = new System.Collections.Generic.List<string>();
+        var result = new List<string>();
         var start = 0;
         for (var i = 0; i < buffer.Length; i++)
         {
@@ -538,7 +541,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Decodes DISK_GEOMETRY_EX.DiskSize after its 24-byte DISK_GEOMETRY.</summary>
     internal static long ReadGeometryCapacity(ReadOnlySpan<byte> buffer) =>
-        buffer.Length >= 32 ? Math.Max(0, System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(buffer[24..32])) : 0;
+        buffer.Length >= 32 ? Math.Max(0, BinaryPrimitives.ReadInt64LittleEndian(buffer[24..32])) : 0;
 
     /// <summary>Reads the disk's bus type and vendor/product identity via
     /// IOCTL_STORAGE_QUERY_PROPERTY (StorageDeviceProperty).</summary>
@@ -598,7 +601,7 @@ internal static unsafe partial class NativeStorage
         {
             slice = slice[..end];
         }
-        return System.Text.Encoding.ASCII.GetString(slice).Trim();
+        return Encoding.ASCII.GetString(slice).Trim();
     }
 
     /// <summary>GPT partition-type GUID for Linux filesystem data — the ext4
@@ -624,7 +627,7 @@ internal static unsafe partial class NativeStorage
     /// <param name="partitions">The partition types found.</param>
     internal static bool TryGetPartitionTypes(
         SafeFileHandle disk, out int partitionStyle,
-        out System.Collections.Generic.List<PartitionType> partitions)
+        out List<PartitionType> partitions)
     {
         const int BufferSize = 8192;
         var buffer = stackalloc byte[BufferSize];
@@ -651,10 +654,10 @@ internal static unsafe partial class NativeStorage
     /// style and each partition's type. Zeroed MBR entries (empty table slots —
     /// MBR layouts always report 4-slot multiples) are skipped.</summary>
     /// <param name="buffer">The layout buffer as returned by the IOCTL.</param>
-    internal static (int Style, System.Collections.Generic.List<PartitionType> Partitions)
+    internal static (int Style, List<PartitionType> Partitions)
         ReadDriveLayout(ReadOnlySpan<byte> buffer)
     {
-        var partitions = new System.Collections.Generic.List<PartitionType>();
+        var partitions = new List<PartitionType>();
         if (buffer.Length < DriveLayoutHeaderSize)
         {
             return (2, partitions);
@@ -663,7 +666,7 @@ internal static unsafe partial class NativeStorage
         var count = BitConverter.ToInt32(buffer[4..]);
         for (var i = 0; i < count; i++)
         {
-            var at = DriveLayoutHeaderSize + (i * PartitionRecordSize);
+            var at = DriveLayoutHeaderSize + i * PartitionRecordSize;
             if (at + PartitionRecordSize > buffer.Length)
             {
                 break;
@@ -785,7 +788,7 @@ internal static unsafe partial class NativeStorage
         var root = Path.GetPathRoot(fullPath);
         if (root is null || root.Length < 2 || root[1] != ':')
         {
-            Core.Log.Warn(
+            Log.Warn(
                 $"NT device-path conversion skipped: application path is not on a local drive ({fullPath}).");
             return fullPath;
         }
@@ -798,7 +801,7 @@ internal static unsafe partial class NativeStorage
             : ReadBoundedString(buffer, 1024);
         if (target.Length == 0)
         {
-            Core.Log.Warn(
+            Log.Warn(
                 $"NT device-path conversion failed for {root[..2]} with Win32 error "
                 + $"{Marshal.GetLastPInvokeError()}; HidHide readability may be unavailable.");
             return fullPath;

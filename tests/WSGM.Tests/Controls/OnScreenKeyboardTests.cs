@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using WSGM.Controls;
 
 namespace WSGM.Tests;
@@ -7,11 +8,11 @@ public class OnScreenKeyboardTests
     [Fact]
     public void InsertExternalText_ReplacesSelectionAndMovesCaret()
     {
-        var box = new Avalonia.Controls.TextBox
+        var box = new TextBox
         {
             Text = "before OLD after",
             SelectionStart = 7,
-            SelectionEnd = 10,
+            SelectionEnd = 10
         };
         var keyboard = new OnScreenKeyboard { Target = box };
 
@@ -25,13 +26,13 @@ public class OnScreenKeyboardTests
     [Fact]
     public void InsertExternalText_TruncatesPasteAtMaximumLength()
     {
-        var box = new Avalonia.Controls.TextBox
+        var box = new TextBox
         {
             Text = "1234",
             CaretIndex = 4,
             SelectionStart = 4,
             SelectionEnd = 4,
-            MaxLength = 6,
+            MaxLength = 6
         };
         var keyboard = new OnScreenKeyboard { Target = box };
 
@@ -44,11 +45,11 @@ public class OnScreenKeyboardTests
     [Fact]
     public void Backspace_RemovesTheSelectionBeforeTouchingThePreviousCharacter()
     {
-        var box = new Avalonia.Controls.TextBox
+        var box = new TextBox
         {
             Text = "keep REMOVE keep",
             SelectionStart = 5,
-            SelectionEnd = 11,
+            SelectionEnd = 11
         };
         var keyboard = new OnScreenKeyboard { Target = box };
 
@@ -63,12 +64,12 @@ public class OnScreenKeyboardTests
     [Fact]
     public void Backspace_DeletesOneCharacterAndCollapsesTheCaret()
     {
-        var box = new Avalonia.Controls.TextBox
+        var box = new TextBox
         {
             Text = "abcd",
             SelectionStart = 3,
             SelectionEnd = 3,
-            CaretIndex = 3,
+            CaretIndex = 3
         };
         var keyboard = new OnScreenKeyboard { Target = box };
 

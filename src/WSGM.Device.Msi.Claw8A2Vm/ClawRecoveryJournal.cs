@@ -42,7 +42,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         string path;
         try
         {
-            string root = Path.GetFullPath(stateDirectory);
+            var root = Path.GetFullPath(stateDirectory);
             Directory.CreateDirectory(root);
             path = Path.Combine(root, FileName);
         }
@@ -70,13 +70,13 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             CapabilityId = capabilityId,
             FirmwareIdentity = firmwareIdentity,
             OriginalState = originalState,
-            Status = ClawRecoveryStatus.Pending,
+            Status = ClawRecoveryStatus.Pending
         });
         ThrowIfUnavailable();
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ClawRecoveryEntry? existing = _entries.SingleOrDefault(entry =>
+            var existing = _entries.SingleOrDefault(entry =>
                 string.Equals(entry.ServiceId, serviceId, StringComparison.Ordinal));
             if (existing is not null)
             {
@@ -96,7 +96,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                 CapabilityId = capabilityId,
                 FirmwareIdentity = firmwareIdentity,
                 OriginalState = originalState,
-                Status = ClawRecoveryStatus.Pending,
+                Status = ClawRecoveryStatus.Pending
             };
             List<ClawRecoveryEntry> entries = [.. _entries, entry];
             await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
@@ -185,7 +185,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         try
         {
             List<ClawRecoveryEntry> entries = [.. _entries];
-            int index = entries.FindIndex(entry => entry.ServiceId == serviceId);
+            var index = entries.FindIndex(entry => entry.ServiceId == serviceId);
             if (index < 0)
             {
                 return;
@@ -268,11 +268,11 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                 throw new InvalidDataException("The Claw recovery record exceeds 16 KiB.");
             }
 
-            ClawRecoveryDocument document = await JsonSerializer.DeserializeAsync(
-                stream,
-                ClawRecoveryJsonContext.Default.ClawRecoveryDocument,
-                cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidDataException("The Claw recovery record was empty.");
+            var document = await JsonSerializer.DeserializeAsync(
+                               stream,
+                               ClawRecoveryJsonContext.Default.ClawRecoveryDocument,
+                               cancellationToken).ConfigureAwait(false)
+                           ?? throw new InvalidDataException("The Claw recovery record was empty.");
             ValidateDocument(document);
             _entries = [.. document.Entries];
         }
@@ -299,13 +299,13 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         try
         {
             List<ClawRecoveryEntry> entries = [.. _entries];
-            int index = entries.FindIndex(entry => entry.ServiceId == operation.Entry.ServiceId);
+            var index = entries.FindIndex(entry => entry.ServiceId == operation.Entry.ServiceId);
             if (index < 0)
             {
                 throw new InvalidDataException("The recovery operation is no longer current.");
             }
 
-            ClawRecoveryEntry replacement = entries[index] with { Status = status };
+            var replacement = entries[index] with { Status = status };
             entries[index] = replacement;
             await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
             return operation with { Entry = replacement };
@@ -325,7 +325,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         try
         {
             List<ClawRecoveryEntry> entries = [.. _entries];
-            int removed = entries.RemoveAll(entry => entry.ServiceId == operation.Entry.ServiceId);
+            var removed = entries.RemoveAll(entry => entry.ServiceId == operation.Entry.ServiceId);
             if (removed != 1)
             {
                 throw new InvalidDataException("The recovery operation is no longer current.");
@@ -334,7 +334,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
             return operation with
             {
-                Entry = operation.Entry with { Status = ClawRecoveryStatus.RestoredVerified },
+                Entry = operation.Entry with { Status = ClawRecoveryStatus.RestoredVerified }
             };
         }
         finally
@@ -355,10 +355,10 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         var document = new ClawRecoveryDocument
         {
             Version = CurrentVersion,
-            Entries = entries.OrderBy(entry => entry.ServiceId, StringComparer.Ordinal).ToArray(),
+            Entries = entries.OrderBy(entry => entry.ServiceId, StringComparer.Ordinal).ToArray()
         };
         ValidateDocument(document);
-        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(
             document,
             ClawRecoveryJsonContext.Default.ClawRecoveryDocument);
         if (bytes.Length > MaxBytes)
@@ -366,7 +366,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
             throw new InvalidDataException("The Claw recovery record exceeds 16 KiB.");
         }
 
-        string temporary = _path + ".tmp";
+        var temporary = _path + ".tmp";
         try
         {
             await using (FileStream stream = new(
@@ -414,7 +414,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         }
 
         var services = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ClawRecoveryEntry entry in document.Entries)
+        foreach (var entry in document.Entries)
         {
             ValidateEntry(entry);
             if (!services.Add(entry.ServiceId))
@@ -435,11 +435,11 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         }
 
         ValidateOriginalState(entry.ServiceId, entry.OriginalState);
-        string expectedFirmware = entry.ServiceId switch
+        var expectedFirmware = entry.ServiceId switch
         {
             ServiceIds.Power or ServiceIds.Fans => ClawFirmwareIdentities.Wmi,
             ServiceIds.Controller => ClawFirmwareIdentities.Mcu,
-            _ => throw new InvalidDataException("A recovery entry names a non-restorable service."),
+            _ => throw new InvalidDataException("A recovery entry names a non-restorable service.")
         };
         if (!string.Equals(entry.FirmwareIdentity, expectedFirmware, StringComparison.Ordinal))
         {
@@ -450,7 +450,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
     private static void ValidateOriginalState(string serviceId, ClawRecoveryState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        bool valid = serviceId switch
+        var valid = serviceId switch
         {
             ServiceIds.Power => state.Kind is ClawRecoveryStateKind.Power
                 && state.SustainedWatts is >= byte.MinValue and <= byte.MaxValue
@@ -465,7 +465,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                 && state.FullSpeedFlag is not null,
             ServiceIds.Controller => state.Kind is ClawRecoveryStateKind.ControllerMode
                 && state.ControllerMode is ClawControllerMode.XInput or ClawControllerMode.DirectInput,
-            _ => false,
+            _ => false
         };
         if (!valid)
         {
@@ -514,14 +514,14 @@ internal enum ClawRecoveryStatus
     Pending,
     RestoredVerified,
     RestoredUnverified,
-    RestoreFailed,
+    RestoreFailed
 }
 
 internal enum ClawReconciliationAction
 {
     Restore,
     ReportOnly,
-    Block,
+    Block
 }
 
 internal sealed record ClawRecoveryState
@@ -554,7 +554,7 @@ internal enum ClawRecoveryStateKind
 {
     Power,
     Fans,
-    ControllerMode,
+    ControllerMode
 }
 
 internal static class ClawRecoveryValues
@@ -564,7 +564,7 @@ internal static class ClawRecoveryValues
         Kind = ClawRecoveryStateKind.Power,
         SustainedWatts = snapshot.SustainedWatts,
         BoostWatts = snapshot.BoostWatts,
-        Scenario = snapshot.Scenario,
+        Scenario = snapshot.Scenario
     };
 
     public static bool TryPower(ClawRecoveryState? value, out PowerPair? snapshot)
@@ -590,7 +590,7 @@ internal static class ClawRecoveryValues
         RightDuty = [.. snapshot.Right.DutyBuffer],
         RightTemperature = [.. snapshot.Right.TemperatureBuffer],
         CustomFlag = snapshot.CustomFlag,
-        FullSpeedFlag = snapshot.FullSpeedFlag,
+        FullSpeedFlag = snapshot.FullSpeedFlag
     };
 
     public static bool TryFans(ClawRecoveryState? value, out FanSnapshot? snapshot)
@@ -618,7 +618,7 @@ internal static class ClawRecoveryValues
     public static ClawRecoveryState ControllerMode(ClawControllerMode mode) => new()
     {
         Kind = ClawRecoveryStateKind.ControllerMode,
-        ControllerMode = mode,
+        ControllerMode = mode
     };
 
     public static bool TryControllerMode(ClawRecoveryState? value, out ClawControllerMode mode)

@@ -2,7 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using Avalonia;
 using WindowsDeviceControl;
@@ -50,7 +54,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         internal static SettingsServices Windows(SettingsViewModel owner) => new(
             () => OperatingSystem.IsWindows()
                 ? DisplayLayouts.Observe()
-                : new([], "", DateTimeOffset.UtcNow),
+                : new DisplayArrangement([], "", DateTimeOffset.UtcNow),
             static target => OperatingSystem.IsWindows() ? ReadWindowsDisplayFacts(target) : null,
             SettingsPluginActions.Read,
             KnownStartupApps.Detected,
@@ -67,13 +71,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         /// <summary>Asks one connected display what it advertises, so the answers can be remembered and
         /// offered again after it is unplugged. Every query is optional: a display that refuses one
         /// of them still contributes the rest.</summary>
-        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        [SupportedOSPlatform("windows")]
         private static DisplayCatalogFacts ReadWindowsDisplayFacts(DisplayTargetIdentity target)
         {
-            IReadOnlyList<DisplayMode> modes = DisplayModes.Read(target)?.Supported ?? DisplayEdid.ReadModes(target);
-            bool hdr = DisplayColor.TryReadHdr(target, out _, out bool supported) && supported;
-            int maximum = DisplayScaling.TryReadRange(target, out _, out _, out int highest) ? highest : 0;
-            return new(modes, hdr, maximum);
+            var modes = DisplayModes.Read(target)?.Supported ?? DisplayEdid.ReadModes(target);
+            var hdr = DisplayColor.TryReadHdr(target, out _, out var supported) && supported;
+            var maximum = DisplayScaling.TryReadRange(target, out _, out _, out var highest) ? highest : 0;
+            return new DisplayCatalogFacts(modes, hdr, maximum);
         }
     }
 
@@ -118,16 +122,16 @@ public sealed partial class SettingsViewModel : ObservableObject
             var configured = _config.PluginInstances.Where(entry => entry.PluginId == package.Manifest.Id).ToArray();
             if (configured.Length == 0)
             {
-                CommonPlugins.Add(new(package.Manifest.Id, "default", package.Manifest.Name, false, true));
+                CommonPlugins.Add(new CommonPluginInstanceRow(package.Manifest.Id, "default", package.Manifest.Name, false, true));
             }
             foreach (var instance in configured)
             {
-                CommonPlugins.Add(new(instance.PluginId, instance.InstanceId, package.Manifest.Name, instance.Enabled, true));
+                CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, package.Manifest.Name, instance.Enabled, true));
             }
         }
         foreach (var instance in _config.PluginInstances.Where(entry => !catalog.Packages.Any(package => package.Manifest.Id == entry.PluginId)))
         {
-            CommonPlugins.Add(new(instance.PluginId, instance.InstanceId, instance.PluginId, instance.Enabled, false));
+            CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, instance.PluginId, instance.Enabled, false));
         }
         CommonPluginDiscoveryError = string.Join(Environment.NewLine, catalog.Errors);
         Raise(nameof(CommonPluginDiscoveryError));
@@ -164,10 +168,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         ActionLists =
         [
-            new("Entering Game Mode", RefreshLaunchSummary),
-            new("Leaving Game Mode", RefreshLaunchSummary),
-            new("Desktop startup", RefreshLaunchSummary),
-            new("Desktop wake", RefreshLaunchSummary),
+            new PluginActionListEditor("Entering Game Mode", RefreshLaunchSummary),
+            new PluginActionListEditor("Leaving Game Mode", RefreshLaunchSummary),
+            new PluginActionListEditor("Desktop startup", RefreshLaunchSummary),
+            new PluginActionListEditor("Desktop wake", RefreshLaunchSummary)
         ];
         AddActionStepCommand = new RelayCommand<PluginActionListEditor>(list => list?.Add());
         RemoveActionStepCommand = new RelayCommand<PluginActionStepEditorRow>(RemoveActionStep);
@@ -244,7 +248,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         CefCarouselShowUninstalled = _config.Cef.CarouselShowUninstalled;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
         ResuspendUnexplainedWakes = _config.ResuspendUnexplainedWakes;
-        ModernStandbyReport standby = _services.ReadStandby();
+        var standby = _services.ReadStandby();
         ModernStandbyStatusText = standby.ArmedWakeSources.Count == 0
             ? standby.Summary
             : $"{standby.Summary} Allowed to wake it: {string.Join(", ", standby.ArmedWakeSources)}.";
@@ -267,7 +271,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 Args = app.Args,
                 Enabled = app.Enabled,
                 Elevated = app.Elevated,
-                AutoRelaunch = app.AutoRelaunch,
+                AutoRelaunch = app.AutoRelaunch
             });
         }
         LoadLaunchConfiguration(_config.GameModeLaunch);
@@ -410,7 +414,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     internal void AddDeviceProfile(string capabilityId, bool color = false)
     {
-        string id = $"profile-{Guid.NewGuid():N}"[..16];
+        var id = $"profile-{Guid.NewGuid():N}"[..16];
         DeviceProfileRowViewModel row = new(new DeviceAuthoredProfile
         {
             ProfileId = id,
@@ -425,9 +429,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 :
                 [
                     new AuthoredCurvePoint { Input = 0, Output = 0 },
-                    new AuthoredCurvePoint { Input = 100, Output = 100 },
+                    new AuthoredCurvePoint { Input = 100, Output = 100 }
                 ],
-            Color = color ? 0xFF9D3D : null,
+            Color = color ? 0xFF9D3D : null
         });
         DeviceProfiles.Add(row);
         SelectedDeviceProfile = row;
@@ -442,7 +446,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        int index = DeviceProfiles.IndexOf(row);
+        var index = DeviceProfiles.IndexOf(row);
         DeviceProfiles.Remove(row);
         _deviceProfilesEdited = true;
         SelectedDeviceProfile = DeviceProfiles.Count == 0
@@ -490,17 +494,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(onEdited);
         PluginSettingSections.Clear();
-        foreach (PluginSettingSection section in view.Sections)
+        foreach (var section in view.Sections)
         {
             if (!view.Settings.TryGetValue(
                     section.SectionId,
-                    out IReadOnlyList<PluginSettingView>? settings))
+                    out var settings))
             {
                 continue;
             }
 
             List<PluginSettingRowViewModel> rows = [];
-            foreach (PluginSettingView setting in settings)
+            foreach (var setting in settings)
             {
                 PluginSettingRowViewModel model = new(setting.Descriptor, setting.Value);
                 model.Edited += onEdited;
@@ -538,7 +542,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         bool filterToInstalledPlugin)
     {
         ArgumentNullException.ThrowIfNull(config);
-        IEnumerable<PluginSettingsScope> candidates = config.DeviceIntegration.PluginSettings
+        var candidates = config.DeviceIntegration.PluginSettings
             .Where(candidate => candidate.Declaration is not null);
         if (filterToInstalledPlugin)
         {
@@ -550,7 +554,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                     StringComparison.Ordinal));
         }
 
-        PluginSettingsScope? scope = candidates.LastOrDefault();
+        var scope = candidates.LastOrDefault();
         if (scope?.Declaration is not { } declaration)
         {
             PluginSettingSections.Clear();
@@ -561,10 +565,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+        var resolution = PluginSettingsResolver.Resolve(
             declaration,
             scope.Values);
-        foreach (EffectivePluginSetting rejected in resolution.Values
+        foreach (var rejected in resolution.Values
             .Where(value => value.Origin is PluginSettingOrigin.Rejected))
         {
             // The stored value and the declared bound, together: a rejection reported without both
@@ -592,7 +596,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            InstalledDevicePackage? package = DevicePackagePolicy
+            var package = DevicePackagePolicy
                 .Discover(DeviceInstallationPaths.InstalledPackageRoot)
                 .InstalledPackage;
             return package is { Valid: true, Manifest: { } manifest }
@@ -609,7 +613,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void LoadDeviceProfiles(PluginSettingsScope scope)
     {
         DeviceProfiles.Clear();
-        foreach (DeviceAuthoredProfile profile in scope.Profiles)
+        foreach (var profile in scope.Profiles)
         {
             DeviceProfiles.Add(new DeviceProfileRowViewModel(profile));
         }
@@ -642,8 +646,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <param name="config">The freshly loaded configuration the save is applied to.</param>
     private PluginSettingsScope FindOrAddScope(AppConfig config)
     {
-        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
-        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
+        var scopes = config.DeviceIntegration.PluginSettings;
+        var scope = scopes.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, _pluginSettingsDevice, StringComparison.Ordinal)
             && string.Equals(candidate.PluginId, _pluginSettingsPlugin, StringComparison.Ordinal));
         if (scope is null)
@@ -651,7 +655,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             scope = new PluginSettingsScope
             {
                 DeviceDefinitionId = _pluginSettingsDevice,
-                PluginId = _pluginSettingsPlugin,
+                PluginId = _pluginSettingsPlugin
             };
             scopes.Add(scope);
         }
@@ -677,10 +681,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        PluginSettingsScope scope = FindOrAddScope(config);
-        foreach ((string settingId, CapabilityValue value) in _pluginSettingEdits)
+        var scope = FindOrAddScope(config);
+        foreach (var (settingId, value) in _pluginSettingEdits)
         {
-            PluginSettingValue? entry = scope.Values.FirstOrDefault(candidate =>
+            var entry = scope.Values.FirstOrDefault(candidate =>
                 string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
             if (entry is null)
             {
@@ -842,7 +846,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            var log = System.IO.Path.Combine(Log.Directory, "wsgm.log");
+            var log = Path.Combine(Log.Directory, "wsgm.log");
             // Game mode has no Explorer in the session, and WSGM is normally elevated:
             // starting explorer.exe here would either break UWP for the session (an
             // elevated Explorer; see docs\elevation.md) or bring its taskbar up next to WSGM's
@@ -856,15 +860,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             // Absolute system path: a relative name would resolve via the process
             // working directory, which is the user-writable install dir.
             var windir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            var explorer = System.IO.Path.Combine(windir, "explorer.exe");
+            var explorer = Path.Combine(windir, "explorer.exe");
             // Select the file when it exists so the user lands right on it;
             // otherwise just open the folder.
-            var psi = System.IO.File.Exists(log)
-                ? new System.Diagnostics.ProcessStartInfo(explorer, $"/select,\"{log}\"")
-                : new System.Diagnostics.ProcessStartInfo(Log.Directory);
+            var psi = File.Exists(log)
+                ? new ProcessStartInfo(explorer, $"/select,\"{log}\"")
+                : new ProcessStartInfo(Log.Directory);
             psi.UseShellExecute = true;
             psi.WorkingDirectory = windir;
-            System.Diagnostics.Process.Start(psi);
+            Process.Start(psi);
         }
         catch (Exception ex)
         {
@@ -1059,7 +1063,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            DeviceCoordinatorDiagnosticsSnapshot? snapshot =
+            var snapshot =
                 await DeviceCoordinatorDiagnosticsClient.TryReadAsync(
                     (uint)WindowFinder.CurrentSessionId,
                     TimeSpan.FromMilliseconds(750));
@@ -1105,7 +1109,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                     "An update is waiting: Steam is using the old copy right now. WSGM replaces it the next time it starts Steam.",
                 SteamInputShimState.Blocked =>
                     "Could not install: XInput1_4.dll and dinput8.dll in Steam's folder both belong to another program (ValvePlug or Special K, for example). WSGM will not overwrite them.",
-                _ => "Could not write to Steam's folder. Run WSGM setup again, or start WSGM as administrator once.",
+                _ => "Could not write to Steam's folder. Run WSGM setup again, or start WSGM as administrator once."
             };
         }
     }
@@ -1479,7 +1483,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             Enabled = buttons != 0,
             Buttons = (int)buttons,
-            Hold = hold,
+            Hold = hold
         };
         SetChordRecording(false);
     }
@@ -1531,12 +1535,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     // Only members with a dependent consumer keep an INPC wrapper here: the four
     // colors repaint their swatch previews on every keystroke, and the two image
     // paths drive the Appearance page's thumbnail refresh.
-    private SplashConfig _splash = new();
 
     /// <summary>The splash section being edited. Replaced wholesale by
     /// <see cref="LoadSplash"/> (startup, preset apply, theme import), which raises
     /// this property so every nested binding re-evaluates.</summary>
-    public SplashConfig Splash => _splash;
+    public SplashConfig Splash { get; private set; } = new();
 
     /// <summary>Editable placement of the splash text stack.</summary>
     public SplashPlacementEditor TextPlacement { get; } = new();
@@ -1565,29 +1568,29 @@ public sealed partial class SettingsViewModel : ObservableObject
     public static SplashPlacementAnchor[] PlacementAnchorValues { get; } = Enum.GetValues<SplashPlacementAnchor>();
 
     /// <summary>Gets or sets the splash title color as a hex string.</summary>
-    public string SplashTextColorHex { get => _splash.TextColor; set { _splash.TextColor = value; Raise(nameof(SplashTextColorHex)); } }
+    public string SplashTextColorHex { get => Splash.TextColor; set { Splash.TextColor = value; Raise(nameof(SplashTextColorHex)); } }
 
     /// <summary>Gets or sets the splash caption color as a hex string.</summary>
-    public string SplashCaptionColorHex { get => _splash.CaptionColor; set { _splash.CaptionColor = value; Raise(nameof(SplashCaptionColorHex)); } }
+    public string SplashCaptionColorHex { get => Splash.CaptionColor; set { Splash.CaptionColor = value; Raise(nameof(SplashCaptionColorHex)); } }
 
     /// <summary>Gets or sets the spinner color as a hex string.</summary>
-    public string SplashSpinnerColorHex { get => _splash.SpinnerColor; set { _splash.SpinnerColor = value; Raise(nameof(SplashSpinnerColorHex)); } }
+    public string SplashSpinnerColorHex { get => Splash.SpinnerColor; set { Splash.SpinnerColor = value; Raise(nameof(SplashSpinnerColorHex)); } }
 
     /// <summary>Gets or sets the splash background fill color as a hex string.</summary>
-    public string SplashBackgroundColorHex { get => _splash.BackgroundColor; set { _splash.BackgroundColor = value; Raise(nameof(SplashBackgroundColorHex)); } }
+    public string SplashBackgroundColorHex { get => Splash.BackgroundColor; set { Splash.BackgroundColor = value; Raise(nameof(SplashBackgroundColorHex)); } }
 
     /// <summary>Gets or sets the splash logo image path; empty = no logo.</summary>
-    public string SplashLogoPath { get => _splash.LogoImagePath; set { _splash.LogoImagePath = value; Raise(nameof(SplashLogoPath)); } }
+    public string SplashLogoPath { get => Splash.LogoImagePath; set { Splash.LogoImagePath = value; Raise(nameof(SplashLogoPath)); } }
 
     /// <summary>Gets or sets the splash background image path; empty = solid color.</summary>
-    public string SplashBackgroundImagePath { get => _splash.BackgroundImagePath; set { _splash.BackgroundImagePath = value; Raise(nameof(SplashBackgroundImagePath)); } }
+    public string SplashBackgroundImagePath { get => Splash.BackgroundImagePath; set { Splash.BackgroundImagePath = value; Raise(nameof(SplashBackgroundImagePath)); } }
 
     /// <summary>Builds the splash section handed to Save, the preview window, and
     /// theme export: an isolated copy of the edited section, so the save path's
     /// asset staging can rewrite its image paths without touching the editor.</summary>
     internal SplashConfig BuildSplashConfig()
     {
-        var splash = ConfigStore.CloneJson(_splash, ConfigJsonContext.Default.SplashConfig);
+        var splash = ConfigStore.CloneJson(Splash, ConfigJsonContext.Default.SplashConfig);
         // "With text" is a spinner/logo-only mode; the text element itself anchors.
         // Normalize accepts WithText on every placement, so an imported theme can
         // still carry it on the text placement — this is where it is coerced.
@@ -1604,11 +1607,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// never carry an out-of-range enum into the editor.</summary>
     internal void LoadSplash(SplashConfig splash)
     {
-        _splash = ConfigStore.NormalizeSplash(
+        Splash = ConfigStore.NormalizeSplash(
             ConfigStore.CloneJson(splash, ConfigJsonContext.Default.SplashConfig));
-        TextPlacement.Load(_splash.TextPlacement);
-        SpinnerPlacement.Load(_splash.SpinnerPlacement);
-        LogoPlacement.Load(_splash.LogoPlacement);
+        TextPlacement.Load(Splash.TextPlacement);
+        SpinnerPlacement.Load(Splash.SpinnerPlacement);
+        LogoPlacement.Load(Splash.LogoPlacement);
         Raise(nameof(Splash));
         Raise(nameof(SplashTextColorHex));
         Raise(nameof(SplashCaptionColorHex));
@@ -1723,7 +1726,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 Args = r.Args.Trim(),
                 Enabled = r.Enabled,
                 Elevated = r.Elevated,
-                AutoRelaunch = r.AutoRelaunch,
+                AutoRelaunch = r.AutoRelaunch
             })
             .ToList();
     }
@@ -1743,7 +1746,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _desktopWakeActions = launch.DesktopWakeActions;
 
         KnownDisplays.Clear();
-        foreach (KnownDisplay display in launch.KnownDisplays) { KnownDisplays.Add(display); }
+        foreach (var display in launch.KnownDisplays) { KnownDisplays.Add(display); }
         // Injected readers provide the initial fixture observation here. Production discovery
         // starts on a worker after the Settings window opens.
         if (!_queryDisplaysOnWorker)
@@ -1769,7 +1772,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         GameLayout.Load(KnownDisplays, _present, _gameLayout);
         DesktopLayout.Load(KnownDisplays, _present, _desktopLayout);
 
-        IReadOnlyList<PluginActionOption> options = ReadPluginActions();
+        var options = ReadPluginActions();
         ActionLists[0].Load(_enterActions, options);
         ActionLists[1].Load(_leaveActions, options);
         ActionLists[2].Load(_desktopStartupActions, options);
@@ -1782,7 +1785,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         WaitForDisplayChoices.Clear();
         WaitForDisplayChoices.Add("No display wait");
-        foreach (KnownDisplay display in KnownDisplays)
+        foreach (var display in KnownDisplays)
         {
             WaitForDisplayChoices.Add(display.Target?.FriendlyName ?? "Unnamed display");
         }
@@ -1791,7 +1794,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 display => display.Target?.Matches(_waitForDisplay) == true) + 1);
 
         RebindChoices.Clear();
-        foreach (DisplayTargetIdentity target in _present)
+        foreach (var target in _present)
         {
             RebindChoices.Add(target.FriendlyName.Length > 0 ? target.FriendlyName : "Unnamed display");
         }
@@ -1803,7 +1806,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// whether the layout can be saved while it is being changed rather than only on Save.</summary>
     private void RefreshLaunchSummary()
     {
-        int active = GameLayout.Rows.Count(row => row.Active);
+        var active = GameLayout.Rows.Count(row => row.Active);
         LaunchSummaryText = GameModeLaunchKindIndex == (int)GameModeLaunchKind.Default
             ? "Game Mode starts on the display Windows calls primary and adjusts scaling only."
             : active == 0
@@ -1825,9 +1828,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void ForgetDisplay(DisplayLayoutEditorRow? row)
     {
         if (row is null) { return; }
-        foreach (DisplayLayoutEditor editor in new[] { GameLayout, DesktopLayout })
+        foreach (var editor in new[] { GameLayout, DesktopLayout })
         {
-            foreach (DisplayLayoutEditorRow other in editor.Rows.Where(candidate => candidate.Display == row.Display).ToList())
+            foreach (var other in editor.Rows.Where(candidate => candidate.Display == row.Display).ToList())
             { editor.Forget(other); }
         }
         KnownDisplays.Remove(row.Display);
@@ -1840,7 +1843,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void RebindDisplay(DisplayLayoutEditorRow? row)
     {
         if (row is null || RebindChoiceIndex < 0 || RebindChoiceIndex >= _present.Count) { return; }
-        DisplayTargetIdentity target = _present[RebindChoiceIndex];
+        var target = _present[RebindChoiceIndex];
         if (!row.NeedsRebind)
         {
             StatusText = "That row already names a display.";
@@ -1851,8 +1854,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         // Settings observed it on open. Merging is what the user means: the migrated row carries
         // the values, the real row carries the identity, and two rows for one monitor could never
         // both be applied.
-        DisplayLayoutEditor editor = DesktopLayout.Rows.Contains(row) ? DesktopLayout : GameLayout;
-        DisplayLayoutEditorRow? existing = editor.Rows.FirstOrDefault(
+        var editor = DesktopLayout.Rows.Contains(row) ? DesktopLayout : GameLayout;
+        var existing = editor.Rows.FirstOrDefault(
             candidate => candidate != row && candidate.Target?.Matches(target) == true);
         if (existing is not null)
         {
@@ -1887,7 +1890,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void RemoveActionStep(PluginActionStepEditorRow? row)
     {
         if (row is null) { return; }
-        foreach (PluginActionListEditor list in ActionLists.Where(list => list.Rows.Contains(row)))
+        foreach (var list in ActionLists.Where(list => list.Rows.Contains(row)))
         {
             list.Remove(row);
         }
@@ -1896,7 +1899,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void MoveActionStep(PluginActionStepEditorRow? row, int delta)
     {
         if (row is null) { return; }
-        foreach (PluginActionListEditor list in ActionLists.Where(list => list.Rows.Contains(row)))
+        foreach (var list in ActionLists.Where(list => list.Rows.Contains(row)))
         {
             list.Move(row, delta);
         }
@@ -1907,10 +1910,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void MergeCatalog(DisplayArrangement arrangement, IReadOnlyDictionary<string, DisplayCatalogFacts?>? factsByDisplay = null)
     {
         _present = [.. arrangement.Targets.Where(target => target.Available).Select(target => target.Target)];
-        foreach (DisplayTargetObservation observed in arrangement.Targets)
+        foreach (var observed in arrangement.Targets)
         {
             if (!observed.Available) { continue; }
-            KnownDisplay? existing = KnownDisplays.FirstOrDefault(
+            var existing = KnownDisplays.FirstOrDefault(
                 display => display.Target?.Matches(observed.Target) == true);
             if (existing is null)
             {
@@ -1997,8 +2000,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Captures every UI-owned value into an isolated graph on the UI thread.</summary>
     private SaveRequest CaptureSaveRequest()
     {
-        SplashConfig splash = BuildSplashConfig();
-        AppConfig values = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
+        var splash = BuildSplashConfig();
+        var values = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
         ApplyTo(values, splash);
         // ApplyTo intentionally reuses several bound objects. One final contract copy
         // makes the worker independent from edits made while the save is running.
@@ -2017,7 +2020,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             QuickSetupAnswered)
         {
             ForgottenDisplays = [.. _forgottenDisplays],
-            CommonPluginEdits = CommonPlugins.Where(row => row.Edited).Select(row => row.Capture()).ToArray(),
+            CommonPluginEdits = CommonPlugins.Where(row => row.Edited).Select(row => row.Capture()).ToArray()
         };
     }
 
@@ -2038,8 +2041,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             // counted lease so window cleanup cannot delete the source mid-copy.
             _services.BeginImportSession();
             importLease = true;
-            SaveRequest request = CaptureSaveRequest();
-            SaveResult result = await _services.Persist(request);
+            var request = CaptureSaveRequest();
+            var result = await _services.Persist(request);
             CompletePersistedSave(result);
             await _services.ApplySteamInput(result.Config);
             Raise(nameof(SteamInputShimStatusText));
@@ -2067,11 +2070,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveRequest request,
         SplashConfig preparedSplash)
     {
-        AppConfig values = request.Values;
+        var values = request.Values;
         foreach (var edit in request.CommonPluginEdits)
         {
             config.PluginInstances.RemoveAll(entry => entry.PluginId == edit.PluginId && entry.InstanceId == edit.InstanceId);
-            config.PluginInstances.Add(new() { PluginId = edit.PluginId, InstanceId = edit.InstanceId, Enabled = edit.Enabled });
+            config.PluginInstances.Add(new CommonPluginInstanceConfig { PluginId = edit.PluginId, InstanceId = edit.InstanceId, Enabled = edit.Enabled });
         }
         config.SteamAutoRelaunch = values.SteamAutoRelaunch;
         config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
@@ -2089,10 +2092,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         // Everything except the runtime's own recovery record, which Settings must never write:
         // a window left open across a crash would otherwise discard the layout a recovery start
         // has to put back.
-        foreach (KnownDisplay discovered in config.GameModeLaunch.KnownDisplays)
+        foreach (var discovered in config.GameModeLaunch.KnownDisplays)
         {
             if (discovered.Target is not { } identity || request.ForgottenDisplays.Any(target => target.Matches(identity))) { continue; }
-            KnownDisplay? edited = values.GameModeLaunch.KnownDisplays.FirstOrDefault(display => display.Target?.Matches(identity) is true);
+            var edited = values.GameModeLaunch.KnownDisplays.FirstOrDefault(display => display.Target?.Matches(identity) is true);
             if (edited is null) { values.GameModeLaunch.KnownDisplays.Add(discovered); }
             else
             {
@@ -2125,13 +2128,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             && request.PluginDevice.Length > 0
             && request.PluginId.Length > 0)
         {
-            PluginSettingsScope scope = FindOrAddSaveScope(
+            var scope = FindOrAddSaveScope(
                 config,
                 request.PluginDevice,
                 request.PluginId);
-            foreach ((string settingId, CapabilityValue value) in request.PluginEdits)
+            foreach (var (settingId, value) in request.PluginEdits)
             {
-                PluginSettingValue? entry = scope.Values.FirstOrDefault(candidate =>
+                var entry = scope.Values.FirstOrDefault(candidate =>
                     string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
                 if (entry is null)
                 {
@@ -2195,7 +2198,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         string deviceDefinitionId,
         string pluginId)
     {
-        PluginSettingsScope? scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
+        var scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal)
             && string.Equals(candidate.PluginId, pluginId, StringComparison.Ordinal));
         if (scope is null)
@@ -2203,7 +2206,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             scope = new PluginSettingsScope
             {
                 DeviceDefinitionId = deviceDefinitionId,
-                PluginId = pluginId,
+                PluginId = pluginId
             };
             config.DeviceIntegration.PluginSettings.Add(scope);
         }
@@ -2297,7 +2300,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             // Everything else was persisted and applied — but the save did not do what
             // it said, so SaveCommand must report "Save failed", never "Saved".
-            throw new System.IO.IOException(result.Failure);
+            throw new IOException(result.Failure);
         }
         _services.Report("Settings saved.", null);
     }
@@ -2378,7 +2381,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var affected = config.LaunchWrappers
             .Where(wrapper => wrapper.Mode.HasFlag(LaunchWrapperMode.InputLease))
-            .Select(wrapper => wrapper.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Select(wrapper => wrapper.AppId.ToString(CultureInfo.InvariantCulture))
             .ToList();
         if (affected.Count == 0)
         {
@@ -2506,7 +2509,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <returns>A copy that will not change when this view model is later saved.</returns>
     public AppConfig SnapshotForPreview()
     {
-        AppConfig snapshot = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
+        var snapshot = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
         ApplyTo(snapshot);
         // A real copy through the production JSON contract: the preview's
         // OverlayController must not see later Save() mutations of the live

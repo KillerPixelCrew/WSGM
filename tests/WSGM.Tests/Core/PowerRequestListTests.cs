@@ -1,5 +1,6 @@
 using WindowsDeviceControl;
 using WSGM.Core;
+
 namespace WSGM.Tests;
 
 public sealed class PowerRequestListTests
@@ -66,7 +67,7 @@ public sealed class PowerRequestListTests
                 Entry(system: true, name: "b.exe", pid: 2),
                 Entry(system: true, name: "c.exe", pid: 3),
                 Entry(system: true, name: "d.exe", pid: 4),
-                Entry(system: true, name: "e.exe", pid: 5),
+                Entry(system: true, name: "e.exe", pid: 5)
             ], 99);
 
         Assert.Equal("Standby blocked by a.exe, b.exe, c.exe +2 more", summary);
@@ -117,7 +118,7 @@ public sealed class PowerRequestListTests
         var holders = Assert.Single(WakeLockHolders.Build(
             [
                 new PowerRequestEntry(false, true, false, 1, @"C:\a\steam.exe", 10, "Downloading"),
-                new PowerRequestEntry(false, true, false, 1, @"C:\a\steam.exe", 10, "Streaming"),
+                new PowerRequestEntry(false, true, false, 1, @"C:\a\steam.exe", 10, "Streaming")
             ])).Holders;
 
         Assert.Equal(2, holders.Count);
@@ -132,7 +133,7 @@ public sealed class PowerRequestListTests
                 Entry(system: true, name: "zebra.exe", pid: 1),
                 Entry(system: true, name: "alpha.exe", pid: 2),
                 Entry(system: true, name: "many.exe", pid: 3),
-                Entry(system: true, name: "many.exe", pid: 3),
+                Entry(system: true, name: "many.exe", pid: 3)
             ])).Holders;
 
         Assert.Equal(["many.exe", "alpha.exe", "zebra.exe"], holders.Select(h => h.Label));

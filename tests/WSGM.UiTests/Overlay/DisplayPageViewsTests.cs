@@ -16,7 +16,7 @@ public sealed class DisplayPageViewsTests
     {
         using UiFixture fixture = new();
         int? brightness = 43;
-        int writes = 0;
+        var writes = 0;
         using NativeQamBrightnessService service = new(() => true, () => { },
             () => brightness, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
         await service.ReadAsync();
@@ -46,8 +46,8 @@ public sealed class DisplayPageViewsTests
     {
         using UiFixture fixture = new();
         DisplayTargetIdentity target = new("test", null, null, "Test display", 1, 0, 1);
-        DisplayModeSnapshot snapshot = new(new(target, "test", 0, 120, 1), new(1920, 1080, 120),
-            [new(1920, 1080, 60), new(1920, 1080, 120), new(1280, 720, 60)]);
+        DisplayModeSnapshot snapshot = new(new ActiveDisplayPath(target, "test", 0, 120, 1), new DisplayMode(1920, 1080, 120),
+            [new DisplayMode(1920, 1080, 60), new DisplayMode(1920, 1080, 120), new DisplayMode(1280, 720, 60)]);
         DisplayModeView view = new(() => Task.FromResult<DisplayModeSnapshot?>(snapshot));
         Window window = new() { Content = view, Width = 500, Height = 400 };
         try
@@ -59,7 +59,7 @@ public sealed class DisplayPageViewsTests
             resolution.SelectedItem = "1280 × 720";
             Assert.Equal(60, refresh.SelectedItem);
             Assert.Single(refresh.Items);
-            Assert.Equal(new(1920, 1080, 120), snapshot.Current);
+            Assert.Equal(new DisplayMode(1920, 1080, 120), snapshot.Current);
         }
         finally { window.Close(); }
     }

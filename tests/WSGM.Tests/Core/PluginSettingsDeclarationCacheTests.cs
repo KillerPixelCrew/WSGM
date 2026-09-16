@@ -21,11 +21,11 @@ public sealed class PluginSettingsDeclarationCacheTests
                 Default = new CapabilityValue
                 {
                     Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = false,
+                    BooleanValue = false
                 },
-                SectionId = "one",
-            },
-        ],
+                SectionId = "one"
+            }
+        ]
     };
 
     private static AppConfig WithScope(PluginSettingsManifest? declaration) => new()
@@ -38,10 +38,10 @@ public sealed class PluginSettingsDeclarationCacheTests
                 {
                     DeviceDefinitionId = "msi.claw8",
                     PluginId = "wsgm.device.msi",
-                    Declaration = declaration,
-                },
-            ],
-        },
+                    Declaration = declaration
+                }
+            ]
+        }
     };
 
     [Fact]
@@ -49,14 +49,14 @@ public sealed class PluginSettingsDeclarationCacheTests
     {
         // Settings has to draw the page without the plugin, so the declaration has to come back off
         // disk intact rather than through a WSGM-side copy of the SDK's shapes.
-        string json = JsonSerializer.Serialize(
+        var json = JsonSerializer.Serialize(
             WithScope(Manifest()),
             ConfigJsonContext.Default.AppConfig);
-        AppConfig? restored = JsonSerializer.Deserialize(
+        var restored = JsonSerializer.Deserialize(
             json,
             ConfigJsonContext.Default.AppConfig);
 
-        PluginSettingsManifest? declaration =
+        var declaration =
             restored?.DeviceIntegration.PluginSettings[0].Declaration;
 
         Assert.NotNull(declaration);
@@ -68,7 +68,7 @@ public sealed class PluginSettingsDeclarationCacheTests
     [Fact]
     public void AValidCachedDeclarationIsKeptOnLoad()
     {
-        AppConfig config = WithScope(Manifest());
+        var config = WithScope(Manifest());
 
         ConfigStore.NormalizeDeviceIntegration(config.DeviceIntegration);
 
@@ -80,8 +80,8 @@ public sealed class PluginSettingsDeclarationCacheTests
     {
         // It would otherwise produce controls whose bounds nothing has validated, and the user would
         // be editing settings that cannot be sent anywhere.
-        PluginSettingsManifest broken = Manifest("not a legal identifier");
-        AppConfig config = WithScope(broken);
+        var broken = Manifest("not a legal identifier");
+        var config = WithScope(broken);
 
         ConfigStore.NormalizeDeviceIntegration(config.DeviceIntegration);
 
@@ -91,7 +91,7 @@ public sealed class PluginSettingsDeclarationCacheTests
     [Fact]
     public void AScopeWithNoDeclarationIsLeftAlone()
     {
-        AppConfig config = WithScope(null);
+        var config = WithScope(null);
 
         ConfigStore.NormalizeDeviceIntegration(config.DeviceIntegration);
 
@@ -102,11 +102,11 @@ public sealed class PluginSettingsDeclarationCacheTests
     [Fact]
     public void PublishingADeclarationRetiresEveryOlderPresentationCache()
     {
-        AppConfig config = WithScope(Manifest("old.flag"));
+        var config = WithScope(Manifest("old.flag"));
         config.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
         {
             DeviceDefinitionId = "msi.claw8-new",
-            PluginId = "wsgm.device.msi",
+            PluginId = "wsgm.device.msi"
         });
 
         PluginSettingsCoordinator.CacheDeclaration(

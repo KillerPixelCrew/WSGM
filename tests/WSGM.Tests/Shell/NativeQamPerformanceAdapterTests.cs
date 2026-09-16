@@ -21,13 +21,13 @@ public sealed class NativeQamPerformanceAdapterTests
     public async Task ARefreshRateChangeReachesTheDisplay()
     {
         List<int> applied = [];
-        PerformanceServiceNativeQamAdapter adapter = Adapter(hz =>
+        var adapter = Adapter(hz =>
         {
             applied.Add(hz);
             return true;
         });
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 60),
             "test",
             CancellationToken.None);
@@ -39,9 +39,9 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task ADisplayThatRefusesTheRateIsReportedAsAFailure()
     {
-        PerformanceServiceNativeQamAdapter adapter = Adapter(_ => false);
+        var adapter = Adapter(_ => false);
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 48),
             "test",
             CancellationToken.None);
@@ -55,9 +55,9 @@ public sealed class NativeQamPerformanceAdapterTests
     {
         // Under the pairing strategies the frame cap owns the refresh rate, so the session supplies
         // no applier and the write must say so rather than appear to succeed.
-        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+        var adapter = Adapter(null);
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 60),
             "test",
             CancellationToken.None);
@@ -74,9 +74,9 @@ public sealed class NativeQamPerformanceAdapterTests
         // This test has already had to move twice as settings were implemented — if it moves again,
         // check whether anything is genuinely unbacked before repointing it rather than deleting
         // the coverage, because the refusal path is what keeps a dead control from looking alive.
-        PerformanceServiceNativeQamAdapter adapter = Adapter(_ => true);
+        var adapter = Adapter(_ => true);
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.AdvancedSettingsEnabled, 1),
             "test",
             CancellationToken.None);
@@ -91,14 +91,14 @@ public sealed class NativeQamPerformanceAdapterTests
     public async Task AVrrToggleReachesTheDeviceWithTheRequestedState(int value, bool expected)
     {
         List<bool> applied = [];
-        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+        var adapter = Adapter(null);
         adapter.ApplyVariableRefreshRate = (enabled, _) =>
         {
             applied.Add(enabled);
             return Task.FromResult(true);
         };
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, value),
             "test",
             CancellationToken.None);
@@ -112,10 +112,10 @@ public sealed class NativeQamPerformanceAdapterTests
     {
         // Steam's toggle is controlled, so reporting success before the device answered would show
         // it moved and then snap it back on the next publish.
-        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+        var adapter = Adapter(null);
         adapter.ApplyVariableRefreshRate = (_, _) => Task.FromResult(false);
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);
@@ -127,9 +127,9 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task WithNoDeviceVrrIsRefusedByNameRatherThanDropped()
     {
-        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+        var adapter = Adapter(null);
 
-        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
+        var result = await adapter.ApplyPerfChangeAsync(
             new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);
@@ -141,19 +141,19 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task SteamHeaderKeepsTheAppIdBeforeTheExecutableIsKnown()
     {
-        await using PerformanceService service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
+        await using var service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("steam:42", 42, null));
         PerformanceServiceNativeQamAdapter adapter = new(service);
 
-        SteamPerformanceState global = adapter.PerfState;
+        var global = adapter.PerfState;
 
         Assert.Equal("42", global.CurrentGameId);
         Assert.Equal("769", global.ActiveProfileGameId);
         Assert.False(global.PerApp?.IsGamePerfProfileEnabled);
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
-        SteamPerformanceState perApplication = adapter.PerfState;
+        var perApplication = adapter.PerfState;
         Assert.Equal("42", perApplication.CurrentGameId);
         Assert.Equal("42", perApplication.ActiveProfileGameId);
         Assert.True(perApplication.PerApp?.IsGamePerfProfileEnabled);
@@ -162,18 +162,18 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task DeltaForAnApplicationThatIsNoLongerCurrentIsRefused()
     {
-        await using PerformanceService service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
+        await using var service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("steam:42", 42, "current.exe"));
         PerformanceServiceNativeQamAdapter adapter = new(service);
-        using JsonDocument payload = JsonDocument.Parse(
+        using var payload = JsonDocument.Parse(
             """{"delta":{"gameid":41,"settings_delta":{"per_app":{"is_game_perf_profile_enabled":true}}}}""");
         Assert.True(SteamPerformanceDeltaReader.TryRead(
             payload.RootElement,
-            out SteamPerformanceDelta delta,
+            out var delta,
             out _));
 
-        SteamUiCommandResult result = await adapter.ApplyAsync(
+        var result = await adapter.ApplyAsync(
             delta,
             "test",
             CancellationToken.None);

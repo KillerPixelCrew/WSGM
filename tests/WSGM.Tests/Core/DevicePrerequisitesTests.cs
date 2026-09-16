@@ -14,7 +14,7 @@ public sealed class DevicePrerequisitesTests
     public void AnInstallWithNoDevicePackageIsNotMissingAnything()
     {
         // Every desktop PC is in this state on purpose. Saying anything here would be noise.
-        DevicePrerequisiteAdvice advice = DevicePrerequisites.Describe(
+        var advice = DevicePrerequisites.Describe(
             State(package: false, integration: false, library: false, hidHide: false));
 
         Assert.False(advice.HasAdvice);
@@ -31,7 +31,7 @@ public sealed class DevicePrerequisitesTests
     {
         // The case setup's Minimal mode creates: no controller bytes, integration seeded off, and
         // then someone copies a package into the protected slot.
-        DevicePrerequisiteAdvice advice = DevicePrerequisites.Describe(
+        var advice = DevicePrerequisites.Describe(
             State(integration: false, library: false, hidHide: false));
 
         Assert.True(advice.HasAdvice);
@@ -47,7 +47,7 @@ public sealed class DevicePrerequisitesTests
     {
         // INV-020: the runtime never installs a driver. The USB/IP install restarts every USB 3.0
         // hub, which under a running Game Mode would leave the user with no input.
-        DevicePrerequisiteAdvice advice = DevicePrerequisites.Describe(State(library: false));
+        var advice = DevicePrerequisites.Describe(State(library: false));
 
         Assert.True(advice.NeedsSetup);
         Assert.Contains("Re-run the WSGM setup", advice.Detail, StringComparison.Ordinal);
@@ -57,7 +57,7 @@ public sealed class DevicePrerequisitesTests
     [Fact]
     public void IntegrationOffOnAnOtherwiseCompleteInstallOffersOnlyTheSwitch()
     {
-        DevicePrerequisiteAdvice advice = DevicePrerequisites.Describe(State(integration: false));
+        var advice = DevicePrerequisites.Describe(State(integration: false));
 
         Assert.True(advice.CanEnableIntegration);
         Assert.False(advice.NeedsSetup);
@@ -70,7 +70,7 @@ public sealed class DevicePrerequisitesTests
     [InlineData(false, true, "does not have the virtual controller library")]
     public void EachMissingHalfIsNamedExactly(bool library, bool hidHide, string expected)
     {
-        DevicePrerequisiteAdvice advice = DevicePrerequisites.Describe(
+        var advice = DevicePrerequisites.Describe(
             State(library: library, hidHide: hidHide));
 
         Assert.Contains(expected, advice.Detail, StringComparison.Ordinal);
@@ -79,7 +79,7 @@ public sealed class DevicePrerequisitesTests
     [Fact]
     public void AMissingDriverAloneStillReportsAndDoesNotClaimIntegrationIsOff()
     {
-        DevicePrerequisiteAdvice advice = DevicePrerequisites.Describe(State(hidHide: false));
+        var advice = DevicePrerequisites.Describe(State(hidHide: false));
 
         Assert.True(advice.HasAdvice);
         Assert.False(advice.CanEnableIntegration);

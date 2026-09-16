@@ -10,13 +10,13 @@ internal static class PowerLimitDescriptors
         CapabilityId = id ?? role.ToString(),
         Role = role,
         ValueKind = CapabilityValueKind.Integer,
-        Display = new() { Key = DisplayKey.SustainedPowerLimit },
+        Display = new CapabilityDisplay { Key = DisplayKey.SustainedPowerLimit },
         Persistence = CapabilityPersistence.Volatile,
         SupportsRead = true,
         SupportsWrite = true,
         Unit = CapabilityUnit.Watt,
         Minimum = 8,
         Maximum = 37,
-        Step = 1,
+        Step = 1
     };
 }

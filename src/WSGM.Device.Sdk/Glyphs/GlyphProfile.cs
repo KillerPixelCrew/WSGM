@@ -143,7 +143,7 @@ public enum GlyphAssetFormat
     Svg,
 
     /// <summary>Static PNG retained after bounded header and hash validation.</summary>
-    Png,
+    Png
 }
 
 /// <summary>Intended use of an asset.</summary>
@@ -160,7 +160,7 @@ public enum GlyphAssetRole
     LeftController,
 
     /// <summary>Right-side physical-controller image.</summary>
-    RightController,
+    RightController
 }
 
 /// <summary>SVG coordinate bounds represented without culture-sensitive text.</summary>
@@ -244,7 +244,7 @@ public enum GlyphControlId
     /// <summary>Left trackpad.</summary>
     LeftTrackpad,
     /// <summary>Right trackpad.</summary>
-    RightTrackpad,
+    RightTrackpad
 }
 
 /// <summary>Explicit physical presence of a semantic control.</summary>
@@ -255,7 +255,7 @@ public enum GlyphControlPresence
     Present,
 
     /// <summary>The exact device does not have this control.</summary>
-    Absent,
+    Absent
 }
 
 /// <summary>Physical side used for diagrams and rear-control labeling.</summary>
@@ -269,7 +269,7 @@ public enum GlyphControlSide
     Left,
 
     /// <summary>Right side.</summary>
-    Right,
+    Right
 }
 
 /// <summary>One explicit semantic control mapping.</summary>

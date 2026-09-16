@@ -10,7 +10,7 @@ public enum SteamExitReaction
     /// <summary>Start Steam back into Big Picture.</summary>
     RelaunchBigPicture,
     /// <summary>Start the windowed Steam client again beside the desktop.</summary>
-    RelaunchDesktop,
+    RelaunchDesktop
 }
 
 /// <summary>Decides what a Steam exit means, without touching Steam or the UI.

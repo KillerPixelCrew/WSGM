@@ -9,13 +9,13 @@ public sealed class CurveEditorTests
     private static CurveEditor Editor(params (int Input, int Output)[] points) =>
         new()
         {
-            Points = [.. points.Select(point => new CurvePoint(point.Input, point.Output))],
+            Points = [.. points.Select(point => new CurvePoint(point.Input, point.Output))]
         };
 
     [Fact]
     public void AddingAPointTargetsTheWidestGapBecauseThatIsWhereResolutionIsMissing()
     {
-        CurveEditor editor = Editor((0, 0), (10, 10), (100, 100));
+        var editor = Editor((0, 0), (10, 10), (100, 100));
 
         editor.AddPointAtWidestGap();
 
@@ -27,7 +27,7 @@ public sealed class CurveEditorTests
     [Fact]
     public void AnAddedPointLandsOnTheCurveSoTheShapeDoesNotJump()
     {
-        CurveEditor editor = Editor((0, 0), (100, 100));
+        var editor = Editor((0, 0), (100, 100));
 
         editor.AddPointAtWidestGap();
 
@@ -38,7 +38,7 @@ public sealed class CurveEditorTests
     public void AGapWithNoRoomBetweenItsPointsIsNotSplit()
     {
         // Inputs are integers and must stay strictly ascending, so a gap of one has no midpoint.
-        CurveEditor editor = Editor((0, 0), (1, 100));
+        var editor = Editor((0, 0), (1, 100));
 
         editor.AddPointAtWidestGap();
 
@@ -53,7 +53,7 @@ public sealed class CurveEditorTests
         CurveEditor editor = new()
         {
             Points = [.. Enumerable.Range(0, CurveEditing.MaximumPoints - 1)
-                .Select(index => new CurvePoint(index, index)), new CurvePoint(100, 100)],
+                .Select(index => new CurvePoint(index, index)), new CurvePoint(100, 100)]
         };
 
         editor.AddPointAtWidestGap();
@@ -64,7 +64,7 @@ public sealed class CurveEditorTests
     [Fact]
     public void RemovingTheSelectedPointRaisesTheChange()
     {
-        CurveEditor editor = Editor((0, 0), (50, 50), (100, 100));
+        var editor = Editor((0, 0), (50, 50), (100, 100));
         editor.SelectedIndex = 1;
         IReadOnlyList<CurvePoint>? raised = null;
         editor.CurveChanged += curve => raised = curve;
@@ -79,9 +79,9 @@ public sealed class CurveEditorTests
     public void RemovingAnEndpointChangesNothingAndRaisesNothing()
     {
         // The endpoints define the curve's answer at the ends of the device's range.
-        CurveEditor editor = Editor((0, 0), (50, 50), (100, 100));
+        var editor = Editor((0, 0), (50, 50), (100, 100));
         editor.SelectedIndex = 2;
-        bool raised = false;
+        var raised = false;
         editor.CurveChanged += _ => raised = true;
 
         editor.RemoveSelectedPoint();
@@ -93,7 +93,7 @@ public sealed class CurveEditorTests
     [Fact]
     public void RemovingWithNothingSelectedIsNotAnError()
     {
-        CurveEditor editor = Editor((0, 0), (50, 50), (100, 100));
+        var editor = Editor((0, 0), (50, 50), (100, 100));
 
         editor.RemoveSelectedPoint();
 
@@ -103,7 +103,7 @@ public sealed class CurveEditorTests
     [Fact]
     public void AnEmptyCurveIsLeftAloneRatherThanInvented()
     {
-        CurveEditor editor = Editor();
+        var editor = Editor();
 
         editor.AddPointAtWidestGap();
 
@@ -113,7 +113,7 @@ public sealed class CurveEditorTests
     [Fact]
     public void GamepadDirectionsSelectPointsAndEditTheirOutput()
     {
-        CurveEditor editor = Editor((0, 0), (50, 50), (100, 100));
+        var editor = Editor((0, 0), (50, 50), (100, 100));
         editor.SelectedIndex = 0;
         IReadOnlyList<CurvePoint>? changed = null;
         editor.CurveChanged += curve => changed = curve;
@@ -129,9 +129,9 @@ public sealed class CurveEditorTests
     [Fact]
     public void DirectionAtTheDeviceBoundDoesNotPublishAFalseEdit()
     {
-        CurveEditor editor = Editor((0, 0), (100, 100));
+        var editor = Editor((0, 0), (100, 100));
         editor.SelectedIndex = 1;
-        bool changed = false;
+        var changed = false;
         editor.CurveChanged += _ => changed = true;
 
         editor.ApplyDirection(NavigationDirection.Up);

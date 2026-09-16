@@ -36,7 +36,7 @@ internal enum ClawControllerMode : byte
 {
     Offline = 0,
     XInput = 1,
-    DirectInput = 2,
+    DirectInput = 2
 }
 
 internal sealed record ClawIdentityState

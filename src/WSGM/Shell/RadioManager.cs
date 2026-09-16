@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using WindowsDeviceControl;
+using WSGM.Controls;
 using WSGM.Core;
 using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 
@@ -138,26 +139,26 @@ public sealed class RadioManager : ObservableObject, IDisposable
         RadioPower.Disabled => $"{label} is blocked by Windows or a hardware switch.",
         RadioPower.Absent => $"This device has no {label} adapter.",
         RadioPower.Unknown => $"{label} state is unavailable.",
-        _ => "",
+        _ => ""
     };
 
     /// <summary>Gets what the taskbar's Wi-Fi tile should show. Off and merely
     /// disconnected are different problems and must not look the same.</summary>
-    public Controls.RadioIconState WifiIconState => WifiPower switch
+    public RadioIconState WifiIconState => WifiPower switch
     {
-        RadioPower.On when WifiConnected => Controls.RadioIconState.Connected,
-        RadioPower.On => Controls.RadioIconState.Disconnected,
-        _ => Controls.RadioIconState.Off,
+        RadioPower.On when WifiConnected => RadioIconState.Connected,
+        RadioPower.On => RadioIconState.Disconnected,
+        _ => RadioIconState.Off
     };
 
     /// <summary>Gets what the taskbar's Bluetooth tile should show. Accent only
     /// when a device is actually connected — a lone powered radio is
     /// "disconnected", the same distinction the Wi-Fi tile draws.</summary>
-    public Controls.RadioIconState BluetoothIconState => BluetoothPower switch
+    public RadioIconState BluetoothIconState => BluetoothPower switch
     {
-        RadioPower.On when BluetoothConnectedCount > 0 => Controls.RadioIconState.Connected,
-        RadioPower.On => Controls.RadioIconState.Disconnected,
-        _ => Controls.RadioIconState.Off,
+        RadioPower.On when BluetoothConnectedCount > 0 => RadioIconState.Connected,
+        RadioPower.On => RadioIconState.Disconnected,
+        _ => RadioIconState.Off
     };
 
     private int _bluetoothConnectedCount;
@@ -327,7 +328,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     private void UpdateScanning()
     {
-        bool wanted = !_disposed && (_panelScanning || _steamScanning || _pairingInProgress);
+        var wanted = !_disposed && (_panelScanning || _steamScanning || _pairingInProgress);
         if (!wanted)
         {
             _scanning = false;
@@ -398,7 +399,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         {
             return;
         }
-        long generation = Interlocked.Increment(ref _bluetoothWatchGeneration);
+        var generation = Interlocked.Increment(ref _bluetoothWatchGeneration);
         QueueFeedWork(() =>
         {
             try
@@ -638,7 +639,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     {
         try
         {
-            long generation = Volatile.Read(ref _bluetoothWatchGeneration);
+            var generation = Volatile.Read(ref _bluetoothWatchGeneration);
             WindowsRadio.StartBluetoothWatch(change => OnBluetoothChanged(change, generation));
         }
         catch
@@ -732,10 +733,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
             Log.Change($"bluetooth-identity-{device.Id}",
                 $"Bluetooth logical={device.Id}, container={device.Container}, endpoints={string.Join(",", device.EndpointIds)}, selected={device.EndpointId}.");
         }
-        for (int index = BluetoothDevices.Count - 1; index >= 0; index--)
+        for (var index = BluetoothDevices.Count - 1; index >= 0; index--)
         {
             var row = BluetoothDevices[index];
-            bool merged = row.ContainerId.Length > 0 && logical.Any(device => device.Container == row.ContainerId);
+            var merged = row.ContainerId.Length > 0 && logical.Any(device => device.Container == row.ContainerId);
             if (!retained.Contains(row) && (!row.Busy || merged)) { BluetoothDevices.RemoveAt(index); }
         }
         if (change == WindowsRadio.BluetoothChangeKind.EnumerationCompleted)
@@ -836,8 +837,8 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 WindowsRadio.WifiConnectionState.Connected => "Connected",
                 WindowsRadio.WifiConnectionState.Connecting => "Connecting...",
                 WindowsRadio.WifiConnectionState.Disconnected => "Not connected",
-                _ => "On",
-            },
+                _ => "On"
+            }
         };
 
     /// <summary>The state line for the Bluetooth tile's flyout.</summary>
@@ -847,7 +848,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         RadioPower.Disabled => "Blocked by Windows",
         RadioPower.Absent => "No Bluetooth adapter",
         RadioPower.Unknown => "State unavailable",
-        _ => deviceCount > 0 ? $"On, {deviceCount} device(s)" : "On",
+        _ => deviceCount > 0 ? $"On, {deviceCount} device(s)" : "On"
     };
 
     /// <summary>Merges a fresh network list into the bound collection without
@@ -1056,7 +1057,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 "Could not reach that network. It may be out of range.",
             _ => reasonCode != 0
                 ? WindowsRadio.ReasonText(reasonCode)
-                : (fallback.Length > 0 ? fallback : "Could not connect."),
+                : fallback.Length > 0 ? fallback : "Could not connect."
         };
 
     /// <summary>Leaves the current network.</summary>
@@ -1118,7 +1119,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         var container = entry.ContainerId;
         try
         {
-            bool confirmed = await _bluetoothAudio.ApplyAsync(container, connect, cancellationToken);
+            var confirmed = await _bluetoothAudio.ApplyAsync(container, connect, cancellationToken);
             Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
             if (confirmed) { entry.AudioActive = connect; }
             StatusText = confirmed ? "" : $"{entry.Name} did not confirm the requested connection state. Check that it is powered on and in range.";
@@ -1373,7 +1374,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 $"Windows is still busy with an earlier pairing attempt for {device}. "
                 + "Turn Bluetooth off and on, then try again.",
             null => message.Length > 0 ? message : $"Pairing with {device} failed.",
-            _ => $"Pairing with {device} did not complete.",
+            _ => $"Pairing with {device} did not complete."
         };
 
 

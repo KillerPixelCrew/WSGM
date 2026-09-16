@@ -33,7 +33,7 @@ public sealed class ApplicationShutdownTests
     [Fact]
     public async Task CompletedCleanupReturnsClean()
     {
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             static _ => ValueTask.CompletedTask,
             ApplicationShutdownReason.Normal,
             TimeSpan.FromSeconds(1));
@@ -44,7 +44,7 @@ public sealed class ApplicationShutdownTests
     [Fact]
     public async Task CleanupThatStartedButFaultedReturnsUnverified()
     {
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             static _ => ValueTask.FromException(new InvalidOperationException("fault")),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
@@ -55,7 +55,7 @@ public sealed class ApplicationShutdownTests
     [Fact]
     public async Task CleanupTimeoutExceptionIsNotMistakenForTheOuterDeadline()
     {
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             static _ => ValueTask.FromException(new TimeoutException("subsystem timeout")),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
@@ -66,7 +66,7 @@ public sealed class ApplicationShutdownTests
     [Fact]
     public async Task CleanupThatCouldNotStartReturnsFailed()
     {
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             static _ => throw new InvalidOperationException("could not start"),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
@@ -80,7 +80,7 @@ public sealed class ApplicationShutdownTests
         var neverCompletes = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             _ => new ValueTask(neverCompletes.Task),
             ApplicationShutdownReason.SessionEnd,
             TimeSpan.FromMilliseconds(20));
@@ -112,10 +112,10 @@ public sealed class ApplicationShutdownTests
     [Fact]
     public async Task OuterDeadlineIsPassedToTheShutdownOwner()
     {
-        DateTimeOffset before = DateTimeOffset.UtcNow;
+        var before = DateTimeOffset.UtcNow;
         DateTimeOffset received = default;
 
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             deadline =>
             {
                 received = deadline;
@@ -135,13 +135,13 @@ public sealed class ApplicationShutdownTests
         Queue<DateTimeOffset> clock = new(
         [
             started,
-            started.AddSeconds(2),
+            started.AddSeconds(2)
         ]);
         var neverCompletes = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var timerStarted = false;
 
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             _ => new ValueTask(neverCompletes.Task),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1),
@@ -163,10 +163,10 @@ public sealed class ApplicationShutdownTests
         Queue<DateTimeOffset> clock = new(
         [
             started,
-            started.AddSeconds(2),
+            started.AddSeconds(2)
         ]);
 
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             static _ => ValueTask.CompletedTask,
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1),
@@ -182,9 +182,9 @@ public sealed class ApplicationShutdownTests
     {
         // ShellSession.ShutdownAsync completes its remaining cleanup and then reports the
         // retained failures as one exception; the coordinator must record that as Unverified.
-        bool cleanupRan = false;
+        var cleanupRan = false;
 
-        ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
+        var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
             async _ =>
             {
                 cleanupRan = true;
@@ -211,7 +211,7 @@ public sealed class ApplicationShutdownTests
     {
         var deviceFailure = new InvalidOperationException("device release unverified");
 
-        Exception? reported = ShellSession.ShutdownFailure([deviceFailure]);
+        var reported = ShellSession.ShutdownFailure([deviceFailure]);
 
         Assert.IsType<InvalidOperationException>(reported);
         Assert.Same(deviceFailure, reported.InnerException);
@@ -223,9 +223,9 @@ public sealed class ApplicationShutdownTests
         var device = new InvalidOperationException("device release unverified");
         var explorer = new IOException("explorer restore unverified");
 
-        Exception? reported = ShellSession.ShutdownFailure([device, explorer]);
+        var reported = ShellSession.ShutdownFailure([device, explorer]);
 
-        AggregateException aggregate = Assert.IsType<AggregateException>(reported!.InnerException);
+        var aggregate = Assert.IsType<AggregateException>(reported!.InnerException);
         Assert.Equal([device, explorer], aggregate.InnerExceptions);
     }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
@@ -15,7 +16,7 @@ public enum PluginSettingOrigin
     Stored,
 
     /// <summary>A stored value no longer fits the declaration and the default replaced it.</summary>
-    Rejected,
+    Rejected
 }
 
 /// <summary>One effective plugin setting value and how it was arrived at.</summary>
@@ -70,8 +71,8 @@ public static class PluginSettingsResolver
         IReadOnlyList<PluginSettingValue>? stored
     )
     {
-        Dictionary<string, PluginSettingValue> storedById = new(System.StringComparer.Ordinal);
-        foreach (PluginSettingValue value in stored ?? [])
+        Dictionary<string, PluginSettingValue> storedById = new(StringComparer.Ordinal);
+        foreach (var value in stored ?? [])
         {
             if (!string.IsNullOrWhiteSpace(value.SettingId))
             {
@@ -80,9 +81,9 @@ public static class PluginSettingsResolver
         }
 
         List<EffectivePluginSetting> effective = new(manifest.Settings.Count);
-        foreach (PluginSettingDescriptor descriptor in manifest.Settings)
+        foreach (var descriptor in manifest.Settings)
         {
-            if (!storedById.TryGetValue(descriptor.SettingId, out PluginSettingValue? entry))
+            if (!storedById.TryGetValue(descriptor.SettingId, out var entry))
             {
                 effective.Add(new EffectivePluginSetting(
                     descriptor.SettingId,
@@ -92,8 +93,8 @@ public static class PluginSettingsResolver
                 continue;
             }
 
-            CapabilityValue candidate = ToCapabilityValue(entry, descriptor.ValueKind);
-            if (descriptor.TryValidateValue(candidate, out string? error))
+            var candidate = ToCapabilityValue(entry, descriptor.ValueKind);
+            if (descriptor.TryValidateValue(candidate, out var error))
             {
                 effective.Add(new EffectivePluginSetting(
                     descriptor.SettingId,
@@ -112,7 +113,7 @@ public static class PluginSettingsResolver
 
         HashSet<string> declared = new(
             manifest.Settings.Select(setting => setting.SettingId),
-            System.StringComparer.Ordinal);
+            StringComparer.Ordinal);
         List<string> orphans = [.. storedById.Keys.Where(id => !declared.Contains(id))];
 
         return new PluginSettingsResolution(effective, orphans);
@@ -135,20 +136,20 @@ public static class PluginSettingsResolver
             CapabilityValueKind.Boolean => new CapabilityValue
             {
                 Kind = kind,
-                BooleanValue = entry.Boolean,
+                BooleanValue = entry.Boolean
             },
             CapabilityValueKind.Integer => new CapabilityValue
             {
                 Kind = kind,
-                IntegerValue = entry.Integer,
+                IntegerValue = entry.Integer
             },
             CapabilityValueKind.Choice => new CapabilityValue
             {
                 Kind = kind,
-                ChoiceValue = entry.Choice,
+                ChoiceValue = entry.Choice
             },
             CapabilityValueKind.Color => new CapabilityValue { Kind = kind, ColorValue = entry.Color },
             CapabilityValueKind.Text => new CapabilityValue { Kind = kind, TextValue = entry.Text },
-            _ => new CapabilityValue { Kind = kind },
+            _ => new CapabilityValue { Kind = kind }
         };
 }

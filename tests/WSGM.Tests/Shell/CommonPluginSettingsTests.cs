@@ -43,7 +43,7 @@ public sealed class CommonPluginSettingsTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => registration.ConfigureAsync(0, changes, Deadline, default));
         Assert.Equal(2, plugin.Deliveries.Count);
         Assert.False(registration.Quarantined);
-        changes["level"] = new(Number: 30);
+        changes["level"] = new PluginValue(Number: 30);
         await registration.ConfigureAsync(1, changes, Deadline, default);
         Assert.Equal(2, registration.Settings!.Desired!.Revision);
         await Close(registration);
@@ -78,7 +78,7 @@ public sealed class CommonPluginSettingsTests
         var identity = new PluginInstanceIdentity("test.config", "one");
         ApplicationPluginConfigurationStore.SaveInto(config, identity, 0, new Dictionary<string, PluginValue>
         { ["flag"] = new(Boolean: false), ["level"] = new(Number: 0), ["text"] = new(Text: "") });
-        string json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
+        var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
         var restored = ApplicationPluginConfigurationStore.ReadFrom(ConfigStore.DeserializeConfig(json), identity);
         Assert.Equal(1, restored.Revision);
         Assert.Equal(false, restored.Values["flag"].Boolean);
@@ -131,8 +131,8 @@ public sealed class CommonPluginSettingsTests
         private long _sequence;
         public string Id => "test.config";
         public IReadOnlyList<PluginSetting> Settings =>
-            [new("level", "Level", PluginSettingKind.Number, new(Number: 20), 0, 100),
-             new("enabled", "Enabled", PluginSettingKind.Boolean, new(Boolean: true))];
+            [new("level", "Level", PluginSettingKind.Number, new PluginValue(Number: 20), 0, 100),
+             new("enabled", "Enabled", PluginSettingKind.Boolean, new PluginValue(Boolean: true))];
         internal List<PluginConfiguration> Deliveries { get; } = [];
         internal PluginConfigurationOutcome Outcome { get; set; } = PluginConfigurationOutcome.Applied;
         internal bool WrongRevision { get; set; }
@@ -143,7 +143,7 @@ public sealed class CommonPluginSettingsTests
         {
             Deliveries.Add(configuration);
             if (FailConfiguration) { throw new IOException("Fixture configuration failure after dispatch"); }
-            _host!.PublishState(new(context.Instance, context.Generation, ++_sequence, "level", new(Number: 100), PluginStateOrigin.HardwareReadback));
+            _host!.PublishState(new PluginStatePublication(context.Instance, context.Generation, ++_sequence, "level", new PluginValue(Number: 100), PluginStateOrigin.HardwareReadback));
             return ValueTask.FromResult(new PluginConfigurationResult(WrongRevision ? configuration.Revision + 1 : configuration.Revision, Outcome));
         }
         public ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;

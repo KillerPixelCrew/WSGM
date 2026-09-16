@@ -4,7 +4,7 @@ namespace WSGM.Tests;
 
 public sealed class SplashAssetsTests : IDisposable
 {
-    private readonly string _root = System.IO.Directory
+    private readonly string _root = Directory
         .CreateTempSubdirectory("wsgm-splash-assets-")
         .FullName;
 
@@ -16,27 +16,27 @@ public sealed class SplashAssetsTests : IDisposable
     /// than on <see cref="SplashAssets"/>.</summary>
     private static void Materialize(SplashConfig splash, string targetDirectory)
     {
-        using SplashAssets.Transaction staged = SplashAssets.Prepare(splash, targetDirectory);
+        using var staged = SplashAssets.Prepare(splash, targetDirectory);
         staged.Commit();
     }
 
     public SplashAssetsTests()
     {
-        System.IO.Directory.CreateDirectory(SourceDir);
-        System.IO.Directory.CreateDirectory(TargetDir);
+        Directory.CreateDirectory(SourceDir);
+        Directory.CreateDirectory(TargetDir);
     }
 
     public void Dispose()
     {
         try
         {
-            System.IO.Directory.Delete(_root, recursive: true);
+            Directory.Delete(_root, recursive: true);
         }
         catch (IOException) { }
     }
 
     private string[] FileNames() =>
-        System.IO.Directory
+        Directory
             .GetFiles(TargetDir)
             .Select(f => Path.GetFileName(f))
             .OrderBy(f => f, StringComparer.Ordinal)
@@ -60,7 +60,7 @@ public sealed class SplashAssetsTests : IDisposable
         var splash = new SplashConfig
         {
             LogoImagePath = WriteSource("my logo.png", "logo-bytes"),
-            BackgroundImagePath = WriteSource("wallpaper.JPG", "bg-bytes"),
+            BackgroundImagePath = WriteSource("wallpaper.JPG", "bg-bytes")
         };
 
         Materialize(splash, TargetDir);
@@ -99,7 +99,7 @@ public sealed class SplashAssetsTests : IDisposable
 
         Assert.Equal("", splash.LogoImagePath);
         Assert.Equal("", splash.BackgroundImagePath);
-        Assert.Empty(System.IO.Directory.GetFiles(TargetDir));
+        Assert.Empty(Directory.GetFiles(TargetDir));
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class SplashAssetsTests : IDisposable
         var second = new SplashConfig
         {
             LogoImagePath = WriteSource("second.jpg", "second-logo"),
-            BackgroundImagePath = logoCopy,
+            BackgroundImagePath = logoCopy
         };
         using var staged = SplashAssets.Prepare(second, TargetDir);
 
@@ -185,7 +185,7 @@ public sealed class SplashAssetsTests : IDisposable
         var splash = new SplashConfig
         {
             LogoImagePath = missing,
-            BackgroundImagePath = WriteSource("bg.png", "bg-bytes"),
+            BackgroundImagePath = WriteSource("bg.png", "bg-bytes")
         };
 
         Materialize(splash, TargetDir);
@@ -225,22 +225,22 @@ public sealed class SplashAssetsTests : IDisposable
         var first = new SplashConfig
         {
             LogoImagePath = WriteSource("first.png", "first-logo"),
-            BackgroundImagePath = WriteSource("first-bg.png", "first-bg"),
+            BackgroundImagePath = WriteSource("first-bg.png", "first-bg")
         };
         Materialize(first, TargetDir);
-        var liveFiles = System.IO.Directory.GetFiles(TargetDir).OrderBy(f => f).ToArray();
+        var liveFiles = Directory.GetFiles(TargetDir).OrderBy(f => f).ToArray();
 
         // A save whose config write fails: stage, then roll back.
         var second = new SplashConfig
         {
             LogoImagePath = WriteSource("second.png", "second-logo"),
-            BackgroundImagePath = WriteSource("second-bg.jpg", "second-bg"),
+            BackgroundImagePath = WriteSource("second-bg.jpg", "second-bg")
         };
         var staged = SplashAssets.Prepare(second, TargetDir);
         staged.Rollback();
         staged.Dispose();
 
-        Assert.Equal(liveFiles, System.IO.Directory.GetFiles(TargetDir).OrderBy(f => f).ToArray());
+        Assert.Equal(liveFiles, Directory.GetFiles(TargetDir).OrderBy(f => f).ToArray());
         Assert.Equal("first-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.png")));
         Assert.Equal("first-bg", File.ReadAllText(Path.Combine(TargetDir, "background.png")));
     }
@@ -264,7 +264,7 @@ public sealed class SplashAssetsTests : IDisposable
         var splash = new SplashConfig
         {
             LogoImagePath = WriteSource("picked.jpg", "new-logo"),
-            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg"),
+            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg")
         };
 
         using var staged = SplashAssets.Prepare(splash, TargetDir);
@@ -363,7 +363,7 @@ public sealed class SplashAssetsTests : IDisposable
         var splash = new SplashConfig
         {
             LogoImagePath = missing,
-            BackgroundImagePath = WriteSource("bg.png", "bg-bytes"),
+            BackgroundImagePath = WriteSource("bg.png", "bg-bytes")
         };
 
         using var staged = SplashAssets.Prepare(splash, TargetDir);
@@ -387,7 +387,7 @@ public sealed class SplashAssetsTests : IDisposable
         var splash = new SplashConfig
         {
             LogoImagePath = WriteSource("a.png", "logo-bytes"),
-            BackgroundImagePath = WriteSource("b.png", "bg-bytes"),
+            BackgroundImagePath = WriteSource("b.png", "bg-bytes")
         };
 
         using var staged = SplashAssets.Prepare(splash, blocked);
@@ -419,7 +419,7 @@ public sealed class SplashAssetsTests : IDisposable
         var splash = new SplashConfig
         {
             LogoImagePath = WriteSource("picked.png", "new-logo"),
-            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg"),
+            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg")
         };
 
         using var staged = SplashAssets.Prepare(splash, TargetDir);
@@ -432,11 +432,11 @@ public sealed class SplashAssetsTests : IDisposable
     {
         // A directory where the live file belongs makes the promoting File.Move throw
         // the same way a locked file, an AV hold, or a denied ACL does.
-        System.IO.Directory.CreateDirectory(Path.Combine(TargetDir, "logo.png"));
+        Directory.CreateDirectory(Path.Combine(TargetDir, "logo.png"));
         var splash = new SplashConfig
         {
             LogoImagePath = WriteSource("picked.png", "new-logo"),
-            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg"),
+            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg")
         };
 
         using var staged = SplashAssets.Prepare(splash, TargetDir);
@@ -455,12 +455,12 @@ public sealed class SplashAssetsTests : IDisposable
     [Fact]
     public void CommitReportsBothSlotsWhenNeitherCanBePromoted()
     {
-        System.IO.Directory.CreateDirectory(Path.Combine(TargetDir, "logo.png"));
-        System.IO.Directory.CreateDirectory(Path.Combine(TargetDir, "background.png"));
+        Directory.CreateDirectory(Path.Combine(TargetDir, "logo.png"));
+        Directory.CreateDirectory(Path.Combine(TargetDir, "background.png"));
         var splash = new SplashConfig
         {
             LogoImagePath = WriteSource("picked.png", "new-logo"),
-            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg"),
+            BackgroundImagePath = WriteSource("picked-bg.png", "new-bg")
         };
 
         using var staged = SplashAssets.Prepare(splash, TargetDir);
@@ -615,7 +615,7 @@ public sealed class SplashAssetsTests : IDisposable
         var rolledBack = SplashAssets.Prepare(splash, TargetDir);
         rolledBack.Rollback();
         rolledBack.Commit();
-        Assert.Empty(System.IO.Directory.GetFiles(TargetDir));
+        Assert.Empty(Directory.GetFiles(TargetDir));
 
         var again = new SplashConfig { LogoImagePath = WriteSource("picked2.png", "newer-logo") };
         var committed = SplashAssets.Prepare(again, TargetDir);

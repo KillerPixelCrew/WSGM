@@ -33,7 +33,7 @@ public sealed class UnelevatedLauncherTests
     [Fact]
     public async Task ScheduledTaskRunFailure_DeletesWithinTheSameAbsoluteDeadline()
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1);
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1);
         using var cancellation = new CancellationTokenSource();
         var calls = new List<(string Arguments, DateTimeOffset Deadline, CancellationToken Token)>();
 
@@ -48,7 +48,7 @@ public sealed class UnelevatedLauncherTests
                 : ConsoleToolRunOutcome.Succeeded);
         }
 
-        ScheduledTaskLaunchDisposition disposition =
+        var disposition =
             await UnelevatedLauncher.RunScheduledTaskSequenceAsync(
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
@@ -69,7 +69,7 @@ public sealed class UnelevatedLauncherTests
     [Fact]
     public async Task ScheduledTaskRunTimeout_PreservesUnknownDispatchBoundary()
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1);
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1);
         var calls = new List<string>();
 
         Task<ConsoleToolRunOutcome> RunCommand(
@@ -85,7 +85,7 @@ public sealed class UnelevatedLauncherTests
                 : ConsoleToolRunOutcome.Succeeded);
         }
 
-        ScheduledTaskLaunchDisposition disposition =
+        var disposition =
             await UnelevatedLauncher.RunScheduledTaskSequenceAsync(
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
@@ -104,7 +104,7 @@ public sealed class UnelevatedLauncherTests
     [Fact]
     public async Task ScheduledTaskCreateUnknown_AttemptsCleanupWithoutDispatching()
     {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1);
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1);
         var calls = new List<string>();
 
         Task<ConsoleToolRunOutcome> RunCommand(
@@ -120,7 +120,7 @@ public sealed class UnelevatedLauncherTests
                 : ConsoleToolRunOutcome.Succeeded);
         }
 
-        ScheduledTaskLaunchDisposition disposition =
+        var disposition =
             await UnelevatedLauncher.RunScheduledTaskSequenceAsync(
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
@@ -139,7 +139,7 @@ public sealed class UnelevatedLauncherTests
     public async Task ScheduledTaskDeadlineClosesAfterCreate_SkipsRunAndCleanup()
     {
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
-        DateTimeOffset deadline = now + TimeSpan.FromSeconds(1);
+        var deadline = now + TimeSpan.FromSeconds(1);
         var calls = new List<string>();
 
         Task<ConsoleToolRunOutcome> RunCommand(
@@ -154,7 +154,7 @@ public sealed class UnelevatedLauncherTests
             return Task.FromResult(ConsoleToolRunOutcome.Succeeded);
         }
 
-        ScheduledTaskLaunchDisposition disposition =
+        var disposition =
             await UnelevatedLauncher.RunScheduledTaskSequenceAsync(
                 "WSGM_Test",
                 @"C:\safe-test-task.xml",
@@ -173,7 +173,7 @@ public sealed class UnelevatedLauncherTests
     public async Task ScheduledTaskCancellationAfterCreate_SkipsRunAndCleanup()
     {
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
-        DateTimeOffset deadline = now + TimeSpan.FromSeconds(1);
+        var deadline = now + TimeSpan.FromSeconds(1);
         using var cancellation = new CancellationTokenSource();
         var calls = new List<string>();
 

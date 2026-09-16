@@ -31,8 +31,8 @@ public sealed class RtssFrametimeReaderTests
         region.WriteEntry(0, processId: 5552, name: @"C:\Program Files\RustDesk\RustDesk.exe",
             time0: 41_237_921, time1: 41_239_921, frames: 2);
 
-        RtssFrametimeSample sample = Assert.Single(
-            RtssFrametimeReader.Parse(region, nowTicks: 41_240_156, out bool incompatible));
+        var sample = Assert.Single(
+            RtssFrametimeReader.Parse(region, nowTicks: 41_240_156, out var incompatible));
 
         Assert.False(incompatible);
         Assert.Equal(5552u, sample.ProcessId);
@@ -48,7 +48,7 @@ public sealed class RtssFrametimeReaderTests
         FakeRegion region = new();
         region.WriteEntry(0, 900, @"D:\Games\game.exe", time0: 1_000_000, time1: 1_001_000, frames: 60);
 
-        RtssFrametimeSample sample = Assert.Single(
+        var sample = Assert.Single(
             RtssFrametimeReader.Parse(region, 1_001_100, out _));
 
         Assert.Equal(1000d / 60d, sample.MeanFrametimeMs, 3);
@@ -83,7 +83,7 @@ public sealed class RtssFrametimeReaderTests
         region.WriteEntry(1, 2, @"C:\live.exe", time0: 9_000, time1: 9_100, frames: 10);
         region.WriteEntry(2, 3, @"C:\stale.exe", time0: 1_000, time1: 1_100, frames: 10);
 
-        RtssFrametimeSample sample = Assert.Single(
+        var sample = Assert.Single(
             RtssFrametimeReader.Parse(region, 9_200, out _));
 
         Assert.Equal(@"C:\live.exe", sample.ExecutablePath);
@@ -96,7 +96,7 @@ public sealed class RtssFrametimeReaderTests
         // dwTime1 just after a 32-bit wrap, with the 64-bit tick count far past it.
         region.WriteEntry(0, 7, @"C:\game.exe", time0: 40, time1: 140, frames: 10);
 
-        RtssFrametimeSample sample = Assert.Single(
+        var sample = Assert.Single(
             RtssFrametimeReader.Parse(region, (1L << 32) + 300, out _));
 
         Assert.Equal(160, sample.AgeMs);
@@ -114,7 +114,7 @@ public sealed class RtssFrametimeReaderTests
             time1: uint.MaxValue - 50,
             frames: 10);
 
-        RtssFrametimeSample sample = Assert.Single(
+        var sample = Assert.Single(
             RtssFrametimeReader.Parse(region, (1L << 32) + 100, out _));
 
         Assert.Equal(151, sample.AgeMs);
@@ -135,7 +135,7 @@ public sealed class RtssFrametimeReaderTests
         FakeRegion region = new();
         region.WriteUInt32(0, 0xDEADBEEF);
 
-        Assert.Empty(RtssFrametimeReader.Parse(region, 1_000, out bool incompatible));
+        Assert.Empty(RtssFrametimeReader.Parse(region, 1_000, out var incompatible));
         Assert.True(incompatible);
     }
 
@@ -145,7 +145,7 @@ public sealed class RtssFrametimeReaderTests
         FakeRegion region = new();
         region.WriteUInt32(4, 0x0001_0000);
 
-        Assert.Empty(RtssFrametimeReader.Parse(region, 1_000, out bool incompatible));
+        Assert.Empty(RtssFrametimeReader.Parse(region, 1_000, out var incompatible));
         Assert.True(incompatible);
     }
 
@@ -158,7 +158,7 @@ public sealed class RtssFrametimeReaderTests
         region.WriteUInt32(16, 64);
         region.WriteEntry(0, 5, @"C:\one.exe", time0: 100, time1: 200, frames: 10);
 
-        Assert.Single(RtssFrametimeReader.Parse(region, 300, out bool incompatible));
+        Assert.Single(RtssFrametimeReader.Parse(region, 300, out var incompatible));
         Assert.False(incompatible);
     }
 
@@ -168,7 +168,7 @@ public sealed class RtssFrametimeReaderTests
         FakeRegion region = new();
         region.WriteUInt32(8, 64);
 
-        Assert.Empty(RtssFrametimeReader.Parse(region, 1_000, out bool incompatible));
+        Assert.Empty(RtssFrametimeReader.Parse(region, 1_000, out var incompatible));
         Assert.False(incompatible);
     }
 
@@ -176,7 +176,7 @@ public sealed class RtssFrametimeReaderTests
     {
         private readonly byte[] _bytes;
 
-        internal FakeRegion(int capacity = ArrayOffset + (EntrySize * ArraySize))
+        internal FakeRegion(int capacity = ArrayOffset + EntrySize * ArraySize)
         {
             _bytes = new byte[capacity];
             WriteUInt32(0, Signature);
@@ -205,9 +205,9 @@ public sealed class RtssFrametimeReaderTests
             uint time1,
             uint frames)
         {
-            int entry = ArrayOffset + (index * EntrySize);
+            var entry = ArrayOffset + index * EntrySize;
             WriteUInt32(entry, processId);
-            byte[] ascii = Encoding.ASCII.GetBytes(name);
+            var ascii = Encoding.ASCII.GetBytes(name);
             ascii.CopyTo(_bytes, entry + 4);
             _bytes[entry + 4 + ascii.Length] = 0;
             WriteUInt32(entry + 268, time0);

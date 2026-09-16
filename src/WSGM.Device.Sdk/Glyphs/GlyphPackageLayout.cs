@@ -34,11 +34,11 @@ public static class GlyphPackageLayout
     public static string Asset(string sha256, GlyphAssetFormat format)
     {
         ValidateHash(sha256);
-        string extension = format switch
+        var extension = format switch
         {
             GlyphAssetFormat.Svg => "svg",
             GlyphAssetFormat.Png => "png",
-            _ => throw new ArgumentOutOfRangeException(nameof(format)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format))
         };
         return $"glyphs/assets/{sha256}.{extension}";
     }

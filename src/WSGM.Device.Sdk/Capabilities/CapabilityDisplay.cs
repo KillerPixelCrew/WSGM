@@ -1,3 +1,4 @@
+using System;
 using System.Text.Json.Serialization;
 
 namespace WSGM.Device.Sdk.Capabilities;
@@ -38,7 +39,7 @@ public sealed record CapabilityDisplay
     /// <returns><see langword="true"/> when the label is safe to render.</returns>
     public bool TryValidate(out string? error)
     {
-        if (!System.Enum.IsDefined(Key))
+        if (!Enum.IsDefined(Key))
         {
             error = $"display key '{Key}' is not defined.";
             return false;
@@ -141,5 +142,5 @@ public enum DisplayKey
     Rumble,
 
     /// <summary>"Variable refresh rate".</summary>
-    VariableRefreshRate,
+    VariableRefreshRate
 }

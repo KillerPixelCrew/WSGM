@@ -20,7 +20,7 @@ internal enum DevicePackageCardinality
     Single,
 
     /// <summary>More than one package root exists; normal startup must refuse all of them.</summary>
-    Multiple,
+    Multiple
 }
 
 /// <summary>A manifest-free inventory of the protected plugin slot.</summary>
@@ -34,7 +34,7 @@ internal sealed record DevicePackageInventory
     {
         0 => DevicePackageCardinality.Empty,
         1 => DevicePackageCardinality.Single,
-        _ => DevicePackageCardinality.Multiple,
+        _ => DevicePackageCardinality.Multiple
     };
 }
 
@@ -94,9 +94,9 @@ internal static class DevicePackagePolicy
         Func<string, FileAttributes?>? attributeReader = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageRoot);
-        string root = NormalizeDirectoryPath(packageRoot);
-        Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
-        FileAttributes? rootAttributes = readAttributes(root);
+        var root = NormalizeDirectoryPath(packageRoot);
+        var readAttributes = attributeReader ?? ReadPathAttributes;
+        var rootAttributes = readAttributes(root);
         if (rootAttributes is null)
         {
             return new DevicePackageInventory { PackageRoots = [] };
@@ -112,7 +112,7 @@ internal static class DevicePackagePolicy
         }
 
         List<string> packages = [];
-        foreach (string entry in Directory.EnumerateFileSystemEntries(root))
+        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
         {
             FileAttributes? attributes = readAttributes(entry)
                 ?? throw new IOException("A package-slot entry disappeared during inspection.");
@@ -122,7 +122,7 @@ internal static class DevicePackagePolicy
             }
         }
 
-        string[] sortedPackages = packages
+        var sortedPackages = packages
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return new DevicePackageInventory { PackageRoots = sortedPackages };
@@ -140,8 +140,8 @@ internal static class DevicePackagePolicy
         Func<string, FileAttributes?>? attributeReader = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageRoot);
-        Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
-        DevicePackageInventory inventory = Inventory(packageRoot, readAttributes);
+        var readAttributes = attributeReader ?? ReadPathAttributes;
+        var inventory = Inventory(packageRoot, readAttributes);
         if (inventory.Cardinality is DevicePackageCardinality.Empty)
         {
             return new DevicePackageDiscovery { Inventory = inventory };
@@ -153,7 +153,7 @@ internal static class DevicePackagePolicy
             {
                 Inventory = inventory,
                 ErrorCode = "multiple-package-roots",
-                Detail = "Normal startup refuses every package when the protected slot contains more than one root.",
+                Detail = "Normal startup refuses every package when the protected slot contains more than one root."
             };
         }
 
@@ -162,7 +162,7 @@ internal static class DevicePackagePolicy
             Inventory = inventory,
             InstalledPackage = ValidateInstalledPackage(
                 inventory.PackageRoots[0],
-                readAttributes),
+                readAttributes)
         };
     }
 
@@ -172,7 +172,7 @@ internal static class DevicePackagePolicy
     {
         try
         {
-            string root = NormalizeDirectoryPath(packagePath);
+            var root = NormalizeDirectoryPath(packagePath);
             FileAttributes? rootAttributes = readAttributes(root)
                 ?? throw new IOException("The installed package disappeared during validation.");
             if ((rootAttributes.Value & FileAttributes.Directory) == 0)
@@ -185,14 +185,14 @@ internal static class DevicePackagePolicy
             }
 
             ValidateBoundedPackage(root, readAttributes);
-            byte[] manifestBytes = ReadAllBytesBounded(
+            var manifestBytes = ReadAllBytesBounded(
                 Constrain(root, ManifestName, readAttributes),
                 MaxMetadataBytes,
                 "Plugin manifest");
-            PluginManifestReadResult manifestRead = PluginManifestReader.Read(manifestBytes);
+            var manifestRead = PluginManifestReader.Read(manifestBytes);
             if (!manifestRead.IsValid || manifestRead.Manifest is null)
             {
-                string rejectionCode = manifestRead.Errors.Any(error =>
+                var rejectionCode = manifestRead.Errors.Any(error =>
                     error.Code is ManifestValidationCode.InvalidApiVersion)
                     ? "api-incompatible"
                     : "manifest-invalid";
@@ -202,7 +202,7 @@ internal static class DevicePackagePolicy
                     string.Join("; ", manifestRead.Errors.Select(error => error.Message)));
             }
 
-            PluginManifest manifest = manifestRead.Manifest;
+            var manifest = manifestRead.Manifest;
             if (DeviceApi.Version != manifest.ApiVersion)
             {
                 return Reject(
@@ -212,7 +212,7 @@ internal static class DevicePackagePolicy
                     manifest);
             }
 
-            string entryPath = Constrain(root, manifest.EntryAssembly, readAttributes);
+            var entryPath = Constrain(root, manifest.EntryAssembly, readAttributes);
             if (!IsX64ManagedAssembly(entryPath))
             {
                 return Reject(
@@ -226,7 +226,7 @@ internal static class DevicePackagePolicy
             {
                 PackagePath = root,
                 Manifest = manifest,
-                Valid = true,
+                Valid = true
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -240,19 +240,19 @@ internal static class DevicePackagePolicy
         string root,
         Func<string, FileAttributes?> readAttributes)
     {
-        int entryCount = 0;
-        int fileCount = 0;
+        var entryCount = 0;
+        var fileCount = 0;
         long totalBytes = 0;
         Stack<string> pending = new();
         pending.Push(root);
         while (pending.Count > 0)
         {
-            string directory = pending.Pop();
-            IReadOnlyList<string> entries = EnumerateBoundedDirectory(
+            var directory = pending.Pop();
+            var entries = EnumerateBoundedDirectory(
                 directory,
                 MaxPackageEntries - entryCount);
             entryCount += entries.Count;
-            foreach (string entry in entries)
+            foreach (var entry in entries)
             {
                 FileAttributes? attributes = readAttributes(entry)
                     ?? throw new IOException("A package entry disappeared during validation.");
@@ -286,7 +286,7 @@ internal static class DevicePackagePolicy
         CancellationToken cancellationToken = default)
     {
         List<string> entries = [];
-        foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
         {
             cancellationToken.ThrowIfCancellationRequested();
             entries.Add(entry);
@@ -322,7 +322,7 @@ internal static class DevicePackagePolicy
             throw new InvalidDataException($"{description} exceeds {maxBytes} bytes.");
         }
 
-        byte[] bytes = new byte[(int)stream.Length];
+        var bytes = new byte[(int)stream.Length];
         stream.ReadExactly(bytes);
         return bytes;
     }
@@ -333,29 +333,29 @@ internal static class DevicePackagePolicy
         string relativePath,
         Func<string, FileAttributes?>? attributeReader = null)
     {
-        Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
+        var readAttributes = attributeReader ?? ReadPathAttributes;
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
         {
             throw new InvalidDataException("Package paths must be relative.");
         }
 
-        string normalizedRoot = NormalizeDirectoryPath(root);
-        string prefix = Path.EndsInDirectorySeparator(normalizedRoot)
+        var normalizedRoot = NormalizeDirectoryPath(root);
+        var prefix = Path.EndsInDirectorySeparator(normalizedRoot)
             ? normalizedRoot
             : normalizedRoot + Path.DirectorySeparatorChar;
-        string candidate = Path.GetFullPath(Path.Combine(normalizedRoot, relativePath));
+        var candidate = Path.GetFullPath(Path.Combine(normalizedRoot, relativePath));
         if (!candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("A package path escaped its protected directory.");
         }
 
-        string current = normalizedRoot;
-        foreach (string segment in Path.GetRelativePath(normalizedRoot, candidate).Split(
+        var current = normalizedRoot;
+        foreach (var segment in Path.GetRelativePath(normalizedRoot, candidate).Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
             StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
-            FileAttributes? attributes = readAttributes(current);
+            var attributes = readAttributes(current);
             if (attributes is not null
                 && (attributes.Value & FileAttributes.ReparsePoint) != 0)
             {
@@ -370,7 +370,7 @@ internal static class DevicePackagePolicy
     {
         try
         {
-            using FileStream stream = File.OpenRead(path);
+            using var stream = File.OpenRead(path);
             using PEReader pe = new(stream, PEStreamOptions.LeaveOpen);
             return pe.PEHeaders.CoffHeader.Machine is Machine.Amd64
                 && pe.PEHeaders.CorHeader is not null
@@ -408,6 +408,6 @@ internal static class DevicePackagePolicy
             Manifest = manifest,
             Valid = false,
             RejectionCode = code,
-            Detail = detail,
+            Detail = detail
         };
 }

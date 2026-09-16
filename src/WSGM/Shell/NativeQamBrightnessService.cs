@@ -25,7 +25,7 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
     internal NativeQamBrightnessService(Func<bool> active, Action publish)
         : this(active, publish,
-            () => Backlight.TryReadBrightness(out int percent) ? percent : null,
+            () => Backlight.TryReadBrightness(out var percent) ? percent : null,
             Backlight.TrySetBrightness, TimeSpan.FromSeconds(2))
     {
     }
@@ -53,9 +53,9 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
     private SteamBrightnessState? ReadUnderGate()
     {
-        SteamBrightnessState? next = _read() is int percent and >= 0 and <= 100
+        var next = _read() is int percent and >= 0 and <= 100
             ? new SteamBrightnessState(percent, ++_revision) : null;
-        bool changed = next?.Percent != _current?.Percent;
+        var changed = next?.Percent != _current?.Percent;
         _current = next;
         if (changed) { Changed?.Invoke(); }
         return next;
@@ -66,20 +66,20 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     {
         if (percent is < 0 or > 100)
         {
-            return new(false, "The brightness must be between 0 and 100 percent.");
+            return new SteamUiCommandResult(false, "The brightness must be between 0 and 100 percent.");
         }
 
         await _writes.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            SteamUiCommandResult result = await Task.Run(() =>
+            var result = await Task.Run(() =>
             {
                 lock (_gate)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (_disposed || !_active()) { return SteamUiCommandResult.Refused; }
                     if (!_write(percent)) { return new SteamUiCommandResult(false, "The panel backlight refused the write."); }
-                    SteamBrightnessState? readback = ReadUnderGate();
+                    var readback = ReadUnderGate();
                     return readback is null
                         ? new SteamUiCommandResult(false, "Brightness was written but readback is unavailable.")
                         : readback.Percent != percent
@@ -108,8 +108,8 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         try
         {
             if (!_active()) { return; }
-            SteamBrightnessState? current = ReadCurrent();
-            int percent = current?.Percent ?? -1;
+            var current = ReadCurrent();
+            var percent = current?.Percent ?? -1;
             if (percent == Interlocked.Exchange(ref _lastPolled, percent))
             {
                 return;

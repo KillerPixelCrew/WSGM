@@ -84,7 +84,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         List<SteamNetworkAccessPoint> networks = [];
         await NativeQamUi.RunAsync(() =>
         {
-            foreach (WifiNetworkEntry entry in _radios.Networks.Take(24))
+            foreach (var entry in _radios.Networks.Take(24))
             {
                 if (!string.IsNullOrWhiteSpace(entry.Ssid))
                 {
@@ -99,14 +99,14 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
 
         // The connected network is merged in from the live status rather than the scan list, which
         // is what makes the header Wi-Fi indicator show a signal on Windows at all.
-        WindowsRadio.WifiStatus connected = indicatorEnabled
+        var connected = indicatorEnabled
             ? WindowsRadio.GetWifiStatus()
             : default;
         if (indicatorEnabled
             && connected.State == 0
             && !string.IsNullOrWhiteSpace(connected.Ssid))
         {
-            int existing = networks.FindIndex(network =>
+            var existing = networks.FindIndex(network =>
                 string.Equals(network.Ssid, connected.Ssid, StringComparison.Ordinal));
             var joined = new SteamNetworkAccessPoint(
                 connected.Ssid,

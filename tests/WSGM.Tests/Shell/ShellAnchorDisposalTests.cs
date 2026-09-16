@@ -26,7 +26,7 @@ public sealed class ShellAnchorDisposalTests
         // The premise. If this ever stops throwing the guard is redundant, and whoever removes it
         // should have to delete this test deliberately rather than discover the behaviour by
         // shipping it.
-        (NamedPipeServerStream server, NamedPipeClientStream client) = await ConnectedPairAsync();
+        var (server, client) = await ConnectedPairAsync();
         StreamWriter writer = new(client) { AutoFlush = false };
         await writer.WriteLineAsync("queued");
         await server.DisposeAsync();
@@ -41,12 +41,12 @@ public sealed class ShellAnchorDisposalTests
         // The guard catches IOException and ObjectDisposedException and nothing else. Both are
         // reachable from releasing a pipe-backed resource whose peer has gone; anything else is a
         // real defect and must still surface.
-        (NamedPipeServerStream server, NamedPipeClientStream client) = await ConnectedPairAsync();
+        var (server, client) = await ConnectedPairAsync();
         StreamWriter writer = new(client) { AutoFlush = false };
         await writer.WriteLineAsync("queued");
         await server.DisposeAsync();
 
-        Exception thrown = Record.Exception(writer.Dispose)!;
+        var thrown = Record.Exception(writer.Dispose)!;
         Assert.NotNull(thrown);
         Assert.True(
             thrown is IOException or ObjectDisposedException,
@@ -57,7 +57,7 @@ public sealed class ShellAnchorDisposalTests
     private static async Task<(NamedPipeServerStream Server, NamedPipeClientStream Client)>
         ConnectedPairAsync()
     {
-        string name = "WSGM.Tests.AnchorDisposal." + Guid.NewGuid().ToString("N");
+        var name = "WSGM.Tests.AnchorDisposal." + Guid.NewGuid().ToString("N");
         NamedPipeServerStream server = new(
             name,
             PipeDirection.InOut,
@@ -69,7 +69,7 @@ public sealed class ShellAnchorDisposalTests
             name,
             PipeDirection.InOut,
             PipeOptions.Asynchronous);
-        Task waiting = server.WaitForConnectionAsync();
+        var waiting = server.WaitForConnectionAsync();
         await client.ConnectAsync(5000);
         await waiting;
         return (server, client);

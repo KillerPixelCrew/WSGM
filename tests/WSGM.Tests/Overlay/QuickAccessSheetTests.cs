@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
@@ -19,9 +20,9 @@ public sealed class QuickAccessSheetTests
     [InlineData(0x0001, 0xFF515780u, false)]
     public void OutsideDismissObservesClicksWithoutRepeatingPromotedTouch(ushort flags, uint extra, bool expected)
     {
-        byte[] packet = new byte[24];
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4), flags);
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(20), extra);
+        var packet = new byte[24];
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4), flags);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(20), extra);
         Assert.Equal(expected, TouchSwipeMonitor.IsMouseClick(packet));
         Assert.False(TouchSwipeMonitor.IsMouseClick(packet.AsSpan(0, 23)));
     }
@@ -204,7 +205,7 @@ public sealed class QuickAccessSheetTests
     [Fact]
     public void EveryDestinationHasAUserFacingLabel()
     {
-        foreach (OverlayDestination destination in Enum.GetValues<OverlayDestination>())
+        foreach (var destination in Enum.GetValues<OverlayDestination>())
         {
             Assert.False(string.IsNullOrWhiteSpace(OverlayWindow.DestinationLabel(destination)));
         }

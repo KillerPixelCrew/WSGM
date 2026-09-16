@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Shell;
 
 namespace WSGM.Core;
 
@@ -16,7 +17,7 @@ public enum SteamLibraryAddStatus
     /// <summary>Steam actively refused the folder; <c>Detail</c> is its reason.</summary>
     Rejected,
     /// <summary>The debug channel could not be reached, so no live add happened.</summary>
-    Unavailable,
+    Unavailable
 }
 
 /// <summary>Outcome of a live library add.</summary>
@@ -34,7 +35,7 @@ public enum SteamLibraryRemoveStatus
     /// <summary>Steam actively refused the removal; <c>Detail</c> is its reason.</summary>
     Rejected,
     /// <summary>The debug channel could not be reached, so no live removal happened.</summary>
-    Unavailable,
+    Unavailable
 }
 
 /// <summary>Outcome of removing a live library.</summary>
@@ -53,7 +54,7 @@ public enum SteamLibraryLabelStatus
     /// <summary>Steam actively refused; <c>Detail</c> is its reason.</summary>
     Rejected,
     /// <summary>The debug channel could not be reached, so nothing changed.</summary>
-    Unavailable,
+    Unavailable
 }
 
 /// <summary>Outcome of relabeling a live library.</summary>
@@ -128,7 +129,7 @@ public static class SteamCdp
     public static async Task<SteamLibraryRemoveResult> RemoveLibraryByContentIdAsync(
         string contentId, string libraryFoldersVdf, CancellationToken cancellationToken = default)
     {
-        var libraryPath = Shell.SteamLibraryVdf.PathForContentId(libraryFoldersVdf, contentId);
+        var libraryPath = SteamLibraryVdf.PathForContentId(libraryFoldersVdf, contentId);
         if (libraryPath is null)
         {
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotPresent, null);
@@ -136,10 +137,10 @@ public static class SteamCdp
         // The same normalizer the injected script uses (docs\steam-cef.md §8): the two forms have
         // to agree, and a bare trim does not — it leaves "D:/Games" and "D:\Games" unequal here
         // while Steam's side treats them as one folder.
-        var normalized = Shell.SteamLibraryVdf.NormalizePath(libraryPath);
-        var matchingPaths = Shell.SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
+        var normalized = SteamLibraryVdf.NormalizePath(libraryPath);
+        var matchingPaths = SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
             .Count(path => string.Equals(
-                Shell.SteamLibraryVdf.NormalizePath(path),
+                SteamLibraryVdf.NormalizePath(path),
                 normalized,
                 StringComparison.Ordinal));
         if (matchingPaths != 1)
@@ -196,16 +197,16 @@ public static class SteamCdp
         string contentId, string libraryFoldersVdf, string label,
         CancellationToken cancellationToken = default)
     {
-        var libraryPath = Shell.SteamLibraryVdf.PathForContentId(libraryFoldersVdf, contentId);
+        var libraryPath = SteamLibraryVdf.PathForContentId(libraryFoldersVdf, contentId);
         if (libraryPath is null)
         {
             return new SteamLibraryLabelResult(SteamLibraryLabelStatus.NotPresent, null);
         }
         // Same normalizer as the injected script — see the remove path above.
-        var normalized = Shell.SteamLibraryVdf.NormalizePath(libraryPath);
-        var matchingPaths = Shell.SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
+        var normalized = SteamLibraryVdf.NormalizePath(libraryPath);
+        var matchingPaths = SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
             .Count(path => string.Equals(
-                Shell.SteamLibraryVdf.NormalizePath(path),
+                SteamLibraryVdf.NormalizePath(path),
                 normalized,
                 StringComparison.Ordinal));
         if (matchingPaths != 1)

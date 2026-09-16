@@ -24,7 +24,7 @@ internal static class ManualTdpPolicy
 
     internal static ManualTdpProfile? Resolve(PerformanceConfig global, PerformanceApplicationConfig? application,
         bool perGameActive) => perGameActive && application?.ManualTdp is { } own ? own
-        : perGameActive && application?.TdpWatts is { } watts ? new(false, null, watts, null)
+        : perGameActive && application?.TdpWatts is { } watts ? new ManualTdpProfile(false, null, watts, null)
         : global.ManualTdp;
 
     internal static (int? Watts, bool Paired) ResolveTarget(PerformanceConfig global,

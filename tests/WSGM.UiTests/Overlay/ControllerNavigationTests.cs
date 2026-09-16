@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
@@ -24,8 +25,8 @@ public sealed class ControllerNavigationTests
                 Visible = false,
                 Capabilities = [],
                 Controller = null,
-                PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSections.IncludePredefined([])),
-            },
+                PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSections.IncludePredefined([]))
+            }
         };
         using UiFixture fixture = new();
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
@@ -51,10 +52,10 @@ public sealed class ControllerNavigationTests
         var glyphs = window.GetVisualDescendants().OfType<ComboBox>()
             .Single(choice => choice.IsEffectivelyVisible && Equals(choice.Tag, "device.glyph-selection"));
         UiFixture.Click(window, glyphs);
-        UiFixture.Key(window, Avalonia.Input.Key.Down);
-        UiFixture.Key(window, Avalonia.Input.Key.Enter);
+        UiFixture.Key(window, Key.Down);
+        UiFixture.Key(window, Key.Enter);
         Assert.Equal(DeviceGlyphSelection.NativeSteam, requested);
-        UiFixture.Key(window, Avalonia.Input.Key.Escape);
+        UiFixture.Key(window, Key.Escape);
         Assert.Contains(window.GetVisualDescendants().OfType<CardButton>(),
             card => card.IsEffectivelyVisible && card.Title == "Controller");
     }

@@ -32,7 +32,7 @@ internal sealed class RotatingFileLog(
             lock (_gate)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                for (int attempt = 0; ; attempt++)
+                for (var attempt = 0; ; attempt++)
                 {
                     try
                     {
@@ -62,9 +62,9 @@ internal sealed class RotatingFileLog(
                 return;
             }
 
-            for (int index = archiveSuffixes.Length - 1; index >= 0; index--)
+            for (var index = archiveSuffixes.Length - 1; index >= 0; index--)
             {
-                string source = index == 0 ? path : path + archiveSuffixes[index - 1];
+                var source = index == 0 ? path : path + archiveSuffixes[index - 1];
                 if (File.Exists(source))
                 {
                     File.Move(source, path + archiveSuffixes[index], overwrite: true);

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using WSGM.Core;
+using WSGM.Overlay;
 
 namespace WSGM.Tests;
 
@@ -197,7 +198,7 @@ public sealed class TrayProtocolTests
             TrayProtocol.NimModify, uid: 2, flags: TrayProtocol.NifState,
             state: TrayProtocol.NisHidden, stateMask: TrayProtocol.NisHidden)), out _);
 
-        var vm = new WSGM.Overlay.AppSwitcherViewModel();
+        var vm = new AppSwitcherViewModel();
         vm.ReconcileTray(table.Icons);
         var tile = Assert.Single(vm.TrayIcons);
         Assert.Same(visible, tile.Icon);

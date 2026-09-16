@@ -52,7 +52,7 @@ public sealed class ClawCapabilitiesTests
     [Fact]
     public void Encode_Lighting_ReplicatesThreeLogicalZonesAcrossNineProtocolIndices()
     {
-        byte[] payload = ClawA2VmLightingCapability.Encode(new LightingState(
+        var payload = ClawA2VmLightingCapability.Encode(new LightingState(
             60,
             0x112233,
             0x445566,
@@ -72,17 +72,17 @@ public sealed class ClawCapabilitiesTests
         FakeMcuTransport mcu = new();
         ClawA2VmLightingCapability lighting = new(mcu);
         using CancellationTokenSource cancellation = new();
-        CapabilityCommand command = Command(
+        var command = Command(
             CapabilityIds.LightingBrightness,
             instanceId: null,
             CapabilityValue.Integer(75));
         mcu.AfterNextWrite = cancellation.Cancel;
 
-        CapabilityCommandResult result = await lighting.ApplyAsync(
+        var result = await lighting.ApplyAsync(
             command,
             current => current with { Brightness = 75 },
             cancellation.Token);
-        LightingState restored = await lighting.ReadAsync(CancellationToken.None);
+        var restored = await lighting.ReadAsync(CancellationToken.None);
 
         Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
         Assert.Equal(RollbackResult.RestoredVerified, result.Rollback);
@@ -92,18 +92,18 @@ public sealed class ClawCapabilitiesTests
     [Fact]
     public async Task ApplyLighting_PreservesUnknownProfileBytesAndVerifiesTheWholeReadback()
     {
-        byte[] original = ClawA2VmLightingCapability.Encode(
+        var original = ClawA2VmLightingCapability.Encode(
             new LightingState(50, 0x112233, 0x445566, 0x778899));
         original[0] = 0xA5;
         original[3] = 0x7E;
         FakeMcuTransport mcu = new() { Profile = original };
         ClawA2VmLightingCapability lighting = new(mcu);
-        CapabilityCommand command = Command(
+        var command = Command(
             CapabilityIds.LightingBrightness,
             instanceId: null,
             CapabilityValue.Integer(75));
 
-        CapabilityCommandResult result = await lighting.ApplyAsync(
+        var result = await lighting.ApplyAsync(
             command,
             current => current with { Brightness = 75 },
             CancellationToken.None);
@@ -118,7 +118,7 @@ public sealed class ClawCapabilitiesTests
     [Fact]
     public async Task ApplyLighting_UnknownByteReadbackMismatch_RestoresExactRawProfile()
     {
-        byte[] original = ClawA2VmLightingCapability.Encode(
+        var original = ClawA2VmLightingCapability.Encode(
             new LightingState(50, 0x112233, 0x445566, 0x778899));
         original[0] = 0xA5;
         original[3] = 0x7E;
@@ -129,15 +129,15 @@ public sealed class ClawCapabilitiesTests
             {
                 payload[0] ^= 0xFF;
                 return payload;
-            },
+            }
         };
         ClawA2VmLightingCapability lighting = new(mcu);
-        CapabilityCommand command = Command(
+        var command = Command(
             CapabilityIds.LightingBrightness,
             instanceId: null,
             CapabilityValue.Integer(75));
 
-        CapabilityCommandResult result = await lighting.ApplyAsync(
+        var result = await lighting.ApplyAsync(
             command,
             current => current with { Brightness = 75 },
             CancellationToken.None);
@@ -159,12 +159,12 @@ public sealed class ClawCapabilitiesTests
     {
         FakeWmiTransport wmi = new();
         ClawA2VmChargeLimitCapability chargeLimit = new(wmi);
-        CapabilityCommand command = Command(
+        var command = Command(
             CapabilityIds.ChargeLimit,
             instanceId: null,
             CapabilityValue.Integer(percent));
 
-        CapabilityCommandResult result = await chargeLimit.ApplyAsync(
+        var result = await chargeLimit.ApplyAsync(
             command,
             percent,
             CancellationToken.None);
@@ -179,7 +179,7 @@ public sealed class ClawCapabilitiesTests
     {
         FakeWmiTransport wmi = new();
         ClawA2VmFanCapability fan = new(wmi);
-        CapabilityCommand command = Command(
+        var command = Command(
             CapabilityIds.FanCurve,
             instanceId: null,
             CapabilityValue.Curve(
@@ -189,19 +189,19 @@ public sealed class ClawCapabilitiesTests
                 new CurvePoint(60, 50),
                 new CurvePoint(70, 60),
                 new CurvePoint(80, 70),
-                new CurvePoint(90, 80),
+                new CurvePoint(90, 80)
             ]));
 
-        CapabilityCommandResult result = await fan.ApplyCurveAsync(
+        var result = await fan.ApplyCurveAsync(
             command,
             command.RequestedValue!.CurveValue,
             CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
-        byte[] dutyWrite = Assert.Single(
+        var dutyWrite = Assert.Single(
             wmi.Writes,
             write => write.Method == "Set_Fan" && write.Package[0] == 1).Package;
-        byte[] temperatureWrite = Assert.Single(
+        var temperatureWrite = Assert.Single(
             wmi.Writes,
             write => write.Method == "Set_Temperature" && write.Package[0] == 1).Package;
         Assert.Equal([0, 40, 50, 60, 70, 80], dutyWrite[2..8]);
@@ -220,7 +220,7 @@ public sealed class ClawCapabilitiesTests
     {
         FakeWmiTransport wmi = new();
         ClawA2VmFanCapability fan = new(wmi);
-        CapabilityCommand command = Command(
+        var command = Command(
             CapabilityIds.FanCurve,
             instanceId: null,
             CapabilityValue.Curve(
@@ -230,10 +230,10 @@ public sealed class ClawCapabilitiesTests
                 new CurvePoint(60, 50),
                 new CurvePoint(70, 60),
                 new CurvePoint(80, 70),
-                new CurvePoint(90, 80),
+                new CurvePoint(90, 80)
             ]));
 
-        CapabilityCommandResult result = await fan.ApplyCurveAsync(
+        var result = await fan.ApplyCurveAsync(
             command,
             command.RequestedValue!.CurveValue,
             CancellationToken.None);
@@ -244,12 +244,12 @@ public sealed class ClawCapabilitiesTests
         // data this write preserves per channel, and the two channels do not hold the same values
         // there — copying one channel's spare bytes onto the other is exactly the bug the
         // preserve-unknown-bytes test above exists to prevent.
-        byte[] leftDuty = ChannelWrite(wmi, "Set_Fan", channel: 1);
-        byte[] rightDuty = ChannelWrite(wmi, "Set_Fan", channel: 2);
+        var leftDuty = ChannelWrite(wmi, "Set_Fan", channel: 1);
+        var rightDuty = ChannelWrite(wmi, "Set_Fan", channel: 2);
         Assert.Equal(leftDuty[2..8], rightDuty[2..8]);
 
-        byte[] leftTemperature = ChannelWrite(wmi, "Set_Temperature", channel: 1);
-        byte[] rightTemperature = ChannelWrite(wmi, "Set_Temperature", channel: 2);
+        var leftTemperature = ChannelWrite(wmi, "Set_Temperature", channel: 1);
+        var rightTemperature = ChannelWrite(wmi, "Set_Temperature", channel: 2);
         Assert.Equal(leftTemperature[1], rightTemperature[1]);
         Assert.Equal(leftTemperature[4..9], rightTemperature[4..9]);
     }
@@ -329,7 +329,7 @@ public sealed class ClawCapabilitiesTests
         wmi.SetResponse("Get_Data", address, new byte[length]);
         ClawA2VmPowerCapability power = new(wmi);
 
-        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
             () => power.ReadAsync(CancellationToken.None).AsTask());
 
         Assert.Contains("truncated", failure.Message);
@@ -371,10 +371,10 @@ public sealed class ClawCapabilitiesTests
             CapabilityId = CapabilityIds.FanMode,
             ExpectedDescriptorGeneration = 1,
             ExpectedCycleGeneration = 1,
-            Deadline = DateTimeOffset.UtcNow.AddSeconds(2),
+            Deadline = DateTimeOffset.UtcNow.AddSeconds(2)
         };
 
-        CapabilityCommandResult result = await fan.ApplyModeAsync(command, "unknown", CancellationToken.None);
+        var result = await fan.ApplyModeAsync(command, "unknown", CancellationToken.None);
 
         Assert.Equal(command.CommandId, result.CommandId);
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);

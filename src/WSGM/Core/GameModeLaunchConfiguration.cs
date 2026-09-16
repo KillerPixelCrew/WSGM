@@ -11,7 +11,7 @@ public enum GameModeLaunchKind
     /// <summary>Start on the display Windows already calls primary, adjusting scaling only.</summary>
     Default,
     /// <summary>Apply a saved layout, optionally after waiting for a display and running actions.</summary>
-    Custom,
+    Custom
 }
 
 /// <summary>What the desktop returns to when Game Mode ends.</summary>
@@ -20,7 +20,7 @@ public enum GameModeReturn
     /// <summary>Whatever was on screen when Game Mode was entered.</summary>
     EntryArrangement,
     /// <summary>A saved desktop layout, regardless of what entry found.</summary>
-    DesktopLayout,
+    DesktopLayout
 }
 
 /// <summary>One plugin action in a session automation list.</summary>

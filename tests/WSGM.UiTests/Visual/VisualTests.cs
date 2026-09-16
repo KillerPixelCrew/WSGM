@@ -26,7 +26,7 @@ public sealed class VisualTests
         using UiFixture fixture = new();
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()), _ => throw new InvalidOperationException("Unexpected power write"));
         await schemes.RefreshAsync();
-        OverlayWindow window = fixture.Overlay(width, height);
+        var window = fixture.Overlay(width, height);
         // The category menus each destination root now shows. No power schemes and no device
         // bridge, so the Device tab stays hidden and these are the tab indexes without it.
         if (page is "steam" or "tools" or "power")
@@ -35,7 +35,7 @@ public sealed class VisualTests
             {
                 "steam" => 1,
                 "tools" => 2,
-                _ => 3,
+                _ => 3
             }));
         }
         else if (page != "quick-access")

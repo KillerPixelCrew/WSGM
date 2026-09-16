@@ -9,7 +9,7 @@ public sealed class SdkManifestTests
     [Fact]
     public void Read_ExactSixFieldManifest_UsesTheOneRuntimeApi()
     {
-        PluginManifestReadResult result = PluginManifestReader.Read(PluginManifestFixture.Serialize(PluginManifestFixture.Manifest()));
+        var result = PluginManifestReader.Read(PluginManifestFixture.Serialize(PluginManifestFixture.Manifest()));
 
         Assert.True(result.IsValid, Describe(result));
         Assert.Equal(DeviceApi.Version, result.Manifest!.ApiVersion);
@@ -19,11 +19,11 @@ public sealed class SdkManifestTests
     [Fact]
     public void Read_UnknownRetiredField_IsRejectedInsteadOfBecomingCompatibilitySurface()
     {
-        string json = Encoding.UTF8.GetString(PluginManifestFixture.Serialize(PluginManifestFixture.Manifest()));
-        byte[] withRetiredField = Encoding.UTF8.GetBytes(
+        var json = Encoding.UTF8.GetString(PluginManifestFixture.Serialize(PluginManifestFixture.Manifest()));
+        var withRetiredField = Encoding.UTF8.GetBytes(
             json[..^1] + ",\"schemaVersion\":1}");
 
-        PluginManifestReadResult result = PluginManifestReader.Read(withRetiredField);
+        var result = PluginManifestReader.Read(withRetiredField);
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.MalformedDocument);
@@ -32,13 +32,13 @@ public sealed class SdkManifestTests
     [Fact]
     public void Read_DifferentApiAndTraversalAssembly_ReportBothFailures()
     {
-        PluginManifest manifest = PluginManifestFixture.Manifest() with
+        var manifest = PluginManifestFixture.Manifest() with
         {
             ApiVersion = DeviceApi.Version + 1,
-            EntryAssembly = "../Synthetic.Dock.dll",
+            EntryAssembly = "../Synthetic.Dock.dll"
         };
 
-        PluginManifestReadResult result = PluginManifestReader.Read(PluginManifestFixture.Serialize(manifest));
+        var result = PluginManifestReader.Read(PluginManifestFixture.Serialize(manifest));
 
         Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.InvalidApiVersion);
         Assert.Contains(result.Errors, error => error.Code is ManifestValidationCode.UnsafePath);

@@ -44,7 +44,7 @@ internal sealed class ClawOemButtonLatch
     {
         lock (_gate)
         {
-            DateTimeOffset until = now + HoldDuration;
+            var until = now + HoldDuration;
             if ((button & CanonicalButtons.Guide) != 0)
             {
                 _guideUntil = until;
@@ -64,7 +64,7 @@ internal sealed class ClawOemButtonLatch
     {
         lock (_gate)
         {
-            CanonicalButtons held = CanonicalButtons.None;
+            var held = CanonicalButtons.None;
             held |= now < _guideUntil ? CanonicalButtons.Guide : CanonicalButtons.None;
             held |= now < _quickAccessUntil ? CanonicalButtons.QuickAccess : CanonicalButtons.None;
             return held;
@@ -87,7 +87,7 @@ internal static class ClawControllerCodec
             throw new ArgumentException("The A2VM DirectInput source requires a 64-byte report 0x01.", nameof(report));
         }
 
-        CanonicalButtons buttons = CanonicalButtons.None;
+        var buttons = CanonicalButtons.None;
         buttons |= IsSet(report[5], 4) ? CanonicalButtons.X : 0;
         buttons |= IsSet(report[5], 5) ? CanonicalButtons.A : 0;
         buttons |= IsSet(report[5], 6) ? CanonicalButtons.B : 0;
@@ -120,7 +120,7 @@ internal static class ClawControllerCodec
             RightStickY = -Axis(report[4]),
             LeftTrigger = report[8] / 255f,
             RightTrigger = report[9] / 255f,
-            Quality = quality,
+            Quality = quality
         };
     }
 
@@ -133,7 +133,7 @@ internal static class ClawControllerCodec
                 "The Claw rumble payload needs at least 11 bytes.");
         }
 
-        byte[] report = new byte[reportLength];
+        var report = new byte[reportLength];
         report[0] = 0x05;
         report[1] = 0x01;
         report[4] = weak;
@@ -155,7 +155,7 @@ internal static class ClawControllerCodec
         5 => CanonicalButtons.DPadDown | CanonicalButtons.DPadLeft,
         6 => CanonicalButtons.DPadLeft,
         7 => CanonicalButtons.DPadLeft | CanonicalButtons.DPadUp,
-        _ => CanonicalButtons.None,
+        _ => CanonicalButtons.None
     };
 }
 
@@ -329,7 +329,7 @@ internal sealed class FirmwareChordStateMachine
             return default;
         }
 
-        bool hadDown = targetDown;
+        var hadDown = targetDown;
         targetDown = false;
         if (hadDown
             || (!_leftWindowsDown && !_rightWindowsDown)
@@ -385,7 +385,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             _thread = new Thread(() => RunHook(started))
             {
                 IsBackground = true,
-                Name = "WSGM Claw firmware chord suppressor",
+                Name = "WSGM Claw firmware chord suppressor"
             };
             _thread.Start();
         }
@@ -431,7 +431,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             _ = NativeKeyboard.PostThreadMessage(threadId, NativeKeyboard.WM_QUIT, 0, 0);
         }
 
-        bool joined = await Task.Run(() => thread.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
+        var joined = await Task.Run(() => thread.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
             .WaitAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!joined)
@@ -472,10 +472,10 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         started.TrySetResult(true);
         try
         {
-            int messageResult = 0;
+            var messageResult = 0;
             while (Volatile.Read(ref _stopping) == 0
                 && (messageResult = NativeKeyboard.GetMessage(
-                       out NativeKeyboard.Message message,
+                       out var message,
                        0,
                        0,
                        0)) > 0)
@@ -511,16 +511,16 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
         }
 
-        NativeKeyboard.KeyboardHookData keyboard = Marshal.PtrToStructure<NativeKeyboard.KeyboardHookData>(data);
-        bool keyDown = message is NativeKeyboard.WM_KEYDOWN or NativeKeyboard.WM_SYSKEYDOWN;
-        bool keyUp = message is NativeKeyboard.WM_KEYUP or NativeKeyboard.WM_SYSKEYUP;
+        var keyboard = Marshal.PtrToStructure<NativeKeyboard.KeyboardHookData>(data);
+        var keyDown = message is NativeKeyboard.WM_KEYDOWN or NativeKeyboard.WM_SYSKEYDOWN;
+        var keyUp = message is NativeKeyboard.WM_KEYUP or NativeKeyboard.WM_SYSKEYUP;
         if (!keyDown && !keyUp)
         {
             return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
         }
 
-        bool injected = (keyboard.Flags & NativeKeyboard.LLKHF_INJECTED) != 0
-            || keyboard.ExtraInfo == Marker;
+        var injected = (keyboard.Flags & NativeKeyboard.LLKHF_INJECTED) != 0
+                       || keyboard.ExtraInfo == Marker;
         if (!injected && keyUp
             && keyboard.VirtualKey is NativeKeyboard.VK_G or NativeKeyboard.VK_TAB)
         {
@@ -530,7 +530,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
                 NativeKeyboard.IsKeyDown(NativeKeyboard.VK_SHIFT));
         }
 
-        ChordDecision decision = _state.Observe(keyboard.VirtualKey, keyDown, injected);
+        var decision = _state.Observe(keyboard.VirtualKey, keyDown, injected);
         if (!decision.Suppress)
         {
             return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
@@ -541,11 +541,11 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             return 1;
         }
 
-        int count = 0;
+        var count = 0;
         _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, keyUp: false, Marker);
         _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, keyUp: true, Marker);
-        int leftIndex = -1;
-        int rightIndex = -1;
+        var leftIndex = -1;
+        var rightIndex = -1;
         if (decision.ReleaseLeftWindows)
         {
             leftIndex = count;
@@ -558,15 +558,15 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_RWIN, keyUp: true, Marker);
         }
 
-        uint sent = NativeKeyboard.SendInput(checked((uint)count), _batch, Marshal.SizeOf<NativeKeyboard.Input>());
+        var sent = NativeKeyboard.SendInput(checked((uint)count), _batch, Marshal.SizeOf<NativeKeyboard.Input>());
         if (sent == 1)
         {
             _cleanup[0] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, keyUp: true, Marker);
             _ = NativeKeyboard.SendInput(1, _cleanup, Marshal.SizeOf<NativeKeyboard.Input>());
         }
 
-        bool leftReleased = leftIndex >= 0 && sent > leftIndex;
-        bool rightReleased = rightIndex >= 0 && sent > rightIndex;
+        var leftReleased = leftIndex >= 0 && sent > leftIndex;
+        var rightReleased = rightIndex >= 0 && sent > rightIndex;
         _state.CommitSyntheticReleases(leftReleased, rightReleased);
         return leftReleased || rightReleased
             ? 1
@@ -690,9 +690,9 @@ internal static partial class NativeKeyboard
                 VirtualKey = checked((ushort)virtualKey),
                 Flags = (keyUp ? KEYEVENTF_KEYUP : 0)
                     | (virtualKey is VK_LWIN or VK_RWIN ? KEYEVENTF_EXTENDEDKEY : 0),
-                ExtraInfo = extraInfo,
-            },
-        },
+                ExtraInfo = extraInfo
+            }
+        }
     };
 
     [DllImport("user32.dll", SetLastError = true)]

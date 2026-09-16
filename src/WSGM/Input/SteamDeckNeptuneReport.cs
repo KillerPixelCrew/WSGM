@@ -84,7 +84,7 @@ internal static class SteamDeckNeptuneReport
         // Byte 0 non-zero tells the decoder the frame carries its own counter. VIIPER stamps the
         // header and the packet number itself when it re-emits, so WSGM leaves the counter alone
         // rather than inventing a sequence the device would then contradict.
-        CanonicalButtons buttons = sample.Buttons;
+        var buttons = sample.Buttons;
         destination[8] = (byte)(Mask(buttons, CanonicalButtons.A, Byte8A)
             | Mask(buttons, CanonicalButtons.X, Byte8X)
             | Mask(buttons, CanonicalButtons.B, Byte8B)

@@ -24,11 +24,11 @@ public sealed class DeviceIntegrationOffTests
         // The child preference is deliberately remembered rather than erased, so it has to be the
         // master that decides — otherwise turning integration off would leave WSGM still creating a
         // virtual controller and hiding the physical one.
-        ControllerSelection selection = ControllerSelection.From(new DeviceIntegrationConfig
+        var selection = ControllerSelection.From(new DeviceIntegrationConfig
         {
             Enabled = false,
             ControllerManagementEnabled = true,
-            ControllerTarget = ManagedControllerTarget.SteamDeckComposite,
+            ControllerTarget = ManagedControllerTarget.SteamDeckComposite
         });
 
         Assert.False(selection.Enabled);
@@ -42,7 +42,7 @@ public sealed class DeviceIntegrationOffTests
         DeviceIntegrationConfig config = new()
         {
             Enabled = false,
-            ControllerManagementEnabled = true,
+            ControllerManagementEnabled = true
         };
 
         Assert.True(config.ControllerManagementEnabled);
@@ -52,10 +52,10 @@ public sealed class DeviceIntegrationOffTests
     [Fact]
     public void ADisabledSelectionCarriesNoTargetForAnythingToCreate()
     {
-        ControllerSelection selection = ControllerSelection.From(new DeviceIntegrationConfig
+        var selection = ControllerSelection.From(new DeviceIntegrationConfig
         {
             Enabled = false,
-            ControllerManagementEnabled = true,
+            ControllerManagementEnabled = true
         });
 
         // Nothing downstream may read a target out of a disabled selection and act on it.
@@ -114,7 +114,7 @@ public sealed class DeviceIntegrationOffTests
         DeviceIntegrationConfig config = new()
         {
             Enabled = integrationEnabled,
-            AutoTdpEnabled = autoTdpEnabled,
+            AutoTdpEnabled = autoTdpEnabled
         };
 
         Assert.Equal(expected, ShellSession.ShouldRunAutoTdp(config));
@@ -123,7 +123,7 @@ public sealed class DeviceIntegrationOffTests
     [Fact]
     public void OldConfigurationDefaultsToDeviceIntegrationDisabled()
     {
-        AppConfig config = ConfigStore.Normalize(new AppConfig { DeviceIntegration = null! });
+        var config = ConfigStore.Normalize(new AppConfig { DeviceIntegration = null! });
 
         Assert.False(config.DeviceIntegration.Enabled);
         Assert.Equal(ManagedControllerTarget.SteamDeckComposite,
@@ -133,13 +133,13 @@ public sealed class DeviceIntegrationOffTests
     [Fact]
     public void DisablingTheMasterDoesNotEraseTheControllerPreference()
     {
-        AppConfig config = ConfigStore.Normalize(new AppConfig
+        var config = ConfigStore.Normalize(new AppConfig
         {
             DeviceIntegration = new DeviceIntegrationConfig
             {
                 Enabled = false,
-                ControllerManagementEnabled = true,
-            },
+                ControllerManagementEnabled = true
+            }
         });
 
         Assert.False(config.DeviceIntegration.Enabled);

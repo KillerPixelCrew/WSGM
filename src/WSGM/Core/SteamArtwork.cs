@@ -129,7 +129,7 @@ public static class SteamArtwork
                 ArtworkAsset.Hero => id + "_hero",
                 ArtworkAsset.Logo => id + "_logo",
                 ArtworkAsset.Icon => id + "_icon",
-                _ => id,
+                _ => id
             };
             string? newest = null;
             var newestTime = DateTime.MinValue;

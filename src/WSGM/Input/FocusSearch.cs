@@ -27,7 +27,7 @@ internal static class FocusSearch
     internal static T? First<T>(Visual root, Func<T, bool> match)
         where T : Visual
     {
-        foreach (Visual visual in root.GetVisualDescendants())
+        foreach (var visual in root.GetVisualDescendants())
         {
             if (visual is T candidate && match(candidate))
             {

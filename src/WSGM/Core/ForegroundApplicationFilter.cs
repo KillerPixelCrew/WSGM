@@ -13,7 +13,7 @@ public enum ForegroundApplicationKind
     /// Shell furniture, a system dialog, or WSGM itself: the foreground changed, but what the user
     /// is <em>doing</em> did not.
     /// </summary>
-    Restricted,
+    Restricted
 }
 
 /// <summary>
@@ -98,7 +98,7 @@ public static class ForegroundApplicationFilter
         "ctfmon.exe",
         "fontdrvhost.exe",
         "csrss.exe",
-        "winlogon.exe",
+        "winlogon.exe"
     };
 
     /// <summary>

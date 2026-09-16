@@ -19,7 +19,7 @@ internal sealed record DeviceLabGuiOperationState
     public DeviceLabGuiOperationState Started() => this with
     {
         StatusText = "Working…",
-        IsRunning = true,
+        IsRunning = true
     };
 
     /// <summary>Publishes a successful immutable result.</summary>
@@ -27,20 +27,20 @@ internal sealed record DeviceLabGuiOperationState
     {
         LastSuccessfulResult = result,
         StatusText = "Completed successfully.",
-        IsRunning = false,
+        IsRunning = false
     };
 
     /// <summary>Reports cancellation without replacing the last successful result.</summary>
     public DeviceLabGuiOperationState Cancelled() => this with
     {
         StatusText = "Operation cancelled.",
-        IsRunning = false,
+        IsRunning = false
     };
 
     /// <summary>Reports failure without replacing the last successful result.</summary>
     public DeviceLabGuiOperationState Failed(string message) => this with
     {
         StatusText = $"Operation failed: {message}",
-        IsRunning = false,
+        IsRunning = false
     };
 }

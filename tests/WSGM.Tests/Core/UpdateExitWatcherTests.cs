@@ -41,7 +41,7 @@ public sealed class UpdateExitWatcherTests
         string[] variants =
         [
             UpdateExitWatcher.BuildEventSddl(UserSid),
-            UpdateExitWatcher.BuildEventSddl(null),
+            UpdateExitWatcher.BuildEventSddl(null)
         ];
         foreach (var sddl in variants)
         {

@@ -25,14 +25,14 @@ internal static class SteamCustomLaunchCommand
 
         return extension switch
         {
-            ".exe" => new($"{selected}{suffix} %command%", selected, arguments),
+            ".exe" => new SteamCustomLaunchFields($"{selected}{suffix} %command%", selected, arguments),
             ".cmd" or ".bat" => BuildScript(
                 Quote(commandProcessor ?? ResolveCommandProcessor()),
                 $"/d /s /c call {selected}{suffix}"),
             ".ps1" => BuildScript(
                 Quote(powerShell ?? ResolvePowerShell()),
                 $"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {selected}{suffix}"),
-            _ => throw new ArgumentException("Select an EXE, CMD, BAT, or PS1 file.", nameof(path)),
+            _ => throw new ArgumentException("Select an EXE, CMD, BAT, or PS1 file.", nameof(path))
         };
     }
 

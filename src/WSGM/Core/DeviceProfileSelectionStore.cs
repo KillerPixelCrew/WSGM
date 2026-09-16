@@ -11,7 +11,7 @@ public enum DeviceProfileScope
     Global,
 
     /// <summary>Only the application that is running now.</summary>
-    Application,
+    Application
 }
 
 /// <summary>Which authored profile is in force, and where the choice came from.</summary>
@@ -54,7 +54,7 @@ public static class DeviceProfileSelectionStore
     {
         ArgumentNullException.ThrowIfNull(scope);
         applicationScoped = false;
-        DeviceProfileSelection? selection = Find(scope.ProfileSelections, capabilityId);
+        var selection = Find(scope.ProfileSelections, capabilityId);
         return selection is null
             ? null
             : ReadSelection(selection, applicationId, out applicationScoped);
@@ -83,13 +83,13 @@ public static class DeviceProfileSelectionStore
         ArgumentNullException.ThrowIfNull(selections);
         ArgumentNullException.ThrowIfNull(profiles);
 
-        DeviceProfileSelection? selection = Find(selections, capabilityId);
+        var selection = Find(selections, capabilityId);
         if (selection is null)
         {
             return new DeviceProfileResolution(null, false, null);
         }
 
-        string? profileId = ReadSelection(selection, applicationId, out bool applicationScoped);
+        var profileId = ReadSelection(selection, applicationId, out var applicationScoped);
         if (applicationScoped)
         {
             return Find(profiles, profileId!, applicationScoped: true, applicationId);
@@ -138,7 +138,7 @@ public static class DeviceProfileSelectionStore
             return false;
         }
 
-        DeviceProfileSelection? selection = Find(scope.ProfileSelections, capabilityId);
+        var selection = Find(scope.ProfileSelections, capabilityId);
         if (selection is null)
         {
             if (profileId is null)
@@ -161,8 +161,8 @@ public static class DeviceProfileSelectionStore
             return true;
         }
 
-        List<DeviceApplicationProfileSelection> overrides = selection.ApplicationOverrides;
-        DeviceApplicationProfileSelection? existing = overrides.FirstOrDefault(entry =>
+        var overrides = selection.ApplicationOverrides;
+        var existing = overrides.FirstOrDefault(entry =>
             string.Equals(entry.ApplicationId, applicationId, StringComparison.Ordinal));
 
         if (profileId is null)
@@ -184,7 +184,7 @@ public static class DeviceProfileSelectionStore
         overrides.Add(new DeviceApplicationProfileSelection
         {
             ApplicationId = applicationId!,
-            ProfileId = profileId,
+            ProfileId = profileId
         });
         return true;
     }
@@ -197,7 +197,7 @@ public static class DeviceProfileSelectionStore
         applicationScoped = false;
         if (applicationId is { Length: > 0 })
         {
-            DeviceApplicationProfileSelection? overridden = selection.ApplicationOverrides
+            var overridden = selection.ApplicationOverrides
                 .FirstOrDefault(entry => string.Equals(
                     entry.ApplicationId,
                     applicationId,
@@ -224,7 +224,7 @@ public static class DeviceProfileSelectionStore
         bool applicationScoped,
         string? applicationId)
     {
-        DeviceAuthoredProfile? profile = profiles.FirstOrDefault(candidate =>
+        var profile = profiles.FirstOrDefault(candidate =>
             string.Equals(candidate.ProfileId, profileId, StringComparison.Ordinal));
         if (profile is not null)
         {

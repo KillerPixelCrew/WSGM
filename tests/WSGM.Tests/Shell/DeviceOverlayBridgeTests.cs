@@ -30,27 +30,27 @@ public sealed class DeviceOverlayBridgeTests
             Maximum = 37,
             Step = 1,
             Unit = CapabilityUnit.Watt,
-            Persistence = CapabilityPersistence.Volatile,
+            Persistence = CapabilityPersistence.Volatile
         };
         CapabilityState state = new()
         {
             CapabilityId = descriptor.CapabilityId,
             Available = true,
             Quality = HardwareStateQuality.Observed,
-            ObservedValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = observedWatts },
+            ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = observedWatts },
             DescriptorGeneration = 1,
-            CycleGeneration = 1,
+            CycleGeneration = 1
         };
         CapabilityProjection projection = new()
         {
             State = state,
-            DesiredValue = new() { Kind = CapabilityValueKind.Integer, IntegerValue = 31 },
+            DesiredValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 31 },
             PendingValue = pendingWatts is { } pending
-                ? new() { Kind = CapabilityValueKind.Integer, IntegerValue = pending }
-                : null,
+                ? new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = pending }
+                : null
         };
 
-        DeviceOverlayCapability capability = DeviceOverlayBridge.ToOverlayCapability(
+        var capability = DeviceOverlayBridge.ToOverlayCapability(
             new DeviceCapabilityView(descriptor, projection, LastResult: null),
             new HashSet<string>(StringComparer.Ordinal));
 
@@ -63,7 +63,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         using SimulatedDeviceOverlaySource source = new();
 
-        DeviceOverlaySnapshot snapshot = source.Snapshot();
+        var snapshot = source.Snapshot();
 
         Assert.True(snapshot.Visible);
         Assert.Equal(DeviceOverlaySection.PowerAndThermals,
@@ -91,7 +91,7 @@ public sealed class DeviceOverlayBridgeTests
             ValueKind = CapabilityValueKind.None,
             Display = new CapabilityDisplay { Key = DisplayKey.Rumble },
             SupportsAction = true,
-            Persistence = CapabilityPersistence.Volatile,
+            Persistence = CapabilityPersistence.Volatile
         };
         CapabilityState state = new()
         {
@@ -99,10 +99,10 @@ public sealed class DeviceOverlayBridgeTests
             Available = true,
             Quality = HardwareStateQuality.Unknown,
             DescriptorGeneration = 4,
-            CycleGeneration = 3,
+            CycleGeneration = 3
         };
 
-        DeviceOverlayCapability capability = DeviceOverlayBridge.ToOverlayCapability(
+        var capability = DeviceOverlayBridge.ToOverlayCapability(
             new DeviceCapabilityView(
                 descriptor,
                 new CapabilityProjection { State = state },
@@ -119,9 +119,9 @@ public sealed class DeviceOverlayBridgeTests
     public async Task SimulatedDeviceMutationRaisesOneSharedChangeAndUpdatesReadback()
     {
         using SimulatedDeviceOverlaySource source = new();
-        int changes = 0;
+        var changes = 0;
         source.Changed += () => changes++;
-        DeviceOverlayCapability tdp = source.Snapshot().Capabilities.Single(
+        var tdp = source.Snapshot().Capabilities.Single(
             capability => capability.CapabilityId == "preview.power.tdp");
 
         await source.InvokeAsync(tdp);
@@ -135,13 +135,13 @@ public sealed class DeviceOverlayBridgeTests
     public async Task SimulatedGlyphSelectionUsesItsDedicatedCommandPath()
     {
         using SimulatedDeviceOverlaySource source = new();
-        int changes = 0;
+        var changes = 0;
         source.Changed += () => changes++;
 
-        DescriptorRow before = Assert.IsType<DescriptorRow>(
+        var before = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
-        await source.SetPhysicalGlyphSelectionAsync(WSGM.Core.DeviceGlyphSelection.NativeSteam);
-        DescriptorRow after = Assert.IsType<DescriptorRow>(
+        await source.SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection.NativeSteam);
+        var after = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
 
         Assert.Equal("AUTO", before.TrailingText);
@@ -154,7 +154,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         using SimulatedDeviceOverlaySource source = new();
 
-        DeviceOverlaySnapshot snapshot = source.Snapshot();
+        var snapshot = source.Snapshot();
 
         Assert.Equal(
             ["power", "cooling", "rgb"],
@@ -172,10 +172,10 @@ public sealed class DeviceOverlayBridgeTests
     public async Task SimulatedColorAndBrightnessAcceptStagedValues()
     {
         using SimulatedDeviceOverlaySource source = new();
-        DeviceOverlaySnapshot snapshot = source.Snapshot();
-        DeviceOverlayCapability rings = snapshot.Capabilities.Single(
+        var snapshot = source.Snapshot();
+        var rings = snapshot.Capabilities.Single(
             capability => capability.CapabilityId == "preview.lighting.rings");
-        DeviceOverlayCapability brightness = snapshot.Capabilities.Single(
+        var brightness = snapshot.Capabilities.Single(
             capability => capability.CapabilityId == "preview.lighting.brightness");
 
         await source.InvokeAsync(rings with
@@ -183,19 +183,19 @@ public sealed class DeviceOverlayBridgeTests
             NextValue = new CapabilityValue
             {
                 Kind = CapabilityValueKind.Color,
-                ColorValue = 0x123456,
-            },
+                ColorValue = 0x123456
+            }
         });
         await source.InvokeAsync(brightness with
         {
             NextValue = new CapabilityValue
             {
                 Kind = CapabilityValueKind.Integer,
-                IntegerValue = 55,
-            },
+                IntegerValue = 55
+            }
         });
 
-        DeviceOverlaySnapshot after = source.Snapshot();
+        var after = source.Snapshot();
         Assert.Equal("#123456", after.Capabilities.Single(
             capability => capability.CapabilityId == "preview.lighting.rings").TrailingText);
         Assert.Equal("55%", after.Capabilities.Single(
@@ -220,7 +220,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AnActiveTargetIsNamedInTheRowRatherThanOnlyMarkedOn()
     {
-        DescriptorRow? row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceOverlayBridge.ControllerView(
             enabled: true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite));
 
@@ -234,7 +234,7 @@ public sealed class DeviceOverlayBridgeTests
     public void ARunningGameIsToldTheChangeWillNotReachIt()
     {
         // A game holds the target it launched with. Without saying so, the control looks broken.
-        DescriptorRow? row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceOverlayBridge.ControllerView(
             enabled: true,
             Status(
                 ControllerManagementState.Active,
@@ -248,7 +248,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AnUnavailableBackendCannotBeCycledIntoAnotherBrokenTarget()
     {
-        DescriptorRow? row = DeviceOverlayBridge.ControllerView(
+        var row = DeviceOverlayBridge.ControllerView(
             enabled: true,
             Status(
                 ControllerManagementState.Unavailable,
@@ -302,7 +302,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AnAvailableRetryIsOfferedAndCarriesTheCycleState()
     {
-        DescriptorRow? row = DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted);
+        var row = DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted);
 
         Assert.NotNull(row);
         Assert.Equal("READY", row.TrailingText);
@@ -328,7 +328,7 @@ public sealed class DeviceOverlayBridgeTests
                 Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360)),
             Recovery: null);
 
-        DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
+        var entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot),
             candidate => candidate.PluginSectionId == "controller");
 
         Assert.Equal(DeviceOverlaySection.ControllerAndMotion, entry.Section);
@@ -361,7 +361,7 @@ public sealed class DeviceOverlayBridgeTests
             {
                 DeviceOverlaySection.PowerAndThermals,
                 DeviceOverlaySection.ControllerAndMotion,
-                DeviceOverlaySection.Diagnostics,
+                DeviceOverlaySection.Diagnostics
             },
             DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section).ToArray());
     }
@@ -371,7 +371,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // Unlike recovery, this row is always present: profiles are a feature a user has to find
         // before they can use it, and an absent row would read as the feature being missing.
-        DescriptorRow row = DeviceOverlayBridge.ProfileView([], selected: null);
+        var row = DeviceOverlayBridge.ProfileView([], selected: null);
 
         Assert.False(row.CanInvoke);
         Assert.Equal("NONE", row.TrailingText);
@@ -381,7 +381,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void ASelectedProfileIsNamedAndMarkedActive()
     {
-        DescriptorRow row = DeviceOverlayBridge.ProfileView(["docked", "handheld"], "handheld");
+        var row = DeviceOverlayBridge.ProfileView(["docked", "handheld"], "handheld");
 
         Assert.Equal("HANDHELD", row.TrailingText);
         Assert.Equal(DescriptorStatus.Available, row.Status);
@@ -393,7 +393,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // Which is what it now behaves as: the resolver finds no value under that name and falls
         // through to the power and global layers. Showing the stale name would claim otherwise.
-        DescriptorRow row = DeviceOverlayBridge.ProfileView(["docked"], "deleted");
+        var row = DeviceOverlayBridge.ProfileView(["docked"], "deleted");
 
         Assert.Equal("NONE", row.TrailingText);
         Assert.Equal(DescriptorStatus.None, row.Status);
@@ -428,7 +428,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         ProfileId = id,
         Name = name,
-        CapabilityId = "thermal.fan-curve",
+        CapabilityId = "thermal.fan-curve"
     };
 
     [Fact]
@@ -443,7 +443,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AProfileChosenForEverythingSaysSo()
     {
-        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet"), Profile("loud", "Loud")],
             "quiet",
             applicationScoped: false);
@@ -457,7 +457,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // The same word with very different consequences: this is the difference the user opens the
         // row to check mid-game.
-        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             applicationScoped: true);
@@ -468,7 +468,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void NothingChosenReadsAsNoneRatherThanEmpty()
     {
-        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             null,
             applicationScoped: false);
@@ -482,7 +482,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // None is a state the user chose; this is not, and showing them identically hides a
         // selection that has silently stopped working.
-        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
             applicationScoped: true);
@@ -494,7 +494,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void TheRowOffersACycleOnceThereIsSomethingToCycleTo()
     {
-        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             applicationScoped: false);
@@ -507,7 +507,7 @@ public sealed class DeviceOverlayBridgeTests
     {
         // Pressing it moves to a profile that does exist, which is the fastest way out of the state
         // for someone mid-game.
-        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
+        var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
             applicationScoped: false);
@@ -528,7 +528,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void SwitchedOffReadsAsOffAndStaysToggleable()
     {
-        DescriptorRow row = DeviceOverlayBridge.AutoTdpView(enabled: false, status: null);
+        var row = DeviceOverlayBridge.AutoTdpView(enabled: false, status: null);
 
         Assert.Equal("OFF", row.TrailingText);
         Assert.Equal(DescriptorStatus.None, row.Status);
@@ -538,7 +538,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void SwitchedOnBeforeTheServiceReportsAnythingSaysSoRatherThanLookingIdle()
     {
-        DescriptorRow row = DeviceOverlayBridge.AutoTdpView(enabled: true, status: null);
+        var row = DeviceOverlayBridge.AutoTdpView(enabled: true, status: null);
 
         Assert.Equal("ON", row.TrailingText);
         Assert.Contains("Starting", row.Description, StringComparison.Ordinal);
@@ -547,7 +547,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void ControllingShowsTheLimitItSettledOnAndHowFramesAreLanding()
     {
-        DescriptorRow row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceOverlayBridge.AutoTdpView(
             enabled: true,
             new AutoTdpStatus(
                 AutoTdpState.Controlling,
@@ -567,7 +567,7 @@ public sealed class DeviceOverlayBridgeTests
     public void APausedSwitchWarnsRatherThanLookingHealthy()
     {
         // A user who turned AutoTDP on and then moved the slider needs to see that it stopped.
-        DescriptorRow row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceOverlayBridge.AutoTdpView(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Paused, 22, null, null, null, "Paused by a manual change."));
 
@@ -578,7 +578,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void AMissingPrerequisiteReadsAsUnsupportedNotBroken()
     {
-        DescriptorRow row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceOverlayBridge.AutoTdpView(
             enabled: true,
             new AutoTdpStatus(
                 AutoTdpState.Unavailable,
@@ -595,7 +595,7 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void WaitingForAGameIsDistinctFromControllingOne()
     {
-        DescriptorRow row = DeviceOverlayBridge.AutoTdpView(
+        var row = DeviceOverlayBridge.AutoTdpView(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Idle, 15, null, null, null, "No application is rendering."));
 
@@ -610,7 +610,7 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Equal("OFF", source.Snapshot().AutoTdp!.TrailingText);
         await source.ToggleAutoTdpAsync();
 
-        DescriptorRow row = source.Snapshot().AutoTdp!;
+        var row = source.Snapshot().AutoTdp!;
         Assert.Equal("15 W", row.TrailingText);
         Assert.Contains("Preview only", row.Description, StringComparison.Ordinal);
     }
@@ -622,7 +622,7 @@ public sealed class DeviceOverlayBridgeTests
             default, "Sustained", "", "20 W", true)
         {
             Role = CapabilityRole.PowerSustainedLimit,
-            Writable = true,
+            Writable = true
         };
         var boost = primary with { CapabilityId = "boost", Role = CapabilityRole.PowerSlowLimit, TrailingText = "30 W" };
         Assert.Equal("TDP", DeviceOverlayBridge.ProjectManualTdp(primary, true).Title);

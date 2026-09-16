@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,7 +23,7 @@ internal enum LibraryTransition
     Replace,
 
     /// <summary>The card carries a library Steam does not know about; add it.</summary>
-    Add,
+    Add
 }
 
 /// <summary>
@@ -66,9 +67,9 @@ internal sealed class LibraryPolicy
     public async Task EjectingAsync(RemovableDriveEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        foreach (string libraryPath in LibraryPathsOn(entry))
+        foreach (var libraryPath in LibraryPathsOn(entry))
         {
-            string contentId = ReadContentId(libraryPath);
+            var contentId = ReadContentId(libraryPath);
             NoteEjected([libraryPath], contentId);
             if (contentId.Length == 0)
             {
@@ -103,7 +104,7 @@ internal sealed class LibraryPolicy
 
         // Refused. The card is still mounted and still the user's library, so the intent is
         // dropped and the monitor's next pass registers it again.
-        foreach (string libraryPath in LibraryPathsOn(entry))
+        foreach (var libraryPath in LibraryPathsOn(entry))
         {
             ClearEjected(libraryPath);
         }
@@ -116,7 +117,7 @@ internal sealed class LibraryPolicy
     /// <returns>One path per mounted letter, in the layout the card scan uses.</returns>
     private static IReadOnlyList<string> LibraryPathsOn(RemovableDriveEntry entry) =>
         SteamStorageBridge.SplitLetters(entry.Letters)
-            .Select(path => System.IO.Path.Combine(path, "SteamLibrary"))
+            .Select(path => Path.Combine(path, "SteamLibrary"))
             .ToArray();
 
     /// <summary>The library identity at a path, or empty when it carries none.</summary>
@@ -126,7 +127,7 @@ internal sealed class LibraryPolicy
     {
         try
         {
-            return SteamLibraryVdf.TryReadMarker(libraryPath, out string? id, out _)
+            return SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out _)
                 ? id ?? ""
                 : "";
         }
@@ -147,9 +148,9 @@ internal sealed class LibraryPolicy
         ArgumentNullException.ThrowIfNull(mountPaths);
         lock (_gate)
         {
-            foreach (string path in mountPaths)
+            foreach (var path in mountPaths)
             {
-                string root = SteamLibraryVdf.VolumeRoot(path);
+                var root = SteamLibraryVdf.VolumeRoot(path);
                 if (root.Length > 0)
                 {
                     _ejected[root] = contentId ?? "";
@@ -169,7 +170,7 @@ internal sealed class LibraryPolicy
     /// </remarks>
     internal void ClearEjected(string path)
     {
-        string root = SteamLibraryVdf.VolumeRoot(path);
+        var root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
         {
             return;
@@ -190,7 +191,7 @@ internal sealed class LibraryPolicy
     /// <returns>True while the standing eject covers exactly that library.</returns>
     internal bool IsHeldEjected(string path, string? contentId)
     {
-        string root = SteamLibraryVdf.VolumeRoot(path);
+        var root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
         {
             return false;
@@ -198,7 +199,7 @@ internal sealed class LibraryPolicy
 
         lock (_gate)
         {
-            if (!_ejected.TryGetValue(root, out string? ejectedId))
+            if (!_ejected.TryGetValue(root, out var ejectedId))
             {
                 return false;
             }

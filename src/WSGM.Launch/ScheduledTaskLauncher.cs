@@ -104,7 +104,7 @@ internal static class ScheduledTaskLauncher
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = Environment.SystemDirectory,
+                WorkingDirectory = Environment.SystemDirectory
             };
             foreach (var argument in arguments)
             {

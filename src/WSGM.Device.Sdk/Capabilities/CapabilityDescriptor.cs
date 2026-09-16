@@ -171,7 +171,7 @@ public enum CapabilityPersistence
     Volatile,
 
     /// <summary>Stored on the device and survives reboot.</summary>
-    DevicePersistent,
+    DevicePersistent
 }
 
 /// <summary>

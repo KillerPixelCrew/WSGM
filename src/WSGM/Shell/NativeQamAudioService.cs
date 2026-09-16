@@ -112,7 +112,7 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
         bool input,
         CancellationToken cancellationToken)
     {
-        int clamped = Math.Clamp(percent, 0, 100);
+        var clamped = Math.Clamp(percent, 0, 100);
         if (clamped != percent)
         {
             Log.Info(
@@ -162,19 +162,19 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
     internal static SteamAudioState Project(AudioManager audio)
     {
         Dictionary<string, SteamAudioDevice> byId = new(StringComparer.Ordinal);
-        foreach (AudioEndpointEntry entry in audio.OutputEndpoints)
+        foreach (var entry in audio.OutputEndpoints)
         {
             byId[entry.Id] = new SteamAudioDevice(entry.Id, entry.Name, true, false);
         }
 
-        foreach (AudioEndpointEntry entry in audio.InputEndpoints)
+        foreach (var entry in audio.InputEndpoints)
         {
-            byId[entry.Id] = byId.TryGetValue(entry.Id, out SteamAudioDevice? existing)
+            byId[entry.Id] = byId.TryGetValue(entry.Id, out var existing)
                 ? existing with { HasInput = true }
                 : new SteamAudioDevice(entry.Id, entry.Name, false, true);
         }
 
-        bool available = byId.Count > 0;
+        var available = byId.Count > 0;
         return new SteamAudioState(
             available,
             [.. byId.Values],
@@ -195,7 +195,7 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
 
     private void Publish()
     {
-        SteamAudioState next = Project(_audio);
+        var next = Project(_audio);
         lock (_gate)
         {
             if (Same(_current, next))

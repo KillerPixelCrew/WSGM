@@ -22,7 +22,7 @@ internal enum PluginTestMode
     DetectionOnly,
 
     /// <summary>Run one attended activation and guaranteed cleanup lifecycle.</summary>
-    AttendedHardware,
+    AttendedHardware
 }
 
 /// <summary>Publications observed during one local plugin run.</summary>
@@ -59,7 +59,7 @@ internal sealed record PluginPublicationSummary
             PhysicalDeviceSets = host.PhysicalDeviceSets.Count,
             ControllerSamples = host.ControllerSamples.Count,
             OemControlSets = host.OemControlSets.Count,
-            OemEvents = host.OemEvents.Count,
+            OemEvents = host.OemEvents.Count
         };
     }
 }
@@ -134,7 +134,7 @@ internal sealed record AttendedPluginSafetyEnvironment
             IsElevated = IsElevated,
             IsUserInteractive = IsUserInteractive,
             IsContinuousIntegration = IsContinuousIntegration,
-            AttendedActionConfirmed = confirmed,
+            AttendedActionConfirmed = confirmed
         };
 }
 
@@ -163,14 +163,14 @@ internal static class PluginTestWorkflow
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        PluginPackageValidationReport validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
+        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
         if (!validation.Valid)
         {
             return Failed(PluginTestMode.DetectionOnly, validation.PackageId, "Offline package validation failed.");
         }
 
-        await using LocalPluginPackage package = LocalPluginPackage.Load(packageDirectory);
-        PluginDetectionResult detection = await package.Plugin.DetectAsync(
+        await using var package = LocalPluginPackage.Load(packageDirectory);
+        var detection = await package.Plugin.DetectAsync(
             new PluginDetectionContext { Identity = identity },
             cancellationToken).ConfigureAwait(false);
         return new PluginTestReport
@@ -178,7 +178,7 @@ internal static class PluginTestWorkflow
             Mode = PluginTestMode.DetectionOnly,
             Passed = true,
             PackageId = package.Manifest.Id,
-            Detection = detection,
+            Detection = detection
         };
     }
 
@@ -221,7 +221,7 @@ internal static class PluginTestWorkflow
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(boundaries);
         ArgumentNullException.ThrowIfNull(safetyEnvironment);
-        PluginPackageValidationReport validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
+        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
         if (!validation.Valid)
         {
             return Failed(
@@ -231,8 +231,8 @@ internal static class PluginTestWorkflow
                 action);
         }
 
-        string packageId = validation.PackageId!;
-        DeviceLabOutputPathDecision output = DeviceLabOutputPathPolicy.Evaluate(
+        var packageId = validation.PackageId!;
+        var output = DeviceLabOutputPathPolicy.Evaluate(
             stateDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
@@ -244,7 +244,7 @@ internal static class PluginTestWorkflow
                 Passed = false,
                 PackageId = packageId,
                 Action = action,
-                Error = output.Reason ?? "The plugin state directory must be new.",
+                Error = output.Reason ?? "The plugin state directory must be new."
             };
         }
 
@@ -256,12 +256,12 @@ internal static class PluginTestWorkflow
             // Static refusal checks must run before community plugin code is loaded. Exact identity
             // is replaced with the detector's result below, before activation can begin.
             ExactDeviceMatched = true,
-            RequiresElevation = true,
+            RequiresElevation = true
         };
-        DeviceLabSafetySnapshot preReservationSnapshot = safetyEnvironment.Capture(
+        var preReservationSnapshot = safetyEnvironment.Capture(
             DeviceOwnerDiscoveryState.Absent,
             confirmed);
-        DeviceLabPreflightDecision staticPreflight = DeviceLabSafetyPreflight.Evaluate(
+        var staticPreflight = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             preReservationSnapshot);
         if (staticPreflight.Route is not DeviceLabAccessRoute.DirectAttended)
@@ -273,20 +273,20 @@ internal static class PluginTestWorkflow
                 PackageId = packageId,
                 Preflight = staticPreflight,
                 Action = action,
-                Error = "The attended hardware action was blocked before plugin loading.",
+                Error = "The attended hardware action was blocked before plugin loading."
             };
         }
 
-        DeviceLabOwnerReservationResult owner = safetyEnvironment.ReserveOwner();
-        using DeviceLabOwnerReservation? ownerReservation = owner.Reservation;
-        DeviceOwnerDiscoveryState ownerState = owner.Inspection.State;
-        if ((ownerState is DeviceOwnerDiscoveryState.Absent) != (ownerReservation is not null))
+        var owner = safetyEnvironment.ReserveOwner();
+        using var ownerReservation = owner.Reservation;
+        var ownerState = owner.Inspection.State;
+        if (ownerState is DeviceOwnerDiscoveryState.Absent != ownerReservation is not null)
         {
             ownerState = DeviceOwnerDiscoveryState.Unknown;
         }
 
-        DeviceLabSafetySnapshot safetySnapshot = safetyEnvironment.Capture(ownerState, confirmed);
-        DeviceLabPreflightDecision ownerPreflight = DeviceLabSafetyPreflight.Evaluate(
+        var safetySnapshot = safetyEnvironment.Capture(ownerState, confirmed);
+        var ownerPreflight = DeviceLabSafetyPreflight.Evaluate(
             requirements,
             safetySnapshot);
         if (ownerPreflight.Route is not DeviceLabAccessRoute.DirectAttended)
@@ -298,21 +298,21 @@ internal static class PluginTestWorkflow
                 PackageId = packageId,
                 Preflight = ownerPreflight,
                 Action = action,
-                Error = "The attended hardware action was blocked before plugin loading.",
+                Error = "The attended hardware action was blocked before plugin loading."
             };
         }
 
-        await using LocalPluginPackage package = LocalPluginPackage.Load(
+        await using var package = LocalPluginPackage.Load(
             packageDirectory,
             ownerReservation);
-        PluginDetectionResult detection = await package.Plugin.DetectAsync(
+        var detection = await package.Plugin.DetectAsync(
             new PluginDetectionContext { Identity = identity },
             cancellationToken).ConfigureAwait(false);
-        bool exactDeviceMatched = detection.Matched
-            && !string.IsNullOrWhiteSpace(detection.DeviceDefinitionId);
+        var exactDeviceMatched = detection.Matched
+                                 && !string.IsNullOrWhiteSpace(detection.DeviceDefinitionId);
         // The exact named owner reservation stays live across this dynamic gate, activation,
         // cleanup, and LocalPluginPackage disposal. WSGM therefore cannot start a competing cycle.
-        DeviceLabPreflightDecision preflight = DeviceLabSafetyPreflight.Evaluate(
+        var preflight = DeviceLabSafetyPreflight.Evaluate(
             requirements with { ExactDeviceMatched = exactDeviceMatched },
             safetySnapshot);
         if (preflight.Route is not DeviceLabAccessRoute.DirectAttended)
@@ -325,7 +325,7 @@ internal static class PluginTestWorkflow
                 Detection = detection,
                 Preflight = preflight,
                 Action = action,
-                Error = "The attended hardware action was blocked before activation.",
+                Error = "The attended hardware action was blocked before activation."
             };
         }
 
@@ -345,23 +345,23 @@ internal static class PluginTestWorkflow
                 Detection = detection,
                 Preflight = preflight,
                 Action = action,
-                Error = output.Reason ?? "The plugin state directory must be new.",
+                Error = output.Reason ?? "The plugin state directory must be new."
             };
         }
 
-        string statePath = output.FullPath!;
+        var statePath = output.FullPath!;
         Directory.CreateDirectory(statePath);
         TestPluginHostAdapter host = new(cycleGeneration: 1);
-        bool startAttempted = false;
-        bool started = false;
-        bool cleanedUp = false;
+        var startAttempted = false;
+        var started = false;
+        var cleanedUp = false;
         PluginStartResult? startupResult = null;
         AttendedPluginActionReport? actionResult = null;
         PluginDiagnostics? diagnostics = null;
         string? error = null;
         try
         {
-            using (CancellationTokenSource startup = Deadline(cancellationToken))
+            using (var startup = Deadline(cancellationToken))
             {
                 startAttempted = true;
                 startupResult = await package.Plugin.StartAsync(
@@ -371,13 +371,13 @@ internal static class PluginTestWorkflow
                         CycleGeneration = 1,
                         DeviceDefinitionId = detection.DeviceDefinitionId!,
                         StateDirectory = statePath,
-                        ControllerManagementEnabled = false,
+                        ControllerManagementEnabled = false
                     },
                     startup.Token).ConfigureAwait(false);
             }
 
             started = true;
-            using (CancellationTokenSource actionDeadline = Deadline(cancellationToken))
+            using (var actionDeadline = Deadline(cancellationToken))
             {
                 actionResult = await AttendedPluginActionRunner.RunAsync(
                     package.Plugin,
@@ -391,7 +391,7 @@ internal static class PluginTestWorkflow
                 error = $"Attended action failed: {actionResult.Error ?? "no detail"}";
             }
 
-            using CancellationTokenSource diagnosticsDeadline = Deadline(cancellationToken);
+            using var diagnosticsDeadline = Deadline(cancellationToken);
             diagnostics = await package.Plugin.GetDiagnosticsAsync(diagnosticsDeadline.Token)
                 .ConfigureAwait(false);
         }
@@ -404,8 +404,8 @@ internal static class PluginTestWorkflow
         {
             try
             {
-                using CancellationTokenSource cleanup = Deadline(CancellationToken.None);
-                PluginStopResult stop = await package.Plugin.StopAsync(
+                using var cleanup = Deadline(CancellationToken.None);
+                var stop = await package.Plugin.StopAsync(
                     new PluginStopContext(
                         PluginStopReason.IntegrationDisabled,
                         DateTimeOffset.UtcNow + LifecycleBudget),
@@ -413,7 +413,7 @@ internal static class PluginTestWorkflow
                 cleanedUp = stop.Status is PluginStopStatus.Clean;
                 if (!cleanedUp)
                 {
-                    string cleanupError = stop.Reason?.Detail ?? "Plugin cleanup was not verified clean.";
+                    var cleanupError = stop.Reason?.Detail ?? "Plugin cleanup was not verified clean.";
                     error = error is null ? cleanupError : $"{error} {cleanupError}";
                 }
             }
@@ -444,7 +444,7 @@ internal static class PluginTestWorkflow
             Diagnostics = diagnostics,
             CleanedUp = cleanedUp,
             Publications = PluginPublicationSummary.From(host),
-            Error = error,
+            Error = error
         };
     }
 
@@ -456,7 +456,7 @@ internal static class PluginTestWorkflow
 
     private static CancellationTokenSource Deadline(CancellationToken cancellationToken)
     {
-        CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(LifecycleBudget);
         return deadline;
     }
@@ -471,7 +471,7 @@ internal static class PluginTestWorkflow
             Passed = false,
             PackageId = packageId,
             Action = action,
-            Error = error,
+            Error = error
         };
 }
 
@@ -500,18 +500,18 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
         string packageDirectory,
         DeviceLabOwnerReservation? ownerReservation = null)
     {
-        string root = Path.GetFullPath(packageDirectory);
-        string manifestPath = Constrain(root, PluginPackageWorkflow.ManifestPath);
+        var root = Path.GetFullPath(packageDirectory);
+        var manifestPath = Constrain(root, PluginPackageWorkflow.ManifestPath);
         if (!File.Exists(manifestPath) || PluginPackageWorkflow.IsLink(manifestPath))
         {
             throw new InvalidDataException("The plugin manifest is missing or is a link.");
         }
 
-        PluginManifestReadResult manifestRead = PluginPackageWorkflow.ReadManifestBounded(manifestPath);
-        PluginManifest manifest = manifestRead.IsValid && manifestRead.Manifest is not null
+        var manifestRead = PluginPackageWorkflow.ReadManifestBounded(manifestPath);
+        var manifest = manifestRead.IsValid && manifestRead.Manifest is not null
             ? manifestRead.Manifest
             : throw new InvalidDataException("The plugin manifest is invalid.");
-        string entryPath = Constrain(root, manifest.EntryAssembly);
+        var entryPath = Constrain(root, manifest.EntryAssembly);
         if (!File.Exists(entryPath) || PluginPackageWorkflow.IsLink(entryPath))
         {
             throw new InvalidDataException("The plugin entry assembly is missing or is a link.");
@@ -519,10 +519,10 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
 
         PluginLoadContext context = new(root, entryPath);
         IDevicePlugin? plugin = null;
-        bool activationAttempted = false;
+        var activationAttempted = false;
         try
         {
-            Assembly assembly = context.LoadFromAssemblyPath(entryPath);
+            var assembly = context.LoadFromAssemblyPath(entryPath);
             Type entryType;
             try
             {
@@ -561,7 +561,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
         }
         catch (Exception loadFailure)
         {
-            Exception failure = loadFailure;
+            var failure = loadFailure;
             if (activationAttempted)
             {
                 // Loading has crossed into community plugin code without a lifecycle Stop result.
@@ -658,8 +658,8 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
             throw new InvalidDataException("Plugin package paths must be relative.");
         }
 
-        string rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        string path = Path.GetFullPath(Path.Combine(root, relative));
+        var rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var path = Path.GetFullPath(Path.Combine(root, relative));
         if (!path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("A plugin package path escaped its directory.");
@@ -688,10 +688,10 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
                 return null;
             }
 
-            string? path = _resolver.ResolveAssemblyToPath(assemblyName);
+            var path = _resolver.ResolveAssemblyToPath(assemblyName);
             if (path is null && assemblyName.Name is { Length: > 0 } name)
             {
-                string packageCandidate = Path.Combine(_root, $"{name}.dll");
+                var packageCandidate = Path.Combine(_root, $"{name}.dll");
                 path = File.Exists(packageCandidate) ? packageCandidate : null;
             }
 
@@ -708,7 +708,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
 
         protected override nint LoadUnmanagedDll(string unmanagedDllName)
         {
-            string? path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            var path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
             if (path is null)
             {
                 // Zero delegates to the runtime's normal OS-library search. A plugin may import a
@@ -723,8 +723,8 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
 
         private void EnsureLocal(string path)
         {
-            string fullPath = Path.GetFullPath(path);
-            string rootPrefix = _root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var fullPath = Path.GetFullPath(path);
+            var rootPrefix = _root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
                 || PluginPackageWorkflow.IsLink(fullPath))
             {

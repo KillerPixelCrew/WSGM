@@ -9,7 +9,7 @@ public sealed class ControllerTargetSelectionTests
     [Fact]
     public void GlobalDefaultAppliesWhenNoApplicationIsRunning()
     {
-        ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
+        var resolved = ControllerTargetSelection.Resolve(
             ManagedControllerTarget.Xbox360,
             [],
             applicationId: null);
@@ -22,7 +22,7 @@ public sealed class ControllerTargetSelectionTests
     [Fact]
     public void ApplicationOverrideBeatsTheGlobalDefaultForItsOwnApplication()
     {
-        ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
+        var resolved = ControllerTargetSelection.Resolve(
             ManagedControllerTarget.SteamDeckComposite,
             [Override("steam:70", ManagedControllerTarget.DualShock4)],
             "steam:70");
@@ -35,7 +35,7 @@ public sealed class ControllerTargetSelectionTests
     [Fact]
     public void AnOverrideForAnotherApplicationDoesNotLeakIntoTheRunningOne()
     {
-        ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
+        var resolved = ControllerTargetSelection.Resolve(
             ManagedControllerTarget.SteamDeckComposite,
             [Override("steam:70", ManagedControllerTarget.DualShock4)],
             "steam:220");
@@ -47,7 +47,7 @@ public sealed class ControllerTargetSelectionTests
     [Fact]
     public void ApplicationIdentityIsMatchedExactly()
     {
-        ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
+        var resolved = ControllerTargetSelection.Resolve(
             ManagedControllerTarget.SteamDeckComposite,
             [Override("Steam:70", ManagedControllerTarget.DualShock4)],
             "steam:70");
@@ -58,11 +58,11 @@ public sealed class ControllerTargetSelectionTests
     [Fact]
     public void AskingForManagementEnablesItAndCarriesNoDisabledReason()
     {
-        ControllerSelection selection = ControllerSelection.From(new DeviceIntegrationConfig
+        var selection = ControllerSelection.From(new DeviceIntegrationConfig
         {
             Enabled = true,
             ControllerManagementEnabled = true,
-            ControllerTarget = ManagedControllerTarget.Xbox360,
+            ControllerTarget = ManagedControllerTarget.Xbox360
         });
 
         Assert.True(selection.Enabled);
@@ -78,10 +78,10 @@ public sealed class ControllerTargetSelectionTests
     {
         // The two reasons must stay distinguishable: a user who switched it off is told exactly
         // that, and never sent looking for a component that is present.
-        ControllerSelection selection = ControllerSelection.From(new DeviceIntegrationConfig
+        var selection = ControllerSelection.From(new DeviceIntegrationConfig
         {
             Enabled = true,
-            ControllerManagementEnabled = false,
+            ControllerManagementEnabled = false
         });
 
         Assert.False(selection.Enabled);
@@ -93,7 +93,7 @@ public sealed class ControllerTargetSelectionTests
     {
         DeviceIntegrationConfig config = new()
         {
-            ControllerTargets = [Override("steam:70", ManagedControllerTarget.DualShock4)],
+            ControllerTargets = [Override("steam:70", ManagedControllerTarget.DualShock4)]
         };
 
         Assert.Same(config.ControllerTargets, ControllerSelection.From(config).Overrides);

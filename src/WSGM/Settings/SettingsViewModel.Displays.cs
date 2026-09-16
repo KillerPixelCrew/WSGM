@@ -12,7 +12,6 @@ public sealed partial class SettingsViewModel
     private readonly bool _queryDisplaysOnWorker;
     private bool _launchLoaded;
     private bool _displayDiscoveryClosed;
-    private bool _readingDisplays;
     private bool _editingDesktopLayout;
     private DisplayArrangement? _observedDisplays;
     private string _displayDiscoveryText = "";
@@ -35,7 +34,7 @@ public sealed partial class SettingsViewModel
         {
             if (_editingDesktopLayout == value) { return; }
             _editingDesktopLayout = value;
-            foreach (string name in new[] { nameof(EditingDesktopLayout), nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor), nameof(DisplayPolicySummary) })
+            foreach (var name in new[] { nameof(EditingDesktopLayout), nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor), nameof(DisplayPolicySummary) })
             { Raise(name); }
         }
     }
@@ -49,7 +48,8 @@ public sealed partial class SettingsViewModel
         ? "Restore the desktop arrangement WSGM saved when entering Game Mode."
         : "Keep the current display arrangement and use 100% scaling in Game Mode.";
     /// <summary>Gets whether display discovery is running.</summary>
-    public bool ReadingDisplays => _readingDisplays;
+    public bool ReadingDisplays { get; private set; }
+
     /// <summary>Gets whether discovery has a message to display.</summary>
     public bool HasDisplayDiscoveryMessage => DisplayDiscoveryText.Length > 0;
     /// <summary>Gets a discovery error or progress message without discarding saved displays.</summary>
@@ -78,15 +78,15 @@ public sealed partial class SettingsViewModel
 
     private DisplayRead ReadDisplayCatalog()
     {
-        DisplayArrangement arrangement = _services.CaptureDisplays();
+        var arrangement = _services.CaptureDisplays();
         Dictionary<string, DisplayCatalogFacts?> facts = [];
-        foreach (DisplayTargetObservation display in arrangement.Targets.Where(target => target.Available))
+        foreach (var display in arrangement.Targets.Where(target => target.Available))
         {
             try { facts[display.Target.DevicePath] = _services.ReadDisplayFacts(display.Target); }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             { _services.Report("Could not read capabilities for " + display.Target.FriendlyName, ex); }
         }
-        return new(arrangement, facts);
+        return new DisplayRead(arrangement, facts);
     }
 
     private Task RefreshDisplaysAsync() => ReadDisplaysAsync(copy: false);
@@ -94,14 +94,14 @@ public sealed partial class SettingsViewModel
 
     private async Task ReadDisplaysAsync(bool copy)
     {
-        if (_readingDisplays || _displayDiscoveryClosed) { return; }
-        _readingDisplays = true;
+        if (ReadingDisplays || _displayDiscoveryClosed) { return; }
+        ReadingDisplays = true;
         Raise(nameof(ReadingDisplays));
-        DisplayLayoutEditor destination = CurrentDisplayLayout;
+        var destination = CurrentDisplayLayout;
         DisplayDiscoveryText = "Reading displays…";
         try
         {
-            DisplayRead read = _queryDisplaysOnWorker ? await Task.Run(ReadDisplayCatalog) : ReadDisplayCatalog();
+            var read = _queryDisplaysOnWorker ? await Task.Run(ReadDisplayCatalog) : ReadDisplayCatalog();
             if (_displayDiscoveryClosed) { return; }
             bool gameWasEmpty = !GameLayout.HasDisplays, desktopWasEmpty = !DesktopLayout.HasDisplays;
             _observedDisplays = read.Arrangement;
@@ -116,7 +116,7 @@ public sealed partial class SettingsViewModel
             {
                 DisplayLayout layout = new([.. read.Arrangement.Targets.Where(target => target.Active && target.Current is not null)
                     .Select(target => target.Current!)]);
-                if (layout.Outputs.Count == 0 || DisplayLayouts.Describe(layout) is { })
+                if (layout.Outputs.Count == 0 || DisplayLayouts.Describe(layout) is not null)
                 { DisplayDiscoveryText = "The current desktop could not be copied. Your draft has been kept."; return; }
                 destination.CopyFrom(layout);
                 StatusText = "Current desktop copied into the draft. Undo is available; save to keep it.";
@@ -138,7 +138,7 @@ public sealed partial class SettingsViewModel
         }
         finally
         {
-            _readingDisplays = false;
+            ReadingDisplays = false;
             if (!_displayDiscoveryClosed) { Raise(nameof(ReadingDisplays)); }
         }
     }

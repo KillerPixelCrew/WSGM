@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.Loader;
 using System.Xml.Linq;
 using WSGM.Device.Sdk;
@@ -20,15 +19,15 @@ public sealed class DeviceLabScaffoldingTests
     [Fact]
     public void SdkReference_InWsgmCheckout_UsesTheSharedSdkProject()
     {
-        string root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
+        var root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
         DeviceLabPathBoundaries boundaries = new()
         {
             RepositoryRoot = root,
             LiveDataDirectory = Path.Combine(Path.GetTempPath(), "never-live-wsgm"),
-            BroadHomeDirectories = [],
+            BroadHomeDirectories = []
         };
 
-        XElement reference = XElement.Parse(ScaffoldFromCaptureWorkflow.SdkReferenceXml(boundaries));
+        var reference = XElement.Parse(ScaffoldFromCaptureWorkflow.SdkReferenceXml(boundaries));
 
         Assert.Equal("ProjectReference", reference.Name.LocalName);
         Assert.Equal(
@@ -42,16 +41,16 @@ public sealed class DeviceLabScaffoldingTests
         DeviceLabPathBoundaries boundaries = new()
         {
             LiveDataDirectory = Path.Combine(Path.GetTempPath(), "never-live-wsgm"),
-            BroadHomeDirectories = [],
+            BroadHomeDirectories = []
         };
 
-        string reference = ScaffoldFromCaptureWorkflow.SdkReferenceXml(boundaries);
-        XElement element = XElement.Parse(reference);
+        var reference = ScaffoldFromCaptureWorkflow.SdkReferenceXml(boundaries);
+        var element = XElement.Parse(reference);
 
         Assert.Equal("Reference", element.Name.LocalName);
         Assert.Equal("WSGM.Device.Sdk", (string?)element.Attribute("Include"));
         Assert.Equal("false", (string?)element.Element("Private"));
-        string hintPath = Assert.IsType<string>((string?)element.Element("HintPath"));
+        var hintPath = Assert.IsType<string>((string?)element.Element("HintPath"));
         Assert.Equal(Path.GetFullPath(typeof(DeviceApi).Assembly.Location), hintPath);
         Assert.True(File.Exists(hintPath));
         Assert.DoesNotContain("$(WsgmRepositoryRoot)", reference, StringComparison.Ordinal);
@@ -61,7 +60,7 @@ public sealed class DeviceLabScaffoldingTests
     public async Task Scaffold_OutsideCheckout_BuildsAgainstTheExactShippedSdkAssembly()
     {
         using TemporaryDirectory temporary = new();
-        string capturePath = temporary.GetPath("source.wsgmcap");
+        var capturePath = temporary.GetPath("source.wsgmcap");
         using (FileStream capture = new(capturePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             CaptureBundleWriter.Write(capture, Capture());
@@ -69,18 +68,18 @@ public sealed class DeviceLabScaffoldingTests
         DeviceLabPathBoundaries boundaries = new()
         {
             LiveDataDirectory = temporary.GetPath("never-live-wsgm"),
-            BroadHomeDirectories = [],
+            BroadHomeDirectories = []
         };
 
-        PluginScaffoldResult result = ScaffoldFromCaptureWorkflow.Run(
+        var result = ScaffoldFromCaptureWorkflow.Run(
             capturePath,
             temporary.GetPath("scaffold"),
             boundaries);
 
-        string projectPath = Directory.EnumerateFiles(result.OutputDirectory, "*.csproj").Single();
-        XDocument project = XDocument.Load(projectPath);
-        XElement reference = Assert.Single(project.Descendants("Reference"));
-        string hintPath = Assert.IsType<string>((string?)reference.Element("HintPath"));
+        var projectPath = Directory.EnumerateFiles(result.OutputDirectory, "*.csproj").Single();
+        var project = XDocument.Load(projectPath);
+        var reference = Assert.Single(project.Descendants("Reference"));
+        var hintPath = Assert.IsType<string>((string?)reference.Element("HintPath"));
         Assert.Equal(Path.GetFullPath(typeof(DeviceApi).Assembly.Location), hintPath);
         Assert.True(File.Exists(hintPath));
         Assert.Equal("x64", Assert.Single(project.Descendants("PlatformTarget")).Value);
@@ -95,7 +94,7 @@ public sealed class DeviceLabScaffoldingTests
         // A scaffolded plugin links the MIT SDK, never WSGM, so its author picks its licence. The
         // starter ships MIT with a placeholder rather than stamping the plugin with WSGM's GPL-3
         // and this project's copyright holder, which claimed something untrue about their work.
-        string scaffoldedLicense =
+        var scaffoldedLicense =
             File.ReadAllText(Path.Combine(result.OutputDirectory, "LICENSE.txt")).TrimStart();
         Assert.StartsWith("MIT License", scaffoldedLicense, StringComparison.Ordinal);
         Assert.Contains("<your name here>", scaffoldedLicense, StringComparison.Ordinal);
@@ -113,7 +112,7 @@ public sealed class DeviceLabScaffoldingTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true,
+            CreateNoWindow = true
         };
         startInfo.Environment["DOTNET_CLI_HOME"] = temporary.GetPath("dotnet-home");
         startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
@@ -140,10 +139,10 @@ public sealed class DeviceLabScaffoldingTests
         startInfo.ArgumentList.Add("--property:RestoreIgnoreFailedSources=true");
         startInfo.ArgumentList.Add("--property:NuGetAudit=false");
 
-        using Process process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("The .NET SDK process did not start.");
-        Task<string> output = process.StandardOutput.ReadToEndAsync();
-        Task<string> error = process.StandardError.ReadToEndAsync();
+        using var process = Process.Start(startInfo)
+                            ?? throw new InvalidOperationException("The .NET SDK process did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
         using CancellationTokenSource timeout = new(TimeSpan.FromMinutes(1));
         try
         {
@@ -159,12 +158,12 @@ public sealed class DeviceLabScaffoldingTests
             throw new TimeoutException("The generated plugin project did not build within one minute.");
         }
 
-        string diagnostic = (await output) + Environment.NewLine + (await error);
+        var diagnostic = await output + Environment.NewLine + await error;
         if (process.ExitCode != 0)
         {
             Assert.Fail(diagnostic);
         }
-        string buildOutput = Path.Combine(
+        var buildOutput = Path.Combine(
             result.OutputDirectory,
             "bin",
             "Release",
@@ -173,7 +172,7 @@ public sealed class DeviceLabScaffoldingTests
         Assert.True(File.Exists(Path.Combine(buildOutput, $"{result.RootNamespace}.dll")), diagnostic);
         Assert.True(File.Exists(Path.Combine(buildOutput, "LICENSE.txt")), diagnostic);
         Assert.False(File.Exists(Path.Combine(buildOutput, "WSGM.Device.Sdk.dll")));
-        PluginPackageValidationReport validation = PluginPackageWorkflow.ValidateOffline(buildOutput);
+        var validation = PluginPackageWorkflow.ValidateOffline(buildOutput);
         Assert.True(
             validation.Valid,
             string.Join("; ", validation.Issues.Select(issue => $"{issue.Path}: {issue.Message}")));
@@ -181,11 +180,11 @@ public sealed class DeviceLabScaffoldingTests
         AssemblyLoadContext loader = new("scaffold-command-test", isCollectible: true);
         try
         {
-            using FileStream assemblyBytes = File.OpenRead(Path.Combine(buildOutput, $"{result.RootNamespace}.dll"));
-            Assembly assembly = loader.LoadFromStream(assemblyBytes);
-            await using IDevicePlugin plugin = Assert.IsAssignableFrom<IDevicePlugin>(
+            using var assemblyBytes = File.OpenRead(Path.Combine(buildOutput, $"{result.RootNamespace}.dll"));
+            var assembly = loader.LoadFromStream(assemblyBytes);
+            await using var plugin = Assert.IsAssignableFrom<IDevicePlugin>(
                 Activator.CreateInstance(assembly.GetType($"{result.RootNamespace}.DevicePlugin", throwOnError: true)!));
-            PluginDetectionResult detection = await plugin.DetectAsync(new PluginDetectionContext
+            var detection = await plugin.DetectAsync(new PluginDetectionContext
             {
                 Identity = new DeviceIdentitySnapshot
                 {
@@ -193,13 +192,13 @@ public sealed class DeviceLabScaffoldingTests
                     BaseboardProduct = result.Identity.BaseboardProduct,
                     SystemSku = result.Identity.SystemSku,
                     BiosVersion = result.Identity.BiosVersion,
-                    UsbEndpoints = [new()
+                    UsbEndpoints = [new UsbEndpointObservation
                     {
                         VendorId = result.Identity.UsbVendorId,
                         ProductId = result.Identity.UsbProductId,
-                        DeviceRelease = result.Identity.UsbDeviceRelease,
-                    }],
-                },
+                        DeviceRelease = result.Identity.UsbDeviceRelease
+                    }]
+                }
             }, CancellationToken.None);
             Assert.True(detection.Matched);
             await plugin.StartAsync(new PluginStartContext
@@ -208,16 +207,16 @@ public sealed class DeviceLabScaffoldingTests
                 CycleGeneration = 1,
                 DeviceDefinitionId = detection.DeviceDefinitionId!,
                 StateDirectory = temporary.GetPath("test-state"),
-                ControllerManagementEnabled = false,
+                ControllerManagementEnabled = false
             }, CancellationToken.None);
-            CapabilityCommandResult commandResult = await plugin.ExecuteCommandAsync(new CapabilityCommand
+            var commandResult = await plugin.ExecuteCommandAsync(new CapabilityCommand
             {
                 CommandId = Guid.NewGuid(),
                 CapabilityId = "example.integration-toggle",
                 RequestedValue = CapabilityValue.Boolean(true),
                 ExpectedCycleGeneration = 1,
                 ExpectedDescriptorGeneration = 1,
-                Deadline = DateTimeOffset.UtcNow.AddSeconds(2),
+                Deadline = DateTimeOffset.UtcNow.AddSeconds(2)
             }, CancellationToken.None);
 
             Assert.Equal(CommandOutcome.AppliedUnverified, commandResult.Outcome);
@@ -233,12 +232,12 @@ public sealed class DeviceLabScaffoldingTests
     public void Scaffold_PreCancelledRequestPublishesNoPartialDirectory()
     {
         using TemporaryDirectory temporary = new();
-        string capturePath = temporary.GetPath("source.wsgmcap");
+        var capturePath = temporary.GetPath("source.wsgmcap");
         using (FileStream capture = new(capturePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             CaptureBundleWriter.Write(capture, Capture());
         }
-        string output = temporary.GetPath("cancelled-scaffold");
+        var output = temporary.GetPath("cancelled-scaffold");
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
 
@@ -248,7 +247,7 @@ public sealed class DeviceLabScaffoldingTests
             new DeviceLabPathBoundaries
             {
                 LiveDataDirectory = temporary.GetPath("never-live-wsgm"),
-                BroadHomeDirectories = [],
+                BroadHomeDirectories = []
             },
             cancellation.Token));
 
@@ -260,19 +259,19 @@ public sealed class DeviceLabScaffoldingTests
     public void Scaffold_MultipleExactUsbEndpointsRequireAnExplicitInstance()
     {
         using TemporaryDirectory temporary = new();
-        SanitizedCaptureBundle original = Capture();
-        SanitizedCaptureBundle multiple = original with
+        var original = Capture();
+        var multiple = original with
         {
             Inventory = original.Inventory with
             {
                 UsbInterfaces =
                 [
                     original.Inventory.UsbInterfaces[0] with { InstanceId = "usb-left" },
-                    original.Inventory.UsbInterfaces[0] with { InstanceId = "usb-right" },
-                ],
-            },
+                    original.Inventory.UsbInterfaces[0] with { InstanceId = "usb-right" }
+                ]
+            }
         };
-        string capturePath = temporary.GetPath("multiple.wsgmcap");
+        var capturePath = temporary.GetPath("multiple.wsgmcap");
         using (FileStream capture = new(capturePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             CaptureBundleWriter.Write(capture, multiple);
@@ -280,15 +279,15 @@ public sealed class DeviceLabScaffoldingTests
         DeviceLabPathBoundaries boundaries = new()
         {
             LiveDataDirectory = temporary.GetPath("never-live-wsgm"),
-            BroadHomeDirectories = [],
+            BroadHomeDirectories = []
         };
 
-        InvalidDataException ambiguous = Assert.Throws<InvalidDataException>(() =>
+        var ambiguous = Assert.Throws<InvalidDataException>(() =>
             ScaffoldFromCaptureWorkflow.Run(
                 capturePath,
                 temporary.GetPath("ambiguous"),
                 boundaries));
-        PluginScaffoldResult selected = ScaffoldFromCaptureWorkflow.Run(
+        var selected = ScaffoldFromCaptureWorkflow.Run(
             capturePath,
             temporary.GetPath("selected"),
             boundaries,
@@ -302,11 +301,11 @@ public sealed class DeviceLabScaffoldingTests
     [Fact]
     public void MinimalTemplate_DemonstratesPartialStateCanonicalIoCancellationDiagnosticsAndRestore()
     {
-        Assembly assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
-        using Stream stream = Assert.IsAssignableFrom<Stream>(assembly.GetManifestResourceStream(
+        var assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
+        using var stream = Assert.IsAssignableFrom<Stream>(assembly.GetManifestResourceStream(
             "WSGM.DeviceLab.Templates.MinimalPlugin.DevicePlugin.cs.template"));
         using StreamReader reader = new(stream);
-        string template = reader.ReadToEnd();
+        var template = reader.ReadToEnd();
 
         Assert.Contains("Available = false", template, StringComparison.Ordinal);
         Assert.Contains("PluginOperationalState.Degraded", template, StringComparison.Ordinal);
@@ -319,7 +318,7 @@ public sealed class DeviceLabScaffoldingTests
 
     private static SanitizedCaptureBundle Capture()
     {
-        DateTimeOffset timestamp = DateTimeOffset.UnixEpoch;
+        var timestamp = DateTimeOffset.UnixEpoch;
         return new SanitizedCaptureBundle
         {
             Manifest = new ShareableCaptureManifest
@@ -329,13 +328,13 @@ public sealed class DeviceLabScaffoldingTests
                 ToolVersion = "test-1",
                 StartedAt = timestamp,
                 CompletedAt = timestamp,
-                QpcFrequency = 1,
+                QpcFrequency = 1
             },
             Recipe = new ObserveOnlyRecipe
             {
                 SchemaVersion = CaptureSchema.CurrentVersion,
                 RecipeId = "scaffold-test",
-                DisplayName = "Scaffold test",
+                DisplayName = "Scaffold test"
             },
             Inventory = new MachineInventory
             {
@@ -345,7 +344,7 @@ public sealed class DeviceLabScaffoldingTests
                     SystemManufacturer = "Contoso Devices",
                     BaseboardProduct = "BOARD-X1",
                     SystemSku = "BOARD-X1-SKU",
-                    BiosVersion = "1.0.0",
+                    BiosVersion = "1.0.0"
                 },
                 UsbInterfaces =
                 [
@@ -355,16 +354,16 @@ public sealed class DeviceLabScaffoldingTests
                         VendorId = "CAFE",
                         ProductId = "BEEF",
                         DeviceRelease = "0100",
-                        Present = true,
-                    },
+                        Present = true
+                    }
                 ],
-                CapturedAt = timestamp,
+                CapturedAt = timestamp
             },
             Redaction = new CaptureRedactionManifest
             {
                 SchemaVersion = CaptureSchema.CurrentVersion,
-                DefaultRedactionApplied = true,
-            },
+                DefaultRedactionApplied = true
+            }
         };
     }
 }

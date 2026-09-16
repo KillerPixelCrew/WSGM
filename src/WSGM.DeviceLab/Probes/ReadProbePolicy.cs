@@ -41,7 +41,7 @@ internal static class ReadProbeMetadataPolicy
             errors.Add("Probe repetitions must be between 1 and 10.");
         }
 
-        ReadProbeResponseExpectation expected = metadata.ExpectedResponse;
+        var expected = metadata.ExpectedResponse;
         if (expected.MinimumLength < 0
             || expected.MaximumLength < expected.MinimumLength
             || expected.MaximumLength > 65_536)
@@ -118,9 +118,9 @@ internal static class ReadProbeResponseValidator
         }
 
         string? stableValue = null;
-        foreach (ReadProbeSample sample in response.Samples)
+        foreach (var sample in response.Samples)
         {
-            ReadProbeResponseExpectation expected = metadata.ExpectedResponse;
+            var expected = metadata.ExpectedResponse;
             if (sample.ValueKind != expected.ValueKind)
             {
                 return Reject("response.type", "Response value type was not the compiled type.");
@@ -150,7 +150,7 @@ internal static class ReadProbeResponseValidator
                 return Reject("response.range", "Numeric response was absent or outside the compiled range.");
             }
 
-            ReadProbeValidationResult crossCheck = ValidateCrossCheck(metadata.CrossCheck, sample);
+            var crossCheck = ValidateCrossCheck(metadata.CrossCheck, sample);
             if (!crossCheck.Accepted)
             {
                 return crossCheck;
@@ -170,7 +170,7 @@ internal static class ReadProbeResponseValidator
         {
             Accepted = true,
             Code = "accepted",
-            Message = $"Validated {response.Samples.Count} response repetition(s) and their independent cross-checks.",
+            Message = $"Validated {response.Samples.Count} response repetition(s) and their independent cross-checks."
         };
     }
 
@@ -178,7 +178,7 @@ internal static class ReadProbeResponseValidator
         ReadProbeCrossCheck crossCheck,
         ReadProbeSample sample)
     {
-        bool accepted = crossCheck.Kind switch
+        var accepted = crossCheck.Kind switch
         {
             ReadProbeCrossCheckKind.Equal => string.Equals(
                 sample.NormalizedValue,
@@ -194,7 +194,7 @@ internal static class ReadProbeResponseValidator
                 && crossCheck.MaximumValue is { } maximum
                 && numeric >= minimum
                 && numeric <= maximum,
-            _ => false,
+            _ => false
         };
 
         return accepted
@@ -202,7 +202,7 @@ internal static class ReadProbeResponseValidator
             {
                 Accepted = true,
                 Code = "cross-check.accepted",
-                Message = "Independent cross-check accepted.",
+                Message = "Independent cross-check accepted."
             }
             : Reject("response.cross-check", $"Independent cross-check '{crossCheck.Id}' did not corroborate the response.");
     }
@@ -211,6 +211,6 @@ internal static class ReadProbeResponseValidator
     {
         Accepted = false,
         Code = code,
-        Message = message,
+        Message = message
     };
 }

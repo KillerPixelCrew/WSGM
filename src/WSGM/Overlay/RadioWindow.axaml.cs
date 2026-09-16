@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
@@ -31,7 +32,7 @@ public partial class RadioWindow : Window
         None,
         WifiPassword,
         PairingPin,
-        PairingConfirm,
+        PairingConfirm
     }
 
     private PromptMode _prompt;
@@ -60,7 +61,7 @@ public partial class RadioWindow : Window
         Tabs.Tabs = new List<TabStripItem>
         {
             new("Wi-Fi", Icons.WiFi),
-            new("Bluetooth", Icons.Bluetooth),
+            new("Bluetooth", Icons.Bluetooth)
         };
         Tabs.SelectionChanged += (_, e) => ShowTab(e.NewIndex);
         Tabs.SelectedIndex = bluetooth ? 1 : 0;
@@ -71,7 +72,7 @@ public partial class RadioWindow : Window
         {
             try
             {
-                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                var clipboard = GetTopLevel(this)?.Clipboard;
                 var text = clipboard is null ? null : await clipboard.TryGetTextAsync();
                 if (!string.IsNullOrEmpty(text))
                 {
@@ -144,7 +145,7 @@ public partial class RadioWindow : Window
         SyncSwitch();
     }
 
-    private void OnRadiosPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    private void OnRadiosPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(RadioManager.WifiPower) or nameof(RadioManager.BluetoothPower))
         {

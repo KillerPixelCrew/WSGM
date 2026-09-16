@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -23,7 +24,7 @@ public sealed class KeepAwakeService : IDisposable
         new("WSGM keep-awake (manual quick-access toggle)");
     private readonly WakeLock _manualDisplayLock =
         new("WSGM keep-display-on (manual quick-access toggle)",
-            (int)WindowsDeviceControl.WindowsPowerRequestKind.Display);
+            (int)WindowsPowerRequestKind.Display);
     private readonly WakeLock _downloadLock = new("WSGM keep-awake (Steam download in progress)");
     private readonly SteamMonitor? _monitor;
     private readonly Func<bool> _automaticCefReady;
@@ -126,7 +127,7 @@ public sealed class KeepAwakeService : IDisposable
         {
             ManualWakeMode.Off => ManualWakeMode.Standby,
             ManualWakeMode.Standby => ManualWakeMode.StandbyAndDisplay,
-            _ => ManualWakeMode.Off,
+            _ => ManualWakeMode.Off
         });
 
     /// <summary>Applies a manual wake mode (the quick-access cycle button).</summary>

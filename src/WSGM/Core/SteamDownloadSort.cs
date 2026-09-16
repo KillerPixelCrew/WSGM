@@ -255,7 +255,7 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
+        var result = await context.EvaluateAsync(
             TargetRole,
             "(()=>{try{const W=window.__wsgm;return JSON.stringify({ok:true,"
                 + "runtime:!!window.webpackChunksteamui,"
@@ -274,12 +274,12 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            bool compatible = root.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True
-                && root.TryGetProperty("runtime", out JsonElement runtime)
-                && runtime.ValueKind == JsonValueKind.True;
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            var compatible = root.TryGetProperty("ok", out var ok)
+                             && ok.ValueKind == JsonValueKind.True
+                             && root.TryGetProperty("runtime", out var runtime)
+                             && runtime.ValueKind == JsonValueKind.True;
             return new SteamUiPatchProbeResult(
                 true,
                 compatible,

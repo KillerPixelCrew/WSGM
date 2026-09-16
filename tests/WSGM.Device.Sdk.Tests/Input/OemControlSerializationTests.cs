@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using WSGM.Device.Sdk.Input;
 
@@ -13,6 +14,6 @@ public sealed class OemControlSerializationTests
         Assert.Equal(number, (int)kind);
         Assert.Equal($"\"{name}\"", JsonSerializer.Serialize(kind));
         Assert.Equal(kind, JsonSerializer.Deserialize<OemPressKind>($"\"{name}\""));
-        Assert.Equal(kind, JsonSerializer.Deserialize<OemPressKind>(number.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        Assert.Equal(kind, JsonSerializer.Deserialize<OemPressKind>(number.ToString(CultureInfo.InvariantCulture)));
     }
 }

@@ -43,7 +43,7 @@ public sealed class OverlayNavigationTests
             new[]
             {
                 OverlayDestination.QuickAccess, OverlayDestination.Steam,
-                OverlayDestination.System, OverlayDestination.Power,
+                OverlayDestination.System, OverlayDestination.Power
             },
             navigation.VisibleDestinations);
 
@@ -53,7 +53,7 @@ public sealed class OverlayNavigationTests
             new[]
             {
                 OverlayDestination.QuickAccess, OverlayDestination.Steam,
-                OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power,
+                OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power
             },
             navigation.VisibleDestinations);
     }
@@ -103,7 +103,7 @@ public sealed class OverlayNavigationTests
         navigation.Select(OverlayDestination.Steam);
 
         Assert.False(navigation.Push(OverlayPage.PowerWakeLocks, "wrong.destination"));
-        for (int depth = 1; depth < OverlayNavigation.MaximumDepth; depth++)
+        for (var depth = 1; depth < OverlayNavigation.MaximumDepth; depth++)
         {
             Assert.True(navigation.Push(OverlayPage.SteamLibraryTabs, $"steam.row.{depth}"));
         }
@@ -202,19 +202,19 @@ public sealed class OverlayNavigationTests
         // enum without being routed fails here rather than at the moment a user navigates to it.
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true);
-        foreach (OverlayDestination destination in Enum.GetValues<OverlayDestination>())
+        foreach (var destination in Enum.GetValues<OverlayDestination>())
         {
             Assert.True(navigation.Select(destination));
             Assert.Equal(1, navigation.Depth);
         }
 
-        foreach (OverlayPage page in Enum.GetValues<OverlayPage>())
+        foreach (var page in Enum.GetValues<OverlayPage>())
         {
             // Select the destination this page belongs to, then prove the page is reachable from it.
             // Push refuses a page whose destination is not current, so a successful push for every
             // page is exactly the statement that every page is routed.
-            bool pushed = false;
-            foreach (OverlayDestination destination in Enum.GetValues<OverlayDestination>())
+            var pushed = false;
+            foreach (var destination in Enum.GetValues<OverlayDestination>())
             {
                 navigation.Select(destination);
                 if (navigation.Page == page || navigation.Push(page, null))

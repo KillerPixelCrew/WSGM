@@ -1,7 +1,11 @@
 using System.Text.Json;
+using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
@@ -47,7 +51,7 @@ public sealed class DevicePageCaptureTests
                 Detail = "Device integration active",
                 Capabilities = views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)).ToArray(),
                 PluginSections = DeviceOverlayBridge.ProjectSections(sections),
-                Recovery = null,
+                Recovery = null
             }
         };
         await using PerformanceService performance = new(new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask,
@@ -59,17 +63,17 @@ public sealed class DevicePageCaptureTests
             new WindowsPowerModes(new ReadOnlyPowerModeApi()), () => true);
         PerformanceConfig config = new()
         {
-            AcPowerPreset = new() { PluginId = "claw", PresetId = "balanced" },
-            BatteryPowerPreset = new() { PluginId = "claw", PresetId = "super-battery" },
+            AcPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "balanced" },
+            BatteryPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "super-battery" }
         };
-        var assignments = new DevicePowerAssignments(presets, () => new(config, null, "claw", 7, true, true),
+        var assignments = new DevicePowerAssignments(presets, () => new DevicePowerAssignmentContext(config, null, "claw", 7, true, true),
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power plan write"));
         await schemes.RefreshAsync();
-        OverlayWindow window = fixture.Overlay(width, height);
+        var window = fixture.Overlay(width, height);
         window.AttachDeviceBridge(device);
         window.AttachPerformanceSource(performanceBridge);
         window.AttachPowerSchemes(schemes);
@@ -93,7 +97,7 @@ public sealed class DevicePageCaptureTests
             Assert.Equal(2, sectionsPanel.Children.Count);
             foreach (var capability in device.State.Capabilities.Where(capability => capability.CategoryId is "control" or "charging"))
             {
-                string key = "pin:" + capability.CapabilityId + (capability.InstanceId is { Length: > 0 } instance ? "#" + instance : "");
+                var key = "pin:" + capability.CapabilityId + (capability.InstanceId is { Length: > 0 } instance ? "#" + instance : "");
                 Assert.Contains(sectionsPanel.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, key));
             }
             UiFixture.Named<Control>(window, "PinToast").IsVisible = false;
@@ -114,11 +118,11 @@ public sealed class DevicePageCaptureTests
             Assert.True(cards.Length >= 5);
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2));
         }
-        string directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
+        var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
             + (width == 1280 ? string.Empty : "-" + width));
         Directory.CreateDirectory(directory);
         Capture(window, Path.Combine(directory, "viewport.png"));
-        ScrollViewer scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+        var scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
         if (page == "Power" && width == 1280)
         {
             var details = window.GetVisualDescendants().OfType<Expander>()
@@ -126,13 +130,13 @@ public sealed class DevicePageCaptureTests
             details.IsExpanded = true;
             Dispatcher.UIThread.RunJobs();
             window.GetVisualDescendants().OfType<CardButton>()
-                .Single(card => card.Title == "Detected application").Focus(Avalonia.Input.NavigationMethod.Directional);
+                .Single(card => card.Title == "Detected application").Focus(NavigationMethod.Directional);
             Dispatcher.UIThread.RunJobs();
-            window.MouseWheel(new Avalonia.Point(1100, 450), new Avalonia.Vector(0, -6));
+            window.MouseWheel(new Point(1100, 450), new Vector(0, -6));
             Dispatcher.UIThread.RunJobs();
-            double before = scroll.Offset.Y;
+            var before = scroll.Offset.Y;
             Assert.True(before > 0);
-            for (int update = 0; update < 3; update++)
+            for (var update = 0; update < 3; update++)
             {
                 device.Notify();
                 await performanceBridge.SetValueAsync("frame-limit", 61 + update);
@@ -153,10 +157,10 @@ public sealed class DevicePageCaptureTests
     private static void Capture(Window window, string path)
     {
         window.FocusManager?.Focus(null);
-        foreach (var visual in window.GetVisualDescendants().OfType<Avalonia.Animation.Animatable>())
+        foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
         { visual.Transitions = null; }
         using var frame = window.CaptureRenderedFrame();
         Assert.NotNull(frame);
-        frame.Save(path, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+        frame.Save(path, new PngBitmapEncoderOptions());
     }
 }

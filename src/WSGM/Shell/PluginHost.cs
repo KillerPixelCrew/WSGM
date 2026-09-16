@@ -51,7 +51,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 || (policy.MaximumActive is { } maximum && categoryInstances.Length >= maximum))
             { throw new InvalidOperationException("Plugin identity or category slot is already reserved."); }
             var registration = new PluginRegistration(this, plugin, identity, category, policy,
-                new(identity, generation, _mode, DateTimeOffset.MaxValue, stateDirectory));
+                new PluginContext(identity, generation, _mode, DateTimeOffset.MaxValue, stateDirectory));
             _instances.Add(identity, registration);
             return registration;
         }
@@ -167,8 +167,6 @@ internal sealed class PluginRegistration(
     private long _modeRevision;
     private readonly object _modeGate = new();
     private CancellationTokenSource? _modeCancellation;
-    private CommonPluginSettings? _settings;
-    private CommonPluginActions? _actions;
     private int _stopRequested;
     private bool _stopAttempted;
     private CancellationTokenSource? _activeCancellation;
@@ -191,24 +189,25 @@ internal sealed class PluginRegistration(
         {
             if (_started || IsStopping) { throw new InvalidOperationException("Plugin startup was already attempted."); }
             _started = true;
-            _actions = new CommonPluginActions(plugin);
+            Actions = new CommonPluginActions(plugin);
             if (plugin is IConfigurablePlugin configurable)
-            { _settings = new CommonPluginSettings(configurable, host.ConfigurationStore, Identity); }
+            { Settings = new CommonPluginSettings(configurable, host.ConfigurationStore, Identity); }
             var health = await plugin.StartAsync(this, Context, token).ConfigureAwait(false);
-            if (_settings is not null) { await _settings.RestoreAsync(Context, token).ConfigureAwait(false); }
-            PublishHealth(new(Identity, Context.Generation, health, null));
+            if (Settings is not null) { await Settings.RestoreAsync(Context, token).ConfigureAwait(false); }
+            PublishHealth(new PluginHealthPublication(Identity, Context.Generation, health, null));
             return health;
         });
 
-    internal CommonPluginSettings? Settings => _settings;
-    internal CommonPluginActions? Actions => _actions;
+    internal CommonPluginSettings? Settings { get; private set; }
+
+    internal CommonPluginActions? Actions { get; private set; }
 
     internal Task<PluginConfigurationResult> RefreshConfigurationAsync(DateTimeOffset deadline, CancellationToken cancellationToken) =>
         RunAsync(deadline, cancellationToken, async token =>
         {
             RequireRunning();
-            if (_settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
-            return await _settings.RefreshAsync(Context, token).ConfigureAwait(false);
+            if (Settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
+            return await Settings.RefreshAsync(Context, token).ConfigureAwait(false);
         }, quarantineFailure: false);
 
     internal Task<PluginActionResult> InvokeActionAsync(long expectedGeneration, string actionId,
@@ -219,9 +218,9 @@ internal sealed class PluginRegistration(
         return RunAsync(deadline, cancellationToken, async token =>
         {
             RequireRunning();
-            if (expectedGeneration != Context.Generation || _actions is null)
+            if (expectedGeneration != Context.Generation || Actions is null)
             { throw new InvalidOperationException("Action generation is stale or the plugin has not started."); }
-            return await _actions.ExecuteAsync(actionId, origin, captured, Context, token).ConfigureAwait(false);
+            return await Actions.ExecuteAsync(actionId, origin, captured, Context, token).ConfigureAwait(false);
         }, quarantineFailure: false);
     }
 
@@ -233,8 +232,8 @@ internal sealed class PluginRegistration(
         return RunAsync(deadline, cancellationToken, async token =>
         {
             RequireRunning();
-            if (_settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
-            return await _settings.ChangeAsync(expectedRevision, captured, Context, token).ConfigureAwait(false);
+            if (Settings is null) { throw new InvalidOperationException("The plugin does not declare settings."); }
+            return await Settings.ChangeAsync(expectedRevision, captured, Context, token).ConfigureAwait(false);
         }, quarantineFailure: false);
     }
 
@@ -285,7 +284,7 @@ internal sealed class PluginRegistration(
             RequireRunning();
             if (generation <= Context.Generation) { throw new InvalidOperationException("Resume requires a fresh generation."); }
             Context = Context with { Generation = generation };
-            PublishHealth(new(Identity, generation, PluginHealth.Unavailable, "Resuming"));
+            PublishHealth(new PluginHealthPublication(Identity, generation, PluginHealth.Unavailable, "Resuming"));
             await plugin.ResumeAsync(Context, token).ConfigureAwait(false);
             return true;
         });
@@ -304,7 +303,7 @@ internal sealed class PluginRegistration(
         return RunAsync(deadline, cancellationToken, async token =>
         {
             _stopAttempted = true;
-            Health = new(Identity, Context.Generation, PluginHealth.Unavailable, "Stopping");
+            Health = new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Unavailable, "Stopping");
             if (_stopFailure is not null) { throw new InvalidOperationException("Plugin stop previously failed; it will not be retried.", _stopFailure); }
             if (_released is { } released) { return released; }
             try { return (_released = await plugin.StopAsync(Context, token).ConfigureAwait(false)).Value; }
@@ -337,16 +336,16 @@ internal sealed class PluginRegistration(
         Func<CancellationToken, Task<T>> operation, bool allowDisposed = false, bool quarantineCancellation = true, bool quarantineFailure = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+        var remaining = deadline - DateTimeOffset.UtcNow;
         if (remaining <= TimeSpan.Zero) { throw new TimeoutException("Plugin lifecycle deadline expired."); }
         var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(remaining);
-        int operationEntered = 0;
+        var operationEntered = 0;
         // The worker owns the budget and gate even if the caller's wait ends first. No disposal or
         // replacement can overtake plugin code that ignored cancellation.
-        Task<T> work = Task.Run(async () =>
+        var work = Task.Run(async () =>
         {
-            bool entered = false;
+            var entered = false;
             try
             {
                 await _lifecycle.WaitAsync(budget.Token).ConfigureAwait(false);
@@ -374,7 +373,7 @@ internal sealed class PluginRegistration(
             if (quarantineFailure && Volatile.Read(ref operationEntered) != 0 && (quarantineCancellation || ex is not OperationCanceledException))
             {
                 Quarantined = true;
-                PublishHealth(new(Identity, Context.Generation, PluginHealth.Failed, ex.Message));
+                PublishHealth(new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Failed, ex.Message));
             }
             throw;
         }

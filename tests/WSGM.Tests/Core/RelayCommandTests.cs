@@ -62,7 +62,7 @@ public sealed class RelayCommandTests
     [Fact]
     public void Typed_ReferenceType_AcceptsNull()
     {
-        string? received = "sentinel";
+        var received = "sentinel";
         var command = new RelayCommand<string>(p => received = p);
 
         Assert.True(command.CanExecute(null));

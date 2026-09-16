@@ -119,7 +119,7 @@ internal sealed class CurveEditor : Control
     /// </remarks>
     internal void AddPointAtWidestGap()
     {
-        IReadOnlyList<CurvePoint> points = Points;
+        var points = Points;
         if (points.Count == 0)
         {
             LogEditRefused("add", "the curve has no points to split");
@@ -132,11 +132,11 @@ internal sealed class CurveEditor : Control
             return;
         }
 
-        int widest = 0;
-        int at = -1;
-        for (int index = 1; index < points.Count; index++)
+        var widest = 0;
+        var at = -1;
+        for (var index = 1; index < points.Count; index++)
         {
-            int gap = points[index].Input - points[index - 1].Input;
+            var gap = points[index].Input - points[index - 1].Input;
             if (gap > widest)
             {
                 widest = gap;
@@ -152,7 +152,7 @@ internal sealed class CurveEditor : Control
             return;
         }
 
-        int input = points[at - 1].Input + (widest / 2);
+        var input = points[at - 1].Input + widest / 2;
         TryCommit(
             CurveEditing.Add(points, input, CurveEditing.Evaluate(points, input), EditBounds),
             "add");
@@ -161,7 +161,7 @@ internal sealed class CurveEditor : Control
     /// <summary>Removes the selected point.</summary>
     internal void RemoveSelectedPoint()
     {
-        IReadOnlyList<CurvePoint> updated = CurveEditing.Remove(Points, SelectedIndex);
+        var updated = CurveEditing.Remove(Points, SelectedIndex);
         if (ReferenceEquals(updated, Points))
         {
             LogEditRefused(
@@ -177,34 +177,34 @@ internal sealed class CurveEditor : Control
     /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
-        Rect plot = PlotRect();
-        CurveBounds bounds = EditBounds;
+        var plot = PlotRect();
+        var bounds = EditBounds;
         if (plot.Width <= 0 || plot.Height <= 0 || !bounds.IsUsable)
         {
             return;
         }
 
-        IBrush grid = Resolve("HcControlBorderBrush", Brushes.DimGray);
-        IBrush accent = Resolve("HcAccentBrush", Brushes.Orange);
-        IBrush surface = Resolve("HcControlBrush", Brushes.Black);
-        IBrush handleFill = Resolve("HcBackgroundBrush", Brushes.Black);
+        var grid = Resolve("HcControlBorderBrush", Brushes.DimGray);
+        var accent = Resolve("HcAccentBrush", Brushes.Orange);
+        var surface = Resolve("HcControlBrush", Brushes.Black);
+        var handleFill = Resolve("HcBackgroundBrush", Brushes.Black);
 
         context.FillRectangle(surface, plot);
 
         // Quarters, not a dense grid: this is read at arm's length on a handheld, and the lines are
         // there to judge a curve's shape against, not to measure it.
         Pen gridPen = new(grid, 1);
-        for (int step = 1; step < 4; step++)
+        for (var step = 1; step < 4; step++)
         {
-            double x = plot.X + (plot.Width * step / 4);
-            double y = plot.Y + (plot.Height * step / 4);
+            var x = plot.X + plot.Width * step / 4;
+            var y = plot.Y + plot.Height * step / 4;
             context.DrawLine(gridPen, new Point(x, plot.Y), new Point(x, plot.Bottom));
             context.DrawLine(gridPen, new Point(plot.X, y), new Point(plot.Right, y));
         }
 
         context.DrawRectangle(new Pen(grid, 1), plot);
 
-        IReadOnlyList<CurvePoint> points = Points;
+        var points = Points;
         if (points.Count == 0)
         {
             return;
@@ -214,12 +214,12 @@ internal sealed class CurveEditor : Control
         // It is what makes the shape readable at arm's length: two curves that differ by a few
         // percent are told apart by the filled mass, not by the line.
         var area = new StreamGeometry();
-        using (StreamGeometryContext fill = area.Open())
+        using (var fill = area.Open())
         {
-            Point first = ToScreen(points[0], plot, bounds);
+            var first = ToScreen(points[0], plot, bounds);
             fill.BeginFigure(new Point(first.X, plot.Bottom), isFilled: true);
             fill.LineTo(first);
-            for (int index = 1; index < points.Count; index++)
+            for (var index = 1; index < points.Count; index++)
             {
                 fill.LineTo(ToScreen(points[index], plot, bounds));
             }
@@ -231,7 +231,7 @@ internal sealed class CurveEditor : Control
         context.DrawGeometry(new SolidColorBrush(Colors.White, 0.06), null, area);
 
         Pen curvePen = new(accent, 2);
-        for (int index = 1; index < points.Count; index++)
+        for (var index = 1; index < points.Count; index++)
         {
             context.DrawLine(
                 curvePen,
@@ -243,19 +243,19 @@ internal sealed class CurveEditor : Control
         // line, which is the one place it means anything, without covering the point being dragged.
         if (MarkerInput is { } marker)
         {
-            double x = plot.X + (plot.Width
+            var x = plot.X + plot.Width
                 * (bounds.ClampInput(marker) - bounds.InputMinimum)
-                / (double)(bounds.InputMaximum - bounds.InputMinimum));
+                / (double)(bounds.InputMaximum - bounds.InputMinimum);
             context.DrawLine(
                 new Pen(accent, 2) { DashStyle = new DashStyle([2, 2], 0) },
                 new Point(x, plot.Y),
                 new Point(x, plot.Bottom));
         }
 
-        for (int index = 0; index < points.Count; index++)
+        for (var index = 0; index < points.Count; index++)
         {
-            Point centre = ToScreen(points[index], plot, bounds);
-            bool selected = index == SelectedIndex;
+            var centre = ToScreen(points[index], plot, bounds);
+            var selected = index == SelectedIndex;
             context.DrawEllipse(
                 selected ? accent : handleFill,
                 new Pen(accent, selected ? 3 : 2),
@@ -271,8 +271,8 @@ internal sealed class CurveEditor : Control
         base.OnPointerPressed(e);
         Focus();
 
-        Point position = e.GetPosition(this);
-        int hit = HitTest(position);
+        var position = e.GetPosition(this);
+        var hit = HitTest(position);
         if (hit >= 0)
         {
             SelectedIndex = hit;
@@ -284,7 +284,7 @@ internal sealed class CurveEditor : Control
 
         // A press on empty space adds a point there and immediately begins dragging it, so placing
         // a point and positioning it are one gesture rather than two.
-        if (!TryToCurve(position, out int input, out int output))
+        if (!TryToCurve(position, out var input, out var output))
         {
             LogEditRefused(
                 "pointer-add",
@@ -292,7 +292,7 @@ internal sealed class CurveEditor : Control
             return;
         }
 
-        IReadOnlyList<CurvePoint> updated = CurveEditing.Add(Points, input, output, EditBounds);
+        var updated = CurveEditing.Add(Points, input, output, EditBounds);
         if (ReferenceEquals(updated, Points))
         {
             LogEditRefused(
@@ -305,7 +305,7 @@ internal sealed class CurveEditor : Control
         {
             return;
         }
-        int added = IndexOfInput(updated, EditBounds.ClampInput(input));
+        var added = IndexOfInput(updated, EditBounds.ClampInput(input));
         SelectedIndex = added;
         _dragIndex = added;
         e.Pointer.Capture(this);
@@ -316,12 +316,12 @@ internal sealed class CurveEditor : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (_dragIndex < 0 || !TryToCurve(e.GetPosition(this), out int input, out int output))
+        if (_dragIndex < 0 || !TryToCurve(e.GetPosition(this), out var input, out var output))
         {
             return;
         }
 
-        IReadOnlyList<CurvePoint> updated = CurveEditing.Move(
+        var updated = CurveEditing.Move(
             Points,
             _dragIndex,
             input,
@@ -386,13 +386,13 @@ internal sealed class CurveEditor : Control
     /// </remarks>
     internal void ApplyDirection(NavigationDirection direction)
     {
-        Key key = direction switch
+        var key = direction switch
         {
             NavigationDirection.Left => Key.Left,
             NavigationDirection.Right => Key.Right,
             NavigationDirection.Up => Key.Up,
             NavigationDirection.Down => Key.Down,
-            _ => Key.None,
+            _ => Key.None
         };
         if (key == Key.None)
         {
@@ -410,7 +410,7 @@ internal sealed class CurveEditor : Control
             return false;
         }
 
-        IReadOnlyList<CurvePoint> points = Points;
+        var points = Points;
         if (points.Count == 0)
         {
             LogEditRefused(inputSource, "the curve has no points");
@@ -419,7 +419,7 @@ internal sealed class CurveEditor : Control
 
         if (!moving && key is Key.Left or Key.Right)
         {
-            int nextIndex = key == Key.Left
+            var nextIndex = key == Key.Left
                 ? Math.Max(0, SelectedIndex - 1)
                 : SelectedIndex < 0
                     ? 0
@@ -444,20 +444,20 @@ internal sealed class CurveEditor : Control
             return true;
         }
 
-        (int inputStep, int outputStep) = key switch
+        var (inputStep, outputStep) = key switch
         {
             Key.Left when moving => (-1, 0),
             Key.Right when moving => (1, 0),
             Key.Up => (0, 1),
             Key.Down => (0, -1),
-            _ => (0, 0),
+            _ => (0, 0)
         };
         if (inputStep == 0 && outputStep == 0)
         {
             return true;
         }
 
-        CurvePoint point = points[SelectedIndex];
+        var point = points[SelectedIndex];
         TryCommit(
             CurveEditing.Move(
                 points,
@@ -492,7 +492,7 @@ internal sealed class CurveEditor : Control
 
     private static int IndexOfInput(IReadOnlyList<CurvePoint> points, int input)
     {
-        for (int index = 0; index < points.Count; index++)
+        for (var index = 0; index < points.Count; index++)
         {
             if (points[index].Input == input)
             {
@@ -505,22 +505,22 @@ internal sealed class CurveEditor : Control
 
     private int HitTest(Point position)
     {
-        Rect plot = PlotRect();
-        CurveBounds bounds = EditBounds;
+        var plot = PlotRect();
+        var bounds = EditBounds;
         if (!bounds.IsUsable)
         {
             return -1;
         }
 
-        IReadOnlyList<CurvePoint> points = Points;
-        int closest = -1;
-        double closestDistance = GrabRadius;
-        for (int index = 0; index < points.Count; index++)
+        var points = Points;
+        var closest = -1;
+        var closestDistance = GrabRadius;
+        for (var index = 0; index < points.Count; index++)
         {
-            Point centre = ToScreen(points[index], plot, bounds);
-            double distance = Math.Sqrt(
-                ((centre.X - position.X) * (centre.X - position.X))
-                + ((centre.Y - position.Y) * (centre.Y - position.Y)));
+            var centre = ToScreen(points[index], plot, bounds);
+            var distance = Math.Sqrt(
+                (centre.X - position.X) * (centre.X - position.X)
+                + (centre.Y - position.Y) * (centre.Y - position.Y));
             if (distance <= closestDistance)
             {
                 closestDistance = distance;
@@ -535,8 +535,8 @@ internal sealed class CurveEditor : Control
     {
         input = 0;
         output = 0;
-        Rect plot = PlotRect();
-        CurveBounds bounds = EditBounds;
+        var plot = PlotRect();
+        var bounds = EditBounds;
         if (plot.Width <= 0 || plot.Height <= 0 || !bounds.IsUsable)
         {
             return false;
@@ -558,8 +558,8 @@ internal sealed class CurveEditor : Control
     {
         double inputSpan = bounds.InputMaximum - bounds.InputMinimum;
         double outputSpan = bounds.OutputMaximum - bounds.OutputMinimum;
-        double x = plot.X + ((point.Input - bounds.InputMinimum) / inputSpan * plot.Width);
-        double y = plot.Bottom - ((point.Output - bounds.OutputMinimum) / outputSpan * plot.Height);
+        var x = plot.X + (point.Input - bounds.InputMinimum) / inputSpan * plot.Width;
+        var y = plot.Bottom - (point.Output - bounds.OutputMinimum) / outputSpan * plot.Height;
         return new Point(x, y);
     }
 
@@ -570,12 +570,12 @@ internal sealed class CurveEditor : Control
     /// </remarks>
     private Rect PlotRect()
     {
-        Size size = Bounds.Size;
+        var size = Bounds.Size;
         return size.Width <= Inset * 2 || size.Height <= Inset * 2
             ? default
             : new Rect(size).Deflate(Inset);
     }
 
     private IBrush Resolve(string key, IBrush fallback) =>
-        this.TryFindResource(key, out object? value) && value is IBrush brush ? brush : fallback;
+        this.TryFindResource(key, out var value) && value is IBrush brush ? brush : fallback;
 }

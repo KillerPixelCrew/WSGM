@@ -1,6 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Testing;
 
@@ -22,7 +21,7 @@ public sealed class SyntheticPluginFixtureTests
                 Available = true,
                 Quality = HardwareStateQuality.Verified,
                 DescriptorGeneration = 1,
-                CycleGeneration = 3,
+                CycleGeneration = 3
             },
             CancellationToken.None);
         await host.PublishPhysicalDevicesAsync([], output: null, CancellationToken.None);
@@ -39,7 +38,7 @@ public sealed class SyntheticPluginFixtureTests
                 "synthetic-press"),
             CancellationToken.None);
 
-        PluginPublicationSummary summary = PluginPublicationSummary.From(host);
+        var summary = PluginPublicationSummary.From(host);
 
         Assert.Equal(1, summary.DescriptorSets);
         Assert.Equal(1, summary.CapabilityStates);
@@ -52,7 +51,7 @@ public sealed class SyntheticPluginFixtureTests
     [Fact]
     public async Task SyntheticDockFixture_ExercisesTheMateriallyDifferentPluginLifecycle()
     {
-        SyntheticPluginFixtureReport report = await SyntheticPluginFixture.RunAsync(
+        var report = await SyntheticPluginFixture.RunAsync(
             CancellationToken.None);
         string[] expected =
         [
@@ -65,7 +64,7 @@ public sealed class SyntheticPluginFixtureTests
             "cancellation-observed",
             "stale-generation-rejected",
             "stop-restores-original-state-and-output",
-            "cleanup-diagnostics-reported",
+            "cleanup-diagnostics-reported"
         ];
 
         Assert.True(report.Passed);
@@ -76,7 +75,7 @@ public sealed class SyntheticPluginFixtureTests
     public void SettingsManifest_IsValid()
     {
         Assert.True(
-            SyntheticDockPlugin.SettingsManifest.TryValidate(out string? error),
+            SyntheticDockPlugin.SettingsManifest.TryValidate(out var error),
             error);
     }
 
@@ -95,7 +94,7 @@ public sealed class SyntheticPluginFixtureTests
                 CapabilityValueKind.Integer,
                 CapabilityValueKind.Choice,
                 CapabilityValueKind.Color,
-                CapabilityValueKind.Text,
+                CapabilityValueKind.Text
             ],
             kinds.OrderBy(kind => (int)kind));
     }
@@ -103,7 +102,7 @@ public sealed class SyntheticPluginFixtureTests
     [Fact]
     public void SettingsManifest_KeepsOneSettingInAnUndeclaredSection()
     {
-        PluginSettingDescriptor orphan = Assert.Single(
+        var orphan = Assert.Single(
             SyntheticDockPlugin.SettingsManifest.Settings,
             setting => setting.SettingId == SyntheticDockPlugin.OrphanSettingId);
 
@@ -115,10 +114,10 @@ public sealed class SyntheticPluginFixtureTests
     [Fact]
     public void SettingsManifest_EveryDefaultSatisfiesItsOwnDeclaration()
     {
-        foreach (PluginSettingDescriptor setting in SyntheticDockPlugin.SettingsManifest.Settings)
+        foreach (var setting in SyntheticDockPlugin.SettingsManifest.Settings)
         {
             Assert.True(
-                setting.TryValidateValue(setting.Default, out string? error),
+                setting.TryValidateValue(setting.Default, out var error),
                 $"{setting.SettingId}: {error}");
         }
     }

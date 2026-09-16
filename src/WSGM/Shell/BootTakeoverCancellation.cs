@@ -101,6 +101,6 @@ internal sealed class BootTakeoverCancellation : IDisposable
         Active,
         DesktopRequested,
         ShutdownRequested,
-        Completed,
+        Completed
     }
 }

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using WSGM.Core;
 
 namespace WSGM.Settings.Pages;
 
@@ -13,7 +14,7 @@ public partial class DeviceOwnershipPage : UserControl
     {
         if (DataContext is SettingsViewModel viewModel)
         {
-            Core.Log.Observe(viewModel.RefreshDeviceOwnerStatusAsync(), "device owner status refresh");
+            Log.Observe(viewModel.RefreshDeviceOwnerStatusAsync(), "device owner status refresh");
         }
     }
 }

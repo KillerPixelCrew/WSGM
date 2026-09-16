@@ -70,7 +70,7 @@ public sealed class RemovableDriveTests
         [
             NativeStorage.PnpVetoType.OutstandingOpen,
             NativeStorage.PnpVetoType.PendingClose,
-            NativeStorage.PnpVetoType.WindowsApp,
+            NativeStorage.PnpVetoType.WindowsApp
         ];
         foreach (var veto in openHandleVetoes)
         {
@@ -98,7 +98,7 @@ public sealed class RemovableDriveTests
         var entry = new RemovableDriveEntry("id", EjectKind.UsbDevice)
         {
             Letters = "E:",
-            SizeText = "512 GB",
+            SizeText = "512 GB"
         };
         Assert.Equal("E: — 512 GB", entry.StatusLine);
 
@@ -130,14 +130,14 @@ public sealed class RemovableDriveTests
         manager.Apply(
         [
             Device("stick", "Old name", "E:"),
-            Device("gone", "Other stick", "F:"),
+            Device("gone", "Other stick", "F:")
         ]);
         var survivor = manager.Drives[0];
 
         manager.Apply(
         [
             Device("stick", "New name", "E:"),
-            Device("card", "SD Card", "G:"),
+            Device("card", "SD Card", "G:")
         ]);
 
         Assert.Equal(2, manager.Drives.Count);
@@ -213,7 +213,7 @@ public sealed class RemovableDriveTests
     [Fact]
     public void GeometryCapacityUsesFullDiskSizeAndRejectsTruncatedOrNegativeRecords()
     {
-        byte[] record = new byte[32];
+        var record = new byte[32];
         BitConverter.GetBytes(4_000_000_000_000L).CopyTo(record, 24);
         Assert.Equal(4_000_000_000_000L, NativeStorage.ReadGeometryCapacity(record));
         Assert.Equal(0, NativeStorage.ReadGeometryCapacity(record.AsSpan(0, 31)));

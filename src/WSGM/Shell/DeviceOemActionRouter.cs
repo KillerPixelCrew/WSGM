@@ -158,7 +158,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
             }
 
             _controls.Clear();
-            foreach (OemControlDescriptor control in controls)
+            foreach (var control in controls)
             {
                 _controls.Add(control.ControlId, control);
             }
@@ -175,7 +175,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         lock (_gate)
         {
             if (input.SourceGeneration != _cycleGeneration
-                || !_controls.TryGetValue(input.ControlId, out OemControlDescriptor? control)
+                || !_controls.TryGetValue(input.ControlId, out var control)
                 || string.IsNullOrWhiteSpace(input.DeduplicationId)
                 || input.DeduplicationId.Length > 128
                 || input.Timestamp > DateTimeOffset.UtcNow.AddSeconds(5)
@@ -192,8 +192,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            string deduplicationKey = $"{_actionGeneration}:{input.SourceGeneration}:"
-                + $"{input.ControlId}:{input.Press}:{input.Edge}:{input.DeduplicationId}";
+            var deduplicationKey = $"{_actionGeneration}:{input.SourceGeneration}:"
+                                   + $"{input.ControlId}:{input.Press}:{input.Edge}:{input.DeduplicationId}";
             ExpireDeduplicationUnderGate(DateTimeOffset.UtcNow);
             if (!_recentEvents.TryAdd(deduplicationKey, input.Timestamp))
             {
@@ -235,10 +235,10 @@ internal sealed class DeviceOemActionRouter : IDisposable
     {
         try
         {
-            using CancellationTokenSource bounded = CancellationTokenSource.CreateLinkedTokenSource(
+            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken);
             bounded.CancelAfter(TimeSpan.FromSeconds(3));
-            bool completed = action switch
+            var completed = action switch
             {
                 OemAction.ToggleWsgmOverlay => await actions.ToggleOverlayAsync(bounded.Token)
                     .ConfigureAwait(false),
@@ -262,7 +262,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                     await actions.SetRearButtonAsync(1, bounded.Token).ConfigureAwait(false),
                 OemAction.VirtualTargetRearButton2 =>
                     await actions.SetRearButtonAsync(2, bounded.Token).ConfigureAwait(false),
-                _ => true,
+                _ => true
             };
             Log.Info($"Device OEM action: control={input.ControlId}, action={action}, "
                 + $"completed={completed}.");
@@ -279,7 +279,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     private OemAction ResolveActionUnderGate(OemControlDescriptor control)
     {
-        DeviceOemAssignment? assignment = _profile?.OemAssignments.FirstOrDefault(item =>
+        var assignment = _profile?.OemAssignments.FirstOrDefault(item =>
             string.Equals(item.ControlId, control.ControlId, StringComparison.Ordinal));
         if (assignment is not null)
         {
@@ -297,7 +297,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     private void ExpireDeduplicationUnderGate(DateTimeOffset now)
     {
-        foreach (string key in _recentEvents
+        foreach (var key in _recentEvents
             .Where(item => now - item.Value > DeduplicationWindow)
             .Select(item => item.Key)
             .ToArray())
@@ -307,7 +307,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
         if (_recentEvents.Count >= MaxDeduplicationEntries)
         {
-            foreach (string key in _recentEvents.OrderBy(item => item.Value)
+            foreach (var key in _recentEvents.OrderBy(item => item.Value)
                 .Take(_recentEvents.Count - MaxDeduplicationEntries + 1)
                 .Select(item => item.Key)
                 .ToArray())

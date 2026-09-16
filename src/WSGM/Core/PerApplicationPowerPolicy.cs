@@ -13,7 +13,7 @@ internal enum PerAppPowerAction
     ReleaseToCeiling,
 
     /// <summary>Change nothing. WSGM never imposed a limit, so it has none to take back.</summary>
-    Leave,
+    Leave
 }
 
 /// <summary>One resolved power decision for an application transition.</summary>
@@ -97,7 +97,7 @@ internal enum PerAppVrrAction
     Apply,
 
     /// <summary>Change nothing. WSGM never set a state, so it has none to take back.</summary>
-    Leave,
+    Leave
 }
 
 /// <summary>One resolved variable-refresh decision for an application transition.</summary>

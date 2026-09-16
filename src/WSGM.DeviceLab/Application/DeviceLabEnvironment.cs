@@ -10,7 +10,7 @@ internal static class DeviceLabEnvironment
     /// <returns>True when elevated.</returns>
     internal static bool IsElevated()
     {
-        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        using var identity = WindowsIdentity.GetCurrent();
         return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 

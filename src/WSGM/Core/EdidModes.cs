@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace WSGM.Core;
@@ -48,10 +49,10 @@ internal static class EdidModes
         }
 
         SortedSet<int> rates = [];
-        for (int index = 0; index < DescriptorCount; index++)
+        for (var index = 0; index < DescriptorCount; index++)
         {
-            int offset = FirstDescriptor + (index * DescriptorLength);
-            if (TryReadDetailedTiming(edid, offset, out int refreshHz))
+            var offset = FirstDescriptor + index * DescriptorLength;
+            if (TryReadDetailedTiming(edid, offset, out var refreshHz))
             {
                 rates.Add(refreshHz);
             }
@@ -75,7 +76,7 @@ internal static class EdidModes
         refreshHz = 0;
 
         // Pixel clock in 10 kHz units, little endian. Zero marks a non-timing descriptor.
-        int pixelClock = edid[offset] | (edid[offset + 1] << 8);
+        var pixelClock = edid[offset] | (edid[offset + 1] << 8);
         if (pixelClock == 0)
         {
             return false;
@@ -83,10 +84,10 @@ internal static class EdidModes
 
         // Active and blanking are split: the low eight bits sit in their own byte and the high four
         // share a nibble byte, which is why these cannot simply be read as 16-bit values.
-        int horizontalActive = edid[offset + 2] | ((edid[offset + 4] & 0xF0) << 4);
-        int horizontalBlank = edid[offset + 3] | ((edid[offset + 4] & 0x0F) << 8);
-        int verticalActive = edid[offset + 5] | ((edid[offset + 7] & 0xF0) << 4);
-        int verticalBlank = edid[offset + 6] | ((edid[offset + 7] & 0x0F) << 8);
+        var horizontalActive = edid[offset + 2] | ((edid[offset + 4] & 0xF0) << 4);
+        var horizontalBlank = edid[offset + 3] | ((edid[offset + 4] & 0x0F) << 8);
+        var verticalActive = edid[offset + 5] | ((edid[offset + 7] & 0xF0) << 4);
+        var verticalBlank = edid[offset + 6] | ((edid[offset + 7] & 0x0F) << 8);
 
         long horizontalTotal = horizontalActive + horizontalBlank;
         long verticalTotal = verticalActive + verticalBlank;
@@ -95,8 +96,8 @@ internal static class EdidModes
             return false;
         }
 
-        long dotsPerSecond = pixelClock * 10_000L;
-        double rate = dotsPerSecond / (double)(horizontalTotal * verticalTotal);
+        var dotsPerSecond = pixelClock * 10_000L;
+        var rate = dotsPerSecond / (double)(horizontalTotal * verticalTotal);
 
         // A panel outside this band is a misparse rather than a real mode.
         if (rate is < 20 or > 1000)
@@ -104,7 +105,7 @@ internal static class EdidModes
             return false;
         }
 
-        refreshHz = (int)System.Math.Round(rate);
+        refreshHz = (int)Math.Round(rate);
         return true;
     }
 }

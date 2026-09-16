@@ -145,7 +145,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             CapabilityCommand command;
             DevicePluginRuntime client;
-            CapabilityCommandResult? refusal = PrepareCommand(key, value, timeout, out command, out client, expectedCycle, expectedDescriptors, applyPowerPair);
+            var refusal = PrepareCommand(key, value, timeout, out command, out client, expectedCycle, expectedDescriptors, applyPowerPair);
             if (refusal is not null)
             {
                 ReconcileResult(key, refusal);
@@ -154,10 +154,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
             Publish();
             CapabilityCommandResult result;
-            bool terminal = true;
+            var terminal = true;
             try
             {
-                DeviceCommandDispatch dispatch = await client.ExecuteCommandAsync(
+                var dispatch = await client.ExecuteCommandAsync(
                     command,
                     cancellationToken).ConfigureAwait(false);
                 result = dispatch.Immediate;
@@ -284,8 +284,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         out DevicePluginRuntime client,
         long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
     {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        Guid commandId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var commandId = Guid.NewGuid();
         lock (_gate)
         {
             command = new CapabilityCommand
@@ -297,7 +297,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 ApplyPowerPair = applyPowerPair,
                 ExpectedDescriptorGeneration = _descriptorGeneration,
                 ExpectedCycleGeneration = _cycleGeneration,
-                Deadline = now.Add(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5)),
+                Deadline = now.Add(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
             };
 
             if (!_connected || _client is null)
@@ -314,7 +314,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return Reject(command, CapabilityReasonCode.HostUnavailable,
                     "The power preset belongs to an earlier device or descriptor generation.");
             }
-            if (!_descriptors.TryGetValue(key, out CapabilityDescriptor? descriptor))
+            if (!_descriptors.TryGetValue(key, out var descriptor))
             {
                 return Reject(command, CapabilityReasonCode.Unsupported,
                     "The capability is not present in the current descriptor set.");
@@ -331,13 +331,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return Reject(command, CapabilityReasonCode.ObservationExpired, "The paired power limit has no current readback.");
             }
 
-            if (!_states.TryGetValue(key, out CapabilityStateDelta? rawState))
+            if (!_states.TryGetValue(key, out var rawState))
             {
                 return Reject(command, CapabilityReasonCode.ObservationExpired,
                     "No current capability state has been observed.", retryable: true);
             }
 
-            CapabilityState state = EvaluateFreshness(
+            var state = EvaluateFreshness(
                 rawState.State,
                 FreshnessFor(descriptor.Role),
                 now,
@@ -371,7 +371,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 refusal = new CapabilityReason(CapabilityReasonCode.Unsupported, "Capability is read-only.");
             }
             else if (value is not null
-                && !DeviceCapabilityValidation.ValueMatches(value, descriptor, out string? error))
+                && !DeviceCapabilityValidation.ValueMatches(value, descriptor, out var error))
             {
                 refusal = new CapabilityReason(
                     CapabilityReasonCode.ValueOutOfRange,
@@ -412,7 +412,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 descriptors,
                 _cycleGeneration,
                 _descriptorGeneration,
-                out string? error))
+                out var error))
             {
                 Log.Warn($"Device descriptor set rejected: {error}");
                 return;
@@ -421,14 +421,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _descriptorGeneration = descriptors.Generation;
             _sections = DeviceSections.IncludePredefined(descriptors.Sections);
             _descriptors.Clear();
-            foreach (CapabilityDescriptor descriptor in descriptors.Descriptors)
+            foreach (var descriptor in descriptors.Descriptors)
             {
                 _descriptors.Add(Key(descriptor), descriptor);
             }
             _orderedDescriptors = [.. _descriptors];
             Array.Sort(_orderedDescriptors, static (left, right) =>
             {
-                int order = string.CompareOrdinal(left.Key.CapabilityId, right.Key.CapabilityId);
+                var order = string.CompareOrdinal(left.Key.CapabilityId, right.Key.CapabilityId);
                 return order != 0 ? order : string.CompareOrdinal(left.Key.InstanceId, right.Key.InstanceId);
             });
 
@@ -445,10 +445,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            DeviceCapabilityKey key = Key(delta.State);
+            var key = Key(delta.State);
             string? error = null;
             if (delta.Sequence <= 0
-                || !_descriptors.TryGetValue(key, out CapabilityDescriptor? descriptor)
+                || !_descriptors.TryGetValue(key, out var descriptor)
                 || !DeviceCapabilityValidation.TryValidateState(
                     delta.State,
                     descriptor,
@@ -463,7 +463,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return;
             }
 
-            if (_states.TryGetValue(key, out CapabilityStateDelta? existing)
+            if (_states.TryGetValue(key, out var existing)
                 && delta.Sequence <= existing.Sequence)
             {
                 Log.Change(
@@ -495,8 +495,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// </remarks>
     private void LogAvailabilityChange(DeviceCapabilityKey key, CapabilityState state)
     {
-        bool previous = _availability.TryGetValue(key, out bool known) && known;
-        bool first = !_availability.ContainsKey(key);
+        var previous = _availability.TryGetValue(key, out var known) && known;
+        var first = !_availability.ContainsKey(key);
         _availability[key] = state.Available;
         if (!first && previous == state.Available)
         {
@@ -509,7 +509,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             return;
         }
 
-        string reason = state.Reason?.Detail is { Length: > 0 } detail
+        var reason = state.Reason?.Detail is { Length: > 0 } detail
             ? $"{state.Reason.Code}: {detail}"
             : state.Reason?.Code.ToString() ?? "no reason given";
         Log.Warn($"Device capability unavailable: {key} — {reason}");
@@ -522,7 +522,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         DevicePluginRuntime client,
         Task<CapabilityCommandResult> completion)
     {
-        CapabilityCommandResult result = await completion.ConfigureAwait(false);
+        var result = await completion.ConfigureAwait(false);
         lock (_gate)
         {
             if (!_connected
@@ -572,9 +572,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private IReadOnlyList<DeviceCapabilityView> BuildSnapshotUnderGate(DateTimeOffset now)
     {
         List<DeviceCapabilityView> views = [];
-        foreach ((DeviceCapabilityKey key, CapabilityDescriptor descriptor) in _orderedDescriptors)
+        foreach (var (key, descriptor) in _orderedDescriptors)
         {
-            CapabilityState state = _states.TryGetValue(key, out CapabilityStateDelta? latest)
+            var state = _states.TryGetValue(key, out var latest)
                 ? latest.State
                 : UnknownState(key);
             if (!_connected)
@@ -586,7 +586,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     Reason = new CapabilityReason(
                         CapabilityReasonCode.HostUnavailable,
                         "The device plugin is disconnected.",
-                        Retryable: true),
+                        Retryable: true)
                 };
             }
             else
@@ -598,11 +598,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     _cycleGeneration);
             }
 
-            ResolvedDeviceDesiredValue desired = ResolveDesired(key);
-            bool outOfRange = desired.Value is not null
-                && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _);
-            _pendingValues.TryGetValue(key, out CapabilityValue? pending);
-            _lastResults.TryGetValue(key, out CapabilityCommandResult? result);
+            var desired = ResolveDesired(key);
+            var outOfRange = desired.Value is not null
+                             && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _);
+            _pendingValues.TryGetValue(key, out var pending);
+            _lastResults.TryGetValue(key, out var result);
             views.Add(new DeviceCapabilityView(
                 descriptor,
                 new CapabilityProjection
@@ -612,7 +612,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     DesiredSource = desired.Source,
                     PendingValue = pending,
                     Progress = Progress(pending, result),
-                    DesiredValueOutOfRange = outOfRange,
+                    DesiredValueOutOfRange = outOfRange
                 },
                 result));
         }
@@ -622,7 +622,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private ResolvedDeviceDesiredValue ResolveDesired(DeviceCapabilityKey key)
     {
-        return !_desiredPreferences.TryGetValue(key, out DeviceCapabilityPreference? preference)
+        return !_desiredPreferences.TryGetValue(key, out var preference)
             ? new ResolvedDeviceDesiredValue(null, DeviceDesiredValueSource.None)
             : DeviceDesiredStateResolver.Resolve(
                 preference,
@@ -637,7 +637,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> index = [];
         if (profile is not null)
         {
-            foreach (DeviceCapabilityPreference preference in profile.Capabilities)
+            foreach (var preference in profile.Capabilities)
             {
                 index.TryAdd(new DeviceCapabilityKey(preference.CapabilityId, preference.InstanceId), preference);
             }
@@ -656,7 +656,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Reason = new CapabilityReason(
             CapabilityReasonCode.ObservationExpired,
             "No state has been published for this descriptor.",
-            Retryable: true),
+            Retryable: true)
     };
 
     private void DetachUnderGate()
@@ -717,7 +717,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             CommandId = command.CommandId,
             Outcome = CommandOutcome.Rejected,
             Reason = new CapabilityReason(code, detail, retryable),
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
 
     private static CapabilityCommandResult Uncertain(CapabilityCommand command, string detail) => new()
@@ -725,7 +725,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CommandId = command.CommandId,
         Outcome = CommandOutcome.Indeterminate,
         Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable, detail, Retryable: true),
-        CompletedAt = DateTimeOffset.UtcNow,
+        CompletedAt = DateTimeOffset.UtcNow
     };
 
     private static CommandProgress Progress(
@@ -743,7 +743,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 CommandProgress.Completed,
             CommandOutcome.TimedOut or CommandOutcome.Indeterminate => CommandProgress.Uncertain,
             CommandOutcome.Rejected => CommandProgress.Failed,
-            _ => CommandProgress.Idle,
+            _ => CommandProgress.Idle
         };
     }
 
@@ -768,7 +768,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             or CapabilityRole.LightingEffect
             or CapabilityRole.LightingEffectSpeed => TimeSpan.FromMinutes(5),
         // A value that drifts on its own, such as a power limit under a scenario.
-        _ => TimeSpan.FromSeconds(30),
+        _ => TimeSpan.FromSeconds(30)
     };
 
     /// <summary>Returns the state as it should be presented now, downgrading it to
@@ -820,7 +820,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             Quality = HardwareStateQuality.Stale,
             Available = false,
-            Reason = new CapabilityReason(code, detail, Retryable: true),
+            Reason = new CapabilityReason(code, detail, Retryable: true)
         };
 
     private static DeviceCapabilityKey Key(CapabilityDescriptor descriptor) =>
@@ -870,9 +870,9 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        Dictionary<string, CapabilitySection> sections = DeviceSections.All.ToDictionary(section => section.SectionId, StringComparer.Ordinal);
+        var sections = DeviceSections.All.ToDictionary(section => section.SectionId, StringComparer.Ordinal);
         HashSet<string> declaredIds = new(StringComparer.Ordinal);
-        foreach (CapabilitySection section in set.Sections)
+        foreach (var section in set.Sections)
         {
             if (section is null)
             {
@@ -894,7 +894,7 @@ internal static class DeviceCapabilityValidation
         }
 
         HashSet<DeviceCapabilityKey> keys = [];
-        foreach (CapabilityDescriptor descriptor in set.Descriptors)
+        foreach (var descriptor in set.Descriptors)
         {
             if (!TryValidateDescriptor(descriptor, out error)
                 || !TryValidatePlacement(descriptor, sections, out error)
@@ -952,7 +952,7 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        bool valid = value.Kind switch
+        var valid = value.Kind switch
         {
             CapabilityValueKind.Boolean => value.BooleanValue is not null,
             CapabilityValueKind.Integer => value.IntegerValue is { } integer
@@ -973,7 +973,7 @@ internal static class DeviceCapabilityValidation
                 "text",
                 out _),
             CapabilityValueKind.None => false,
-            _ => false,
+            _ => false
         };
         error = valid ? null : "Capability value violates its descriptor shape or bounds.";
         return valid;
@@ -1155,7 +1155,7 @@ internal static class DeviceCapabilityValidation
                 or CapabilityValueKind.Choice
                 // A read-only string — a firmware revision, a mode name the device reports.
                 or CapabilityValueKind.Text,
-        _ => true,
+        _ => true
     };
 
     /// <summary>Point count, strictly ascending inputs, and outputs inside whatever bounds the
@@ -1175,9 +1175,9 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        for (int index = 0; index < points.Count; index++)
+        for (var index = 0; index < points.Count; index++)
         {
-            CurvePoint point = points[index];
+            var point = points[index];
             if (index > 0 && point.Input <= points[index - 1].Input)
             {
                 return false;

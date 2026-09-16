@@ -37,9 +37,9 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
     internal async ValueTask<SteamBluetoothState?> ReadStateAsync()
     {
         List<SteamBluetoothDevice> devices = [];
-        bool available = false;
-        bool enabled = false;
-        bool discovering = false;
+        var available = false;
+        var enabled = false;
+        var discovering = false;
         await NativeQamUi.RunAsync(() =>
         {
             // Available means "this machine has a Bluetooth radio WSGM can drive", never "the radio
@@ -49,7 +49,7 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
                 is not RadioPower.Absent and not RadioPower.Disabled;
             enabled = _radios.BluetoothOn;
             discovering = _radios.BluetoothScanning;
-            foreach (BluetoothDeviceEntry entry in _radios.BluetoothDevices)
+            foreach (var entry in _radios.BluetoothDevices)
             {
                 if (string.IsNullOrWhiteSpace(entry.Id))
                 {
@@ -86,7 +86,7 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
         {
             _radios.SetSteamDiscovery(discovering);
         }, cancellationToken).ConfigureAwait(false);
-        return new(true, null);
+        return new SteamUiCommandResult(true, null);
     }
 
     /// <inheritdoc />
@@ -98,14 +98,14 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
             return Absent(deviceId);
         }
 
-        bool started = false;
+        var started = false;
         await NativeQamUi.RunAsync(() =>
         {
             if (_showBluetoothPanel?.Invoke() != true)
             { _radios.ReportStatus("The Bluetooth pairing prompt is unavailable."); return; }
             started = _radios.BeginPairing(device);
         }, cancellationToken).ConfigureAwait(false);
-        return new(started, started ? null : _radios.StatusText);
+        return new SteamUiCommandResult(started, started ? null : _radios.StatusText);
     }
 
     /// <inheritdoc />
@@ -116,9 +116,9 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
             return Absent(deviceId);
         }
 
-        bool cancelled = false;
+        var cancelled = false;
         await NativeQamUi.RunAsync(() => cancelled = _radios.CancelPairing(device), cancellationToken).ConfigureAwait(false);
-        return new(cancelled, cancelled ? null : "That device has no active pairing attempt.");
+        return new SteamUiCommandResult(cancelled, cancelled ? null : "That device has no active pairing attempt.");
     }
 
     /// <inheritdoc />
@@ -157,8 +157,8 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
             _showBluetoothPanel?.Invoke();
             operation = _radios.UnpairAsync(device);
         }, cancellationToken).ConfigureAwait(false);
-        bool removed = await operation!.ConfigureAwait(false);
-        return new(removed, removed ? null : _radios.StatusText);
+        var removed = await operation!.ConfigureAwait(false);
+        return new SteamUiCommandResult(removed, removed ? null : _radios.StatusText);
     }
 
     /// <inheritdoc />
@@ -200,14 +200,14 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
             _showBluetoothPanel?.Invoke();
             operation = _radios.SetAudioConnectionAsync(device, connect, cancellationToken);
         }, cancellationToken).ConfigureAwait(false);
-        bool confirmed = await operation!.ConfigureAwait(false);
-        return new(confirmed, confirmed ? null : _radios.StatusText);
+        var confirmed = await operation!.ConfigureAwait(false);
+        return new SteamUiCommandResult(confirmed, confirmed ? null : _radios.StatusText);
     }
 
     private static SteamUiCommandResult Absent(string deviceId)
     {
         Log.Warn($"Bluetooth: '{deviceId}' is no longer present.");
-        return new(false, "That device is no longer present.");
+        return new SteamUiCommandResult(false, "That device is no longer present.");
     }
 
     internal Task StopDiscoveryAsync() => NativeQamUi.RunAsync(() => _radios.SetSteamDiscovery(false));

@@ -43,7 +43,7 @@ internal static class MachineInventoryNormalizer
                         .Select(NormalizeInputEndpoint)
                         .OrderBy(endpoint => endpoint.EndpointId, StringComparer.Ordinal)
                         .Take(InventoryLimits.MaximumEndpointsPerLane)
-                        .ToArray(),
+                        .ToArray()
                 })
                 .GroupBy(backend => (backend.Backend, backend.View))
                 .Select(group => group
@@ -60,7 +60,7 @@ internal static class MachineInventoryNormalizer
                         .Distinct(StringComparer.Ordinal)
                         .Order(StringComparer.Ordinal)
                         .Take(InventoryLimits.MaximumNativeExports)
-                        .ToArray(),
+                        .ToArray()
                 })
                 .OrderBy(binary => binary.Path, StringComparer.OrdinalIgnoreCase)
                 .Take(InventoryLimits.MaximumSystemEntriesPerLane)
@@ -72,7 +72,7 @@ internal static class MachineInventoryNormalizer
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Order(StringComparer.OrdinalIgnoreCase)
                         .Take(InventoryLimits.MaximumEndpointsPerLane)
-                        .ToArray(),
+                        .ToArray()
                 })
                 .OrderBy(process => process.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(process => process.ProcessId)
@@ -108,15 +108,15 @@ internal static class MachineInventoryNormalizer
                 .OrderBy(issue => issue.Lane, StringComparer.Ordinal)
                 .ThenBy(issue => issue.Error, StringComparer.Ordinal)
                 .Take(InventoryLimits.MaximumEndpointsPerLane)
-                .ToArray(),
+                .ToArray()
         };
     }
 
     private static SerialEndpointInventory NormalizeSerial(SerialEndpointInventory endpoint)
     {
-        bool malformed = false;
+        var malformed = false;
         List<SerialFramingCandidate> candidates = [];
-        foreach (SerialFramingCandidate candidate in OrEmpty(endpoint.FramingCandidates))
+        foreach (var candidate in OrEmpty(endpoint.FramingCandidates))
         {
             if (candidate.BaudRate is 0 or > 16_000_000
                 || candidate.DataBits is < 5 or > 8
@@ -142,13 +142,13 @@ internal static class MachineInventoryNormalizer
                 .ThenBy(candidate => candidate.StopBits)
                 .ThenBy(candidate => candidate.Source, StringComparer.Ordinal)
                 .Take(InventoryLimits.MaximumFramingCandidates)
-                .ToArray(),
+                .ToArray()
         };
     }
 
     private static SensorEndpointInventory NormalizeSensor(SensorEndpointInventory sensor)
     {
-        uint[] intervals = OrEmpty(sensor.SupportedReportIntervalsMilliseconds)
+        var intervals = OrEmpty(sensor.SupportedReportIntervalsMilliseconds)
             .Distinct()
             .Order()
             .Take(InventoryLimits.MaximumSensorIntervals)
@@ -166,19 +166,19 @@ internal static class MachineInventoryNormalizer
 
     private static InputEndpointInventory NormalizeInputEndpoint(InputEndpointInventory endpoint)
     {
-        bool malformed = endpoint.DescriptorAccess is InventoryAccess.Malformed
-            || (endpoint.DescriptorAccess is InventoryAccess.Available
-                && endpoint.ReportDescriptorSha256 is null)
-            || InvalidReportLength(endpoint.InputReportBytes)
-            || InvalidReportLength(endpoint.OutputReportBytes)
-            || InvalidReportLength(endpoint.FeatureReportBytes)
-            || (endpoint.ReportDescriptorSha256 is { } sha256 && !IsSha256(sha256));
+        var malformed = endpoint.DescriptorAccess is InventoryAccess.Malformed
+                        || (endpoint.DescriptorAccess is InventoryAccess.Available
+                            && endpoint.ReportDescriptorSha256 is null)
+                        || InvalidReportLength(endpoint.InputReportBytes)
+                        || InvalidReportLength(endpoint.OutputReportBytes)
+                        || InvalidReportLength(endpoint.FeatureReportBytes)
+                        || (endpoint.ReportDescriptorSha256 is { } sha256 && !IsSha256(sha256));
         return endpoint with
         {
             DescriptorAccess = malformed ? InventoryAccess.Malformed : endpoint.DescriptorAccess,
             ReportDescriptorSha256 = malformed
                 ? null
-                : endpoint.ReportDescriptorSha256?.ToLowerInvariant(),
+                : endpoint.ReportDescriptorSha256?.ToLowerInvariant()
         };
     }
 

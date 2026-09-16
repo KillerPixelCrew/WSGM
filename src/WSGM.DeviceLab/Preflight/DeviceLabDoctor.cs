@@ -21,7 +21,7 @@ internal static class DeviceLabDoctor
         ("device-setup", "setupapi.dll", "SetupDiGetClassDevsW"),
         ("hid-descriptors", "hid.dll", "HidD_GetPreparsedData"),
         ("raw-input", "user32.dll", "RegisterRawInputDevices"),
-        ("high-resolution-clock", "kernel32.dll", "QueryPerformanceCounter"),
+        ("high-resolution-clock", "kernel32.dll", "QueryPerformanceCounter")
     ];
 
     /// <summary>Runs doctor checks for one explicit output directory.</summary>
@@ -34,12 +34,12 @@ internal static class DeviceLabDoctor
         DateTimeOffset capturedAt,
         string? repositoryRoot = null)
     {
-        DeviceLabPathBoundaries boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
-        DeviceLabOutputPathDecision outputDecision = DeviceLabOutputPathPolicy.Evaluate(
+        var boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+        var outputDecision = DeviceLabOutputPathPolicy.Evaluate(
             outputDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
-        DeviceLabDoctorSnapshot snapshot = WindowsDoctorSnapshotCollector.Collect(outputDecision);
+        var snapshot = WindowsDoctorSnapshotCollector.Collect(outputDecision);
         return Evaluate(snapshot, outputDecision, capturedAt);
     }
 
@@ -86,10 +86,10 @@ internal static class DeviceLabDoctor
                 snapshot.RuntimeMajorVersion >= 10
                     ? ".NET 10 or newer is active."
                     : ".NET 10 or newer is required.",
-                $"{snapshot.RuntimeDescription}; {snapshot.RuntimeIdentifier}"),
+                $"{snapshot.RuntimeDescription}; {snapshot.RuntimeIdentifier}")
         ];
 
-        foreach (WindowsApiAvailability api in snapshot.RequiredApis.OrderBy(api => api.Name, StringComparer.Ordinal))
+        foreach (var api in snapshot.RequiredApis.OrderBy(api => api.Name, StringComparer.Ordinal))
         {
             checks.Add(Check(
                 $"api.{api.Name}",
@@ -109,7 +109,7 @@ internal static class DeviceLabDoctor
                 ? "The current token is elevated."
                 : "The current token is not elevated; protected observations will report access denied."));
 
-        DeviceLabDoctorStatus outputStatus = !outputDecision.IsAllowed || !snapshot.OutputPathWritable
+        var outputStatus = !outputDecision.IsAllowed || !snapshot.OutputPathWritable
             ? DeviceLabDoctorStatus.Blocked
             : DeviceLabDoctorStatus.Pass;
         checks.Add(Check(
@@ -133,7 +133,7 @@ internal static class DeviceLabDoctor
                 ? "An interactive local user session is available."
                 : "This environment cannot run the attended plugin hardware action."));
 
-        DeviceLabDoctorStatus status = checks.Any(check => check.Status is DeviceLabDoctorStatus.Blocked)
+        var status = checks.Any(check => check.Status is DeviceLabDoctorStatus.Blocked)
             ? DeviceLabDoctorStatus.Blocked
             : checks.Any(check => check.Status is DeviceLabDoctorStatus.Warning)
                 ? DeviceLabDoctorStatus.Warning
@@ -145,7 +145,7 @@ internal static class DeviceLabDoctor
             CapturedAt = capturedAt,
             Status = status,
             OutputDirectory = outputDecision.FullPath,
-            Checks = checks,
+            Checks = checks
         };
     }
 
@@ -160,14 +160,14 @@ internal static class DeviceLabDoctor
             Category = category,
             Status = status,
             Summary = summary,
-            Detail = detail,
+            Detail = detail
         };
 
     private static class WindowsDoctorSnapshotCollector
     {
         public static DeviceLabDoctorSnapshot Collect(DeviceLabOutputPathDecision outputDecision)
         {
-            (bool outputWritable, string? outputDetail) = ProbeOutputAccess(outputDecision);
+            var (outputWritable, outputDetail) = ProbeOutputAccess(outputDecision);
             return new DeviceLabDoctorSnapshot
             {
                 IsWindows = OperatingSystem.IsWindows(),
@@ -181,16 +181,16 @@ internal static class DeviceLabDoctor
                 IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
                 RequiredApis = RequiredWindowsApis.Select(api => ProbeApi(api)).ToArray(),
                 OutputPathWritable = outputWritable,
-                OutputAccessDetail = outputDetail,
+                OutputAccessDetail = outputDetail
             };
         }
 
         private static WindowsApiAvailability ProbeApi(
             (string Name, string Library, string Export) api)
         {
-            string libraryPath = Path.Combine(Environment.SystemDirectory, api.Library);
-            IntPtr handle = IntPtr.Zero;
-            bool available = false;
+            var libraryPath = Path.Combine(Environment.SystemDirectory, api.Library);
+            var handle = IntPtr.Zero;
+            var available = false;
             try
             {
                 available = NativeLibrary.TryLoad(libraryPath, out handle)
@@ -214,7 +214,7 @@ internal static class DeviceLabDoctor
                 Name = api.Name,
                 Library = api.Library,
                 Export = api.Export,
-                Available = available,
+                Available = available
             };
         }
 
@@ -222,7 +222,7 @@ internal static class DeviceLabDoctor
         {
             try
             {
-                using WindowsIdentity identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
+                using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
                 return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
             }
             catch (Exception exception) when (exception is SecurityException or UnauthorizedAccessException)
@@ -239,7 +239,7 @@ internal static class DeviceLabDoctor
                 return (false, outputDecision.Reason);
             }
 
-            string? probeDirectory = Directory.Exists(outputPath)
+            var probeDirectory = Directory.Exists(outputPath)
                 ? outputPath
                 : FindExistingParent(outputPath);
             if (probeDirectory is null)
@@ -247,7 +247,7 @@ internal static class DeviceLabDoctor
                 return (false, "No existing parent directory could be found.");
             }
 
-            string probePath = Path.Combine(
+            var probePath = Path.Combine(
                 probeDirectory,
                 $".wsgm-device-doctor-{Guid.NewGuid():N}.tmp");
             try
@@ -268,7 +268,7 @@ internal static class DeviceLabDoctor
 
         private static string? FindExistingParent(string path)
         {
-            string? current = Path.GetDirectoryName(path);
+            var current = Path.GetDirectoryName(path);
             while (!string.IsNullOrWhiteSpace(current))
             {
                 if (Directory.Exists(current))
@@ -276,7 +276,7 @@ internal static class DeviceLabDoctor
                     return current;
                 }
 
-                string? parent = Path.GetDirectoryName(current);
+                var parent = Path.GetDirectoryName(current);
                 if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
                 {
                     return null;

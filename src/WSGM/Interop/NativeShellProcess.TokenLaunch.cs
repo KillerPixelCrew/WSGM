@@ -42,7 +42,7 @@ internal static partial class NativeShellProcess
             {
                 if (!CreateProcessWithTokenW(token, 0, application, command,
                         CreateUnicodeEnvironment | CreateNoWindow | CreateBreakawayFromJob, environment, directory,
-                        in startup, out ProcessInformation created))
+                        in startup, out var created))
                 {
                     error = Marshal.GetLastPInvokeError();
                     return false;

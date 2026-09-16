@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
@@ -73,7 +74,7 @@ public sealed class WindowIconCache
             }
             generation = _generation;
         }
-        _ = System.Threading.Tasks.Task.Run(() =>
+        _ = Task.Run(() =>
         {
             Bitmap? bitmap = null;
             try
@@ -285,7 +286,7 @@ internal static class IconRasterizer
                 biHeight = -size, // top-down so rows read in display order
                 biPlanes = 1,
                 biBitCount = 32,
-                biCompression = NativeMethods.BiRgb,
+                biCompression = NativeMethods.BiRgb
             };
             dib = NativeMethods.CreateDIBSection(dc, &header, NativeMethods.DibRgbColors, out var bits, 0, 0);
             if (dib == 0 || bits == 0)

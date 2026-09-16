@@ -105,7 +105,7 @@ public sealed class InputTests
     public void ResetClearsAnInFlightChord()
     {
         using var tracker = new ChordTracker();
-        GamepadButtons released = GamepadButtons.A;
+        var released = GamepadButtons.A;
         tracker.Released += pad => released = pad.Union;
 
         tracker.OnState(7, GamepadButtons.A | GamepadButtons.B);

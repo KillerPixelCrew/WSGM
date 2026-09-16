@@ -19,7 +19,7 @@ public sealed class GameWindowReturnTests
             return steam.Task;
         }, _ => 42, _ => false, hwnd => { foreground = hwnd; return true; }, log.Add);
 
-        Task work = subject.ReturnAsync(30, 42, CancellationToken.None);
+        var work = subject.ReturnAsync(30, 42, CancellationToken.None);
         Assert.Equal((nint)20, foreground);
         steam.SetResult(true);
         await work;
@@ -43,7 +43,7 @@ public sealed class GameWindowReturnTests
     [Fact]
     public async Task SelectingConsoleDoesNotRaiseSteamGame()
     {
-        bool raised = false;
+        var raised = false;
         nint focused = 0;
         var subject = new GameWindowReturn((_, _) => { raised = true; return Task.FromResult(true); },
             _ => 42, _ => true, hwnd => { focused = hwnd; return true; }, _ => { });
@@ -57,8 +57,8 @@ public sealed class GameWindowReturnTests
     [InlineData(true)]
     public async Task ReplacedWindowIsNeverFocused(bool replacedDuringRaise)
     {
-        uint owner = replacedDuringRaise ? 42u : 99u;
-        bool raised = false;
+        var owner = replacedDuringRaise ? 42u : 99u;
+        var raised = false;
         var subject = new GameWindowReturn((_, _) =>
         {
             raised = true;
@@ -87,7 +87,7 @@ public sealed class GameWindowReturnTests
     [Fact]
     public async Task RefusedForegroundIsReportedWithoutRetry()
     {
-        int attempts = 0;
+        var attempts = 0;
         List<string> log = [];
         var subject = new GameWindowReturn((_, _) => Task.FromResult(true), _ => 42, _ => false,
             _ => { attempts++; return false; }, log.Add);
@@ -102,9 +102,9 @@ public sealed class GameWindowReturnTests
         var model = new AppSwitcherViewModel();
         static AppSwitcherEntry Create(WindowFinder.AppWindow window) =>
             new(window.Hwnd, window.Title, false, null) { ProcessId = window.ProcessId };
-        model.Reconcile([new(30, "Game", 42)], 30, Create);
-        AppSwitcherEntry original = model.Entries[0];
-        model.Reconcile([new(30, "Another process", 99)], 30, Create);
+        model.Reconcile([new WindowFinder.AppWindow(30, "Game", 42)], 30, Create);
+        var original = model.Entries[0];
+        model.Reconcile([new WindowFinder.AppWindow(30, "Another process", 99)], 30, Create);
         Assert.NotSame(original, model.Entries[0]);
         Assert.Equal(99u, model.Entries[0].ProcessId);
     }

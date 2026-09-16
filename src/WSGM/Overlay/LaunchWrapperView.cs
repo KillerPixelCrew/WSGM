@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
 
@@ -61,7 +63,7 @@ public sealed class LaunchWrapperView : OverlaySubView
 
     private void RenderArgumentChoice()
     {
-        var name = System.IO.Path.GetFileName(_customPath) ?? "";
+        var name = Path.GetFileName(_customPath) ?? "";
         var stack = NewStack("Custom launch action");
         // Name the target when it is already known, so the flow that skips the
         // picker still says which game it is about to change.
@@ -72,7 +74,7 @@ public sealed class LaunchWrapperView : OverlaySubView
             () => EditText($"Arguments for {name}", _customArguments, 2048, value =>
             {
                 _customArguments = value;
-                Avalonia.Threading.Dispatcher.UIThread.Post(ContinueCustomAction);
+                Dispatcher.UIThread.Post(ContinueCustomAction);
             })));
         stack.Children.Add(Row("Cancel", "Do not change the game", Icons.ExitFullscreen,
             () => Back()));
@@ -164,7 +166,7 @@ public sealed class LaunchWrapperView : OverlaySubView
         if (page + 1 < pageCount)
         {
             stack.Children.Add(Row("Next page",
-                $"Games {((page + 1) * PageSize) + 1}–{Math.Min(_games.Count, (page + 2) * PageSize)}",
+                $"Games {(page + 1) * PageSize + 1}–{Math.Min(_games.Count, (page + 2) * PageSize)}",
                 Icons.Play, () => Replace(() => RenderGamePage(heading, current + 1))));
         }
         stack.Children.Add(Row("Back", "Cancel", Icons.ExitFullscreen, () => Back()));

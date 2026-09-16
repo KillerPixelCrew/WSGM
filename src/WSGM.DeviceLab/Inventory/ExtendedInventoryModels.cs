@@ -68,7 +68,7 @@ internal enum InventoryAccess
     Malformed,
 
     /// <summary>A read-only open was rejected by an existing incompatible share or lease.</summary>
-    ExclusiveAccessDenied,
+    ExclusiveAccessDenied
 }
 
 /// <summary>A serial-port framing value reported by the installed driver.</summary>
@@ -169,7 +169,7 @@ internal enum SensorApiKind
     WinRt,
 
     /// <summary>Sensor endpoint associated with a controller topology.</summary>
-    Controller,
+    Controller
 }
 
 /// <summary>Supported independent input views.</summary>
@@ -188,7 +188,7 @@ internal enum InputBackendKind
     RawInput,
 
     /// <summary>Raw HID PnP interfaces.</summary>
-    RawHid,
+    RawHid
 }
 
 /// <summary>One endpoint visible through an input backend.</summary>
@@ -272,7 +272,7 @@ internal enum InputBackendViewKind
     PassiveCompatibility,
 
     /// <summary>Only runtime file availability was checked; no subsystem was initialized.</summary>
-    RuntimeOnly,
+    RuntimeOnly
 }
 
 /// <summary>Signature observation for a native file.</summary>
@@ -285,7 +285,7 @@ internal enum BinarySignatureState
     Unsigned,
 
     /// <summary>The signature could not be inspected.</summary>
-    Unknown,
+    Unknown
 }
 
 /// <summary>Native PE metadata read from disk without loading the binary.</summary>
@@ -426,7 +426,7 @@ internal enum ConflictSignalKind
     ExclusiveAccessDenied,
 
     /// <summary>The production owner explicitly reported an active lease.</summary>
-    ReportedLease,
+    ReportedLease
 }
 
 /// <summary>One potential or demonstrated resource conflict.</summary>
@@ -477,5 +477,5 @@ internal enum TopologyChangeKind
     Removal,
 
     /// <summary>Metadata changed without treating it as a new physical association.</summary>
-    Changed,
+    Changed
 }

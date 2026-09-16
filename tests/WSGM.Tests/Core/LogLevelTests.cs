@@ -46,7 +46,7 @@ public sealed class LogLevelTests : IDisposable
     [Fact]
     public void NoLevelCanEverSuppressAFailure()
     {
-        foreach (LogVerbosity verbosity in Enum.GetValues<LogVerbosity>())
+        foreach (var verbosity in Enum.GetValues<LogVerbosity>())
         {
             Log.SetVerbosity(verbosity);
             Assert.True(LogLevel.Error >= Log.MinimumLevel);

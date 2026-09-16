@@ -139,7 +139,7 @@ internal sealed class RefreshRatePairingService
             return false;
         }
 
-        IReadOnlyList<int> accepted = AcceptedRates();
+        var accepted = AcceptedRates();
         if (!accepted.Contains(refreshHz))
         {
             Log.Warn(
@@ -155,7 +155,7 @@ internal sealed class RefreshRatePairingService
     /// <returns>Caps, ascending, with zero first for uncapped.</returns>
     internal IReadOnlyList<int> FrameLimitOptions()
     {
-        (FrameLimitStrategy strategy, IReadOnlyList<int> advertised, IReadOnlyList<int> accepted) =
+        var (strategy, advertised, accepted) =
             Snapshot();
         return FrameLimitPairing.FrameLimitOptions(strategy, advertised, accepted);
     }
@@ -170,7 +170,7 @@ internal sealed class RefreshRatePairingService
     /// </remarks>
     internal (int Minimum, int Maximum)? FrameLimitRange()
     {
-        (FrameLimitStrategy strategy, IReadOnlyList<int> advertised, IReadOnlyList<int> accepted) =
+        var (strategy, advertised, accepted) =
             Snapshot();
         return FrameLimitPairing.FrameLimitRange(strategy, advertised, accepted);
     }
@@ -184,7 +184,7 @@ internal sealed class RefreshRatePairingService
     /// </remarks>
     internal int? SelectRefreshHz(int capFps)
     {
-        (FrameLimitStrategy strategy, IReadOnlyList<int> advertised, IReadOnlyList<int> accepted) =
+        var (strategy, advertised, accepted) =
             Snapshot();
         return FrameLimitPairing.SelectRefreshHz(strategy, capFps, advertised, accepted);
     }
@@ -196,14 +196,14 @@ internal sealed class RefreshRatePairingService
     /// <returns>The rate applied, or null when the refresh rate was left alone.</returns>
     internal int? ApplyForCap(int capFps)
     {
-        (FrameLimitStrategy strategy, IReadOnlyList<int> advertised, IReadOnlyList<int> accepted) =
+        var (strategy, advertised, accepted) =
             Snapshot();
         if (strategy is FrameLimitStrategy.FrameLimitOnly)
         {
             return null;
         }
 
-        int? target = FrameLimitPairing.SelectRefreshHz(strategy, capFps, advertised, accepted);
+        var target = FrameLimitPairing.SelectRefreshHz(strategy, capFps, advertised, accepted);
         if (target is not { } rate)
         {
             Log.Info(
@@ -239,7 +239,7 @@ internal sealed class RefreshRatePairingService
         }
 
         Log.Info($"Frame limit strategy released the display; restoring {rate} Hz.");
-        bool restored = _applyRate(rate);
+        var restored = _applyRate(rate);
         if (restored)
         {
             lock (_gate)
@@ -269,7 +269,7 @@ internal sealed class RefreshRatePairingService
 
         // Read outside the lock: it crosses into the display driver, and the only cost of a race
         // here is capturing the same rate twice.
-        int? current = _readCurrentRate();
+        var current = _readCurrentRate();
         lock (_gate)
         {
             _originalRate ??= current;
@@ -286,7 +286,7 @@ internal sealed class RefreshRatePairingService
             advertised = _advertised;
         }
 
-        IReadOnlyList<int> accepted = AcceptedRates();
+        var accepted = AcceptedRates();
         advertised ??= _readAdvertisedRates();
         lock (_gate)
         {

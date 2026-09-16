@@ -10,11 +10,11 @@ public sealed class WindowsHidTransportsTests
     {
         WindowsClawMcuTransport transport = new();
         // Hold the same gate as a transport operation, before any native endpoint is opened.
-        SemaphoreSlim gate = Assert.IsType<SemaphoreSlim>(typeof(WindowsClawMcuTransport)
+        var gate = Assert.IsType<SemaphoreSlim>(typeof(WindowsClawMcuTransport)
             .GetField("_serializer", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(transport));
         await gate.WaitAsync();
         Task read = transport.ReadProfileAsync(0, 1, CancellationToken.None).AsTask();
-        Task write = transport.WriteProfileAsync(0, new byte[1], CancellationToken.None).AsTask();
+        var write = transport.WriteProfileAsync(0, new byte[1], CancellationToken.None).AsTask();
         Task mode = transport.SwitchModeAsync(ClawControllerMode.XInput, "test-location",
             DateTimeOffset.UtcNow.AddSeconds(5), CancellationToken.None).AsTask();
         Assert.False(read.IsCompleted);
@@ -33,7 +33,7 @@ public sealed class WindowsHidTransportsTests
     [Fact]
     public void RumblePayloadPadsToTheAdvertisedHidOutputLength()
     {
-        byte[] report = ClawControllerCodec.EncodeRumble(0x22, 0x44, 64);
+        var report = ClawControllerCodec.EncodeRumble(0x22, 0x44, 64);
 
         Assert.Equal(64, report.Length);
         Assert.Equal(0x05, report[0]);

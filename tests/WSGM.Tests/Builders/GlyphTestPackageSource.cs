@@ -10,7 +10,7 @@ internal sealed class GlyphTestPackageSource(
 
     public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
     {
-        if (files.TryGetValue(relativePath, out byte[]? asset)
+        if (files.TryGetValue(relativePath, out var asset)
             && asset.Length <= maximumBytes)
         {
             bytes = [.. asset];

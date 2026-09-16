@@ -1,5 +1,6 @@
 // Shared between WSGM and WSGM.LogonService (linked beside BootManifest.cs), so it stays free
 // of Log and ConfigStore and carries explicit usings.
+
 using System;
 using System.IO;
 using System.Text;
@@ -51,11 +52,11 @@ internal static class AtomicFile
         bool durable,
         Action<string, Exception>? cleanupFailed = null)
     {
-        string temporary = TemporaryPath(path);
+        var temporary = TemporaryPath(path);
         try
         {
             bool written;
-            using (FileStream stream = Open(temporary, durable, FileOptions.None))
+            using (var stream = Open(temporary, durable, FileOptions.None))
             {
                 written = write(stream);
                 if (written && durable)
@@ -89,10 +90,10 @@ internal static class AtomicFile
         bool durable,
         CancellationToken cancellationToken)
     {
-        string temporary = TemporaryPath(path);
+        var temporary = TemporaryPath(path);
         try
         {
-            await using (FileStream stream = Open(temporary, durable, FileOptions.Asynchronous))
+            await using (var stream = Open(temporary, durable, FileOptions.Asynchronous))
             {
                 await write(stream, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);

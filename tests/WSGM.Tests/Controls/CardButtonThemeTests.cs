@@ -28,8 +28,8 @@ public sealed class CardButtonThemeTests
     [Fact]
     public void ButtonFocusVisualsOnlyAppearForFocusVisible()
     {
-        string uiRoot = Path.Combine(RepositoryFiles.Root, "src", "WSGM");
-        string[] selectors = Directory.EnumerateFiles(uiRoot, "*.axaml", SearchOption.AllDirectories)
+        var uiRoot = Path.Combine(RepositoryFiles.Root, "src", "WSGM");
+        var selectors = Directory.EnumerateFiles(uiRoot, "*.axaml", SearchOption.AllDirectories)
             .SelectMany(path => XDocument.Load(path).Descendants())
             .Select(element => element.Attribute("Selector")?.Value)
             .Where(selector => selector is not null
@@ -60,8 +60,8 @@ public sealed class CardButtonThemeTests
     [Fact]
     public void EveryRowStyleClassSetInCodeIsActuallyStyled()
     {
-        string uiRoot = Path.Combine(RepositoryFiles.Root, "src", "WSGM");
-        string[] selectors = Directory.EnumerateFiles(uiRoot, "*.axaml", SearchOption.AllDirectories)
+        var uiRoot = Path.Combine(RepositoryFiles.Root, "src", "WSGM");
+        var selectors = Directory.EnumerateFiles(uiRoot, "*.axaml", SearchOption.AllDirectories)
             .SelectMany(path => XDocument.Load(path).Descendants())
             .Select(element => element.Attribute("Selector")?.Value)
             .Where(selector => selector is not null)
@@ -74,12 +74,12 @@ public sealed class CardButtonThemeTests
         [
             ("tile", "Border"),
             ("tile", "CardButton"),
-            ("glyph-tile", "Border"),
+            ("glyph-tile", "Border")
         ];
 
         Assert.All(required, entry =>
         {
-            bool styled = selectors.Any(selector =>
+            var styled = selectors.Any(selector =>
                 selector.Contains($".{entry.Class}", StringComparison.Ordinal)
                 && selector.Contains(entry.Type, StringComparison.Ordinal));
             Assert.True(

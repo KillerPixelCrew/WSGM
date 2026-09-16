@@ -21,7 +21,7 @@ internal enum GameModeEntryOutcome
     Failed,
 
     /// <summary>Explorer could not be removed, so the desktop was deliberately kept.</summary>
-    DesktopPreserved,
+    DesktopPreserved
 }
 
 /// <summary>The result of one entry attempt.</summary>
@@ -105,7 +105,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
     {
         IReadOnlyList<PluginActionStepResult> entered = [];
         DisplayLayout? returnLayout = null;
-        bool recoveryAttempted = false;
+        var recoveryAttempted = false;
         async Task RecoverAsync()
         {
             if (recoveryAttempted) { return; }
@@ -131,11 +131,11 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 if (entered.FirstOrDefault(step => !step.Succeeded) is { } failed)
                 {
                     await RecoverAsync().ConfigureAwait(false);
-                    return new(GameModeEntryOutcome.Failed, $"Game Mode entry action: {failed.Detail}");
+                    return new GameModeEntryResult(GameModeEntryOutcome.Failed, $"Game Mode entry action: {failed.Detail}");
                 }
             }
 
-            IReadOnlyList<DisplayTargetIdentity> required = RequiredDisplays();
+            var required = RequiredDisplays();
             if (required.Count > 0)
             {
                 backend.SetStatus(required.Count == 1
@@ -151,18 +151,18 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             }
 
             backend.SetStatus("Preparing the Windows desktop");
-            bool prepared = await backend.PrepareExplorerExitAsync().ConfigureAwait(false);
+            var prepared = await backend.PrepareExplorerExitAsync().ConfigureAwait(false);
             if (!prepared)
             {
                 await RecoverAsync().ConfigureAwait(false);
-                return new(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerTakeoverRefusedWarning);
+                return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerTakeoverRefusedWarning);
             }
 
             // A display can drop out again between the wait and here, and re-entering the wait is
             // cheaper and kinder than failing this far in.
             if (required.Count > 0)
             {
-                DisplayArrangement now = await backend.ObserveAsync().ConfigureAwait(false);
+                var now = await backend.ObserveAsync().ConfigureAwait(false);
                 if (DisplayArrivalWaiter.Missing(now, required).Count > 0)
                 {
                     backend.SetStatus("A display disappeared again; still waiting");
@@ -175,11 +175,11 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             // ---- Boundary. Explorer is about to leave; cancellation stops being free. ----
             backend.SetCancellable(false);
             backend.SetStatus("Leaving the Windows desktop");
-            bool exited = await backend.ExitExplorerAndWaitAsync().ConfigureAwait(false);
+            var exited = await backend.ExitExplorerAndWaitAsync().ConfigureAwait(false);
             if (!exited)
             {
                 await RecoverAsync().ConfigureAwait(false);
-                return new(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerExitFailedWarning);
+                return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved, SessionModes.ExplorerExitFailedWarning);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -187,7 +187,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             if (launch is { Kind: GameModeLaunchKind.Custom, GameLayout: { } game })
             {
                 backend.SetStatus("Applying the display layout");
-                DisplayLayoutResult applied = await backend.ApplyLayoutAsync(game, CancellationToken.None)
+                var applied = await backend.ApplyLayoutAsync(game, CancellationToken.None)
                     .ConfigureAwait(false);
                 // Past the boundary a refused layout is not worth abandoning Game Mode over: the
                 // session is usable on whatever the desktop is showing, and saying so is better
@@ -201,23 +201,23 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
 
             backend.SetStatus("Starting Steam Big Picture");
             await backend.ArmSteamDetectionAsync().ConfigureAwait(false);
-            string? steamWarning = await backend.RequestBigPictureAsync().ConfigureAwait(false);
+            var steamWarning = await backend.RequestBigPictureAsync().ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
             await backend.CommitGameModeAsync().ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            return new(GameModeEntryOutcome.Entered, layoutWarning ?? steamWarning);
+            return new GameModeEntryResult(GameModeEntryOutcome.Entered, layoutWarning ?? steamWarning);
         }
         catch (OperationCanceledException)
         {
             await RecoverAsync().ConfigureAwait(false);
-            return new(GameModeEntryOutcome.Cancelled);
+            return new GameModeEntryResult(GameModeEntryOutcome.Cancelled);
         }
         catch (Exception ex)
         {
             Log.Error("Game Mode entry failed", ex);
             await RecoverAsync().ConfigureAwait(false);
-            return new(GameModeEntryOutcome.Failed, "Game Mode entry failed: " + ex.Message);
+            return new GameModeEntryResult(GameModeEntryOutcome.Failed, "Game Mode entry failed: " + ex.Message);
         }
     }
 
@@ -226,7 +226,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
     private IReadOnlyList<DisplayTargetIdentity> RequiredDisplays()
     {
         List<DisplayTargetIdentity> required = [];
-        foreach (DisplayTargetIdentity target in new[] { launch.WaitForDisplay }.OfType<DisplayTargetIdentity>()
+        foreach (var target in new[] { launch.WaitForDisplay }.OfType<DisplayTargetIdentity>()
             .Concat(launch.Kind == GameModeLaunchKind.Custom
                 ? launch.GameLayout?.Outputs.Select(output => output.Target) ?? []
                 : []))
@@ -243,7 +243,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
     private async Task RecoverDesktopAsync(
         IReadOnlyList<PluginActionStepResult> entered, DisplayLayout? returnLayout)
     {
-        bool restored = await backend.ReturnToDesktopAsync(returnLayout,
+        var restored = await backend.ReturnToDesktopAsync(returnLayout,
             PluginActionSequence.NeedsCompensation(entered)).ConfigureAwait(false);
         if (!restored) { throw new InvalidOperationException(SessionModes.ExplorerDesktopPendingWarning); }
     }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using Xunit;
@@ -11,24 +12,24 @@ public sealed class IrLibraryTests
     public async Task ManagedCommandsKeepStableSceneReferencesAndCarrierProvenanceAcrossRestart()
     {
         using TemporaryDirectory temporary = new();
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         FakeEndpoint endpoint = new();
         await using (IrPlugin plugin = new(_ => endpoint))
         {
             await plugin.StartAsync(new RecordingPluginHost(), context, default);
             await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
             Assert.Equal(PluginActionOutcome.AppliedVerified, (await Invoke(plugin, context, "connect")).Outcome);
-            await Invoke(plugin, context, "learn", ("device", new(Text: "HDMI switch")), ("name", new(Text: "PC")));
-            await Invoke(plugin, context, "save-scene", ("name", new(Text: "Game")),
-                ("commands", new(Text: "HDMI switch / PC")));
+            await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "HDMI switch")), ("name", new PluginValue(Text: "PC")));
+            await Invoke(plugin, context, "save-scene", ("name", new PluginValue(Text: "Game")),
+                ("commands", new PluginValue(Text: "HDMI switch / PC")));
             Assert.Equal(PluginActionOutcome.Rejected, (await Invoke(plugin, context, "delete")).Outcome);
-            await Invoke(plugin, context, "set-carrier", ("carrier-hz", new(Number: 40000)));
-            await Invoke(plugin, context, "rename", ("device", new(Text: "HDMI switch")), ("name", new(Text: "Gaming PC")));
-            Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(plugin, context, "scene", ("scene", new(Text: "Game")))).Outcome);
+            await Invoke(plugin, context, "set-carrier", ("carrier-hz", new PluginValue(Number: 40000)));
+            await Invoke(plugin, context, "rename", ("device", new PluginValue(Text: "HDMI switch")), ("name", new PluginValue(Text: "Gaming PC")));
+            Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(plugin, context, "scene", ("scene", new PluginValue(Text: "Game")))).Outcome);
             Assert.Equal(40000, endpoint.Sent!.CarrierHz);
             Assert.Equal("manual", endpoint.Sent.CarrierSource);
         }
-        IrLibrary saved = await IrLibrary.LoadAsync(Path.Combine(temporary.Root, "library.json"), default);
+        var saved = await IrLibrary.LoadAsync(Path.Combine(temporary.Root, "library.json"), default);
         Assert.Equal("measured", saved.Commands[0].Payload.CarrierSource);
         Assert.Equal(36000, saved.Commands[0].Payload.CarrierHz);
         Assert.Equal(saved.Commands[0].Id, saved.Scenes[0].Steps[0].CommandId);
@@ -44,17 +45,17 @@ public sealed class IrLibraryTests
     public async Task LearnAndSendIdentifyTheEndpointOnDemandAndAfterALostLink()
     {
         using TemporaryDirectory temporary = new();
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         FakeEndpoint endpoint = new();
         List<IrEndpointTarget> targets = [];
         await using IrPlugin plugin = new(target => { targets.Add(target); return endpoint; });
         await plugin.StartAsync(new RecordingPluginHost(), context, default);
-        PluginActionResult unconfigured = await Invoke(plugin, context, "connect");
+        var unconfigured = await Invoke(plugin, context, "connect");
         Assert.Equal(PluginActionOutcome.Unconfirmed, unconfigured.Outcome);
         Assert.Contains("USB serial port", unconfigured.Detail);
         await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
         Assert.Equal(PluginActionOutcome.AppliedVerified,
-            (await Invoke(plugin, context, "learn", ("device", new(Text: "Remote")), ("name", new(Text: "Power")))).Outcome);
+            (await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "Remote")), ("name", new PluginValue(Text: "Power")))).Outcome);
         Assert.Equal(1, endpoint.Identifications);
         Assert.Equal([new IrEndpointTarget(false, "COM3", null)], targets);
         Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(plugin, context, "send")).Outcome);
@@ -68,26 +69,26 @@ public sealed class IrLibraryTests
     public async Task WifiPairingOverUsbMintsATokenAndTheNetworkTransportUsesIt()
     {
         using TemporaryDirectory temporary = new();
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         FakeEndpoint endpoint = new();
         List<IrEndpointTarget> targets = [];
         await using (IrPlugin plugin = new(target => { targets.Add(target); return endpoint; }))
         {
             await plugin.StartAsync(new RecordingPluginHost(), context, default);
             await plugin.ConfigureAsync(Configuration(port: "COM3", transport: "wifi"), context, default);
-            PluginActionResult unpaired = await Invoke(plugin, context, "connect");
+            var unpaired = await Invoke(plugin, context, "connect");
             Assert.Equal(PluginActionOutcome.Unconfirmed, unpaired.Outcome);
             Assert.Contains("Pair the endpoint over USB", unpaired.Detail);
-            PluginActionResult paired = await Invoke(plugin, context, "wifi-setup", ("ssid", new(Text: "Home")), ("password", new(Text: "hunter22")));
+            var paired = await Invoke(plugin, context, "wifi-setup", ("ssid", new PluginValue(Text: "Home")), ("password", new PluginValue(Text: "hunter22")));
             Assert.Equal(PluginActionOutcome.AppliedVerified, paired.Outcome);
             Assert.Equal("Home", endpoint.Network!.Value.Ssid);
             Assert.Equal("hunter22", endpoint.Network.Value.Password);
             Assert.Equal(48, endpoint.Network.Value.Token.Length);
             Assert.Equal(new IrEndpointTarget(false, "COM3", null), targets.Single()); // Pairing always goes over the cable.
-            await Invoke(plugin, context, "learn", ("device", new(Text: "TV")), ("name", new(Text: "Power")));
+            await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "TV")), ("name", new PluginValue(Text: "Power")));
             Assert.Equal(new IrEndpointTarget(true, "wsgm-ir-abc123.local", endpoint.Network.Value.Token), targets.Last());
         }
-        IrPairing saved = (await IrPairing.LoadAsync(Path.Combine(temporary.Root, "endpoint.json"), default))!;
+        var saved = (await IrPairing.LoadAsync(Path.Combine(temporary.Root, "endpoint.json"), default))!;
         Assert.Equal(endpoint.Network!.Value.Token, saved.Token);
         Assert.Equal("192.0.2.7", saved.Ip);
         Assert.DoesNotContain("hunter22", await File.ReadAllTextAsync(Path.Combine(temporary.Root, "endpoint.json")));
@@ -105,8 +106,8 @@ public sealed class IrLibraryTests
     [Fact]
     public void CarrierOverridePreservesCapturedFrequencyAndProvenance()
     {
-        IrCommand captured = new("power", "TV", "Power", new(36000, [9000, 4500], "measured"));
-        IrCommand edited = captured with { CarrierOverrideHz = 38000 };
+        IrCommand captured = new("power", "TV", "Power", new IrPayload(36000, [9000, 4500], "measured"));
+        var edited = captured with { CarrierOverrideHz = 38000 };
         Assert.Equal(36000, edited.Payload.CarrierHz);
         Assert.Equal("measured", edited.Payload.CarrierSource);
         Assert.Equal(38000, edited.TransmitPayload.CarrierHz);
@@ -119,18 +120,18 @@ public sealed class IrLibraryTests
     public async Task LibrarySurvivesReloadAndInvalidReplacementPreservesPreviousFile()
     {
         using TemporaryDirectory temporary = new();
-        string path = temporary.GetPath("library.json");
-        IrLibrary library = new(1, [new("pc", "HDMI switch", "PC", new(38000, [9000, 4500, 560, 560]))],
-            [new("game", "Game Mode", [new("pc", 100)])]);
+        var path = temporary.GetPath("library.json");
+        IrLibrary library = new(1, [new IrCommand("pc", "HDMI switch", "PC", new IrPayload(38000, [9000, 4500, 560, 560]))],
+            [new IrScene("game", "Game Mode", [new IrSceneStep("pc", 100)])]);
         await library.SaveAsync(path, default);
-        IrLibrary loaded = await IrLibrary.LoadAsync(path, default);
+        var loaded = await IrLibrary.LoadAsync(path, default);
         Assert.Equal(library.Commands[0].Payload.TimingsUs, loaded.Commands[0].Payload.TimingsUs);
         Assert.Equal("pc", loaded.Scenes[0].Steps[0].CommandId);
-        byte[] before = await File.ReadAllBytesAsync(path);
+        var before = await File.ReadAllBytesAsync(path);
         await Assert.ThrowsAsync<InvalidDataException>(() => (library with { Commands = [] }).SaveAsync(path, default));
         Assert.Equal(before, await File.ReadAllBytesAsync(path));
         await File.WriteAllTextAsync(path, "broken");
-        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => IrLibrary.LoadAsync(path, default));
+        await Assert.ThrowsAsync<JsonException>(() => IrLibrary.LoadAsync(path, default));
         Assert.Equal("broken", await File.ReadAllTextAsync(path));
     }
 
@@ -151,9 +152,9 @@ public sealed class IrLibraryTests
         await using IrPlugin plugin = new();
         Assert.True(PluginConfigurationRules.IsValid(plugin.Settings));
         Assert.All(plugin.Actions, action => Assert.True(PluginConfigurationRules.IsValid(action.Arguments)));
-        PluginContext context = Context(temporary.Root);
+        var context = Context(temporary.Root);
         Assert.Equal(PluginHealth.Ready, await plugin.StartAsync(new RecordingPluginHost(), context, default));
-        PluginActionResult result = await plugin.ExecuteActionAsync(new(Guid.NewGuid(), "discover", PluginActionOrigin.User,
+        var result = await plugin.ExecuteActionAsync(new PluginActionRequest(Guid.NewGuid(), "discover", PluginActionOrigin.User,
             new Dictionary<string, PluginValue>()), context with { Generation = 2 }, default);
         Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
         Assert.True(await plugin.StopAsync(context, default));

@@ -29,7 +29,7 @@ internal sealed unsafe class SettingsActivation : IDisposable
         if (!NativeMethods.ChangeWindowMessageFilterEx(
             _window, OpenSettingsMessage, NativeMethods.MsgfltAllow, 0))
         {
-            int error = Marshal.GetLastWin32Error();
+            var error = Marshal.GetLastWin32Error();
             NativeMethods.DestroyWindow(_window);
             _window = 0;
             throw new Win32Exception(error, "Could not allow desktop Settings activation.");
@@ -39,16 +39,16 @@ internal sealed unsafe class SettingsActivation : IDisposable
 
     internal static bool TryRequest(string windowClass = WindowClass)
     {
-        nint window = NativeMethods.FindWindowExW(NativeMethods.HwndMessage, 0, windowClass, null);
+        var window = NativeMethods.FindWindowExW(NativeMethods.HwndMessage, 0, windowClass, null);
         if (window == 0)
         {
             return false;
         }
-        NativeMethods.GetWindowThreadProcessId(window, out uint processId);
+        NativeMethods.GetWindowThreadProcessId(window, out var processId);
         // Transfer this user launch's foreground permission to the existing UI owner.
         NativeMethods.AllowSetForegroundWindow(processId);
         return NativeMethods.SendMessageTimeoutW(window, OpenSettingsMessage, 0, 0,
-            NativeMethods.SmtoAbortIfHung, 1000, out nint accepted) != 0 && accepted == 1;
+            NativeMethods.SmtoAbortIfHung, 1000, out var accepted) != 0 && accepted == 1;
     }
 
     [UnmanagedCallersOnly]

@@ -80,17 +80,15 @@ internal static class LibraryBadges
 /// </remarks>
 internal sealed class LibraryBadgeBackend : ISteamLibraryBadgeBackend
 {
-    private bool? _bigArt;
-
     /// <summary>Whether Steam reported Big Art Mode on, or null before the first report.</summary>
-    internal bool? BigArt => _bigArt;
+    internal bool? BigArt { get; private set; }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken)
     {
-        if (_bigArt != bigArt)
+        if (BigArt != bigArt)
         {
-            _bigArt = bigArt;
+            BigArt = bigArt;
             Log.Change("steam.home.layout", $"Steam Home layout: Big Art Mode {(bigArt ? "on" : "off")}.");
         }
 

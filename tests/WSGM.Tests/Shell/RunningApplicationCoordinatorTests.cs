@@ -1,4 +1,3 @@
-using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -8,13 +7,13 @@ public sealed class RunningApplicationCoordinatorTests
     [Fact]
     public async Task AQueuedSnapshotCancelsTheOldApplyAndOnlyDispatchesTheNewestControllerTarget()
     {
-        RunningApplicationTargetSnapshot first = Snapshot(
+        var first = Snapshot(
             RunningApplicationTargetState.Active,
             "steam:41",
             "old.exe");
         FakeSource source = new(first);
-        TaskCompletionSource rtssEntered = NewSignal();
-        TaskCompletionSource newestControllerApplied = NewSignal();
+        var rtssEntered = NewSignal();
+        var newestControllerApplied = NewSignal();
         List<long> controllerGenerations = [];
 
         await using RunningApplicationCoordinator coordinator = new(
@@ -46,7 +45,7 @@ public sealed class RunningApplicationCoordinatorTests
             "steam:42",
             "new.exe") with
         {
-            Generation = 2,
+            Generation = 2
         });
         await newestControllerApplied.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -59,14 +58,14 @@ public sealed class RunningApplicationCoordinatorTests
     [Fact]
     public async Task SupersessionCancelsControllerWorkBeforeApplyingTheNextSnapshot()
     {
-        RunningApplicationTargetSnapshot first = Snapshot(
+        var first = Snapshot(
             RunningApplicationTargetState.Active,
             "steam:41",
             "old.exe");
         FakeSource source = new(first);
-        TaskCompletionSource firstControllerEntered = NewSignal();
-        TaskCompletionSource firstControllerCancelled = NewSignal();
-        TaskCompletionSource newestControllerApplied = NewSignal();
+        var firstControllerEntered = NewSignal();
+        var firstControllerCancelled = NewSignal();
+        var newestControllerApplied = NewSignal();
 
         await using RunningApplicationCoordinator coordinator = new(
             source,
@@ -98,7 +97,7 @@ public sealed class RunningApplicationCoordinatorTests
             "steam:42",
             "new.exe") with
         {
-            Generation = 2,
+            Generation = 2
         });
 
         await firstControllerCancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -113,7 +112,7 @@ public sealed class RunningApplicationCoordinatorTests
             "steam:42",
             "game.exe");
 
-        PerformanceApplicationTarget? target = RunningApplicationCoordinator.Project(snapshot);
+        var target = RunningApplicationCoordinator.Project(snapshot);
 
         Assert.Equal("steam:42", target?.ApplicationId);
         Assert.Equal((uint)42, target?.SteamAppId);
@@ -128,7 +127,7 @@ public sealed class RunningApplicationCoordinatorTests
             "steam:42",
             null);
 
-        PerformanceApplicationTarget? target = RunningApplicationCoordinator.Project(snapshot);
+        var target = RunningApplicationCoordinator.Project(snapshot);
 
         Assert.Equal("steam:42", target?.ApplicationId);
         Assert.Equal((uint)42, target?.SteamAppId);
@@ -142,9 +141,9 @@ public sealed class RunningApplicationCoordinatorTests
         [
             RunningApplicationTargetState.Global,
             RunningApplicationTargetState.Ambiguous,
-            RunningApplicationTargetState.Unavailable,
+            RunningApplicationTargetState.Unavailable
         ];
-        foreach (RunningApplicationTargetState state in states)
+        foreach (var state in states)
         {
             var snapshot = Snapshot(state, "steam:42", "stale.exe");
             Assert.Null(RunningApplicationCoordinator.Project(snapshot));
@@ -173,12 +172,12 @@ public sealed class RunningApplicationCoordinatorTests
         long candidateGeneration,
         bool expected)
     {
-        RunningApplicationTargetSnapshot snapshot = Snapshot(
+        var snapshot = Snapshot(
             RunningApplicationTargetState.Active,
             "steam:42",
             "game.exe") with
         {
-            Generation = candidateGeneration,
+            Generation = candidateGeneration
         };
 
         Assert.Equal(

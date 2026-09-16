@@ -12,10 +12,10 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task CapabilityValue_ObservedOriginalIsVerifiedThenAppliedAndRestored()
     {
-        TestPluginHostAdapter host = await CapabilityHostAsync(HardwareStateQuality.Observed);
+        var host = await CapabilityHostAsync(HardwareStateQuality.Observed);
         var plugin = new ActionTestPlugin(host);
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             CapabilityRequest("24"),
@@ -35,7 +35,7 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task CapabilityValue_StaleGenerationRejectionStillRestoresOriginal()
     {
-        TestPluginHostAdapter host = await CapabilityHostAsync(HardwareStateQuality.Verified);
+        var host = await CapabilityHostAsync(HardwareStateQuality.Verified);
         var plugin = new ActionTestPlugin(host)
         {
             CommandHandler = (command, call) => call == 1
@@ -46,10 +46,10 @@ public sealed class AttendedPluginActionTests
                     new CapabilityReason(
                         CapabilityReasonCode.GenerationChanged,
                         "Synthetic stale generation."))
-                : Verified(command),
+                : Verified(command)
         };
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             CapabilityRequest("24"),
@@ -65,15 +65,15 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task CapabilityValue_AppliedUnverifiedFailsDespiteVerifiedRestore()
     {
-        TestPluginHostAdapter host = await CapabilityHostAsync(HardwareStateQuality.Verified);
+        var host = await CapabilityHostAsync(HardwareStateQuality.Verified);
         var plugin = new ActionTestPlugin(host)
         {
             CommandHandler = (command, call) => call == 1
                 ? Result(command, CommandOutcome.AppliedUnverified)
-                : Verified(command),
+                : Verified(command)
         };
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             CapabilityRequest("24"),
@@ -88,15 +88,15 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task CapabilityValue_UnverifiedRestoreFailsTheAction()
     {
-        TestPluginHostAdapter host = await CapabilityHostAsync(HardwareStateQuality.Verified);
+        var host = await CapabilityHostAsync(HardwareStateQuality.Verified);
         var plugin = new ActionTestPlugin(host)
         {
             CommandHandler = (command, call) => call == 1
                 ? Verified(command)
-                : Result(command, CommandOutcome.AppliedUnverified),
+                : Result(command, CommandOutcome.AppliedUnverified)
         };
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             CapabilityRequest("24"),
@@ -110,10 +110,10 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task HapticPulse_SendFailureStillSubmitsZeroOutputAndReleasesController()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(CapabilityRole.HapticSink);
+        var host = await RoleHostAsync(CapabilityRole.HapticSink);
         var plugin = new ActionTestPlugin(host) { ThrowOnNonSilentHaptic = true };
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest { Kind = AttendedPluginActionKind.HapticPulse },
@@ -132,10 +132,10 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task HapticPulse_SuccessRequiresPulseStopAndVerifiedRelease()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(CapabilityRole.HapticSink);
+        var host = await RoleHostAsync(CapabilityRole.HapticSink);
         var plugin = new ActionTestPlugin(host);
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest { Kind = AttendedPluginActionKind.HapticPulse },
@@ -151,22 +151,22 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task ControllerManagement_UnverifiedTopologyFailsTheAction()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(CapabilityRole.ControllerSource);
+        var host = await RoleHostAsync(CapabilityRole.ControllerSource);
         var plugin = new ActionTestPlugin(host)
         {
             ControllerRelease = new PluginControllerRelease
             {
                 Step = ControllerHandoffStep.TopologyUnverified,
-                Result = ControllerHandoffResult.ReleasedUnverified,
-            },
+                Result = ControllerHandoffResult.ReleasedUnverified
+            }
         };
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest
             {
-                Kind = AttendedPluginActionKind.ControllerManagement,
+                Kind = AttendedPluginActionKind.ControllerManagement
             },
             CancellationToken.None);
 
@@ -179,15 +179,15 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task ControllerManagement_VerifiedTopologyCompletesTheAction()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(CapabilityRole.ControllerSource);
+        var host = await RoleHostAsync(CapabilityRole.ControllerSource);
         var plugin = new ActionTestPlugin(host);
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest
             {
-                Kind = AttendedPluginActionKind.ControllerManagement,
+                Kind = AttendedPluginActionKind.ControllerManagement
             },
             CancellationToken.None);
 
@@ -201,24 +201,24 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task ControllerAction_RefusesAmbiguousRoleUntilAnExactInstanceIsSelected()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(
+        var host = await RoleHostAsync(
             CapabilityRole.HapticSink,
             "left",
             "right");
         var plugin = new ActionTestPlugin(host);
 
-        AttendedPluginActionReport ambiguous = await AttendedPluginActionRunner.RunAsync(
+        var ambiguous = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest { Kind = AttendedPluginActionKind.HapticPulse },
             CancellationToken.None);
-        AttendedPluginActionReport selected = await AttendedPluginActionRunner.RunAsync(
+        var selected = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest
             {
                 Kind = AttendedPluginActionKind.HapticPulse,
-                InstanceId = "right",
+                InstanceId = "right"
             },
             CancellationToken.None);
 
@@ -231,10 +231,10 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task HapticSweep_SteppedThroughEveryLevelReportsTheSweepFloors()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(CapabilityRole.HapticSink);
+        var host = await RoleHostAsync(CapabilityRole.HapticSink);
         var plugin = new ActionTestPlugin(host);
 
-        Task<AttendedPluginActionReport> run = AttendedPluginActionRunner.RunAsync(
+        var run = AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest { Kind = AttendedPluginActionKind.HapticSweep },
@@ -251,7 +251,7 @@ public sealed class AttendedPluginActionTests
             await Task.Delay(10);
         }
 
-        AttendedPluginActionReport report = await run;
+        var report = await run;
         Assert.True(report.Passed, report.Error);
         Assert.NotNull(report.HapticSweep);
         Assert.True(report.HapticSweep.Completed);
@@ -267,10 +267,10 @@ public sealed class AttendedPluginActionTests
     [Fact]
     public async Task HapticSweep_ImmediateBoundariesLeaveTheFloorsUnmeasured()
     {
-        TestPluginHostAdapter host = await RoleHostAsync(CapabilityRole.HapticSink);
+        var host = await RoleHostAsync(CapabilityRole.HapticSink);
         var plugin = new ActionTestPlugin(host);
 
-        Task<AttendedPluginActionReport> run = AttendedPluginActionRunner.RunAsync(
+        var run = AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest { Kind = AttendedPluginActionKind.HapticSweep },
@@ -287,7 +287,7 @@ public sealed class AttendedPluginActionTests
             await Task.Delay(10);
         }
 
-        AttendedPluginActionReport report = await run;
+        var report = await run;
         Assert.True(report.Passed, report.Error);
         Assert.NotNull(report.HapticSweep);
         Assert.True(report.HapticSweep.Completed);
@@ -302,7 +302,7 @@ public sealed class AttendedPluginActionTests
             Sequence = sequence,
             CycleGeneration = 7,
             Timestamp = DateTimeOffset.UtcNow,
-            Buttons = buttons,
+            Buttons = buttons
         };
 
     [Fact]
@@ -319,14 +319,14 @@ public sealed class AttendedPluginActionTests
             SupportsRead = true,
             SupportsWrite = true,
             MaximumLength = 16,
-            Persistence = CapabilityPersistence.Volatile,
+            Persistence = CapabilityPersistence.Volatile
         };
         await host.PublishDescriptorsAsync(
             new CapabilityDescriptorSet
             {
                 Generation = 4,
                 CycleGeneration = 7,
-                Descriptors = [descriptor],
+                Descriptors = [descriptor]
             },
             CancellationToken.None);
         await host.PublishCapabilityStateAsync(
@@ -337,19 +337,19 @@ public sealed class AttendedPluginActionTests
                 ObservedValue = CapabilityValue.Text("Dock"),
                 Quality = HardwareStateQuality.Verified,
                 DescriptorGeneration = 4,
-                CycleGeneration = 7,
+                CycleGeneration = 7
             },
             CancellationToken.None);
         var plugin = new ActionTestPlugin(host);
 
-        AttendedPluginActionReport report = await AttendedPluginActionRunner.RunAsync(
+        var report = await AttendedPluginActionRunner.RunAsync(
             plugin,
             host,
             new AttendedPluginActionRequest
             {
                 Kind = AttendedPluginActionKind.CapabilityValue,
                 CapabilityId = descriptor.CapabilityId,
-                ValueText = "Desk",
+                ValueText = "Desk"
             },
             CancellationToken.None);
 
@@ -362,7 +362,7 @@ public sealed class AttendedPluginActionTests
     {
         Kind = AttendedPluginActionKind.CapabilityValue,
         CapabilityId = "power.sustained",
-        ValueText = value,
+        ValueText = value
     };
 
     private static async Task<TestPluginHostAdapter> CapabilityHostAsync(HardwareStateQuality quality)
@@ -386,9 +386,9 @@ public sealed class AttendedPluginActionTests
                         Minimum = 8,
                         Maximum = 30,
                         Step = 1,
-                        Persistence = CapabilityPersistence.Volatile,
-                    },
-                ],
+                        Persistence = CapabilityPersistence.Volatile
+                    }
+                ]
             },
             CancellationToken.None);
         await host.PublishCapabilityStateAsync(
@@ -400,7 +400,7 @@ public sealed class AttendedPluginActionTests
                 Quality = quality,
                 ObservedAt = DateTimeOffset.UnixEpoch,
                 DescriptorGeneration = 4,
-                CycleGeneration = 7,
+                CycleGeneration = 7
             },
             CancellationToken.None);
         return host;
@@ -411,7 +411,7 @@ public sealed class AttendedPluginActionTests
         params string?[] instanceIds)
     {
         var host = new TestPluginHostAdapter(cycleGeneration: 7);
-        string capabilityId = role is CapabilityRole.HapticSink ? "controller.haptic" : "controller.source";
+        var capabilityId = role is CapabilityRole.HapticSink ? "controller.haptic" : "controller.source";
         if (instanceIds.Length == 0)
         {
             instanceIds = [null];
@@ -438,14 +438,14 @@ public sealed class AttendedPluginActionTests
                             [
                                 new CapabilityChoice("device", Display("Device")),
                                 new CapabilityChoice("plugin", Display("Plugin")),
-                                new CapabilityChoice("unavailable", Display("Unavailable")),
+                                new CapabilityChoice("unavailable", Display("Unavailable"))
                             ]
                             : [],
-                        Persistence = CapabilityPersistence.Volatile,
-                    })],
+                        Persistence = CapabilityPersistence.Volatile
+                    })]
             },
             CancellationToken.None);
-        CapabilityDescriptor descriptor = host.DescriptorSets[^1].Descriptors[0];
+        var descriptor = host.DescriptorSets[^1].Descriptors[0];
         await host.PublishCapabilityStateAsync(
             State(descriptor, available: false, generation: 7),
             CancellationToken.None);
@@ -455,7 +455,7 @@ public sealed class AttendedPluginActionTests
     private static CapabilityDisplay Display(string label) => new()
     {
         Key = DisplayKey.Custom,
-        CustomLabel = label,
+        CustomLabel = label
     };
 
     private static CapabilityValue RoleValue(CapabilityDescriptor descriptor, bool available) =>
@@ -463,7 +463,7 @@ public sealed class AttendedPluginActionTests
         {
             CapabilityValueKind.Choice => CapabilityValue.Choice(available ? "plugin" : "device"),
             CapabilityValueKind.None => CapabilityValue.None(),
-            _ => CapabilityValue.Boolean(available),
+            _ => CapabilityValue.Boolean(available)
         };
 
     private static CapabilityCommandResult Verified(CapabilityCommand command) => Result(
@@ -481,7 +481,7 @@ public sealed class AttendedPluginActionTests
             Outcome = outcome,
             Reason = reason,
             ReadbackValue = readback,
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
 
     private static CapabilityState State(
@@ -496,7 +496,7 @@ public sealed class AttendedPluginActionTests
             Quality = HardwareStateQuality.Verified,
             ObservedAt = DateTimeOffset.UtcNow,
             DescriptorGeneration = 4,
-            CycleGeneration = generation,
+            CycleGeneration = generation
         };
 
     private sealed class ActionTestPlugin(TestPluginHostAdapter host) : IDevicePlugin
@@ -516,7 +516,7 @@ public sealed class AttendedPluginActionTests
         public PluginControllerRelease ControllerRelease { get; init; } = new()
         {
             Step = ControllerHandoffStep.TopologyVerified,
-            Result = ControllerHandoffResult.ReleasedVerified,
+            Result = ControllerHandoffResult.ReleasedVerified
         };
 
         public ValueTask<PluginDetectionResult> DetectAsync(
@@ -524,14 +524,14 @@ public sealed class AttendedPluginActionTests
             CancellationToken cancellationToken) => ValueTask.FromResult(new PluginDetectionResult
             {
                 Matched = true,
-                DeviceDefinitionId = "synthetic-attended-action",
+                DeviceDefinitionId = "synthetic-attended-action"
             });
 
         public ValueTask<PluginStartResult> StartAsync(
             PluginStartContext context,
             CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
             {
-                State = PluginOperationalState.Active,
+                State = PluginOperationalState.Active
             });
 
         public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
@@ -540,8 +540,8 @@ public sealed class AttendedPluginActionTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Commands.Add(command);
-            CapabilityCommandResult result = CommandHandler?.Invoke(command, Commands.Count)
-                ?? Verified(command);
+            var result = CommandHandler?.Invoke(command, Commands.Count)
+                         ?? Verified(command);
             return ValueTask.FromResult(result);
         }
 
@@ -553,7 +553,7 @@ public sealed class AttendedPluginActionTests
             PluginResumeContext context,
             CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStartResult
             {
-                State = PluginOperationalState.Active,
+                State = PluginOperationalState.Active
             });
 
         public ValueTask<PluginDiagnostics> GetDiagnosticsAsync(CancellationToken cancellationToken) =>
@@ -587,13 +587,13 @@ public sealed class AttendedPluginActionTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CapabilityDescriptorSet? descriptors = host.DescriptorSets.LastOrDefault();
+            var descriptors = host.DescriptorSets.LastOrDefault();
             if (descriptors is null)
             {
                 return;
             }
 
-            foreach (CapabilityDescriptor descriptor in descriptors.Descriptors.Where(candidate =>
+            foreach (var descriptor in descriptors.Descriptors.Where(candidate =>
                 candidate.Role is CapabilityRole.ControllerSource or CapabilityRole.HapticSink))
             {
                 await host.PublishCapabilityStateAsync(
@@ -606,7 +606,7 @@ public sealed class AttendedPluginActionTests
             PluginStopContext context,
             CancellationToken cancellationToken) => ValueTask.FromResult(new PluginStopResult
             {
-                Status = PluginStopStatus.Clean,
+                Status = PluginStopStatus.Clean
             });
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

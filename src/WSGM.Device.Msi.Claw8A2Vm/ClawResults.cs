@@ -12,7 +12,7 @@ internal static class ClawResults
         CommandId = command.CommandId,
         Outcome = CommandOutcome.AppliedVerified,
         ReadbackValue = readback,
-        CompletedAt = DateTimeOffset.UtcNow,
+        CompletedAt = DateTimeOffset.UtcNow
     };
 
     public static CapabilityCommandResult Rejected(
@@ -25,7 +25,7 @@ internal static class ClawResults
         CommandId = command.CommandId,
         Outcome = CommandOutcome.Rejected,
         Reason = reason,
-        CompletedAt = DateTimeOffset.UtcNow,
+        CompletedAt = DateTimeOffset.UtcNow
     };
 
     public static CapabilityCommandResult Indeterminate(
@@ -38,6 +38,6 @@ internal static class ClawResults
             Outcome = CommandOutcome.Indeterminate,
             Reason = new CapabilityReason(code, detail),
             Rollback = rollback,
-            CompletedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
         };
 }

@@ -22,7 +22,7 @@ internal sealed class SectionPinHeader : Grid
         Children.Add(new TextBlock { Text = title, Classes = { "eyebrow" }, VerticalAlignment = VerticalAlignment.Center });
         _pin.Tag = pinnedSurface ? "pin:" + id : id;
         _pin.Click += (_, _) => toggle(id);
-        Grid.SetColumn(_pin, 1);
+        SetColumn(_pin, 1);
         Children.Add(_pin);
     }
 

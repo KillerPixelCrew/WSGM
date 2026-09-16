@@ -12,7 +12,7 @@ public sealed class DeviceProfileSelectionTests
         ProfileId = id,
         Name = id,
         CapabilityId = Fan,
-        Curve = [new AuthoredCurvePoint { Input = 0, Output = 10 }],
+        Curve = [new AuthoredCurvePoint { Input = 0, Output = 10 }]
     };
 
     private static DeviceProfileSelection Selection(
@@ -25,14 +25,14 @@ public sealed class DeviceProfileSelectionTests
                 new DeviceApplicationProfileSelection
                 {
                     ApplicationId = entry.Application,
-                    ProfileId = entry.Profile,
-                })],
+                    ProfileId = entry.Profile
+                })]
         };
 
     [Fact]
     public void TheGlobalChoiceAppliesWhenNoApplicationOverridesIt()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet")],
             [Profile("quiet")],
             Fan,
@@ -45,7 +45,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void AnApplicationOverrideOutranksTheGlobalChoice()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "loud"))],
             [Profile("quiet"), Profile("loud")],
             Fan,
@@ -58,7 +58,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void AnotherApplicationStillGetsTheGlobalChoice()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "loud"))],
             [Profile("quiet"), Profile("loud")],
             Fan,
@@ -70,7 +70,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void NoRunningApplicationUsesTheGlobalChoice()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "loud"))],
             [Profile("quiet"), Profile("loud")],
             Fan,
@@ -83,7 +83,7 @@ public sealed class DeviceProfileSelectionTests
     public void NoSelectionAtAllLeavesTheCapabilityAlone()
     {
         // Inventing a choice would take the capability away from whatever else drives it.
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [],
             [Profile("quiet")],
             Fan,
@@ -96,7 +96,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void ASelectionForAnotherCapabilityIsNotUsed()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet")],
             [Profile("quiet")],
             "lighting.color",
@@ -110,7 +110,7 @@ public sealed class DeviceProfileSelectionTests
     {
         // Falling back to the global profile would hide that the user's intent for this application
         // is gone, and the fans would quietly run someone else's curve.
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "deleted"))],
             [Profile("quiet")],
             Fan,
@@ -125,7 +125,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void AGlobalSelectionNamingADeletedProfileIsReported()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("gone")],
             [Profile("quiet")],
             Fan,
@@ -139,11 +139,11 @@ public sealed class DeviceProfileSelectionTests
     public void ASelectionReferencesTheProfileSoEditsPropagate()
     {
         // By id, never by copy: editing a profile has to change every application already using it.
-        DeviceAuthoredProfile profile = Profile("quiet");
-        DeviceProfileSelection selection = Selection("quiet", ("steam:42", "quiet"));
+        var profile = Profile("quiet");
+        var selection = Selection("quiet", ("steam:42", "quiet"));
 
         profile.Curve = [new AuthoredCurvePoint { Input = 40, Output = 80 }];
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             [selection],
             [profile],
             Fan,
@@ -155,13 +155,13 @@ public sealed class DeviceProfileSelectionTests
     private static PluginSettingsScope Scope() => new()
     {
         DeviceDefinitionId = "msi.claw8",
-        PluginId = "wsgm.device.msi",
+        PluginId = "wsgm.device.msi"
     };
 
     [Fact]
     public void ChoosingAGlobalProfileCreatesTheSelection()
     {
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
 
         Assert.True(DeviceProfileSelectionStore.SetSelection(
             scope,
@@ -175,7 +175,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void ChoosingTheSameProfileAgainReportsNoChange()
     {
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
         DeviceProfileSelectionStore.SetSelection(scope, Fan, "quiet", DeviceProfileScope.Global);
 
         Assert.False(DeviceProfileSelectionStore.SetSelection(
@@ -188,7 +188,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void AnApplicationOverrideIsReadBackAsApplicationScoped()
     {
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
         DeviceProfileSelectionStore.SetSelection(scope, Fan, "quiet", DeviceProfileScope.Global);
         DeviceProfileSelectionStore.SetSelection(
             scope,
@@ -197,11 +197,11 @@ public sealed class DeviceProfileSelectionTests
             DeviceProfileScope.Application,
             "steam:42");
 
-        string? read = DeviceProfileSelectionStore.ReadSelection(
+        var read = DeviceProfileSelectionStore.ReadSelection(
             scope,
             Fan,
             "steam:42",
-            out bool applicationScoped);
+            out var applicationScoped);
 
         Assert.Equal("loud", read);
         Assert.True(applicationScoped);
@@ -210,7 +210,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void AnotherApplicationReadsTheGlobalChoice()
     {
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
         DeviceProfileSelectionStore.SetSelection(scope, Fan, "quiet", DeviceProfileScope.Global);
         DeviceProfileSelectionStore.SetSelection(
             scope,
@@ -219,11 +219,11 @@ public sealed class DeviceProfileSelectionTests
             DeviceProfileScope.Application,
             "steam:42");
 
-        string? read = DeviceProfileSelectionStore.ReadSelection(
+        var read = DeviceProfileSelectionStore.ReadSelection(
             scope,
             Fan,
             "process:other.exe",
-            out bool applicationScoped);
+            out var applicationScoped);
 
         Assert.Equal("quiet", read);
         Assert.False(applicationScoped);
@@ -234,7 +234,7 @@ public sealed class DeviceProfileSelectionTests
     {
         // "This game uses the default" is what clearing an override means; there is deliberately no
         // way to express "this game uses nothing".
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
         DeviceProfileSelectionStore.SetSelection(scope, Fan, "quiet", DeviceProfileScope.Global);
         DeviceProfileSelectionStore.SetSelection(
             scope,
@@ -260,7 +260,7 @@ public sealed class DeviceProfileSelectionTests
     {
         // Silently widening a per-game change to every game is the worst possible reading of what
         // the user meant.
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
 
         Assert.False(DeviceProfileSelectionStore.SetSelection(
             scope,
@@ -274,7 +274,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void ClearingAChoiceThatWasNeverMadeCreatesNothing()
     {
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
 
         Assert.False(DeviceProfileSelectionStore.SetSelection(
             scope,
@@ -288,7 +288,7 @@ public sealed class DeviceProfileSelectionTests
     [Fact]
     public void ChangingAnExistingOverrideReplacesItRatherThanAddingASecond()
     {
-        PluginSettingsScope scope = Scope();
+        var scope = Scope();
         DeviceProfileSelectionStore.SetSelection(
             scope,
             Fan,

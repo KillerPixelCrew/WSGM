@@ -77,11 +77,11 @@ internal static class PassiveCorrelationAnalyzer
             .Where(captureEvent => GuidedOperatorMarkers.TryDecode(
                 captureEvent,
                 out _,
-                out string action,
+                out var action,
                 out _) && string.Equals(action, request.ActionId, StringComparison.Ordinal))
             .Select(captureEvent =>
             {
-                _ = GuidedOperatorMarkers.TryDecode(captureEvent, out GuidedOperatorMarkerKind kind, out _, out _);
+                _ = GuidedOperatorMarkers.TryDecode(captureEvent, out var kind, out _, out _);
                 return new { Event = captureEvent, Kind = kind };
             })
             .ToArray();
@@ -96,14 +96,14 @@ internal static class PassiveCorrelationAnalyzer
             return [];
         }
 
-        long press = presses[0].QpcReceiptTime;
-        long release = releases[0].QpcReceiptTime;
+        var press = presses[0].QpcReceiptTime;
+        var release = releases[0].QpcReceiptTime;
         if (release <= press)
         {
             return [];
         }
 
-        IEnumerable<CaptureStreamEvent> usable = WithCancellation(request.Events, cancellationToken).Where(captureEvent =>
+        var usable = WithCancellation(request.Events, cancellationToken).Where(captureEvent =>
             request.ExpectedSourceIds.Contains(captureEvent.SourceId)
             && captureEvent.Payload.Disposition is PayloadDisposition.Included
             && captureEvent.Payload.Bytes is not null
@@ -111,7 +111,7 @@ internal static class PassiveCorrelationAnalyzer
             && captureEvent.ClockSegment == releases[0].ClockSegment);
         List<PassiveCorrelationFinding> findings = [];
 
-        foreach (IGrouping<string, CaptureStreamEvent> source in usable
+        foreach (var source in usable
             .GroupBy(captureEvent => captureEvent.SourceId, StringComparer.Ordinal)
             .OrderBy(group => group.Key, StringComparer.Ordinal))
         {
@@ -125,8 +125,8 @@ internal static class PassiveCorrelationAnalyzer
             CaptureStreamEvent[] released = [.. WithCancellation(source, cancellationToken).Where(captureEvent =>
                 captureEvent.QpcReceiptTime >= release
                 && captureEvent.QpcReceiptTime <= release + request.ContextWindowTicks)];
-            int width = MinimumWidth(baseline, action, released);
-            for (int offset = 0; offset < width; offset++)
+            var width = MinimumWidth(baseline, action, released);
+            for (var offset = 0; offset < width; offset++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 byte[] baselineValues = [.. WithCancellation(baseline, cancellationToken)
@@ -135,9 +135,9 @@ internal static class PassiveCorrelationAnalyzer
                     .Select(captureEvent => captureEvent.Payload.Bytes![offset])];
                 byte[] releaseValues = [.. WithCancellation(released, cancellationToken)
                     .Select(captureEvent => captureEvent.Payload.Bytes![offset])];
-                if (!TrySingle(baselineValues, out byte baselineValue)
-                    || !TrySingle(actionValues, out byte actionValue)
-                    || !TrySingle(releaseValues, out byte releaseValue)
+                if (!TrySingle(baselineValues, out var baselineValue)
+                    || !TrySingle(actionValues, out var actionValue)
+                    || !TrySingle(releaseValues, out var releaseValue)
                     || baselineValue == actionValue
                     || baselineValue != releaseValue)
                 {
@@ -145,9 +145,9 @@ internal static class PassiveCorrelationAnalyzer
                 }
 
                 CaptureStreamEvent[] supporting = [.. baseline.Concat(action).Concat(released)];
-                double repetition = Math.Min(0.20, Math.Max(0, supporting.Length - 3) * 0.025);
-                double penalty = supporting.Count(IsDegraded) * 0.15;
-                double score = Math.Clamp(0.75 + repetition - penalty, 0, 1);
+                var repetition = Math.Min(0.20, Math.Max(0, supporting.Length - 3) * 0.025);
+                var penalty = supporting.Count(IsDegraded) * 0.15;
+                var score = Math.Clamp(0.75 + repetition - penalty, 0, 1);
                 findings.Add(new PassiveCorrelationFinding
                 {
                     SourceId = source.Key,
@@ -156,7 +156,7 @@ internal static class PassiveCorrelationAnalyzer
                     BaselineValue = baselineValue,
                     ActionValue = actionValue,
                     ReleaseValue = releaseValue,
-                    SupportingEventIds = [.. supporting.Select(captureEvent => captureEvent.EventId)],
+                    SupportingEventIds = [.. supporting.Select(captureEvent => captureEvent.EventId)]
                 });
             }
         }
@@ -181,7 +181,7 @@ internal static class PassiveCorrelationAnalyzer
     private static bool TrySingle(IReadOnlyList<byte> values, out byte value)
     {
         value = values.Count == 0 ? default : values[0];
-        byte expected = value;
+        var expected = value;
         return values.Count != 0 && values.All(candidate => candidate == expected);
     }
 
@@ -195,7 +195,7 @@ internal static class PassiveCorrelationAnalyzer
         IEnumerable<T> source,
         CancellationToken cancellationToken)
     {
-        foreach (T item in source)
+        foreach (var item in source)
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return item;

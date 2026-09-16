@@ -14,7 +14,7 @@ public enum DevicePowerMode
     /// <summary>Use balanced performance.</summary>
     Balanced,
     /// <summary>Prefer performance.</summary>
-    BestPerformance,
+    BestPerformance
 }
 
 /// <summary>A device-authored shortcut for its sustained/slow power limits and Windows power mode.</summary>
@@ -44,16 +44,16 @@ public sealed record DevicePowerPreset(
     public static bool TryValidate(IReadOnlyList<CapabilityDescriptor> descriptors, out string? error)
     {
         error = "Power presets require one readable, writable sustained/slow watt pair with valid targets.";
-        foreach (CapabilityDescriptor descriptor in descriptors)
+        foreach (var descriptor in descriptors)
         {
             if (descriptor.PowerPresets is null || descriptor.PowerPresets.Count > 16) { return false; }
             if (descriptor.PowerPresets.Count == 0) { continue; }
-            CapabilityDescriptor[] sustained = descriptors.Where(d => d.Role == CapabilityRole.PowerSustainedLimit).ToArray();
-            CapabilityDescriptor[] slow = descriptors.Where(d => d.Role == CapabilityRole.PowerSlowLimit).ToArray();
+            var sustained = descriptors.Where(d => d.Role == CapabilityRole.PowerSustainedLimit).ToArray();
+            var slow = descriptors.Where(d => d.Role == CapabilityRole.PowerSlowLimit).ToArray();
             if (sustained.Length != 1 || slow.Length != 1 || sustained[0] != descriptor
                 || !IsPowerLimit(descriptor) || !IsPowerLimit(slow[0])) { return false; }
             HashSet<string> ids = new(StringComparer.Ordinal);
-            foreach (DevicePowerPreset preset in descriptor.PowerPresets)
+            foreach (var preset in descriptor.PowerPresets)
             {
                 if (preset is null || string.IsNullOrEmpty(preset.Id) || preset.Id.Length > 64
                     || preset.Id == "custom" || !preset.Id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')
@@ -75,7 +75,7 @@ public sealed record DevicePowerPreset(
     private static bool ValidScenario(DevicePowerPreset preset, IReadOnlyList<CapabilityDescriptor> descriptors)
     {
         if (preset.ScenarioOnAc is null && preset.ScenarioOnDc is null) { return true; }
-        CapabilityDescriptor[] scenarios = descriptors.Where(d => d.Role == CapabilityRole.ScenarioMode).ToArray();
+        var scenarios = descriptors.Where(d => d.Role == CapabilityRole.ScenarioMode).ToArray();
         return scenarios.Length == 1 && scenarios[0].InstanceId is null
             && scenarios[0].SupportsRead && scenarios[0].SupportsWrite
             && scenarios[0].AvailableOnAc && scenarios[0].AvailableOnDc

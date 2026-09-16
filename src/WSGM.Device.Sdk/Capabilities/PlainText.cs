@@ -41,7 +41,7 @@ public static class PlainText
             return false;
         }
 
-        foreach (char c in value)
+        foreach (var c in value)
         {
             if (IsUnsafe(c))
             {
@@ -72,9 +72,9 @@ public static class PlainText
             return false;
         }
 
-        foreach (char c in value)
+        foreach (var c in value)
         {
-            bool legal =
+            var legal =
                 c is >= 'a' and <= 'z'
                 || c is >= 'A' and <= 'Z'
                 || c is >= '0' and <= '9'
@@ -112,7 +112,7 @@ public static class PlainText
             >= '‪' and <= '‮' => true,
             // The isolates, which do the same job as the overrides above.
             >= '⁦' and <= '⁩' => true,
-            _ => false,
+            _ => false
         };
     }
 }

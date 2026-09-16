@@ -15,12 +15,12 @@ public static class DevicePowerPair
     {
         ArgumentNullException.ThrowIfNull(descriptors);
         error = "A power pair requires unique readable and writable sustained/boost watt controls with valid bounds and step.";
-        foreach (CapabilityDescriptor primary in descriptors)
+        foreach (var primary in descriptors)
         {
             if (primary.PairedPowerLimitId is null) { continue; }
             if (primary.Role != CapabilityRole.PowerSustainedLimit || !IsLimit(primary)
                 || string.IsNullOrWhiteSpace(primary.PairedPowerLimitId)) { return false; }
-            CapabilityDescriptor[] peers = descriptors.Where(d => d.CapabilityId == primary.PairedPowerLimitId).ToArray();
+            var peers = descriptors.Where(d => d.CapabilityId == primary.PairedPowerLimitId).ToArray();
             if (peers.Length != 1 || !IsLimit(peers[0]) || peers[0].Role != CapabilityRole.PowerSlowLimit
                 || peers[0].PairedPowerLimitId is not null || peers[0].CapabilityId == primary.CapabilityId
                 || descriptors.Count(d => d.PairedPowerLimitId == primary.PairedPowerLimitId) != 1)

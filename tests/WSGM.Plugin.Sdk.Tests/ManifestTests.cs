@@ -12,7 +12,7 @@ public sealed class ManifestTests
         Version = "1.2.0",
         Category = "example.future-category",
         EntryAssembly = "Remote.dll",
-        EntryType = "Example.Remote",
+        EntryType = "Example.Remote"
     };
 
     [Fact]
@@ -37,20 +37,20 @@ public sealed class ManifestTests
     [Fact]
     public void DependenciesRejectSelfDuplicatesAndInvertedRanges()
     {
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new(Valid.Id, "1.0")] }));
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new("other", "2.0", "1.0")] }));
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new("other", "1.0"), new("other", "1.1")] }));
-        Assert.Empty(PluginManifestReader.Validate(Valid with { Dependencies = [new("other", "1.0", "2.0")] }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency(Valid.Id, "1.0")] }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency("other", "2.0", "1.0")] }));
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency("other", "1.0"), new PluginDependency("other", "1.1")] }));
+        Assert.Empty(PluginManifestReader.Validate(Valid with { Dependencies = [new PluginDependency("other", "1.0", "2.0")] }));
     }
 
     [Fact]
     public void CompatibilityAndUnknownJsonMembersFailBeforeLoading()
     {
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with { MinimumApiVersion = 2, MaximumApiVersion = 3 }));
-        byte[] json = Encoding.UTF8.GetBytes("""
-            {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
-             "entryAssembly":"Remote.dll","entryType":"Example.Remote","unexpected":true}
-            """);
+        var json = Encoding.UTF8.GetBytes("""
+                                          {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+                                           "entryAssembly":"Remote.dll","entryType":"Example.Remote","unexpected":true}
+                                          """);
         Assert.False(PluginManifestReader.TryRead(json, out var rejected, out var errors));
         Assert.Null(rejected); Assert.NotEmpty(errors);
     }
@@ -58,10 +58,10 @@ public sealed class ManifestTests
     [Fact]
     public void StrictReaderAcceptsCommonMetadataAndBoundsMalformedInputs()
     {
-        byte[] json = Encoding.UTF8.GetBytes("""
-            {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
-             "entryAssembly":"Remote.dll","entryType":"Example.Remote"}
-            """);
+        var json = Encoding.UTF8.GetBytes("""
+                                          {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+                                           "entryAssembly":"Remote.dll","entryType":"Example.Remote"}
+                                          """);
         Assert.True(PluginManifestReader.TryRead(json, out var manifest, out var errors), string.Join("; ", errors));
         Assert.Empty(errors); Assert.Equal("example.remote", manifest!.Id);
         Assert.False(PluginManifestReader.TryRead(new byte[PluginManifestReader.MaximumBytes + 1], out _, out _));

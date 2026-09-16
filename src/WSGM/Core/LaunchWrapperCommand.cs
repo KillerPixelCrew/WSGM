@@ -30,7 +30,7 @@ public enum LaunchWrapperMode
     InputLeaseInject = 4,
 
     /// <summary>De-elevation plus the injecting lease.</summary>
-    BothInject = Deelevate | InputLeaseInject,
+    BothInject = Deelevate | InputLeaseInject
 }
 
 /// <summary>
@@ -303,8 +303,8 @@ internal static class LaunchWrapperCommand
 
     private static void StopRunningHelpers(string reason, TimeSpan? timeout)
     {
-        int currentSession = WindowFinder.CurrentSessionId;
-        foreach (Process process in Process.GetProcessesByName(
+        var currentSession = WindowFinder.CurrentSessionId;
+        foreach (var process in Process.GetProcessesByName(
                      Path.GetFileNameWithoutExtension(HelperFileName)))
         {
             try

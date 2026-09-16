@@ -29,11 +29,11 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
 
     internal static PluginManifest ReadManifest(string packageRoot)
     {
-        string root = Path.GetFullPath(packageRoot);
-        string path = PackageFile(root, "plugin.wsgm.json");
+        var root = Path.GetFullPath(packageRoot);
+        var path = PackageFile(root, "plugin.wsgm.json");
         using var stream = File.OpenRead(path);
-        byte[] bytes = new byte[PluginManifestReader.MaximumBytes + 1];
-        int count = stream.ReadAtLeast(bytes, bytes.Length, throwOnEndOfStream: false);
+        var bytes = new byte[PluginManifestReader.MaximumBytes + 1];
+        var count = stream.ReadAtLeast(bytes, bytes.Length, throwOnEndOfStream: false);
         if (!PluginManifestReader.TryRead(bytes.AsSpan(0, count), out var manifest, out var errors))
         { throw new InvalidDataException(string.Join(" ", errors)); }
         if (manifest!.Category == PluginCategories.Device)
@@ -45,14 +45,14 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
     /// <summary>Loads trusted code off the UI thread; the caller retains ownership of a timed-out task.</summary>
     internal static Task<CommonPluginPackage> LoadAsync(string packageRoot, PluginManifest admitted, CancellationToken cancellationToken)
     {
-        string root = Path.GetFullPath(packageRoot);
+        var root = Path.GetFullPath(packageRoot);
         if (PluginManifestReader.Validate(admitted).Count != 0 || admitted.Category == PluginCategories.Device)
         { throw new InvalidDataException("Common package metadata is not admissible."); }
         var snapshot = Snapshot(admitted);
         return Task.Run(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string entryPath = PackageFile(root, snapshot.EntryAssembly);
+            var entryPath = PackageFile(root, snapshot.EntryAssembly);
             var context = new PluginPackageLoader.PluginLoadContext(root, entryPath);
             IPlugin? plugin = null;
             try
@@ -87,7 +87,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
     private static PluginManifest Snapshot(PluginManifest manifest) => manifest with
     {
         Dependencies = Array.AsReadOnly(manifest.Dependencies.ToArray()),
-        Permissions = Array.AsReadOnly(manifest.Permissions.ToArray()),
+        Permissions = Array.AsReadOnly(manifest.Permissions.ToArray())
     };
 
     private static string PackageFile(string root, string name)
@@ -95,7 +95,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         var rootAttributes = File.GetAttributes(root);
         if ((rootAttributes & FileAttributes.ReparsePoint) != 0 || (rootAttributes & FileAttributes.Directory) == 0)
         { throw new InvalidDataException("Plugin package roots cannot be reparse points."); }
-        string path = PluginPackageLoader.ConstrainPackagePath(root, name);
+        var path = PluginPackageLoader.ConstrainPackagePath(root, name);
         if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
         { throw new InvalidDataException("Plugin package files cannot be reparse points."); }
         return path;

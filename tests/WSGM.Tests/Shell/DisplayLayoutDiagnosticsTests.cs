@@ -5,8 +5,8 @@ namespace WSGM.Tests;
 
 public sealed class DisplayLayoutDiagnosticsTests
 {
-    private static DisplayLayout Layout() => new([new(
-        new("test-tv", null, null, "TV", 1, 0, 2), 0, 0, 3840, 2160, DisplayRefresh.FromHertz(60))]);
+    private static DisplayLayout Layout() => new([new DisplayLayoutOutput(
+        new DisplayTargetIdentity("test-tv", null, null, "TV", 1, 0, 2), 0, 0, 3840, 2160, DisplayRefresh.FromHertz(60))]);
 
     [Fact]
     public void RejectedLayoutKeepsTheNativeCodeRequestAndReadbackInTheTrace()
@@ -14,7 +14,7 @@ public sealed class DisplayLayoutDiagnosticsTests
         List<string> info = [], warnings = [];
         DisplayLayoutResult rejected = new(DisplayLayoutOutcome.Rejected, [], 87, false, false, [], "Invalid parameter");
         var result = DisplayLayoutDiagnostics.Apply(Layout(), _ => rejected,
-            () => new([], "desktop-unchanged", DateTimeOffset.UnixEpoch), info.Add, warnings.Add);
+            () => new DisplayArrangement([], "desktop-unchanged", DateTimeOffset.UnixEpoch), info.Add, warnings.Add);
 
         Assert.Same(rejected, result);
         Assert.Contains(info, line => line.Contains("test-tv") && line.Contains("3840"));
@@ -26,7 +26,7 @@ public sealed class DisplayLayoutDiagnosticsTests
     [Fact]
     public void AFailedDiagnosticReadDoesNotChangeTheApplyOutcomeOrRepeatTheWrite()
     {
-        int writes = 0;
+        var writes = 0;
         List<string> warnings = [];
         DisplayLayoutResult rolledBack = new(DisplayLayoutOutcome.Unconfirmed, [], 31, true, true, [], "Rolled back");
         var result = DisplayLayoutDiagnostics.Apply(Layout(), _ => { writes++; return rolledBack; },

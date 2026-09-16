@@ -231,5 +231,5 @@ internal enum WmiAccess
     NotFound,
 
     /// <summary>The namespace itself could not be reached.</summary>
-    NamespaceUnavailable,
+    NamespaceUnavailable
 }

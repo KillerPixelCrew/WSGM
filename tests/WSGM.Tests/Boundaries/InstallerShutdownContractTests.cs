@@ -5,14 +5,14 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void UsbipRunPublishesAndConsumesItsOwnBoundedOutcomeInsteadOfTrustingExitZero()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string run = Slice(source, "[Run]", "[UninstallRun]");
-        string report = Slice(
+        var run = Slice(source, "[Run]", "[UninstallRun]");
+        var report = Slice(
             source,
             "procedure ReportUsbipInstallOutcome();",
             "function WasShellRunning(): Boolean;");
-        string restart = Slice(
+        var restart = Slice(
             source,
             "function NeedRestart(): Boolean;",
             "function UsbipInstallStatusPath(): String;");
@@ -37,29 +37,29 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void ForceFallbackPreservesShellAnchorUntilRecoveryAcknowledgement()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string forceStop = Slice(
+        var forceStop = Slice(
             source,
             "procedure ForceStopRunningInstances();",
             "procedure WaitForShellAnchorRecovery();");
-        string forceScope = Slice(
+        var forceScope = Slice(
             source,
             "procedure ForceStopCurrentSessionImage(const ImageName: String);",
             "function CanInstallShellAnchor(): Boolean;");
-        string waitForRecovery = Slice(
+        var waitForRecovery = Slice(
             source,
             "procedure WaitForShellAnchorRecovery();",
             "function StopRunningInstances(): Boolean;");
-        string updateStop = Slice(
+        var updateStop = Slice(
             source,
             "function StopRunningInstances(): Boolean;",
             "function StopRunningInstancesForUninstall(): Boolean;");
-        string uninstallStop = Slice(
+        var uninstallStop = Slice(
             source,
             "function StopRunningInstancesForUninstall(): Boolean;",
             "function ReplacementBlockersPresent(IncludeSteam: Boolean): Boolean;");
-        string acknowledgedRetirement = From(
+        var acknowledgedRetirement = From(
             waitForRecovery,
             "ForceStopCurrentSessionImage('WSGM.ShellAnchor.exe')");
 
@@ -128,21 +128,21 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void DevicePackagePublication_HoldsPackageAndOwnerReservationsAcrossStopAndSwap()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string acquireGate = Slice(
+        var acquireGate = Slice(
             source,
             "function AcquireDevicePackageSlotGate(): Boolean;",
             "procedure ReleaseDevicePublicationReservations();");
-        string reserveOwner = Slice(
+        var reserveOwner = Slice(
             source,
             "function ReserveDeviceOwner(): Boolean;",
             "function InspectDeviceDirectory(const Path, Description: String;");
-        string prepare = Slice(
+        var prepare = Slice(
             source,
             "function PrepareToInstall(var NeedsRestart: Boolean): String;",
             "procedure DeinitializeSetup();");
-        string postInstall = Slice(
+        var postInstall = Slice(
             source,
             "procedure CurStepChanged(CurStep: TSetupStep);",
             "// WSGM is almost certainly running during an update");
@@ -181,26 +181,26 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void DevicePackagePublication_UsesFixedSiblingsAndDeselectRetiresEveryRecoveryRoot()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string installDelete = Slice(source, "[InstallDelete]", "[Code]");
-        string cleanup = Slice(
+        var installDelete = Slice(source, "[InstallDelete]", "[Code]");
+        var cleanup = Slice(
             source,
             "function CleanupStaleDevicePluginStaging(): Boolean;",
             "procedure ReplaceDevicePluginSlot();");
-        string replacement = Slice(
+        var replacement = Slice(
             source,
             "procedure ReplaceDevicePluginSlot();",
             "procedure CurStepChanged(CurStep: TSetupStep);");
-        string deselection = Slice(
+        var deselection = Slice(
             replacement,
             "if not WizardIsComponentSelected('device') then",
             "if not StagingExists then");
-        string preflight = Slice(
+        var preflight = Slice(
             replacement,
             "// Validate every move/delete target before changing any slot state.",
             "if not WizardIsComponentSelected('device') then");
-        string publication = From(replacement, "HadInstalled := InstalledExists;");
+        var publication = From(replacement, "HadInstalled := InstalledExists;");
 
         Assert.True(source.Contains(
             "DestDir: \"{autopf}\\WSGM\\DevicePlugins\\.staging\"",
@@ -318,15 +318,15 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void Uninstall_HoldsPackageAndOwnerReservationsThroughUninstallDelete()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string initialize = Slice(
+        var initialize = Slice(
             source,
             "function InitializeUninstall(): Boolean;",
             "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);");
-        string ownerRefusal = From(initialize, "if not ReserveDeviceOwner() then");
-        string deinitialize = From(source, "procedure DeinitializeUninstall();");
-        string uninstallDelete = Slice(source, "[UninstallDelete]", "[InstallDelete]");
+        var ownerRefusal = From(initialize, "if not ReserveDeviceOwner() then");
+        var deinitialize = From(source, "procedure DeinitializeUninstall();");
+        var uninstallDelete = Slice(source, "[UninstallDelete]", "[InstallDelete]");
 
         AssertOrdered(
             initialize,
@@ -359,21 +359,21 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void RefusalAndCancel_RestoreOnlyTheCapturedRunningLogonService()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string inspection = Slice(
+        var inspection = Slice(
             source,
             "function InspectLogonServiceState(var Exists, Running: Boolean): Boolean;",
             "function StopLogonService(): Boolean;");
-        string restore = Slice(
+        var restore = Slice(
             source,
             "procedure RestoreStoppedServiceAndRuntime(const Operation: String;",
             "function PrepareToInstall(var NeedsRestart: Boolean): String;");
-        string setup = Slice(
+        var setup = Slice(
             source,
             "function PrepareToInstall(var NeedsRestart: Boolean): String;",
             "procedure DeinitializeSetup();");
-        string uninstall = Slice(
+        var uninstall = Slice(
             source,
             "function InitializeUninstall(): Boolean;",
             "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);");
@@ -426,34 +426,34 @@ public sealed class InstallerShutdownContractTests
     [Fact]
     public void SetupRefusalRetryAndCancel_PreserveAndRestoreTheInitialRuntimeMode()
     {
-        string source = File.ReadAllText(
+        var source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string serviceHostSource = File.ReadAllText(
+        var serviceHostSource = File.ReadAllText(
             Path.Combine(RepositoryRoot, "src", "WSGM.LogonService", "ServiceHost.cs"));
-        string serviceInstallerSource = File.ReadAllText(
+        var serviceInstallerSource = File.ReadAllText(
             Path.Combine(RepositoryRoot, "src", "WSGM.LogonService", "ServiceInstaller.cs"));
-        string restore = Slice(
+        var restore = Slice(
             source,
             "procedure RestoreStoppedServiceAndRuntime(const Operation: String;",
             "function PrepareToInstall(var NeedsRestart: Boolean): String;");
-        string prepare = Slice(
+        var prepare = Slice(
             source,
             "function PrepareToInstall(var NeedsRestart: Boolean): String;",
             "procedure DeinitializeSetup();");
-        string ownerRefusal = Slice(
+        var ownerRefusal = Slice(
             prepare,
             "if not ReserveDeviceOwner() then",
             "if not CleanupStaleDevicePluginStaging() then");
-        string blockerRefusal = Slice(
+        var blockerRefusal = Slice(
             prepare,
             "if FileExists(ExpandConstant('{app}\\WSGM.exe')) and ReplacementBlockersPresent(True) then",
             "if not ReserveDeviceOwner() then");
-        string stagingRefusal = From(prepare, "if not CleanupStaleDevicePluginStaging() then");
-        string deinitialize = Slice(
+        var stagingRefusal = From(prepare, "if not CleanupStaleDevicePluginStaging() then");
+        var deinitialize = Slice(
             source,
             "procedure DeinitializeSetup();",
             "function InitializeUninstall(): Boolean;");
-        string stepChanged = Slice(
+        var stepChanged = Slice(
             source,
             "procedure CurStepChanged(CurStep: TSetupStep);",
             "// WSGM is almost certainly running during an update");
@@ -559,25 +559,25 @@ public sealed class InstallerShutdownContractTests
 
     private static string Slice(string source, string startMarker, string endMarker)
     {
-        int start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
         Assert.True(start >= 0, $"Installer marker was not found: {startMarker}");
-        int end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        var end = source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
         Assert.True(end > start, $"Installer marker was not found after {startMarker}: {endMarker}");
         return source[start..end];
     }
 
     private static string From(string source, string marker)
     {
-        int start = source.IndexOf(marker, StringComparison.Ordinal);
+        var start = source.IndexOf(marker, StringComparison.Ordinal);
         Assert.True(start >= 0, $"Installer marker was not found: {marker}");
         return source[start..];
     }
 
     private static void AssertOrdered(string source, string first, string second)
     {
-        int firstIndex = source.IndexOf(first, StringComparison.Ordinal);
+        var firstIndex = source.IndexOf(first, StringComparison.Ordinal);
         Assert.True(firstIndex >= 0, $"Installer operation was not found: {first}");
-        int secondIndex = source.IndexOf(
+        var secondIndex = source.IndexOf(
             second,
             firstIndex + first.Length,
             StringComparison.Ordinal);
@@ -586,8 +586,8 @@ public sealed class InstallerShutdownContractTests
 
     private static int CountOccurrences(string source, string value)
     {
-        int count = 0;
-        int index = 0;
+        var count = 0;
+        var index = 0;
         while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
         {
             count++;

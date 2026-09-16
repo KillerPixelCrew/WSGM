@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
@@ -63,7 +64,7 @@ public sealed class DeviceColorView : OverlaySubView
 
     private void Render()
     {
-        DeviceOverlayCapability? capability = _capability;
+        var capability = _capability;
         if (capability is null)
         {
             RenderMessage("Lighting color", "The device color is no longer available.");
@@ -78,7 +79,7 @@ public sealed class DeviceColorView : OverlaySubView
         var columns = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,*"),
-            ColumnSpacing = 16,
+            ColumnSpacing = 16
         };
         var left = new StackPanel { Spacing = 4 };
         var right = new StackPanel { Spacing = 4 };
@@ -94,7 +95,7 @@ public sealed class DeviceColorView : OverlaySubView
             CornerRadius = new CornerRadius(6),
             Background = new SolidColorBrush(ToAvaloniaColor(_color)),
             BorderBrush = Brushes.White,
-            BorderThickness = new Thickness(1),
+            BorderThickness = new Thickness(1)
         };
         left.Children.Add(_swatch);
         left.Children.Add(Caption("Changes are written only when Apply is pressed."));
@@ -105,7 +106,7 @@ public sealed class DeviceColorView : OverlaySubView
             Height = 220,
             Margin = new Thickness(2, 0, 2, 4),
             CornerRadius = new CornerRadius(6),
-            Color = ToAvaloniaColor(_color),
+            Color = ToAvaloniaColor(_color)
         };
         _spectrum.ColorChanged += (_, e) =>
         {
@@ -159,9 +160,9 @@ public sealed class DeviceColorView : OverlaySubView
             Maximum = 255,
             TickFrequency = 5,
             Value = Channel(shift),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         };
-        TextBlock value = SliderValueText(Channel(shift).ToString(CultureInfo.CurrentCulture));
+        var value = SliderValueText(Channel(shift).ToString(CultureInfo.CurrentCulture));
         _channels[index] = slider;
         _channelValues[index] = value;
         slider.ValueChanged += (_, _) =>
@@ -171,8 +172,8 @@ public sealed class DeviceColorView : OverlaySubView
                 return;
             }
 
-            int mask = 0xFF << shift;
-            int next = Math.Clamp((int)Math.Round(slider.Value), 0, 255);
+            var mask = 0xFF << shift;
+            var next = Math.Clamp((int)Math.Round(slider.Value), 0, 255);
             SetColor((_color & ~mask) | (next << shift), source: slider);
         };
         return SliderRow(label, slider, value);
@@ -183,12 +184,12 @@ public sealed class DeviceColorView : OverlaySubView
         Grid row = new()
         {
             ColumnDefinitions = new ColumnDefinitions("72,*,52"),
-            Margin = new Thickness(2, 0, 2, 0),
+            Margin = new Thickness(2, 0, 2, 0)
         };
         TextBlock caption = new()
         {
             Text = label,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(slider, 1);
         Grid.SetColumn(value, 2);
@@ -201,8 +202,8 @@ public sealed class DeviceColorView : OverlaySubView
     private static TextBlock SliderValueText(string text) => new()
     {
         Text = text,
-        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Right
     };
 
     private int Channel(int shift) => (_color >> shift) & 0xFF;
@@ -227,7 +228,7 @@ public sealed class DeviceColorView : OverlaySubView
             }
 
             int[] shifts = [16, 8, 0];
-            for (int index = 0; index < 3; index++)
+            for (var index = 0; index < 3; index++)
             {
                 if (_channelValues[index] is { } text)
                 {
@@ -252,7 +253,7 @@ public sealed class DeviceColorView : OverlaySubView
         7,
         value =>
         {
-            if (TryParseColor(value, out int color))
+            if (TryParseColor(value, out var color))
             {
                 SetColor(color);
                 Replace(Render);
@@ -265,8 +266,8 @@ public sealed class DeviceColorView : OverlaySubView
 
     private async Task ApplyAsync()
     {
-        IDeviceOverlaySource? source = _source;
-        DeviceOverlayCapability? capability = _capability;
+        var source = _source;
+        var capability = _capability;
         if (source is null || capability is null)
         {
             return;
@@ -280,7 +281,7 @@ public sealed class DeviceColorView : OverlaySubView
 
         _applying = true;
         Replace(Render);
-        bool applied = false;
+        var applied = false;
         try
         {
             await source.InvokeAsync(capability with
@@ -288,8 +289,8 @@ public sealed class DeviceColorView : OverlaySubView
                 NextValue = new CapabilityValue
                 {
                     Kind = CapabilityValueKind.Color,
-                    ColorValue = _color,
-                },
+                    ColorValue = _color
+                }
             }).ConfigureAwait(true);
             applied = true;
         }
@@ -310,7 +311,7 @@ public sealed class DeviceColorView : OverlaySubView
     internal static bool TryParseColor(string? text, out int color)
     {
         color = 0;
-        string candidate = (text ?? string.Empty).Trim();
+        var candidate = (text ?? string.Empty).Trim();
         if (candidate.StartsWith('#'))
         {
             candidate = candidate[1..];

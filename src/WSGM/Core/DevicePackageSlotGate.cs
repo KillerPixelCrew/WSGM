@@ -62,7 +62,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         var ownerThread = new Thread(contender.OwnMutex)
         {
             IsBackground = true,
-            Name = "WSGM device package slot gate",
+            Name = "WSGM device package slot gate"
         };
         ownerThread.Start();
         return await contender._acquisition.Task.ConfigureAwait(false);
@@ -140,12 +140,12 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
     private void OwnMutex()
     {
         Mutex? mutex = null;
-        bool ownsMutex = false;
+        var ownsMutex = false;
         try
         {
             mutex = new Mutex(initiallyOwned: false, _name);
             _waitStarted?.Invoke();
-            SlotWait wait = WaitForSlot(mutex, _timeout, _cancellationToken);
+            var wait = WaitForSlot(mutex, _timeout, _cancellationToken);
             if (wait is SlotWait.TimedOut)
             {
                 _acquisition.TrySetResult(null);
@@ -189,7 +189,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
     {
         Acquired,
         TimedOut,
-        Canceled,
+        Canceled
     }
 
     /// <summary>One bounded wait on the slot mutex, shared by the async owner thread and the
@@ -216,7 +216,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         {
             WaitHandle.WaitTimeout => SlotWait.TimedOut,
             0 => SlotWait.Acquired,
-            _ => SlotWait.Canceled,
+            _ => SlotWait.Canceled
         };
     }
 }

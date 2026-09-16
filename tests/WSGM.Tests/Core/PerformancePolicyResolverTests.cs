@@ -11,10 +11,7 @@ public sealed class PerformancePolicyResolverTests
             new PerformanceValues(60, 1),
             [new PerformanceApplicationPolicy("steam:7", "game.exe", new PerformanceValues(null, 3))]);
 
-        (
-            PerformanceValues values,
-            PerformancePolicyLayer frameLayer,
-            PerformancePolicyLayer overlayLayer) = PerformancePolicyResolver.Resolve(
+        var (values, frameLayer, overlayLayer) = PerformancePolicyResolver.Resolve(
             policy,
             new PerformanceApplicationTarget("steam:7", 7, "game.exe"));
 
@@ -35,8 +32,8 @@ public sealed class PerformancePolicyResolverTests
                 new PerformanceApplicationPolicy(
                     "steam:7",
                     "game.exe",
-                    new PerformanceValues(45, null)),
-            ],
+                    new PerformanceValues(45, null))
+            ]
         };
 
         Assert.Equal(

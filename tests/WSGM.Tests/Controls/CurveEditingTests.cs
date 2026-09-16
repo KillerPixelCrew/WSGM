@@ -20,9 +20,9 @@ public sealed class CurveEditingTests
             return false;
         }
 
-        for (int index = 0; index < points.Count; index++)
+        for (var index = 0; index < points.Count; index++)
         {
-            CurvePoint point = points[index];
+            var point = points[index];
             if (point.Input != bounds.ClampInput(point.Input)
                 || point.Output != bounds.ClampOutput(point.Output))
             {
@@ -43,7 +43,7 @@ public sealed class CurveEditingTests
     {
         // Reordering mid-drag makes the point under the finger a different point, which reads as
         // the curve snapping away.
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Move(
+        var curve = CurveEditing.Move(
             Curve((0, 0), (40, 40), (60, 60), (100, 100)),
             index: 1,
             input: 95,
@@ -58,7 +58,7 @@ public sealed class CurveEditingTests
     public void EndpointsKeepTheirInputsSoTheCurveAlwaysSpansTheDevicesRange()
     {
         // A fan curve that no longer reaches its highest temperature has an undefined answer there.
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Move(
+        var curve = CurveEditing.Move(
             Curve((0, 0), (50, 50), (100, 100)),
             index: 2,
             input: 70,
@@ -72,7 +72,7 @@ public sealed class CurveEditingTests
     [Fact]
     public void MovingAPointStillClampsItsOutput()
     {
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Move(
+        var curve = CurveEditing.Move(
             Curve((0, 0), (50, 50), (100, 100)),
             index: 1,
             input: 50,
@@ -85,7 +85,7 @@ public sealed class CurveEditingTests
     [Fact]
     public void AddingAtAnOccupiedInputMovesThatPointRatherThanDuplicatingIt()
     {
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Add(
+        var curve = CurveEditing.Add(
             Curve((0, 0), (50, 50), (100, 100)),
             input: 50,
             output: 70,
@@ -99,7 +99,7 @@ public sealed class CurveEditingTests
     [Fact]
     public void AddedPointsLandInOrder()
     {
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Add(
+        var curve = CurveEditing.Add(
             Curve((0, 0), (100, 100)),
             input: 30,
             output: 25,
@@ -114,7 +114,7 @@ public sealed class CurveEditingTests
         CurvePoint[] full = [.. Enumerable.Range(0, CurveEditing.MaximumPoints)
             .Select(index => new CurvePoint(index, index))];
 
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Add(full, input: 90, output: 90, Fan);
+        var curve = CurveEditing.Add(full, input: 90, output: 90, Fan);
 
         Assert.Equal(CurveEditing.MaximumPoints, curve.Count);
         Assert.True(SatisfiesRouterContract(curve, Fan));
@@ -123,7 +123,7 @@ public sealed class CurveEditingTests
     [Fact]
     public void TheEndpointsCannotBeRemoved()
     {
-        CurvePoint[] curve = Curve((0, 0), (50, 50), (100, 100));
+        var curve = Curve((0, 0), (50, 50), (100, 100));
 
         Assert.Same(curve, CurveEditing.Remove(curve, 0));
         Assert.Same(curve, CurveEditing.Remove(curve, 2));
@@ -132,7 +132,7 @@ public sealed class CurveEditingTests
     [Fact]
     public void AnInteriorPointIsRemoved()
     {
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Remove(
+        var curve = CurveEditing.Remove(
             Curve((0, 0), (50, 50), (100, 100)),
             1);
 
@@ -142,7 +142,7 @@ public sealed class CurveEditingTests
     [Fact]
     public void ATwoPointCurveIsTheFloor()
     {
-        CurvePoint[] curve = Curve((0, 0), (100, 100));
+        var curve = Curve((0, 0), (100, 100));
 
         Assert.Same(curve, CurveEditing.Remove(curve, 1));
     }

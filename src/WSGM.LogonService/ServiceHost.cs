@@ -49,7 +49,7 @@ internal static class ServiceHost
             table[0] = new NativeMethods.ServiceTableEntryW
             {
                 lpServiceName = (nint)name,
-                lpServiceProc = &ServiceMain,
+                lpServiceProc = &ServiceMain
             };
             table[1] = default;
             if (!NativeMethods.StartServiceCtrlDispatcherW(table))
@@ -86,7 +86,7 @@ internal static class ServiceHost
             {
                 dwServiceType = NativeMethods.ServiceWin32OwnProcess,
                 dwCurrentState = NativeMethods.ServiceStartPending,
-                dwWaitHint = 3000,
+                dwWaitHint = 3000
             };
             ReportStatus();
 

@@ -10,7 +10,7 @@ public sealed class ManualTdpModeTests
     public void InitialUnifiedReadbackDoesNotSaveASyntheticSelection()
     {
         using UiFixture fixture = new();
-        int writes = 0;
+        var writes = 0;
         ManualTdpModeView view = new(() => (true, true), _ => { writes++; return Task.CompletedTask; });
         Window window = new() { Content = view, Width = 500, Height = 200 };
         try

@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using WSGM.Core;
 
 namespace WSGM.Interop;
 
@@ -18,7 +19,7 @@ internal static class TouchKeyboard
         object? instance = null;
         try
         {
-            Type type = Type.GetTypeFromCLSID(
+            var type = Type.GetTypeFromCLSID(
                 new Guid("4CE576FA-83DC-4F88-951C-9D0782B4E376"),
                 throwOnError: true)!;
             instance = Activator.CreateInstance(type)
@@ -29,7 +30,7 @@ internal static class TouchKeyboard
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            WSGM.Core.Log.Warn($"Touch keyboard toggle failed: {ex.Message}");
+            Log.Warn($"Touch keyboard toggle failed: {ex.Message}");
             return false;
         }
         finally

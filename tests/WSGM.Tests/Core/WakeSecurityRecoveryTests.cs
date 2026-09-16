@@ -8,7 +8,7 @@ public sealed class WakeSecurityRecoveryTests
     [Fact]
     public void SavedRecoveryPreservesAbsentValuesAndPerSchemeIdentity()
     {
-        var original = new WakeSecuritySnapshot(false, -1, 1, -1, [new(Guid.NewGuid(), -1, 0)]);
+        var original = new WakeSecuritySnapshot(false, -1, 1, -1, [new WakeSecurityScheme(Guid.NewGuid(), -1, 0)]);
         AppConfig config = new();
         LockScreenSettings.CaptureInto(config, original);
         var restored = LockScreenSettings.RecoverySnapshot(config);

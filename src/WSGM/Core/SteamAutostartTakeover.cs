@@ -45,7 +45,7 @@ public static class SteamAutostartTakeover
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(record);
         List<SteamAutostartSource> disabled = [], pending = [], blocked = [];
-        foreach (SteamAutostartSource source in sources)
+        foreach (var source in sources)
         {
             if (!source.Enabled) { continue; }
             if (source.NeedsElevation && !elevated) { blocked.Add(source); continue; }
@@ -56,7 +56,7 @@ public static class SteamAutostartTakeover
                 Location = source.Location,
                 Name = source.Name,
                 Wow64 = source.Wow64,
-                Pending = true,
+                Pending = true
             };
             try
             {
@@ -72,13 +72,13 @@ public static class SteamAutostartTakeover
                 }
                 else
                 {
-                    string list = ListFor(source);
-                    byte[]? previous = system.ReadApproval(source.Scope, list, source.Name);
+                    var list = ListFor(source);
+                    var previous = system.ReadApproval(source.Scope, list, source.Name);
                     entry.PreviousApproval = previous is null ? null : Convert.ToBase64String(previous);
                     entry.PreviousApprovalExists = previous is not null;
                     record(entry);
                     system.WriteApproval(source.Scope, list, source.Name, DisabledApproval());
-                    byte[]? readback = system.ReadApproval(source.Scope, list, source.Name);
+                    var readback = system.ReadApproval(source.Scope, list, source.Name);
                     if (SteamAutostartScanner.ApprovalMeansEnabled(readback))
                     {
                         pending.Add(source);
@@ -97,7 +97,7 @@ public static class SteamAutostartTakeover
                 pending.Add(source);
             }
         }
-        return new(disabled, pending, blocked);
+        return new SteamAutostartTakeoverResult(disabled, pending, blocked);
     }
 
     /// <summary>Puts back what <see cref="Disable"/> turned off, skipping anything that no longer
@@ -112,7 +112,7 @@ public static class SteamAutostartTakeover
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(records);
         List<SteamAutostartRecord> restored = [];
-        foreach (SteamAutostartRecord entry in records)
+        foreach (var entry in records)
         {
             if (entry.Scope is SteamAutostartScope.Machine && !elevated) { continue; }
             try
@@ -129,11 +129,11 @@ public static class SteamAutostartTakeover
                 }
                 else
                 {
-                    string list = ListFor(entry.Kind, entry.Wow64);
-                    byte[]? current = system.ReadApproval(entry.Scope, list, entry.Name);
+                    var list = ListFor(entry.Kind, entry.Wow64);
+                    var current = system.ReadApproval(entry.Scope, list, entry.Name);
                     // A pending record never confirmed its bytes, so it may only undo a state that
                     // is still disabled.
-                    bool ours = entry.WrittenApproval is { } written
+                    var ours = entry.WrittenApproval is { } written
                         ? current is not null && Convert.ToBase64String(current) == written
                         : !SteamAutostartScanner.ApprovalMeansEnabled(current);
                     if (!ours)

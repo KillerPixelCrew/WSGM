@@ -14,11 +14,11 @@ public sealed class ArtworkProviderTests
     {
         SteamGridDbProvider provider = new();
 
-        ArtworkProviderStatus missing = provider.GetStatus(new AppConfig());
-        ArtworkProviderStatus present = provider.GetStatus(new AppConfig { SteamGridDbApiKey = "abc" });
+        var missing = provider.GetStatus(new AppConfig());
+        var present = provider.GetStatus(new AppConfig { SteamGridDbApiKey = "abc" });
 
         Assert.Equal(ArtworkProviderReadiness.MissingCredentials, missing.Readiness);
-        Assert.Contains(SteamGridDb.KeyPageUrl, missing.Detail, System.StringComparison.Ordinal);
+        Assert.Contains(SteamGridDb.KeyPageUrl, missing.Detail, StringComparison.Ordinal);
         Assert.True(present.IsReady);
     }
 
@@ -54,7 +54,7 @@ public sealed class ArtworkProviderTests
     {
         // Screenscraper echoes softname into the media URLs it returns, so a space in it arrives
         // inside URLs WSGM would then have to repair.
-        Assert.StartsWith("WSGM", ScreenscraperCredentials.SoftName, System.StringComparison.Ordinal);
+        Assert.StartsWith("WSGM", ScreenscraperCredentials.SoftName, StringComparison.Ordinal);
         Assert.DoesNotContain(' ', ScreenscraperCredentials.SoftName);
     }
 
@@ -84,7 +84,7 @@ public sealed class ArtworkProviderTests
     {
         // The distinction this whole layer exists for: nothing was asked, so "this game has no
         // artwork" would be a lie. Screenscraper is ready by default, so it has to be switched off.
-        ArtworkSearchResult result = await ArtworkSearch.GetAssetsForSteamAppAsync(
+        var result = await ArtworkSearch.GetAssetsForSteamAppAsync(
             ArtworkAsset.Grid,
             440,
             new AppConfig { ScreenscraperEnabled = false },
@@ -104,7 +104,7 @@ public sealed class ArtworkProviderTests
         // return nothing or, worse, return a different game that happened to share the number.
         ArtworkGameMatch match = new("nonexistent-provider", "1", "Something", Exact: true);
 
-        ArtworkSearchResult result = await ArtworkSearch.GetAssetsForMatchAsync(
+        var result = await ArtworkSearch.GetAssetsForMatchAsync(
             ArtworkAsset.Grid, match, new AppConfig(), CancellationToken.None);
 
         Assert.Empty(result.Candidates);
@@ -123,7 +123,7 @@ public sealed class ArtworkProviderTests
                 new ArtworkProviderOutcome(
                     "screenscraper", "Screenscraper.fr",
                     new ArtworkProviderStatus(ArtworkProviderReadiness.Disabled, "Turned off in Settings."),
-                    null, 0),
+                    null, 0)
             ]);
 
         Assert.Equal(["SteamGridDB: SteamGridDB rate limit reached. Try again later."], result.Failures);
@@ -142,7 +142,7 @@ public sealed class ArtworkProviderTests
                 new ArtworkProviderOutcome(
                     "screenscraper", "Screenscraper.fr",
                     new ArtworkProviderStatus(ArtworkProviderReadiness.Disabled, "Turned off in Settings."),
-                    null, 0),
+                    null, 0)
             ]);
 
         Assert.False(result.NoProviderAnswered);
@@ -156,10 +156,10 @@ public sealed class ArtworkProviderTests
         // mapping has to be total: an unmapped slot would silently return nothing.
         ScreenscraperProvider provider = new();
 
-        foreach (ArtworkAsset asset in System.Enum.GetValues<ArtworkAsset>())
+        foreach (var asset in Enum.GetValues<ArtworkAsset>())
         {
             // The provider maps every slot; an unmapped one would throw or answer for the wrong art.
-            Assert.True(System.Enum.IsDefined(asset));
+            Assert.True(Enum.IsDefined(asset));
         }
 
         Assert.Equal("screenscraper", provider.Id);

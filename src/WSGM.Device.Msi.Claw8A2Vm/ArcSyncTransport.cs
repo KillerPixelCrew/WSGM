@@ -112,7 +112,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
         args.Size = (uint)sizeof(CtlInitArgs);
         args.AppVersion = ImplVersion;
         nint api = 0;
-        int result = _init(&args, &api);
+        var result = _init(&args, &api);
         if (result != ResultSuccess)
         {
             PluginTrace.Warn("arcsync", $"ctlInit refused with 0x{result:x}.");
@@ -136,7 +136,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
 
         ArcSyncMonitorParams monitor = default;
         monitor.Size = (uint)sizeof(ArcSyncMonitorParams);
-        int monitorResult = _monitorInfo(_panel, &monitor);
+        var monitorResult = _monitorInfo(_panel, &monitor);
         if (monitorResult != ResultSuccess)
         {
             PluginTrace.Warn("arcsync", $"Monitor info failed with 0x{monitorResult:x}.");
@@ -145,7 +145,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
 
         ArcSyncProfileParams profile = default;
         profile.Size = (uint)sizeof(ArcSyncProfileParams);
-        int profileResult = _getProfile(_panel, &profile);
+        var profileResult = _getProfile(_panel, &profile);
         if (profileResult != ResultSuccess)
         {
             PluginTrace.Warn("arcsync", $"Profile read failed with 0x{profileResult:x}.");
@@ -177,13 +177,13 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
             return false;
         }
 
-        if (!TryReadProfile(out ArcSyncProfileParams before))
+        if (!TryReadProfile(out var before))
         {
             PluginTrace.Warn("arcsync", "Write refused because the current profile could not be snapshotted.");
             return false;
         }
 
-        ArcSyncProfileParams request = _savedValid ? _saved : default;
+        var request = _savedValid ? _saved : default;
         request.Size = (uint)sizeof(ArcSyncProfileParams);
         if (enabled)
         {
@@ -198,7 +198,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
             request.Profile = ProfileOff;
         }
 
-        int result = _setProfile(_panel, &request);
+        var result = _setProfile(_panel, &request);
         if (result != ResultSuccess)
         {
             PluginTrace.Warn(
@@ -208,8 +208,8 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
             return false;
         }
 
-        if (!TryReadProfile(out ArcSyncProfileParams profileReadback)
-            || (profileReadback.Profile != ProfileOff) != enabled)
+        if (!TryReadProfile(out var profileReadback)
+            || profileReadback.Profile != ProfileOff != enabled)
         {
             PluginTrace.Warn(
                 "arcsync",
@@ -269,13 +269,13 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     {
         // Resolved as addresses first and cast at the end, because a function-pointer type cannot
         // be a generic argument and so cannot be threaded through one shared helper.
-        if (!TryGet("ctlInit", out nint init)
-            || !TryGet("ctlClose", out nint close)
-            || !TryGet("ctlEnumerateDevices", out nint enumerateDevices)
-            || !TryGet("ctlEnumerateDisplayOutputs", out nint enumerateOutputs)
-            || !TryGet("ctlGetIntelArcSyncInfoForMonitor", out nint monitorInfo)
-            || !TryGet("ctlGetIntelArcSyncProfile", out nint getProfile)
-            || !TryGet("ctlSetIntelArcSyncProfile", out nint setProfile))
+        if (!TryGet("ctlInit", out var init)
+            || !TryGet("ctlClose", out var close)
+            || !TryGet("ctlEnumerateDevices", out var enumerateDevices)
+            || !TryGet("ctlEnumerateDisplayOutputs", out var enumerateOutputs)
+            || !TryGet("ctlGetIntelArcSyncInfoForMonitor", out var monitorInfo)
+            || !TryGet("ctlGetIntelArcSyncProfile", out var getProfile)
+            || !TryGet("ctlSetIntelArcSyncProfile", out var setProfile))
         {
             return false;
         }
@@ -321,7 +321,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
         }
 
         deviceCount = Math.Min(deviceCount, MaxDevices);
-        nint* devices = stackalloc nint[MaxDevices];
+        var devices = stackalloc nint[MaxDevices];
         if (_enumerateDevices(_api, &deviceCount, devices) != ResultSuccess)
         {
             PluginTrace.Warn("arcsync", "Adapter handles could not be fetched.");
@@ -330,8 +330,8 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
 
         // Allocated once outside the loop; a stackalloc per adapter would grow the frame with the
         // number of adapters rather than staying bounded.
-        nint* outputs = stackalloc nint[MaxOutputs];
-        int unattached = 0;
+        var outputs = stackalloc nint[MaxOutputs];
+        var unattached = 0;
         for (uint d = 0; d < deviceCount; d++)
         {
             uint outputCount = 0;
@@ -350,7 +350,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
             {
                 ArcSyncMonitorParams monitor = default;
                 monitor.Size = (uint)sizeof(ArcSyncMonitorParams);
-                int result = _monitorInfo(outputs[o], &monitor);
+                var result = _monitorInfo(outputs[o], &monitor);
                 if (result == ResultKmdCall)
                 {
                     unattached++;
@@ -380,7 +380,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
 
     private void CaptureProfile()
     {
-        if (!TryReadProfile(out ArcSyncProfileParams profile))
+        if (!TryReadProfile(out var profile))
         {
             PluginTrace.Warn("arcsync", "Profile could not be captured; restore will be skipped.");
             return;
@@ -394,7 +394,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     {
         ArcSyncProfileParams current = default;
         current.Size = (uint)sizeof(ArcSyncProfileParams);
-        bool succeeded = _panel != 0 && _getProfile(_panel, &current) == ResultSuccess;
+        var succeeded = _panel != 0 && _getProfile(_panel, &current) == ResultSuccess;
         profile = current;
         return succeeded;
     }
@@ -402,7 +402,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
     private bool TryRestoreProfile(ArcSyncProfileParams restore, string operation)
     {
         restore.Size = (uint)sizeof(ArcSyncProfileParams);
-        int result = _setProfile(_panel, &restore);
+        var result = _setProfile(_panel, &restore);
         if (result != ResultSuccess)
         {
             PluginTrace.Error(
@@ -411,7 +411,7 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
             return false;
         }
 
-        if (!TryReadProfile(out ArcSyncProfileParams readback) || !ProfilesEqual(restore, readback))
+        if (!TryReadProfile(out var readback) || !ProfilesEqual(restore, readback))
         {
             PluginTrace.Error(
                 "arcsync",

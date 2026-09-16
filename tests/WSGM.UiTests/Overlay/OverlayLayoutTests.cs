@@ -105,27 +105,27 @@ public sealed class OverlayLayoutTests
         device.State = device.State with
         {
             Capabilities = [device.State.Capabilities[0],
-                new("fixture.other", null, DeviceOverlaySection.Oem, DescriptorStatus.Available, "Other section", "", "", false),
-                new("fixture.value", null, DeviceOverlaySection.Overview,
+                new DeviceOverlayCapability("fixture.other", null, DeviceOverlaySection.Oem, DescriptorStatus.Available, "Other section", "", "", false),
+                new DeviceOverlayCapability("fixture.value", null, DeviceOverlaySection.Overview,
                 DescriptorStatus.Available, "Fixture value", "", "", true,
-                new() { Kind = kind, IntegerValue = 50, BooleanValue = false, ChoiceValue = "a", CurveValue = [new(30, 20), new(60, 50), new(90, 100)] })
+                new CapabilityValue { Kind = kind, IntegerValue = 50, BooleanValue = false, ChoiceValue = "a", CurveValue = [new CurvePoint(30, 20), new CurvePoint(60, 50), new CurvePoint(90, 100)] })
             {
                 ValueKind = kind, Writable = true, Minimum = 0, Maximum = 100, Step = 1,
-                Choices = [new("a", new() { Key = DisplayKey.Custom, CustomLabel = "First" }),
-                    new("b", new() { Key = DisplayKey.Custom, CustomLabel = "Second" })],
-            }],
+                Choices = [new CapabilityChoice("a", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "First" }),
+                    new CapabilityChoice("b", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Second" })]
+            }]
         };
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
-        Type type = kind switch
+        var type = kind switch
         {
             CapabilityValueKind.Integer => typeof(Slider),
             CapabilityValueKind.Boolean => typeof(ToggleSwitch),
             CapabilityValueKind.Curve => typeof(CurveEditor),
-            _ => typeof(ComboBox),
+            _ => typeof(ComboBox)
         };
         var editor = window.GetVisualDescendants().OfType<Control>()
             .Single(control => control.GetType() == type && control.IsEffectivelyVisible);
@@ -183,8 +183,8 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         var host = UiFixture.Named<StackPanel>(window, "DisplayBrightnessHost");
         DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 1, 0, 1);
-        DisplayModeSnapshot modes = new(new(target, "fixture", 0, 120, 1), new(1920, 1200, 120),
-            [new(1920, 1200, 60), new(1920, 1200, 120), new(1280, 800, 60)]);
+        DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1), new DisplayMode(1920, 1200, 120),
+            [new DisplayMode(1920, 1200, 60), new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)]);
         window.AttachBrightness(brightness, () => Task.FromResult<DisplayModeSnapshot?>(modes));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()

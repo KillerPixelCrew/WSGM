@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace WSGM.DeviceLab.Inventory;
 
@@ -21,7 +23,7 @@ internal static class NativePeInspector
             resolved = Path.GetFullPath(path);
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException
-            or System.Security.SecurityException)
+            or SecurityException)
         {
             return Unavailable(path, InventoryAccess.Malformed);
         }
@@ -39,9 +41,9 @@ internal static class NativePeInspector
                 return Unavailable(resolved, InventoryAccess.Malformed, stream.Length);
             }
 
-            (BinarySignatureState signature, string? signer) = ReadSigner(resolved);
-            IReadOnlyList<string> exports = ReadExports(pe);
-            string sha256 = Hash(stream);
+            var (signature, signer) = ReadSigner(resolved);
+            var exports = ReadExports(pe);
+            var sha256 = Hash(stream);
             return new NativeBinaryInventory
             {
                 Access = InventoryAccess.Available,
@@ -53,7 +55,7 @@ internal static class NativePeInspector
                 Sha256 = sha256,
                 Signature = signature,
                 SignerSubject = signer,
-                Exports = exports,
+                Exports = exports
             };
         }
         catch (UnauthorizedAccessException)
@@ -70,7 +72,7 @@ internal static class NativePeInspector
         }
         catch (Exception exception) when (exception is BadImageFormatException
             or CryptographicException or ArgumentException or InvalidOperationException
-            or OverflowException or System.ComponentModel.Win32Exception)
+            or OverflowException or Win32Exception)
         {
             return Unavailable(resolved, InventoryAccess.Malformed);
         }
@@ -85,7 +87,7 @@ internal static class NativePeInspector
             Path = path,
             Name = SafeFileName(path),
             FileBytes = fileBytes,
-            Signature = BinarySignatureState.Unknown,
+            Signature = BinarySignatureState.Unknown
         };
 
     private static bool IsSharingViolation(IOException exception) =>
@@ -114,7 +116,7 @@ internal static class NativePeInspector
         try
         {
 #pragma warning disable SYSLIB0057 // Authenticode PE signer extraction has no loader equivalent.
-            using X509Certificate certificate = X509Certificate.CreateFromSignedFile(path);
+            using var certificate = X509Certificate.CreateFromSignedFile(path);
 #pragma warning restore SYSLIB0057
             return (BinarySignatureState.Signed, EmptyToNull(certificate.Subject));
         }
@@ -130,48 +132,48 @@ internal static class NativePeInspector
 
     private static IReadOnlyList<string> ReadExports(PEReader pe)
     {
-        DirectoryEntry directory = pe.PEHeaders.PEHeader!.ExportTableDirectory;
+        var directory = pe.PEHeaders.PEHeader!.ExportTableDirectory;
         if (directory.RelativeVirtualAddress == 0 || directory.Size < 40)
         {
             return [];
         }
 
-        BlobReader table = pe.GetSectionData(directory.RelativeVirtualAddress).GetReader();
+        var table = pe.GetSectionData(directory.RelativeVirtualAddress).GetReader();
         if (table.RemainingBytes < 40)
         {
             return [];
         }
 
         table.Offset = 24;
-        uint nameCount = table.ReadUInt32();
+        var nameCount = table.ReadUInt32();
         _ = table.ReadUInt32();
-        uint namePointerRva = table.ReadUInt32();
+        var namePointerRva = table.ReadUInt32();
         _ = table.ReadUInt32();
         if (nameCount > InventoryLimits.MaximumNativeExports || namePointerRva == 0)
         {
             return [];
         }
 
-        BlobReader names = pe.GetSectionData((int)namePointerRva).GetReader();
+        var names = pe.GetSectionData((int)namePointerRva).GetReader();
         if (names.RemainingBytes < checked((int)nameCount * sizeof(uint)))
         {
             return [];
         }
 
         List<string> exports = [];
-        for (int index = 0; index < nameCount; index++)
+        for (var index = 0; index < nameCount; index++)
         {
-            uint nameRva = names.ReadUInt32();
+            var nameRva = names.ReadUInt32();
             if (nameRva == 0)
             {
                 continue;
             }
 
-            BlobReader nameReader = pe.GetSectionData((int)nameRva).GetReader();
+            var nameReader = pe.GetSectionData((int)nameRva).GetReader();
             List<byte> bytes = [];
             while (nameReader.RemainingBytes > 0 && bytes.Count < MaximumExportNameBytes)
             {
-                byte next = nameReader.ReadByte();
+                var next = nameReader.ReadByte();
                 if (next == 0)
                 {
                     break;
@@ -182,7 +184,7 @@ internal static class NativePeInspector
 
             if (bytes.Count != 0)
             {
-                exports.Add(System.Text.Encoding.ASCII.GetString([.. bytes]));
+                exports.Add(Encoding.ASCII.GetString([.. bytes]));
             }
         }
 

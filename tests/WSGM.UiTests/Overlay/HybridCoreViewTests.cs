@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
@@ -16,7 +17,7 @@ public sealed class HybridCoreViewTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         using HybridCoreSelection selection = new(new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0] }));
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
@@ -42,9 +43,9 @@ public sealed class HybridCoreViewTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         using HybridCoreSelection selection = new(
-            new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0], Classes = [new(0, 8, 16)] }));
+            new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0], Classes = [new HybridCoreClass(0, 8, 16)] }));
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
         Dispatcher.UIThread.RunJobs();
@@ -58,7 +59,7 @@ public sealed class HybridCoreViewTests
     public async Task ApplyingFromTheOverlayWritesBothPowerSourcesAndConfirmsTheResult()
     {
         using UiFixture fixture = new();
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0] };
         using HybridCoreSelection selection = new(new HybridCores(api));
         window.AttachHybridCores(selection);
@@ -75,7 +76,7 @@ public sealed class HybridCoreViewTests
     public async Task APreviewOverlayReadsTheStateButRefusesToChangeIt()
     {
         using UiFixture fixture = new();
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0] };
         using HybridCoreSelection selection = new(new HybridCores(api), readOnly: true);
         window.AttachHybridCores(selection);
@@ -93,7 +94,7 @@ public sealed class HybridCoreViewTests
     public async Task AFailedWriteLeavesTheReasonOnTheSurfaceRatherThanThrowingIntoTheUi()
     {
         using UiFixture fixture = new();
-        OverlayWindow window = fixture.Overlay();
+        var window = fixture.Overlay();
         using HybridCoreSelection selection = new(new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0], IgnoreWrites = true }));
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();

@@ -10,9 +10,9 @@ public sealed class SessionActivationTests
     public async Task SettingsShortcutReachesTheResidentUiOwnerAndStopsAfterDisposal()
     {
         using UiFixture fixture = new();
-        string name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
+        var name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
         Assert.False(SettingsActivation.TryRequest(name));
-        int requests = 0;
+        var requests = 0;
         using (SettingsActivation owner = new(() =>
         {
             Assert.True(Dispatcher.UIThread.CheckAccess());
@@ -33,8 +33,8 @@ public sealed class SessionActivationTests
     public async Task SettingsRequestQueuedBeforeShutdownDoesNotOpenAfterDisposal()
     {
         using UiFixture fixture = new();
-        string name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
-        int requests = 0;
+        var name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
+        var requests = 0;
         using (SettingsActivation owner = new(() => requests++, name))
         {
             Assert.True(SettingsActivation.TryRequest(name));
@@ -47,7 +47,7 @@ public sealed class SessionActivationTests
     public async Task ActivationQueuedDuringStartupReachesTheUiOwner()
     {
         using UiFixture fixture = new();
-        string name = @"Local\WSGM.Test.Activate." + Guid.NewGuid().ToString("N");
+        var name = @"Local\WSGM.Test.Activate." + Guid.NewGuid().ToString("N");
         using EventWaitHandle signal = new(false, EventResetMode.AutoReset, name);
         signal.Set();
         TaskCompletionSource activated = new(TaskCreationOptions.RunContinuationsAsynchronously);

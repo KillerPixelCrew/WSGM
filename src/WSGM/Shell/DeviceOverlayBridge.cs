@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -53,7 +54,7 @@ internal enum DeviceOverlaySection
     LightingAndFeatures,
 
     /// <summary>Health, recovery, and anything that exists to be read rather than changed.</summary>
-    Diagnostics,
+    Diagnostics
 }
 
 /// <summary>One presentation-only semantic capability row for the final Device destination.</summary>
@@ -299,47 +300,47 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             CapabilityRole.PowerSustainedLimit => capability with { Title = "TDP" },
             CapabilityRole.PowerSlowLimit => capability with { Writable = false, CanInvoke = false },
-            _ => capability,
+            _ => capability
         };
 
     public DeviceOverlaySnapshot Snapshot()
     {
-        DeviceCycleState state = _coordinator.State;
-        InstalledDevicePackage? package = _coordinator.InstalledPackage;
-        ControllerManagerStatus controllerStatus = _coordinator.Controllers.Snapshot();
-        IReadOnlyList<CapabilitySection> declaredSections = _coordinator.Capabilities.Sections;
+        var state = _coordinator.State;
+        var package = _coordinator.InstalledPackage;
+        var controllerStatus = _coordinator.Controllers.Snapshot();
+        var declaredSections = _coordinator.Capabilities.Sections;
         HashSet<string> declaredSectionIds = new(
             DeviceSections.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
-        List<DeviceOverlayCapability> capabilities = _coordinator.Capabilities.Snapshot()
+        var capabilities = _coordinator.Capabilities.Snapshot()
             .Take(128)
             .Select(view => ToOverlayCapability(view, declaredSectionIds))
             .ToList();
         if (_coordinator.ManualTdpUnified)
         {
-            for (int index = 0; index < capabilities.Count; index++)
+            for (var index = 0; index < capabilities.Count; index++)
             {
                 capabilities[index] = ProjectManualTdp(capabilities[index], true);
             }
         }
-        PhysicalGlyphSelectionResult glyphSelectionState = _coordinator.PhysicalGlyphSelectionSnapshot();
-        DescriptorRow glyphSelection = PhysicalGlyphSelectionView(
+        var glyphSelectionState = _coordinator.PhysicalGlyphSelectionSnapshot();
+        var glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             glyphSelectionState);
-        DescriptorRow autoTdp = AutoTdpView(
+        var autoTdp = AutoTdpView(
             _coordinator.AutoTdpEnabled,
             _autoTdp?.Status,
             _autoTdp?.Availability);
-        DescriptorRow? recovery = RecoveryView(state);
-        DescriptorRow? controller = ControllerView(
+        var recovery = RecoveryView(state);
+        var controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
             controllerStatus);
-        DescriptorRow profile = ProfileView(
+        var profile = ProfileView(
             _coordinator.HardwareProfileIds,
             _coordinator.SelectedHardwareProfileId);
-        (IReadOnlyList<DeviceAuthoredProfile> Profiles, string? SelectedProfileId, bool ApplicationScoped)?
+        var
             authored = _coordinator.AuthoredProfileSelection();
-        DeviceOverlayGlyphPreview? glyphPreview = GlyphPreview(
+        var glyphPreview = GlyphPreview(
             glyphSelectionState,
             _glyphs,
             // The input test is live only while the plugin's canonical samples are actually
@@ -361,10 +362,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 null));
         }
 
-        DevicePackageDiscovery discovery = _coordinator.PackageDiscovery;
+        var discovery = _coordinator.PackageDiscovery;
         if (discovery.Inventory.Cardinality is DevicePackageCardinality.Multiple)
         {
-            foreach (string packageRoot in discovery.Inventory.PackageRoots.Take(16))
+            foreach (var packageRoot in discovery.Inventory.PackageRoots.Take(16))
             {
                 capabilities.Add(new DeviceOverlayCapability(
                     $"wsgm.package.multiple.{Path.GetFileName(packageRoot)}",
@@ -381,7 +382,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
         // OrderBy is stable, so rows keep their order within a section.
         capabilities = [.. capabilities.OrderBy(capability => capability.Section)];
-        string detail = package is null
+        var detail = package is null
             ? state is DeviceCycleState.Detected or DeviceCycleState.Passive
                 ? "No compatible verified device package is active."
                 : "Device integration is waiting for a compatible handheld."
@@ -405,7 +406,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 : null)
         {
             GlyphMode = _coordinator.PhysicalGlyphSelection,
-            PluginSections = ProjectSections(declaredSections),
+            PluginSections = ProjectSections(declaredSections)
         };
     }
 
@@ -430,23 +431,23 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return null;
         }
 
-        DescriptorStatus health = status.State switch
+        var health = status.State switch
         {
             ControllerManagementState.Active => DescriptorStatus.Available,
             ControllerManagementState.Idle => DescriptorStatus.Stale,
             ControllerManagementState.Faulted => DescriptorStatus.Warning,
             ControllerManagementState.Unavailable => DescriptorStatus.Unsupported,
-            _ => DescriptorStatus.None,
+            _ => DescriptorStatus.None
         };
-        string trailing = status.Target is { } target ? TargetLabel(target) : "NONE";
-        string description = status.Detail;
+        var trailing = status.Target is { } target ? TargetLabel(target) : "NONE";
+        var description = status.Detail;
         if (string.IsNullOrWhiteSpace(description))
         {
             description = status.State switch
             {
                 ControllerManagementState.Active => "A virtual controller is present and receiving input",
                 ControllerManagementState.Idle => "Ready · no virtual controller is present yet",
-                _ => "Present the physical controller as a chosen virtual one",
+                _ => "Present the physical controller as a chosen virtual one"
             };
         }
 
@@ -497,14 +498,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         List<DeviceOverlayGlyphPreviewItem> items = [];
-        foreach (GlyphControlMapping mapping in profile.Manifest.Controls)
+        foreach (var mapping in profile.Manifest.Controls)
         {
             if (mapping.Presence is not GlyphControlPresence.Present)
             {
                 continue;
             }
 
-            PhysicalGlyphRenderPlan plan = glyphs.Resolve(
+            var plan = glyphs.Resolve(
                 selection,
                 mapping.Control,
                 PhysicalGlyphSurface.DeviceDescription,
@@ -548,11 +549,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// </remarks>
     internal static string ControlLabel(GlyphControlId control)
     {
-        string name = control.ToString();
+        var name = control.ToString();
         StringBuilder text = new(name.Length + 4);
-        for (int index = 0; index < name.Length; index++)
+        for (var index = 0; index < name.Length; index++)
         {
-            char character = name[index];
+            var character = name[index];
             if (index > 0 && char.IsUpper(character) && !char.IsUpper(name[index - 1]))
             {
                 text.Append(' ');
@@ -595,7 +596,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return null;
         }
 
-        DeviceAuthoredProfile? selected = selectedProfileId is { Length: > 0 }
+        var selected = selectedProfileId is { Length: > 0 }
             ? profiles.FirstOrDefault(profile => string.Equals(
                 profile.ProfileId,
                 selectedProfileId,
@@ -617,7 +618,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 DescriptorStatus.Warning);
         }
 
-        string scope = selected is null
+        var scope = selected is null
             ? $"{profiles.Count} authored · none selected"
             : applicationScoped
                 ? $"1 of {profiles.Count} · applies to this game only"
@@ -656,8 +657,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 CanInvoke: false);
         }
 
-        bool active = selected is { Length: > 0 } && profileIds.Contains(selected, StringComparer.Ordinal);
-        string description = active
+        var active = selected is { Length: > 0 } && profileIds.Contains(selected, StringComparer.Ordinal);
+        var description = active
             ? $"1 of {profileIds.Count} · overrides power and battery defaults while selected"
             : $"{profileIds.Count} defined · none selected";
         return new DescriptorRow(
@@ -687,19 +688,19 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return null;
         }
 
-        int index = selected is null
+        var index = selected is null
             ? -1
             : IndexOfOrdinal(profileIds, selected);
 
         // An unknown selection behaves as none, so cycling from it lands on the first profile
         // rather than doing nothing.
-        int next = index + 1;
+        var next = index + 1;
         return next >= profileIds.Count ? null : profileIds[next];
     }
 
     private static int IndexOfOrdinal(IReadOnlyList<string> values, string value)
     {
-        for (int index = 0; index < values.Count; index++)
+        for (var index = 0; index < values.Count; index++)
         {
             if (string.Equals(values[index], value, StringComparison.Ordinal))
             {
@@ -738,7 +739,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         ManagedControllerTarget.SteamDeckComposite => "DECK",
         ManagedControllerTarget.Xbox360 => "XBOX",
         ManagedControllerTarget.DualShock4 => "DS4",
-        _ => "NONE",
+        _ => "NONE"
     };
 
     /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
@@ -770,17 +771,17 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 CanInvoke: true);
         }
 
-        string detail = status?.Detail ?? "Starting.";
-        string trailing = status?.Watts is { } watts
+        var detail = status?.Detail ?? "Starting.";
+        var trailing = status?.Watts is { } watts
             ? watts.ToString(CultureInfo.InvariantCulture) + " W"
             : "ON";
-        DescriptorStatus health = status?.State switch
+        var health = status?.State switch
         {
             AutoTdpState.Controlling => DescriptorStatus.Available,
             AutoTdpState.Paused => DescriptorStatus.Warning,
             AutoTdpState.Unavailable => DescriptorStatus.Unsupported,
             AutoTdpState.Idle => DescriptorStatus.Stale,
-            _ => DescriptorStatus.None,
+            _ => DescriptorStatus.None
         };
         if (status?.FrametimeMs is { } frametime && status.TargetFrametimeMs is { } target)
         {
@@ -848,7 +849,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // The NavigationHint surface carries its own authorization: the service refuses it unless
         // the active input source is the managed handheld, which is exactly the condition under
         // which replacing a written letter with a device glyph is correct.
-        PhysicalGlyphRenderPlan plan = _glyphs.Resolve(
+        var plan = _glyphs.Resolve(
             _coordinator.PhysicalGlyphSelectionSnapshot(),
             control,
             PhysicalGlyphSurface.NavigationHint,
@@ -934,9 +935,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         [
             ManagedControllerTarget.SteamDeckComposite,
             ManagedControllerTarget.Xbox360,
-            ManagedControllerTarget.DualShock4,
+            ManagedControllerTarget.DualShock4
         ];
-        ManagedControllerTarget[] offered = supported is { Count: > 0 }
+        var offered = supported is { Count: > 0 }
             ? [.. order.Where(supported.Contains)]
             : order;
         if (offered.Length == 0)
@@ -944,7 +945,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return current ?? ManagedControllerTarget.SteamDeckComposite;
         }
 
-        int index = current is { } target ? Array.IndexOf(offered, target) : -1;
+        var index = current is { } target ? Array.IndexOf(offered, target) : -1;
         return offered[(index + 1) % offered.Length];
     }
 
@@ -986,33 +987,33 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     // Raised from AutoTDP's own tick loop; the overlay consumer is UI-owned, so marshal first.
     private void OnAutoTdpStatusChanged(AutoTdpStatus _) =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => Changed?.Invoke());
+        Dispatcher.UIThread.Post(() => Changed?.Invoke());
 
     internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
         IReadOnlySet<string> declaredSections)
     {
-        CapabilityDescriptor descriptor = view.Descriptor;
-        CapabilityProjection projection = view.Projection;
-        CapabilityState state = projection.State;
-        CapabilityValue? displayed = projection.PendingValue
-            ?? state.ObservedValue
-            ?? projection.DesiredValue;
-        bool actionOnlyReady = state.Available
-            && state.Reason is null
-            && descriptor.SupportsAction
-            && !descriptor.SupportsRead
-            && state.Quality is HardwareStateQuality.Unknown;
-        bool current = actionOnlyReady
-            || state.Available
-                && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
-        CapabilityValue? next = NextValue(descriptor, displayed);
-        bool colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
-            && displayed?.ColorValue is not null;
-        bool canInvoke = current
-            && (descriptor.SupportsAction
-                || descriptor.SupportsWrite && (next is not null || colorWrite));
-        string description = (projection.Progress switch
+        var descriptor = view.Descriptor;
+        var projection = view.Projection;
+        var state = projection.State;
+        var displayed = projection.PendingValue
+                        ?? state.ObservedValue
+                        ?? projection.DesiredValue;
+        var actionOnlyReady = state.Available
+                              && state.Reason is null
+                              && descriptor.SupportsAction
+                              && !descriptor.SupportsRead
+                              && state.Quality is HardwareStateQuality.Unknown;
+        var current = actionOnlyReady
+                      || state.Available
+                      && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
+        var next = NextValue(descriptor, displayed);
+        var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
+                         && displayed?.ColorValue is not null;
+        var canInvoke = current
+                        && (descriptor.SupportsAction
+                            || descriptor.SupportsWrite && (next is not null || colorWrite));
+        var description = projection.Progress switch
         {
             CommandProgress.Pending => "Applying requested value…",
             CommandProgress.Uncertain => "Last request is unverified — refresh before retrying",
@@ -1021,8 +1022,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
             _ when actionOnlyReady => "Ready · action has no readback",
-            _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}",
-        }) ?? "Capability state is unavailable.";
+            _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}"
+        } ?? "Capability state is unavailable.";
         return new DeviceOverlayCapability(
             descriptor.CapabilityId,
             descriptor.InstanceId,
@@ -1052,7 +1053,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             Step = descriptor.Step,
             Unit = descriptor.Unit,
             Choices = descriptor.Choices,
-            MaximumLength = descriptor.MaximumLength,
+            MaximumLength = descriptor.MaximumLength
         };
     }
 
@@ -1060,12 +1061,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceGlyphSelection mode,
         PhysicalGlyphSelectionResult selection)
     {
-        string trailing = mode switch
+        var trailing = mode switch
         {
             DeviceGlyphSelection.Automatic => "AUTO",
             DeviceGlyphSelection.NativeSteam => "STEAM",
             DeviceGlyphSelection.ManualReviewedProfile => "REVIEWED",
-            _ => "AUTO",
+            _ => "AUTO"
         };
         string description;
         DescriptorStatus status;
@@ -1093,7 +1094,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     "Device integration is off; generic glyphs remain active.",
                 PhysicalGlyphFallbackReason.ExactDeviceMismatch =>
                     "The package profile does not match this exact device; generic glyphs remain active.",
-                _ => "No reviewed physical profile is available; generic glyphs remain active.",
+                _ => "No reviewed physical profile is available; generic glyphs remain active."
             };
             status = DescriptorStatus.Warning;
         }
@@ -1130,7 +1131,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                         SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
                     .ToList())
             {
-                Key = item.Section.Key,
+                Key = item.Section.Key
             })
             .ToList();
 
@@ -1146,7 +1147,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         SettingSectionKey.Display => "Display",
         SettingSectionKey.Advanced => "Advanced",
         SettingSectionKey.Diagnostics => "Diagnostics",
-        _ => key.ToString(),
+        _ => key.ToString()
     };
 
     /// <summary>WSGM's own card description for a keyed section that supplies none.</summary>
@@ -1158,7 +1159,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         SettingSectionKey.Controller => "Controller, motion, and rumble",
         SettingSectionKey.Display => "Display features",
         SettingSectionKey.Diagnostics => "Health and readings",
-        _ => "Device controls",
+        _ => "Device controls"
     };
 
     private static DeviceOverlaySection SectionFor(CapabilityRole role) => role switch
@@ -1188,7 +1189,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // A read-only value is something to consult, not to set, so it belongs with the rest of the
         // diagnostics rather than among the controls a user came to change.
         CapabilityRole.GenericReadOnly => DeviceOverlaySection.Diagnostics,
-        _ => DeviceOverlaySection.Overview,
+        _ => DeviceOverlaySection.Overview
     };
 
     private static DescriptorStatus StatusFor(CapabilityProjection projection)
@@ -1242,7 +1243,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CapabilityValueKind.Boolean => new CapabilityValue
             {
                 Kind = CapabilityValueKind.Boolean,
-                BooleanValue = !(current?.BooleanValue ?? false),
+                BooleanValue = !(current?.BooleanValue ?? false)
             },
             CapabilityValueKind.Integer when descriptor.Minimum is { } minimum
                 && descriptor.Maximum is { } maximum
@@ -1251,19 +1252,19 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     Kind = CapabilityValueKind.Integer,
                     IntegerValue = current?.IntegerValue is { } value && value + step <= maximum
                         ? value + step
-                        : minimum,
+                        : minimum
                 },
             CapabilityValueKind.Choice when descriptor.Choices.Count > 0 => new CapabilityValue
             {
                 Kind = CapabilityValueKind.Choice,
-                ChoiceValue = NextChoice(descriptor, current?.ChoiceValue),
+                ChoiceValue = NextChoice(descriptor, current?.ChoiceValue)
             },
-            _ => null,
+            _ => null
         };
 
     private static string NextChoice(CapabilityDescriptor descriptor, string? current)
     {
-        int index = descriptor.Choices.ToList().FindIndex(choice => string.Equals(
+        var index = descriptor.Choices.ToList().FindIndex(choice => string.Equals(
             choice.Value,
             current,
             StringComparison.Ordinal));
@@ -1297,7 +1298,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // Reached only by a key this build does not know, which means a plugin compiled against a
         // newer SDK. A missing arm here is invisible in the worst way — the row renders, with a
         // label that describes nothing — so every key the SDK declares belongs above.
-        _ => "Device control",
+        _ => "Device control"
     };
 
     private static string FormatValue(CapabilityValue? value, CapabilityUnit unit)
@@ -1320,7 +1321,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CapabilityValueKind.Curve => value.CurveValue.Count > 0
                 ? $"{value.CurveValue.Count} points"
                 : "—",
-            _ => "RUN",
+            _ => "RUN"
         };
     }
 
@@ -1334,7 +1335,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         CapabilityUnit.Millivolt => " mV",
         CapabilityUnit.Megahertz => " MHz",
         CapabilityUnit.Millisecond => " ms",
-        _ => string.Empty,
+        _ => string.Empty
     };
 
     private static string LifecycleLabel(DeviceCycleState state) => state switch
@@ -1348,7 +1349,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceCycleState.Suspended => "Device suspended",
         DeviceCycleState.Deactivating => "Device deactivating",
         DeviceCycleState.Faulted => "Device faulted",
-        _ => state.ToString(),
+        _ => state.ToString()
     };
 
     private static string QualityLabel(HardwareStateQuality quality) => quality switch
@@ -1357,13 +1358,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         HardwareStateQuality.Observed => "Observed",
         HardwareStateQuality.Stale => "Stale",
         HardwareStateQuality.Faulted => "Faulted",
-        _ => "Unknown",
+        _ => "Unknown"
     };
 
     private static string PersistenceLabel(CapabilityPersistence persistence) => persistence switch
     {
         CapabilityPersistence.Volatile => "resets on device power loss",
         CapabilityPersistence.DevicePersistent => "stored on device",
-        _ => "persistence unknown",
+        _ => "persistence unknown"
     };
 }

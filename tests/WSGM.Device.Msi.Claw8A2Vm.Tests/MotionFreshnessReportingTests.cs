@@ -17,7 +17,7 @@ public sealed class MotionFreshnessReportingTests : IDisposable
     {
         // Measured Intel transport jitter clusters just past the cap. Reporting each crossing put
         // two alternating lines into the log about 1.3 times a second.
-        (MotionService motion, TestPluginHostAdapter host) = await StartAsync();
+        var (motion, host) = await StartAsync();
 
         motion.Current(Start + MotionService.MaximumMotionAge + TimeSpan.FromMilliseconds(9));
 
@@ -28,15 +28,15 @@ public sealed class MotionFreshnessReportingTests : IDisposable
     [Fact]
     public async Task APauseThatOutlastsJitterIsReportedOnce()
     {
-        (MotionService motion, TestPluginHostAdapter host) = await StartAsync();
+        var (motion, host) = await StartAsync();
 
-        DateTimeOffset past = Start + MotionService.StaleReportDelay + TimeSpan.FromMilliseconds(1);
-        for (int frame = 0; frame < 200; frame++)
+        var past = Start + MotionService.StaleReportDelay + TimeSpan.FromMilliseconds(1);
+        for (var frame = 0; frame < 200; frame++)
         {
             motion.Current(past + TimeSpan.FromMilliseconds(frame * 8));
         }
 
-        (DeviceTraceLevel Level, string Scope, string Key, string Message) line =
+        var line =
             Assert.Single(host.Changes);
         Assert.Equal("motion", line.Scope);
         Assert.Equal("freshness", line.Key);
@@ -46,7 +46,7 @@ public sealed class MotionFreshnessReportingTests : IDisposable
     [Fact]
     public async Task AResumeIsReportedOnlyWhereThePauseWas()
     {
-        (MotionService motion, TestPluginHostAdapter host, Func<MotionSample, ValueTask> publish) =
+        var (motion, host, publish) =
             await StartCapturingAsync();
 
         // A crossing too brief to mention stays unmentioned at both ends.
@@ -67,12 +67,12 @@ public sealed class MotionFreshnessReportingTests : IDisposable
     [Fact]
     public async Task AFreshReadingRearmsTheReport()
     {
-        (MotionService motion, TestPluginHostAdapter host, Func<MotionSample, ValueTask> publish) =
+        var (motion, host, publish) =
             await StartCapturingAsync();
 
-        for (int pause = 1; pause <= 3; pause++)
+        for (var pause = 1; pause <= 3; pause++)
         {
-            DateTimeOffset reading = Start + TimeSpan.FromSeconds(pause * 10);
+            var reading = Start + TimeSpan.FromSeconds(pause * 10);
             await publish(Sample(reading));
             motion.Current(reading + MotionService.StaleReportDelay + TimeSpan.FromMilliseconds(1));
         }
@@ -86,12 +86,12 @@ public sealed class MotionFreshnessReportingTests : IDisposable
         HasGyro = true,
         HasAccelerometer = true,
         AccelZ = 1f,
-        SensorTimestamp = stamp,
+        SensorTimestamp = stamp
     };
 
     private static async Task<(MotionService Motion, TestPluginHostAdapter Host)> StartAsync()
     {
-        (MotionService motion, TestPluginHostAdapter host, Func<MotionSample, ValueTask> publish) =
+        var (motion, host, publish) =
             await StartCapturingAsync();
         await publish(Sample(Start));
         return (motion, host);

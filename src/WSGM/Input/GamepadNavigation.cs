@@ -370,7 +370,7 @@ public sealed class GamepadNavigation : IDisposable
             Key.Down => NavigationDirection.Down,
             Key.Left => NavigationDirection.Left,
             Key.Right => (NavigationDirection?)NavigationDirection.Right,
-            _ => null,
+            _ => null
         };
         if (direction is null)
         {
@@ -550,13 +550,13 @@ public sealed class GamepadNavigation : IDisposable
             {
                 RoutedEvent = InputElement.KeyDownEvent,
                 Key = Key.Enter,
-                Source = element,
+                Source = element
             });
             element.RaiseEvent(new KeyEventArgs
             {
                 RoutedEvent = InputElement.KeyUpEvent,
                 Key = Key.Enter,
-                Source = element,
+                Source = element
             });
         }
         finally

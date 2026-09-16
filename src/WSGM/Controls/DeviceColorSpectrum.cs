@@ -33,19 +33,19 @@ internal sealed class DeviceColorSpectrum : ColorSpectrum
     /// <param name="direction">The direction pressed. Only Left and Right change anything.</param>
     internal void ApplyDirection(NavigationDirection direction)
     {
-        double delta = direction switch
+        var delta = direction switch
         {
             NavigationDirection.Left => -HueStep,
             NavigationDirection.Right => HueStep,
-            _ => 0,
+            _ => 0
         };
         if (delta == 0)
         {
             return;
         }
 
-        HsvColor current = HsvColor;
-        double hue = (current.H + delta + 360) % 360;
+        var current = HsvColor;
+        var hue = (current.H + delta + 360) % 360;
         HsvColor = new HsvColor(current.A, hue, current.S, current.V);
     }
 

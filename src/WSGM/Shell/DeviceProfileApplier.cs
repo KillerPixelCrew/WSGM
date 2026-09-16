@@ -21,7 +21,7 @@ public enum DeviceProfileApplyOutcome
     Refused,
 
     /// <summary>The device accepted the command but reported failure.</summary>
-    Failed,
+    Failed
 }
 
 /// <summary>
@@ -55,7 +55,7 @@ internal static class DeviceProfileApplier
     {
         ArgumentNullException.ThrowIfNull(describe);
         ArgumentNullException.ThrowIfNull(execute);
-        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
+        var resolution = DeviceProfileSelectionStore.Resolve(
             selections,
             profiles,
             capabilityId,
@@ -77,11 +77,11 @@ internal static class DeviceProfileApplier
             return DeviceProfileApplyOutcome.NoSelection;
         }
 
-        CapabilityDescriptor? descriptor = describe(capabilityId);
-        DeviceProfileRejection rejection = DeviceProfileValidation.Validate(
+        var descriptor = describe(capabilityId);
+        var rejection = DeviceProfileValidation.Validate(
             profile,
             descriptor,
-            out string? reason);
+            out var reason);
         if (rejection is not DeviceProfileRejection.None)
         {
             Log.Warn(
@@ -95,17 +95,17 @@ internal static class DeviceProfileApplier
             Kind = CapabilityValueKind.Curve,
             CurveValue =
             [
-                .. profile.Curve.Select(point => new CurvePoint(point.Input, point.Output)),
-            ],
+                .. profile.Curve.Select(point => new CurvePoint(point.Input, point.Output))
+            ]
         };
 
-        CapabilityCommandResult result = await execute(capabilityId, value, cancellationToken)
+        var result = await execute(capabilityId, value, cancellationToken)
             .ConfigureAwait(false);
         // Unverified counts as applied: many EC writes have no readback, and treating the absence
         // of confirmation as failure would report every one of them as broken. A timeout does not
         // count — whether it was written is unknown, and claiming success there is the one answer
         // that misleads.
-        bool applied = result.Outcome
+        var applied = result.Outcome
             is CommandOutcome.AppliedVerified
             or CommandOutcome.AppliedUnverified;
         if (!applied)

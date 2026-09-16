@@ -24,7 +24,7 @@ internal sealed class DevicePowerPresetSelection(DevicePowerPresets service, boo
         _revision++;
         Busy = true;
         Changed?.Invoke();
-        CancellationToken token = _lifetime.Token;
+        var token = _lifetime.Token;
         try
         {
             await assignments!.AssignAsync(ac, id, token);
@@ -46,8 +46,8 @@ internal sealed class DevicePowerPresetSelection(DevicePowerPresets service, boo
     {
         if (_disposed || Busy || _refreshing) { return; }
         _refreshing = true;
-        long revision = _revision;
-        CancellationToken token = _lifetime.Token;
+        var revision = _revision;
+        var token = _lifetime.Token;
         try
         {
             var state = await service.ReadAsync(token);

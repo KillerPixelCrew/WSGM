@@ -10,7 +10,7 @@ public sealed class DeviceLightingRestoreTests
     public void FirmwareDefaultsDoNotBecomeDesiredConfiguration()
     {
         DeviceLightingRestore restore = new();
-        DeviceCapabilityView view = View();
+        var view = View();
         var desired = view.Projection.DesiredValue;
 
         Assert.True(restore.TryBegin(view));
@@ -24,13 +24,13 @@ public sealed class DeviceLightingRestoreTests
     public void DelayedReadinessDoesNotConsumeTheRestoreAttempt()
     {
         DeviceLightingRestore restore = new();
-        DeviceCapabilityView ready = View();
-        DeviceCapabilityView unavailable = ready with
+        var ready = View();
+        var unavailable = ready with
         {
             Projection = ready.Projection with
             {
-                State = ready.Projection.State with { Available = false, Quality = HardwareStateQuality.Unknown },
-            },
+                State = ready.Projection.State with { Available = false, Quality = HardwareStateQuality.Unknown }
+            }
         };
 
         Assert.False(restore.TryBegin(unavailable));
@@ -51,8 +51,8 @@ public sealed class DeviceLightingRestoreTests
             {
                 CommandId = Guid.NewGuid(),
                 Outcome = outcome,
-                CompletedAt = DateTimeOffset.UtcNow,
-            },
+                CompletedAt = DateTimeOffset.UtcNow
+            }
         };
 
         Assert.False(restore.TryBegin(view));
@@ -66,7 +66,7 @@ public sealed class DeviceLightingRestoreTests
         Assert.True(restore.TryBegin(first));
         var next = first with
         {
-            Projection = first.Projection with { State = first.Projection.State with { CycleGeneration = 2 } },
+            Projection = first.Projection with { State = first.Projection.State with { CycleGeneration = 2 } }
         };
 
         Assert.True(restore.TryBegin(next));
@@ -81,7 +81,7 @@ public sealed class DeviceLightingRestoreTests
         Assert.True(restore.TryBegin(first));
         var next = first with
         {
-            Projection = first.Projection with { DesiredValue = Color(0x654321) },
+            Projection = first.Projection with { DesiredValue = Color(0x654321) }
         };
 
         Assert.True(restore.TryBegin(next));
@@ -95,7 +95,7 @@ public sealed class DeviceLightingRestoreTests
         var view = View();
         view = view with
         {
-            Projection = view.Projection with { State = view.Projection.State with { ObservedValue = Color(0x123456) } },
+            Projection = view.Projection with { State = view.Projection.State with { ObservedValue = Color(0x123456) } }
         };
 
         Assert.False(restore.TryBegin(view));
@@ -111,7 +111,7 @@ public sealed class DeviceLightingRestoreTests
         Assert.True(restore.TryBegin(first));
         var second = first with
         {
-            Projection = first.Projection with { DesiredValue = Color(0xFFFFFF) },
+            Projection = first.Projection with { DesiredValue = Color(0xFFFFFF) }
         };
         Assert.False(restore.CanApply(second));
         Assert.True(restore.TryBegin(first));
@@ -140,7 +140,7 @@ public sealed class DeviceLightingRestoreTests
             Display = new CapabilityDisplay { Key = DisplayKey.Lighting },
             SupportsRead = true,
             SupportsWrite = true,
-            Persistence = CapabilityPersistence.DevicePersistent,
+            Persistence = CapabilityPersistence.DevicePersistent
         },
         new CapabilityProjection
         {
@@ -154,7 +154,7 @@ public sealed class DeviceLightingRestoreTests
                 Quality = HardwareStateQuality.Observed,
                 CycleGeneration = 1,
                 DescriptorGeneration = 1,
-                ObservedValue = Color(0xFFFFFF),
-            },
+                ObservedValue = Color(0xFFFFFF)
+            }
         }, null);
 }

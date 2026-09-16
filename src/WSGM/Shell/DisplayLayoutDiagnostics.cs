@@ -12,10 +12,10 @@ internal static class DisplayLayoutDiagnostics
         Func<DisplayLayout, DisplayLayoutResult> apply, Func<DisplayArrangement> observe,
         Action<string> info, Action<string> warn)
     {
-        string operation = Guid.NewGuid().ToString("N");
-        string prefix = $"Display layout {operation}";
+        var operation = Guid.NewGuid().ToString("N");
+        var prefix = $"Display layout {operation}";
         info($"{prefix} requested: {JsonSerializer.Serialize(layout)}");
-        Stopwatch elapsed = Stopwatch.StartNew();
+        var elapsed = Stopwatch.StartNew();
         DisplayLayoutResult result;
         try { result = apply(layout); }
         catch (Exception ex)
@@ -23,10 +23,10 @@ internal static class DisplayLayoutDiagnostics
             warn($"{prefix} threw after {elapsed.ElapsedMilliseconds} ms: {ex}");
             throw;
         }
-        string outcome = $"{prefix} result after {elapsed.ElapsedMilliseconds} ms: "
-            + $"outcome={result.Outcome}, nativeStatus={result.NativeStatus}, "
-            + $"rollbackAttempted={result.RollbackAttempted}, rollbackSucceeded={result.RollbackSucceeded}, "
-            + $"detail={result.Detail}, warnings={JsonSerializer.Serialize(result.Warnings)}";
+        var outcome = $"{prefix} result after {elapsed.ElapsedMilliseconds} ms: "
+                      + $"outcome={result.Outcome}, nativeStatus={result.NativeStatus}, "
+                      + $"rollbackAttempted={result.RollbackAttempted}, rollbackSucceeded={result.RollbackSucceeded}, "
+                      + $"detail={result.Detail}, warnings={JsonSerializer.Serialize(result.Warnings)}";
         if (result.Applied && result.Warnings.Count == 0) { info(outcome); }
         else { warn(outcome); }
         try { info($"{prefix} readback: {JsonSerializer.Serialize(observe())}"); }

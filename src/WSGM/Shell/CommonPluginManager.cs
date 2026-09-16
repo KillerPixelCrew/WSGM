@@ -49,7 +49,7 @@ internal sealed class CommonPluginManager
 
     internal Task ReconcileAsync(IReadOnlyList<CommonPluginInstanceConfig> configured, CancellationToken cancellationToken)
     {
-        long revision = Interlocked.Increment(ref _requestedRevision);
+        var revision = Interlocked.Increment(ref _requestedRevision);
         if (configured.Count > 128) { throw new InvalidDataException("Too many configured plugin instances."); }
         var desired = configured.Where(instance => instance is not null && instance.Enabled)
             .Select(instance => new PluginInstanceIdentity(instance.PluginId, instance.InstanceId)).ToArray();
@@ -114,7 +114,7 @@ internal sealed class CommonPluginManager
                         if (manifest.Dependencies.Any(dependency => !_entries.Values.Any(provider => provider.Identity.PluginId == dependency.Id
                             && provider.Error is null && provider.Registration?.Health.Health == PluginHealth.Ready)))
                         { errors.Add(identity.PluginId + ": dependency is not ready."); continue; }
-                        entry = new(identity, package, CancellationTokenSource.CreateLinkedTokenSource(cancellationToken));
+                        entry = new Entry(identity, package, CancellationTokenSource.CreateLinkedTokenSource(cancellationToken));
                         _entries.Add(identity, entry);
                     }
                     entry.StartWork = StartEntryAsync(entry);
@@ -126,7 +126,7 @@ internal sealed class CommonPluginManager
                     }
                 }
             }
-            _catalog = new(_catalog.Packages, errors.AsReadOnly());
+            _catalog = new CommonPluginCatalog(_catalog.Packages, errors.AsReadOnly());
         }
         finally { _gate.Release(); Notify(); }
     }
@@ -138,8 +138,8 @@ internal sealed class CommonPluginManager
             entry.Loaded = await _load(entry.Package, entry.Cancellation.Token).ConfigureAwait(false);
             entry.Cancellation.Token.ThrowIfCancellationRequested();
             // Hash host instance identities so configuration cannot introduce filesystem aliases or traversal.
-            string instanceDirectory = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entry.Identity.InstanceId)));
-            string state = PluginPackageLoader.ConstrainPackagePath(_stateRoot, Path.Combine(entry.Identity.PluginId, instanceDirectory));
+            var instanceDirectory = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entry.Identity.InstanceId)));
+            var state = PluginPackageLoader.ConstrainPackagePath(_stateRoot, Path.Combine(entry.Identity.PluginId, instanceDirectory));
             Directory.CreateDirectory(state);
             entry.Registration = _host.Admit(entry.Loaded, entry.Identity, entry.Package.Manifest.Category,
                 PluginCategoryPolicy.Multiple, false, 1, state);
@@ -179,7 +179,7 @@ internal sealed class CommonPluginManager
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(TimeSpan.FromSeconds(5));
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         await _gate.WaitAsync(budget.Token).ConfigureAwait(false);
         try
         {
@@ -211,7 +211,7 @@ internal sealed class CommonPluginManager
             if (entry.LoadCleanupUnconfirmed) { throw new InvalidOperationException("Package construction cleanup was not confirmed."); }
             if (entry.Registration is { } registration)
             {
-                bool released = await registration.StopAsync(deadline, CancellationToken.None).ConfigureAwait(false);
+                var released = await registration.StopAsync(deadline, CancellationToken.None).ConfigureAwait(false);
                 await registration.DisposeAsync().ConfigureAwait(false);
                 if (!released) { throw new InvalidOperationException("Plugin release was not confirmed."); }
             }

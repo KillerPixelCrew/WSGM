@@ -13,8 +13,8 @@ public sealed class DeviceProfileValidationTests
         Curve = [.. points.Select(point => new AuthoredCurvePoint
         {
             Input = point.Input,
-            Output = point.Output,
-        })],
+            Output = point.Output
+        })]
     };
 
     private static CapabilityDescriptor Descriptor(
@@ -29,7 +29,7 @@ public sealed class DeviceProfileValidationTests
             Minimum = minimum,
             Maximum = maximum,
             SupportsWrite = true,
-            Persistence = CapabilityPersistence.Volatile,
+            Persistence = CapabilityPersistence.Volatile
         };
 
     [Fact]
@@ -48,10 +48,10 @@ public sealed class DeviceProfileValidationTests
     {
         // Authoring happens with no plugin running, so the device may have been swapped or
         // downgraded since the curve was built.
-        DeviceProfileRejection rejection = DeviceProfileValidation.Validate(
+        var rejection = DeviceProfileValidation.Validate(
             Profile((0, 20)),
             null,
-            out string? reason);
+            out var reason);
 
         Assert.Equal(DeviceProfileRejection.CapabilityAbsent, rejection);
         Assert.Contains("thermal.fan-curve", reason);
@@ -79,8 +79,8 @@ public sealed class DeviceProfileValidationTests
     [Fact]
     public void MoreThanSixtyFourPointsIsRefused()
     {
-        DeviceAuthoredProfile profile = Profile();
-        for (int index = 0; index < 65; index++)
+        var profile = Profile();
+        for (var index = 0; index < 65; index++)
         {
             profile.Curve.Add(new AuthoredCurvePoint { Input = index, Output = 50 });
         }
@@ -93,10 +93,10 @@ public sealed class DeviceProfileValidationTests
     [Fact]
     public void NonAscendingInputsAreRefusedWithBothValues()
     {
-        DeviceProfileRejection rejection = DeviceProfileValidation.Validate(
+        var rejection = DeviceProfileValidation.Validate(
             Profile((0, 20), (50, 40), (50, 60)),
             Descriptor(),
-            out string? reason);
+            out var reason);
 
         Assert.Equal(DeviceProfileRejection.NotAscending, rejection);
         // A refusal without the values it was decided from cannot be acted on remotely.
@@ -108,10 +108,10 @@ public sealed class DeviceProfileValidationTests
     [InlineData(140)]
     public void AnOutputOutsideTheDeclaredBoundsIsRefused(int output)
     {
-        DeviceProfileRejection rejection = DeviceProfileValidation.Validate(
+        var rejection = DeviceProfileValidation.Validate(
             Profile((0, output)),
             Descriptor(),
-            out string? reason);
+            out var reason);
 
         Assert.Equal(DeviceProfileRejection.OutOfBounds, rejection);
         Assert.Contains(output.ToString(), reason);

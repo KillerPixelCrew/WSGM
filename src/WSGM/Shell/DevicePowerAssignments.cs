@@ -28,7 +28,7 @@ internal sealed class DevicePowerAssignments(
         var application = Application(current);
         var ac = application is null ? current.Config.AcPowerPreset : application.AcPowerPreset;
         var battery = application is null ? current.Config.BatteryPowerPreset : application.BatteryPowerPreset;
-        return new(application is null ? "Global assignments" : "Per-game assignments (unset values use global)",
+        return new DevicePowerAssignmentState(application is null ? "Global assignments" : "Per-game assignments (unset values use global)",
             ac is not null && ac.PluginId == current.PluginId ? ac.PresetId : null,
             battery is not null && battery.PluginId == current.PluginId ? battery.PresetId : null, _status, application is null);
     }
@@ -92,7 +92,7 @@ internal sealed class DevicePowerAssignments(
         var assignment = ac ? application?.AcPowerPreset ?? current.Config.AcPowerPreset
             : application?.BatteryPowerPreset ?? current.Config.BatteryPowerPreset;
         var key = (current.Cycle, current.ApplicationId, ac, assignment);
-        bool alreadyAttempted = _attempted == key;
+        var alreadyAttempted = _attempted == key;
         if (alreadyAttempted && !_applied) { return; }
         if (assignment is null)
         {
@@ -114,7 +114,7 @@ internal sealed class DevicePowerAssignments(
             || !ReferenceEquals(confirmed.Config, current.Config)) { return; }
         if (alreadyAttempted)
         {
-            bool changed = assignment.CustomValues is { } custom
+            var changed = assignment.CustomValues is { } custom
                 ? state.Values != custom : state.Current != assignment.PresetId;
             if (!changed || state.Values is not { } values || values.SustainedWatts <= 0
                 || values.SlowWatts < values.SustainedWatts) { return; }

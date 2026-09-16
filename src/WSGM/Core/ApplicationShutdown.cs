@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
 
 namespace WSGM.Core;
 
@@ -10,7 +12,7 @@ internal enum ApplicationShutdownReason
     Normal,
     Update,
     SessionEnd,
-    Uninstall,
+    Uninstall
 }
 
 /// <summary>Bounded outcome of the process-owned graceful shutdown attempt.</summary>
@@ -19,7 +21,7 @@ internal enum ApplicationShutdownOutcome
     Clean,
     Unverified,
     TimedOut,
-    Failed,
+    Failed
 }
 
 /// <summary>Cross-bootstrap marker used by one-shot exit sources before lifetime shutdown.</summary>
@@ -31,7 +33,7 @@ internal static class ApplicationShutdownRequest
     {
         while (true)
         {
-            int current = Volatile.Read(ref _reason);
+            var current = Volatile.Read(ref _reason);
             var currentReason = (ApplicationShutdownReason)current;
             if (PriorityFor(currentReason) >= PriorityFor(reason)
                 || Interlocked.CompareExchange(ref _reason, (int)reason, current) == current)
@@ -50,8 +52,8 @@ internal static class ApplicationShutdownRequest
     /// door shared by installer exit requests and the session-end path.</summary>
     internal static void ShutdownLifetime()
     {
-        if (Avalonia.Application.Current?.ApplicationLifetime
-            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
+        if (Application.Current?.ApplicationLifetime
+            is IClassicDesktopStyleApplicationLifetime lifetime)
         {
             lifetime.Shutdown();
         }
@@ -62,7 +64,7 @@ internal static class ApplicationShutdownRequest
         ApplicationShutdownReason.Uninstall => 3,
         ApplicationShutdownReason.Update => 2,
         ApplicationShutdownReason.SessionEnd => 1,
-        _ => 0,
+        _ => 0
     };
 }
 
@@ -81,7 +83,7 @@ internal static class ApplicationShutdownCoordinator
         ApplicationShutdownReason.Update => TimeSpan.FromSeconds(10),
         ApplicationShutdownReason.SessionEnd => TimeSpan.FromSeconds(5),
         ApplicationShutdownReason.Uninstall => TimeSpan.FromSeconds(20),
-        _ => TimeSpan.FromSeconds(15),
+        _ => TimeSpan.FromSeconds(15)
     };
 
     internal static Task<ApplicationShutdownOutcome> ShutdownAsync(
@@ -107,13 +109,13 @@ internal static class ApplicationShutdownCoordinator
         ArgumentNullException.ThrowIfNull(shutdownAsync);
         ArgumentNullException.ThrowIfNull(utcNow);
         ArgumentNullException.ThrowIfNull(delayAsync);
-        TimeSpan budget = budgetOverride ?? BudgetFor(reason);
+        var budget = budgetOverride ?? BudgetFor(reason);
         if (budget <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(budgetOverride));
         }
 
-        DateTimeOffset deadline = utcNow().Add(budget);
+        var deadline = utcNow().Add(budget);
         Task cleanup;
         try
         {
@@ -127,7 +129,7 @@ internal static class ApplicationShutdownCoordinator
 
         try
         {
-            TimeSpan remaining = deadline - utcNow();
+            var remaining = deadline - utcNow();
             if (cleanup.IsCompleted)
             {
                 // Observe a completed cleanup before classifying the outer deadline. A subsystem
@@ -150,8 +152,8 @@ internal static class ApplicationShutdownCoordinator
                 return ApplicationShutdownOutcome.TimedOut;
             }
 
-            Task timeout = delayAsync(remaining);
-            Task completed = await Task.WhenAny(cleanup, timeout).ConfigureAwait(false);
+            var timeout = delayAsync(remaining);
+            var completed = await Task.WhenAny(cleanup, timeout).ConfigureAwait(false);
             if (!ReferenceEquals(completed, cleanup))
             {
                 ObserveLateCleanup(cleanup, reason);

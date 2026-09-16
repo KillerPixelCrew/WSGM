@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,8 +26,8 @@ internal static class PerformancePolicyResolver
                 PerformancePolicyLayer.None);
         }
 
-        PerformanceApplicationPolicy? application = Find(policy, target?.ApplicationId);
-        PerformanceValues persistent = application is null
+        var application = Find(policy, target?.ApplicationId);
+        var persistent = application is null
             ? policy.Global
             : new PerformanceValues(
                 application.Values.FrameLimit ?? policy.Global.FrameLimit,
@@ -61,15 +62,15 @@ internal static class PerformancePolicyResolver
         }
 
         List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
-        int index = applications.FindIndex(item => string.Equals(
+        var index = applications.FindIndex(item => string.Equals(
             item.ApplicationId,
             target.ApplicationId,
             StringComparison.Ordinal));
-        PerformanceApplicationPolicy current = applications[index];
+        var current = applications[index];
         applications[index] = current with
         {
             RtssProfileName = target.RtssProfileName ?? current.RtssProfileName,
-            Values = current.Values.With(control, value),
+            Values = current.Values.With(control, value)
         };
         return policy with { Applications = applications.ToArray() };
     }
@@ -104,7 +105,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     private static readonly PerformanceControl[] DriftCheckedControls =
     [
         PerformanceControl.FrameLimit,
-        PerformanceControl.OverlayLevel,
+        PerformanceControl.OverlayLevel
     ];
     private static readonly RtssProbe InitialProbe = new(
         RtssAvailability.Unknown,
@@ -116,7 +117,6 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private readonly IRtssAdapter _adapter;
     private readonly Func<PerformancePolicy, CancellationToken, Task> _persistPolicy;
-    private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _commandTimeout;
     private readonly TimeProvider _timeProvider;
     private readonly object _stateGate = new();
@@ -146,13 +146,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         _launcher = new RtssLauncher();
         _persistPolicy = persistPolicy ?? throw new ArgumentNullException(nameof(persistPolicy));
         _policy = NormalizePolicy(policy ?? PerformancePolicy.Empty);
-        _pollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
+        PollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
         _commandTimeout = BoundTimeout(commandTimeout ?? DefaultCommandTimeout);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        (
-            PerformanceValues desired,
-            PerformancePolicyLayer frameLimitLayer,
-            PerformancePolicyLayer overlayLevelLayer) = PerformancePolicyResolver.Resolve(
+        var (desired, frameLimitLayer, overlayLevelLayer) = PerformancePolicyResolver.Resolve(
             _policy,
             null);
         _state = new PerformanceState(
@@ -196,7 +193,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
-    internal TimeSpan PollInterval => _pollInterval;
+    internal TimeSpan PollInterval { get; }
 
     /// <summary>Hands the Custom overlay's configuration (selector level 4) to the adapter's
     /// renderer.</summary>
@@ -247,7 +244,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             target = _state.Target;
         }
 
-        PerformanceApplicationPolicy? application = PerformancePolicyResolver.Find(
+        var application = PerformancePolicyResolver.Find(
             policy,
             target?.ApplicationId);
 
@@ -323,7 +320,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             return false;
         }
 
-        PerformanceApplicationPolicy? existing = PerformancePolicyResolver.Find(
+        var existing = PerformancePolicyResolver.Find(
             policy,
             target.ApplicationId);
         if (existing is not null == enabled)
@@ -362,7 +359,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(policy);
-        PerformancePolicy normalized = NormalizePolicy(policy);
+        var normalized = NormalizePolicy(policy);
         PerformanceState next;
         lock (_stateGate)
         {
@@ -395,7 +392,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             target = target with
             {
                 ApplicationId = target.ApplicationId.Trim(),
-                RtssProfileName = target.RtssProfileName?.Trim(),
+                RtssProfileName = target.RtssProfileName?.Trim()
             };
         }
 
@@ -440,7 +437,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         origin = SanitizeToken(origin, "unknown");
         correlationId = SanitizeToken(correlationId, Guid.NewGuid().ToString("N"));
-        long sequence = Interlocked.Increment(ref _commandSequence);
+        var sequence = Interlocked.Increment(ref _commandSequence);
         PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null) =>
             new(sequence, origin, correlationId, control, value, phase, diagnostic);
 
@@ -458,7 +455,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 "RTSS integration is disabled."));
         }
 
-        using CancellationTokenSource admission = CancellationTokenSource.CreateLinkedTokenSource(
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             _disposeCts.Token);
         try
@@ -499,7 +496,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                     "RTSS integration was switched off while the command was queued."));
             }
 
-            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 _disposeCts.Token);
             timeout.CancelAfter(_commandTimeout);
@@ -522,7 +519,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     internal async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using CancellationTokenSource admission = CancellationTokenSource.CreateLinkedTokenSource(
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             _disposeCts.Token);
         RtssProbe? launchProbe;
@@ -573,7 +570,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// </remarks>
     private bool DriftNeedsRepair()
     {
-        PerformanceState snapshot = Current;
+        var snapshot = Current;
         if (!Enabled
             || snapshot.Command.Phase is PerformanceCommandPhase.Queued
                 or PerformanceCommandPhase.Applying)
@@ -582,7 +579,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
 
         List<string> drift = [];
-        foreach (PerformanceControl control in DriftCheckedControls)
+        foreach (var control in DriftCheckedControls)
         {
             // An unverified readback is not evidence of anything: RTSS either could not be read or
             // has no proven query for the property, and treating that as a mismatch would rewrite
@@ -593,7 +590,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 continue;
             }
 
-            int? observed = snapshot.Observed.ValueFor(control);
+            var observed = snapshot.Observed.ValueFor(control);
             if (observed != wanted)
             {
                 drift.Add($"{control} is {observed?.ToString() ?? "unreadable"} rather than {wanted}");
@@ -611,7 +608,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             return false;
         }
 
-        string detail = string.Join("; ", drift);
+        var detail = string.Join("; ", drift);
         if (_repairedDrift == snapshot.Desired)
         {
             Log.Change(
@@ -693,7 +690,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
         try
         {
-            RtssProbe probe = await _adapter.ProbeAsync(boundedCancellation).ConfigureAwait(false);
+            var probe = await _adapter.ProbeAsync(boundedCancellation).ConfigureAwait(false);
             UpdateProbe(probe);
             if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
             {
@@ -741,7 +738,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             // application in, or when RTSS already carries that profile — whose explicit values
             // would otherwise stay the stronger RTSS layer and silently override the global write.
             // Everything else goes to the global profile, which covers the application anyway.
-            string profile = EffectiveRtssProfile(target, applicationOptedIn);
+            var profile = EffectiveRtssProfile(target, applicationOptedIn);
             lock (_stateGate)
             {
                 _commandProfiles[sequence] = target is null
@@ -782,7 +779,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                         + "executable is known."));
             }
 
-            RtssApplyResult applied = await _adapter.ApplyAsync(
+            var applied = await _adapter.ApplyAsync(
                 new RtssApplyRequest(profile, control, value, probe.Generation),
                 boundedCancellation).ConfigureAwait(false);
             if (!applied.Applied)
@@ -792,7 +789,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                     applied.Diagnostic ?? "RTSS rejected the profile update."));
             }
 
-            RtssProbe after = await _adapter.ProbeAsync(boundedCancellation).ConfigureAwait(false);
+            var after = await _adapter.ProbeAsync(boundedCancellation).ConfigureAwait(false);
             if (after.Generation != probe.Generation || after.Availability != RtssAvailability.Ready)
             {
                 UpdateProbe(after);
@@ -809,7 +806,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                     "RTSS accepted the update but exposes no proven readback for this property."));
             }
 
-            RtssReadback readback = await _adapter.ReadAsync(
+            var readback = await _adapter.ReadAsync(
                 profile,
                 probe.Generation,
                 boundedCancellation).ConfigureAwait(false);
@@ -845,7 +842,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private async Task ApplyEffectiveDesiredAsync(string origin, CancellationToken cancellationToken)
     {
-        PerformanceState snapshot = Current;
+        var snapshot = Current;
         if (snapshot.Desired.FrameLimit is int frameLimit)
         {
             await SetCoreAsync(
@@ -872,7 +869,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private async Task PollAsync()
     {
-        CancellationToken cancellationToken = _disposeCts.Token;
+        var cancellationToken = _disposeCts.Token;
         while (!cancellationToken.IsCancellationRequested)
         {
             if (_observers.Count == 0)
@@ -895,13 +892,13 @@ internal sealed class PerformanceService : IAsyncDisposable
                 MarkDegraded(ex.Message);
             }
 
-            await Task.Delay(_pollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(PollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 
     private async Task<RtssProbe?> RefreshInsideGateAsync(CancellationToken cancellationToken)
     {
-        RtssProbe probe = await _adapter.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        var probe = await _adapter.ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
         {
             PerformanceState unavailable;
@@ -915,7 +912,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                     Observed = PerformanceValues.Empty,
                     FrameLimitQuality = PerformanceReadbackQuality.Unavailable,
                     OverlayLevelQuality = PerformanceReadbackQuality.Unavailable,
-                    RefreshedAt = _timeProvider.GetUtcNow(),
+                    RefreshedAt = _timeProvider.GetUtcNow()
                 });
                 unavailable = _state;
             }
@@ -926,7 +923,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             return probe;
         }
 
-        PerformanceApplicationTarget? target = Current.Target;
+        var target = Current.Target;
         if (target is { RtssProfileName: null or "" })
         {
             PerformanceState pending;
@@ -940,7 +937,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                     Observed = PerformanceValues.Empty,
                     FrameLimitQuality = PerformanceReadbackQuality.Unavailable,
                     OverlayLevelQuality = PerformanceReadbackQuality.Unavailable,
-                    RefreshedAt = _timeProvider.GetUtcNow(),
+                    RefreshedAt = _timeProvider.GetUtcNow()
                 });
                 pending = _state;
             }
@@ -961,7 +958,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         // The same profile-selection rule as the apply path, so readback observes the profile the
         // writes actually target instead of reporting a phantom external change against a
         // never-written application profile.
-        RtssReadback readback = await _adapter.ReadAsync(
+        var readback = await _adapter.ReadAsync(
             EffectiveRtssProfile(target, applicationOptedIn),
             probe.Generation,
             cancellationToken).ConfigureAwait(false);
@@ -976,7 +973,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         PerformanceApplicationTarget? target,
         bool applicationOptedIn)
     {
-        string name = target?.RtssProfileName ?? string.Empty;
+        var name = target?.RtssProfileName ?? string.Empty;
         if (name.Length == 0)
         {
             return string.Empty;
@@ -990,12 +987,12 @@ internal sealed class PerformanceService : IAsyncDisposable
         PerformanceState next;
         lock (_stateGate)
         {
-            bool changed = detectExternalChange
-                && _state.RefreshedAt is not null
-                && _state.Observed != readback.Values
-                && _state.Command.Phase is not PerformanceCommandPhase.Applying
-                    and not PerformanceCommandPhase.Queued;
-            PerformanceCommandState command = changed
+            var changed = detectExternalChange
+                          && _state.RefreshedAt is not null
+                          && _state.Observed != readback.Values
+                          && _state.Command.Phase is not PerformanceCommandPhase.Applying
+                              and not PerformanceCommandPhase.Queued;
+            var command = changed
                 ? new PerformanceCommandState(
                     Interlocked.Increment(ref _commandSequence),
                     "external",
@@ -1012,7 +1009,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 FrameLimitQuality = readback.FrameLimitQuality,
                 OverlayLevelQuality = readback.OverlayLevelQuality,
                 RefreshedAt = readback.Timestamp,
-                Command = command,
+                Command = command
             });
             next = _state;
         }
@@ -1034,7 +1031,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 OverlayLevelQuality = control == PerformanceControl.OverlayLevel
                     ? PerformanceReadbackQuality.AppliedUnverified
                     : _state.OverlayLevelQuality,
-                RefreshedAt = _timeProvider.GetUtcNow(),
+                RefreshedAt = _timeProvider.GetUtcNow()
             };
             next = _state;
         }
@@ -1091,11 +1088,11 @@ internal sealed class PerformanceService : IAsyncDisposable
             return;
         }
 
-        string version = string.IsNullOrWhiteSpace(probe.Version) ? "unknown" : probe.Version;
-        string detail = string.IsNullOrWhiteSpace(probe.Diagnostic)
+        var version = string.IsNullOrWhiteSpace(probe.Version) ? "unknown" : probe.Version;
+        var detail = string.IsNullOrWhiteSpace(probe.Diagnostic)
             ? string.Empty
             : $" - {probe.Diagnostic}";
-        string line = $"RTSS: {probe.Availability}, version {version}{detail}";
+        var line = $"RTSS: {probe.Availability}, version {version}{detail}";
         if (probe.Availability is RtssAvailability.Ready)
         {
             Log.Info(line);
@@ -1116,8 +1113,8 @@ internal sealed class PerformanceService : IAsyncDisposable
                 Probe = _state.Probe with
                 {
                     Availability = RtssAvailability.Degraded,
-                    Diagnostic = diagnostic,
-                },
+                    Diagnostic = diagnostic
+                }
             };
             next = _state;
         }
@@ -1170,15 +1167,15 @@ internal sealed class PerformanceService : IAsyncDisposable
             return;
         }
 
-        string profile = appliedProfile is not null
+        var profile = appliedProfile is not null
             ? string.IsNullOrWhiteSpace(appliedProfile) ? "the global profile" : appliedProfile
             : string.IsNullOrWhiteSpace(state.Target?.RtssProfileName)
                 ? "the global profile"
                 : state.Target!.RtssProfileName;
-        string detail = string.IsNullOrWhiteSpace(command.Diagnostic)
+        var detail = string.IsNullOrWhiteSpace(command.Diagnostic)
             ? string.Empty
             : $" — {command.Diagnostic}";
-        bool succeeded = command.Phase
+        var succeeded = command.Phase
             is PerformanceCommandPhase.Deferred
             or PerformanceCommandPhase.SucceededVerified
             or PerformanceCommandPhase.AppliedUnverified;
@@ -1201,10 +1198,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private PerformanceState WithResolvedDesired(PerformanceState state)
     {
-        (
-            PerformanceValues values,
-            PerformancePolicyLayer frameLimitLayer,
-            PerformancePolicyLayer overlayLevelLayer) = PerformancePolicyResolver.Resolve(
+        var (values, frameLimitLayer, overlayLevelLayer) = PerformancePolicyResolver.Resolve(
             _policy,
             state.Target);
         return state with
@@ -1214,7 +1208,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 _policy,
                 state.Target?.ApplicationId) is not null,
             FrameLimitLayer = frameLimitLayer,
-            OverlayLevelLayer = overlayLevelLayer,
+            OverlayLevelLayer = overlayLevelLayer
         };
     }
 
@@ -1224,7 +1218,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     {
         // A poll that reads back the same values only moves RefreshedAt, which no subscriber shows.
         // Raising it anyway rebuilt the overlay rows and republished Steam's page on every poll.
-        PerformanceState? previous = Interlocked.Exchange(ref _raisedState, state);
+        var previous = Interlocked.Exchange(ref _raisedState, state);
         if (previous is not null && previous == state with { RefreshedAt = previous.RefreshedAt })
         {
             return;
@@ -1250,7 +1244,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(policy.Global);
         List<PerformanceApplicationPolicy> applications = [];
         HashSet<string> identities = new(StringComparer.Ordinal);
-        foreach (PerformanceApplicationPolicy application in policy.Applications ?? [])
+        foreach (var application in policy.Applications ?? [])
         {
             if (application is null || application.Values is null)
             {
@@ -1258,7 +1252,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 continue;
             }
 
-            string applicationId = application.ApplicationId?.Trim() ?? string.Empty;
+            var applicationId = application.ApplicationId?.Trim() ?? string.Empty;
             if (applicationId.Length == 0)
             {
                 Log.Warn("RTSS policy entry dropped: the application identity was empty.");
@@ -1275,7 +1269,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 ApplicationId = applicationId,
                 RtssProfileName = ValidProfileName(application.RtssProfileName)
                     ? application.RtssProfileName.Trim()
-                    : string.Empty,
+                    : string.Empty
             });
         }
 
@@ -1291,7 +1285,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             return false;
         }
 
-        for (int index = 0; index < left.Applications.Count; index++)
+        for (var index = 0; index < left.Applications.Count; index++)
         {
             if (left.Applications[index] != right.Applications[index])
             {
@@ -1311,7 +1305,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     private static bool ValidProfileName(string value) =>
         !string.IsNullOrWhiteSpace(value)
         && value.Length <= 128
-        && string.Equals(System.IO.Path.GetFileName(value), value, StringComparison.Ordinal)
+        && string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal)
         && value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
 
     private static string SanitizeToken(string value, string fallback)

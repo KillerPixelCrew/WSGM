@@ -25,7 +25,7 @@ public static class BootManifestWriter
                 DesktopResident = config.StartAtSignIn && config.StartMode is SessionStartMode.Desktop,
                 Elevate = ElevationPolicy.WantsElevation(config, Steam.RequiresElevatedShell),
                 // Inno is the only installer, so the installed path is the only path.
-                ExePath = Installer.InstalledExePath,
+                ExePath = Installer.InstalledExePath
             };
             BootManifestStore.Save(ManifestPath, manifest);
             Log.Info($"Boot manifest written: game={manifest.GameModeBoot} desktop={manifest.DesktopResident} "

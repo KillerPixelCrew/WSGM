@@ -58,7 +58,7 @@ public partial class OverlayWindow
     /// <param name="ids">The pinned row ids in display order.</param>
     internal void SetPins(IReadOnlyList<string> ids)
     {
-        IReadOnlyList<string>? previous = _pinsInitialized ? _pins : null;
+        var previous = _pinsInitialized ? _pins : null;
         _pins = ids;
         _pinsInitialized = true;
         RenderPins(preserveEditing: false);
@@ -112,7 +112,7 @@ public partial class OverlayWindow
             var snapshot = _deviceBridge?.Snapshot();
             foreach (var slider in PinnedSectionsGrid.GetLogicalDescendants().OfType<DeviceSliderRow>())
             {
-                string key = (slider.Tag as string ?? "")[PinTagPrefix.Length..];
+                var key = (slider.Tag as string ?? "")[PinTagPrefix.Length..];
                 if (key.StartsWith("performance.", StringComparison.Ordinal)
                     && _performanceSource?.Snapshot() is { Visible: true } performance
                     && performance.ProfileRows.Concat(performance.Rows).FirstOrDefault(row => "performance." + row.Id == key)
@@ -128,9 +128,9 @@ public partial class OverlayWindow
             }
             return;
         }
-        string? focusedKey = CurrentSemanticFocusKey();
+        var focusedKey = CurrentSemanticFocusKey();
         Control? restoreFocus = null;
-        bool mirrorsCurrent = _mirroredPins is not null && _mirroredPins.SequenceEqual(_pins, StringComparer.Ordinal);
+        var mirrorsCurrent = _mirroredPins is not null && _mirroredPins.SequenceEqual(_pins, StringComparer.Ordinal);
         if (!mirrorsCurrent)
         {
             ReleasePinMirrors();
@@ -178,9 +178,9 @@ public partial class OverlayWindow
         {
             PinnedSectionsGrid.Children.Remove(stale);
         }
-        for (int i = 0; i < valueControls.Count; i++)
+        for (var i = 0; i < valueControls.Count; i++)
         {
-            int existing = PinnedSectionsGrid.Children.IndexOf(valueControls[i]);
+            var existing = PinnedSectionsGrid.Children.IndexOf(valueControls[i]);
             if (existing < 0) { PinnedSectionsGrid.Children.Insert(i, valueControls[i]); }
             else if (existing != i) { PinnedSectionsGrid.Children.Move(existing, i); }
         }
@@ -202,7 +202,7 @@ public partial class OverlayWindow
             restoreFocus = PinnedSectionsGrid.GetLogicalDescendants().OfType<Control>()
                 .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
         }
-        int rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count - (valueControls.Count == 0 ? 1 : 0);
+        var rendered = PinnedGrid.Children.Count + PinnedSectionsGrid.Children.Count - (valueControls.Count == 0 ? 1 : 0);
         if (rendered != _loggedPinRendered || _pins.Count != _loggedPinTotal)
         {
             _loggedPinRendered = rendered;
@@ -234,7 +234,7 @@ public partial class OverlayWindow
     {
         var pinned = _pins.ToHashSet(StringComparer.Ordinal);
         // One walk of the logical tree for both kinds of indicator.
-        foreach (ILogical node in this.GetLogicalDescendants())
+        foreach (var node in this.GetLogicalDescendants())
         {
             if (node is SectionPinHeader header) { header.Refresh(pinned.Contains(header.SectionId)); }
             if (node is CardButton button && button is not PluginWidgetPinControls) { button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned); }
@@ -249,7 +249,7 @@ public partial class OverlayWindow
             Title = "Pin a section",
             Description = "Use Pin section in a heading to show its controls here",
             IsEnabled = false,
-            Margin = new Thickness(0, 0, 10, 10),
+            Margin = new Thickness(0, 0, 10, 10)
         };
         ghost.Classes.Add("tile");
         ghost.Classes.Add("ghost");
@@ -325,7 +325,7 @@ public partial class OverlayWindow
     {
         // One device snapshot for the whole ancestor walk instead of one per node.
         DeviceOverlaySnapshot? snapshot = null;
-        bool snapshotRead = false;
+        var snapshotRead = false;
         DeviceOverlaySnapshot? DeviceSnapshot()
         {
             if (!snapshotRead)

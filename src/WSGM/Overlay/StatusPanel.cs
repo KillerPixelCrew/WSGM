@@ -4,7 +4,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using Avalonia.Platform;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -86,7 +85,7 @@ internal static class StatusPanel
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(root);
 
-        Screen? screen = anchorRight != 0 && anchorBottom != 0
+        var screen = anchorRight != 0 && anchorBottom != 0
             ? window.Screens.ScreenFromPoint(new PixelPoint(anchorRight - 1, anchorBottom - 1))
             : window.Screens.ScreenFromWindow(window);
         screen ??= window.Screens.Primary
@@ -96,15 +95,15 @@ internal static class StatusPanel
             return;
         }
 
-        PixelRect area = screen.Bounds;
-        int top = Math.Max(anchorBottom, area.Y);
+        var area = screen.Bounds;
+        var top = Math.Max(anchorBottom, area.Y);
 
         // A top-level is initially created on Windows' default monitor. Move it first, then ask
         // the HWND for its effective DPI; reading DesktopScaling before this move sizes a panel
         // with the primary display's DPI when the sheet was summoned on another monitor.
         window.Position = new PixelPoint(area.X, area.Y);
-        double scale = CurrentWindowScale(window);
-        double factor = Math.Clamp(uiScale / scale, 1.0, 3.0);
+        var scale = CurrentWindowScale(window);
+        var factor = Math.Clamp(uiScale / scale, 1.0, 3.0);
         if (Math.Abs(factor - 1.0) >= 0.01)
         {
             Log.Info($"{name} panel UI scale {factor:0.##}x (desktop DPI over current {scale:0.##}).");
@@ -113,19 +112,19 @@ internal static class StatusPanel
 
         // Clamp against the space below the header, in DIPs. The panel's own scroll viewer absorbs
         // a shortened panel, and the sizes must be final before the position is computed from them.
-        window.Width = Math.Min(baseWidth * factor, (area.Width / scale) - 12);
-        window.Height = Math.Min(baseHeight * factor, ((area.Y + area.Height - top) / scale) - 8);
+        window.Width = Math.Min(baseWidth * factor, area.Width / scale - 12);
+        window.Height = Math.Min(baseHeight * factor, (area.Y + area.Height - top) / scale - 8);
         window.UpdateLayout();
 
-        int width = (int)Math.Round(window.Width * scale);
-        int height = (int)Math.Round(window.Height * scale);
+        var width = (int)Math.Round(window.Width * scale);
+        var height = (int)Math.Round(window.Height * scale);
         // Small and deliberate: the panel should look attached to the header, not floating below it.
-        int gap = (int)Math.Round(2 * scale);
-        int margin = (int)Math.Round(6 * scale);
+        var gap = (int)Math.Round(2 * scale);
+        var margin = (int)Math.Round(6 * scale);
         // Right-aligned, under the pills that open it and where Windows puts its own quick
         // settings; never allowed to run off the bottom of a short display.
-        int x = area.X + area.Width - width - margin;
-        int y = Math.Min(top + gap, Math.Max(area.Y, area.Y + area.Height - height));
+        var x = area.X + area.Width - width - margin;
+        var y = Math.Min(top + gap, Math.Max(area.Y, area.Y + area.Height - height));
         window.Position = new PixelPoint(x, y);
     }
 
@@ -134,9 +133,9 @@ internal static class StatusPanel
     internal static double CurrentWindowScale(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        nint hwnd = window.TryGetPlatformHandle()?.Handle ?? 0;
-        uint dpi = hwnd == 0 ? 0 : NativeMethods.GetDpiForWindow(hwnd);
-        double scale = dpi == 0 ? window.DesktopScaling : dpi / 96.0;
+        var hwnd = window.TryGetPlatformHandle()?.Handle ?? 0;
+        var dpi = hwnd == 0 ? 0 : NativeMethods.GetDpiForWindow(hwnd);
+        var scale = dpi == 0 ? window.DesktopScaling : dpi / 96.0;
         return double.IsFinite(scale) && scale > 0 ? scale : 1.0;
     }
 }

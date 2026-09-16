@@ -1,11 +1,14 @@
 using System;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Settings;
 using WSGM.Shell;
+using WSGM.Themes;
 
 namespace WSGM;
 
@@ -31,7 +34,7 @@ public class App : Application
         // Accent first, before any window exists — every mode (shell, overlay
         // test, settings, welcome) shows the configured accent from first paint.
         var config = ConfigStore.Load();
-        Themes.AccentPalette.Apply(this, Themes.AccentPalette.Parse(config.AccentColor));
+        AccentPalette.Apply(this, AccentPalette.Parse(config.AccentColor));
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -41,13 +44,13 @@ public class App : Application
                 case RunMode.Shell:
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
-                    desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
+                    desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                     _session = new ShellSession(config, serviceBoot: Program.ServiceBoot, desktopResident: Program.DesktopResident);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 
                 case RunMode.OverlayTest:
-                    desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
+                    desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
                     _session = new ShellSession(config, overlayTestOnly: true);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
@@ -78,7 +81,7 @@ public class App : Application
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Error("Shell session startup failed", ex);
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => desktop.Shutdown(1));
+            await Dispatcher.UIThread.InvokeAsync(() => desktop.Shutdown(1));
         }
     }
 
@@ -92,7 +95,7 @@ public class App : Application
             return;
         }
 
-        ApplicationShutdownReason reason = ApplicationShutdownRequest.Consume();
+        var reason = ApplicationShutdownRequest.Consume();
         if (_session is null || _sessionStopped)
         {
             UpdateExitWatcher.ReportHandoff(
@@ -103,7 +106,7 @@ public class App : Application
 
         eventArgs.Cancel = true;
         _shutdownInProgress = true;
-        ApplicationShutdownOutcome outcome = ApplicationShutdownOutcome.Failed;
+        var outcome = ApplicationShutdownOutcome.Failed;
         try
         {
             outcome = await ApplicationShutdownCoordinator.ShutdownAsync(

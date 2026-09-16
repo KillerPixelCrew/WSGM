@@ -21,7 +21,7 @@ internal enum DeviceLabInventoryStatus
     CollectionFailed,
 
     /// <summary>The safe output target could not be created or completed.</summary>
-    WriteFailed,
+    WriteFailed
 }
 
 /// <summary>Inputs shared by CLI and GUI inventory surfaces.</summary>
@@ -67,7 +67,7 @@ internal static class DeviceLabInventoryWorkflow
         ("root\\WMI", "MSI_ACPI"),
         ("root\\WMI", "MSI_Event"),
         ("root\\WMI", "BatteryStatus"),
-        ("root\\WMI", "MSAcpi_ThermalZoneTemperature"),
+        ("root\\WMI", "MSAcpi_ThermalZoneTemperature")
     ];
 
     /// <summary>Runs inventory collection and creates one new canonical artifact.</summary>
@@ -85,8 +85,8 @@ internal static class DeviceLabInventoryWorkflow
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        DeviceLabPathBoundaries boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
-        DeviceLabOutputPathDecision directoryDecision = DeviceLabOutputPathPolicy.Evaluate(
+        var boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+        var directoryDecision = DeviceLabOutputPathPolicy.Evaluate(
             request.OutputDirectory,
             DeviceLabOutputTargetKind.Directory,
             boundaries);
@@ -95,8 +95,8 @@ internal static class DeviceLabInventoryWorkflow
             return Failure(DeviceLabInventoryStatus.InvalidOutput, directoryDecision.Reason);
         }
 
-        string outputPath = Path.Combine(directoryDecision.FullPath, InventoryFileName);
-        DeviceLabOutputPathDecision initialFileDecision = DeviceLabOutputPathPolicy.Evaluate(
+        var outputPath = Path.Combine(directoryDecision.FullPath, InventoryFileName);
+        var initialFileDecision = DeviceLabOutputPathPolicy.Evaluate(
             outputPath,
             DeviceLabOutputTargetKind.NewFile,
             boundaries);
@@ -127,8 +127,8 @@ internal static class DeviceLabInventoryWorkflow
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        string json = DeviceLabJson.Serialize(inventory);
-        string tempPath = Path.Combine(
+        var json = DeviceLabJson.Serialize(inventory);
+        var tempPath = Path.Combine(
             directoryDecision.FullPath,
             $".{InventoryFileName}.{Guid.NewGuid():N}.tmp");
 
@@ -137,11 +137,11 @@ internal static class DeviceLabInventoryWorkflow
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(directoryDecision.FullPath);
 
-            DeviceLabOutputPathDecision recheckedDirectory = DeviceLabOutputPathPolicy.Evaluate(
+            var recheckedDirectory = DeviceLabOutputPathPolicy.Evaluate(
                 directoryDecision.FullPath,
                 DeviceLabOutputTargetKind.Directory,
                 boundaries);
-            DeviceLabOutputPathDecision fileDecision = DeviceLabOutputPathPolicy.Evaluate(
+            var fileDecision = DeviceLabOutputPathPolicy.Evaluate(
                 outputPath,
                 DeviceLabOutputTargetKind.NewFile,
                 boundaries);
@@ -159,7 +159,7 @@ internal static class DeviceLabInventoryWorkflow
         }
         catch (OperationCanceledException)
         {
-            DeviceLabInventoryResult? cleanupFailure = CleanupCancelledWrite(tempPath);
+            var cleanupFailure = CleanupCancelledWrite(tempPath);
             if (cleanupFailure is not null)
             {
                 return cleanupFailure;
@@ -169,8 +169,8 @@ internal static class DeviceLabInventoryWorkflow
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or NotSupportedException or ArgumentException)
         {
-            string? cleanupError = TryDeleteTemporaryFile(tempPath);
-            string detail = cleanupError is null
+            var cleanupError = TryDeleteTemporaryFile(tempPath);
+            var detail = cleanupError is null
                 ? exception.GetType().Name
                 : $"{exception.GetType().Name}; temporary cleanup failed: {cleanupError}";
             return Failure(DeviceLabInventoryStatus.WriteFailed, detail);
@@ -182,13 +182,13 @@ internal static class DeviceLabInventoryWorkflow
             Inventory = inventory,
             Json = json,
             OutputPath = outputPath,
-            Redactions = redactions,
+            Redactions = redactions
         };
     }
 
     internal static DeviceLabInventoryResult? CleanupCancelledWrite(string tempPath)
     {
-        string? cleanupError = TryDeleteTemporaryFile(tempPath);
+        var cleanupError = TryDeleteTemporaryFile(tempPath);
         return cleanupError is null ? null : Failure(DeviceLabInventoryStatus.WriteFailed,
             $"Cancelled; temporary cleanup failed for {tempPath}: {cleanupError}");
     }
@@ -215,6 +215,6 @@ internal static class DeviceLabInventoryWorkflow
         new()
         {
             Status = status,
-            Error = error ?? "The inventory workflow could not complete.",
+            Error = error ?? "The inventory workflow could not complete."
         };
 }

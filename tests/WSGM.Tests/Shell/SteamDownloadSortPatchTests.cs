@@ -12,7 +12,7 @@ public sealed class SteamDownloadSortPatchTests
         manager.Register(new SteamDownloadSortPatch());
 
         await manager.SynchronizeAsync();
-        SteamUiPatchSnapshot installed = Assert.Single(manager.GetSnapshots());
+        var installed = Assert.Single(manager.GetSnapshots());
         Assert.True(
             installed.State == SteamUiPatchState.Verified,
             $"Download sort state was {installed.State}: {installed.LastFailure}");
@@ -20,7 +20,7 @@ public sealed class SteamDownloadSortPatchTests
         manager.SetPatchEnabled("wsgm.download-sort", false);
         await manager.SynchronizeAsync();
 
-        SteamUiPatchSnapshot removed = Assert.Single(manager.GetSnapshots());
+        var removed = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Disabled, removed.State);
         Assert.True(transport.Removed);
     }
@@ -72,7 +72,7 @@ public sealed class SteamDownloadSortPatchTests
                 true,
                 value,
                 null,
-                new(1, 1, 1, 1, 1, 1)));
+                new SteamUiGenerations(1, 1, 1, 1, 1, 1)));
         }
 
         public Task SetRuntimeBindingAsync(
@@ -87,11 +87,11 @@ public sealed class SteamDownloadSortPatchTests
             new(
                 SteamUiTargetRole.SharedJsContext,
                 SteamUiTransportHealth.Ready,
-                new(1, 1, 1, 1, 1, 1),
+                new SteamUiGenerations(1, 1, 1, 1, 1, 1),
                 "fixture-target",
                 null,
                 0,
-                1),
+                1)
         ];
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

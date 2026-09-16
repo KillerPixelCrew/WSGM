@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
@@ -73,7 +74,7 @@ internal sealed class DeviceCurveRow : Border
             Focusable = enabled,
             Tag = key,
             Height = 180,
-            Margin = new Thickness(0, 8, 0, 0),
+            Margin = new Thickness(0, 8, 0, 0)
         };
         _editor.CurveChanged += OnCurveChanged;
 
@@ -84,7 +85,7 @@ internal sealed class DeviceCurveRow : Border
             var caption = new TextBlock
             {
                 Text = description,
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                TextWrapping = TextWrapping.Wrap
             };
             caption.Classes.Add("caption");
             body.Children.Add(caption);
@@ -105,7 +106,7 @@ internal sealed class DeviceCurveRow : Border
     /// </remarks>
     private void ApplyPreset(FanCurvePreset preset)
     {
-        IReadOnlyList<CurvePoint> sampled = FanCurvePresets.SampleOnto(preset, _editor.Points);
+        var sampled = FanCurvePresets.SampleOnto(preset, _editor.Points);
         if (sampled.Count == 0)
         {
             Log.Warn($"Fan preset {preset} not applied: the device published no curve to shape.");
@@ -124,10 +125,10 @@ internal sealed class DeviceCurveRow : Border
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             Margin = new Thickness(0, 8, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
 
-        foreach (FanCurvePreset preset in Enum.GetValues<FanCurvePreset>())
+        foreach (var preset in Enum.GetValues<FanCurvePreset>())
         {
             var button = new Button
             {
@@ -136,14 +137,14 @@ internal sealed class DeviceCurveRow : Border
                 Focusable = enabled,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
-                Tag = $"{key}.preset.{preset}",
+                Tag = $"{key}.preset.{preset}"
             };
-            FanCurvePreset captured = preset;
+            var captured = preset;
             button.Click += (_, _) => ApplyPreset(captured);
             presets.Children.Add(button);
         }
 
-        foreach (Control child in presets.Children.OfType<Control>())
+        foreach (var child in presets.Children.OfType<Control>())
         {
             child.Width = double.NaN;
         }

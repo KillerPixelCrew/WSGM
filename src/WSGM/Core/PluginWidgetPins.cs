@@ -28,17 +28,17 @@ internal static class PluginWidgetPins
 
     internal static void Move(List<PluginWidgetPin> pins, PluginWidgetPin pin, int offset)
     {
-        int index = pins.IndexOf(pin);
+        var index = pins.IndexOf(pin);
         if (index < 0 || offset is not (-1 or 1)) { return; }
-        int destination = Math.Clamp(index + offset, 0, pins.Count - 1);
+        var destination = Math.Clamp(index + offset, 0, pins.Count - 1);
         (pins[index], pins[destination]) = (pins[destination], pins[index]);
     }
 
     internal static void ResetOrder(List<PluginWidgetPin> pins) => pins.Sort((left, right) =>
     {
-        int plugin = string.CompareOrdinal(left.PluginId, right.PluginId);
+        var plugin = string.CompareOrdinal(left.PluginId, right.PluginId);
         if (plugin != 0) { return plugin; }
-        int instance = string.CompareOrdinal(left.InstanceId, right.InstanceId);
+        var instance = string.CompareOrdinal(left.InstanceId, right.InstanceId);
         return instance != 0 ? instance : string.CompareOrdinal(left.WidgetId, right.WidgetId);
     });
 

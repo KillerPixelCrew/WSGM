@@ -14,7 +14,7 @@ internal static class PluginBuilders
         IPlugin plugin,
         string instance = "one",
         string? category = null) =>
-        host.Admit(plugin, new(plugin.Id, instance), category ?? PluginCategories.Infrared,
+        host.Admit(plugin, new PluginInstanceIdentity(plugin.Id, instance), category ?? PluginCategories.Infrared,
             PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
 
     internal static async Task Close(PluginRegistration registration)
@@ -25,8 +25,8 @@ internal static class PluginBuilders
 
     internal static PluginActionStep Step(string id, int timeoutSeconds = 30) => new()
     {
-        Plugin = new("wsgm.ir", "blaster"),
+        Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
         ActionId = id,
-        TimeoutSeconds = timeoutSeconds,
+        TimeoutSeconds = timeoutSeconds
     };
 }

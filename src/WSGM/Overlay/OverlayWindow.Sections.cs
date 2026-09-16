@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Shell;
@@ -15,7 +17,7 @@ public partial class OverlayWindow
     {
         if (key?.StartsWith("section.", StringComparison.Ordinal) is not true) { return; }
         FocusSearch.First<Button>(this, button => Equals(button.Tag, key) && button.IsEffectivelyVisible)
-            ?.Focus(Avalonia.Input.NavigationMethod.Directional);
+            ?.Focus(NavigationMethod.Directional);
     }
 
     private sealed record DevicePinSection(string Id, string Title, string? PluginSectionId,
@@ -44,7 +46,7 @@ public partial class OverlayWindow
         {
             Spacing = 4,
             Tag = pinned ? PinTagPrefix + id : id,
-            VerticalAlignment = VerticalAlignment.Top,
+            VerticalAlignment = VerticalAlignment.Top
         };
         panel.Children.Add(CreateSectionHeader(id, title, pinned));
         return panel;
@@ -73,8 +75,8 @@ public partial class OverlayWindow
                 ? DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, section.SectionId) : [];
             var owned = DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, section.SectionId);
             if (!snapshot.Visible && owned != DeviceOverlaySection.ControllerAndMotion) { owned = null; }
-            bool power = owned == DeviceOverlaySection.PowerAndThermals;
-            string prefix = "section.device.plugin." + section.SectionId;
+            var power = owned == DeviceOverlaySection.PowerAndThermals;
+            var prefix = "section.device.plugin." + section.SectionId;
             var lead = capabilities.Where(capability => capability.CategoryId is null
                 || (power && capability.Role is CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit))
                 .OrderBy(capability => power ? capability.Role switch
@@ -82,11 +84,11 @@ public partial class OverlayWindow
                     CapabilityRole.ScenarioMode => 0,
                     CapabilityRole.PowerSustainedLimit => 1,
                     CapabilityRole.PowerSlowLimit => 2,
-                    _ => 3,
+                    _ => 3
                 } : capability.SortOrder).ToArray();
             if (lead.Length > 0)
             {
-                yield return new(prefix + ".main", power ? "Manual power and display" : section.Title,
+                yield return new DevicePinSection(prefix + ".main", power ? "Manual power and display" : section.Title,
                     section.SectionId, lead);
             }
             var categories = power
@@ -96,18 +98,18 @@ public partial class OverlayWindow
             foreach (var category in categories)
             {
                 var rows = capabilities.Where(capability => capability.CategoryId == category.Id && !lead.Contains(capability)).ToArray();
-                if (rows.Length > 0) { yield return new(prefix + ".category." + category.Id, category.Title, section.SectionId, rows); }
+                if (rows.Length > 0) { yield return new DevicePinSection(prefix + ".category." + category.Id, category.Title, section.SectionId, rows); }
             }
             if (owned is { } host)
             {
-                yield return new(prefix + ".configuration", power ? "Automatic control and saved profiles" : "Configuration",
+                yield return new DevicePinSection(prefix + ".configuration", power ? "Automatic control and saved profiles" : "Configuration",
                     section.SectionId, [], host);
             }
         }
         foreach (var section in DeviceOverlaySectionPages.Build(snapshot).Where(section => section.PluginSectionId is null
             && (snapshot.Visible || section.Section == DeviceOverlaySection.ControllerAndMotion)))
         {
-            yield return new(DeviceOverlaySectionPages.FocusKey(section.Section).Replace("device.section.", "section.device.", StringComparison.Ordinal), section.Title, null,
+            yield return new DevicePinSection(DeviceOverlaySectionPages.FocusKey(section.Section).Replace("device.section.", "section.device.", StringComparison.Ordinal), section.Title, null,
                 snapshot.Visible ? DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section.Section) : [], section.Section);
         }
     }
@@ -124,10 +126,10 @@ public partial class OverlayWindow
                 Description = capability.Status == DescriptorStatus.Available
                     && (capability.Description.StartsWith("Observed ·", StringComparison.Ordinal)
                         || capability.Description.StartsWith("Verified ·", StringComparison.Ordinal))
-                    ? string.Empty : capability.Description,
+                    ? string.Empty : capability.Description
             };
-            string key = (pinned ? PinTagPrefix : "") + DeviceRowKey(capability);
-            Control row = TryCreateDeviceControl(presentation, key) ?? CreateDeviceCapabilityRow(presentation, key);
+            var key = (pinned ? PinTagPrefix : "") + DeviceRowKey(capability);
+            var row = TryCreateDeviceControl(presentation, key) ?? CreateDeviceCapabilityRow(presentation, key);
             ToolTip.SetTip(row, capability.Description);
             target.Children.Add(row);
             if (key == focusedKey && row is DescriptorStatusRow button) { restoreFocus = button; }
@@ -153,7 +155,7 @@ public partial class OverlayWindow
             var panel = CreateSection(id, "Performance", pinned: true);
             foreach (var descriptor in performance.ProfileRows.Concat(performance.Rows))
             {
-                string key = PinTagPrefix + "performance." + descriptor.Id;
+                var key = PinTagPrefix + "performance." + descriptor.Id;
                 panel.Children.Add(TryCreatePerformanceControl(descriptor, key) ?? CreatePerformanceRow(descriptor, key));
             }
             return panel;
@@ -167,7 +169,7 @@ public partial class OverlayWindow
         if (id.StartsWith("section.", StringComparison.Ordinal))
         {
             var panel = CreateSection(id, "Section unavailable", pinned: true);
-            panel.Children.Add(new TextBlock { Text = "Its controls will return when the provider is available.", Classes = { "caption" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Its controls will return when the provider is available.", Classes = { "caption" }, TextWrapping = TextWrapping.Wrap });
             return panel;
         }
         return null;

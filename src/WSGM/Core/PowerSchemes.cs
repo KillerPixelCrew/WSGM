@@ -25,7 +25,7 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
         List<PowerScheme> schemes = [];
         for (uint index = 0; ; index++)
         {
-            Guid? id = api.Enumerate(index);
+            var id = api.Enumerate(index);
             if (id is null)
             {
                 return schemes.AsReadOnly();
@@ -46,7 +46,7 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
         {
             cancellationToken.ThrowIfCancellationRequested();
             api.SetActive(id);
-            Guid active = api.ReadActive();
+            var active = api.ReadActive();
             if (active != id)
             {
                 throw new InvalidOperationException(

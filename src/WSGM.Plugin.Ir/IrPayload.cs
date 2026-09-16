@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WSGM.Plugin.Ir;
 
@@ -14,7 +15,7 @@ internal sealed record IrPayload(int CarrierHz, int[] TimingsUs, string CarrierS
         {
             throw new InvalidDataException("IR payload exceeds endpoint limits.");
         }
-        long duration = TimingsUs.Sum(value => (long)value);
+        var duration = TimingsUs.Sum(value => (long)value);
         if (duration > 2_000_000 || duration * (repeats + 1) + gapMs * 1000L * repeats > 5_000_000)
         {
             throw new InvalidDataException("IR transmission exceeds five seconds.");
@@ -37,7 +38,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
     {
         WriteIndented = true,
         MaxDepth = 16,
-        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
     internal void Validate()
@@ -47,7 +48,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
             throw new InvalidDataException("Unsupported or oversized IR library.");
         }
         HashSet<string> identities = new(StringComparer.Ordinal);
-        foreach (IrCommand command in Commands)
+        foreach (var command in Commands)
         {
             if (command is null || !ValidName(command.Id) || !identities.Add(command.Id)
                 || !ValidName(command.Device) || !ValidName(command.Name) || command.Payload is null)
@@ -62,7 +63,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
         {
             throw new InvalidDataException("Selected IR command is absent.");
         }
-        foreach (IrScene scene in Scenes)
+        foreach (var scene in Scenes)
         {
             if (scene is null || !ValidName(scene.Id) || !scenes.Add(scene.Id) || !ValidName(scene.Name)
                 || scene.Steps is not { Length: > 0 and <= 32 }
@@ -81,9 +82,9 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
     {
         if (!File.Exists(path)) { return Empty; }
         if (new FileInfo(path).Length > 32 * 1024 * 1024) { throw new InvalidDataException("IR library exceeds 32 MiB."); }
-        await using FileStream stream = File.OpenRead(path);
-        IrLibrary library = await JsonSerializer.DeserializeAsync<IrLibrary>(stream, Json, token).ConfigureAwait(false)
-            ?? throw new InvalidDataException("IR library is empty.");
+        await using var stream = File.OpenRead(path);
+        var library = await JsonSerializer.DeserializeAsync<IrLibrary>(stream, Json, token).ConfigureAwait(false)
+                      ?? throw new InvalidDataException("IR library is empty.");
         library.Validate();
         return library;
     }
@@ -113,9 +114,9 @@ internal sealed record IrPairing(string Token, string Hostname, string Ip)
     internal static async Task<IrPairing?> LoadAsync(string path, CancellationToken token)
     {
         if (!File.Exists(path)) { return null; }
-        await using FileStream stream = File.OpenRead(path);
-        IrPairing pairing = await JsonSerializer.DeserializeAsync<IrPairing>(stream, IrLibrary.Json, token).ConfigureAwait(false)
-            ?? throw new InvalidDataException("IR endpoint pairing is empty.");
+        await using var stream = File.OpenRead(path);
+        var pairing = await JsonSerializer.DeserializeAsync<IrPairing>(stream, IrLibrary.Json, token).ConfigureAwait(false)
+                      ?? throw new InvalidDataException("IR endpoint pairing is empty.");
         pairing.Validate();
         return pairing;
     }
@@ -132,9 +133,9 @@ internal static class JsonFile
     /// <summary>Writes through a temporary sibling and moves it into place, so a failure leaves the previous file intact.</summary>
     internal static async Task WriteAsync<T>(string path, T value, CancellationToken token)
     {
-        string fullPath = Path.GetFullPath(path);
+        var fullPath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        string temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             await using (FileStream stream = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,

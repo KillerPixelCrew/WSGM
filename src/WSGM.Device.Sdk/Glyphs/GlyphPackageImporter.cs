@@ -54,7 +54,7 @@ public enum GlyphPackageImportCode
     AssetRejected,
 
     /// <summary>The required license or attribution notice was unsafe or unavailable.</summary>
-    NoticeRejected,
+    NoticeRejected
 }
 
 /// <summary>One deterministic package-glyph rejection.</summary>
@@ -91,7 +91,7 @@ public static class GlyphPackageImporter
     private static readonly DeviceJsonContext ReadContext = new(
         new JsonSerializerOptions(DeviceJsonContext.Default.Options)
         {
-            MaxDepth = MaxJsonDepth,
+            MaxDepth = MaxJsonDepth
         });
 
     /// <summary>Loads and validates every profile in one immutable package source.</summary>
@@ -122,7 +122,7 @@ public static class GlyphPackageImporter
             return new GlyphPackageImportResult([], errors);
         }
 
-        foreach (string profileId in discovered.Take(MaxProfiles).Order(StringComparer.Ordinal))
+        foreach (var profileId in discovered.Take(MaxProfiles).Order(StringComparer.Ordinal))
         {
             if (!IsIdentifier(profileId))
             {
@@ -170,8 +170,8 @@ public static class GlyphPackageImporter
         ICollection<ImportedGlyphProfile> profiles,
         ICollection<GlyphPackageImportError> errors)
     {
-        string profilePath = GlyphPackageLayout.ProfileManifest(profileId);
-        if (!source.TryRead(profilePath, GlyphProfileLimits.MaxDocumentBytes, out byte[] manifestBytes)
+        var profilePath = GlyphPackageLayout.ProfileManifest(profileId);
+        if (!source.TryRead(profilePath, GlyphProfileLimits.MaxDocumentBytes, out var manifestBytes)
             || manifestBytes is not { Length: > 0 }
             || manifestBytes.Length > GlyphProfileLimits.MaxDocumentBytes)
         {
@@ -227,12 +227,12 @@ public static class GlyphPackageImporter
             return;
         }
 
-        GlyphProfileManifest ordered = OrderManifest(manifest);
+        var ordered = OrderManifest(manifest);
         Dictionary<string, ImportedGlyphAsset> importedAssets = new(StringComparer.Ordinal);
-        foreach (GlyphAssetLockEntry asset in ordered.Assets)
+        foreach (var asset in ordered.Assets)
         {
-            string assetPath = GlyphPackageLayout.Asset(asset.Sha256, asset.Format);
-            if (!source.TryRead(assetPath, GlyphProfileLimits.MaxAssetBytes, out byte[] suppliedBytes)
+            var assetPath = GlyphPackageLayout.Asset(asset.Sha256, asset.Format);
+            if (!source.TryRead(assetPath, GlyphProfileLimits.MaxAssetBytes, out var suppliedBytes)
                 || suppliedBytes is not { Length: > 0 }
                 || suppliedBytes.Length > GlyphProfileLimits.MaxAssetBytes)
             {
@@ -244,7 +244,7 @@ public static class GlyphPackageImporter
                 continue;
             }
 
-            byte[] bytes = suppliedBytes.ToArray();
+            var bytes = suppliedBytes.ToArray();
             if (bytes.Length != asset.ByteCount)
             {
                 profileErrors.Add(new GlyphPackageImportError(
@@ -255,7 +255,7 @@ public static class GlyphPackageImporter
                 continue;
             }
 
-            string actualHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            var actualHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
             if (!string.Equals(actualHash, asset.Sha256, StringComparison.Ordinal))
             {
                 profileErrors.Add(new GlyphPackageImportError(
@@ -266,14 +266,14 @@ public static class GlyphPackageImporter
                 continue;
             }
 
-            AssetImportResult result = asset.Format switch
+            var result = asset.Format switch
             {
                 GlyphAssetFormat.Svg => GlyphSvgNormalizer.Normalize(asset, bytes),
                 GlyphAssetFormat.Png => GlyphPngInspector.Inspect(asset, bytes),
                 _ => AssetImportResult.Failure(
                     asset.Sha256,
                     GlyphAssetImportCode.MalformedAsset,
-                    "The artwork format is unsupported."),
+                    "The artwork format is unsupported.")
             };
             if (result.Asset is not null)
             {
@@ -297,7 +297,7 @@ public static class GlyphPackageImporter
             profiles.Add(new ImportedGlyphProfile
             {
                 Manifest = ordered,
-                Assets = importedAssets,
+                Assets = importedAssets
             });
         }
         else
@@ -343,15 +343,15 @@ public static class GlyphPackageImporter
             Invalid("noticePath", "The notice must be a confined .md or .txt package-relative path.");
         }
 
-        IReadOnlyList<string> exactDeviceIds = manifest.ExactDeviceIds ?? [];
+        var exactDeviceIds = manifest.ExactDeviceIds ?? [];
         if (exactDeviceIds.Count > GlyphProfileLimits.MaxExactDevices)
         {
             Invalid("exactDeviceIds", $"At most {GlyphProfileLimits.MaxExactDevices} entries are accepted.");
         }
         HashSet<string> deviceIds = new(StringComparer.Ordinal);
-        for (int index = 0; index < exactDeviceIds.Count; index++)
+        for (var index = 0; index < exactDeviceIds.Count; index++)
         {
-            string deviceId = exactDeviceIds[index];
+            var deviceId = exactDeviceIds[index];
             if (!IsIdentifier(deviceId))
             {
                 Invalid($"exactDeviceIds[{index}]", "A bounded identifier is required.");
@@ -362,17 +362,17 @@ public static class GlyphPackageImporter
             }
         }
 
-        IReadOnlyList<GlyphAssetLockEntry> assets = manifest.Assets ?? [];
+        var assets = manifest.Assets ?? [];
         if (assets.Count > GlyphProfileLimits.MaxAssets)
         {
             Invalid("assets", $"At most {GlyphProfileLimits.MaxAssets} entries are accepted.");
         }
         Dictionary<string, GlyphAssetLockEntry> assetsByHash = new(StringComparer.Ordinal);
         long totalBytes = 0;
-        for (int index = 0; index < assets.Count; index++)
+        for (var index = 0; index < assets.Count; index++)
         {
-            GlyphAssetLockEntry? asset = assets[index];
-            string path = $"assets[{index}]";
+            var asset = assets[index];
+            var path = $"assets[{index}]";
             if (asset is null)
             {
                 Invalid(path, "An asset declaration is required.");
@@ -406,7 +406,7 @@ public static class GlyphPackageImporter
             Invalid("assets", $"Aggregate artwork exceeds {GlyphProfileLimits.MaxProfileBytes} bytes.");
         }
 
-        GlyphControllerImages images = manifest.ControllerImages ?? new GlyphControllerImages();
+        var images = manifest.ControllerImages ?? new GlyphControllerImages();
         ValidateImageReference(
             images.FullSha256,
             GlyphAssetRole.FullController,
@@ -426,16 +426,16 @@ public static class GlyphPackageImporter
             assetsByHash,
             Invalid);
 
-        IReadOnlyList<GlyphControlMapping> controls = manifest.Controls ?? [];
+        var controls = manifest.Controls ?? [];
         if (controls.Count > GlyphProfileLimits.MaxControls)
         {
             Invalid("controls", $"At most {GlyphProfileLimits.MaxControls} entries are accepted.");
         }
         Dictionary<GlyphControlId, GlyphControlMapping> controlsById = [];
-        for (int index = 0; index < controls.Count; index++)
+        for (var index = 0; index < controls.Count; index++)
         {
-            GlyphControlMapping? control = controls[index];
-            string path = $"controls[{index}]";
+            var control = controls[index];
+            var path = $"controls[{index}]";
             if (control is null)
             {
                 Invalid(path, "A control mapping is required.");
@@ -462,27 +462,27 @@ public static class GlyphPackageImporter
             }
             if (control.AssetSha256 is { } hash
                 && (!IsHash(hash)
-                    || !assetsByHash.TryGetValue(hash, out GlyphAssetLockEntry? asset)
+                    || !assetsByHash.TryGetValue(hash, out var asset)
                     || asset.Role is not GlyphAssetRole.Control))
             {
                 Invalid($"{path}.assetSha256", "Control artwork must resolve to a Control asset.");
             }
         }
 
-        IReadOnlyList<GlyphControlAlias> aliases = manifest.Aliases ?? [];
+        var aliases = manifest.Aliases ?? [];
         if (aliases.Count > GlyphProfileLimits.MaxAliases)
         {
             Invalid("aliases", $"At most {GlyphProfileLimits.MaxAliases} entries are accepted.");
         }
-        HashSet<GlyphControlId> aliasSources = aliases
+        var aliasSources = aliases
             .Where(alias => alias is not null)
             .Select(alias => alias.LogicalControl)
             .ToHashSet();
         HashSet<GlyphControlId> seenAliases = [];
-        for (int index = 0; index < aliases.Count; index++)
+        for (var index = 0; index < aliases.Count; index++)
         {
-            GlyphControlAlias? alias = aliases[index];
-            string path = $"aliases[{index}]";
+            var alias = aliases[index];
+            var path = $"aliases[{index}]";
             if (alias is null)
             {
                 Invalid(path, "A control alias is required.");
@@ -496,10 +496,10 @@ public static class GlyphPackageImporter
             {
                 Invalid($"{path}.logicalControl", "The logical control is aliased more than once.");
             }
-            bool targetPresent = controlsById.TryGetValue(
-                alias.PhysicalControl,
-                out GlyphControlMapping? target)
-                && target.Presence is GlyphControlPresence.Present;
+            var targetPresent = controlsById.TryGetValue(
+                                    alias.PhysicalControl,
+                                    out var target)
+                                && target.Presence is GlyphControlPresence.Present;
             if (alias.LogicalControl == alias.PhysicalControl
                 || aliasSources.Contains(alias.PhysicalControl)
                 || !targetPresent)
@@ -565,7 +565,7 @@ public static class GlyphPackageImporter
             return;
         }
         if (!IsHash(hash)
-            || !assets.TryGetValue(hash, out GlyphAssetLockEntry? asset)
+            || !assets.TryGetValue(hash, out var asset)
             || asset.Role != expectedRole)
         {
             invalid(path, $"The image must resolve to a {expectedRole} asset.");
@@ -578,7 +578,7 @@ public static class GlyphPackageImporter
         IGlyphPackageSource source,
         ICollection<GlyphPackageImportError> errors)
     {
-        if (!source.TryRead(noticePath, GlyphProfileLimits.MaxNoticeBytes, out byte[] supplied)
+        if (!source.TryRead(noticePath, GlyphProfileLimits.MaxNoticeBytes, out var supplied)
             || supplied is not { Length: > 0 }
             || supplied.Length > GlyphProfileLimits.MaxNoticeBytes
             || !IsPlainUtf8(supplied))
@@ -605,7 +605,7 @@ public static class GlyphPackageImporter
         Aliases = (manifest.Aliases ?? [])
             .OrderBy(alias => alias.LogicalControl)
             .ThenBy(alias => alias.PhysicalControl)
-            .ToArray(),
+            .ToArray()
     };
 
     private static bool IsIdentifier(string? value)
@@ -640,7 +640,7 @@ public static class GlyphPackageImporter
             return false;
         }
 
-        string[] segments = value.Split('/');
+        var segments = value.Split('/');
         return segments.All(segment => segment.Length > 0
             && segment is not "." and not ".."
             && segment.All(character => char.IsAsciiLetterOrDigit(character)
@@ -651,7 +651,7 @@ public static class GlyphPackageImporter
     {
         try
         {
-            string text = new UTF8Encoding(false, true).GetString(bytes);
+            var text = new UTF8Encoding(false, true).GetString(bytes);
             return text.Length > 0 && text.All(character =>
                 character is '\r' or '\n' or '\t' || !char.IsControl(character));
         }
@@ -663,7 +663,7 @@ public static class GlyphPackageImporter
 
     private static void AddRange<T>(ICollection<T> target, IEnumerable<T> values)
     {
-        foreach (T value in values)
+        foreach (var value in values)
         {
             target.Add(value);
         }

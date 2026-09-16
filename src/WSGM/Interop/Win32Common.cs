@@ -1,5 +1,6 @@
 // Shared between WSGM and WSGM.LogonService (linked as a source file): the Win32 handle, token,
 // environment and WTS calls both processes make, declared once with identical marshalling.
+
 using System.Runtime.InteropServices;
 
 namespace WSGM.Interop;

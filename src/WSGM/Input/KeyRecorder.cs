@@ -39,7 +39,7 @@ public sealed class KeyRecorder : IDisposable
         Alt = false,
         Shift = false,
         Win = false,
-        VirtualKey = 0,
+        VirtualKey = 0
     };
 
     /// <summary>Installs the low-level keyboard hook and begins capturing one shortcut.</summary>
@@ -115,7 +115,7 @@ public sealed class KeyRecorder : IDisposable
         // Captured directly as the stored configuration shape, so the recorded
         // shortcut is never round-tripped through RegisterHotKey's flag encoding.
         var cancelled = vk == VkEscape;
-        HotkeyConfig hotkey = cancelled
+        var hotkey = cancelled
             ? Cleared()
             : new HotkeyConfig
             {
@@ -124,7 +124,7 @@ public sealed class KeyRecorder : IDisposable
                 Alt = IsDown(VkMenu),
                 Shift = IsDown(VkShift),
                 Win = IsDown(VkLWin) || IsDown(VkRWin),
-                VirtualKey = vk,
+                VirtualKey = vk
             };
 
         // Unhook synchronously (LL hooks run on the installing thread, so this is
@@ -220,7 +220,7 @@ public sealed class KeyRecorder : IDisposable
         0xDC => "\\",
         0xDD => "]",
         0xDE => "'",
-        _ => $"Key 0x{vk:X2}",
+        _ => $"Key 0x{vk:X2}"
     };
 
     /// <summary>Stops capture and releases the keyboard hook.</summary>

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using WindowsDeviceControl;
 using WSGM.Device.Sdk.Capabilities;
@@ -315,7 +316,7 @@ public static class ConfigStore
         Platform = PlatformKind.Steam,
         ScoreType = ReviewScoreType.SteamPercent,
         Units = TimeUnit.Hours,
-        CardScope = SdCardScope.Inserted,
+        CardScope = SdCardScope.Inserted
     };
 
     /// <summary>An unknown enum NUMBER ("SpinnerStyle": 999 deserializes into the
@@ -456,7 +457,7 @@ public static class ConfigStore
         HashSet<string> controllerApplications = new(StringComparer.Ordinal);
         device.ControllerTargets.RemoveAll(
             target => !controllerApplications.Add(target.ApplicationId.Trim()));
-        foreach (DeviceApplicationTargetOverride target in device.ControllerTargets)
+        foreach (var target in device.ControllerTargets)
         {
             target.ApplicationId = target.ApplicationId.Trim();
         }
@@ -469,14 +470,14 @@ public static class ConfigStore
         device.PluginSettings.RemoveAll(static scope => scope is null
             || string.IsNullOrWhiteSpace(scope.DeviceDefinitionId)
             || string.IsNullOrWhiteSpace(scope.PluginId));
-        foreach (PluginSettingsScope scope in device.PluginSettings)
+        foreach (var scope in device.PluginSettings)
         {
             scope.DeviceDefinitionId = scope.DeviceDefinitionId.Trim();
             scope.PluginId = scope.PluginId.Trim();
 
             // Settings renders the cached declaration without activating plugin code. Drop malformed
             // declarations so every rendered control has the bounds required by the SDK contract.
-            if (scope.Declaration is { } declaration && !declaration.TryValidate(out string? reason))
+            if (scope.Declaration is { } declaration && !declaration.TryValidate(out var reason))
             {
                 Log.Warn(
                     $"Plugin settings: cached declaration for {scope.PluginId} on "
@@ -493,7 +494,7 @@ public static class ConfigStore
                 || string.IsNullOrWhiteSpace(profile.CapabilityId));
             HashSet<string> profileIds = new(StringComparer.Ordinal);
             scope.Profiles.RemoveAll(profile => !profileIds.Add(profile.ProfileId.Trim()));
-            foreach (DeviceAuthoredProfile profile in scope.Profiles)
+            foreach (var profile in scope.Profiles)
             {
                 profile.ProfileId = profile.ProfileId.Trim();
                 profile.CapabilityId = profile.CapabilityId.Trim();
@@ -519,7 +520,7 @@ public static class ConfigStore
             HashSet<string> selectionCapabilities = new(StringComparer.Ordinal);
             scope.ProfileSelections.RemoveAll(
                 selection => !selectionCapabilities.Add(selection.CapabilityId.Trim()));
-            foreach (DeviceProfileSelection selection in scope.ProfileSelections)
+            foreach (var selection in scope.ProfileSelections)
             {
                 selection.CapabilityId = selection.CapabilityId.Trim();
                 selection.ApplicationOverrides ??= [];
@@ -529,7 +530,7 @@ public static class ConfigStore
                 HashSet<string> applications = new(StringComparer.Ordinal);
                 selection.ApplicationOverrides.RemoveAll(
                     entry => !applications.Add(entry.ApplicationId.Trim()));
-                foreach (DeviceApplicationProfileSelection entry in selection.ApplicationOverrides)
+                foreach (var entry in selection.ApplicationOverrides)
                 {
                     entry.ApplicationId = entry.ApplicationId.Trim();
                     entry.ProfileId = entry.ProfileId.Trim();
@@ -543,7 +544,7 @@ public static class ConfigStore
                     return false;
                 }
 
-                for (int index = 1; index < profile.Curve.Count; index++)
+                for (var index = 1; index < profile.Curve.Count; index++)
                 {
                     if (profile.Curve[index].Input <= profile.Curve[index - 1].Input)
                     {
@@ -561,7 +562,7 @@ public static class ConfigStore
                 || string.IsNullOrWhiteSpace(value.SettingId));
             HashSet<string> settingIds = new(StringComparer.Ordinal);
             scope.Values.RemoveAll(value => !settingIds.Add(value.SettingId.Trim()));
-            foreach (PluginSettingValue value in scope.Values)
+            foreach (var value in scope.Values)
             {
                 value.SettingId = value.SettingId.Trim();
             }
@@ -574,7 +575,7 @@ public static class ConfigStore
         device.Profiles ??= [];
         device.Profiles.RemoveAll(static profile => profile is null
             || string.IsNullOrWhiteSpace(profile.DeviceIdentityKey));
-        foreach (DeviceDesiredProfile profile in device.Profiles)
+        foreach (var profile in device.Profiles)
         {
             profile.DeviceIdentityKey = profile.DeviceIdentityKey.Trim();
             profile.SelectedHardwareProfileId = string.IsNullOrWhiteSpace(profile.SelectedHardwareProfileId)
@@ -584,7 +585,7 @@ public static class ConfigStore
             profile.OemAssignments ??= [];
             profile.Capabilities.RemoveAll(static capability => capability is null
                 || string.IsNullOrWhiteSpace(capability.CapabilityId));
-            foreach (DeviceCapabilityPreference capability in profile.Capabilities)
+            foreach (var capability in profile.Capabilities)
             {
                 capability.CapabilityId = capability.CapabilityId.Trim();
                 capability.InstanceId = string.IsNullOrWhiteSpace(capability.InstanceId)
@@ -606,12 +607,12 @@ public static class ConfigStore
                 HashSet<string> applicationIds = new(StringComparer.Ordinal);
                 capability.ApplicationOverrides.RemoveAll(
                     value => !applicationIds.Add(value.ApplicationId.Trim()));
-                foreach (DeviceNamedDesiredValue value in capability.HardwareProfiles)
+                foreach (var value in capability.HardwareProfiles)
                 {
                     value.ProfileId = value.ProfileId.Trim();
                 }
 
-                foreach (DeviceApplicationDesiredValue value in capability.ApplicationOverrides)
+                foreach (var value in capability.ApplicationOverrides)
                 {
                     value.ApplicationId = value.ApplicationId.Trim();
                 }
@@ -641,7 +642,7 @@ public static class ConfigStore
         HashSet<string> identities = new(StringComparer.Ordinal);
         performance.Applications.RemoveAll(application =>
             !identities.Add(application.ApplicationId.Trim()));
-        foreach (PerformanceApplicationConfig application in performance.Applications)
+        foreach (var application in performance.Applications)
         {
             application.AcPowerPreset = NormalizePowerPreset(application.AcPowerPreset);
             application.BatteryPowerPreset = NormalizePowerPreset(application.BatteryPowerPreset);
@@ -678,8 +679,8 @@ public static class ConfigStore
     private static DevicePowerPresetReference? NormalizePowerPreset(DevicePowerPresetReference? reference)
     {
         if (reference is null) { return null; }
-        string pluginId = reference.PluginId?.Trim() ?? string.Empty;
-        string presetId = reference.PresetId?.Trim() ?? string.Empty;
+        var pluginId = reference.PluginId?.Trim() ?? string.Empty;
+        var presetId = reference.PresetId?.Trim() ?? string.Empty;
         if (pluginId.Length is 0 or > 128 || presetId.Length is 0 or > 64)
         { return null; }
         reference.PluginId = pluginId;
@@ -1012,7 +1013,7 @@ public static class ConfigStore
     /// <param name="value">The instance to copy.</param>
     /// <param name="typeInfo">The source-generated metadata for <typeparamref name="T"/>.</param>
     /// <returns>An isolated copy sharing no mutable state with <paramref name="value"/>.</returns>
-    internal static T CloneJson<T>(T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
+    internal static T CloneJson<T>(T value, JsonTypeInfo<T> typeInfo)
         where T : class, new() =>
         JsonSerializer.Deserialize(JsonSerializer.Serialize(value, typeInfo), typeInfo) ?? new T();
 
@@ -1042,10 +1043,6 @@ public static class ConfigStore
         // Per-thread lock state. The mutex itself is thread-owned in Win32, so the
         // depth can only ever describe the thread that took it; a nested acquisition
         // from ANOTHER thread is a real, competing acquisition and is treated as one.
-        [ThreadStatic]
-        private static int _depth;
-        [ThreadStatic]
-        private static bool _hasExclusiveOwnership;
 
         private readonly Mutex? _mutex;
         private readonly bool _owned;
@@ -1066,22 +1063,25 @@ public static class ConfigStore
         }
 
         /// <summary>How deeply the calling thread holds the lock (0 = not at all).</summary>
-        internal static int CurrentDepth => _depth;
-        internal static bool HasExclusiveOwnership => _hasExclusiveOwnership;
+        [field: ThreadStatic]
+        internal static int CurrentDepth { get; private set; }
+
+        [field: ThreadStatic]
+        internal static bool HasExclusiveOwnership { get; private set; }
 
         public static ConfigMutex Acquire(bool requireExclusive)
         {
-            if (_depth > 0)
+            if (CurrentDepth > 0)
             {
-                if (requireExclusive && !_hasExclusiveOwnership)
+                if (requireExclusive && !HasExclusiveOwnership)
                 {
                     throw new InvalidOperationException(
                         "An exclusive config operation cannot be nested inside a degraded read.");
                 }
                 // Already held by this thread (Settings Save's scope around Load/Save):
                 // no kernel call, and above all no second MutexTimeoutMs wait.
-                _depth++;
-                return new ConfigMutex(null, owned: false, nested: true, level: _depth);
+                CurrentDepth++;
+                return new ConfigMutex(null, owned: false, nested: true, level: CurrentDepth);
             }
 
             Mutex? mutex = null;
@@ -1122,8 +1122,8 @@ public static class ConfigStore
             }
             // Counted even when the acquisition degraded, so the nested steps of one
             // sequence inherit that decision instead of each paying the timeout again.
-            _depth = 1;
-            _hasExclusiveOwnership = owned;
+            CurrentDepth = 1;
+            HasExclusiveOwnership = owned;
             return new ConfigMutex(mutex, owned, nested: false, level: 1);
         }
 
@@ -1139,12 +1139,12 @@ public static class ConfigStore
 
             // Each scope owns one recorded depth. A late out-of-order Dispose must not pop a newer
             // acquisition, so it changes depth only while its own level is still counted.
-            if (_depth >= _level)
+            if (CurrentDepth >= _level)
             {
-                _depth = _level - 1;
-                if (_depth == 0)
+                CurrentDepth = _level - 1;
+                if (CurrentDepth == 0)
                 {
-                    _hasExclusiveOwnership = false;
+                    HasExclusiveOwnership = false;
                 }
             }
 

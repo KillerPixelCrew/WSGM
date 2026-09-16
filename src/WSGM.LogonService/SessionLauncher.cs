@@ -382,7 +382,7 @@ internal static class SessionLauncher
             var startupInfo = new NativeMethods.StartupInfoW
             {
                 cb = (uint)Marshal.SizeOf<NativeMethods.StartupInfoW>(),
-                lpDesktop = desktop,
+                lpDesktop = desktop
             };
             var commandLine = string.IsNullOrEmpty(arguments) ? $"\"{exePath}\"" : $"\"{exePath}\" {arguments}";
             if (!NativeMethods.CreateProcessAsUserW(token, exePath, commandLine, 0, 0, false,
@@ -416,13 +416,13 @@ internal static class SessionLauncher
             return null;
         }
 
-        for (int attempt = 0; attempt < 2; attempt++)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
             var buffer = new char[size];
-            uint available = size;
+            var available = size;
             if (NativeMethods.GetUserProfileDirectoryW(token, buffer, ref available))
             {
-                int terminator = Array.IndexOf(buffer, '\0');
+                var terminator = Array.IndexOf(buffer, '\0');
                 return new string(buffer, 0, terminator < 0 ? buffer.Length : terminator);
             }
 

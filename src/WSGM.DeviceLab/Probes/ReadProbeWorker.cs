@@ -28,8 +28,8 @@ internal static class ReadProbeWorker
         IReadOnlyDictionary<string, string> options,
         CancellationToken cancellationToken)
     {
-        string probeId = options["--probe"];
-        SelfWorkerSession<ReadProbeWorkerRequest>? session = await SelfWorkerProtocol.AuthorizeAsync(
+        var probeId = options["--probe"];
+        var session = await SelfWorkerProtocol.AuthorizeAsync(
             Worker,
             options,
             "probe-request.json",
@@ -51,16 +51,16 @@ internal static class ReadProbeWorker
             return SelfWorkerProtocol.ExitRejected;
         }
 
-        ReadProbeWorkerRequest request = session.Request;
-        string mismatch = "The requested probe is not compiled into this Device Lab executable.";
-        if (!BuiltInReadProbeRegistry.TryResolve(request.ProbeId, request.ProbeVersion, out IReadProbeProfile profile)
+        var request = session.Request;
+        var mismatch = "The requested probe is not compiled into this Device Lab executable.";
+        if (!BuiltInReadProbeRegistry.TryResolve(request.ProbeId, request.ProbeVersion, out var profile)
             || !profile.Descriptor.Matches(request, out mismatch))
         {
             Console.Error.WriteLine(mismatch);
             return SelfWorkerProtocol.ExitRejected;
         }
 
-        ReadProbeWorkerResponse response = await ReadProbeExecutor.ExecuteAsync(
+        var response = await ReadProbeExecutor.ExecuteAsync(
             profile,
             request,
             cancellationToken).ConfigureAwait(false);

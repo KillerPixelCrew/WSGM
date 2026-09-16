@@ -37,8 +37,8 @@ internal sealed record CommonPluginDependencyPlan(IReadOnlyList<PluginManifest> 
         var pending = packages.Values.OrderBy(package => package.Id, StringComparer.Ordinal).ToList();
         while (pending.Count > 0)
         {
-            bool progressed = false;
-            for (int index = pending.Count - 1; index >= 0; index--)
+            var progressed = false;
+            for (var index = pending.Count - 1; index >= 0; index--)
             {
                 var package = pending[index];
                 var blocked = package.Dependencies.FirstOrDefault(dependency => rejected.ContainsKey(dependency.Id));
@@ -55,12 +55,12 @@ internal sealed record CommonPluginDependencyPlan(IReadOnlyList<PluginManifest> 
             foreach (var package in pending) { rejected[package.Id] = "Dependency cycle or dependency on a cycle."; }
             break;
         }
-        return new(ordered.AsReadOnly(), new ReadOnlyDictionary<string, string>(rejected));
+        return new CommonPluginDependencyPlan(ordered.AsReadOnly(), new ReadOnlyDictionary<string, string>(rejected));
     }
 
     private static Version NumericVersion(string text)
     {
         var parsed = Version.Parse(text);
-        return new(parsed.Major, parsed.Minor, Math.Max(parsed.Build, 0), Math.Max(parsed.Revision, 0));
+        return new Version(parsed.Major, parsed.Minor, Math.Max(parsed.Build, 0), Math.Max(parsed.Revision, 0));
     }
 }

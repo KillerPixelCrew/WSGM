@@ -16,9 +16,9 @@ public sealed class ControllerManagerTests
     public async Task DisabledSelectionStartsOffAndTouchesNoHidHideOrBackendState()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
 
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Disabled("Controller management is off."),
             [Device()],
             applicationId: null,
@@ -39,9 +39,9 @@ public sealed class ControllerManagerTests
     public async Task EnabledSelectionHidesTheDeviceAndCreatesTheSelectedTarget()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
 
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             applicationId: null,
@@ -54,7 +54,7 @@ public sealed class ControllerManagerTests
         Assert.Equal(UiInputSource.ManagedCanonical, status.UiSource);
         Assert.Contains("create:1:neutral", harness.Backend.Operations);
         Assert.Equal([ProcessPriorityClass.High], harness.PriorityWrites);
-        HidHideExactSnapshot hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
+        var hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
         Assert.Contains(HostApplication, hidHide.Applications);
         Assert.Contains(Device().InstancePath, hidHide.Devices);
     }
@@ -63,9 +63,9 @@ public sealed class ControllerManagerTests
     public async Task AnApplicationOverrideChoosesTheTargetAtStart()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
 
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Enabled(
                 ManagedControllerTarget.SteamDeckComposite,
                 Override("steam:70", ManagedControllerTarget.DualShock4)),
@@ -84,10 +84,10 @@ public sealed class ControllerManagerTests
     {
         const string unavailableDetail = "The controller backend is not usable on this system.";
         Harness harness = new();
-        harness.Backend.Health = new(HidBackendHealthState.Incompatible, unavailableDetail);
-        await using ControllerManager manager = harness.Manager;
+        harness.Backend.Health = new HidBackendHealth(HidBackendHealthState.Incompatible, unavailableDetail);
+        await using var manager = harness.Manager;
 
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             applicationId: null,
@@ -108,9 +108,9 @@ public sealed class ControllerManagerTests
         Harness harness = new();
         harness.HidHide.Health = HidHideHealthState.Inactive;
         harness.HidHide.Active = false;
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
 
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             applicationId: null,
@@ -125,9 +125,9 @@ public sealed class ControllerManagerTests
     public async Task ABackendWithoutTheSelectedTargetReportsThatExactReason()
     {
         Harness harness = new(ManagedControllerTarget.Xbox360);
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
 
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.DualShock4),
             [Device()],
             applicationId: null,
@@ -143,7 +143,7 @@ public sealed class ControllerManagerTests
     public async Task ARunningApplicationOverrideReplacesTheTargetExactlyOnce()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await manager.StartAsync(
             Enabled(
                 ManagedControllerTarget.SteamDeckComposite,
@@ -153,7 +153,7 @@ public sealed class ControllerManagerTests
             sourceGeneration: 5,
             CancellationToken.None);
 
-        ControllerManagerStatus status = await manager.ApplyRunningApplicationAsync(
+        var status = await manager.ApplyRunningApplicationAsync(
             Running(applicationId: "steam:70"),
             CancellationToken.None);
 
@@ -173,7 +173,7 @@ public sealed class ControllerManagerTests
     public async Task AnApplicationWithNoOverrideKeepsTheGlobalTargetWithoutReplacement()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await manager.StartAsync(
             Enabled(
                 ManagedControllerTarget.SteamDeckComposite,
@@ -183,7 +183,7 @@ public sealed class ControllerManagerTests
             sourceGeneration: 5,
             CancellationToken.None);
 
-        ControllerManagerStatus status = await manager.ApplyRunningApplicationAsync(
+        var status = await manager.ApplyRunningApplicationAsync(
             Running(applicationId: "steam:220"),
             CancellationToken.None);
 
@@ -195,7 +195,7 @@ public sealed class ControllerManagerTests
     public async Task ADisabledSelectionIsNotReconciledIntoAnUnorderedTargetRemoval()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
@@ -203,7 +203,7 @@ public sealed class ControllerManagerTests
             sourceGeneration: 5,
             CancellationToken.None);
 
-        ControllerManagerStatus status = await manager.ApplySelectionAsync(
+        var status = await manager.ApplySelectionAsync(
             Disabled("Controller management is off."),
             applicationId: null,
             CancellationToken.None);
@@ -216,7 +216,7 @@ public sealed class ControllerManagerTests
     public async Task SamplesReachTheVirtualTargetWhileNoSurfaceHoldsCapture()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         Assert.True(await manager.RouteAsync(Sample(1, CanonicalButtons.A), CancellationToken.None));
@@ -227,14 +227,14 @@ public sealed class ControllerManagerTests
     public async Task CapturedSamplesReachTheUiAndLeaveTheTargetNeutral()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
         List<CanonicalControllerSample> ui = [];
         manager.UiSampleReceived += ui.Add;
 
         await manager.RouteAsync(Sample(1, CanonicalButtons.A), CancellationToken.None);
         await manager.ClaimUiAsync("overlay", CancellationToken.None);
-        bool routed = await manager.RouteAsync(
+        var routed = await manager.RouteAsync(
             Sample(2, CanonicalButtons.Y),
             CancellationToken.None);
 
@@ -248,7 +248,7 @@ public sealed class ControllerManagerTests
     public async Task SteamCaptureKeepsTheTargetButSuppressesBothGameAndWsgmUiInput()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
         List<CanonicalControllerSample> ui = [];
         manager.UiSampleReceived += ui.Add;
@@ -270,7 +270,7 @@ public sealed class ControllerManagerTests
     public async Task EndingSteamCapturePreservesAnExistingWsgmSurfaceClaim()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
         List<CanonicalControllerSample> ui = [];
         manager.UiSampleReceived += ui.Add;
@@ -287,7 +287,7 @@ public sealed class ControllerManagerTests
     public async Task TheChordThatOpenedASurfaceIsSuppressedUntilItIsReleased()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
         List<CanonicalControllerSample> ui = [];
         manager.UiSampleReceived += ui.Add;
@@ -304,7 +304,7 @@ public sealed class ControllerManagerTests
     public async Task ForwardingResumesOnlyAfterEveryHeldControlIsReleased()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         await manager.RouteAsync(Sample(1, CanonicalButtons.Guide), CancellationToken.None);
@@ -323,7 +323,7 @@ public sealed class ControllerManagerTests
     public async Task AControlPressedInsideTheSurfaceCannotLeakIntoTheGameWhenItCloses()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         await manager.ClaimUiAsync("overlay", CancellationToken.None);
@@ -344,7 +344,7 @@ public sealed class ControllerManagerTests
     public async Task NestedSurfacesKeepCaptureUntilTheLastOneCloses()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         await manager.ClaimUiAsync("overlay", CancellationToken.None);
@@ -360,14 +360,14 @@ public sealed class ControllerManagerTests
     public async Task LifecycleBlockNeutralizesOnceAndRoutesLaterSamplesOnlyToTheUi()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
         List<CanonicalControllerSample> ui = [];
         manager.UiSampleReceived += ui.Add;
 
         await manager.RouteAsync(Sample(1, CanonicalButtons.A), CancellationToken.None);
         await manager.BlockForwardingAsync("suspending", CancellationToken.None);
-        bool routed = await manager.RouteAsync(
+        var routed = await manager.RouteAsync(
             Sample(2, CanonicalButtons.None),
             CancellationToken.None);
 
@@ -382,10 +382,10 @@ public sealed class ControllerManagerTests
         Harness harness = new(
             existingApplications: [@"C:\External\Manager.exe"],
             existingDevices: ["HID\\EXTERNAL"]);
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        ControllerHandoff response = await manager.MakeSafeAsync(
+        var response = await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(ControllerHandoffStep.TopologyVerified)),
             CancellationToken.None);
@@ -393,7 +393,7 @@ public sealed class ControllerManagerTests
         Assert.Equal(ControllerHandoffStep.WsgmStateRemoved, response.Step);
         Assert.Equal(ControllerHandoffResult.ReleasedVerified, response.Result);
         Assert.Contains("remove:1", harness.Backend.Operations);
-        HidHideExactSnapshot hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
+        var hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
         Assert.Equal([@"C:\External\Manager.exe"], hidHide.Applications);
         Assert.Equal(["HID\\EXTERNAL"], hidHide.Devices);
         Assert.Null(harness.Store.Ledger);
@@ -404,10 +404,10 @@ public sealed class ControllerManagerTests
     public async Task MakeSafeRemovesTheTargetBeforeTheHidHideEntriesItOwns()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        int mutationsBeforeRelease = 0;
-        bool targetRemovedBeforeRelease = true;
+        var mutationsBeforeRelease = 0;
+        var targetRemovedBeforeRelease = true;
         IReadOnlyList<string> hiddenAtRelease = [];
 
         await manager.MakeSafeAsync(
@@ -434,10 +434,10 @@ public sealed class ControllerManagerTests
     public async Task AFailedPluginReleaseStillRemovesWsgmStateAndReportsUnverified()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        ControllerHandoff response = await manager.MakeSafeAsync(
+        var response = await manager.MakeSafeAsync(
             HandoffScope.FullDeactivation,
             _ => Task.FromException<ControllerHandoff>(
                 new TimeoutException("The plugin never answered.")),
@@ -454,10 +454,10 @@ public sealed class ControllerManagerTests
     public async Task AnUnverifiedPluginTopologyIsNotReportedAsACleanRelease()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        ControllerHandoff response = await manager.MakeSafeAsync(
+        var response = await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(ControllerHandoffStep.TopologyUnverified)),
             CancellationToken.None);
@@ -470,10 +470,10 @@ public sealed class ControllerManagerTests
     public async Task MakeSafeCarriesThePluginReleasedDevicesBackToTheCaller()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        ControllerHandoff response = await manager.MakeSafeAsync(
+        var response = await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(
                 ControllerHandoffStep.TopologyVerified,
@@ -487,7 +487,7 @@ public sealed class ControllerManagerTests
     public async Task SamplesAreRefusedAfterMakeSafeUntilManagementStartsAgain()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
         await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
@@ -509,13 +509,13 @@ public sealed class ControllerManagerTests
     public async Task DisposeRemovesTheTargetAndThenWsgmOwnedHidHideEntries()
     {
         Harness harness = new();
-        ControllerManager manager = harness.Manager;
+        var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         await manager.DisposeAsync();
 
         Assert.Contains("remove:1", harness.Backend.Operations);
-        HidHideExactSnapshot hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
+        var hidHide = await harness.HidHide.ReadAsync(CancellationToken.None);
         Assert.Empty(hidHide.Applications);
         Assert.Empty(hidHide.Devices);
         Assert.Null(harness.Store.Ledger);
@@ -525,7 +525,7 @@ public sealed class ControllerManagerTests
     public async Task DisposeIsIdempotent()
     {
         Harness harness = new();
-        ControllerManager manager = harness.Manager;
+        var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         await manager.DisposeAsync();
@@ -539,7 +539,7 @@ public sealed class ControllerManagerTests
     public async Task TargetLossRestoresPriorityAndFallsBackToSdl()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
 
         harness.Backend.LoseTarget();
@@ -551,7 +551,7 @@ public sealed class ControllerManagerTests
 
     private static async Task StartActiveAsync(ControllerManager manager)
     {
-        ControllerManagerStatus status = await manager.StartAsync(
+        var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             applicationId: null,
@@ -571,7 +571,7 @@ public sealed class ControllerManagerTests
     private static PhysicalDeviceIdentity Device() => new()
     {
         InstancePath = @"HID\VID_0DB0&PID_1901\7&CLAW",
-        RequiresHiding = true,
+        RequiresHiding = true
     };
 
     private static CanonicalControllerSample Sample(long sequence, CanonicalButtons buttons) => new()
@@ -579,7 +579,7 @@ public sealed class ControllerManagerTests
         Sequence = sequence,
         CycleGeneration = 5,
         Timestamp = DateTimeOffset.UtcNow,
-        Buttons = buttons,
+        Buttons = buttons
     };
 
     private static ControllerHandoff PluginRelease(
@@ -590,19 +590,19 @@ public sealed class ControllerManagerTests
             Result = step is ControllerHandoffStep.TopologyVerified
                 ? ControllerHandoffResult.ReleasedVerified
                 : ControllerHandoffResult.ReleasedUnverified,
-            ReleasedDevices = released ?? [],
+            ReleasedDevices = released ?? []
         };
 
     [Fact]
     public async Task SteamOwnershipPauseRetainsTargetAcrossPhysicalPublications()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        long generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
+        var generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
         Assert.True(await manager.ReleaseSteamVisibilityAsync(CancellationToken.None));
         Assert.False(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
-        int mutations = harness.HidHide.MutationCount;
+        var mutations = harness.HidHide.MutationCount;
 
         await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360), [Device()], null,
@@ -619,9 +619,9 @@ public sealed class ControllerManagerTests
     public async Task MakeSafeEndsSteamPauseAndAllowsAFreshControllerStart()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        long generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
+        var generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
         await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(ControllerHandoffStep.TopologyVerified)),
@@ -636,9 +636,9 @@ public sealed class ControllerManagerTests
     public async Task StalePhysicalPublicationCannotReplaceTheRestoredControllerGeneration()
     {
         Harness harness = new();
-        await using ControllerManager manager = harness.Manager;
+        await using var manager = harness.Manager;
         await StartActiveAsync(manager);
-        long generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
+        var generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
         await manager.ReleaseSteamVisibilityAsync(CancellationToken.None);
         await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [Device()], null,
             generation + 1, CancellationToken.None);
@@ -657,9 +657,9 @@ public sealed class ControllerManagerTests
             Backend = onlyTarget is { } kind
                 ? new DeterministicFakeHidBackend(kind)
                 : new DeterministicFakeHidBackend();
-            HidHide = new(existingApplications, existingDevices);
-            Store = new();
-            Manager = new(
+            HidHide = new DeterministicFakeHidHideAdapter(existingApplications, existingDevices);
+            Store = new InMemoryHidHideOwnershipStore();
+            Manager = new ControllerManager(
                 Backend,
                 new DeterministicFakeHapticSink(5),
                 new HidHideOwnedDeltaManager(HidHide, Store),

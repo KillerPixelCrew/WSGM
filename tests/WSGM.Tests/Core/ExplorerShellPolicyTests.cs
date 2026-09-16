@@ -10,7 +10,7 @@ public sealed class ExplorerShellPolicyTests
     [Fact]
     public void Evaluate_AcceptsCanonicalMediumJoblessReadyTaskbarOwner()
     {
-        ExplorerShellAcceptance result = ExplorerShellPolicy.Evaluate(
+        var result = ExplorerShellPolicy.Evaluate(
             NormalProcess(),
             ExplorerPath,
             3,
@@ -34,8 +34,8 @@ public sealed class ExplorerShellPolicyTests
     [InlineData((int)ExplorerShellRejection.NotReady)]
     public void Evaluate_RejectsEachNonCanonicalShellState(int expectedValue)
     {
-        ExplorerShellRejection expected = (ExplorerShellRejection)expectedValue;
-        NativeShellProcessInfo process = expected switch
+        var expected = (ExplorerShellRejection)expectedValue;
+        var process = expected switch
         {
             ExplorerShellRejection.ProcessUnavailable =>
                 NativeShellProcessInfo.Unavailable(12, 5),
@@ -43,7 +43,7 @@ public sealed class ExplorerShellPolicyTests
                 NormalProcess() with
                 {
                     ImagePath = null,
-                    Errors = new NativeShellProcessErrors(0, 5, 0, 0, 0),
+                    Errors = new NativeShellProcessErrors(0, 5, 0, 0, 0)
                 },
             ExplorerShellRejection.WrongImage =>
                 NormalProcess() with { ImagePath = @"C:\Windows\notepad.exe" },
@@ -51,7 +51,7 @@ public sealed class ExplorerShellPolicyTests
                 NormalProcess() with
                 {
                     SessionId = null,
-                    Errors = new NativeShellProcessErrors(0, 0, 5, 0, 0),
+                    Errors = new NativeShellProcessErrors(0, 0, 5, 0, 0)
                 },
             ExplorerShellRejection.WrongSession =>
                 NormalProcess() with { SessionId = 4 },
@@ -63,10 +63,10 @@ public sealed class ExplorerShellPolicyTests
                 NormalProcess() with { JobMembership = NativeJobMembership.Unknown },
             ExplorerShellRejection.JobBound =>
                 NormalProcess() with { JobMembership = NativeJobMembership.InJob },
-            _ => NormalProcess(),
+            _ => NormalProcess()
         };
 
-        ExplorerShellAcceptance result = ExplorerShellPolicy.Evaluate(
+        var result = ExplorerShellPolicy.Evaluate(
             process,
             ExplorerPath,
             3,
@@ -80,7 +80,7 @@ public sealed class ExplorerShellPolicyTests
     [Fact]
     public void Evaluate_DoesNotRequireTaskbarForFixedPurposeAnchor()
     {
-        ExplorerShellAcceptance result = ExplorerShellPolicy.Evaluate(
+        var result = ExplorerShellPolicy.Evaluate(
             NormalProcess() with { ImagePath = @"C:\Program Files\WSGM\WSGM.exe" },
             @"C:\Program Files\WSGM\WSGM.exe",
             3,
@@ -93,7 +93,7 @@ public sealed class ExplorerShellPolicyTests
     [Fact]
     public void Evaluate_ReportsMissingShellSurfaceAsNotReady()
     {
-        ExplorerShellAcceptance result = ExplorerShellPolicy.Evaluate(
+        var result = ExplorerShellPolicy.Evaluate(
             NativeShellProcessInfo.Unavailable(0, 0),
             ExplorerPath,
             3,
@@ -161,7 +161,7 @@ public sealed class ExplorerShellPolicyTests
     [Fact]
     public void Evaluate_NotReadyWinsBeforeJobStateSoAnUninitializedShellIsNotDegraded()
     {
-        ExplorerShellAcceptance result = ExplorerShellPolicy.Evaluate(
+        var result = ExplorerShellPolicy.Evaluate(
             NormalProcess() with { JobMembership = NativeJobMembership.InJob },
             ExplorerPath,
             3,
@@ -183,9 +183,9 @@ public sealed class ExplorerShellPolicyTests
         int routeValue,
         int expectedValue)
     {
-        ExplorerDesktopRoute route = (ExplorerDesktopRoute)routeValue;
-        ExplorerDesktopOutcome expected = (ExplorerDesktopOutcome)expectedValue;
-        ExplorerShellAcceptance acceptance = ExplorerShellPolicy.Evaluate(
+        var route = (ExplorerDesktopRoute)routeValue;
+        var expected = (ExplorerDesktopOutcome)expectedValue;
+        var acceptance = ExplorerShellPolicy.Evaluate(
             NormalProcess(),
             ExplorerPath,
             3,
@@ -201,8 +201,8 @@ public sealed class ExplorerShellPolicyTests
     public void ClassifyDesktop_OnlyCanonicalReadyMediumShellCanBeDegraded(
         int membershipValue)
     {
-        NativeJobMembership membership = (NativeJobMembership)membershipValue;
-        ExplorerShellAcceptance acceptance = ExplorerShellPolicy.Evaluate(
+        var membership = (NativeJobMembership)membershipValue;
+        var acceptance = ExplorerShellPolicy.Evaluate(
             NormalProcess() with { JobMembership = membership },
             ExplorerPath,
             3,
@@ -226,7 +226,7 @@ public sealed class ExplorerShellPolicyTests
     public void ClassifyDesktop_InvalidOrUnreadyTaskbarOwnerNeverBecomesDegraded(
         int rejectionValue)
     {
-        ExplorerShellRejection rejection = (ExplorerShellRejection)rejectionValue;
+        var rejection = (ExplorerShellRejection)rejectionValue;
         Assert.Equal(
             ExplorerDesktopOutcome.Failed,
             ExplorerShellPolicy.ClassifyDesktop(
@@ -245,7 +245,7 @@ public sealed class ExplorerShellPolicyTests
         bool shellSurfacePresent,
         int expectedValue)
     {
-        ExplorerAnchorOwnerLossAction expected = (ExplorerAnchorOwnerLossAction)expectedValue;
+        var expected = (ExplorerAnchorOwnerLossAction)expectedValue;
         Assert.Equal(
             expected,
             ExplorerShellPolicy.DecideOwnerLoss(explicitStop, sessionActive, shellSurfacePresent));
@@ -277,7 +277,7 @@ public sealed class ExplorerShellPolicyTests
         bool explicitStop,
         int expectedValue)
     {
-        ExplorerAnchorDisconnectAction expected =
+        var expected =
             (ExplorerAnchorDisconnectAction)expectedValue;
 
         Assert.Equal(
@@ -294,14 +294,14 @@ public sealed class ExplorerShellPolicyTests
     public async Task FaultedAnchorPipeRead_AwaitsVerifiedDisconnectActionBeforeCompleting(
         int actionValue)
     {
-        ExplorerAnchorDisconnectAction expected =
+        var expected =
             (ExplorerAnchorDisconnectAction)actionValue;
         var disconnectEntered = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseDisconnect = new TaskCompletionSource<ExplorerAnchorDisconnectAction>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Task<ExplorerAnchorCommandReadResult> completion =
+        var completion =
             ExplorerShellAnchor.CompleteCommandReadAsync(
                 Task.FromException<string?>(new IOException("Injected broken pipe.")),
                 async () =>
@@ -314,7 +314,7 @@ public sealed class ExplorerShellPolicyTests
         Assert.False(completion.IsCompleted);
         releaseDisconnect.TrySetResult(expected);
 
-        ExplorerAnchorCommandReadResult result =
+        var result =
             await completion.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.Null(result.Command);
         Assert.Equal(expected, result.DisconnectAction);
@@ -330,7 +330,7 @@ public sealed class ExplorerShellPolicyTests
         bool shellSurfacePresent,
         bool expected)
     {
-        ExplorerAnchorLaunchDisposition disposition =
+        var disposition =
             (ExplorerAnchorLaunchDisposition)dispositionValue;
         Assert.Equal(
             expected,
@@ -345,7 +345,7 @@ public sealed class ExplorerShellPolicyTests
         int dispositionValue,
         bool expected)
     {
-        ScheduledTaskLaunchDisposition disposition =
+        var disposition =
             (ScheduledTaskLaunchDisposition)dispositionValue;
 
         Assert.Equal(expected, ExplorerShellPolicy.SchedulerMayHaveDispatched(disposition));
@@ -355,7 +355,7 @@ public sealed class ExplorerShellPolicyTests
     public void InspectErrors_KeepIndependentWin32FailureCodes()
     {
         NativeShellProcessErrors errors = new(5, 6, 7, 8, 9);
-        NativeShellProcessInfo process = NormalProcess() with { Errors = errors };
+        var process = NormalProcess() with { Errors = errors };
 
         Assert.Equal(5, process.Errors.Open);
         Assert.Equal(6, process.Errors.Image);

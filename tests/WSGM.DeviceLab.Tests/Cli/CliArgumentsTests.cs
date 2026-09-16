@@ -8,7 +8,7 @@ public sealed class CliArgumentsTests
     [Fact]
     public void DeviceLabCli_RejectsAMisspelledRedactionFlag()
     {
-        string? error = DeviceLabCli.ValidateArguments(
+        var error = DeviceLabCli.ValidateArguments(
             ["inventory", "--out-dir", "capture", "--sharable"]);
 
         Assert.Contains("--sharable", error, StringComparison.Ordinal);
@@ -25,13 +25,13 @@ public sealed class CliArgumentsTests
             "--action", "capability",
             "--capability", "performance.profile",
             "--instance", "apu",
-            "--value", "balanced",
+            "--value", "balanced"
         ];
 
-        bool accepted = HardwareTestCliArguments.TryParse(
+        var accepted = HardwareTestCliArguments.TryParse(
             arguments,
-            out HardwareTestCliArguments? parsed,
-            out string error);
+            out var parsed,
+            out var error);
 
         Assert.True(accepted, error);
         Assert.NotNull(parsed);
@@ -57,13 +57,13 @@ public sealed class CliArgumentsTests
             "plugin",
             "-f", "inventory.json",
             "--state-dir", "state",
-            "--action", actionName,
+            "--action", actionName
         ];
 
-        bool accepted = HardwareTestCliArguments.TryParse(
+        var accepted = HardwareTestCliArguments.TryParse(
             arguments,
-            out HardwareTestCliArguments? parsed,
-            out string error);
+            out var parsed,
+            out var error);
 
         Assert.True(accepted, error);
         Assert.NotNull(parsed);
@@ -75,10 +75,10 @@ public sealed class CliArgumentsTests
     {
         string[] arguments = [.. ValidFixedAction(), "--instance", "left"];
 
-        bool accepted = HardwareTestCliArguments.TryParse(
+        var accepted = HardwareTestCliArguments.TryParse(
             arguments,
-            out HardwareTestCliArguments? parsed,
-            out string error);
+            out var parsed,
+            out var error);
 
         Assert.True(accepted, error);
         Assert.Equal("left", parsed!.Action.InstanceId);
@@ -88,7 +88,7 @@ public sealed class CliArgumentsTests
     [MemberData(nameof(DuplicateOptionCases))]
     public void DuplicateOption_IsRejected(string[] arguments)
     {
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out string error));
+        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
         Assert.Contains("exactly once", error, StringComparison.Ordinal);
     }
 
@@ -96,7 +96,7 @@ public sealed class CliArgumentsTests
     [MemberData(nameof(UnknownOrTrailingArgumentCases))]
     public void UnknownOrTrailingArgument_IsRejected(string[] arguments)
     {
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out string error));
+        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
         Assert.Contains("Unknown or trailing", error, StringComparison.Ordinal);
     }
 
@@ -106,9 +106,9 @@ public sealed class CliArgumentsTests
     [InlineData("--YeS")]
     public void YesFlag_IsRejectedCaseInsensitively(string flag)
     {
-        string[] arguments = ValidFixedAction().Append(flag).ToArray();
+        var arguments = ValidFixedAction().Append(flag).ToArray();
 
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out string error));
+        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
         Assert.Contains("never accepts --yes", error, StringComparison.Ordinal);
     }
 
@@ -116,7 +116,7 @@ public sealed class CliArgumentsTests
     [MemberData(nameof(MissingValueCases))]
     public void MissingOptionValue_IsRejected(string[] arguments)
     {
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out string error));
+        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
         Assert.Contains("requires", error, StringComparison.Ordinal);
     }
 
@@ -125,9 +125,9 @@ public sealed class CliArgumentsTests
     [InlineData("--value", "true")]
     public void FixedAction_WithCapabilityOnlyOption_IsRejected(string option, string value)
     {
-        string[] arguments = ValidFixedAction().Concat([option, value]).ToArray();
+        var arguments = ValidFixedAction().Concat([option, value]).ToArray();
 
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out string error));
+        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
         Assert.Contains("apply only", error, StringComparison.Ordinal);
     }
 
@@ -136,7 +136,7 @@ public sealed class CliArgumentsTests
     {
         string[] arguments = ["plugin", "--from", "inventory.json", "--state-dir", "state"];
 
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out string error));
+        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
         Assert.Contains("exactly one --action", error, StringComparison.Ordinal);
     }
 
@@ -145,48 +145,48 @@ public sealed class CliArgumentsTests
         {
             [
                 "plugin", "--from", "one.json", "-f", "two.json", "--state-dir", "state",
-                "--action", "haptic",
+                "--action", "haptic"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "one", "--state-dir", "two",
-                "--action", "haptic",
+                "--action", "haptic"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "haptic", "--action", "controller",
+                "--action", "haptic", "--action", "controller"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
                 "--action", "capability", "--capability", "one", "--capability", "two",
-                "--value", "true",
+                "--value", "true"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
                 "--action", "capability", "--capability", "lighting.zone",
-                "--instance", "left", "--instance", "right", "--value", "true",
+                "--instance", "left", "--instance", "right", "--value", "true"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
                 "--action", "capability", "--capability", "lighting.zone",
-                "--value", "true", "--value", "false",
+                "--value", "true", "--value", "false"
             ]
-        },
+        }
     };
 
     public static TheoryData<string[]> UnknownOrTrailingArgumentCases => new()
     {
         { [.. ValidFixedAction(), "--unknown", "value"] },
-        { [.. ValidFixedAction(), "trailing-value"] },
+        { [.. ValidFixedAction(), "trailing-value"] }
     };
 
     public static TheoryData<string[]> MissingValueCases => new()
@@ -198,22 +198,22 @@ public sealed class CliArgumentsTests
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "--value", "true",
+                "--action", "capability", "--capability", "--value", "true"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "lighting.zone", "--value",
+                "--action", "capability", "--capability", "lighting.zone", "--value"
             ]
         },
         {
             [
                 "plugin", "--from", "inventory.json", "--state-dir", "state",
                 "--action", "capability", "--capability", "lighting.zone",
-                "--instance", "--value", "true",
+                "--instance", "--value", "true"
             ]
-        },
+        }
     };
 
     private static string[] ValidFixedAction() =>
@@ -221,6 +221,6 @@ public sealed class CliArgumentsTests
         "plugin",
         "--from", "inventory.json",
         "--state-dir", "state",
-        "--action", "haptic",
+        "--action", "haptic"
     ];
 }

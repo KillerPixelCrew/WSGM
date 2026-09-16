@@ -21,7 +21,7 @@ internal static class AutoTdpReplay
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(trace);
         List<AutoTdpDecision> decisions = [];
-        foreach (AutoTdpSample sample in trace)
+        foreach (var sample in trace)
         {
             decisions.Add(controller.Evaluate(sample, limits));
         }
@@ -37,7 +37,7 @@ internal static class AutoTdpReplay
         string contextKey,
         bool capped = false)
     {
-        for (int index = 0; index < count; index++)
+        for (var index = 0; index < count; index++)
         {
             yield return new AutoTdpSample(frametimeMs, targetFrametimeMs, capped, contextKey);
         }

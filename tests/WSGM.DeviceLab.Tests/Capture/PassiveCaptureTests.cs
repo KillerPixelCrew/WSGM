@@ -12,10 +12,10 @@ public sealed class PassiveCaptureTests
     [InlineData((int)EventDiscontinuity.DeviceGenerationChanged)]
     public void LateReceiptPreservesAnExplicitSegmentReason(int reasonValue)
     {
-        EventDiscontinuity reason = (EventDiscontinuity)reasonValue;
+        var reason = (EventDiscontinuity)reasonValue;
         PassiveCaptureTimeline timeline = new(new ReceiptClock());
-        CaptureStreamEvent first = timeline.Record(Observation(1));
-        CaptureStreamEvent second = timeline.Record(Observation(2) with { Discontinuity = reason });
+        var first = timeline.Record(Observation(1));
+        var second = timeline.Record(Observation(2) with { Discontinuity = reason });
 
         Assert.True(second.QpcReceiptTime < first.QpcReceiptTime);
         Assert.Equal(reason, second.Discontinuity);
@@ -32,12 +32,12 @@ public sealed class PassiveCaptureTests
     [InlineData(" Baseline", false)]
     public void OperatorMarkersAcceptOnlyExactNamedKinds(string value, bool accepted)
     {
-        byte[] bytes = Encoding.UTF8.GetBytes($"v1\t{value}\taction\tlabel");
-        CaptureStreamEvent captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
+        var bytes = Encoding.UTF8.GetBytes($"v1\t{value}\taction\tlabel");
+        var captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
             Observation(1) with
             {
                 SourceId = GuidedOperatorMarkers.SourceId,
-                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes },
+                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
             });
 
         Assert.Equal(accepted, GuidedOperatorMarkers.TryDecode(captureEvent, out _, out _, out _));
@@ -51,14 +51,14 @@ public sealed class PassiveCaptureTests
     public void OperatorMarkersRejectMalformedUtf8(byte[] invalidSuffix)
     {
         byte[] bytes = [.. "v1\tBaseline\taction\tlabel"u8.ToArray(), .. invalidSuffix];
-        CaptureStreamEvent captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
+        var captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
             Observation(1) with
             {
                 SourceId = GuidedOperatorMarkers.SourceId,
-                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes },
+                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
             });
 
-        Assert.False(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out string action, out string label));
+        Assert.False(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out var action, out var label));
         Assert.Empty(action);
         Assert.Empty(label);
     }
@@ -68,15 +68,15 @@ public sealed class PassiveCaptureTests
     [InlineData("valid replacement character: \uFFFD")]
     public void OperatorMarkersPreserveValidUnicodeLabels(string label)
     {
-        byte[] bytes = Encoding.UTF8.GetBytes($"v1\tBaseline\taction\t{label}");
-        CaptureStreamEvent captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
+        var bytes = Encoding.UTF8.GetBytes($"v1\tBaseline\taction\t{label}");
+        var captureEvent = new PassiveCaptureTimeline(new ReceiptClock()).Record(
             Observation(1) with
             {
                 SourceId = GuidedOperatorMarkers.SourceId,
-                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes },
+                Payload = new CapturedPayload { Disposition = PayloadDisposition.Included, Length = bytes.Length, Bytes = bytes }
             });
 
-        Assert.True(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out string action, out string decoded));
+        Assert.True(GuidedOperatorMarkers.TryDecode(captureEvent, out _, out var action, out var decoded));
         Assert.Equal("action", action);
         Assert.Equal(label, decoded);
     }
@@ -87,7 +87,7 @@ public sealed class PassiveCaptureTests
         RecipeStepId = "test-step",
         SourceSequence = sequence,
         DeviceGeneration = 1,
-        Payload = new CapturedPayload { Disposition = PayloadDisposition.NotCaptured, Length = 0 },
+        Payload = new CapturedPayload { Disposition = PayloadDisposition.NotCaptured, Length = 0 }
     };
 
     private sealed class ReceiptClock : ICaptureReceiptClock

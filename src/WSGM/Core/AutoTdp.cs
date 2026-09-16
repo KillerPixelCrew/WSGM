@@ -19,7 +19,7 @@ internal enum AutoTdpAction
     Restore,
 
     /// <summary>Hand the limit back to whoever set it manually.</summary>
-    Release,
+    Release
 }
 
 /// <summary>The plugin-published bounds of the primary power capability.</summary>
@@ -112,26 +112,22 @@ internal sealed class AutoTdpController
     private readonly Dictionary<string, int> _learnedFloor = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _failedProbeFloor = new(StringComparer.Ordinal);
     private string _contextKey = string.Empty;
-    private int _watts;
-    private int _lastGood;
     private int _settling;
     private int _misses;
     private int _comfortable;
     private int _probeElapsed;
-    private bool _probing;
-    private bool _paused;
 
     /// <summary>The limit the controller believes is in effect.</summary>
-    internal int Watts => _watts;
+    internal int Watts { get; private set; }
 
     /// <summary>Whether a manual change has suspended automatic control.</summary>
-    internal bool IsPaused => _paused;
+    internal bool IsPaused { get; private set; }
 
     /// <summary>Whether a downward probe is currently being judged.</summary>
-    internal bool IsProbing => _probing;
+    internal bool IsProbing { get; private set; }
 
     /// <summary>The limit AutoTDP found before the current probe.</summary>
-    internal int LastGood => _lastGood;
+    internal int LastGood { get; private set; }
 
     /// <summary>Starts control from the limit currently in effect.</summary>
     /// <param name="watts">The limit AutoTDP is taking over from.</param>
@@ -147,19 +143,19 @@ internal sealed class AutoTdpController
     {
         ArgumentNullException.ThrowIfNull(limits);
         _contextKey = contextKey ?? string.Empty;
-        _watts = limits.Clamp(watts);
-        _lastGood = _watts;
+        Watts = limits.Clamp(watts);
+        LastGood = Watts;
         ResetWindows();
         _settling = 0;
-        _paused = false;
-        _probing = false;
-        if (_learnedFloor.TryGetValue(_contextKey, out int floor))
+        IsPaused = false;
+        IsProbing = false;
+        if (_learnedFloor.TryGetValue(_contextKey, out var floor))
         {
-            _watts = limits.Clamp(Math.Max(floor, limits.Minimum));
-            _lastGood = _watts;
+            Watts = limits.Clamp(Math.Max(floor, limits.Minimum));
+            LastGood = Watts;
         }
 
-        return _watts;
+        return Watts;
     }
 
     /// <summary>Suspends automatic control because the limit was changed by hand.</summary>
@@ -171,10 +167,10 @@ internal sealed class AutoTdpController
     /// </remarks>
     internal void PauseForManualChange(int watts)
     {
-        _paused = true;
-        _probing = false;
-        _watts = watts;
-        _lastGood = watts;
+        IsPaused = true;
+        IsProbing = false;
+        Watts = watts;
+        LastGood = watts;
         ResetWindows();
         _settling = 0;
     }
@@ -194,8 +190,8 @@ internal sealed class AutoTdpController
     /// </remarks>
     internal void ResumeAutomaticControl()
     {
-        _paused = false;
-        _probing = false;
+        IsPaused = false;
+        IsProbing = false;
         ResetWindows();
         _settling = 0;
     }
@@ -208,7 +204,7 @@ internal sealed class AutoTdpController
     {
         ArgumentNullException.ThrowIfNull(sample);
         ArgumentNullException.ThrowIfNull(limits);
-        if (_paused)
+        if (IsPaused)
         {
             return Hold("paused-manual");
         }
@@ -234,8 +230,8 @@ internal sealed class AutoTdpController
             _contextKey = sample.ContextKey;
             ResetWindows();
             _settling = 0;
-            _probing = false;
-            _lastGood = _watts;
+            IsProbing = false;
+            LastGood = Watts;
             return Hold("context-changed");
         }
 
@@ -245,11 +241,11 @@ internal sealed class AutoTdpController
             return Hold("settling");
         }
 
-        double ratio = sample.FrametimeMs / sample.TargetFrametimeMs;
-        bool missed = ratio > MissRatio;
-        bool comfortable = ratio <= ComfortRatio || (sample.Capped && !missed);
+        var ratio = sample.FrametimeMs / sample.TargetFrametimeMs;
+        var missed = ratio > MissRatio;
+        var comfortable = ratio <= ComfortRatio || (sample.Capped && !missed);
 
-        if (_probing)
+        if (IsProbing)
         {
             return JudgeProbe(missed);
         }
@@ -289,12 +285,12 @@ internal sealed class AutoTdpController
     /// <returns>The release decision.</returns>
     internal AutoTdpDecision Stop(int restoreTo)
     {
-        _probing = false;
-        _paused = false;
+        IsProbing = false;
+        IsPaused = false;
         ResetWindows();
         _settling = 0;
-        _watts = restoreTo;
-        _lastGood = restoreTo;
+        Watts = restoreTo;
+        LastGood = restoreTo;
         return new AutoTdpDecision(AutoTdpAction.Release, restoreTo, "stopped");
     }
 
@@ -302,7 +298,7 @@ internal sealed class AutoTdpController
     /// <param name="contextKey">The context to look up.</param>
     /// <returns>The learned floor, or null.</returns>
     internal int? LearnedFloor(string contextKey) =>
-        _learnedFloor.TryGetValue(contextKey, out int watts) ? watts : null;
+        _learnedFloor.TryGetValue(contextKey, out var watts) ? watts : null;
 
     private AutoTdpDecision JudgeProbe(bool missed)
     {
@@ -311,13 +307,13 @@ internal sealed class AutoTdpController
             // The step we just removed was load-bearing. Going back is not enough on its own: the
             // context has to remember this floor, or the next settled period probes into the same
             // stutter again and the limit oscillates for as long as the game runs.
-            _probing = false;
-            _learnedFloor[_contextKey] = _lastGood;
-            _failedProbeFloor[_contextKey] = _lastGood;
-            _watts = _lastGood;
+            IsProbing = false;
+            _learnedFloor[_contextKey] = LastGood;
+            _failedProbeFloor[_contextKey] = LastGood;
+            Watts = LastGood;
             ResetWindows();
             _settling = SettleWindows;
-            return new AutoTdpDecision(AutoTdpAction.Restore, _watts, "probe-rejected");
+            return new AutoTdpDecision(AutoTdpAction.Restore, Watts, "probe-rejected");
         }
 
         _probeElapsed++;
@@ -326,55 +322,55 @@ internal sealed class AutoTdpController
             return Hold("probe-pending");
         }
 
-        _probing = false;
-        _lastGood = _watts;
-        _learnedFloor[_contextKey] = _watts;
+        IsProbing = false;
+        LastGood = Watts;
+        _learnedFloor[_contextKey] = Watts;
         ResetWindows();
         return Hold("probe-accepted");
     }
 
     private AutoTdpDecision BeginProbe(AutoTdpLimits limits)
     {
-        int candidate = limits.Clamp(_watts - limits.Step);
-        if (candidate >= _watts)
+        var candidate = limits.Clamp(Watts - limits.Step);
+        if (candidate >= Watts)
         {
             return Hold("at-minimum");
         }
 
-        if (_failedProbeFloor.TryGetValue(_contextKey, out int floor) && candidate < floor)
+        if (_failedProbeFloor.TryGetValue(_contextKey, out var floor) && candidate < floor)
         {
             // Already known to be too little for this context. Re-probing it every settled period
             // would spend the rest of the session rediscovering the same answer.
             return Hold("below-learned-floor");
         }
 
-        _lastGood = _watts;
-        _watts = candidate;
-        _probing = true;
+        LastGood = Watts;
+        Watts = candidate;
+        IsProbing = true;
         _probeElapsed = 0;
         _settling = SettleWindows;
         _comfortable = 0;
-        return new AutoTdpDecision(AutoTdpAction.Probe, _watts, "probe-down");
+        return new AutoTdpDecision(AutoTdpAction.Probe, Watts, "probe-down");
     }
 
     private AutoTdpDecision Raise(AutoTdpLimits limits)
     {
-        int candidate = limits.Clamp(_watts + limits.Step);
-        if (candidate <= _watts)
+        var candidate = limits.Clamp(Watts + limits.Step);
+        if (candidate <= Watts)
         {
             return Hold("at-maximum");
         }
 
         ResetWindows();
-        _watts = candidate;
-        _lastGood = candidate;
+        Watts = candidate;
+        LastGood = candidate;
         _settling = SettleWindows;
         // A context that needed more power than the learned floor has outgrown it.
         _learnedFloor[_contextKey] = candidate;
-        return new AutoTdpDecision(AutoTdpAction.Raise, _watts, "sustained-miss");
+        return new AutoTdpDecision(AutoTdpAction.Raise, Watts, "sustained-miss");
     }
 
-    private AutoTdpDecision Hold(string reason) => new(AutoTdpAction.Hold, _watts, reason);
+    private AutoTdpDecision Hold(string reason) => new(AutoTdpAction.Hold, Watts, reason);
 
     private void ResetWindows()
     {

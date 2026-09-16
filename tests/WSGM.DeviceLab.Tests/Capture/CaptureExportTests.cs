@@ -14,7 +14,7 @@ public sealed class CaptureExportTests
     {
         using TemporaryDirectory directory = new();
         using CancellationTokenSource cancellation = new();
-        CaptureExportPlan plan = Plan(directory);
+        var plan = Plan(directory);
         FileStream? heldFile = null;
         string? temporaryPath = null;
         try
@@ -38,13 +38,13 @@ public sealed class CaptureExportTests
 
             if (cancelled && !locked)
             {
-                OperationCanceledException failure = Assert.Throws<OperationCanceledException>(() =>
+                var failure = Assert.Throws<OperationCanceledException>(() =>
                     ObserveOnlyCaptureWorkflow.Export(plan, true, null, FailPublication, cancellation.Token));
                 Assert.Equal(cancellation.Token, failure.CancellationToken);
             }
             else
             {
-                CaptureExportResult result = ObserveOnlyCaptureWorkflow.Export(
+                var result = ObserveOnlyCaptureWorkflow.Export(
                     plan, true, null, FailPublication, cancellation.Token);
                 Assert.False(result.Exported);
                 Assert.Contains(cancelled ? "Export cancelled." : "Publication failed.", result.Error);
@@ -70,15 +70,15 @@ public sealed class CaptureExportTests
     public void ExportPublishesAReadableBundleAndRefusesToOverwriteIt()
     {
         using TemporaryDirectory directory = new();
-        CaptureExportPlan plan = Plan(directory);
+        var plan = Plan(directory);
 
-        CaptureExportResult first = ObserveOnlyCaptureWorkflow.Export(plan, true, null);
+        var first = ObserveOnlyCaptureWorkflow.Export(plan, true, null);
 
         Assert.True(first.Exported, first.Error);
-        byte[] original = File.ReadAllBytes(plan.ShareableOutputPath);
+        var original = File.ReadAllBytes(plan.ShareableOutputPath);
         using MemoryStream archive = new(original);
         Assert.True(CaptureBundleReader.Read(archive).Succeeded);
-        CaptureExportResult repeated = ObserveOnlyCaptureWorkflow.Export(plan, true, null);
+        var repeated = ObserveOnlyCaptureWorkflow.Export(plan, true, null);
         Assert.False(repeated.Exported);
         Assert.Equal(original, File.ReadAllBytes(plan.ShareableOutputPath));
         Assert.Empty(Directory.EnumerateFiles(directory.Root, "*.tmp"));
@@ -107,25 +107,25 @@ public sealed class CaptureExportTests
                 ToolVersion = "test",
                 StartedAt = DateTimeOffset.UnixEpoch,
                 CompletedAt = DateTimeOffset.UnixEpoch,
-                QpcFrequency = 1,
+                QpcFrequency = 1
             },
             Recipe = new ObserveOnlyRecipe
             {
                 SchemaVersion = CaptureSchema.CurrentVersion,
                 RecipeId = "export-test",
-                DisplayName = "Export test",
+                DisplayName = "Export test"
             },
             Inventory = new MachineInventory
             {
                 SchemaVersion = 1,
                 Firmware = new FirmwareInventory(),
-                CapturedAt = DateTimeOffset.UnixEpoch,
+                CapturedAt = DateTimeOffset.UnixEpoch
             },
             Redaction = new CaptureRedactionManifest
             {
                 SchemaVersion = CaptureSchema.CurrentVersion,
-                DefaultRedactionApplied = true,
-            },
-        },
+                DefaultRedactionApplied = true
+            }
+        }
     };
 }

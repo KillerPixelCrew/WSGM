@@ -69,14 +69,14 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
         IReadOnlyList<PluginActionStep> steps, bool stopOnFailure, CancellationToken cancellationToken)
     {
         List<PluginActionStepResult> results = [];
-        foreach (PluginActionStep step in steps)
+        foreach (var step in steps)
         {
             // Keep outcomes already observed. Throwing between steps discards the evidence
             // needed to compensate actions that have already reached the appliance.
             if (cancellationToken.IsCancellationRequested) { break; }
-            string action = $"{step.Plugin?.PluginId}/{step.Plugin?.InstanceId} {step.ActionId}";
+            var action = $"{step.Plugin?.PluginId}/{step.Plugin?.InstanceId} {step.ActionId}";
             log?.Invoke($"Session action starting: {action}.");
-            PluginActionStepResult result = await RunStepAsync(step, cancellationToken).ConfigureAwait(false);
+            var result = await RunStepAsync(step, cancellationToken).ConfigureAwait(false);
             log?.Invoke($"Session action completed: {action}: {result.Outcome}; {result.Detail}");
             results.Add(result);
             if (stopOnFailure && !result.Succeeded) { break; }
@@ -87,31 +87,31 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
     private async Task<PluginActionStepResult> RunStepAsync(
         PluginActionStep step, CancellationToken cancellationToken)
     {
-        using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        TimeSpan timeout = TimeSpan.FromSeconds(Math.Clamp(step.TimeoutSeconds, 1, 120));
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var timeout = TimeSpan.FromSeconds(Math.Clamp(step.TimeoutSeconds, 1, 120));
         deadline.CancelAfter(timeout);
         try
         {
-            PluginActionResult result = await invoker
+            var result = await invoker
                 .InvokeAsync(step, DateTimeOffset.UtcNow + timeout, deadline.Token)
                 .WaitAsync(deadline.Token).ConfigureAwait(false);
-            return new(step, result.Outcome, result.Detail ?? result.Outcome.ToString());
+            return new PluginActionStepResult(step, result.Outcome, result.Detail ?? result.Outcome.ToString());
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The caller cancelled mid-step. The plugin may already have emitted, so this is
             // uncertain rather than rejected, and the caller owes it compensation.
-            return new(step, PluginActionOutcome.Unconfirmed,
+            return new PluginActionStepResult(step, PluginActionOutcome.Unconfirmed,
                 "Cancelled while the action was running; it may already have taken effect.");
         }
         catch (OperationCanceledException)
         {
-            return new(step, PluginActionOutcome.Unconfirmed,
+            return new PluginActionStepResult(step, PluginActionOutcome.Unconfirmed,
                 $"No answer within {timeout.TotalSeconds:0} seconds; the action may still take effect.");
         }
         catch (Exception ex)
         {
-            return new(step, PluginActionOutcome.Unconfirmed, "Unconfirmed: " + ex.Message);
+            return new PluginActionStepResult(step, PluginActionOutcome.Unconfirmed, "Unconfirmed: " + ex.Message);
         }
     }
 }
@@ -131,7 +131,7 @@ internal sealed class PluginHostActionInvoker(PluginHost host) : IPluginActionIn
             return Task.FromResult(new PluginActionResult(Guid.NewGuid(), PluginActionOutcome.Rejected,
                 "The step does not name a plugin action."));
         }
-        PluginHealthPublication? instance = host.Snapshot().FirstOrDefault(value => value.Instance == identity);
+        var instance = host.Snapshot().FirstOrDefault(value => value.Instance == identity);
         if (instance is null)
         {
             return Task.FromResult(new PluginActionResult(Guid.NewGuid(), PluginActionOutcome.Rejected,

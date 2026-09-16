@@ -56,7 +56,7 @@ internal sealed class FakePlugin(string id, bool publishReadyOnResume = false) :
         Resumes++;
         if (publishReadyOnResume)
         {
-            Host!.PublishHealth(new(context.Instance, context.Generation, PluginHealth.Ready, null));
+            Host!.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, PluginHealth.Ready, null));
         }
         return ValueTask.CompletedTask;
     }

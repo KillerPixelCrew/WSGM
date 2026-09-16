@@ -21,7 +21,7 @@ public sealed class EdidModesTests
     [Fact]
     public void ReadAdvertisedRefreshRates_TheReferencePanel_ReportsOnlyWhatItActuallyAdvertises()
     {
-        IReadOnlyList<int> rates = EdidModes.ReadAdvertisedRefreshRates(Bytes(ClawEdid));
+        var rates = EdidModes.ReadAdvertisedRefreshRates(Bytes(ClawEdid));
 
         // Both detailed timings are 1920x1200: 315.50 MHz and 157.75 MHz over a 2080x1264 total.
         Assert.Equal([60, 120], rates);
@@ -30,7 +30,7 @@ public sealed class EdidModesTests
     [Fact]
     public void ReadAdvertisedRefreshRates_DoesNotReportTheDriverSynthesizedRates()
     {
-        IReadOnlyList<int> rates = EdidModes.ReadAdvertisedRefreshRates(Bytes(ClawEdid));
+        var rates = EdidModes.ReadAdvertisedRefreshRates(Bytes(ClawEdid));
 
         // Windows enumerates and the driver accepts all of these; the panel advertises none of them.
         Assert.DoesNotContain(30, rates);
@@ -52,7 +52,7 @@ public sealed class EdidModesTests
     [Fact]
     public void ReadAdvertisedRefreshRates_WrongHeader_IsRefused()
     {
-        byte[] corrupt = Bytes(ClawEdid);
+        var corrupt = Bytes(ClawEdid);
         corrupt[1] = 0x00;
 
         Assert.Empty(EdidModes.ReadAdvertisedRefreshRates(corrupt));

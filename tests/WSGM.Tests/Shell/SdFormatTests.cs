@@ -1,3 +1,4 @@
+using System.Text;
 using WSGM.Device.Tests;
 using WSGM.Interop;
 using WSGM.Shell;
@@ -614,8 +615,8 @@ public sealed class SdFormatTests
         BitConverter.GetBytes(36).CopyTo(buffer, 12);
         BitConverter.GetBytes(44).CopyTo(buffer, 16);
         BitConverter.GetBytes(NativeStorage.BusTypeSd).CopyTo(buffer, 28);
-        System.Text.Encoding.ASCII.GetBytes("SanDisk\0").CopyTo(buffer, 36);
-        System.Text.Encoding.ASCII.GetBytes("Extreme\0").CopyTo(buffer, 44);
+        Encoding.ASCII.GetBytes("SanDisk\0").CopyTo(buffer, 36);
+        Encoding.ASCII.GetBytes("Extreme\0").CopyTo(buffer, 44);
 
         var (busType, product) = NativeStorage.ReadDeviceDescriptor(buffer);
 
@@ -660,7 +661,7 @@ public sealed class SdFormatTests
     public void EmptyMbrSlotsAreSkipped()
     {
         var buffer = new byte[NativeStorage.DriveLayoutHeaderSize
-            + (4 * NativeStorage.PartitionRecordSize)];
+            + 4 * NativeStorage.PartitionRecordSize];
         BitConverter.GetBytes(0).CopyTo(buffer, 0);
         BitConverter.GetBytes(4).CopyTo(buffer, 4); // MBR always reports 4 slots
         buffer[NativeStorage.DriveLayoutHeaderSize + 32] = 0x07; // one NTFS slot

@@ -24,7 +24,7 @@ public enum ExplorerReadinessAction
 
     /// <summary>Explorer never became ready within the hard cap — take over anyway
     /// rather than covering the screen forever.</summary>
-    ProceedTimeout,
+    ProceedTimeout
 }
 
 /// <summary>Pure decision core for "has explorer finished its logon prep?" during a

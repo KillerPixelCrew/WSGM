@@ -20,11 +20,11 @@ public sealed class PhysicalGlyphServiceTests
         // The shape of the bug this replaced: the catalog held the package's profile and every
         // glyph surface still fell back, because the one production call site passed no device at
         // all. These tests passed throughout — they supplied a device id the coordinator never did.
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
-        PhysicalGlyphSelectionResult result = catalog.SelectProfile(
+        var result = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.Automatic,
             null);
@@ -39,9 +39,9 @@ public sealed class PhysicalGlyphServiceTests
         // The device definition and the profiles arrive from different places and in either order.
         // Whichever lands second has to announce itself, or every surface keeps the answer it
         // computed while the pair was still incomplete.
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
-        int changes = 0;
+        var changes = 0;
         catalog.Changed += () => changes++;
 
         catalog.ReplacePackageProfiles([profile]);
@@ -60,17 +60,17 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void Automatic_RequiresAnImportedProfileForTheExactDevice()
     {
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
         catalog.SetActiveDevice("device-a");
-        PhysicalGlyphSelectionResult exact = catalog.SelectProfile(
+        var exact = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.Automatic,
             null);
         catalog.SetActiveDevice("device-b");
-        PhysicalGlyphSelectionResult otherDevice = catalog.SelectProfile(
+        var otherDevice = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.Automatic,
             null);
@@ -83,12 +83,12 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void MissingManualProfile_FallsBackThroughAutomaticAndReportsMissing()
     {
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
         catalog.SetActiveDevice("device-a");
-        PhysicalGlyphSelectionResult result = catalog.SelectProfile(
+        var result = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.ManualReviewedProfile,
             "removed.profile");
@@ -100,12 +100,12 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void DeviceIntegrationOff_AlwaysReturnsGenericOrNativeFallback()
     {
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
         catalog.SetActiveDevice("device-a");
-        PhysicalGlyphSelectionResult result = catalog.SelectProfile(
+        var result = catalog.SelectProfile(
             false,
             DeviceGlyphSelection.ManualReviewedProfile,
             "example.handheld");
@@ -119,7 +119,7 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void GlyphSelectionViewReportsGenericFallbackWithoutClaimingDeviceArtwork()
     {
-        DescriptorRow row = DeviceOverlayBridge.PhysicalGlyphSelectionView(
+        var row = DeviceOverlayBridge.PhysicalGlyphSelectionView(
             DeviceGlyphSelection.Automatic,
             new PhysicalGlyphSelectionResult(
                 null,
@@ -135,26 +135,26 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void DeviceDescriptionSurvivesControllerManagementOffButNavigationDoesNotMislabelExternalInput()
     {
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
-        PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
+        var selected = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.Automatic,
             null);
 
         // Controller-management state is deliberately not an input to profile selection. Only the
         // surface authority decides whether an active external source may display it.
-        PhysicalGlyphRenderPlan device = service.Resolve(
+        var device = service.Resolve(
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
             activeInputSourceIsManagedHandheld: false,
             PhysicalGlyphTheme.Dark,
             1);
-        PhysicalGlyphRenderPlan externalNavigation = service.Resolve(
+        var externalNavigation = service.Resolve(
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.NavigationHint,
@@ -172,7 +172,7 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void Cache_IsBoundedAndReleasedWhenPackageProfileChanges()
     {
-        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(
             catalog,
@@ -180,7 +180,7 @@ public sealed class PhysicalGlyphServiceTests
             maximumCacheBytes: 4096);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
-        PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
+        var selected = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.Automatic,
             null);
@@ -201,17 +201,17 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void PresentControlWithoutReviewedArtwork_UsesGenericFallback()
     {
-        ImportedGlyphProfile profile = ImportProfile(["device-a"], includeArtwork: false);
+        var profile = ImportProfile(["device-a"], includeArtwork: false);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
-        PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
+        var selected = catalog.SelectProfile(
             true,
             DeviceGlyphSelection.Automatic,
             null);
 
-        PhysicalGlyphRenderPlan result = service.Resolve(
+        var result = service.Resolve(
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
@@ -227,8 +227,8 @@ public sealed class PhysicalGlyphServiceTests
         IReadOnlyList<string> exactDeviceIds,
         bool includeArtwork = true)
     {
-        byte[] artwork = OnePixelPng();
-        string hash = Convert.ToHexString(SHA256.HashData(artwork)).ToLowerInvariant();
+        var artwork = OnePixelPng();
+        var hash = Convert.ToHexString(SHA256.HashData(artwork)).ToLowerInvariant();
         GlyphAssetLockEntry asset = new()
         {
             Sha256 = hash,
@@ -236,7 +236,7 @@ public sealed class PhysicalGlyphServiceTests
             ByteCount = artwork.Length,
             Role = GlyphAssetRole.Control,
             PixelWidth = 1,
-            PixelHeight = 1,
+            PixelHeight = 1
         };
         GlyphProfileManifest manifest = new()
         {
@@ -254,9 +254,9 @@ public sealed class PhysicalGlyphServiceTests
                 {
                     Control = GlyphControlId.FaceSouth,
                     Presence = GlyphControlPresence.Present,
-                    AssetSha256 = includeArtwork ? hash : null,
-                },
-            ],
+                    AssetSha256 = includeArtwork ? hash : null
+                }
+            ]
         };
         Dictionary<string, byte[]> files = new(StringComparer.Ordinal)
         {
@@ -264,14 +264,14 @@ public sealed class PhysicalGlyphServiceTests
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
-            [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n"),
+            [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n")
         };
         if (includeArtwork)
         {
             files[GlyphPackageLayout.Asset(hash, GlyphAssetFormat.Png)] = artwork;
         }
 
-        GlyphPackageImportResult result = GlyphPackageImporter.Import(
+        var result = GlyphPackageImporter.Import(
             new GlyphTestPackageSource(manifest.ProfileId, files));
         Assert.True(result.IsValid, string.Join("; ", result.Errors));
         return Assert.Single(result.Profiles);
@@ -282,7 +282,7 @@ public sealed class PhysicalGlyphServiceTests
         using MemoryStream output = new();
         output.Write([137, 80, 78, 71, 13, 10, 26, 10]);
 
-        byte[] header = new byte[13];
+        var header = new byte[13];
         BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), 1);
         BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), 1);
         header[8] = 8;
@@ -301,28 +301,28 @@ public sealed class PhysicalGlyphServiceTests
 
     private static void WritePngChunk(Stream output, string type, byte[] data)
     {
-        byte[] length = new byte[4];
+        var length = new byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
         output.Write(length);
-        byte[] typeBytes = Encoding.ASCII.GetBytes(type);
+        var typeBytes = Encoding.ASCII.GetBytes(type);
         output.Write(typeBytes);
         output.Write(data);
 
         byte[] crcInput = [.. typeBytes, .. data];
-        byte[] crc = new byte[4];
+        var crc = new byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32(crcInput));
         output.Write(crc);
     }
 
     private static uint Crc32(ReadOnlySpan<byte> bytes)
     {
-        uint crc = uint.MaxValue;
-        foreach (byte value in bytes)
+        var crc = uint.MaxValue;
+        foreach (var value in bytes)
         {
             crc ^= value;
-            for (int bit = 0; bit < 8; bit++)
+            for (var bit = 0; bit < 8; bit++)
             {
-                uint mask = 0u - (crc & 1u);
+                var mask = 0u - (crc & 1u);
                 crc = (crc >> 1) ^ (0xedb88320u & mask);
             }
         }

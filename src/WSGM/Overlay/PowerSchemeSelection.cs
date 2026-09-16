@@ -33,7 +33,7 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
         Busy = true;
         Status = requested is null ? "Reading Windows power profiles..." : "Applying Windows power profile...";
         Changed?.Invoke();
-        CancellationToken token = _lifetime.Token;
+        var token = _lifetime.Token;
         try
         {
             var result = await Task.Run(() =>
@@ -58,8 +58,8 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
             }
             Schemes = result.Items;
             ActiveId = result.Active;
-            string activeName = Schemes.FirstOrDefault(scheme => scheme.Id == result.Active)?.Name
-                ?? result.Active.ToString("D");
+            var activeName = Schemes.FirstOrDefault(scheme => scheme.Id == result.Active)?.Name
+                             ?? result.Active.ToString("D");
             Status = result.SaveError ?? (Schemes.Count == 0
                 ? "Windows returned no selectable power profiles. Refresh to try again."
                 : $"Active: {activeName}. Changes apply immediately and also change this profile's idle timeouts.");

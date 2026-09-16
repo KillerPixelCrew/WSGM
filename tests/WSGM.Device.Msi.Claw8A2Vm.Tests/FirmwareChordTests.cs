@@ -17,7 +17,7 @@ public sealed class FirmwareChordTests
         Assert.Equal((nint)16, Marshal.OffsetOf<NativeKeyboard.KeyboardInput>(nameof(NativeKeyboard.KeyboardInput.ExtraInfo)));
 
         const uint marker = 0x5753474D;
-        NativeKeyboard.Input release = NativeKeyboard.KeyInput(NativeKeyboard.VK_LWIN, keyUp: true, marker);
+        var release = NativeKeyboard.KeyInput(NativeKeyboard.VK_LWIN, keyUp: true, marker);
         Assert.Equal(NativeKeyboard.INPUT_KEYBOARD, release.Type);
         Assert.Equal(NativeKeyboard.VK_LWIN, (uint)release.Data.Keyboard.VirtualKey);
         Assert.Equal(NativeKeyboard.KEYEVENTF_KEYUP | NativeKeyboard.KEYEVENTF_EXTENDEDKEY, release.Data.Keyboard.Flags);
@@ -76,7 +76,7 @@ public sealed class FirmwareChordTests
     {
         FirmwareChordStateMachine state = new();
         _ = state.Observe(windowsKey, keyDown: true, injected: false);
-        ChordDecision down = state.Observe(NativeKeyboard.VK_G, keyDown: true, injected: false);
+        var down = state.Observe(NativeKeyboard.VK_G, keyDown: true, injected: false);
         Assert.Equal(new ChordDecision(true, windowsKey == NativeKeyboard.VK_LWIN, windowsKey == NativeKeyboard.VK_RWIN), down);
         state.CommitSyntheticReleases(down.ReleaseLeftWindows, down.ReleaseRightWindows);
         Assert.Equal(new ChordDecision(true, false, false), state.Observe(NativeKeyboard.VK_G, keyDown: true, injected: false));
@@ -242,7 +242,7 @@ public sealed class FirmwareChordTests
     {
         FirmwareChordStateMachine firmware = new();
         _ = firmware.Observe(NativeKeyboard.VK_LWIN, keyDown: true, injected: false);
-        ChordDecision orphan = firmware.Observe(NativeKeyboard.VK_G, keyDown: false, injected: false);
+        var orphan = firmware.Observe(NativeKeyboard.VK_G, keyDown: false, injected: false);
 
         Assert.True(orphan.Suppress);
         Assert.True(orphan.ReleaseLeftWindows);
@@ -264,10 +264,10 @@ public sealed class FirmwareChordTests
     [Fact]
     public void NativeKeyboard_GetMessageUsesSignedResultAndPreservesTheWin32Error()
     {
-        MethodInfo method = Assert.IsAssignableFrom<MethodInfo>(typeof(NativeKeyboard).GetMethod(
+        var method = Assert.IsAssignableFrom<MethodInfo>(typeof(NativeKeyboard).GetMethod(
             nameof(NativeKeyboard.GetMessage),
             BindingFlags.Public | BindingFlags.Static));
-        DllImportAttribute import = Assert.IsType<DllImportAttribute>(
+        var import = Assert.IsType<DllImportAttribute>(
             method.GetCustomAttribute<DllImportAttribute>());
 
         Assert.Equal(typeof(int), method.ReturnType);

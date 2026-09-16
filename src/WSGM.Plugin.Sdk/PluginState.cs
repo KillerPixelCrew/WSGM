@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -9,7 +10,7 @@ namespace WSGM.Plugin.Sdk;
 public readonly record struct PluginValue(bool? Boolean = null, double? Number = null, string? Text = null)
 {
     /// <summary>Whether exactly one bounded value is present.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
+    [JsonIgnore]
     public bool IsValid => (Boolean.HasValue ? 1 : 0) + (Number.HasValue ? 1 : 0) + (Text is null ? 0 : 1) == 1
         && (!Number.HasValue || double.IsFinite(Number.Value)) && (Text is null || Text.Length <= 4096);
 }
@@ -24,7 +25,7 @@ public enum PluginStateOrigin
     /// <summary>Observation following a requested action.</summary>
     Action,
     /// <summary>Independent external-state readback.</summary>
-    HardwareReadback,
+    HardwareReadback
 }
 
 /// <summary>One named effective-state observation, never a request to change saved configuration.</summary>

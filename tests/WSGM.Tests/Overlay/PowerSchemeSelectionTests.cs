@@ -71,7 +71,7 @@ public sealed class PowerSchemeSelectionTests
         await model.ApplyAsync(Second);
         Assert.Equal(Second, model.ActiveId);
         Assert.Equal(1, api.Writes);
-        string json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
+        var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
         Assert.Equal(Second, JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!.LastSelectedPowerSchemeId);
         Assert.DoesNotContain("Duplicate localized name", json, StringComparison.Ordinal);
     }
@@ -141,9 +141,9 @@ public sealed class PowerSchemeSelectionTests
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         api.BeforeRead = () => { entered.TrySetResult(); release.Wait(TimeSpan.FromSeconds(10)); };
         using var model = new PowerSchemeSelection(new PowerSchemes(api), _ => { });
-        int notifications = 0;
+        var notifications = 0;
         model.Changed += () => notifications++;
-        Task pending = model.RefreshAsync();
+        var pending = model.RefreshAsync();
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));

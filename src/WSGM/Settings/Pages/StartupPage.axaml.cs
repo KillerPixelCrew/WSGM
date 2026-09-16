@@ -92,7 +92,7 @@ public partial class StartupPage : UserControl
         {
             Title = "Select application",
             AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("Applications") { Patterns = ["*.exe"] }],
+            FileTypeFilter = [new FilePickerFileType("Applications") { Patterns = ["*.exe"] }]
         });
         return files.FirstOrDefault()?.TryGetLocalPath();
     }

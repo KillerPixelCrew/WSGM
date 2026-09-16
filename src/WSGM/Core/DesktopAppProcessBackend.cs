@@ -14,33 +14,33 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
     public IReadOnlyList<DesktopAppInstance> Capture(DesktopAppRule rule)
     {
         List<DesktopAppInstance> instances = [];
-        foreach (string name in rule.ProcessNames)
+        foreach (var name in rule.ProcessNames)
         {
-            Process[] processes = Process.GetProcessesByName(name);
+            var processes = Process.GetProcessesByName(name);
             try
             {
-                foreach (Process process in processes)
+                foreach (var process in processes)
                 {
                     if (process.HasExited || process.SessionId != WindowFinder.CurrentSessionId) { continue; }
-                    string path = process.MainModule?.FileName
-                        ?? throw new InvalidOperationException($"Cannot capture {rule.Name}'s executable.");
-                    NativeIntegrityLevel integrity = NativeShellProcess.Inspect(checked((uint)process.Id)).Integrity;
+                    var path = process.MainModule?.FileName
+                               ?? throw new InvalidOperationException($"Cannot capture {rule.Name}'s executable.");
+                    var integrity = NativeShellProcess.Inspect(checked((uint)process.Id)).Integrity;
                     if (integrity is not (NativeIntegrityLevel.Medium or NativeIntegrityLevel.High))
                     {
                         throw new InvalidOperationException($"Cannot preserve {rule.Name}'s process integrity.");
                     }
-                    bool elevated = integrity is NativeIntegrityLevel.High;
+                    var elevated = integrity is NativeIntegrityLevel.High;
                     if (elevated && NativeShellProcess.Inspect(checked((uint)Environment.ProcessId)).Integrity
                         is not NativeIntegrityLevel.High)
                     {
                         throw new InvalidOperationException($"Cannot restore elevated {rule.Name} from this session.");
                     }
-                    instances.Add(new(rule, process.Id, process.StartTime.ToUniversalTime(), path, elevated));
+                    instances.Add(new DesktopAppInstance(rule, process.Id, process.StartTime.ToUniversalTime(), path, elevated));
                 }
             }
             finally
             {
-                foreach (Process process in processes) { process.Dispose(); }
+                foreach (var process in processes) { process.Dispose(); }
             }
         }
         return instances;
@@ -80,10 +80,10 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
             if (instance.Rule.ExitWindowClass is { } windowClass)
             {
                 nint window = 0;
-                bool posted = false;
+                var posted = false;
                 while ((window = NativeMethods.FindWindowExW(0, window, windowClass, null)) != 0)
                 {
-                    NativeMethods.GetWindowThreadProcessId(window, out uint owner);
+                    NativeMethods.GetWindowThreadProcessId(window, out var owner);
                     if (owner != instance.ProcessId) { continue; }
                     // The hidden event window handles a normal application exit. Never fall back
                     // to Kill: that marks Wallpaper Engine's next launch as crash recovery.
@@ -94,12 +94,12 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
             }
             else if (instance.Rule.ExitCommand is { } command)
             {
-                string commandPath = Path.Combine(Path.GetDirectoryName(instance.ExecutablePath)!, command);
-                using Process request = Process.Start(new ProcessStartInfo(commandPath, instance.Rule.ExitArguments)
+                var commandPath = Path.Combine(Path.GetDirectoryName(instance.ExecutablePath)!, command);
+                using var request = Process.Start(new ProcessStartInfo(commandPath, instance.Rule.ExitArguments)
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(commandPath)!,
+                    WorkingDirectory = Path.GetDirectoryName(commandPath)!
                 }) ?? throw new InvalidOperationException($"Could not request {instance.Rule.Name} exit.");
                 await request.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
                 if (request.ExitCode != 0) { throw new InvalidOperationException($"{instance.Rule.Name} exit command failed."); }
@@ -116,7 +116,7 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
 
     public bool IsRunning(DesktopAppInstance instance)
     {
-        foreach (DesktopAppInstance current in Capture(instance.Rule))
+        foreach (var current in Capture(instance.Rule))
         {
             if (string.Equals(current.ExecutablePath, instance.ExecutablePath, StringComparison.OrdinalIgnoreCase))
             {
@@ -128,18 +128,18 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
 
     public async Task<ScheduledTaskLaunchDisposition> RestartAsync(DesktopAppInstance instance, DateTimeOffset deadline)
     {
-        DateTimeOffset appDeadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var appDeadline = DateTimeOffset.UtcNow.AddSeconds(5);
         if (appDeadline < deadline) { deadline = appDeadline; }
         ScheduledTaskLaunchDisposition result;
         if (instance.Elevated)
         {
-            using Process? launched = Process.Start(new ProcessStartInfo(instance.ExecutablePath, instance.Rule.RestartArguments)
+            using var launched = Process.Start(new ProcessStartInfo(instance.ExecutablePath, instance.Rule.RestartArguments)
             {
                 UseShellExecute = !instance.Rule.CreateNoWindow,
                 Verb = instance.Rule.CreateNoWindow ? "" : "runas",
                 CreateNoWindow = instance.Rule.CreateNoWindow,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = Path.GetDirectoryName(instance.ExecutablePath)!,
+                WorkingDirectory = Path.GetDirectoryName(instance.ExecutablePath)!
             });
             // ShellExecute can succeed without returning a new process handle.
             result = ScheduledTaskLaunchDisposition.Dispatched;

@@ -7,11 +7,11 @@ public sealed class PluginValueTests
     [Fact]
     public void SchemasRejectDuplicateKeysInvalidDefaultsAndInvertedBounds()
     {
-        PluginSetting setting = new("level", "Level", PluginSettingKind.Number, new(Number: 20), 0, 100);
+        PluginSetting setting = new("level", "Level", PluginSettingKind.Number, new PluginValue(Number: 20), 0, 100);
         Assert.True(PluginConfigurationRules.IsValid([setting]));
         Assert.False(PluginConfigurationRules.IsValid([setting, setting]));
         Assert.False(PluginConfigurationRules.IsValid([setting with { Minimum = 101 }]));
-        Assert.False(PluginConfigurationRules.IsValid([setting with { Default = new(Number: 101) }]));
+        Assert.False(PluginConfigurationRules.IsValid([setting with { Default = new PluginValue(Number: 101) }]));
         Assert.False(PluginConfigurationRules.IsValid([setting with { Choices = ["one"] }]));
         Assert.False(PluginConfigurationRules.IsValid([setting with { Kind = PluginSettingKind.Boolean }]));
     }
@@ -19,11 +19,11 @@ public sealed class PluginValueTests
     [Fact]
     public void TextChoicesAndPrimitiveTypesAreCheckedBeforeDelivery()
     {
-        PluginSetting setting = new("route", "Route", PluginSettingKind.Text, new(Text: "desk"), Choices: ["desk", "tv"]);
+        PluginSetting setting = new("route", "Route", PluginSettingKind.Text, new PluginValue(Text: "desk"), Choices: ["desk", "tv"]);
         Assert.True(PluginConfigurationRules.IsValid([setting]));
-        Assert.True(PluginConfigurationRules.Accepts(setting, new(Text: "tv")));
-        Assert.False(PluginConfigurationRules.Accepts(setting, new(Text: "other")));
-        Assert.False(PluginConfigurationRules.Accepts(setting, new(Boolean: false)));
+        Assert.True(PluginConfigurationRules.Accepts(setting, new PluginValue(Text: "tv")));
+        Assert.False(PluginConfigurationRules.Accepts(setting, new PluginValue(Text: "other")));
+        Assert.False(PluginConfigurationRules.Accepts(setting, new PluginValue(Boolean: false)));
         Assert.False(PluginConfigurationRules.IsValid([setting with { Choices = ["desk", "desk"] }]));
     }
 

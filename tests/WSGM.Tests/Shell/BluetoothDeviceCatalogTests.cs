@@ -37,7 +37,7 @@ public sealed class BluetoothDeviceCatalogTests
         BluetoothDeviceCatalog catalog = new();
         Add(catalog, "classic", true, false, true, Container);
         Add(catalog, "le", true, false, true, Container);
-        var rows = catalog.Apply(WindowsRadio.BluetoothChangeKind.Removed, new("classic", "", false, false, false, ""));
+        var rows = catalog.Apply(WindowsRadio.BluetoothChangeKind.Removed, new WindowsRadio.BluetoothDevice("classic", "", false, false, false, ""));
         Assert.True(Assert.Single(rows).Connected);
     }
 
@@ -83,10 +83,10 @@ public sealed class BluetoothDeviceCatalogTests
         BluetoothDeviceCatalog catalog = new();
         Add(catalog, "paired", true, false, true, Container);
         catalog.ConfirmPairing("paired", false);
-        Assert.Empty(catalog.Apply(WindowsRadio.BluetoothChangeKind.Removed, new("paired", "", false, false, false, "")));
+        Assert.Empty(catalog.Apply(WindowsRadio.BluetoothChangeKind.Removed, new WindowsRadio.BluetoothDevice("paired", "", false, false, false, "")));
     }
 
     private static IReadOnlyList<BluetoothLogicalDevice> Add(BluetoothDeviceCatalog catalog,
         string id, bool paired, bool canPair, bool connected, string container) =>
-        catalog.Apply(WindowsRadio.BluetoothChangeKind.Added, new(id, "Controller", paired, canPair, connected, container));
+        catalog.Apply(WindowsRadio.BluetoothChangeKind.Added, new WindowsRadio.BluetoothDevice(id, "Controller", paired, canPair, connected, container));
 }

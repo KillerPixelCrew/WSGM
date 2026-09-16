@@ -9,17 +9,17 @@ public sealed class DeviceCoordinatorDiagnosticsTests
     [Fact]
     public void Snapshot_RoundTripsOneOptionalInstalledPackageWithoutASecondSchema()
     {
-        DeviceCoordinatorDiagnosticsSnapshot original = Snapshot() with
+        var original = Snapshot() with
         {
             InstalledPackage = new DeviceInstalledPackageDiagnostic(
                 "wsgm.device.synthetic.dock-x1",
-                "1.0.0"),
+                "1.0.0")
         };
 
-        string json = JsonSerializer.Serialize(
+        var json = JsonSerializer.Serialize(
             original,
             ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
-        DeviceCoordinatorDiagnosticsSnapshot? restored = JsonSerializer.Deserialize(
+        var restored = JsonSerializer.Deserialize(
             json,
             ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
 
@@ -31,12 +31,12 @@ public sealed class DeviceCoordinatorDiagnosticsTests
     [Fact]
     public void Snapshot_NoInstalledPackage_RoundTripsAsNull()
     {
-        DeviceCoordinatorDiagnosticsSnapshot original = Snapshot();
+        var original = Snapshot();
 
-        string json = JsonSerializer.Serialize(
+        var json = JsonSerializer.Serialize(
             original,
             ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
-        DeviceCoordinatorDiagnosticsSnapshot? restored = JsonSerializer.Deserialize(
+        var restored = JsonSerializer.Deserialize(
             json,
             ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
 
@@ -51,6 +51,6 @@ public sealed class DeviceCoordinatorDiagnosticsTests
         CapabilityCount = 3,
         HealthyCapabilityCount = 2,
         FaultedCapabilityCount = 1,
-        CapturedAt = DateTimeOffset.UnixEpoch,
+        CapturedAt = DateTimeOffset.UnixEpoch
     };
 }

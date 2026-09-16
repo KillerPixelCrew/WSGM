@@ -254,7 +254,7 @@ public static class SteamInputBlocker
             ? $"run by the host (scans {rescan.ScanCountBefore}→{rescan.ScanCountAfter})"
             : "run by the host",
         SteamControllerRecovery.NotRequired => "not required",
-        _ => "UNAVAILABLE",
+        _ => "UNAVAILABLE"
     };
 
     /// <summary>Probes host-side recovery at acquire time. Runs while Steam is

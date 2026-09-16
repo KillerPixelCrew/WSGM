@@ -41,7 +41,7 @@ internal sealed class CanonicalSampleQueue
     /// <param name="sample">The sample.</param>
     internal void Enqueue(CanonicalControllerSample sample)
     {
-        GamepadButtons held = UiInputRouter.Translate(sample);
+        var held = UiInputRouter.Translate(sample);
         bool post;
         lock (_gate)
         {
@@ -89,7 +89,7 @@ internal sealed class CanonicalSampleQueue
 
         try
         {
-            foreach (CanonicalControllerSample? sample in batch)
+            foreach (var sample in batch)
             {
                 if (sample is null)
                 {

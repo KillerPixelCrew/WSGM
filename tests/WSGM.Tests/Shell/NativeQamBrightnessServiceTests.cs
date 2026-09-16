@@ -8,7 +8,7 @@ public sealed class NativeQamBrightnessServiceTests
     public async Task SharedStateTracksExternalChangesAndDisplayLossWithoutWriting()
     {
         int? brightness = 42;
-        int changes = 0;
+        var changes = 0;
         using NativeQamBrightnessService service = new(() => true, () => { },
             () => brightness, _ => throw new InvalidOperationException("Readback must not write."), Timeout.InfiniteTimeSpan);
         service.Changed += () => changes++;
@@ -35,7 +35,7 @@ public sealed class NativeQamBrightnessServiceTests
         using ManualResetEventSlim release = new();
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         List<int> writes = [];
-        int brightness = 100;
+        var brightness = 100;
         using NativeQamBrightnessService service = new(() => true, () => { }, () => brightness,
             value =>
             {
@@ -60,9 +60,9 @@ public sealed class NativeQamBrightnessServiceTests
     [Fact]
     public async Task WriteReturnsConfirmedReadbackWithANewerRevisionThanAnEarlierPoll()
     {
-        int brightness = 100;
-        int writes = 0;
-        int publications = 0;
+        var brightness = 100;
+        var writes = 0;
+        var publications = 0;
         using NativeQamBrightnessService service = new(() => true, () => publications++,
             () => brightness, value => { brightness = value; writes++; return true; }, Timeout.InfiniteTimeSpan);
         var before = await service.ReadAsync();
@@ -84,7 +84,7 @@ public sealed class NativeQamBrightnessServiceTests
     [InlineData(100)]
     public async Task MissingOrMismatchingReadbackReportsFailureWithoutRetry(int? readback)
     {
-        int writes = 0;
+        var writes = 0;
         using NativeQamBrightnessService service = new(() => true, () => { },
             () => readback, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
 
@@ -107,8 +107,8 @@ public sealed class NativeQamBrightnessServiceTests
     [Fact]
     public async Task CanceledDisabledDisposedAndInvalidRequestsNeverReachHardware()
     {
-        bool active = true;
-        int writes = 0;
+        var active = true;
+        var writes = 0;
         using NativeQamBrightnessService service = new(() => active, () => { },
             () => 31, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
         using CancellationTokenSource canceled = new();

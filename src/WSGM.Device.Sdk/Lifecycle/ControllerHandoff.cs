@@ -52,7 +52,7 @@ public enum ControllerHandoffStep
     TopologyUnverified,
 
     /// <summary>WSGM removed the virtual target and only its own HidHide entries.</summary>
-    WsgmStateRemoved,
+    WsgmStateRemoved
 }
 
 /// <summary>
@@ -83,7 +83,7 @@ public enum ControllerHandoffResult
     /// <summary>
     /// Cleanup finished, but at least one step could not be confirmed. Journalled for the next start.
     /// </summary>
-    ReleasedUnverified,
+    ReleasedUnverified
 }
 
 /// <summary>
@@ -103,5 +103,5 @@ public enum HandoffScope
     /// <summary>
     /// The whole device cycle is ending, because WSGM is exiting or Device Integration was turned off.
     /// </summary>
-    FullDeactivation,
+    FullDeactivation
 }

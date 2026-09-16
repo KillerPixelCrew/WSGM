@@ -138,10 +138,10 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 
     private IReadOnlyList<RtssFrametimeSample> ReadLiveCore()
     {
-        IReadOnlyList<RtssFrametimeSample> live = Parse(
+        var live = Parse(
             new AccessorRegion(_view!),
             Environment.TickCount64,
-            out bool incompatible);
+            out var incompatible);
         if (incompatible)
         {
             Close();
@@ -171,31 +171,31 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
             return [];
         }
 
-        uint entrySize = region.ReadUInt32(HeaderAppEntrySizeOffset);
-        uint arrayOffset = region.ReadUInt32(HeaderAppArrOffsetOffset);
-        uint arraySize = region.ReadUInt32(HeaderAppArrSizeOffset);
+        var entrySize = region.ReadUInt32(HeaderAppEntrySizeOffset);
+        var arrayOffset = region.ReadUInt32(HeaderAppArrOffsetOffset);
+        var arraySize = region.ReadUInt32(HeaderAppArrSizeOffset);
         if (entrySize < MinimumEntrySize || arraySize == 0)
         {
             return [];
         }
 
-        long capacity = region.Capacity;
-        int count = (int)Math.Min(arraySize, MaximumEntries);
-        long now = nowTicks;
+        var capacity = region.Capacity;
+        var count = (int)Math.Min(arraySize, MaximumEntries);
+        var now = nowTicks;
         List<RtssFrametimeSample> live = [];
-        byte[] name = new byte[EntryNameLength];
-        for (int index = 0; index < count; index++)
+        var name = new byte[EntryNameLength];
+        for (var index = 0; index < count; index++)
         {
-            long entry = arrayOffset + ((long)index * entrySize);
+            var entry = arrayOffset + (long)index * entrySize;
             if (entry < 0 || entry + entrySize > capacity)
             {
                 break;
             }
 
-            uint processId = region.ReadUInt32(entry);
-            uint time0 = region.ReadUInt32(entry + EntryTime0Offset);
-            uint time1 = region.ReadUInt32(entry + EntryTime1Offset);
-            uint frames = region.ReadUInt32(entry + EntryFramesOffset);
+            var processId = region.ReadUInt32(entry);
+            var time0 = region.ReadUInt32(entry + EntryTime0Offset);
+            var time1 = region.ReadUInt32(entry + EntryTime1Offset);
+            var frames = region.ReadUInt32(entry + EntryFramesOffset);
             if (processId == 0 || frames == 0 || time1 == 0 || time1 <= time0)
             {
                 continue;
@@ -224,7 +224,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 
     private static string DecodeName(byte[] name)
     {
-        int length = Array.IndexOf(name, (byte)0);
+        var length = Array.IndexOf(name, (byte)0);
         return Encoding.ASCII.GetString(name, 0, length < 0 ? name.Length : length);
     }
 

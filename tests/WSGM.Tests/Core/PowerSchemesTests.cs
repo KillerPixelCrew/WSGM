@@ -13,8 +13,8 @@ public sealed class PowerSchemesTests
     public void EnumeratesCustomSchemesAndDuplicateLocalizedNamesByGuid()
     {
         FakeApi api = new();
-        api.Schemes.Add(new(Balanced, "Ausbalanciert"));
-        api.Schemes.Add(new(Custom, "Ausbalanciert"));
+        api.Schemes.Add(new PowerScheme(Balanced, "Ausbalanciert"));
+        api.Schemes.Add(new PowerScheme(Custom, "Ausbalanciert"));
 
         var schemes = new PowerSchemes(api).Enumerate();
 
@@ -31,7 +31,7 @@ public sealed class PowerSchemesTests
     public void EnumerationFailureDoesNotReturnAPartialList()
     {
         FakeApi api = new() { EnumerationFailureIndex = 1 };
-        api.Schemes.Add(new(Balanced, "Balanced"));
+        api.Schemes.Add(new PowerScheme(Balanced, "Balanced"));
 
         var error = Assert.Throws<Win32Exception>(() => new PowerSchemes(api).Enumerate());
 

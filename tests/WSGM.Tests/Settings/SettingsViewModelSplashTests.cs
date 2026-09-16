@@ -71,7 +71,7 @@ public sealed class SettingsViewModelSplashTests
                 PaddingX = 10,
                 PaddingY = 210,
                 X = 5,
-                Y = 6,
+                Y = 6
             },
             SpinnerPlacement = new SplashElementPlacement
             {
@@ -80,7 +80,7 @@ public sealed class SettingsViewModelSplashTests
                 PaddingX = 11,
                 PaddingY = 12,
                 X = 640,
-                Y = 480,
+                Y = 480
             },
             LogoPlacement = new SplashElementPlacement
             {
@@ -89,8 +89,8 @@ public sealed class SettingsViewModelSplashTests
                 PaddingX = 13,
                 PaddingY = 14,
                 X = 7,
-                Y = 8,
-            },
+                Y = 8
+            }
         };
 
         var viewModel = new SettingsViewModel(new AppConfig());
@@ -122,7 +122,7 @@ public sealed class SettingsViewModelSplashTests
         viewModel.LoadSplash(new SplashConfig
         {
             TextPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
-            LogoPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
+            LogoPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText }
         });
 
         var splash = viewModel.BuildSplashConfig();
@@ -291,7 +291,7 @@ public sealed class SettingsViewModelSplashTests
             new SplashConfig
             {
                 LogoImagePath = @"C:\splash\logo.png",
-                BackgroundImagePath = @"C:\splash\background.png",
+                BackgroundImagePath = @"C:\splash\background.png"
             },
             []);
 

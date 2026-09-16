@@ -56,21 +56,21 @@ public sealed class SplashThemeTests : IDisposable
                 Mode = SplashPlacementMode.Anchor,
                 Anchor = SplashPlacementAnchor.BottomLeft,
                 PaddingX = 48,
-                PaddingY = 160,
+                PaddingY = 160
             },
             SpinnerPlacement = new SplashElementPlacement
             {
                 Mode = SplashPlacementMode.Absolute,
                 X = 640,
-                Y = 360,
+                Y = 360
             },
             LogoPlacement = new SplashElementPlacement
             {
                 Mode = SplashPlacementMode.Anchor,
                 Anchor = SplashPlacementAnchor.TopCenter,
                 PaddingX = 0,
-                PaddingY = 96,
-            },
+                PaddingY = 96
+            }
         };
 
     private static void AssertNonImageFieldsEqual(SplashConfig expected, SplashConfig actual)

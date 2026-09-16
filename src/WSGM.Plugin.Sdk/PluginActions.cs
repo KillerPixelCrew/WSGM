@@ -19,7 +19,7 @@ public enum PluginActionOrigin
     /// <summary>Host-owned session automation: Game Mode entry and leave, desktop startup and wake.</summary>
     SessionAutomation,
     /// <summary>Host-owned profile restoration.</summary>
-    ProfileRestore,
+    ProfileRestore
 }
 
 /// <summary>One host-identified operation; neither cancellation nor a missing reply authorizes retry.</summary>
@@ -40,7 +40,7 @@ public enum PluginActionOutcome
     /// <summary>The action's declared effect was independently verified.</summary>
     AppliedVerified,
     /// <summary>The external outcome is unknown; do not automatically retry.</summary>
-    Unconfirmed,
+    Unconfirmed
 }
 
 /// <summary>Outcome tied to one exact operation identity.</summary>
@@ -72,7 +72,7 @@ public enum PluginUiKind
     /// <summary>A boolean state and one boolean action argument.</summary>
     Toggle,
     /// <summary>A numeric state and one bounded numeric action argument.</summary>
-    Slider,
+    Slider
 }
 
 /// <summary>Optional host-rendered contribution. The host decides placement and pinning.</summary>

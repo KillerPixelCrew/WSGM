@@ -108,7 +108,7 @@ public sealed class ControllerProcessPriorityTests
         internal Harness(ProcessPriorityClass initial = ProcessPriorityClass.Normal)
         {
             Current = initial;
-            Owner = new(
+            Owner = new ControllerProcessPriority(
                 () => FailRead ? throw new Win32Exception("read denied") : Current,
                 priority =>
                 {

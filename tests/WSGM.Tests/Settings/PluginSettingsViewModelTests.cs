@@ -16,7 +16,7 @@ public sealed class PluginSettingsViewModelTests
         ValueKind = CapabilityValueKind.Boolean,
         Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = id },
         Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean },
-        SectionId = sectionId,
+        SectionId = sectionId
     };
 
     /// <remarks>
@@ -38,7 +38,7 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void APageWithNoSectionsReportsItselfUnavailableRatherThanDrawingNothing()
     {
-        SettingsViewModel viewModel = ViewModel();
+        var viewModel = ViewModel();
 
         viewModel.SetPluginSettings(Page(new PluginSettingsManifest()), (_, _) => { });
 
@@ -59,13 +59,13 @@ public sealed class PluginSettingsViewModelTests
                     SectionId = "two",
                     Key = SettingSectionKey.Custom,
                     CustomTitle = "Vendor",
-                    SortOrder = 1,
-                },
+                    SortOrder = 1
+                }
             ],
-            Settings = [Setting("a", "one"), Setting("b", "two")],
+            Settings = [Setting("a", "one"), Setting("b", "two")]
         };
 
-        SettingsViewModel viewModel = ViewModel();
+        var viewModel = ViewModel();
         viewModel.SetPluginSettings(Page(manifest, "a", "b"), (_, _) => { });
 
         Assert.True(viewModel.PluginSettingsAvailable);
@@ -82,10 +82,10 @@ public sealed class PluginSettingsViewModelTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
-            Settings = [Setting("vendor.flag", "one")],
+            Settings = [Setting("vendor.flag", "one")]
         };
 
-        SettingsViewModel viewModel = ViewModel();
+        var viewModel = ViewModel();
         List<string> edited = [];
         viewModel.SetPluginSettings(Page(manifest, "vendor.flag"), (id, _) => edited.Add(id));
 
@@ -102,10 +102,10 @@ public sealed class PluginSettingsViewModelTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
-            Settings = [Setting("a", "one")],
+            Settings = [Setting("a", "one")]
         };
 
-        SettingsViewModel viewModel = ViewModel();
+        var viewModel = ViewModel();
         viewModel.SetPluginSettings(Page(manifest, "a"), (_, _) => { });
         viewModel.SetPluginSettings(Page(manifest, "a"), (_, _) => { });
 
@@ -121,13 +121,13 @@ public sealed class PluginSettingsViewModelTests
         PluginSettingsManifest manifest = new()
         {
             Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
-            Settings = [Setting("a", "one")],
+            Settings = [Setting("a", "one")]
         };
 
-        SettingsViewModel viewModel = ViewModel();
-        int firstOwnerEdits = 0;
+        var viewModel = ViewModel();
+        var firstOwnerEdits = 0;
         viewModel.SetPluginSettings(Page(manifest, "a"), (_, _) => firstOwnerEdits++);
-        PluginSettingRowViewModel stale = viewModel.PluginSettingSections[0].Rows[0];
+        var stale = viewModel.PluginSettingSections[0].Rows[0];
 
         viewModel.SetPluginSettings(Page(manifest, "a"), (_, _) => { });
         viewModel.PluginSettingSections[0].Rows[0].BooleanValue = true;
@@ -153,11 +153,11 @@ public sealed class PluginSettingsViewModelTests
                 Default = new CapabilityValue
                 {
                     Kind = CapabilityValueKind.Boolean,
-                    BooleanValue = false,
+                    BooleanValue = false
                 },
-                SectionId = "one",
-            },
-        ],
+                SectionId = "one"
+            }
+        ]
     };
 
     private static AppConfig Config(PluginSettingsManifest? declaration) => new()
@@ -170,10 +170,10 @@ public sealed class PluginSettingsViewModelTests
                 {
                     DeviceDefinitionId = Device,
                     PluginId = Plugin,
-                    Declaration = declaration,
-                },
-            ],
-        },
+                    Declaration = declaration
+                }
+            ]
+        }
     };
 
     [Fact]
@@ -204,10 +204,10 @@ public sealed class PluginSettingsViewModelTests
         SettingsViewModel viewModel = new(Config(Manifest()));
         viewModel.PluginSettingSections[0].Rows[0].BooleanValue = true;
 
-        AppConfig fresh = Config(Manifest());
+        var fresh = Config(Manifest());
         viewModel.ApplyPluginSettingsTo(fresh);
 
-        PluginSettingValue stored = Assert.Single(fresh.DeviceIntegration.PluginSettings[0].Values);
+        var stored = Assert.Single(fresh.DeviceIntegration.PluginSettings[0].Values);
         Assert.Equal("vendor.flag", stored.SettingId);
         Assert.True(stored.Boolean);
     }
@@ -219,11 +219,11 @@ public sealed class PluginSettingsViewModelTests
         // snapshot over the fresh load would silently revert it.
         SettingsViewModel viewModel = new(Config(Manifest()));
 
-        AppConfig fresh = Config(Manifest());
+        var fresh = Config(Manifest());
         fresh.DeviceIntegration.PluginSettings[0].Values.Add(new PluginSettingValue
         {
             SettingId = "vendor.flag",
-            Boolean = true,
+            Boolean = true
         });
         viewModel.ApplyPluginSettingsTo(fresh);
 
@@ -235,12 +235,12 @@ public sealed class PluginSettingsViewModelTests
     {
         // A cache written by an older plugin build can describe bounds the stored values no longer
         // fit, and the page must not offer a value the plugin would refuse.
-        AppConfig config = Config(Manifest());
+        var config = Config(Manifest());
         config.DeviceIntegration.PluginSettings[0].Values.Add(new PluginSettingValue
         {
             SettingId = "vendor.flag",
             // Wrong shape for a boolean setting: the integer field is set and the boolean is not.
-            Integer = 7,
+            Integer = 7
         });
 
         SettingsViewModel viewModel = new(config);
@@ -251,12 +251,12 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void TheMostRecentlyPublishedDeclarationWinsOverAStaleScope()
     {
-        AppConfig config = Config(Manifest("Stale"));
+        var config = Config(Manifest("Stale"));
         PluginSettingsScope current = new()
         {
             DeviceDefinitionId = "msi.claw8-current",
             PluginId = Plugin,
-            Declaration = Manifest("Current"),
+            Declaration = Manifest("Current")
         };
         config.DeviceIntegration.PluginSettings.Add(current);
 
@@ -268,12 +268,12 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void SettingsSelectsOnlyTheCurrentlyInstalledPluginDeclaration()
     {
-        AppConfig config = Config(Manifest("Replaced"));
+        var config = Config(Manifest("Replaced"));
         config.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
         {
             DeviceDefinitionId = "other.device",
             PluginId = "wsgm.device.current",
-            Declaration = Manifest("Installed"),
+            Declaration = Manifest("Installed")
         });
 
         SettingsViewModel viewModel = new(config, "wsgm.device.current");

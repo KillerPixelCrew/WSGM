@@ -14,7 +14,7 @@ public enum PluginSettingKind
     /// <summary>A finite numeric preference.</summary>
     Number,
     /// <summary>A bounded plain-text preference.</summary>
-    Text,
+    Text
 }
 
 /// <summary>Declarative plugin behavior configuration, separate from external-state actions.</summary>
@@ -34,7 +34,7 @@ public enum PluginConfigurationOrigin
     /// <summary>A person explicitly changed plugin preferences.</summary>
     User,
     /// <summary>The host restores saved preferences and unsaved declaration defaults.</summary>
-    Restore,
+    Restore
 }
 
 /// <summary>Host-owned desired revision delivered as a complete immutable snapshot.</summary>
@@ -51,7 +51,7 @@ public enum PluginConfigurationOutcome
     /// <summary>The plugin rejected the request before adopting it.</summary>
     Rejected,
     /// <summary>The final outcome is unknown and must not be retried automatically.</summary>
-    Unconfirmed,
+    Unconfirmed
 }
 
 /// <summary>Confirmation for one requested revision. It cannot modify desired preferences.</summary>
@@ -106,7 +106,7 @@ public static class PluginConfigurationRules
         PluginSettingKind.Boolean => value.Boolean.HasValue,
         PluginSettingKind.Number => value.Number.HasValue && !(value.Number < setting.Minimum) && !(value.Number > setting.Maximum),
         PluginSettingKind.Text => value.Text is not null && (setting.Choices is null || setting.Choices.Contains(value.Text, StringComparer.Ordinal)),
-        _ => false,
+        _ => false
     };
 
     /// <summary>Checks a bounded stable preference identity.</summary>

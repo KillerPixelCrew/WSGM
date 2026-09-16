@@ -5,13 +5,13 @@ namespace WSGM.Tests;
 
 public sealed class ImageHeaderTests : IDisposable
 {
-    private readonly string _root = System.IO.Directory.CreateTempSubdirectory("wsgm-image-header-").FullName;
+    private readonly string _root = Directory.CreateTempSubdirectory("wsgm-image-header-").FullName;
 
     public void Dispose()
     {
         try
         {
-            System.IO.Directory.Delete(_root, recursive: true);
+            Directory.Delete(_root, recursive: true);
         }
         catch (IOException) { }
     }

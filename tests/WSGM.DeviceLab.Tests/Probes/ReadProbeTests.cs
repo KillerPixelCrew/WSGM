@@ -18,9 +18,9 @@ public sealed class ReadProbeTests
             Family = ReadProbeFamily.Version,
             MaximumReadsPerSecond = 20,
             TimeoutMilliseconds = 2000,
-            Repetitions = 2,
+            Repetitions = 2
         };
-        ReadProbeWorkerResponse response = await ReadProbeExecutor.ExecuteAsync(
+        var response = await ReadProbeExecutor.ExecuteAsync(
             new MalformedSecondRead(), request, CancellationToken.None);
 
         Assert.Equal(ReadProbeWorkerStatus.Rejected, response.Status);
@@ -47,15 +47,15 @@ public sealed class ReadProbeTests
             MaximumReadsPerSecond = 20,
             TimeoutMilliseconds = 2000,
             Repetitions = 1,
-            ExpectedResponse = new()
+            ExpectedResponse = new ReadProbeResponseExpectation
             {
                 ValueKind = ReadProbeValueKind.Version,
                 MinimumLength = 1,
                 MaximumLength = 32,
                 MinimumValue = 0,
-                MaximumValue = 255,
+                MaximumValue = 255
             },
-            CrossCheck = new() { Id = "test", Kind = ReadProbeCrossCheckKind.Equal },
+            CrossCheck = new ReadProbeCrossCheck { Id = "test", Kind = ReadProbeCrossCheckKind.Equal }
         };
         ReadProbeWorkerResponse response = new()
         {
@@ -63,7 +63,7 @@ public sealed class ReadProbeTests
             ProbeId = "test",
             ProbeVersion = 1,
             Status = ReadProbeWorkerStatus.Completed,
-            Samples = [Sample() with { NumericValue = value }],
+            Samples = [Sample() with { NumericValue = value }]
         };
 
         Assert.Empty(ReadProbeMetadataPolicy.Validate(metadata));
@@ -73,7 +73,7 @@ public sealed class ReadProbeTests
     [Fact]
     public void FanRpmProbe_AllowsLiveTachometerMovementAcrossReads()
     {
-        ReadProbeMetadata metadata = KnownMsiClaw.Create().ReadProbes.Single(
+        var metadata = KnownMsiClaw.Create().ReadProbes.Single(
             probe => probe.Id.EndsWith("fan-rpm", StringComparison.Ordinal));
         ReadProbeWorkerResponse response = new()
         {
@@ -84,9 +84,9 @@ public sealed class ReadProbeTests
             Samples =
             [
                 FanSample("3000,3100", "3010,3090"),
-                FanSample("3030,3120", "3020,3110"),
+                FanSample("3030,3120", "3020,3110")
             ],
-            HardwareMutationObserved = false,
+            HardwareMutationObserved = false
         };
 
         Assert.False(metadata.ExpectedResponse.MustBeStable);
@@ -97,7 +97,7 @@ public sealed class ReadProbeTests
     [Fact]
     public void ReadProbeSupervisor_OutlivesTheWorkersSemanticDeadline()
     {
-        ReadProbeMetadata metadata = KnownMsiClaw.Create().ReadProbes[0];
+        var metadata = KnownMsiClaw.Create().ReadProbes[0];
 
         Assert.True(
             ReadProbeWorkerSupervisor.ProcessDeadline(metadata)
@@ -107,7 +107,7 @@ public sealed class ReadProbeTests
     [Fact]
     public void ReadProbeResponse_MutationOrMissingCrossCheck_IsRejected()
     {
-        ReadProbeMetadata metadata = KnownMsiClaw.Create().ReadProbes.Single(
+        var metadata = KnownMsiClaw.Create().ReadProbes.Single(
             probe => probe.Id.EndsWith("charge-limit", StringComparison.Ordinal));
         ReadProbeSample sample = new()
         {
@@ -118,7 +118,7 @@ public sealed class ReadProbeTests
             NormalizedValue = "80",
             ElapsedMilliseconds = 5,
             CrossCheckValue = "80",
-            CrossCheckNumericValue = 80,
+            CrossCheckNumericValue = 80
         };
         ReadProbeWorkerResponse response = new()
         {
@@ -127,7 +127,7 @@ public sealed class ReadProbeTests
             ProbeVersion = metadata.Version,
             Status = ReadProbeWorkerStatus.Completed,
             Samples = [sample, sample],
-            HardwareMutationObserved = false,
+            HardwareMutationObserved = false
         };
 
         Assert.True(ReadProbeResponseValidator.Validate(metadata, response).Accepted);
@@ -142,7 +142,7 @@ public sealed class ReadProbeTests
                 metadata,
                 response with
                 {
-                    Samples = [sample with { CrossCheckValue = "79" }, sample],
+                    Samples = [sample with { CrossCheckValue = "79" }, sample]
                 }).Code);
     }
 
@@ -153,7 +153,7 @@ public sealed class ReadProbeTests
         Length = 5,
         NormalizedValue = value,
         ElapsedMilliseconds = 5,
-        CrossCheckValue = crossCheck,
+        CrossCheckValue = crossCheck
     };
 
     private static ReadProbeSample Sample() => new()
@@ -164,7 +164,7 @@ public sealed class ReadProbeTests
         NumericValue = 8,
         NormalizedValue = "8.0",
         ElapsedMilliseconds = 1,
-        CrossCheckValue = "8.0",
+        CrossCheckValue = "8.0"
     };
 
     private sealed class MalformedSecondRead : IReadProbeProfile

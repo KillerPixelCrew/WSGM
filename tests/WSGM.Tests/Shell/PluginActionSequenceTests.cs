@@ -1,3 +1,4 @@
+using System.Collections;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
@@ -14,7 +15,7 @@ public sealed class PluginActionSequenceTests
         {
             { "one", PluginActionOutcome.Dispatched },
             { "two", PluginActionOutcome.Rejected },
-            { "three", PluginActionOutcome.Dispatched },
+            { "three", PluginActionOutcome.Dispatched }
         };
 
         var results = await new PluginActionSequence(invoker)
@@ -32,7 +33,7 @@ public sealed class PluginActionSequenceTests
         {
             { "one", PluginActionOutcome.Rejected },
             { "two", PluginActionOutcome.AppliedVerified },
-            { "three", PluginActionOutcome.Unconfirmed },
+            { "three", PluginActionOutcome.Unconfirmed }
         };
 
         List<string> log = [];
@@ -97,7 +98,7 @@ public sealed class PluginActionSequenceTests
         Assert.Equal(["one"], invoker.Invoked);
     }
 
-    private sealed class Invoker : IPluginActionInvoker, System.Collections.IEnumerable
+    private sealed class Invoker : IPluginActionInvoker, IEnumerable
     {
         private readonly Dictionary<string, PluginActionOutcome> _outcomes = [];
 
@@ -110,7 +111,7 @@ public sealed class PluginActionSequenceTests
 
         internal void Add(string actionId, PluginActionOutcome outcome) => _outcomes[actionId] = outcome;
 
-        public System.Collections.IEnumerator GetEnumerator() => _outcomes.GetEnumerator();
+        public IEnumerator GetEnumerator() => _outcomes.GetEnumerator();
 
         public async Task<PluginActionResult> InvokeAsync(
             PluginActionStep step, DateTimeOffset deadline, CancellationToken cancellationToken)
@@ -119,7 +120,7 @@ public sealed class PluginActionSequenceTests
             if (step.ActionId == Throw) { throw new InvalidOperationException("the endpoint went away"); }
             if (step.ActionId == Hang) { await Task.Delay(Timeout.Infinite, cancellationToken); }
             AfterInvoke?.Invoke();
-            return new(Guid.NewGuid(), _outcomes.GetValueOrDefault(step.ActionId!, PluginActionOutcome.Rejected));
+            return new PluginActionResult(Guid.NewGuid(), _outcomes.GetValueOrDefault(step.ActionId!, PluginActionOutcome.Rejected));
         }
     }
 }

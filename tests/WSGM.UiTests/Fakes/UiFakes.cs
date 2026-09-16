@@ -46,12 +46,12 @@ internal sealed class MutableProvider : ICommonPluginOverlaySource
     public bool Available { get; set; } = true;
     public int Invocations { get; private set; }
     public PluginOverlayInstance[] Snapshot() => !Present ? [] :
-    [new(Identity, "Test", Generation, new([new("run", "Run", [])],
-        [new("run", "Run", "power", PluginUiKind.Action, ActionId: "run")],
-        [new("power", "Power", ["run"], VisibleStateKey: "available", EnabledStateKey: "enabled")]), "Ready", true, null)];
+    [new PluginOverlayInstance(Identity, "Test", Generation, new PluginOverlayControls([new PluginAction("run", "Run", [])],
+        [new PluginUiContribution("run", "Run", "power", PluginUiKind.Action, ActionId: "run")],
+        [new PluginWidget("power", "Power", ["run"], VisibleStateKey: "available", EnabledStateKey: "enabled")]), "Ready", true, null)];
     public PluginStatePublication[] State(PluginInstanceIdentity identity) =>
-        [new(Identity, Generation, 1, "enabled", new(Boolean: Enabled), PluginStateOrigin.HardwareReadback),
-            new(Identity, Generation, 1, "available", new(Boolean: Available), PluginStateOrigin.HardwareReadback)];
+        [new(Identity, Generation, 1, "enabled", new PluginValue(Boolean: Enabled), PluginStateOrigin.HardwareReadback),
+            new(Identity, Generation, 1, "available", new PluginValue(Boolean: Available), PluginStateOrigin.HardwareReadback)];
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {
@@ -74,10 +74,10 @@ internal sealed class ChoiceSource : ICommonPluginOverlaySource
     private static readonly PluginInstanceIdentity Identity = new("test", "device");
     public string? Requested { get; private set; }
     public PluginOverlayInstance[] Snapshot() =>
-    [new(Identity, "Test", 1, new(
-        [new("fan", "Change fan", [new("value", "Fan", PluginSettingKind.Text, new(Text: "quiet"), Choices: ["quiet", "turbo"])])],
-        [new("edit", "Change fan", "device", PluginUiKind.Action, ActionId: "fan")],
-        [new("fan", "Fan", ["edit"])]), "Ready", true, null)];
+    [new(Identity, "Test", 1, new PluginOverlayControls(
+        [new PluginAction("fan", "Change fan", [new PluginSetting("value", "Fan", PluginSettingKind.Text, new PluginValue(Text: "quiet"), Choices: ["quiet", "turbo"])])],
+        [new PluginUiContribution("edit", "Change fan", "device", PluginUiKind.Action, ActionId: "fan")],
+        [new PluginWidget("fan", "Fan", ["edit"])]), "Ready", true, null)];
     public PluginStatePublication[] State(PluginInstanceIdentity identity) => [];
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation, string action,
         IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)

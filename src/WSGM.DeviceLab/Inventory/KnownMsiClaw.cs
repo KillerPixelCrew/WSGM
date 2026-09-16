@@ -82,7 +82,7 @@ internal static class KnownDeviceMatcher
         ArgumentException.ThrowIfNullOrWhiteSpace(targetDeviceId);
 
         List<string> explanations = [];
-        bool exact = Check(
+        var exact = Check(
             "logical device ID",
             targetDeviceId,
             fingerprint.DeviceId,
@@ -103,7 +103,7 @@ internal static class KnownDeviceMatcher
             fingerprint.SystemSku,
             explanations);
 
-        bool usb = inventory.UsbInterfaces.Any(endpoint =>
+        var usb = inventory.UsbInterfaces.Any(endpoint =>
             string.Equals(endpoint.VendorId, fingerprint.UsbVendorId, StringComparison.OrdinalIgnoreCase)
             && fingerprint.UsbProductIds.Contains(endpoint.ProductId ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             && string.Equals(endpoint.DeviceRelease, fingerprint.UsbDeviceRelease, StringComparison.OrdinalIgnoreCase));
@@ -112,7 +112,7 @@ internal static class KnownDeviceMatcher
             : $"USB endpoint mismatch: expected {fingerprint.UsbVendorId}:[{string.Join(", ", fingerprint.UsbProductIds)}] release {fingerprint.UsbDeviceRelease}.");
         exact &= usb;
 
-        bool wmi = inventory.WmiClasses.Any(provider =>
+        var wmi = inventory.WmiClasses.Any(provider =>
             provider.Access is WmiAccess.Available or WmiAccess.AccessDenied
             && string.Equals(provider.Namespace, fingerprint.WmiNamespace, StringComparison.OrdinalIgnoreCase)
             && string.Equals(provider.ClassName, fingerprint.WmiClass, StringComparison.Ordinal));
@@ -127,7 +127,7 @@ internal static class KnownDeviceMatcher
             DisplayName = fingerprint.DisplayName,
             ExactMatch = exact,
             Explanations = explanations,
-            NonInheritableValues = fingerprint.NonInheritableValues,
+            NonInheritableValues = fingerprint.NonInheritableValues
         };
     }
 
@@ -137,7 +137,7 @@ internal static class KnownDeviceMatcher
         string expected,
         ICollection<string> explanations)
     {
-        bool matched = string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+        var matched = string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
         explanations.Add(matched
             ? $"{label} matched '{expected}'."
             : $"{label} mismatch: expected '{expected}', observed '{actual ?? "<missing>"}'.");
@@ -169,8 +169,8 @@ internal static class KnownMsiClaw
             "power limits and scenario policy",
             "fan table width, conversion, and safe minimum duty",
             "controller profile-memory offsets and mode topology",
-            "RGB zone order and persistence",
-        ],
+            "RGB zone order and persistence"
+        ]
     };
 
     private static IReadOnlyList<ReadProbeMetadata> MsiReadProbes() =>
@@ -189,7 +189,7 @@ internal static class KnownMsiClaw
             null, null, stable: false, crossCheck: ReadProbeCrossCheckKind.Present),
         Probe("msi.claw-a2vm.charge-limit", ReadProbeFamily.ChargeState,
             "root/WMI:MSI_ACPI.Get_Data:0xd7", "charge-policy", ReadProbeValueKind.Integer, 2, 2,
-            0, 100),
+            0, 100)
     ];
 
     private static ReadProbeMetadata Probe(
@@ -222,13 +222,13 @@ internal static class KnownMsiClaw
                 AllowedStatusCodes = [1],
                 MinimumValue = minimum,
                 MaximumValue = maximum,
-                MustBeStable = stable,
+                MustBeStable = stable
             },
             CrossCheck = new ReadProbeCrossCheck
             {
                 Id = $"{id}.repeat-read",
-                Kind = crossCheck,
+                Kind = crossCheck
             },
-            RequiresElevation = true,
+            RequiresElevation = true
         };
 }

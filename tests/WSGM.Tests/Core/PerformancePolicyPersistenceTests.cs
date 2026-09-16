@@ -12,7 +12,7 @@ public sealed class PerformancePolicyPersistenceTests
         {
             FrameLimitStrategy = FrameLimitStrategy.FrameDoubling,
             TdpWatts = 22,
-            ManualTdp = new(true, 20, 22, 30),
+            ManualTdp = new ManualTdpProfile(true, 20, 22, 30),
             VariableRefreshRate = true,
             Applications =
             [
@@ -24,10 +24,10 @@ public sealed class PerformancePolicyPersistenceTests
                     OverlayLevel = 1,
                     UsePerGameProfile = true,
                     TdpWatts = 18,
-                    ManualTdp = new(false, 15, 18, 25),
-                    VariableRefreshRate = false,
-                },
-            ],
+                    ManualTdp = new ManualTdpProfile(false, 15, 18, 25),
+                    VariableRefreshRate = false
+                }
+            ]
         };
         PerformancePolicy rtss = new(
             new PerformanceValues(60, 3),
@@ -44,15 +44,15 @@ public sealed class PerformancePolicyPersistenceTests
         Assert.Equal(3, config.OverlayLevel);
         Assert.Equal(FrameLimitStrategy.FrameDoubling, config.FrameLimitStrategy);
         Assert.Equal(22, config.TdpWatts);
-        Assert.Equal(new(true, 20, 22, 30), config.ManualTdp);
+        Assert.Equal(new ManualTdpProfile(true, 20, 22, 30), config.ManualTdp);
         Assert.True(config.VariableRefreshRate);
-        PerformanceApplicationConfig application = Assert.Single(config.Applications);
+        var application = Assert.Single(config.Applications);
         Assert.Equal("game.exe", application.RtssProfileName);
         Assert.Equal(45, application.FrameLimit);
         Assert.Equal(2, application.OverlayLevel);
         Assert.True(application.UsePerGameProfile);
         Assert.Equal(18, application.TdpWatts);
-        Assert.Equal(new(false, 15, 18, 25), application.ManualTdp);
+        Assert.Equal(new ManualTdpProfile(false, 15, 18, 25), application.ManualTdp);
         Assert.False(application.VariableRefreshRate);
     }
 
@@ -71,16 +71,16 @@ public sealed class PerformancePolicyPersistenceTests
                     OverlayLevel = 1,
                     UsePerGameProfile = true,
                     TdpWatts = 18,
-                    VariableRefreshRate = false,
-                },
-            ],
+                    VariableRefreshRate = false
+                }
+            ]
         };
 
         ShellSession.MergePerformancePolicy(
             config,
             new PerformancePolicy(new PerformanceValues(60, 3), [], Enabled: true));
 
-        PerformanceApplicationConfig application = Assert.Single(config.Applications);
+        var application = Assert.Single(config.Applications);
         Assert.False(application.UsePerGameProfile);
         Assert.Equal(40, application.FrameLimit);
         Assert.Equal(1, application.OverlayLevel);

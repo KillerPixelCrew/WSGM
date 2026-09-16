@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,7 +20,7 @@ public enum LogLevel
     Warn,
 
     /// <summary>A failure the code could not handle.</summary>
-    Error,
+    Error
 }
 
 /// <summary>How much detail the log records, as a user-facing choice.</summary>
@@ -34,7 +35,7 @@ public enum LogVerbosity
     Normal,
 
     /// <summary>Adds the debug level, for reproducing a specific problem.</summary>
-    Verbose,
+    Verbose
 }
 
 /// <summary>Tiny synchronized file logger. No toasts/taskbar exist in shell mode,
@@ -200,14 +201,14 @@ public static class Log
         // the append would let another thread's line land between them.
         lock (Gate)
         {
-            if (LastByKey.TryGetValue(key, out (string Message, long Repeats) previous)
+            if (LastByKey.TryGetValue(key, out var previous)
                 && string.Equals(previous.Message, message, StringComparison.Ordinal))
             {
                 LastByKey[key] = (previous.Message, previous.Repeats + 1);
                 return;
             }
 
-            long held = previous.Repeats;
+            var held = previous.Repeats;
             if (LastByKey.Count >= MaxChangeKeys)
             {
                 LastByKey.Clear();
@@ -298,7 +299,7 @@ public static class Log
         LogLevel.Debug => "debug",
         LogLevel.Info => "info ",
         LogLevel.Warn => "warn ",
-        _ => "error",
+        _ => "error"
     };
 
     private static void Write(LogLevel level, string message)
@@ -326,7 +327,7 @@ public static class Log
             // stalled UI-thread callers. Opening for append with read, write and delete sharing
             // lets both processes append at once and rotation rename the file; a violation from
             // some other exclusive opener is retried only briefly.
-            var bytes = System.Text.Encoding.UTF8.GetBytes(line);
+            var bytes = Encoding.UTF8.GetBytes(line);
             for (var attempt = 0; ; attempt++)
             {
                 try
