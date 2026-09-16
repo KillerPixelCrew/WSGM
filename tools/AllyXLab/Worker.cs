@@ -257,8 +257,10 @@ internal static class Worker
                     return new(request, outcome, cleanup, log.Events, null);
                 }
 
-                HidEndpoint endpoint = endpoints.Where(e => e.Vendor).SingleOrDefault(e => e.Id == request.Endpoint)
-                    ?? throw new InvalidOperationException("Select exactly one inventoried endpoint for this action.");
+                HidEndpoint[] selected = [.. endpoints.Where(e => e.Vendor && e.Id == request.Endpoint)];
+                HidEndpoint endpoint = selected.Length == 1
+                    ? selected[0]
+                    : throw new InvalidOperationException("Select exactly one inventoried endpoint for this action.");
                 if (endpoint.OutputBytes < 64)
                 {
                     throw new InvalidOperationException("Expected output report is absent. No feature-report fallback is attempted.");

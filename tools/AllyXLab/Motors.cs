@@ -74,8 +74,10 @@ internal static class Motors
         ArgumentNullException.ThrowIfNull(endpoints);
         if (route.StartsWith("hid:", StringComparison.Ordinal))
         {
-            HidEndpoint endpoint = endpoints.SingleOrDefault(e => e.Rumble && e.Id == route[4..])
-                ?? throw new InvalidOperationException("The selected motor interface is not in this inventory.");
+            HidEndpoint[] matches = [.. endpoints.Where(e => e.Rumble && e.Id == route[4..])];
+            HidEndpoint endpoint = matches.Length == 1
+                ? matches[0]
+                : throw new InvalidOperationException("The selected motor interface is not in this inventory exactly once.");
             return new HidMotors(Hid.Open(endpoint), endpoint, log);
         }
 
