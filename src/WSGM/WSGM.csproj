@@ -26,23 +26,18 @@
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**"/>
-    <!-- LoadingIndicators remains diffable vendored source, but is compiled into
-         WSGM instead of producing a one-consumer assembly. Link fixes its avares
-         path inside this assembly while preserving the relative theme includes
-         and the LoadingIndicators.Avalonia namespace. -->
-    <AvaloniaResource
-      Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\**\*.axaml"
-      Link="ThirdParty\LoadingIndicators\%(RecursiveDir)%(Filename)%(Extension)"/>
+    <!-- LoadingIndicators remains diffable vendored source under external/, but is compiled
+         into WSGM instead of producing a one-consumer assembly. ThirdParty\LoadingIndicators is
+         a tracked symlink to that source, so its avares path inside this assembly is a real
+         folder that the XAML analyzer can resolve, while the relative theme includes and the
+         LoadingIndicators.Avalonia namespace stay untouched. The .cs files come in through the
+         default compile glob; the .axaml files stay resources rather than compiled XAML. -->
+    <AvaloniaResource Include="ThirdParty\LoadingIndicators\**\*.axaml"/>
+    <AvaloniaXaml Remove="ThirdParty\**"/>
     <EmbeddedResource Include="Core\SteamUiAssets\*.js"
                       LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)"/>
   </ItemGroup>
   <ItemGroup>
-    <Compile
-      Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicator.cs"
-      Link="ThirdParty\LoadingIndicators\LoadingIndicator.cs"/>
-    <Compile
-      Include="..\..\external\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicatorMode.cs"
-      Link="ThirdParty\LoadingIndicators\LoadingIndicatorMode.cs"/>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
          WSGM and WSGM.Launch compile it directly; there is no application mirror.
          PlatformSupport.cs is the binding project's own assembly attribute: compiled here it

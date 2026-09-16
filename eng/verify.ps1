@@ -104,11 +104,12 @@ try {
     # Rider's formatter is the layout authority. The same ReSharper engine runs here as
     # jb cleanupcode with the built-in Full Cleanup profile and the solution settings layer, and
     # the gate is that it changes nothing. Nothing under external/ is ours to restyle from here:
-    # each submodule has its own gate, and vendored upstream source keeps its diff against upstream.
+    # each submodule has its own gate, and vendored upstream source keeps its diff against upstream
+    # (src/WSGM/ThirdParty is a symlink into it).
     dotnet tool restore
     if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed" }
     dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
-        --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**" --no-build --verbosity=WARN
+        --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**;src\WSGM\ThirdParty\**" --no-build --verbosity=WARN
     if ($LASTEXITCODE -ne 0) { throw "jb cleanupcode failed" }
     if (-not $Fix) {
         git diff --exit-code --stat -- src tests
@@ -125,7 +126,7 @@ try {
     )
     foreach ($mode in $formatModes) {
         $formatArgs = @("format", "WSGM.slnx", $mode.Name, "--no-restore") + $mode.Severity +
-            @("--verbosity", "minimal") + $mode.Excluded + @("--exclude", "external/")
+            @("--verbosity", "minimal") + $mode.Excluded + @("--exclude", "external/", "--exclude", "src/WSGM/ThirdParty/")
         if (-not $Fix) { $formatArgs += "--verify-no-changes" }
         & dotnet @formatArgs
         if ($LASTEXITCODE -ne 0) { throw $mode.Failure }
