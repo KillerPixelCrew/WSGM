@@ -19,8 +19,9 @@ The library exposes a small C ABI over blittable types, keeping its native
 ownership and lifetime rules out of the managed device layer.
 
 .PARAMETER Validate
-Also run the library's own tests for the device WSGM uses before building. Used
-by build.ps1 before a release build.
+Also vet the whole module and run the library's own tests for the device WSGM
+uses and for the C API before building. Used by build.ps1 before a release build
+and by the viiper CI job.
 #>
 [CmdletBinding()]
 param(
@@ -67,8 +68,12 @@ $env:CGO_ENABLED = "1"
 Push-Location $source
 try {
     if ($Validate) {
-        go test ./device/steamdeck/...
-        if ($LASTEXITCODE -ne 0) { throw "VIIPER Steam Deck device tests failed" }
+        # vet compiles every package including its tests, which the library build never does, so a
+        # test that drifted from an interface change is caught here rather than never.
+        go vet ./...
+        if ($LASTEXITCODE -ne 0) { throw "VIIPER go vet failed" }
+        go test ./device/steamdeck/... ./clib/...
+        if ($LASTEXITCODE -ne 0) { throw "VIIPER Steam Deck device or C API tests failed" }
     }
 
     if (Test-Path -LiteralPath $staging) {
