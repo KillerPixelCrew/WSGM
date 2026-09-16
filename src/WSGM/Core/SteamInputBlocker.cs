@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using SteamInterop;
 
@@ -13,10 +14,10 @@ public static class SteamInputBlocker
 {
     /// <summary>Displayed when the authoritative host-side probe cannot safely
     /// resolve the current Steam build for controller recovery.</summary>
-    public const string DynamicRecoveryWarning = "Steam Input could not dynamically locate Steam's controller-release code. Please report this on GitHub — the Steam Input hook may need updating.";
+    private const string DynamicRecoveryWarning = "Steam Input could not dynamically locate Steam's controller-release code. Please report this on GitHub — the Steam Input hook may need updating.";
 
     private static readonly object Sync = new();
-    private static readonly object OwnersSync = new();
+    private static readonly Lock OwnersSync = new();
 
     // The lease itself is process-wide, but several WSGM surfaces can need it at
     // the same time (the quick-access panel/taskbar and the settings window opened
@@ -59,7 +60,7 @@ public static class SteamInputBlocker
     /// restarted since the shim was deployed - there is simply nothing to connect
     /// to, and this fails open exactly like the Steam-unavailable path always did.
     /// </remarks>
-    public static void Acquire()
+    private static void Acquire()
     {
         lock (Sync)
         {
@@ -230,14 +231,15 @@ public static class SteamInputBlocker
             var outcome = lease.Release();
             Log.Info($"Steam Input lease released ({reason}; {outcome.Status.LeaseCount} active " +
                      $"leases remain; recovery {DescribeRecovery(outcome)}).");
-            if (!outcome.RecoveryRequested)
+            if (outcome.RecoveryRequested)
             {
-                // Blocking is lifted — Steam keeps working, it just has not
-                // been told to look for controllers again, so a pad can stay
-                // missing in Steam until it notices by itself.
-                Log.Warn($"Steam Input controller recovery did not run ({reason}): {outcome.RecoveryMessage}");
-                RaiseRecoveryWarning();
+                return;
             }
+            // Blocking is lifted — Steam keeps working, it just has not
+            // been told to look for controllers again, so a pad can stay
+            // missing in Steam until it notices by itself.
+            Log.Warn($"Steam Input controller recovery did not run ({reason}): {outcome.RecoveryMessage}");
+            RaiseRecoveryWarning();
         }
         catch (Exception ex)
         {

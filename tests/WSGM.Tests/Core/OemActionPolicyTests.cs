@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class OemActionPolicyTests
 {

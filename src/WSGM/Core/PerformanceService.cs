@@ -72,7 +72,7 @@ internal static class PerformancePolicyResolver
             RtssProfileName = target.RtssProfileName ?? current.RtssProfileName,
             Values = current.Values.With(control, value)
         };
-        return policy with { Applications = applications.ToArray() };
+        return policy with { Applications = [.. applications] };
     }
 
     internal static PerformanceApplicationPolicy? Find(
@@ -119,7 +119,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     private readonly Func<PerformancePolicy, CancellationToken, Task> _persistPolicy;
     private readonly TimeSpan _commandTimeout;
     private readonly TimeProvider _timeProvider;
-    private readonly object _stateGate = new();
+    private readonly Lock _stateGate = new();
     private readonly SemaphoreSlim _adapterGate = new(1, 1);
     private readonly ObservationGate _observers = new();
     private readonly CancellationTokenSource _disposeCts = new();
@@ -423,16 +423,16 @@ internal sealed class PerformanceService : IAsyncDisposable
             value,
             origin,
             correlationId,
-            cancellationToken,
-            updateDesired: true);
+            updateDesired: true,
+            cancellationToken);
 
     private async Task<PerformanceCommandState> SetCoreAsync(
         PerformanceControl control,
         int value,
         string origin,
         string correlationId,
-        CancellationToken cancellationToken,
-        bool updateDesired)
+        bool updateDesired,
+        CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         origin = SanitizeToken(origin, "unknown");
@@ -506,9 +506,9 @@ internal sealed class PerformanceService : IAsyncDisposable
                 value,
                 origin,
                 correlationId,
+                updateDesired,
                 timeout.Token,
-                cancellationToken,
-                updateDesired).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -585,7 +585,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             // has no proven query for the property, and treating that as a mismatch would rewrite
             // the profile on every poll.
             if (QualityOf(snapshot, control) is not PerformanceReadbackQuality.Verified
-                || snapshot.Desired.ValueFor(control) is not int wanted)
+                || snapshot.Desired.ValueFor(control) is not { } wanted)
             {
                 continue;
             }
@@ -599,12 +599,13 @@ internal sealed class PerformanceService : IAsyncDisposable
 
         if (drift.Count == 0)
         {
-            if (_repairedDrift is not null)
+            if (_repairedDrift is null)
             {
-                _repairedDrift = null;
-                Log.Info("RTSS holds the values WSGM set again.");
+                return false;
             }
 
+            _repairedDrift = null;
+            Log.Info("RTSS holds the values WSGM set again.");
             return false;
         }
 
@@ -641,7 +642,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
 
         _disposed = true;
-        _disposeCts.Cancel();
+        await _disposeCts.CancelAsync().ConfigureAwait(false);
         _observers.Signal();
         try
         {
@@ -679,9 +680,9 @@ internal sealed class PerformanceService : IAsyncDisposable
         int value,
         string origin,
         string correlationId,
+        bool updateDesired,
         CancellationToken boundedCancellation,
-        CancellationToken callerCancellation,
-        bool updateDesired)
+        CancellationToken callerCancellation)
     {
         PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null) =>
             new(sequence, origin, correlationId, control, value, phase, diagnostic);
@@ -843,27 +844,27 @@ internal sealed class PerformanceService : IAsyncDisposable
     private async Task ApplyEffectiveDesiredAsync(string origin, CancellationToken cancellationToken)
     {
         var snapshot = Current;
-        if (snapshot.Desired.FrameLimit is int frameLimit)
+        if (snapshot.Desired.FrameLimit is { } frameLimit)
         {
             await SetCoreAsync(
                 PerformanceControl.FrameLimit,
                 frameLimit,
                 origin,
                 $"{origin}-frame-limit",
-                cancellationToken,
-                updateDesired: false).ConfigureAwait(false);
+                updateDesired: false,
+                cancellationToken).ConfigureAwait(false);
         }
 
         snapshot = Current;
-        if (snapshot.Desired.OverlayLevel is int overlayLevel)
+        if (snapshot.Desired.OverlayLevel is { } overlayLevel)
         {
             await SetCoreAsync(
                 PerformanceControl.OverlayLevel,
                 overlayLevel,
                 origin,
                 $"{origin}-overlay-level",
-                cancellationToken,
-                updateDesired: false).ConfigureAwait(false);
+                updateDesired: false,
+                cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -1244,14 +1245,8 @@ internal sealed class PerformanceService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(policy.Global);
         List<PerformanceApplicationPolicy> applications = [];
         HashSet<string> identities = new(StringComparer.Ordinal);
-        foreach (var application in policy.Applications ?? [])
+        foreach (var application in policy.Applications)
         {
-            if (application is null || application.Values is null)
-            {
-                Log.Warn("RTSS policy entry dropped: the application or its values were null.");
-                continue;
-            }
-
             var applicationId = application.ApplicationId?.Trim() ?? string.Empty;
             if (applicationId.Length == 0)
             {
@@ -1273,7 +1268,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             });
         }
 
-        return new PerformancePolicy(policy.Global, applications.ToArray(), policy.Enabled);
+        return policy with { Applications = [.. applications] };
     }
 
     private static bool PoliciesEqual(PerformancePolicy left, PerformancePolicy right)
@@ -1285,15 +1280,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             return false;
         }
 
-        for (var index = 0; index < left.Applications.Count; index++)
-        {
-            if (left.Applications[index] != right.Applications[index])
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return left.Applications.SequenceEqual(right.Applications);
     }
 
     private static bool ValidTarget(PerformanceApplicationTarget target) =>

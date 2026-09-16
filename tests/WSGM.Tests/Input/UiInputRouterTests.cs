@@ -1,9 +1,10 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
-using static WSGM.Tests.ControllerSamples;
+using WSGM.Tests.Fakes;
+using static WSGM.Tests.Builders.ControllerSamples;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 /// <summary>
 /// Which source drives WSGM's own navigation, and what happens to controls held across a change.

@@ -163,7 +163,7 @@ internal static class PluginTestWorkflow
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
+        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
         if (!validation.Valid)
         {
             return Failed(PluginTestMode.DetectionOnly, validation.PackageId, "Offline package validation failed.");
@@ -221,7 +221,7 @@ internal static class PluginTestWorkflow
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(boundaries);
         ArgumentNullException.ThrowIfNull(safetyEnvironment);
-        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
+        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
         if (!validation.Valid)
         {
             return Failed(
@@ -449,8 +449,7 @@ internal static class PluginTestWorkflow
     }
 
     private static bool IsNewStateDirectory(DeviceLabOutputPathDecision output) =>
-        output.IsAllowed
-        && output.FullPath is not null
+        output is { IsAllowed: true, FullPath: not null }
         && !Directory.Exists(output.FullPath)
         && !File.Exists(output.FullPath);
 
@@ -508,7 +507,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
         }
 
         var manifestRead = PluginPackageWorkflow.ReadManifestBounded(manifestPath);
-        var manifest = manifestRead.IsValid && manifestRead.Manifest is not null
+        var manifest = manifestRead is { IsValid: true, Manifest: not null }
             ? manifestRead.Manifest
             : throw new InvalidDataException("The plugin manifest is invalid.");
         var entryPath = Constrain(root, manifest.EntryAssembly);
@@ -552,12 +551,9 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
             plugin = Activator.CreateInstance(entryType) as IDevicePlugin
                 ?? throw new InvalidDataException(
                     "The entry type did not create an IDevicePlugin instance.");
-            if (!string.Equals(plugin.PackageId, manifest.Id, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException("The plugin code and manifest package IDs differ.");
-            }
-
-            return new LocalPluginPackage(manifest, plugin, context, ownerReservation);
+            return !string.Equals(plugin.PackageId, manifest.Id, StringComparison.Ordinal)
+                ? throw new InvalidDataException("The plugin code and manifest package IDs differ.")
+                : new LocalPluginPackage(manifest, plugin, context, ownerReservation);
         }
         catch (Exception loadFailure)
         {
@@ -660,26 +656,16 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
 
         var rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var path = Path.GetFullPath(Path.Combine(root, relative));
-        if (!path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException("A plugin package path escaped its directory.");
-        }
-
-        return path;
+        return !path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+            ? throw new InvalidDataException("A plugin package path escaped its directory.")
+            : path;
     }
 
-    private sealed class PluginLoadContext : AssemblyLoadContext
+    private sealed class PluginLoadContext(string root, string entryPath)
+        : AssemblyLoadContext($"WSGM.DeviceLab:{Path.GetFileName(root)}", isCollectible: true)
     {
         private static readonly string SdkName = typeof(IDevicePlugin).Assembly.GetName().Name!;
-        private readonly string _root;
-        private readonly AssemblyDependencyResolver _resolver;
-
-        public PluginLoadContext(string root, string entryPath)
-            : base($"WSGM.DeviceLab:{Path.GetFileName(root)}", isCollectible: true)
-        {
-            _root = root;
-            _resolver = new AssemblyDependencyResolver(entryPath);
-        }
+        private readonly AssemblyDependencyResolver _resolver = new(entryPath);
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
@@ -691,7 +677,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
             var path = _resolver.ResolveAssemblyToPath(assemblyName);
             if (path is null && assemblyName.Name is { Length: > 0 } name)
             {
-                var packageCandidate = Path.Combine(_root, $"{name}.dll");
+                var packageCandidate = Path.Combine(root, $"{name}.dll");
                 path = File.Exists(packageCandidate) ? packageCandidate : null;
             }
 
@@ -724,7 +710,7 @@ internal sealed class LocalPluginPackage : IAsyncDisposable
         private void EnsureLocal(string path)
         {
             var fullPath = Path.GetFullPath(path);
-            var rootPrefix = _root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
                 || PluginPackageWorkflow.IsLink(fullPath))
             {

@@ -52,54 +52,51 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     private bool _disposed;
 
     private long _formattedMinute = -1;
-    private string _clockText = "";
     /// <summary>Gets the current time of day, e.g. "21:37".</summary>
     public string ClockText
     {
-        get => _clockText;
-        private set => SetFieldIfChanged(ref _clockText, value, nameof(ClockText));
-    }
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(ClockText));
+    } = "";
 
-    private string _dateText = "";
     /// <summary>Gets the current date, e.g. "Fri 08 Aug" (localized day/month names).</summary>
     public string DateText
     {
-        get => _dateText;
-        private set => SetFieldIfChanged(ref _dateText, value, nameof(DateText));
-    }
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(DateText));
+    } = "";
 
-    private bool _hasBattery;
     /// <summary>Gets whether a system battery with a known charge level exists; the
     /// taskbar hides the battery indicator entirely when false (desktop PCs, or a
     /// driver reporting the 255 unknown markers).</summary>
     public bool HasBattery
     {
-        get => _hasBattery;
-        private set => SetFieldIfChanged(ref _hasBattery, value, nameof(HasBattery));
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(HasBattery));
     }
 
-    private int _batteryPercent;
     /// <summary>Gets the battery charge in percent (0–100; 0 while <see cref="HasBattery"/> is false).</summary>
     public int BatteryPercent
     {
-        get => _batteryPercent;
+        get;
         private set
         {
-            if (_batteryPercent != value)
+            if (field == value)
             {
-                _batteryPercent = value;
-                Raise(nameof(BatteryPercent));
+                return;
             }
+
+            field = value;
+            Raise(nameof(BatteryPercent));
         }
     }
 
-    private string _batteryText = "";
     /// <summary>Gets the battery charge as display text, e.g. "87%" (empty without a battery).</summary>
     public string BatteryText
     {
-        get => _batteryText;
-        private set => SetFieldIfChanged(ref _batteryText, value, nameof(BatteryText));
-    }
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(BatteryText));
+    } = "";
 
     /// <summary>Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
     /// tiles and the radio panel. Disposed with this object only when this object

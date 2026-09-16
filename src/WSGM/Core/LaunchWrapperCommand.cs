@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace WSGM.Core;
@@ -45,7 +46,7 @@ public enum LaunchWrapperMode
 /// </remarks>
 internal static class LaunchWrapperCommand
 {
-    internal const string HelperFileName = "WSGM.Launch.exe";
+    private const string HelperFileName = "WSGM.Launch.exe";
 
     /// <summary>Resolves the wrapper beside the running WSGM executable.</summary>
     /// <returns>The absolute path a configured game will reference.</returns>
@@ -59,7 +60,7 @@ internal static class LaunchWrapperCommand
     /// a non-Steam shortcut ignores an exe-replacing launch option and runs its
     /// original Target anyway (device-verified), which is why the shortcut path puts
     /// the wrapper in the Target and never builds a value containing this.</summary>
-    internal const string CommandPlaceholder = "%command%";
+    private const string CommandPlaceholder = "%command%";
 
     /// <summary>Builds the value written into a real Steam title's launch options,
     /// preserving any launch options the user already had.</summary>
@@ -128,12 +129,8 @@ internal static class LaunchWrapperCommand
         }
         var prefix = originalOptions[..placeholder].Trim();
         var builder = new StringBuilder(Math.Min(prefix.Length, PrefixLogLimit));
-        foreach (var character in prefix)
+        foreach (var character in prefix.Where(character => !char.IsControl(character)))
         {
-            if (char.IsControl(character))
-            {
-                continue;
-            }
             if (builder.Length == PrefixLogLimit)
             {
                 return builder.Append("...").ToString();
@@ -288,20 +285,11 @@ internal static class LaunchWrapperCommand
     /// <returns>Whether WSGM owns this shortcut's Target.</returns>
     internal static bool TargetsHelper(string? target) =>
         !string.IsNullOrWhiteSpace(target) &&
-        target.IndexOf(HelperFileName, StringComparison.OrdinalIgnoreCase) >= 0;
+        target.Contains(HelperFileName, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Stops any running wrapper processes.</summary>
+    /// <summary>Logs launch wrappers still running in this session so setup defers replacement.</summary>
     /// <param name="reason">Why they are being stopped, for the log.</param>
-    internal static void StopRunningHelpers(string reason) =>
-        StopRunningHelpers(reason, timeout: null);
-
-    /// <summary>Stops running wrappers while sharing one optional caller-owned wait budget.</summary>
-    /// <param name="reason">Why they are being stopped, for the log.</param>
-    /// <param name="timeout">Maximum combined process-exit wait, or null for the ordinary per-process bound.</param>
-    internal static void StopRunningHelpers(string reason, TimeSpan timeout) =>
-        StopRunningHelpers(reason, (TimeSpan?)timeout);
-
-    private static void StopRunningHelpers(string reason, TimeSpan? timeout)
+    internal static void StopRunningHelpers(string reason)
     {
         var currentSession = WindowFinder.CurrentSessionId;
         foreach (var process in Process.GetProcessesByName(
@@ -339,11 +327,9 @@ internal static class LaunchWrapperCommand
 
     private static string Quote(string path)
     {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            throw new ArgumentException("A helper path is required.", nameof(path));
-        }
-        return SteamCustomLaunchCommand.Quote(path);
+        return string.IsNullOrWhiteSpace(path)
+            ? throw new ArgumentException("A helper path is required.", nameof(path))
+            : SteamCustomLaunchCommand.Quote(path);
     }
 
     private static string FlagsFor(LaunchWrapperMode mode)
@@ -367,10 +353,8 @@ internal static class LaunchWrapperCommand
             throw new ArgumentException(
                 "A wrapper cannot both use the resident shim and inject.", nameof(mode));
         }
-        if (flags.Count == 0)
-        {
-            throw new ArgumentException("At least one wrapper behaviour is required.", nameof(mode));
-        }
-        return string.Join(' ', flags);
+        return flags.Count == 0
+            ? throw new ArgumentException("At least one wrapper behaviour is required.", nameof(mode))
+            : string.Join(' ', flags);
     }
 }

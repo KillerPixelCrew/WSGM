@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Interop;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class ExplorerShellPolicyTests
 {
@@ -376,17 +376,6 @@ public sealed class ExplorerShellPolicyTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() =>
             host.RestoreDesktopAsync(TimeSpan.FromSeconds(1)));
     }
-
-    private static ExplorerDesktopResult FailedResult(bool launchDispatched, bool shellSurfacePresent) =>
-        new(
-            ExplorerDesktopOutcome.Failed,
-            ExplorerDesktopRoute.ShellAnchor,
-            0,
-            0,
-            "test",
-            launchDispatched,
-            shellSurfacePresent,
-            TimeSpan.Zero);
 
     private static NativeShellProcessInfo NormalProcess() => new(
         12,

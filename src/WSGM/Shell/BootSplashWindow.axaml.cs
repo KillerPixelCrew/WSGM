@@ -181,21 +181,23 @@ public partial class BootSplashWindow : Window
             this,
             NativeMethods.SwallowTouchSynthesizedMouse);
 
-        if (_preview)
+        if (!_preview)
         {
-            KeyDown += OnPreviewKeyDown;
-            PointerPressed += OnPreviewPointerPressed;
+            return;
         }
+        KeyDown += OnPreviewKeyDown;
+        PointerPressed += OnPreviewPointerPressed;
     }
 
 
     private void OnPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape)
+        if (e.Key != Key.Escape)
         {
-            e.Handled = true;
-            Close();
+            return;
         }
+        e.Handled = true;
+        Close();
     }
 
     private void OnPreviewPointerPressed(object? sender, PointerPressedEventArgs e) => Close();
@@ -275,6 +277,15 @@ public partial class BootSplashWindow : Window
             case SplashSpinnerStyle.SweepLine:
                 BuildSweepLine(spinnerBrush);
                 break;
+            case SplashSpinnerStyle.LiArc:
+            case SplashSpinnerStyle.LiArcs:
+            case SplashSpinnerStyle.LiArcsRing:
+            case SplashSpinnerStyle.LiDoubleBounce:
+            case SplashSpinnerStyle.LiFlipPlane:
+            case SplashSpinnerStyle.LiPulse:
+            case SplashSpinnerStyle.LiRing:
+            case SplashSpinnerStyle.LiThreeDots:
+            case SplashSpinnerStyle.LiWave:
             default:
                 spinner = new LoadingIndicator
                 {
@@ -605,20 +616,21 @@ public partial class BootSplashWindow : Window
             {
                 return null;
             }
-            if (decodeWidthFor is not null)
+            if (decodeWidthFor is null)
             {
-                var width = Math.Max(1, decodeWidthFor(sourceWidth, sourceHeight));
-                if (sourceWidth > width)
-                {
-                    // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
-                    // so the header's declared width decides. (The previous
-                    // full-Bitmap size probe allocated exactly the buffer this cap
-                    // exists to avoid.)
-                    using var stream = File.OpenRead(path);
-                    return Bitmap.DecodeToWidth(stream, width);
-                }
+                return new Bitmap(path);
             }
-            return new Bitmap(path);
+            var width = Math.Max(1, decodeWidthFor(sourceWidth, sourceHeight));
+            if (sourceWidth <= width)
+            {
+                return new Bitmap(path);
+            }
+            // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
+            // so the header's declared width decides. (The previous
+            // full-Bitmap size probe allocated exactly the buffer this cap
+            // exists to avoid.)
+            using var stream = File.OpenRead(path);
+            return Bitmap.DecodeToWidth(stream, width);
         }
         catch (Exception ex)
         {
@@ -638,11 +650,8 @@ public partial class BootSplashWindow : Window
         // Service boots apply the 100% game-mode scale while the splash is already
         // up (the cover must precede the posture change) — re-cover so the DPI
         // change can't leave desktop pixels exposed around a stale-sized splash.
-        if (Screens is not null)
-        {
-            Screens.Changed += OnScreensChanged;
-            Closed += (_, _) => Screens.Changed -= OnScreensChanged;
-        }
+        Screens.Changed += OnScreensChanged;
+        Closed += (_, _) => Screens.Changed -= OnScreensChanged;
 
         // Layered style applied once, fully opaque — flipping it mid-fade risks a
         // first-frame flicker. The fade is cosmetic; without an HWND it is skipped.
@@ -650,20 +659,21 @@ public partial class BootSplashWindow : Window
         if (_hwnd != 0)
         {
             var ex = NativeMethods.GetWindowLong(_hwnd, NativeMethods.GwlExStyle);
-            NativeMethods.SetWindowLong(_hwnd, NativeMethods.GwlExStyle,
+            _ = NativeMethods.SetWindowLong(_hwnd, NativeMethods.GwlExStyle,
                 ex | NativeMethods.WsExLayered);
             NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 255, NativeMethods.LwaAlpha);
         }
 
         // The animation timer exists only for the in-repo spinners; the Li*
         // styles animate themselves and Off has nothing to animate.
-        if (_ringSpinner is not null || _sweepLine is not null)
+        if (_ringSpinner is null && _sweepLine is null)
         {
-            _spinnerStartedUtc = DateTime.UtcNow;
-            _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-            _spinnerTimer.Tick += OnSpinnerTick;
-            _spinnerTimer.Start();
+            return;
         }
+        _spinnerStartedUtc = DateTime.UtcNow;
+        _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        _spinnerTimer.Tick += OnSpinnerTick;
+        _spinnerTimer.Start();
     }
 
     private void OnSpinnerTick(object? sender, EventArgs e)
@@ -675,18 +685,19 @@ public partial class BootSplashWindow : Window
         {
             _spinnerRotate.Angle = elapsed * 0.36 % 360;
         }
-        if (_sweepLine is not null && _sweepHost is not null)
+        if (_sweepLine is null || _sweepHost is null)
         {
-            var hostWidth = _sweepHost.Bounds.Width;
-            if (hostWidth <= 0)
-            {
-                return;
-            }
-            var lineWidth = Math.Min(hostWidth, Math.Max(120, hostWidth * 0.2));
-            _sweepLine.Width = lineWidth;
-            var progress = elapsed % SweepPeriodMs / SweepPeriodMs;
-            _sweepTransform.X = progress * (hostWidth - lineWidth);
+            return;
         }
+        var hostWidth = _sweepHost.Bounds.Width;
+        if (hostWidth <= 0)
+        {
+            return;
+        }
+        var lineWidth = Math.Min(hostWidth, Math.Max(120, hostWidth * 0.2));
+        _sweepLine.Width = lineWidth;
+        var progress = elapsed % SweepPeriodMs / SweepPeriodMs;
+        _sweepTransform.X = progress * (hostWidth - lineWidth);
     }
 
     /// <summary>Fades the whole window (layered alpha) over what's underneath, then
@@ -713,13 +724,14 @@ public partial class BootSplashWindow : Window
             (DateTime.UtcNow - _fadeStartedUtc).TotalMilliseconds / _fadeDuration.TotalMilliseconds, 0, 1);
         NativeMethods.SetLayeredWindowAttributes(
             _hwnd, 0, (byte)Math.Round(255 * (1 - progress)), NativeMethods.LwaAlpha);
-        if (progress >= 1)
+        if (progress < 1)
         {
-            _fadeTimer?.Stop();
-            var done = _fadeDone;
-            _fadeDone = null;
-            done?.Invoke();
+            return;
         }
+        _fadeTimer?.Stop();
+        var done = _fadeDone;
+        _fadeDone = null;
+        done?.Invoke();
     }
 
     private void OnResized(object? sender, WindowResizedEventArgs e) => UpdateAbsolutePositions();
@@ -735,7 +747,7 @@ public partial class BootSplashWindow : Window
     /// on a secondary screen may still flash (accepted on single-screen handhelds).</summary>
     private void CoverPrimaryScreen()
     {
-        var screen = Screens?.Primary ?? (Screens?.All.Count > 0 ? Screens.All[0] : null);
+        var screen = Screens.Primary ?? (Screens.All.Count > 0 ? Screens.All[0] : null);
         if (screen is null)
         {
             return;

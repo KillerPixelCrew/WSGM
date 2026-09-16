@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class KeepAwakeTests
 {
@@ -79,7 +79,7 @@ public sealed class KeepAwakeTests
             """{"state":"Downloading","paused":false,"appid":3280350,"bps":24162405}""");
 
         Assert.NotNull(overview);
-        Assert.True(overview!.Value.Active);
+        Assert.True(overview.Value.Active);
         Assert.Equal("Downloading", overview.Value.State);
         Assert.Equal(3280350, overview.Value.AppId);
         Assert.Equal(24162405, overview.Value.NetworkBytesPerSecond);
@@ -92,7 +92,7 @@ public sealed class KeepAwakeTests
             """{"state":"None","paused":false,"appid":0,"bps":0}""");
 
         Assert.NotNull(overview);
-        Assert.False(overview!.Value.Active);
+        Assert.False(overview.Value.Active);
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public sealed class KeepAwakeTests
             """{"state":"Downloading","paused":true,"appid":42,"bps":0}""");
 
         Assert.NotNull(overview);
-        Assert.False(overview!.Value.Active);
+        Assert.False(overview.Value.Active);
         Assert.True(overview.Value.Paused);
     }
 
@@ -125,7 +125,7 @@ public sealed class KeepAwakeTests
         var overview = SteamDownloads.Parse("{}");
 
         Assert.NotNull(overview);
-        Assert.False(overview!.Value.Active);
+        Assert.False(overview.Value.Active);
         Assert.Equal("", overview.Value.State);
         Assert.Equal(0, overview.Value.AppId);
     }

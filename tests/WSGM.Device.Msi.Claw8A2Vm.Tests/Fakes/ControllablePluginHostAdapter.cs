@@ -4,12 +4,12 @@ using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Device.Sdk.Testing;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 
 internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPluginHostAdapter
 {
     private readonly TestPluginHostAdapter _inner = new(cycleGeneration);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<(string Scope, string Message)> _faults = [];
     private readonly TaskCompletionSource _controllerSampleEntered =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -20,9 +20,9 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
 
     public bool FailNextNonEmptyOemPublication { get; set; }
 
-    public bool BlockControllerSamples { get; set; }
+    public bool BlockControllerSamples { get; init; }
 
-    public bool BlockOemEvents { get; set; }
+    public bool BlockOemEvents { get; init; }
     public TaskCompletionSource? CapabilityPublicationBlock { get; set; }
     public TaskCompletionSource CapabilityPublicationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -33,9 +33,6 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
 
     public IReadOnlyList<IReadOnlyList<OemControlDescriptor>> OemControlSets =>
         _inner.OemControlSets;
-
-    public IReadOnlyList<(DeviceTraceLevel Level, string Scope, string Message)> Traces =>
-        _inner.Traces;
 
     public IReadOnlyList<(string Scope, string Message)> Faults
     {
@@ -61,12 +58,12 @@ internal sealed class ControllablePluginHostAdapter(long cycleGeneration) : IPlu
         CapabilityState state,
         CancellationToken cancellationToken)
     {
-        if (CapabilityPublicationBlock is { } blocked)
+        if (CapabilityPublicationBlock is not { } blocked)
         {
-            CapabilityPublicationEntered.TrySetResult();
-            return new ValueTask(blocked.Task);
+            return _inner.PublishCapabilityStateAsync(state, cancellationToken);
         }
-        return _inner.PublishCapabilityStateAsync(state, cancellationToken);
+        CapabilityPublicationEntered.TrySetResult();
+        return new ValueTask(blocked.Task);
     }
 
     public ValueTask PublishPhysicalDevicesAsync(

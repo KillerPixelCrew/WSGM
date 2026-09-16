@@ -1,9 +1,9 @@
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Overlay;
-using static WSGM.Tests.ControllerSamples;
+using static WSGM.Tests.Builders.ControllerSamples;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 /// <summary>
 /// The one place the canonical button vocabulary meets the glyph one.
@@ -86,15 +86,14 @@ public sealed class GlyphInputTestMapTests
         var pressed = GlyphInputTestMap.Pressed(Sample(
             CanonicalButtons.A | CanonicalButtons.RightShoulder | CanonicalButtons.QuickAccess,
             leftTrigger: 1f));
+        HashSet<GlyphControlId> expected =
+        [
+            GlyphControlId.FaceSouth,
+            GlyphControlId.RightShoulder,
+            GlyphControlId.QuickAccess,
+            GlyphControlId.LeftTrigger
+        ];
 
-        Assert.Equal(
-            new HashSet<GlyphControlId>
-            {
-                GlyphControlId.FaceSouth,
-                GlyphControlId.RightShoulder,
-                GlyphControlId.QuickAccess,
-                GlyphControlId.LeftTrigger
-            },
-            pressed);
+        Assert.Equal(expected, pressed);
     }
 }

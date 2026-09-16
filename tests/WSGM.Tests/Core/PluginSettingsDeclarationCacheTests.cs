@@ -4,7 +4,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class PluginSettingsDeclarationCacheTests
 {

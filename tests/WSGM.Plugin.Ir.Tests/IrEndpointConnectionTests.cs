@@ -22,7 +22,7 @@ public sealed class IrEndpointConnectionTests
             + $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"port\":7521,"
             + "\"wifiConfigured\":true,\"wifiConnected\":true,\"ip\":\"192.0.2.7\",\"learning\":false,\"uptimeMs\":12}}\n");
         IrEndpointConnection endpoint = new(_ => link, "0123456789abcdef");
-        var identity = await endpoint.IdentifyAsync(default);
+        var identity = await endpoint.IdentifyAsync(CancellationToken.None);
         Assert.Equal("wsgm-ir-15ef50", identity.Hostname);
         Assert.True(identity.WifiConnected);
         Assert.Equal("192.0.2.7", identity.Ip);
@@ -39,7 +39,7 @@ public sealed class IrEndpointConnectionTests
     {
         ScriptedLink link = new(request => $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity.Replace("0.2.0", "0.1.0")}}}}}\n");
         IrEndpointConnection endpoint = new(_ => link);
-        var identity = await endpoint.IdentifyAsync(default);
+        var identity = await endpoint.IdentifyAsync(CancellationToken.None);
         Assert.Equal("0.1.0", identity.Firmware);
         Assert.False(identity.WifiConfigured);
         Assert.Null(identity.Hostname);
@@ -72,22 +72,22 @@ public sealed class IrEndpointConnectionTests
         });
         IrEndpointConnection endpoint = new(_ => link);
 
-        var identity = await endpoint.IdentifyAsync(default);
+        var identity = await endpoint.IdentifyAsync(CancellationToken.None);
         Assert.Equal(80, identity.WebPort);
         Assert.True(identity.WebConfigured);
         Assert.Equal(3, identity.Remotes);
         Assert.True(identity.SequenceRunning);
 
-        var catalog = await endpoint.ListRemotesAsync(default);
+        var catalog = await endpoint.ListRemotesAsync(CancellationToken.None);
         Assert.Equal(["hdmi-switch", "ac"], catalog.Remotes.Select(remote => remote.Id));
         Assert.Equal("reset", catalog.Remotes[0].Sequences.Single().Id);
         Assert.Equal("toggle", catalog.Remotes[1].Climate!.Swing);
         Assert.Equal(30, catalog.Remotes[1].Climate!.MaxDegrees);
 
-        await endpoint.PressAsync("hdmi-switch", "port-1", default);
-        await endpoint.ClimateAsync("ac", new IrClimateRequest(true, "cool", 20, "auto", ToggleSwing: true), default);
-        await endpoint.RunSequenceAsync("hdmi-switch", "reset", default);
-        await endpoint.CancelAsync(default);
+        await endpoint.PressAsync("hdmi-switch", "port-1", CancellationToken.None);
+        await endpoint.ClimateAsync("ac", new IrClimateRequest(true, "cool", 20, "auto", ToggleSwing: true), CancellationToken.None);
+        await endpoint.RunSequenceAsync("hdmi-switch", "reset", CancellationToken.None);
+        await endpoint.CancelAsync(CancellationToken.None);
 
         Assert.Equal(["identify", "remotes", "press", "climate", "run", "cancel"], operations);
         var climate = JsonDocument.Parse(link.Written[3]).RootElement;
@@ -102,10 +102,10 @@ public sealed class IrEndpointConnectionTests
             ? Frame(request, "ok", "{" + Identity + "}")
             : Frame(request, "unsupported-operation"));
         IrEndpointConnection endpoint = new(_ => link);
-        await endpoint.IdentifyAsync(default);
+        await endpoint.IdentifyAsync(CancellationToken.None);
 
         var refusal = await Assert.ThrowsAsync<InvalidDataException>(
-            () => endpoint.ListRemotesAsync(default));
+            () => endpoint.ListRemotesAsync(CancellationToken.None));
 
         Assert.Contains("0.4.0", refusal.Message);
         Assert.Equal("The endpoint has no remote with that id. Read its built-in remotes first.",
@@ -120,11 +120,11 @@ public sealed class IrEndpointConnectionTests
         var opened = 0;
         ScriptedLink link = new(request => $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity.Replace("\"protocol\":1", "\"protocol\":2")}}}}}\n");
         IrEndpointConnection endpoint = new(_ => { opened++; return link; });
-        var refusal = await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.IdentifyAsync(default));
+        var refusal = await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.IdentifyAsync(CancellationToken.None));
         Assert.Contains("protocol 2", refusal.Message);
         Assert.Null(endpoint.Identity);
         Assert.True(link.Disposed);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, default));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None));
         Assert.Equal(1, opened);
     }
 
@@ -135,8 +135,8 @@ public sealed class IrEndpointConnectionTests
             ? $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n"
             : $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"timeout\"}}\n");
         IrEndpointConnection endpoint = new(_ => link);
-        await endpoint.IdentifyAsync(default);
-        var refusal = await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.LearnAsync(TimeSpan.FromSeconds(1), default));
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        var refusal = await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.LearnAsync(TimeSpan.FromSeconds(1), CancellationToken.None));
         Assert.StartsWith("No IR signal arrived", refusal.Message);
         Assert.Null(endpoint.Identity);
         Assert.Equal("Wi-Fi setup is only accepted over the USB connection.", IrEndpointConnection.Describe("wifi", "usb-only"));
@@ -154,7 +154,7 @@ public sealed class IrEndpointConnectionTests
             return null;
         });
         IrEndpointConnection endpoint = new(_ => link, "0123456789abcdef");
-        await endpoint.IdentifyAsync(default);
+        await endpoint.IdentifyAsync(CancellationToken.None);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => endpoint.LearnAsync(TimeSpan.FromSeconds(1), cancellation.Token));
         Assert.Equal(["identify", "learn", "cancel"], link.Written.Select(Op));
         Assert.Equal("0123456789abcdef", JsonDocument.Parse(link.Written[2]).RootElement.GetProperty("token").GetString());
@@ -166,13 +166,13 @@ public sealed class IrEndpointConnectionTests
     public async Task OversizedResponseAndWrongStatusAreRejected()
     {
         ScriptedLink oversized = new(_ => new string('x', 32769));
-        await Assert.ThrowsAsync<InvalidDataException>(() => new IrEndpointConnection(_ => oversized).IdentifyAsync(default));
+        await Assert.ThrowsAsync<InvalidDataException>(() => new IrEndpointConnection(_ => oversized).IdentifyAsync(CancellationToken.None));
         ScriptedLink wrongStatus = new(request => Op(request) == "identify"
             ? $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n"
             : $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\"}}\n");
         IrEndpointConnection endpoint = new(_ => wrongStatus);
-        await endpoint.IdentifyAsync(default);
-        await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, default));
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None));
     }
 
     [Fact]
@@ -184,20 +184,20 @@ public sealed class IrEndpointConnectionTests
             _ => $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConfigured\":true}}}}\n"
         });
         IrEndpointConnection endpoint = new(_ => link);
-        await endpoint.IdentifyAsync(default);
-        await endpoint.TransmitAsync(new IrPayload(36000, [9000, 4500, 560], "manual"), 2, 45, default);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        await endpoint.TransmitAsync(new IrPayload(36000, [9000, 4500, 560], "manual"), 2, 45, CancellationToken.None);
         var send = JsonDocument.Parse(link.Written[1]).RootElement;
         Assert.Equal(36000, send.GetProperty("payload").GetProperty("carrierHz").GetInt32());
         Assert.Equal(3, send.GetProperty("payload").GetProperty("timingsUs").GetArrayLength());
         Assert.Equal(2, send.GetProperty("repeats").GetInt32());
         Assert.Equal(45, send.GetProperty("gapMs").GetInt32());
-        var identity = await endpoint.ConfigureNetworkAsync("Home", "pässwörd", "0123456789abcdef", default);
+        var identity = await endpoint.ConfigureNetworkAsync("Home", "pässwörd", "0123456789abcdef", CancellationToken.None);
         Assert.True(identity.WifiConfigured);
         var wifi = JsonDocument.Parse(link.Written[2]).RootElement;
         Assert.Equal("wifi", wifi.GetProperty("op").GetString());
         Assert.Equal("pässwörd", wifi.GetProperty("password").GetString());
         Assert.Equal("0123456789abcdef", wifi.GetProperty("token").GetString());
-        await Assert.ThrowsAsync<ArgumentException>(() => endpoint.ConfigureNetworkAsync("Home", "x", "short", default));
+        await Assert.ThrowsAsync<ArgumentException>(() => endpoint.ConfigureNetworkAsync("Home", "x", "short", CancellationToken.None));
     }
 
     [Fact]
@@ -211,7 +211,9 @@ public sealed class IrEndpointConnectionTests
         {
             using var peer = await listener.AcceptTcpClientAsync();
             using StreamReader reader = new(peer.GetStream(), Encoding.UTF8);
-            using StreamWriter writer = new(peer.GetStream(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+            await using StreamWriter writer = new(peer.GetStream(), new UTF8Encoding(false));
+            writer.AutoFlush = true;
+            writer.NewLine = "\n";
             await writer.WriteLineAsync("ESP-ROM boot noise"); // Arrives before any request; must be ignored.
             for (var frames = 0; frames < 2; frames++)
             {
@@ -227,13 +229,13 @@ public sealed class IrEndpointConnectionTests
             }
         });
         var endpoint = IrEndpointConnection.Create(new IrEndpointTarget(true, $"127.0.0.1:{port}", "0123456789abcdef"));
-        var identity = await endpoint.IdentifyAsync(default);
+        var identity = await endpoint.IdentifyAsync(CancellationToken.None);
         Assert.Equal("127.0.0.1", identity.Ip);
-        await endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, default);
+        await endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None);
         await server;
         Assert.Equal(["identify", "send"], received.Select(Op));
         // The peer closed its side after two frames: the next exchange fails instead of hanging.
-        await Assert.ThrowsAsync<IOException>(() => endpoint.IdentifyAsync(default));
+        await Assert.ThrowsAsync<IOException>(() => endpoint.IdentifyAsync(CancellationToken.None));
         Assert.Null(endpoint.Identity);
         await endpoint.DisposeAsync();
     }
@@ -251,7 +253,8 @@ public sealed class IrEndpointConnectionTests
         public void WriteLine(string frame)
         {
             Written.Add(frame);
-            if (respond(frame) is { } response) { foreach (var character in response) { _incoming.Enqueue(character); } }
+            if (respond(frame) is not { } response) { return; }
+            foreach (var character in response) { _incoming.Enqueue(character); }
         }
 
         public int ReadChar() => _incoming.Count > 0 ? _incoming.Dequeue() : -1;

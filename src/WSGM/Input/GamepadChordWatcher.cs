@@ -47,11 +47,13 @@ public sealed class GamepadChordWatcher : IDisposable
 
     private void OnHoldElapsed(ChordTracker.Pad pad)
     {
-        if (!pad.HoldConsumed && _config.Hold && (int)pad.Union == _config.Buttons)
+        if (pad.HoldConsumed || !_config.Hold || (int)pad.Union != _config.Buttons)
         {
-            Fire();
-            pad.HoldConsumed = true;    // don't repeat while still held
+            return;
         }
+
+        Fire();
+        pad.HoldConsumed = true;    // don't repeat while still held
     }
 
     private void OnReleased(ChordTracker.Pad pad)

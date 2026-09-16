@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Microsoft.Win32;
 using WSGM.Interop;
@@ -36,7 +37,7 @@ public static class Steam
 
     /// <summary>Big Picture window class (paired with the steamwebhelper process —
     /// SDL_app alone is not unique to Steam).</summary>
-    public const string BigPictureWindowClass = "SDL_app";
+    private const string BigPictureWindowClass = "SDL_app";
 
     /// <summary>Protocol URL that opens Steam Big Picture mode.</summary>
     public const string OpenBigPictureUrl = "steam://open/bigpicture";
@@ -50,8 +51,6 @@ public static class Steam
     /// wrappers before WSGM starts its separate application-cleanup deadline.</summary>
     internal static TimeSpan UpdateStopBudget => TimeSpan.FromSeconds(10);
 
-    private static string? _cachedExePath;
-
     /// <summary>Full path to steam.exe from the registry, or null when Steam is not
     /// installed. HKCU value uses forward slashes — normalized here. The registry+disk
     /// probe runs once; later reads only re-validate the cached path with File.Exists
@@ -60,13 +59,13 @@ public static class Steam
     {
         get
         {
-            var cached = _cachedExePath;
+            var cached = field;
             if (cached is not null && File.Exists(cached))
             {
                 return cached;
             }
-            _cachedExePath = ResolveExePath();
-            return _cachedExePath;
+            field = ResolveExePath();
+            return field;
         }
     }
 
@@ -74,8 +73,7 @@ public static class Steam
     {
         try
         {
-            if (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamExe", null) is string exe
-                && exe.Length > 0)
+            if (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamExe", null) is string { Length: > 0 } exe)
             {
                 exe = exe.Replace('/', '\\');
                 if (File.Exists(exe))
@@ -83,8 +81,7 @@ public static class Steam
                     return exe;
                 }
             }
-            if (Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) is string dir
-                && dir.Length > 0)
+            if (Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) is string { Length: > 0 } dir)
             {
                 var fromInstallDir = Path.Combine(dir, "steam.exe");
                 if (File.Exists(fromInstallDir))
@@ -110,7 +107,7 @@ public static class Steam
     /// <summary>Gets the full path of Steam's <c>config\libraryfolders.vdf</c> —
     /// the install-folder registry every card/library feature reads and edits —
     /// or <see langword="null"/> when Steam is not installed.</summary>
-    public static string? LibraryFoldersConfigPath =>
+    private static string? LibraryFoldersConfigPath =>
         InstallDirectory is { } directory
             ? Path.Combine(directory, "config", "libraryfolders.vdf")
             : null;
@@ -128,11 +125,6 @@ public static class Steam
         text = path is not null && File.Exists(path) ? File.ReadAllText(path) : null;
         return text is not null;
     }
-
-    /// <summary>Gets Steam's per-account data root (<c>userdata</c>), or
-    /// <see langword="null"/> when Steam is not installed.</summary>
-    public static string? UserDataDirectory =>
-        InstallDirectory is { } directory ? Path.Combine(directory, "userdata") : null;
 
     /// <summary>Gets whether a usable Steam executable was found.</summary>
     public static bool IsInstalled => ExePath is not null;
@@ -153,12 +145,10 @@ public static class Steam
     {
         get
         {
-            foreach (var processId in WindowFinder.FindProcessIds(ProcessNames))
+            if (WindowFinder.FindProcessIds(ProcessNames)
+                .Any(processId => ElevationCheck.IsProcessElevated(processId) == true))
             {
-                if (ElevationCheck.IsProcessElevated((uint)processId) == true)
-                {
-                    return true;
-                }
+                return true;
             }
 
             var path = ExePath;
@@ -172,14 +162,8 @@ public static class Steam
         {
             return false;
         }
-        foreach (var token in layer.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (token.TrimStart('~', '!', '#').Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
+        return layer.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(token => token.TrimStart('~', '!', '#').Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool HasRunAsAdminCompatibilityLayer(string executablePath)
@@ -235,11 +219,9 @@ public static class Steam
         {
             return new AppLauncher.LaunchResult(null, true, false);
         }
-        if (ExePath is not { } exe)
-        {
-            return new AppLauncher.LaunchResult(null, false, false);
-        }
-        return ColdStart(exe, "", unelevated, cefEnabled);
+        return ExePath is not { } exe
+            ? new AppLauncher.LaunchResult(null, false, false)
+            : ColdStart(exe, "", unelevated, cefEnabled);
     }
 
     /// <summary>The one cold Steam start: shim reconcile, debug port, integrity choice and the
@@ -259,17 +241,16 @@ public static class Steam
         // from a medium-integrity process, the ordinary launch already produces a
         // medium-integrity Steam without the task-scheduler round trip.
         var deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
-        if (deElevate && UnelevatedLauncher.TryStartViaScheduledTask(exe, arguments))
+        switch (deElevate)
         {
-            Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
-            return new AppLauncher.LaunchResult(null, true, false);
-        }
-
-        if (deElevate)
-        {
-            Log.Warn(
-                "Steam launch integrity: de-elevation was requested but unavailable; "
-                + "falling back to WSGM's own integrity.");
+            case true when UnelevatedLauncher.TryStartViaScheduledTask(exe, arguments):
+                Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
+                return new AppLauncher.LaunchResult(null, true, false);
+            case true:
+                Log.Warn(
+                    "Steam launch integrity: de-elevation was requested but unavailable; "
+                    + "falling back to WSGM's own integrity.");
+                break;
         }
 
         var result = AppLauncher.Start(exe, arguments, elevated: false);
@@ -335,12 +316,9 @@ public static class Steam
     /// window through any process-exit wait. The installer reserves this phase before WSGM's
     /// application cleanup budget.</summary>
     /// <param name="budget">Maximum combined graceful and forced-stop wait.</param>
-    internal static void StopForUpdate(TimeSpan budget)
+    private static void StopForUpdate(TimeSpan budget)
     {
-        if (budget <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(budget));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(budget, TimeSpan.Zero);
 
         var elapsed = Stopwatch.StartNew();
         var runningSteam = CurrentSessionProcesses(MainProcessName);
@@ -393,10 +371,9 @@ public static class Steam
             }
         }
 
-        var helperBudget = budget - elapsed.Elapsed;
-        if (helperBudget > TimeSpan.Zero)
+        if (budget - elapsed.Elapsed > TimeSpan.Zero)
         {
-            LaunchWrapperCommand.StopRunningHelpers("update", helperBudget);
+            LaunchWrapperCommand.StopRunningHelpers("update");
         }
         else
         {

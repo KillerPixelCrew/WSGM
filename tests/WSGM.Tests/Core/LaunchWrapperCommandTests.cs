@@ -1,10 +1,10 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class LaunchWrapperCommandTests
 {
-    private const string Helper = "C:\\Users\\Player One\\WSGM.Launch.exe";
+    private const string Helper = @"C:\Users\Player One\WSGM.Launch.exe";
 
     [Theory]
     [InlineData(LaunchWrapperMode.Deelevate, "--deelevate")]
@@ -147,7 +147,7 @@ public sealed class LaunchWrapperCommandTests
         => Assert.Equal(
             "--input-lease -- \"C:\\Games\\The Movies\\MoviesSE.exe\"",
             LaunchWrapperCommand.ShortcutArguments(
-                LaunchWrapperMode.InputLease, "C:\\Games\\The Movies\\MoviesSE.exe", ""));
+                LaunchWrapperMode.InputLease, @"C:\Games\The Movies\MoviesSE.exe", ""));
 
     [Fact]
     public void ShortcutArgumentsPreserveTheShortcutsOwnArguments()
@@ -198,7 +198,7 @@ public sealed class LaunchWrapperCommandTests
     [InlineData(
         "--deelevate --input-lease -- \"C:\\Games\\game.exe\" -windowed -skipintro",
         "\"C:\\Games\\game.exe\"", "-windowed -skipintro")]
-    [InlineData("--input-lease -- C:\\Games\\bare.exe", "C:\\Games\\bare.exe", "")]
+    [InlineData(@"--input-lease -- C:\Games\bare.exe", @"C:\Games\bare.exe", "")]
     [InlineData("--input-lease -- C:\\bare.exe -x", "C:\\bare.exe", "-x")]
     public void OriginalFromWrappedArgumentsRecoversTheRealProgram(
         string arguments, string expectedTarget, string expectedArguments)
@@ -322,9 +322,13 @@ public sealed class LaunchWrapperCommandTests
     [Fact]
     public void PreservedPrefix_ShimWithItsOwnArguments_KeepsThoseArguments()
         => Assert.Equal(
-            @"""C:\Tools\rtss.exe"" --hook --profile=default",
+            """
+            "C:\Tools\rtss.exe" --hook --profile=default
+            """,
             LaunchWrapperCommand.PreservedPrefix(
-                @"""C:\Tools\rtss.exe"" --hook --profile=default %command% -dx11"));
+                """
+                "C:\Tools\rtss.exe" --hook --profile=default %command% -dx11
+                """));
 
     // Log.Write interpolates its message raw, so an options value carrying a newline
     // could otherwise forge whole lines in wsgm.log — the only remote-diagnosis

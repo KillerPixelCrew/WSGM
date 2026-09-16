@@ -6,9 +6,11 @@ using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
-using WSGM.Tests;
+using WSGM.Tests.Fakes;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class HybridCoreViewTests
 {
@@ -110,7 +112,7 @@ public sealed class HybridCoreViewTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
         Dispatcher.UIThread.RunJobs();
     }
 }

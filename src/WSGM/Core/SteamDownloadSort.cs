@@ -249,7 +249,7 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
     // Shared with every transform on the toolkit's JSX-runtime claim, so their claims serialize.
     public string ResourceKey => "steam-ui.jsx-runtime";
 
-    public SteamUiPatchBounds Bounds { get; } = SteamUiPatchBounds.Default;
+    public SteamUiPatchBounds Bounds => SteamUiPatchBounds.Default;
 
     public async Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,

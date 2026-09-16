@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Media.Imaging;
@@ -26,7 +27,7 @@ public sealed class WindowIconCache
 {
     private readonly Dictionary<nint, Bitmap?> _byWindow = [];
     private readonly HashSet<nint> _inFlight = [];
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private int _generation;
     private readonly int _pixelSize;
 
@@ -149,7 +150,7 @@ public sealed class WindowIconCache
             return null;
         }
         var extracted = NativeMethods.ExtractIconExW(exe, 0, out var large, out var small, 1);
-        if (extracted == 0 || extracted == unchecked((uint)-1))
+        if (extracted is 0 or unchecked((uint)-1))
         {
             return null;
         }
@@ -228,11 +229,12 @@ internal static class IconRasterizer
         var anyAlpha = false;
         for (var i = 3; i < pixels.Length; i += 4)
         {
-            if (pixels[i] != 0)
+            if (pixels[i] == 0)
             {
-                anyAlpha = true;
-                break;
+                continue;
             }
+            anyAlpha = true;
+            break;
         }
         if (!anyAlpha)
         {
@@ -257,13 +259,11 @@ internal static class IconRasterizer
 
         var bitmap = new WriteableBitmap(
             new PixelSize(size, size), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Unpremul);
-        using (var framebuffer = bitmap.Lock())
+        using var framebuffer = bitmap.Lock();
+        var sourceStride = size * 4;
+        for (var row = 0; row < size; row++)
         {
-            var sourceStride = size * 4;
-            for (var row = 0; row < size; row++)
-            {
-                Marshal.Copy(pixels, row * sourceStride, framebuffer.Address + row * framebuffer.RowBytes, sourceStride);
-            }
+            Marshal.Copy(pixels, row * sourceStride, framebuffer.Address + row * framebuffer.RowBytes, sourceStride);
         }
         return bitmap;
     }

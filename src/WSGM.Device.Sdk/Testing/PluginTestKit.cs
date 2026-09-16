@@ -13,7 +13,7 @@ namespace WSGM.Device.Sdk.Testing;
 /// <remarks>The adapter records only the semantic publications available to production plugins.</remarks>
 public sealed class TestPluginHostAdapter : IPluginHostAdapter
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<CapabilityDescriptorSet> _descriptorSets = [];
     private readonly List<CapabilityState> _capabilityStates = [];
     private readonly List<IReadOnlyList<PhysicalDeviceIdentity>> _physicalDeviceSets = [];

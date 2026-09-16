@@ -59,13 +59,13 @@ public sealed record CapabilityDisplay
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(CustomLabel))
+        if (!string.IsNullOrWhiteSpace(CustomLabel))
         {
-            error = "key Custom requires a customLabel.";
-            return false;
+            return PlainText.TryValidate(CustomLabel, MaxCustomLabelLength, "customLabel", out error);
         }
 
-        return PlainText.TryValidate(CustomLabel, MaxCustomLabelLength, "customLabel", out error);
+        error = "key Custom requires a customLabel.";
+        return false;
     }
 }
 

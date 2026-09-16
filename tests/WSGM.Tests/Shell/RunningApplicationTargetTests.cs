@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class RunningApplicationTargetTests : IDisposable
 {
@@ -158,7 +158,7 @@ public sealed class RunningApplicationTargetTests : IDisposable
     [Fact]
     public void UnresolvedShortcutProfileIsRetriedAfterItsBackoff()
     {
-        var shortcutAppId = 0x8000002A;
+        const uint shortcutAppId = 0x8000002A;
         var now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
         SteamRunningAppProfile unresolved = new(null, null, "Transient CEF failure.");
 

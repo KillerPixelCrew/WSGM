@@ -177,17 +177,19 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             Volatile.Write(ref _desktopAppsSuspended, 1);
             Interlocked.Increment(ref _desktopAppsGeneration);
             var stopped = await _desktopApps.StopAsync(CancellationToken.None).ConfigureAwait(false);
-            var exited = false;
-            if (stopped)
-            {
-                try
-                {
-                    exited = await Task.Run(() => ExplorerControl.ExitExplorerAndWait(timeout)).ConfigureAwait(false);
-                }
-                catch (Exception ex) { Log.Error("Explorer exit failed", ex); }
-            }
             // The transition's shared desktop-return sequence owns every failed exit, including
             // partial shutdown. Never infer a preserved desktop from a surviving Explorer PID.
+            if (!stopped)
+            {
+                return false;
+            }
+
+            var exited = false;
+            try
+            {
+                exited = await Task.Run(() => ExplorerControl.ExitExplorerAndWait(timeout)).ConfigureAwait(false);
+            }
+            catch (Exception ex) { Log.Error("Explorer exit failed", ex); }
             return exited;
         }
         finally
@@ -203,10 +205,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposalRequested();
-        if (timeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
 
         var deadline = DateTimeOffset.UtcNow + timeout;
         var elapsed = Stopwatch.StartNew();
@@ -238,11 +237,13 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             }
             var result = await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
                 .ConfigureAwait(false);
-            if (result.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded)
+            if (result.Outcome is not (ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded))
             {
-                await _desktopApps.RestoreAsync(deadline).ConfigureAwait(false);
-                Volatile.Write(ref _desktopAppsSuspended, 0);
+                return result;
             }
+
+            await _desktopApps.RestoreAsync(deadline).ConfigureAwait(false);
+            Volatile.Write(ref _desktopAppsSuspended, 0);
             return result;
         }
         finally
@@ -452,7 +453,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         uint stableProcessId = 0;
         var stableOutcome = ExplorerDesktopOutcome.Failed;
         Stopwatch? stable = null;
-        var last = ObserveCurrentDesktop(_sessionId);
+        ExplorerDesktopObservation last;
 
         while (DateTimeOffset.UtcNow < deadline)
         {

@@ -21,7 +21,7 @@ namespace WSGM.Shell;
 internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, IDisposable
 {
     private readonly AudioManager _audio;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private SteamAudioState _current;
     private bool _disposed;
 
@@ -96,15 +96,6 @@ internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, ID
             $"Native QAM audio: default {(input ? "input" : "output")} set to '{entry.Name}'.");
         return new SteamUiCommandResult(true, string.Empty);
     }
-
-    /// <summary>Sets the system volume.</summary>
-    /// <param name="percent">Target volume, 0-100.</param>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>The outcome, as the native QAM reports outcomes.</returns>
-    public async Task<SteamUiCommandResult> SetVolumeAsync(
-        int percent,
-        CancellationToken cancellationToken
-    ) => await SetVolumeAsync(percent, input: false, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetVolumeAsync(

@@ -80,7 +80,7 @@ public sealed unsafe class TrayHost : IDisposable
             return null;
         }
         _instance = host;
-        host.BroadcastTaskbarCreated();
+        BroadcastTaskbarCreated();
         return host;
     }
 
@@ -111,7 +111,7 @@ public sealed unsafe class TrayHost : IDisposable
         // renders the icons; this window only speaks the protocol.
         var width = NativeMethods.GetSystemMetrics(0);
         _trayHwnd = NativeMethods.CreateWindowExW(
-            NativeMethods.WsExTopmost | (uint)NativeMethods.WsExToolWindow,
+            NativeMethods.WsExTopmost | NativeMethods.WsExToolWindow,
             TrayClassName, null,
             NativeMethods.WsPopup | NativeMethods.WsClipChildren | NativeMethods.WsClipSiblings,
             0, 0, width, 30,
@@ -154,20 +154,21 @@ public sealed unsafe class TrayHost : IDisposable
                 hInstance = hInstance,
                 lpszClassName = (nint)pClassName
             };
-            if (NativeMethods.RegisterClassW(&wc) == 0)
+            if (NativeMethods.RegisterClassW(&wc) != 0)
             {
-                var error = Marshal.GetLastWin32Error();
-                if (error != 1410)
-                {
-                    Log.Warn($"RegisterClassW({className}) failed (error {error}).");
-                    return false;
-                }
+                return true;
             }
+            var error = Marshal.GetLastWin32Error();
+            if (error == 1410)
+            {
+                return true;
+            }
+            Log.Warn($"RegisterClassW({className}) failed (error {error}).");
+            return false;
         }
-        return true;
     }
 
-    private void BroadcastTaskbarCreated()
+    private static void BroadcastTaskbarCreated()
     {
         var message = NativeMethods.RegisterWindowMessageW("TaskbarCreated");
         // SendNotifyMessage, never a blocking broadcast — one wedged top-level
@@ -195,15 +196,15 @@ public sealed unsafe class TrayHost : IDisposable
         }
         try
         {
-            if (msg == NativeMethods.WmCopyData)
+            switch (msg)
             {
-                return host.OnCopyData(lParam);
-            }
-            if (msg == NativeMethods.WmWindowPosChanged && NativeMethods.IsWindowVisible(hWnd))
-            {
-                // Something in the system showed the protocol window (ManagedShell
-                // observes the same); it must stay invisible under WSGM's UI.
-                NativeMethods.ShowWindow(hWnd, NativeMethods.SwHide);
+                case NativeMethods.WmCopyData:
+                    return host.OnCopyData(lParam);
+                case NativeMethods.WmWindowPosChanged when NativeMethods.IsWindowVisible(hWnd):
+                    // Something in the system showed the protocol window (ManagedShell
+                    // observes the same); it must stay invisible under WSGM's UI.
+                    NativeMethods.ShowWindow(hWnd, NativeMethods.SwHide);
+                    break;
             }
         }
         catch (Exception ex)
@@ -228,30 +229,33 @@ public sealed unsafe class TrayHost : IDisposable
             case TrayProtocol.CopyDataAppBar:
                 // Full appbar support (work-area arithmetic, autohide) is out of
                 // scope; a 0 reply reads as failure and callers degrade gracefully.
-                if (!_loggedAppBar)
+                if (_loggedAppBar)
                 {
-                    _loggedAppBar = true;
-                    Log.Info("Tray host: SHAppBarMessage traffic received — stubbed (unsupported).");
+                    return 0;
                 }
+                _loggedAppBar = true;
+                Log.Info("Tray host: SHAppBarMessage traffic received — stubbed (unsupported).");
                 return 0;
 
             case TrayProtocol.CopyDataLoadInProc:
                 // COM shell service objects (system volume/network/clock icons).
                 // WSGM owns those surfaces itself and does not host arbitrary
                 // in-process Explorer extensions.
-                if (!_loggedLoadInProc)
+                if (_loggedLoadInProc)
                 {
-                    _loggedLoadInProc = true;
-                    Log.Info("Tray host: SHLoadInProc request rejected (in-process Explorer extensions are unsupported).");
+                    return 0;
                 }
+                _loggedLoadInProc = true;
+                Log.Info("Tray host: SHLoadInProc request rejected (in-process Explorer extensions are unsupported).");
                 return 0;
 
             case TrayProtocol.CopyDataIconRect:
-                if (!_loggedIconRect)
+                if (_loggedIconRect)
                 {
-                    _loggedIconRect = true;
-                    Log.Info("Tray host: Shell_NotifyIconGetRect not supported yet.");
+                    return 0;
                 }
+                _loggedIconRect = true;
+                Log.Info("Tray host: Shell_NotifyIconGetRect not supported yet.");
                 return 0;
 
             default:
@@ -311,10 +315,7 @@ public sealed unsafe class TrayHost : IDisposable
         if (change == TrayChange.Removed)
         {
             (icon?.IconImage as Bitmap)?.Dispose();
-            if (icon is not null)
-            {
-                icon.IconImage = null;
-            }
+            icon?.IconImage = null;
         }
 
         // Added/Removed only: the device-verification contract needs the
@@ -369,13 +370,14 @@ public sealed unsafe class TrayHost : IDisposable
         {
             // Relay only application-defined messages. Registration still succeeds so shell32
             // does not retry NIM_ADD, and one-shot logging preserves the bounded diagnostic log.
-            if (!_loggedBlockedCallback)
+            if (_loggedBlockedCallback)
             {
-                _loggedBlockedCallback = true;
-                Log.Warn($"Tray click dropped: '{icon.Tip}' (hwnd 0x{icon.Hwnd:X}) registered callback " +
-                         $"0x{icon.CallbackMessage:X}, outside the application-defined range " +
-                         "0x400..0xFFFF; the icon stays registered. Logged once per tray host.");
+                return;
             }
+            _loggedBlockedCallback = true;
+            Log.Warn($"Tray click dropped: '{icon.Tip}' (hwnd 0x{icon.Hwnd:X}) registered callback " +
+                     $"0x{icon.CallbackMessage:X}, outside the application-defined range " +
+                     "0x400..0xFFFF; the icon stays registered. Logged once per tray host.");
             return;
         }
         if (!NativeMethods.IsWindow(icon.Hwnd))
@@ -443,14 +445,14 @@ public sealed unsafe class TrayHost : IDisposable
         Log.Info($"Tray click forwarded to '{icon.Tip}' ({kind}, v{icon.Version}, cb 0x{icon.CallbackMessage:X}, hwnd 0x{icon.Hwnd:X}).");
     }
 
-    private void Notify(TrayIconTable.TrayIcon icon, uint notification, int x, int y)
+    private static void Notify(TrayIconTable.TrayIcon icon, uint notification, int x, int y)
     {
         nint wParam;
         nint lParam;
         if (icon.Version >= 4)
         {
             // v4: wParam = packed screen coords, lParam = LOWORD(event)|HIWORD(uid).
-            wParam = (nint)(((y & 0xFFFF) << 16) | (x & 0xFFFF));
+            wParam = ((y & 0xFFFF) << 16) | (x & 0xFFFF);
             lParam = (nint)(((icon.Uid & 0xFFFF) << 16) | (notification & 0xFFFF));
         }
         else

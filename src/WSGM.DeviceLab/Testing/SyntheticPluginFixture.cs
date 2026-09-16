@@ -53,7 +53,7 @@ internal static class SyntheticPluginFixture
                 Identity = SyntheticDockPlugin.Identity
             },
             cancellationToken).ConfigureAwait(false);
-        Check(exact.Matched && exact.DeviceDefinitionId == SyntheticDockPlugin.DeviceId,
+        Check(exact is { Matched: true, DeviceDefinitionId: SyntheticDockPlugin.DeviceId },
             "synthetic-dock-exact-match", checks);
 
         TestPluginHostAdapter host = new(cycleGeneration: 7);
@@ -70,10 +70,12 @@ internal static class SyntheticPluginFixture
         var activation = PluginPublicationSummary.From(host);
         Check(start.State is PluginOperationalState.Degraded
             && start.Reason?.Code is CapabilityReasonCode.PrerequisiteMissing
-            && activation.DescriptorSets == 1
-            && activation.CapabilityStates == 2
-            && host.CapabilityStates.Any(state => !state.Available
-                && state.Reason?.Code is CapabilityReasonCode.PrerequisiteMissing),
+            && activation is { DescriptorSets: 1, CapabilityStates: 2 }
+            && host.CapabilityStates.Any(capabilityState => capabilityState is
+            {
+                Available: false,
+                Reason.Code: CapabilityReasonCode.PrerequisiteMissing
+            }),
             "partial-capability-availability", checks);
         Check(activation.ControllerSamples == 1
             && host.ControllerSamples[0].Buttons.HasFlag(CanonicalButtons.A)
@@ -107,7 +109,7 @@ internal static class SyntheticPluginFixture
 
         using (CancellationTokenSource cancelled = new())
         {
-            cancelled.Cancel();
+            await cancelled.CancelAsync().ConfigureAwait(false);
             var observed = false;
             try
             {
@@ -160,7 +162,7 @@ internal static class SyntheticPluginFixture
         Deadline = DateTimeOffset.UtcNow.AddSeconds(5)
     };
 
-    private static void Check(bool condition, string name, ICollection<string> checks)
+    private static void Check(bool condition, string name, List<string> checks)
     {
         if (!condition)
         {
@@ -178,10 +180,10 @@ internal sealed class SyntheticDockPlugin : IDevicePlugin
 {
     internal const string DeviceId = "synthetic.dock-x1";
     internal const string BeaconCapabilityId = "dock.beacon";
-    internal const string UnavailableSensorCapabilityId = "dock.ambient-temperature";
+    private const string UnavailableSensorCapabilityId = "dock.ambient-temperature";
 
     /// <summary>Settings id exercising the declared-section path.</summary>
-    internal const string PollIntervalSettingId = "dock.poll-interval";
+    private const string PollIntervalSettingId = "dock.poll-interval";
 
     /// <summary>Settings id exercising the undeclared-section fallback.</summary>
     internal const string OrphanSettingId = "dock.stray";

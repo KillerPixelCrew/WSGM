@@ -1,8 +1,8 @@
 using WSGM.Core;
 using WSGM.Shell;
-using static WSGM.Tests.ControllerBuilders;
+using static WSGM.Tests.Builders.ControllerBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class ControllerTargetSelectionTests
 {

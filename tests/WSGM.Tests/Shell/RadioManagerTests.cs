@@ -6,7 +6,7 @@ using WifiConnectionState = WindowsDeviceControl.WindowsRadio.WifiConnectionStat
 using WifiFailureKind = WindowsDeviceControl.WindowsRadio.WifiFailureKind;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public class RadioManagerTests
 {
@@ -139,7 +139,7 @@ public class RadioManagerTests
     public void ARawPskUsesTheNetworkKeyProfileShape()
     {
         var xml = WifiProfile.CreatePsk(
-            "Cafe", "Cafe", "Cafe"u8.ToArray(), string.Concat(Enumerable.Repeat("a1B2", 16)),
+            "Cafe", "Cafe", [.. "Cafe"u8], string.Concat(Enumerable.Repeat("a1B2", 16)),
             WifiProfile.PskFlavor.Wpa3Transition);
         Assert.Contains("<keyType>networkKey</keyType>", xml);
         Assert.Contains("profile/v4", xml);
@@ -148,7 +148,7 @@ public class RadioManagerTests
     [Fact]
     public void AProfileRoundTripsEscapedAndHexSsids()
     {
-        var escaped = WifiProfile.CreateOpen("A&B", "A&B", "A&B"u8.ToArray(), false);
+        var escaped = WifiProfile.CreateOpen("A&B", "A&B", [.. "A&B"u8], false);
         Assert.Equal("A&B"u8.ToArray(), WifiProfile.TryReadSsid(escaped));
 
         var raw = new byte[] { 0x41, 0xff, 0x42 };
@@ -163,7 +163,7 @@ public class RadioManagerTests
         var escaped = WifiProfile.CreatePsk(
             "A&B<C>",
             "A&B<C>",
-            "A&B<C>"u8.ToArray(),
+            [.. "A&B<C>"u8],
             "pw\"&<>'x",
             WifiProfile.PskFlavor.Wpa3Transition);
         Assert.Contains("<name>A&amp;B&lt;C&gt;</name>", escaped);
@@ -172,12 +172,12 @@ public class RadioManagerTests
             "<transitionMode xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v4\">true</transitionMode>",
             escaped);
 
-        var enhancedOpen = WifiProfile.CreateOpen("Cafe", "Cafe", "Cafe"u8.ToArray(), true);
+        var enhancedOpen = WifiProfile.CreateOpen("Cafe", "Cafe", [.. "Cafe"u8], true);
         Assert.Contains("<authentication>OWE</authentication>", enhancedOpen);
         Assert.DoesNotContain("<encryption>none</encryption>", enhancedOpen);
 
         var legacy = WifiProfile.CreatePsk(
-            "Old", "Old", "Old"u8.ToArray(), "password1", WifiProfile.PskFlavor.WpaTkip);
+            "Old", "Old", [.. "Old"u8], "password1", WifiProfile.PskFlavor.WpaTkip);
         Assert.Contains("<authentication>WPAPSK</authentication>", legacy);
         Assert.Contains("<encryption>TKIP</encryption>", legacy);
     }
@@ -186,7 +186,7 @@ public class RadioManagerTests
     public void AProfileNameNeverReplacesTheNetworkIdentity()
     {
         var xml = WifiProfile.CreatePsk(
-            "Cafe 2", " Cafe ", " Cafe "u8.ToArray(), "password1",
+            "Cafe 2", " Cafe ", [.. " Cafe "u8], "password1",
             WifiProfile.PskFlavor.Wpa2Aes);
         Assert.Contains("<name>Cafe 2</name>", xml);
         Assert.Equal(" Cafe "u8.ToArray(), WifiProfile.TryReadSsid(xml));

@@ -186,7 +186,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
         var name = new byte[EntryNameLength];
         for (var index = 0; index < count; index++)
         {
-            var entry = arrayOffset + (long)index * entrySize;
+            var entry = arrayOffset + index * entrySize;
             if (entry < 0 || entry + entrySize > capacity)
             {
                 break;

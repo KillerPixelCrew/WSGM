@@ -112,13 +112,16 @@ internal sealed class SteamControllerOwnershipAdapter : IDisposable
         }
         var restored = _usesPhysical
             ? await _restorePhysical(cancellationToken).ConfigureAwait(false) : SteamPhysicalRestoreResult.Restored;
-        if (restored == SteamPhysicalRestoreResult.OwnerChanged)
+        switch (restored)
         {
-            _gate.Dispose();
-        }
-        else if (restored == SteamPhysicalRestoreResult.Restored)
-        {
-            _gate.EndRestore();
+            case SteamPhysicalRestoreResult.OwnerChanged:
+                _gate.Dispose();
+                break;
+            case SteamPhysicalRestoreResult.Restored:
+                _gate.EndRestore();
+                break;
+            case SteamPhysicalRestoreResult.Unverified:
+                break;
         }
         await _captureUi(false, cancellationToken).ConfigureAwait(false);
         return restored != SteamPhysicalRestoreResult.Unverified;
@@ -196,12 +199,8 @@ internal sealed class NativeSteamControllerGate : ISteamControllerGate
         {
             status = claim.Release();
         }
-        if (status.IsPassThroughActive)
-        {
-            // Another owner's override is still active. Do not race it for the physical device.
-            return false;
-        }
-        return true;
+        // Another owner's override may still be active. Do not race it for the physical device.
+        return !status.IsPassThroughActive;
     }
 
     public void EndRestore()

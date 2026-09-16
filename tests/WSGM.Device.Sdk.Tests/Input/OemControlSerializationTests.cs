@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using WSGM.Device.Sdk.Input;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Input;
 
 public sealed class OemControlSerializationTests
 {

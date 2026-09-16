@@ -10,7 +10,7 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 
 internal sealed class WindowsClawMotionSource : IClawMotionSource
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Func<Func<MotionSample, ValueTask>, MotionWorkerSession?> _open;
     private readonly TimeSpan _stopTimeout;
     private MotionWorkerSession? _session;
@@ -29,7 +29,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     /// Poll faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
     /// cannot routinely skip a hardware report. The counter prevents duplicate publication.
     /// </summary>
-    internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
 
     /// <summary>
     /// Report a refined zero-rate offset only once it has moved by more than the residual a single
@@ -273,29 +273,29 @@ internal sealed class StationaryGyroBiasCalibrator
     /// 1.47 degrees/second across 200 stationary reports, so this admits every real rest window
     /// while a hand's changing rate breaks the window immediately.
     /// </summary>
-    internal const float MaximumAxisSpan = 2f;
+    private const float MaximumAxisSpan = 2f;
 
     /// <summary>
     /// Per-axis peak-to-peak acceleration a rest window may span, in g. Stationary reports span at
     /// most 0.023 g; 0.05 g still detects roughly 1.4 degrees/second of pitch or roll, which is
     /// what makes a slowly tilted device fail the gate instead of teaching a false offset.
     /// </summary>
-    internal const float MaximumAccelerationSpan = 0.05f;
+    private const float MaximumAccelerationSpan = 0.05f;
 
     /// <summary>The narrowest gravity magnitude, in g, that a rest window's acceleration may show.</summary>
-    internal const float MinimumGravityMagnitude = 0.85f;
+    private const float MinimumGravityMagnitude = 0.85f;
 
     /// <summary>The widest gravity magnitude, in g, that a rest window's acceleration may show.</summary>
-    internal const float MaximumGravityMagnitude = 1.15f;
+    private const float MaximumGravityMagnitude = 1.15f;
 
     /// <summary>
     /// The largest offset magnitude accepted as hardware, in degrees/second. This part's measured
     /// offset is under 1; anything far above it is a sustained rotation, not a zero-rate error.
     /// </summary>
-    internal const float MaximumBiasMagnitude = 5f;
+    private const float MaximumBiasMagnitude = 5f;
 
     /// <summary>How far, per axis, a rest window may sit from the measured offset and still refine it.</summary>
-    internal const float MaximumRefinementDelta = 0.5f;
+    private const float MaximumRefinementDelta = 0.5f;
 
     /// <summary>The fraction of an accepted refinement applied, damping a contaminated window.</summary>
     internal const float RefinementWeight = 0.25f;

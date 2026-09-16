@@ -2,9 +2,9 @@ using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using static WSGM.Tests.PluginBuilders;
+using static WSGM.Tests.Builders.PluginBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class GameModeEntryTransactionTests
 {
@@ -29,7 +29,7 @@ public sealed class GameModeEntryTransactionTests
     {
         Backend backend = new();
 
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
         Assert.Equal(
@@ -61,7 +61,7 @@ public sealed class GameModeEntryTransactionTests
             EnterActions = [Step("switch-to-pc")]
         };
 
-        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
         Assert.Equal(
@@ -75,7 +75,7 @@ public sealed class GameModeEntryTransactionTests
     {
         TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Backend backend = new() { ArmGate = armed.Task };
-        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Contains("arm-splash", backend.Calls);
         Assert.DoesNotContain("big-picture", backend.Calls);
@@ -89,7 +89,7 @@ public sealed class GameModeEntryTransactionTests
     {
         Backend backend = new() { FailAction = "tv-on" };
 
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.Failed, result.Outcome);
         Assert.Contains("tv-on refused", result.Warning!, StringComparison.Ordinal);
@@ -108,7 +108,7 @@ public sealed class GameModeEntryTransactionTests
         // the user never asked to move.
         Backend backend = new() { FailAction = "switch-to-pc" };
 
-        await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.DoesNotContain("leave-actions", backend.Calls);
     }
@@ -134,7 +134,7 @@ public sealed class GameModeEntryTransactionTests
     {
         Backend backend = new() { PrepareExplorer = false };
 
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
         Assert.Equal(SessionModes.ExplorerTakeoverRefusedWarning, result.Warning);
@@ -144,9 +144,9 @@ public sealed class GameModeEntryTransactionTests
     [Fact]
     public async Task AnExplorerThatRefusedToLeaveKeepsTheDesktopRatherThanHalfEntering()
     {
-        Backend backend = new() { ExitExplorer = false, PreserveDesktop = true };
+        Backend backend = new() { ExitExplorer = false };
 
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
         Assert.Equal(SessionModes.ExplorerExitFailedWarning, result.Warning);
@@ -160,7 +160,7 @@ public sealed class GameModeEntryTransactionTests
         // wrong display beats tearing the whole session down again.
         Backend backend = new() { LayoutOutcome = DisplayLayoutOutcome.Rejected };
 
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
         Assert.Contains("Game Mode display layout", result.Warning!, StringComparison.Ordinal);
@@ -172,7 +172,7 @@ public sealed class GameModeEntryTransactionTests
     {
         Backend backend = new() { MissingOnRecheck = true };
 
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
         Assert.Equal(2, backend.Calls.Count(call => call == "wait"));
@@ -183,7 +183,7 @@ public sealed class GameModeEntryTransactionTests
     {
         Backend backend = new() { PrepareExplorer = false };
 
-        await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         Assert.Equal(["captured", null], backend.PersistedReturns);
     }
@@ -196,7 +196,7 @@ public sealed class GameModeEntryTransactionTests
         launch.Return = GameModeReturn.DesktopLayout;
         launch.DesktopLayout = Layout(Desk);
 
-        await new GameModeEntryTransaction(backend, launch).RunAsync(default);
+        await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
 
         // The configured layout, not whatever the desktop happened to look like at entry.
         Assert.Equal(["desk"], backend.PersistedReturns.Where(name => name is not null));
@@ -208,7 +208,7 @@ public sealed class GameModeEntryTransactionTests
     {
         Backend backend = new();
 
-        await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
 
         var lastCancellable = backend.Calls.LastIndexOf("cancellable:true");
         var notCancellable = backend.Calls.IndexOf("cancellable:false");
@@ -219,8 +219,8 @@ public sealed class GameModeEntryTransactionTests
     [Fact]
     public async Task APartialExplorerExitAlwaysRecoversAndNeverCommits()
     {
-        Backend backend = new() { ExitExplorer = false, PreserveDesktop = false };
-        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        Backend backend = new() { ExitExplorer = false };
+        var result = await new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
         Assert.Equal(GameModeEntryOutcome.DesktopPreserved, result.Outcome);
         Assert.Contains("restore-desktop", backend.Calls);
         Assert.DoesNotContain("commit", backend.Calls);
@@ -242,7 +242,7 @@ public sealed class GameModeEntryTransactionTests
     {
         TaskCompletionSource commit = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Backend backend = new() { CommitGate = commit.Task, ThrowOnCommit = true };
-        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(default);
+        var entry = new GameModeEntryTransaction(backend, Custom()).RunAsync(CancellationToken.None);
         Assert.False(entry.IsCompleted);
         commit.SetResult();
         Assert.Equal(GameModeEntryOutcome.Failed, (await entry).Outcome);
@@ -277,8 +277,6 @@ public sealed class GameModeEntryTransactionTests
         internal bool PrepareExplorer { get; init; } = true;
 
         internal bool ExitExplorer { get; init; } = true;
-
-        internal bool PreserveDesktop { get; init; }
 
         internal bool MissingOnRecheck { get; init; }
 
@@ -344,7 +342,7 @@ public sealed class GameModeEntryTransactionTests
             return Task.FromResult<IReadOnlyList<PluginActionStepResult>>(results);
         }
 
-        public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
+        private Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
         {
             Calls.Add("leave-actions");
             return Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
@@ -366,7 +364,7 @@ public sealed class GameModeEntryTransactionTests
         public async Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
         {
             Calls.Add("restore-desktop");
-            if (layout is not null) { await ApplyLayoutAsync(layout, default); }
+            if (layout is not null) { await ApplyLayoutAsync(layout, CancellationToken.None); }
             if (runLeaveActions) { await RunLeaveActionsAsync(); }
             await PersistPendingReturnAsync(null);
             return true;
@@ -384,8 +382,6 @@ public sealed class GameModeEntryTransactionTests
             return Task.FromResult<string?>(null);
         }
 
-        public void ExitBigPicture() => Calls.Add("exit-big-picture");
-
         public async Task CommitGameModeAsync()
         {
             Calls.Add("commit");
@@ -393,7 +389,7 @@ public sealed class GameModeEntryTransactionTests
             if (ThrowOnCommit) { throw new InvalidOperationException("UI commit failed"); }
         }
 
-        private Task<DisplayArrangement> ObserveWithoutRecording() =>
+        private static Task<DisplayArrangement> ObserveWithoutRecording() =>
             Task.FromResult(new DisplayArrangement(
                 [new DisplayTargetObservation(Tv, true, true, new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))],
                 "captured", DateTimeOffset.UnixEpoch));

@@ -18,16 +18,6 @@ internal sealed class ManualTdpModeView : StackPanel
         Children.Add(choice);
         Children.Add(status);
         bool rendering = false, writing = false, closed = false;
-        void Refresh()
-        {
-            if (writing || closed) { return; }
-            var state = read();
-            rendering = true;
-            IsVisible = state.Available;
-            choice.IsEnabled = state.Available;
-            choice.SelectedIndex = state.Unified ? 1 : 0;
-            rendering = false;
-        }
         choice.SelectionChanged += async (_, _) =>
         {
             if (rendering || writing || closed || choice.SelectedIndex < 0) { return; }
@@ -42,5 +32,17 @@ internal sealed class ManualTdpModeView : StackPanel
         timer.Tick += (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } Refresh(); };
         AttachedToVisualTree += (_, _) => { closed = false; Refresh(); timer.Start(); };
         DetachedFromVisualTree += (_, _) => { closed = true; timer.Stop(); };
+        return;
+
+        void Refresh()
+        {
+            if (writing || closed) { return; }
+            var state = read();
+            rendering = true;
+            IsVisible = state.Available;
+            choice.IsEnabled = state.Available;
+            choice.SelectedIndex = state.Unified ? 1 : 0;
+            rendering = false;
+        }
     }
 }

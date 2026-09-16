@@ -82,7 +82,7 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
     /// <summary>Last observed state per pad id. Edges and chords are evaluated per
     /// pad so one controller holding a button cannot mask or complete another's.</summary>
     private readonly Dictionary<uint, GamepadButtons> _perPad = new();
-    private readonly List<uint> _stalePads = new();
+    private readonly List<uint> _stalePads = [];
     private GamepadButtons _repeating;
     private long _nextRepeat;
     private bool _loggedFirstPress;
@@ -140,11 +140,13 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
             // Edge-trigger per pad: pad A holding a button must not mask pad B
             // freshly pressing the same button.
             pressed |= pad.Buttons & ~previous;
-            if (pad.Buttons != previous)
+            if (pad.Buttons == previous)
             {
-                _perPad[pad.Id] = pad.Buttons;
-                StateChanged?.Invoke(pad.Id, pad.Buttons);
+                continue;
             }
+
+            _perPad[pad.Id] = pad.Buttons;
+            StateChanged?.Invoke(pad.Id, pad.Buttons);
         }
 
         // A pad unplugged mid-chord counts as a full release, so its chord state
@@ -155,11 +157,13 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
             var present = false;
             foreach (var pad in pads)
             {
-                if (pad.Id == id)
+                if (pad.Id != id)
                 {
-                    present = true;
-                    break;
+                    continue;
                 }
+
+                present = true;
+                break;
             }
             if (!present)
             {

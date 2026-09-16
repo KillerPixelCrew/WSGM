@@ -31,7 +31,15 @@ public static class DevicePowerPair
     }
 
     private static bool IsLimit(CapabilityDescriptor descriptor) =>
-        descriptor.InstanceId is null && descriptor.SupportsRead && descriptor.SupportsWrite
-        && descriptor.ValueKind == CapabilityValueKind.Integer && descriptor.Unit == CapabilityUnit.Watt
-        && descriptor.Minimum is > 0 && descriptor.Maximum >= descriptor.Minimum && descriptor.Step is > 0;
+        descriptor is
+        {
+            InstanceId: null,
+            SupportsRead: true,
+            SupportsWrite: true,
+            ValueKind: CapabilityValueKind.Integer,
+            Unit: CapabilityUnit.Watt,
+            Minimum: > 0,
+            Step: > 0
+        }
+        && descriptor.Maximum >= descriptor.Minimum;
 }

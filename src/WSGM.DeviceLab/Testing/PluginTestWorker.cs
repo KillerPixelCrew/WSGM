@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -244,7 +245,7 @@ internal static class PluginTestWorkerSupervisor
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(boundaries);
-        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory);
+        var validation = PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
         if (!validation.Valid)
         {
             return Failed(
@@ -342,7 +343,7 @@ internal static class PluginTestWorkerSupervisor
             AttendedDeadline,
             cancellationToken).ConfigureAwait(false);
 
-        if (report.Started && !report.CleanedUp)
+        if (report is { Started: true, CleanedUp: false })
         {
             ownerReservation?.RetainForProcessLifetime();
         }
@@ -519,17 +520,17 @@ internal static class PluginTestWorkerSupervisor
                     "The plugin worker response did not match its authorized request.");
             }
 
-            if (response.Report is null || response.Error is not null)
+            if (response.Report is not null && response.Error is null)
             {
-                ownerReservation?.RetainForProcessLifetime();
-                return Failed(
-                    request.Mode,
-                    null,
-                    request.Action,
-                    response.Error ?? "The plugin worker returned no report.");
+                return response.Report;
             }
 
-            return response.Report;
+            ownerReservation?.RetainForProcessLifetime();
+            return Failed(
+                request.Mode,
+                null,
+                request.Action,
+                response.Error ?? "The plugin worker returned no report.");
         }
         finally
         {
@@ -596,12 +597,9 @@ internal static class PluginTestWorkerSupervisor
                 }
             }
 
-            foreach (var path in expected)
+            foreach (var path in expected.Where(File.Exists))
             {
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
+                File.Delete(path);
             }
 
             Directory.Delete(sessionDirectory, recursive: false);

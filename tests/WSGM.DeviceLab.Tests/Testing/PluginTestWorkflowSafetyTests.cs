@@ -5,13 +5,16 @@ using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Testing;
+using WSGM.DeviceLab.Tests.Builders;
+using WSGM.DeviceLab.Tests.Fakes;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Testing;
 
 public sealed class PluginTestWorkflowSafetyTests
 {
@@ -78,7 +81,7 @@ public sealed class PluginTestWorkflowSafetyTests
             Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(8), elapsed.Elapsed.ToString());
             Assert.Contains("deadline", report.Error, StringComparison.OrdinalIgnoreCase);
             descendantPid = int.Parse(
-                File.ReadAllText(descendantMarker),
+                await File.ReadAllTextAsync(descendantMarker),
                 CultureInfo.InvariantCulture);
             Assert.True(
                 SpinWait.SpinUntil(() => !IsProcessRunning(descendantPid.Value), TimeSpan.FromSeconds(3)),

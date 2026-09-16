@@ -1,15 +1,14 @@
-namespace WSGM.Plugin.Ir.Tests;
+namespace WSGM.Plugin.Ir.Tests.Fakes;
 
 internal sealed class FakeEndpoint : IIrEndpoint
 {
     internal IrPayload? Sent;
     internal int Identifications;
     internal (string Ssid, string Password, string Token)? Network;
-    internal bool Connected = true;
     internal string Firmware = "0.4.0";
     internal IrRemoteCatalog Catalog = new([]);
     internal int CatalogReads;
-    internal List<string> RemoteCalls = [];
+    internal readonly List<string> RemoteCalls = [];
     /// <summary>How many identity polls still report a running sequence.</summary>
     internal int SequencePolls;
     internal bool Cancelled;
@@ -38,8 +37,9 @@ internal sealed class FakeEndpoint : IIrEndpoint
     public Task PressAsync(string remote, string button, CancellationToken token)
     {
         RemoteCalls.Add($"press {remote}/{button}");
-        if (FailPress) { throw new IOException("The IR endpoint closed the network connection."); }
-        return Task.CompletedTask;
+        return FailPress
+            ? throw new IOException("The IR endpoint closed the network connection.")
+            : Task.CompletedTask;
     }
     public Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token)
     {
@@ -59,7 +59,7 @@ internal sealed class FakeEndpoint : IIrEndpoint
     }
     public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     private IrEndpointIdentity Describe() => new("test", "fake", Firmware, 1, 1024, "wsgm-ir-abc123", 7521,
-        Network is { Ssid.Length: > 0 }, Connected && Network is { Ssid.Length: > 0 },
-        Connected && Network is { Ssid.Length: > 0 } ? "192.0.2.7" : "",
+        Network is { Ssid.Length: > 0 }, Network is { Ssid.Length: > 0 },
+        Network is { Ssid.Length: > 0 } ? "192.0.2.7" : "",
         WebPort: 80, WebConfigured: false, Remotes: Catalog.Remotes.Length, SequenceRunning: SequencePolls > 0);
 }

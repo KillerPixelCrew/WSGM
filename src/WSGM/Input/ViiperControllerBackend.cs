@@ -34,10 +34,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// Loopback only. The virtual controller is local to this machine, and VIIPER's optional network
     /// mode would expose input devices to it.
     /// </remarks>
-    internal const string ListenAddress = "127.0.0.1:0";
+    private const string ListenAddress = "127.0.0.1:0";
 
     /// <summary>The one bus WSGM owns.</summary>
-    internal const uint BusId = 1;
+    private const uint BusId = 1;
 
     /// <summary>Steam haptic command identifiers in the Deck's feedback report.</summary>
     private const byte HapticPulseCommandId = 0x8F;
@@ -294,12 +294,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
-        if (_removalUnverifiedGeneration == target.Generation)
-        {
-            return Task.FromResult(false);
-        }
-
-        return Task.FromResult(_target?.Generation != target.Generation);
+        return Task.FromResult(
+            _removalUnverifiedGeneration != target.Generation
+            && _target?.Generation != target.Generation);
     }
 
     /// <inheritdoc/>
@@ -368,7 +365,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             if (NativeViiper.BusCreate(BusId) != NativeViiper.Ok)
             {
                 NativeViiper.Shutdown();
-                detail = $"The controller backend could not create its bus: "
+                detail = "The controller backend could not create its bus: "
                     + NativeViiper.TakeLastError();
                 return false;
             }
@@ -466,16 +463,18 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // decoder has never seen gets a few bounded samples in the log, because that is
                 // how every haptic shape above was found and a future Steam protocol change
                 // would otherwise read as "rumble is broken" with no evidence.
-                if (!KnownIgnoredFeedback.Contains(report[0]))
+                if (KnownIgnoredFeedback.Contains(report[0]))
                 {
-                    var seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
-                    if (seen <= 4)
-                    {
-                        Log.Warn(
-                            $"Unknown {target.Kind} feedback frame ({seen}/4 shown): "
-                                + $"length={length}, "
-                                + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
-                    }
+                    return;
+                }
+
+                var seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
+                if (seen <= 4)
+                {
+                    Log.Warn(
+                        $"Unknown {target.Kind} feedback frame ({seen}/4 shown): "
+                            + $"length={length}, "
+                            + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
                 }
 
                 return;
@@ -513,10 +512,25 @@ internal sealed class ViiperControllerBackend : IHidBackend
         ManagedControllerTarget kind,
         ReadOnlySpan<byte> report)
     {
-        if (kind is ManagedControllerTarget.SteamDeckComposite)
+        if (kind is not ManagedControllerTarget.SteamDeckComposite)
         {
-            if (report.Length >= 9 && report[0] == RumbleCommandId)
+            return kind switch
             {
+                ManagedControllerTarget.Xbox360 when report.Length >= 2 => new DecodedHapticFeedback(
+                    report[0] / (float)byte.MaxValue,
+                    report[1] / (float)byte.MaxValue),
+                // DS4 orders the small/high-frequency motor first and the large/low-frequency motor
+                // second, followed by LED and flash state that WSGM deliberately does not own.
+                ManagedControllerTarget.DualShock4 when report.Length >= 7 => new DecodedHapticFeedback(
+                    report[1] / (float)byte.MaxValue,
+                    report[0] / (float)byte.MaxValue),
+                _ => null
+            };
+        }
+
+        switch (report)
+        {
+            case [RumbleCommandId, ..] when report.Length >= 9:
                 // Full unsigned 16-bit scale. hhd's notes claim Steam tops out at 0x7FFF, but
                 // live gameplay on this machine delivers values past 0x8B00 (Hitman,
                 // device-observed 2026-09-02) — a signed divisor clamps the whole upper half of
@@ -526,81 +540,61 @@ internal sealed class ViiperControllerBackend : IHidBackend
                         / (float)ushort.MaxValue,
                     BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
                         / (float)ushort.MaxValue);
-            }
-
-            if (report.Length >= 4 && report[0] == HapticEventCommandId)
-            {
-                // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
-                // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
-                // SC2-generation protocol documents as side and command (0 stop, 1 click,
-                // 2 strong click). Protocol intent; the output router renders it against the
-                // plugin's declared motor physics.
-                var strength = report[3] switch
+            case [HapticEventCommandId, ..] when report.Length >= 4:
                 {
-                    0 => 0f,
-                    1 => 0.5f,
-                    _ => 1f
-                };
-                return strength <= 0f
-                    ? new DecodedHapticFeedback(0f, 0f)
-                    : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(150));
-            }
-
-            if (report.Length >= 2 && report[0] == HapticGainCommandId)
-            {
+                    // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
+                    // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
+                    // SC2-generation protocol documents as side and command (0 stop, 1 click,
+                    // 2 strong click). Protocol intent; the output router renders it against the
+                    // plugin's declared motor physics.
+                    var strength = report[3] switch
+                    {
+                        0 => 0f,
+                        1 => 0.5f,
+                        _ => 1f
+                    };
+                    return strength <= 0f
+                        ? new DecodedHapticFeedback(0f, 0f)
+                        : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(150));
+                }
+            case [HapticGainCommandId, ..] when report.Length >= 2:
                 // Companion gain set (0xE2) for the event above. It configures rather than
                 // plays; decoding it as output would cancel the pulse it accompanies.
                 return null;
-            }
-
-            if (report.Length >= 6 && report[0] == HapticCommandId)
-            {
-                // Steam's interaction haptics (button/gyro feedback). The frames captured live
-                // (`EA 0D side style level gain …`) carry small enum levels, not the legacy
-                // 0..255 intensity: presses arrive as style 2 level 3, releases as style 1
-                // level 2. Scaling the level as a byte made every click near-zero. This decode
-                // is protocol intent only — level over the enum range as a bounded click — and
-                // the output router renders it against the plugin's declared motor physics.
-                var strength = Math.Min(1f, report[4] / 3f);
-                return strength <= 0f
-                    ? new DecodedHapticFeedback(0f, 0f)
-                    : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(35));
-            }
-
-            if (report.Length >= 10 && report[0] == HapticPulseCommandId)
-            {
-                var period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
-                var count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
-                var value = Math.Min(byte.MaxValue, count * 16 + report[9]);
-                // Protocol intent only: Steam's gyro ticks legitimately request one millisecond
-                // at sub-percent intensity, and whether that is renderable is the plugin's
-                // declared motor physics, applied by the output router.
-                var strength = value / (float)byte.MaxValue;
-                var requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
-                var stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
-                    requestedMilliseconds,
-                    1,
-                    MaxEmulatedPulseDuration.TotalMilliseconds));
-                return strength <= 0f
-                    ? new DecodedHapticFeedback(0f, 0f)
-                    : new DecodedHapticFeedback(strength, strength, stopAfter);
-            }
-
-            return null;
+            case [HapticCommandId, ..] when report.Length >= 6:
+                {
+                    // Steam's interaction haptics (button/gyro feedback). The frames captured live
+                    // (`EA 0D side style level gain …`) carry small enum levels, not the legacy
+                    // 0..255 intensity: presses arrive as style 2 level 3, releases as style 1
+                    // level 2. Scaling the level as a byte made every click near-zero. This decode
+                    // is protocol intent only — level over the enum range as a bounded click — and
+                    // the output router renders it against the plugin's declared motor physics.
+                    var strength = Math.Min(1f, report[4] / 3f);
+                    return strength <= 0f
+                        ? new DecodedHapticFeedback(0f, 0f)
+                        : new DecodedHapticFeedback(strength, strength, TimeSpan.FromMilliseconds(35));
+                }
+            case [HapticPulseCommandId, ..] when report.Length >= 10:
+                {
+                    var period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
+                    var count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
+                    var value = Math.Min(byte.MaxValue, count * 16 + report[9]);
+                    // Protocol intent only: Steam's gyro ticks legitimately request one millisecond
+                    // at sub-percent intensity, and whether that is renderable is the plugin's
+                    // declared motor physics, applied by the output router.
+                    var strength = value / (float)byte.MaxValue;
+                    var requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
+                    var stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
+                        requestedMilliseconds,
+                        1,
+                        MaxEmulatedPulseDuration.TotalMilliseconds));
+                    return strength <= 0f
+                        ? new DecodedHapticFeedback(0f, 0f)
+                        : new DecodedHapticFeedback(strength, strength, stopAfter);
+                }
+            default:
+                return null;
         }
-
-        return kind switch
-        {
-            ManagedControllerTarget.Xbox360 when report.Length >= 2 => new DecodedHapticFeedback(
-                report[0] / (float)byte.MaxValue,
-                report[1] / (float)byte.MaxValue),
-            // DS4 orders the small/high-frequency motor first and the large/low-frequency motor
-            // second, followed by LED and flash state that WSGM deliberately does not own.
-            ManagedControllerTarget.DualShock4 when report.Length >= 7 => new DecodedHapticFeedback(
-                report[1] / (float)byte.MaxValue,
-                report[0] / (float)byte.MaxValue),
-            _ => null
-        };
     }
 
     private unsafe bool SubmitUnderGate(CanonicalControllerSample sample)

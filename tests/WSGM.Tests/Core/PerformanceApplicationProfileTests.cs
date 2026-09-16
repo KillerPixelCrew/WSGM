@@ -1,7 +1,7 @@
 using WSGM.Core;
-using static WSGM.Tests.PerformanceBuilders;
+using static WSGM.Tests.Builders.PerformanceBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class PerformanceApplicationProfileTests
 {

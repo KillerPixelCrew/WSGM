@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class SelfElevationTests
 {
@@ -9,8 +9,8 @@ public sealed class SelfElevationTests
     [InlineData("two words", "\"two words\"")]
     [InlineData("", "\"\"")]
     [InlineData("a\"b", "\"a\\\"b\"")]
-    [InlineData("C:\\Tools\\", "C:\\Tools\\")]
-    [InlineData("C:\\Program Files\\", "\"C:\\Program Files\\\\\"")]
+    [InlineData(@"C:\Tools\", @"C:\Tools\")]
+    [InlineData(@"C:\Program Files\", @"""C:\Program Files\\""")]
     [InlineData("say \"hello\"", "\"say \\\"hello\\\"\"")]
     public void QuoteUsesCommandLineToArgvWCompatibleEscaping(string argument, string expected)
         => Assert.Equal(expected, SelfElevation.Quote(argument));

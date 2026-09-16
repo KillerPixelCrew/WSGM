@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class InstallProfileTests
 {
@@ -81,8 +81,12 @@ public sealed class InstallProfileTests
     {
         // Re-running setup is how people repair and upgrade. A mode that rewrote these each time
         // would silently undo Settings, so changing an installed machine's mode means Settings.
-        AppConfig config = new() { StartAtSignIn = false, StartMode = SessionStartMode.Desktop };
-        config.DeviceIntegration.Enabled = true;
+        AppConfig config = new()
+        {
+            StartAtSignIn = false,
+            StartMode = SessionStartMode.Desktop,
+            DeviceIntegration = { Enabled = true }
+        };
 
         Assert.False(InstallProfile.Apply(config, kind, freshInstall: false));
 

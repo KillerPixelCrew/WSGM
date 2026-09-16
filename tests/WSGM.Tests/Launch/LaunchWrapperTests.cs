@@ -1,7 +1,7 @@
 using System.Collections;
 using WSGM.Launch;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Launch;
 
 public sealed class LaunchWrapperTests
 {
@@ -10,16 +10,16 @@ public sealed class LaunchWrapperTests
     [Fact]
     public void TheDisabledUacFailureMessageCarriesTheMarkerTheParentMatches()
         => Assert.Contains(
-            Launch.Program.NoMediumTokenMarker,
-            Launch.Program.DisabledUacFailureMessage,
+            WSGM.Launch.Program.NoMediumTokenMarker,
+            WSGM.Launch.Program.DisabledUacFailureMessage,
             StringComparison.Ordinal);
 
     [Fact]
     public async Task LaunchPayloadRoundTripsArgumentsEnvironmentAndWorkingDirectory()
     {
         var expected = new LaunchPayload(
-            "C:\\Games\\Emulator",
-            ["C:\\Games\\Emulator\\Ryujinx.exe", "--fullscreen", "value with spaces", "雪"],
+            @"C:\Games\Emulator",
+            [@"C:\Games\Emulator\Ryujinx.exe", "--fullscreen", "value with spaces", "雪"],
             [KeyValuePair.Create("SteamAppId", "1234"), KeyValuePair.Create("EMPTY", "")]);
         await using var stream = new MemoryStream();
 
@@ -53,7 +53,7 @@ public sealed class LaunchWrapperTests
                 pair.Key.Equals(exclusionName, StringComparison.OrdinalIgnoreCase));
             foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
             {
-                if (entry.Key is string key && entry.Value is string value
+                if (entry is { Key: string key, Value: string value }
                     && !key.Equals(exclusionName, StringComparison.OrdinalIgnoreCase))
                 {
                     Assert.True(received.EnvironmentVariables.Any(pair => pair.Key == key && pair.Value == value),
@@ -75,11 +75,11 @@ public sealed class LaunchWrapperTests
     public void ScheduledTaskUsesInteractiveTokenWithoutAnElevatedRunLevel()
     {
         var xml = ScheduledTaskLauncher.BuildTaskXml(
-            "C:\\A&B\\WSGM.Launch.exe", "pipe<name>");
+            @"C:\A&B\WSGM.Launch.exe", "pipe<name>");
 
         Assert.Contains("<LogonType>InteractiveToken</LogonType>", xml);
         Assert.DoesNotContain("<RunLevel>", xml);
-        Assert.Contains("<Command>C:\\A&amp;B\\WSGM.Launch.exe</Command>", xml);
+        Assert.Contains(@"<Command>C:\A&amp;B\WSGM.Launch.exe</Command>", xml);
         Assert.Contains("<Arguments>--medium-child pipe&lt;name&gt;</Arguments>", xml);
     }
 
@@ -103,10 +103,10 @@ public sealed class LaunchWrapperTests
     public void CommandLinePreservesWrappedArgumentsIndividually()
     {
         Assert.True(CommandLine.TryParse(
-            ["--deelevate", "--", "C:\\Program Files\\game.exe", "-map", "de dust"],
+            ["--deelevate", "--", @"C:\Program Files\game.exe", "-map", "de dust"],
             out var options,
             out _));
-        Assert.Equal(["C:\\Program Files\\game.exe", "-map", "de dust"], options.Command);
+        Assert.Equal([@"C:\Program Files\game.exe", "-map", "de dust"], options.Command);
     }
 
     // Flags after -- belong to the game, not the wrapper.
@@ -168,23 +168,23 @@ public sealed class LaunchWrapperTests
     // token could have produced a medium child, so the report is a lie there.
     [Fact]
     public void ShouldFailOpen_MarkerReportedWhileThisProcessHasASplitToken_RefusesToLaunch()
-        => Assert.False(Launch.Program.ShouldFailOpen(
-            Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: true));
+        => Assert.False(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: true));
 
     // UAC off, and equally a built-in Administrator or a standard user: no linked
     // limited token exists, so de-elevation really is impossible and the game must
     // still start (the device case the fail-open was added for).
     [Fact]
     public void ShouldFailOpen_MarkerReportedWithoutALinkedLimitedToken_LaunchesTheGame()
-        => Assert.True(Launch.Program.ShouldFailOpen(
-            Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: false));
+        => Assert.True(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: false));
 
     // An unqueryable token is not evidence of an attack; keep failing open so a
     // token query that fails can never make every wrapped game unlaunchable.
     [Fact]
     public void ShouldFailOpen_MarkerReportedWithAnUnqueryableToken_LaunchesTheGame()
-        => Assert.True(Launch.Program.ShouldFailOpen(
-            Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: null));
+        => Assert.True(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: null));
 
     [Theory]
     [InlineData(true)]
@@ -192,7 +192,7 @@ public sealed class LaunchWrapperTests
     [InlineData(null)]
     public void ShouldFailOpen_OrdinaryFailureWithAnyTokenState_RefusesToLaunch(
         bool? hasLinkedLimitedToken)
-        => Assert.False(Launch.Program.ShouldFailOpen(
+        => Assert.False(WSGM.Launch.Program.ShouldFailOpen(
             "Process.Start returned no process.", hasLinkedLimitedToken));
 
     // A peer that embeds the marker in arbitrary text still gets nowhere while the
@@ -203,7 +203,7 @@ public sealed class LaunchWrapperTests
     public void ShouldFailOpen_ForgedMarkerInSurroundingTextWithASplitToken_RefusesToLaunch(
         string error)
     {
-        Assert.Contains(Launch.Program.NoMediumTokenMarker, error, StringComparison.Ordinal);
-        Assert.False(Launch.Program.ShouldFailOpen(error, hasLinkedLimitedToken: true));
+        Assert.Contains(WSGM.Launch.Program.NoMediumTokenMarker, error, StringComparison.Ordinal);
+        Assert.False(WSGM.Launch.Program.ShouldFailOpen(error, hasLinkedLimitedToken: true));
     }
 }

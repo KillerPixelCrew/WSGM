@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>What names a tracked card. A card reader hands every card the same drive
 /// letter, and Steam's <c>libraryfolders.vdf</c> label belongs to the registration at
@@ -51,7 +51,7 @@ public class CardNameAuthorityTests
     {
         var config = new AppConfig();
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "", "Library (E:)")]);
+        LibraryTabManager.MergeDiscovery(config, [Card("777", "")]);
 
         Assert.Equal("Library (E:)", NameOf(config, "777"));
     }
@@ -91,7 +91,7 @@ public class CardNameAuthorityTests
         // drive-letter guess.
         var config = ConfigWith(("777", "Handhelds"));
 
-        LibraryTabManager.MergeDiscovery(config, [Card("777", "", "Library (E:)")]);
+        LibraryTabManager.MergeDiscovery(config, [Card("777", "")]);
 
         Assert.Equal("Handhelds", NameOf(config, "777"));
     }

@@ -86,13 +86,12 @@ internal static class GlyphPackageImportWorkflow
         {
             return Report(
                 [],
-                imported.Errors.Select(error => new PluginPackageValidationIssue(
+                [.. imported.Errors.Select(error => new PluginPackageValidationIssue(
                     $"glyph-{PluginPackageWorkflow.StableCode(error.Code)}",
                     error.Path,
                     $"{error.ProfileId}: {error.Message}"))
                     .OrderBy(issue => issue.Path, StringComparer.Ordinal)
-                    .ThenBy(issue => issue.Code, StringComparer.Ordinal)
-                    .ToArray());
+                    .ThenBy(issue => issue.Code, StringComparer.Ordinal)]);
         }
 
         if (imported.Profiles.Count == 0)

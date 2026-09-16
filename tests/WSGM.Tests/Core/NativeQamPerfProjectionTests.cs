@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class NativeQamPerfProjectionTests
 {
@@ -140,12 +140,10 @@ public sealed class NativeQamPerfProjectionTests
             advancedSettingsEnabled: false,
             variableRefreshRateEnabled: null,
             refreshRateHz: null);
-        var global = perGame with { };
-
         Assert.Equal("42", perGame.CurrentGameId);
         Assert.Equal("42", perGame.ActiveProfileGameId);
 
-        global = NativeQamPerfProjection.Project(
+        var global = NativeQamPerfProjection.Project(
             new PerformanceValues(60, null),
             Support(),
             steamAppId: 42,

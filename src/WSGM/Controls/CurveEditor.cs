@@ -48,7 +48,7 @@ internal sealed class CurveEditor : Control
     private static readonly CurveBounds EditBounds = new(0, 100, 0, 100);
 
     /// <summary>Index of the selected point, or -1 when none is selected.</summary>
-    public static readonly StyledProperty<int> SelectedIndexProperty =
+    private static readonly StyledProperty<int> SelectedIndexProperty =
         AvaloniaProperty.Register<CurveEditor, int>(nameof(SelectedIndex), defaultValue: -1);
 
     /// <summary>The input the device is currently at, drawn as a marker, or null for none.</summary>
@@ -56,7 +56,7 @@ internal sealed class CurveEditor : Control
     /// A fan curve is read to answer "what is it doing right now", and the answer is where the
     /// current temperature crosses it. HandheldCompanion draws the same line for the same reason.
     /// </remarks>
-    public static readonly StyledProperty<int?> MarkerInputProperty =
+    private static readonly StyledProperty<int?> MarkerInputProperty =
         AvaloniaProperty.Register<CurveEditor, int?>(nameof(MarkerInput));
 
     /// <summary>Whether outputs must not decrease along the curve.</summary>
@@ -65,7 +65,7 @@ internal sealed class CurveEditor : Control
     /// <see cref="CurveEditing.Move"/>; this only says which curves it applies to, because a
     /// lighting response has no reason to rise.
     /// </remarks>
-    public static readonly StyledProperty<bool> RisingOutputProperty =
+    private static readonly StyledProperty<bool> RisingOutputProperty =
         AvaloniaProperty.Register<CurveEditor, bool>(nameof(RisingOutput));
 
     private int _dragIndex = -1;
@@ -80,14 +80,14 @@ internal sealed class CurveEditor : Control
     public int? MarkerInput
     {
         get => GetValue(MarkerInputProperty);
-        set => SetValue(MarkerInputProperty, value);
+        init => SetValue(MarkerInputProperty, value);
     }
 
     /// <summary>Whether outputs must not decrease along the curve.</summary>
     public bool RisingOutput
     {
         get => GetValue(RisingOutputProperty);
-        set => SetValue(RisingOutputProperty, value);
+        init => SetValue(RisingOutputProperty, value);
     }
 
     /// <summary>Raised when an edit produced a new curve.</summary>
@@ -120,16 +120,14 @@ internal sealed class CurveEditor : Control
     internal void AddPointAtWidestGap()
     {
         var points = Points;
-        if (points.Count == 0)
+        switch (points.Count)
         {
-            LogEditRefused("add", "the curve has no points to split");
-            return;
-        }
-
-        if (points.Count >= CurveEditing.MaximumPoints)
-        {
-            LogEditRefused("add", $"the {CurveEditing.MaximumPoints}-point limit is already reached");
-            return;
+            case 0:
+                LogEditRefused("add", "the curve has no points to split");
+                return;
+            case >= CurveEditing.MaximumPoints:
+                LogEditRefused("add", $"the {CurveEditing.MaximumPoints}-point limit is already reached");
+                return;
         }
 
         var widest = 0;
@@ -137,11 +135,13 @@ internal sealed class CurveEditor : Control
         for (var index = 1; index < points.Count; index++)
         {
             var gap = points[index].Input - points[index - 1].Input;
-            if (gap > widest)
+            if (gap <= widest)
             {
-                widest = gap;
-                at = index;
+                continue;
             }
+
+            widest = gap;
+            at = index;
         }
 
         // A gap of one has no midpoint to insert into: inputs are integers and must stay strictly
@@ -193,7 +193,7 @@ internal sealed class CurveEditor : Control
 
         // Quarters, not a dense grid: this is read at arm's length on a handheld, and the lines are
         // there to judge a curve's shape against, not to measure it.
-        Pen gridPen = new(grid, 1);
+        Pen gridPen = new(grid);
         for (var step = 1; step < 4; step++)
         {
             var x = plot.X + plot.Width * step / 4;
@@ -202,7 +202,7 @@ internal sealed class CurveEditor : Control
             context.DrawLine(gridPen, new Point(plot.X, y), new Point(plot.Right, y));
         }
 
-        context.DrawRectangle(new Pen(grid, 1), plot);
+        context.DrawRectangle(new Pen(grid), plot);
 
         var points = Points;
         if (points.Count == 0)
@@ -245,7 +245,7 @@ internal sealed class CurveEditor : Control
         {
             var x = plot.X + plot.Width
                 * (bounds.ClampInput(marker) - bounds.InputMinimum)
-                / (double)(bounds.InputMaximum - bounds.InputMinimum);
+                / (bounds.InputMaximum - bounds.InputMinimum);
             context.DrawLine(
                 new Pen(accent, 2) { DashStyle = new DashStyle([2, 2], 0) },
                 new Point(x, plot.Y),
@@ -355,16 +355,19 @@ internal sealed class CurveEditor : Control
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
-        switch (e.Key)
+        if (e.Key is Key.Delete or Key.Insert)
         {
-            case Key.Delete:
+            if (e.Key == Key.Delete)
+            {
                 RemoveSelectedPoint();
-                e.Handled = true;
-                return;
-            case Key.Insert:
+            }
+            else
+            {
                 AddPointAtWidestGap();
-                e.Handled = true;
-                return;
+            }
+
+            e.Handled = true;
+            return;
         }
 
         if (ApplyDirectionalKey(
@@ -521,11 +524,13 @@ internal sealed class CurveEditor : Control
             var distance = Math.Sqrt(
                 (centre.X - position.X) * (centre.X - position.X)
                 + (centre.Y - position.Y) * (centre.Y - position.Y));
-            if (distance <= closestDistance)
+            if (distance > closestDistance)
             {
-                closestDistance = distance;
-                closest = index;
+                continue;
             }
+
+            closestDistance = distance;
+            closest = index;
         }
 
         return closest;

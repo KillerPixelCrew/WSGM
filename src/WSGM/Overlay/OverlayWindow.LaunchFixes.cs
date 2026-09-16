@@ -178,13 +178,14 @@ public partial class OverlayWindow
             }
             var result = await SteamLaunchConfig.ApplyCustomAsync(
                 game.AppId, game.Shortcut, path, arguments);
-            if (!result.Ok && existing is null)
+            switch (result.Ok)
             {
-                await LibraryTabManager.ForgetLaunchWrapperAsync(game.AppId);
-            }
-            else if (result.Ok && existing is not null)
-            {
-                await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
+                case false when existing is null:
+                    await LibraryTabManager.ForgetLaunchWrapperAsync(game.AppId);
+                    break;
+                case true when existing is not null:
+                    await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
+                    break;
             }
             button.Title = result.Ok ? $"Applied to {game.Name}" : result.Detail;
             if (result.Ok)

@@ -112,11 +112,9 @@ public static unsafe class DisplayScale
             Log.Warn("Display scale: no active display sources — keeping saved values for a later restore.");
             return;
         }
-        var named = new List<((Luid Adapter, uint SourceId) Source, string Name)>();
-        foreach (var source in sources)
-        {
-            named.Add((source, GetSourceDeviceName(source.Adapter, source.SourceId)));
-        }
+        var named = sources
+            .Select(source => (Source: source, Name: GetSourceDeviceName(source.Adapter, source.SourceId)))
+            .ToList();
 
         var remaining = new List<DisplayScaleEntry>();
         var positional = 0;   // next active source for ""-named entries
@@ -188,11 +186,11 @@ public static unsafe class DisplayScale
         try
         {
             var sources = GetActiveSources();
-            foreach (var source in sources)
+            foreach (var saved in sources
+                .Select(source => GetSourceDeviceName(source.Adapter, source.SourceId))
+                .Select(name => config.SavedDisplayScaleEntries.Find(
+                    e => string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase))))
             {
-                var name = GetSourceDeviceName(source.Adapter, source.SourceId);
-                var saved = config.SavedDisplayScaleEntries.Find(
-                    e => string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase));
                 if (saved is { Percent: >= 100 and <= 500 })
                 {
                     return (uint)saved.Percent;
@@ -350,12 +348,12 @@ public static unsafe class DisplayScale
             var modes = new ModeInfo[numModes];
             status = QueryDisplayConfig(QdcOnlyActivePaths, ref numPaths, paths, ref numModes, modes, 0);
         } while (status == ErrorInsufficientBuffer && ++attempts < 5);
-        if (status != 0)
+        if (status == 0)
         {
-            Log.Warn($"{context}: QueryDisplayConfig failed with {status}.");
-            return null;
+            return paths;
         }
-        return paths;
+        Log.Warn($"{context}: QueryDisplayConfig failed with {status}.");
+        return null;
     }
 
     private static string GetSourceDeviceName(Luid adapterId, uint sourceId)

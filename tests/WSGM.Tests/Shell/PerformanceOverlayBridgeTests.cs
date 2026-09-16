@@ -1,9 +1,9 @@
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
-using static WSGM.Tests.PerformanceBuilders;
+using static WSGM.Tests.Builders.PerformanceBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>Shared overlay projection tests over the hardware-free RTSS simulation.</summary>
 public sealed class PerformanceOverlayBridgeTests
@@ -18,7 +18,7 @@ public sealed class PerformanceOverlayBridgeTests
             // nothing to repair and this stays a test about the projection.
             new PerformancePolicy(
                 new PerformanceValues(60, 2),
-                Array.Empty<PerformanceApplicationPolicy>()));
+                []));
         using PerformanceOverlayBridge bridge = new(service);
         using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
@@ -83,7 +83,7 @@ public sealed class PerformanceOverlayBridgeTests
             static (_, _) => Task.CompletedTask,
             new PerformancePolicy(
                 PerformanceValues.Empty,
-                Array.Empty<PerformanceApplicationPolicy>(),
+                [],
                 Enabled: false));
         using PerformanceOverlayBridge bridge = new(service);
 

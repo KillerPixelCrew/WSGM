@@ -27,17 +27,18 @@ public static class AppLauncher
     /// <returns>The outcome of the launch attempt.</returns>
     public static LaunchResult Start(string path, string args, bool elevated)
     {
-        if (IsProtocol(path))
+        if (!IsProtocol(path))
         {
-            // ShellExecute on a URL cannot carry separate args, and elevation does
-            // not apply — warn so the misconfiguration shows up in a pasted log.
-            if (!string.IsNullOrWhiteSpace(args) || elevated)
-            {
-                Log.Warn($"Protocol launch ignores configured args/elevation: {path} (args \"{args}\", elevated {elevated})");
-            }
-            return StartProtocol(path);
+            return elevated ? StartElevated(path, args) : StartNormal(path, args);
         }
-        return elevated ? StartElevated(path, args) : StartNormal(path, args);
+
+        // ShellExecute on a URL cannot carry separate args, and elevation does
+        // not apply — warn so the misconfiguration shows up in a pasted log.
+        if (!string.IsNullOrWhiteSpace(args) || elevated)
+        {
+            Log.Warn($"Protocol launch ignores configured args/elevation: {path} (args \"{args}\", elevated {elevated})");
+        }
+        return StartProtocol(path);
     }
 
     /// <summary>Activates a registered URL protocol through the Windows shell.</summary>

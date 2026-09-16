@@ -204,32 +204,29 @@ internal static class RunningApplicationTargetProjection
             return steam;
         }
 
-        if (steam.State is RunningApplicationTargetState.IdentityOnly)
+        if (steam.State is not RunningApplicationTargetState.IdentityOnly)
         {
-            // Steam's own game. The foreground is whatever the user happens to have in focus — a
-            // terminal, a browser — so a bare name must never become the game's profile: that
-            // pairing is sticky for the whole run, and WindowsTerminal.exe captured HITMAN 3's
-            // frame limit exactly this way (device-observed 2026-09-02). A store title's install
-            // folder is known, so only an executable proven to run from it may pair. A shortcut has
-            // no folder to check and its target resolution already names the executable, so its
-            // rare unresolved case keeps the name-based fill.
-            if (steam.SteamAppId is { } appId
-                && !SteamRunningApplicationProbe.IsShortcutAppId(appId))
+            return steam with
             {
-                if (ValidatedGameExecutable(profile, foreground, rendering) is not { } game)
-                {
-                    return steam;
-                }
+                State = RunningApplicationTargetState.Active,
+                ApplicationId = $"process:{profileName.ToLowerInvariant()}",
+                SteamAppId = null,
+                ExecutablePath = null,
+                RtssProfileName = profileName,
+                Diagnostic = null
+            };
+        }
 
-                return steam with
-                {
-                    State = RunningApplicationTargetState.Active,
-                    ExecutablePath = game.Path,
-                    RtssProfileName = game.Name,
-                    Diagnostic = null
-                };
-            }
-
+        // Steam's own game. The foreground is whatever the user happens to have in focus — a
+        // terminal, a browser — so a bare name must never become the game's profile: that
+        // pairing is sticky for the whole run, and WindowsTerminal.exe captured HITMAN 3's
+        // frame limit exactly this way (device-observed 2026-09-02). A store title's install
+        // folder is known, so only an executable proven to run from it may pair. A shortcut has
+        // no folder to check and its target resolution already names the executable, so its
+        // rare unresolved case keeps the name-based fill.
+        if (steam.SteamAppId is not { } appId
+            || SteamRunningApplicationProbe.IsShortcutAppId(appId))
+        {
             return steam with
             {
                 State = RunningApplicationTargetState.Active,
@@ -239,13 +236,16 @@ internal static class RunningApplicationTargetProjection
             };
         }
 
+        if (ValidatedGameExecutable(profile, foreground, rendering) is not { } game)
+        {
+            return steam;
+        }
+
         return steam with
         {
             State = RunningApplicationTargetState.Active,
-            ApplicationId = $"process:{profileName.ToLowerInvariant()}",
-            SteamAppId = null,
-            ExecutablePath = null,
-            RtssProfileName = profileName,
+            ExecutablePath = game.Path,
+            RtssProfileName = game.Name,
             Diagnostic = null
         };
     }
@@ -341,20 +341,9 @@ internal static class RunningApplicationTargetProjection
         ForegroundApplicationObservation foreground,
         IReadOnlyList<RtssFrametimeSample>? rendering)
     {
-        if (foreground.ProcessId == 0 || rendering is not { Count: > 0 })
-        {
-            return false;
-        }
-
-        foreach (var sample in rendering)
-        {
-            if (sample.ProcessId == foreground.ProcessId)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return foreground.ProcessId != 0
+            && rendering is { Count: > 0 }
+            && rendering.Any(sample => sample.ProcessId == foreground.ProcessId);
     }
 
     private static RunningApplicationTargetSnapshot Project(
@@ -656,7 +645,7 @@ internal sealed class SteamRunningApplicationProbe
     internal static SteamRunningAppProfile NormalizeShortcutTarget(string target)
     {
         target = target.Trim();
-        if (target.Length >= 2 && target[0] == '"' && target[^1] == '"')
+        if (target is ['"', .., '"'])
         {
             target = target[1..^1].Trim();
         }
@@ -764,7 +753,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private readonly Func<IReadOnlyList<RtssFrametimeSample>> _rendering;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ObservationGate _observers = new();
-    private readonly object _stateGate = new();
+    private readonly Lock _stateGate = new();
     private readonly Task _loop;
     private RunningApplicationTargetSnapshot _current;
     private SteamRunningAppProfile? _profile;
@@ -896,7 +885,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         }
 
         _disposed = true;
-        _shutdown.Cancel();
+        await _shutdown.CancelAsync().ConfigureAwait(false);
         _observers.Signal();
         try
         {
@@ -914,13 +903,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         var cancellationToken = _shutdown.Token;
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (_observers.Count == 0)
-            {
-                await _observers.WaitAsync(cancellationToken).ConfigureAwait(false);
-                continue;
-            }
-
-            if (!_steamEnabled)
+            if (_observers.Count == 0 || !_steamEnabled)
             {
                 await _observers.WaitAsync(cancellationToken).ConfigureAwait(false);
                 continue;
@@ -1161,6 +1144,9 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
                 Log.Warn(
                     $"Running-application target unavailable; global application policy is active: "
                     + $"{target.Diagnostic}");
+                break;
+            default:
+                Log.Warn($"Running-application target entered an unknown state: {target.State}.");
                 break;
         }
     }

@@ -11,7 +11,6 @@ internal static partial class NativeAuthenticode
     private const uint WtdChoiceFile = 1;
     private const uint WtdStateActionIgnore = 0;
     private const uint WtdRevocationCheckChainExcludeRoot = 0x00000080;
-    private const uint WtdLifetimeSigningFlag = 0x00000800;
     private static readonly Guid GenericVerifyV2 = new(
         0x00AAC56B,
         0xCD44,

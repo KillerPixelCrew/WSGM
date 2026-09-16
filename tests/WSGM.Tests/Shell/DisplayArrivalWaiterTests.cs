@@ -2,7 +2,7 @@ using System.ComponentModel;
 using WindowsDeviceControl;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class DisplayArrivalWaiterTests
 {
@@ -19,7 +19,7 @@ public sealed class DisplayArrivalWaiterTests
         Presence presence = new([Seen("a", Desk), Seen("b", Desk, Tv), Seen("b", Desk, Tv)]);
         Signal signal = new();
 
-        var settled = await Waiter(presence, signal).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, signal).WaitAsync([Tv], CancellationToken.None);
 
         Assert.Equal("b", settled.Fingerprint);
         Assert.Equal(1, signal.Waits);
@@ -32,7 +32,7 @@ public sealed class DisplayArrivalWaiterTests
         // first sighting would configure a display that is still negotiating.
         Presence presence = new([Seen("a", Tv), Seen("b", Tv), Seen("c", Tv), Seen("c", Tv)]);
 
-        var settled = await Waiter(presence, new Signal()).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, new Signal()).WaitAsync([Tv], CancellationToken.None);
 
         Assert.Equal("c", settled.Fingerprint);
         Assert.Equal(4, presence.Reads);
@@ -44,7 +44,7 @@ public sealed class DisplayArrivalWaiterTests
         Presence presence = new([Seen("a", Tv), Seen("b", Desk), Seen("c", Tv), Seen("c", Tv)]);
         Signal signal = new();
 
-        var settled = await Waiter(presence, signal).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, signal).WaitAsync([Tv], CancellationToken.None);
 
         Assert.Equal("c", settled.Fingerprint);
         Assert.Equal(1, signal.Waits);
@@ -55,7 +55,7 @@ public sealed class DisplayArrivalWaiterTests
     {
         Presence presence = new([null, Seen("a", Tv), Seen("a", Tv)]);
 
-        var settled = await Waiter(presence, new Signal()).WaitAsync([Tv], default);
+        var settled = await Waiter(presence, new Signal()).WaitAsync([Tv], CancellationToken.None);
 
         Assert.Equal("a", settled.Fingerprint);
     }
@@ -65,7 +65,7 @@ public sealed class DisplayArrivalWaiterTests
     {
         Presence presence = new([Seen("a"), Seen("a")]);
 
-        Assert.Equal("a", (await Waiter(presence, new Signal()).WaitAsync([], default)).Fingerprint);
+        Assert.Equal("a", (await Waiter(presence, new Signal()).WaitAsync([], CancellationToken.None)).Fingerprint);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using Avalonia.Media.Imaging;
 using WSGM.Core;
 
@@ -34,22 +35,22 @@ public sealed class AppSwitcherEntry : ObservableObject
     /// <summary>Gets whether the window belongs to Steam.</summary>
     public bool IsSteam { get; }
 
-    private Bitmap? _icon;
     /// <summary>Gets or sets the rasterized application icon (null renders the fallback
     /// glyph). Settable because resolution runs off the UI thread: the tile is created
     /// with whatever is cached and the icon lands here IN PLACE when it arrives — a
     /// wholesale rebuild would destroy the button under the gamepad cursor.</summary>
     public Bitmap? Icon
     {
-        get => _icon;
+        get;
         set
         {
-            if (!ReferenceEquals(_icon, value))
+            if (ReferenceEquals(field, value))
             {
-                _icon = value;
-                Raise(nameof(Icon));
-                Raise(nameof(HasNoIcon));
+                return;
             }
+            field = value;
+            Raise(nameof(Icon));
+            Raise(nameof(HasNoIcon));
         }
     }
 
@@ -63,42 +64,43 @@ public sealed class AppSwitcherEntry : ObservableObject
         get => _title;
         set
         {
-            if (_title != value)
+            if (_title == value)
             {
-                _title = value;
-                Raise(nameof(Title));
+                return;
             }
+            _title = value;
+            Raise(nameof(Title));
         }
     }
 
-    private bool _isMinimized;
     /// <summary>Gets or sets whether the window is currently minimized.</summary>
     public bool IsMinimized
     {
-        get => _isMinimized;
+        get;
         set
         {
-            if (_isMinimized != value)
+            if (field == value)
             {
-                _isMinimized = value;
-                Raise(nameof(IsMinimized));
+                return;
             }
+            field = value;
+            Raise(nameof(IsMinimized));
         }
     }
 
-    private bool _isActive;
     /// <summary>Gets or sets whether this window was foreground when the sheet opened
     /// (or last refreshed) — the highlighted chip.</summary>
     public bool IsActive
     {
-        get => _isActive;
+        get;
         set
         {
-            if (_isActive != value)
+            if (field == value)
             {
-                _isActive = value;
-                Raise(nameof(IsActive));
+                return;
             }
+            field = value;
+            Raise(nameof(IsActive));
         }
     }
 
@@ -139,11 +141,12 @@ public sealed class TrayIconEntry : ObservableObject
             _image = Icon.IconImage;
             Raise(nameof(Image));
         }
-        if (!string.Equals(_tip, Icon.Tip, StringComparison.Ordinal))
+        if (string.Equals(_tip, Icon.Tip, StringComparison.Ordinal))
         {
-            _tip = Icon.Tip;
-            Raise(nameof(Tip));
+            return;
         }
+        _tip = Icon.Tip;
+        Raise(nameof(Tip));
     }
 }
 
@@ -154,19 +157,19 @@ public sealed class AppSwitcherViewModel : ObservableObject
     /// windows append, closed windows drop out).</summary>
     public ObservableCollection<AppSwitcherEntry> Entries { get; } = [];
 
-    private bool _hasEntries;
     /// <summary>Gets or sets whether any application chip exists (drives the
     /// empty-state hint).</summary>
     public bool HasEntries
     {
-        get => _hasEntries;
+        get;
         set
         {
-            if (_hasEntries != value)
+            if (field == value)
             {
-                _hasEntries = value;
-                Raise(nameof(HasEntries));
+                return;
             }
+            field = value;
+            Raise(nameof(HasEntries));
         }
     }
 
@@ -210,13 +213,14 @@ public sealed class AppSwitcherViewModel : ObservableObject
         // Remaining map entries are new windows — append in enumeration order.
         foreach (var window in fresh)
         {
-            if (byHwnd.Remove(window.Hwnd))
+            if (!byHwnd.Remove(window.Hwnd))
             {
-                var entry = create(window);
-                entry.IsMinimized = window.IsMinimized;
-                entry.IsActive = window.Hwnd == activeHwnd;
-                Entries.Add(entry);
+                continue;
             }
+            var entry = create(window);
+            entry.IsMinimized = window.IsMinimized;
+            entry.IsActive = window.Hwnd == activeHwnd;
+            Entries.Add(entry);
         }
 
         HasEntries = Entries.Count > 0;
@@ -225,18 +229,18 @@ public sealed class AppSwitcherViewModel : ObservableObject
     /// <summary>Tray-icon tiles (registration order, hidden icons filtered out).</summary>
     public ObservableCollection<TrayIconEntry> TrayIcons { get; } = [];
 
-    private bool _hasTrayIcons;
     /// <summary>Gets or sets whether the tray area (separator + icons) renders.</summary>
     public bool HasTrayIcons
     {
-        get => _hasTrayIcons;
+        get;
         set
         {
-            if (_hasTrayIcons != value)
+            if (field == value)
             {
-                _hasTrayIcons = value;
-                Raise(nameof(HasTrayIcons));
+                return;
             }
+            field = value;
+            Raise(nameof(HasTrayIcons));
         }
     }
 
@@ -246,14 +250,7 @@ public sealed class AppSwitcherViewModel : ObservableObject
     /// <param name="icons">The host's registered icons (hidden ones are filtered here).</param>
     public void ReconcileTray(IReadOnlyList<TrayIconTable.TrayIcon> icons)
     {
-        var visible = new List<TrayIconTable.TrayIcon>();
-        foreach (var icon in icons)
-        {
-            if (!icon.IsHidden)
-            {
-                visible.Add(icon);
-            }
-        }
+        List<TrayIconTable.TrayIcon> visible = [.. icons.Where(icon => !icon.IsHidden)];
 
         for (var i = TrayIcons.Count - 1; i >= 0; i--)
         {

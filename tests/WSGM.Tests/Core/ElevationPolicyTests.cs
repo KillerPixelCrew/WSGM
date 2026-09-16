@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class ElevationPolicyTests
 {
@@ -37,8 +37,7 @@ public sealed class ElevationPolicyTests
     [Fact]
     public void DeviceIntegrationWantsElevation()
     {
-        var config = new AppConfig { SteamLaunchUnelevated = true };
-        config.DeviceIntegration.Enabled = true;
+        var config = new AppConfig { SteamLaunchUnelevated = true, DeviceIntegration = { Enabled = true } };
 
         Assert.Equal("device integration is enabled",
             ElevationPolicy.ElevationReason(config, steamAlreadyElevated: false));

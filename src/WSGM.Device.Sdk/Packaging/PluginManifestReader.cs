@@ -76,12 +76,9 @@ public static class PluginManifestReader
             return Failure("", ManifestValidationCode.MalformedDocument, ex.Message);
         }
 
-        if (manifest is null)
-        {
-            return Failure("", ManifestValidationCode.MalformedDocument, "Manifest deserialized to null.");
-        }
-
-        return new PluginManifestReadResult(manifest, PluginManifestValidator.Validate(manifest));
+        return manifest is null
+            ? Failure("", ManifestValidationCode.MalformedDocument, "Manifest deserialized to null.")
+            : new PluginManifestReadResult(manifest, PluginManifestValidator.Validate(manifest));
     }
 
     private static PluginManifestReadResult Failure(

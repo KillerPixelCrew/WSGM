@@ -110,7 +110,7 @@ internal sealed record PerformancePolicy(
 {
     internal static readonly PerformancePolicy Empty = new(
         PerformanceValues.Empty,
-        Array.Empty<PerformanceApplicationPolicy>());
+        []);
 }
 
 /// <summary>Bounds and truthful query support reported by a concrete RTSS adapter.</summary>

@@ -1,7 +1,8 @@
 using System.Diagnostics;
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Preflight;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Eng;
 
 public sealed class DevicePackageOutputTests
 {
@@ -17,14 +18,14 @@ public sealed class DevicePackageOutputTests
         using TemporaryDirectory directory = new();
         var staged = directory.GetPath("staged.wsgmpkg");
         var archive = directory.GetPath("package.wsgmpkg");
-        File.WriteAllText(staged, "new package");
+        await File.WriteAllTextAsync(staged, "new package");
         if (destinationExists)
         {
-            File.WriteAllText(archive, "previous package");
+            await File.WriteAllTextAsync(archive, "previous package");
         }
         var root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
         var helper = Path.Combine(root, "eng", "device-package-output.ps1");
-        using var held = locked
+        await using var held = locked
             ? new FileStream(archive, FileMode.Open, FileAccess.Read, FileShare.Read)
             : null;
         ProcessStartInfo start = new()
@@ -59,7 +60,7 @@ public sealed class DevicePackageOutputTests
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                await process.WaitForExitAsync(CancellationToken.None);
             }
         }
         var diagnostic = await output + await error;
@@ -67,16 +68,16 @@ public sealed class DevicePackageOutputTests
         Assert.True(process.ExitCode == 0 == succeeds, diagnostic);
         if (succeeds)
         {
-            Assert.Equal("new package", File.ReadAllText(archive));
+            Assert.Equal("new package", await File.ReadAllTextAsync(archive, CancellationToken.None));
             Assert.False(File.Exists(staged));
         }
         else
         {
-            Assert.Equal("new package", File.ReadAllText(staged));
+            Assert.Equal("new package", await File.ReadAllTextAsync(staged, CancellationToken.None));
             Assert.Equal(destinationExists, File.Exists(archive));
             if (destinationExists)
             {
-                Assert.Equal("previous package", File.ReadAllText(archive));
+                Assert.Equal("previous package", await File.ReadAllTextAsync(archive, CancellationToken.None));
             }
         }
     }

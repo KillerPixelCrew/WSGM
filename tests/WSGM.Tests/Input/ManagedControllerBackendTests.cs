@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 public sealed class ManagedControllerBackendTests
 {
@@ -241,7 +241,7 @@ public sealed class ManagedControllerBackendTests
 
 internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<HapticOutputFrame> _frames = [];
     private readonly List<string> _stopReasons = [];
 
@@ -258,13 +258,13 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
         };
     }
 
-    public long SourceGeneration { get; set; }
+    public long SourceGeneration { get; }
 
-    public bool IsOwned { get; set; } = true;
+    public bool IsOwned { get; } = true;
 
-    public HapticCapabilities Capabilities { get; set; }
+    public HapticCapabilities Capabilities { get; }
 
-    internal Exception? NextFailure { get; set; }
+    private Exception? NextFailure { get; set; }
 
     internal IReadOnlyList<HapticOutputFrame> Frames
     {
@@ -272,7 +272,7 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
         {
             lock (_gate)
             {
-                return _frames.ToArray();
+                return [.. _frames];
             }
         }
     }
@@ -283,7 +283,7 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
         {
             lock (_gate)
             {
-                return _stopReasons.ToArray();
+                return [.. _stopReasons];
             }
         }
     }
@@ -328,7 +328,7 @@ internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
 
 internal sealed class DeterministicFakeHidBackend : IHidBackend
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<string> _operations = [];
     private readonly Dictionary<long, TaskCompletionSource<bool>> _enumeration = [];
     private readonly Dictionary<long, TaskCompletionSource<bool>> _removal = [];
@@ -341,7 +341,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
     {
         IReadOnlyList<ManagedControllerTarget> targets = supportedTargets.Length == 0
             ? Enum.GetValues<ManagedControllerTarget>()
-            : supportedTargets.ToArray();
+            : [.. supportedTargets];
         Health = new HidBackendHealth(
             HidBackendHealthState.Ready,
             "Deterministic fake backend is ready.",
@@ -354,30 +354,19 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
 
     internal HidBackendHealth Health { get; set; }
 
-    internal bool AutoEnumerate { get; set; } = true;
+    private bool AutoEnumerate { get; } = true;
 
-    internal bool AutoRemove { get; set; } = true;
+    private bool AutoRemove { get; } = true;
 
-    internal bool DelayOutput { get; set; }
+    internal bool DelayOutput { get; init; }
 
-    internal Exception? NextCreateFailure { get; set; }
+    private Exception? NextCreateFailure { get; set; }
 
-    internal Exception? NextPublishFailure { get; set; }
+    private Exception? NextPublishFailure { get; set; }
 
-    internal Exception? NextRemoveFailure { get; set; }
+    private Exception? NextRemoveFailure { get; set; }
 
     internal Action<HidTargetHandle>? Removing { get; set; }
-
-    internal HidTargetHandle? CurrentTarget
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _target;
-            }
-        }
-    }
 
     internal IReadOnlyList<string> Operations
     {
@@ -385,7 +374,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         {
             lock (_gate)
             {
-                return _operations.ToArray();
+                return [.. _operations];
             }
         }
     }
@@ -557,33 +546,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         }
 
         return completion.WaitAsync(cancellationToken);
-    }
-
-    internal void CompleteEnumeration(long generation, bool enumerated = true)
-    {
-        lock (_gate)
-        {
-            if (!_enumeration.TryGetValue(generation, out var source))
-            {
-                throw new InvalidOperationException("The target generation is unknown.");
-            }
-
-            source.TrySetResult(enumerated);
-        }
-    }
-
-    internal void CompleteRemoval(long generation, bool removed = true)
-    {
-        lock (_gate)
-        {
-            if (!removed)
-            {
-                _removal[generation].TrySetResult(false);
-                return;
-            }
-
-            CompleteRemovalUnderGate(generation);
-        }
     }
 
     internal void EmitOutput(

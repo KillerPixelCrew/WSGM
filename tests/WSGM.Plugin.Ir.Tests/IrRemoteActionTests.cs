@@ -1,8 +1,9 @@
 using System.Diagnostics;
 using WSGM.Device.Tests;
+using WSGM.Plugin.Ir.Tests.Fakes;
 using WSGM.Plugin.Sdk;
 using Xunit;
-using static WSGM.Plugin.Ir.Tests.IrActions;
+using static WSGM.Plugin.Ir.Tests.Builders.IrActions;
 
 namespace WSGM.Plugin.Ir.Tests;
 
@@ -25,8 +26,8 @@ public sealed class IrRemoteActionTests
         using TemporaryDirectory temporary = new();
         var context = Context(temporary.Root);
         await using IrPlugin plugin = new(_ => endpoint);
-        await plugin.StartAsync(new RecordingPluginHost(), context, default);
-        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
+        await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, CancellationToken.None);
         await body(plugin, context);
     }
 
@@ -100,10 +101,10 @@ public sealed class IrRemoteActionTests
         FakeEndpoint leave = new() { Catalog = Catalog(), FailPress = failReturn };
         var opened = 0;
         await new IrPairing(new string('a', 48), "test.invalid", "192.0.2.1")
-            .SaveAsync(Path.Combine(temporary.Root, "endpoint.json"), default);
+            .SaveAsync(Path.Combine(temporary.Root, "endpoint.json"), CancellationToken.None);
         await using IrPlugin plugin = new(_ => ++opened == 1 ? entry : leave);
-        await plugin.StartAsync(new RecordingPluginHost(), context, default);
-        await plugin.ConfigureAsync(Configuration(transport: "wifi"), context, default);
+        await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration(transport: "wifi"), context, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.Dispatched, (await InvokeAutomated(plugin, context, "remote-press",
             ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-1")))).Outcome);
         // Simulate the firmware's idle close while the old identity remains cached.
@@ -132,7 +133,7 @@ public sealed class IrRemoteActionTests
                     ("delay-ms", new PluginValue(Number: 3000)))), context, cancellation.Token).AsTask();
             Assert.Single(endpoint.RemoteCalls);
             Assert.False(press.IsCompleted);
-            cancellation.Cancel();
+            await cancellation.CancelAsync();
             Assert.Equal(PluginActionOutcome.Unconfirmed, (await press).Outcome);
             Assert.Single(endpoint.RemoteCalls);
         });
@@ -264,8 +265,8 @@ public sealed class IrRemoteActionTests
         using TemporaryDirectory temporary = new();
         var context = Context(temporary.Root);
         await using IrPlugin plugin = new(_ => endpoint);
-        await plugin.StartAsync(host, context, default);
-        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
+        await plugin.StartAsync(host, context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, CancellationToken.None);
 
         Assert.Equal(PluginActionOutcome.AppliedVerified,
             (await InvokeAutomated(plugin, context, "remote-refresh")).Outcome);

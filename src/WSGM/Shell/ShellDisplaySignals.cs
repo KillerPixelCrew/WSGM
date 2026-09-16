@@ -29,7 +29,6 @@ internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : ID
             return;
         }
         TaskCompletionSource signalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnChanged() => signalled.TrySetResult();
         window.DisplaysChanged += OnChanged;
         try
         {
@@ -41,5 +40,7 @@ internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : ID
         {
             window.DisplaysChanged -= OnChanged;
         }
+
+        void OnChanged() => signalled.TrySetResult();
     }
 }

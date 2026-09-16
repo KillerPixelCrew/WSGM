@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class RtssDiscoveryTests
 {
@@ -93,7 +93,7 @@ public sealed class RtssDiscoveryTests
 
         public IReadOnlyList<RtssInstallRecord> Records { get; set; } = [];
 
-        public RtssFileIdentity ExecutableIdentity { get; } = new(
+        private RtssFileIdentity ExecutableIdentity { get; } = new(
             true,
             500_000,
             "RTSS",

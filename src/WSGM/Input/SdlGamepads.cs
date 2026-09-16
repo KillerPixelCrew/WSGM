@@ -40,7 +40,7 @@ internal static unsafe class SdlGamepads
     private static bool _steamOwnsInput;
     private static bool _awaitNeutral;
     private static readonly Dictionary<SDL_JoystickID, nint> Pads = new();
-    private static readonly List<PadSnapshot> Snapshot = new();
+    private static readonly List<PadSnapshot> Snapshot = [];
 
     private const short StickDeadzone = 16000;
     private const short TriggerThreshold = 8000; // axis range is 0..32767
@@ -140,14 +140,16 @@ internal static unsafe class SdlGamepads
     {
         int count;
         var ids = SDL_GetGamepads(&count);
-        if (ids != null)
+        if (ids == null)
         {
-            for (var i = 0; i < count; i++)
-            {
-                OpenPad(ids[i]);
-            }
-            SDL_free(ids);
+            return;
         }
+
+        for (var i = 0; i < count; i++)
+        {
+            OpenPad(ids[i]);
+        }
+        SDL_free(ids);
     }
 
     /// <summary>Pumps SDL events (hotplug) and returns each pad's state, with the
@@ -191,24 +193,24 @@ internal static unsafe class SdlGamepads
             // positive-down — the opposite of XInput's ThumbLY.
             var lx = SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFTX);
             var ly = SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFTY);
-            if (ly < -StickDeadzone)
+            switch (ly)
             {
-                current |= GamepadButtons.DPadUp;
+                case < -StickDeadzone:
+                    current |= GamepadButtons.DPadUp;
+                    break;
+                case > StickDeadzone:
+                    current |= GamepadButtons.DPadDown;
+                    break;
             }
 
-            if (ly > StickDeadzone)
+            switch (lx)
             {
-                current |= GamepadButtons.DPadDown;
-            }
-
-            if (lx < -StickDeadzone)
-            {
-                current |= GamepadButtons.DPadLeft;
-            }
-
-            if (lx > StickDeadzone)
-            {
-                current |= GamepadButtons.DPadRight;
+                case < -StickDeadzone:
+                    current |= GamepadButtons.DPadLeft;
+                    break;
+                case > StickDeadzone:
+                    current |= GamepadButtons.DPadRight;
+                    break;
             }
 
             if (SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TriggerThreshold)
@@ -222,13 +224,15 @@ internal static unsafe class SdlGamepads
 
             Snapshot.Add(new PadSnapshot((uint)id, current));
         }
-        if (_awaitNeutral)
+        if (!_awaitNeutral)
         {
-            var held = false;
-            foreach (var pad in Snapshot) { held |= pad.Buttons != 0; }
-            if (held) { Snapshot.Clear(); }
-            else if (Snapshot.Count > 0) { _awaitNeutral = false; }
+            return Snapshot;
         }
+
+        var held = false;
+        foreach (var pad in Snapshot) { held |= pad.Buttons != 0; }
+        if (held) { Snapshot.Clear(); }
+        else if (Snapshot.Count > 0) { _awaitNeutral = false; }
         return Snapshot;
     }
 

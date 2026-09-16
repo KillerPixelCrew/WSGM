@@ -123,11 +123,12 @@ public abstract class OverlaySubView : UserControl
                 Margin = new Thickness(0, 0, 0, 4)
             });
         }
-        if (!string.IsNullOrEmpty(_notice))
+        if (string.IsNullOrEmpty(_notice))
         {
-            stack.Children.Add(Caption(_notice));
-            _notice = null;
+            return stack;
         }
+        stack.Children.Add(Caption(_notice));
+        _notice = null;
         return stack;
     }
 
@@ -140,7 +141,7 @@ public abstract class OverlaySubView : UserControl
 
     private protected void RenderLoading(string title) => RenderMessage(title, "Loading from Steam…");
 
-    private protected CardButton Row(string title, string desc, Geometry? icon, Action? onClick)
+    private protected static CardButton Row(string title, string desc, Geometry? icon, Action? onClick)
     {
         var button = new CardButton { Title = title, Description = desc, IconGeometry = icon };
         if (onClick is not null)
@@ -167,7 +168,7 @@ public abstract class OverlaySubView : UserControl
     private protected CardButton CycleRow(string label, string value, Action onClick)
         => Row(label, value, Icons.Restart, onClick).Also(b => b.TrailingText = "↔");
 
-    private protected TextBlock Caption(string text) => new()
+    private protected static TextBlock Caption(string text) => new()
     {
         Text = text,
         Classes = { "caption" },
@@ -175,7 +176,7 @@ public abstract class OverlaySubView : UserControl
         Margin = new Thickness(2, 0, 2, 4)
     };
 
-    private protected TextBlock SectionLabel(string text) => new()
+    private protected static TextBlock SectionLabel(string text) => new()
     {
         Text = text,
         Classes = { "eyebrow" },
@@ -193,25 +194,28 @@ public abstract class OverlaySubView : UserControl
 
     // A row laid out inside a panel (a Grid of columns, a WrapPanel of thumbnails) is
     // still the first thing the user should land on, so the search descends one level.
-    private protected void FocusFirst(StackPanel stack) => Dispatcher.UIThread.Post(() =>
+    private static void FocusFirst(StackPanel stack) => Dispatcher.UIThread.Post(() =>
     {
         foreach (var child in stack.Children)
         {
-            if (child is Button { IsEffectivelyEnabled: true } b)
+            switch (child)
             {
-                b.Focus(NavigationMethod.Directional);
-                return;
-            }
-            if (child is Panel panel)
-            {
-                foreach (var nested in panel.Children)
-                {
-                    if (nested is Button nestedButton)
+                case Button { IsEffectivelyEnabled: true } b:
+                    b.Focus(NavigationMethod.Directional);
+                    return;
+                case Panel panel:
                     {
-                        nestedButton.Focus(NavigationMethod.Directional);
-                        return;
+                        foreach (var nested in panel.Children)
+                        {
+                            if (nested is not Button nestedButton)
+                            {
+                                continue;
+                            }
+                            nestedButton.Focus(NavigationMethod.Directional);
+                            return;
+                        }
+                        break;
                     }
-                }
             }
         }
     });
@@ -226,7 +230,7 @@ public abstract class OverlaySubView : UserControl
         // current level itself instead of relying on a pop to do it.
         if (KeyboardService.Request(title, current, maxLen, v =>
         {
-            onAccept(v ?? "");
+            onAccept(v);
             _current?.Invoke();
         }))
         {

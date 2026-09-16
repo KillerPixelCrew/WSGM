@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class AppLauncherTests
 {
@@ -17,7 +17,7 @@ public sealed class AppLauncherTests
     [Theory]
     [InlineData("steam://open/bigpicture", true)]
     [InlineData("custom-scheme://action", true)]
-    [InlineData("C:\\Games\\Steam.exe", false)]
+    [InlineData(@"C:\Games\Steam.exe", false)]
     [InlineData("relative.exe", false)]
     public void ProtocolDetectionOnlyAcceptsUrls(string path, bool expected)
         => Assert.Equal(expected, AppLauncher.IsProtocol(path));

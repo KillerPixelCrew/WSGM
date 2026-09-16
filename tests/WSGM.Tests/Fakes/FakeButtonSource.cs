@@ -1,6 +1,6 @@
 using WSGM.Input;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>A UI button source a test presses by hand.</summary>
 internal sealed class FakeButtonSource : IUiButtonSource

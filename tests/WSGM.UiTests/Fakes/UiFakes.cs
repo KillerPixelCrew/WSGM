@@ -3,7 +3,7 @@ using WSGM.Interop;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Fakes;
 
 internal sealed class FakePower : IPowerSchemeApi
 {

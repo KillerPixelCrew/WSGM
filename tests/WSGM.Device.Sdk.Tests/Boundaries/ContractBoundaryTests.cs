@@ -1,6 +1,6 @@
-using WSGM.Device.Sdk;
+using WSGM.Device.Tests;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Boundaries;
 
 public sealed class ContractBoundaryTests
 {

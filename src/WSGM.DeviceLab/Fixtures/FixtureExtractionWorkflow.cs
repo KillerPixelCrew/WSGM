@@ -16,7 +16,7 @@ namespace WSGM.DeviceLab.Fixtures;
 internal static class FixtureExtractionWorkflow
 {
     /// <summary>Current deterministic extractor identity.</summary>
-    public const string ExtractorVersion = "wsgm-device-fixture@1";
+    private const string ExtractorVersion = "wsgm-device-fixture@1";
 
     /// <summary>Writes a new reviewable fixture directory without invoking hardware.</summary>
     /// <param name="bundle">Validated sanitized source bundle.</param>

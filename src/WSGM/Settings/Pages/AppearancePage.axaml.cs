@@ -440,7 +440,7 @@ public partial class AppearancePage : UserControl
                 new FilePickerFileType("Images") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"] }
             ]
         });
-        return files.FirstOrDefault()?.TryGetLocalPath();
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
     // --- Actions ---
@@ -517,7 +517,7 @@ public partial class AppearancePage : UserControl
                 new FilePickerFileType("WSGM splash theme") { Patterns = ["*.wsgmsplash"] }
             ]
         });
-        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        var path = files.Count > 0 ? files[0].TryGetLocalPath() : null;
         if (path is null)
         {
             return;
@@ -591,10 +591,7 @@ public partial class AppearancePage : UserControl
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Warn($"{operation} failed: {ex.Message}");
-            if (_viewModel is not null)
-            {
-                _viewModel.StatusText = $"{operation} failed: {ex.Message}";
-            }
+            _viewModel?.StatusText = $"{operation} failed: {ex.Message}";
         }
     }
 
@@ -609,20 +606,14 @@ public partial class AppearancePage : UserControl
     private static async Task<T> RunArchiveWork<T>(object? sender, Func<T> work)
     {
         var button = sender as Button;
-        if (button is not null)
-        {
-            button.IsEnabled = false;
-        }
+        button?.IsEnabled = false;
         try
         {
             return await Task.Run(work);
         }
         finally
         {
-            if (button is not null)
-            {
-                button.IsEnabled = true;
-            }
+            button?.IsEnabled = true;
         }
     }
 }

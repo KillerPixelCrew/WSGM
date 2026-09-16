@@ -1,6 +1,6 @@
 using WSGM.Device.Sdk.Input;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Builders;
 
 /// <summary>Canonical controller samples for tests that only care about which controls are held.</summary>
 internal static class ControllerSamples

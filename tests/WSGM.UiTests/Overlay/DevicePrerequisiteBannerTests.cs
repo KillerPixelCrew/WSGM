@@ -4,8 +4,9 @@ using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class DevicePrerequisiteBannerTests
 {

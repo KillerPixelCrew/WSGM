@@ -212,7 +212,7 @@ internal static class CaptureSchemaValidator
 
     private static void ValidateManifest(
         ShareableCaptureManifest manifest,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (manifest.SchemaVersion != CaptureSchema.CurrentVersion)
         {
@@ -279,7 +279,7 @@ internal static class CaptureSchemaValidator
         {
             ValidateId(blob.BlobId, "manifest.blobs.blobId", errors);
             ValidateFolderPath(blob.Path, "blobs/", null, errors);
-            if (blob.Length < 0 || blob.Length > CaptureSchema.MaximumBlobBytes)
+            if (blob.Length is < 0 or > CaptureSchema.MaximumBlobBytes)
             {
                 errors.Add(new CaptureValidationError(blob.Path, $"Blob length must be between 0 and {CaptureSchema.MaximumBlobBytes}."));
             }
@@ -290,7 +290,7 @@ internal static class CaptureSchemaValidator
 
     private static void ValidateRecipe(
         ObserveOnlyRecipe recipe,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (recipe.SchemaVersion != CaptureSchema.CurrentVersion)
         {
@@ -315,8 +315,7 @@ internal static class CaptureSchemaValidator
                 errors.Add(new CaptureValidationError(step.StepId, "Recipe step ID is duplicated."));
             }
 
-            if (step.DurationMilliseconds <= 0
-                || step.DurationMilliseconds > CaptureSchema.MaximumStepDurationMilliseconds)
+            if (step.DurationMilliseconds is <= 0 or > CaptureSchema.MaximumStepDurationMilliseconds)
             {
                 errors.Add(new CaptureValidationError(step.StepId,
                     $"Observation duration must be between 1 and {CaptureSchema.MaximumStepDurationMilliseconds} milliseconds."));
@@ -332,8 +331,8 @@ internal static class CaptureSchemaValidator
     private static void ValidateEvent(
         CaptureStreamEvent captureEvent,
         string sourceId,
-        IReadOnlyDictionary<string, ObservationStep> steps,
-        ICollection<CaptureValidationError> errors)
+        Dictionary<string, ObservationStep> steps,
+        List<CaptureValidationError> errors)
     {
         if (captureEvent.SchemaVersion != CaptureSchema.CurrentVersion)
         {
@@ -369,7 +368,7 @@ internal static class CaptureSchemaValidator
         }
 
         var payload = captureEvent.Payload;
-        if (payload.Length < 0 || payload.Length > CaptureSchema.MaximumEventPayloadBytes)
+        if (payload.Length is < 0 or > CaptureSchema.MaximumEventPayloadBytes)
         {
             errors.Add(new CaptureValidationError(captureEvent.EventId,
                 $"Payload length must be between 0 and {CaptureSchema.MaximumEventPayloadBytes}."));
@@ -400,8 +399,8 @@ internal static class CaptureSchemaValidator
     private static void ValidateAnalysis(
         CaptureAnalysisResult result,
         CaptureAnalysisDescriptor descriptor,
-        IReadOnlySet<string> eventIds,
-        ICollection<CaptureValidationError> errors)
+        HashSet<string> eventIds,
+        List<CaptureValidationError> errors)
     {
         if (result.SchemaVersion != CaptureSchema.CurrentVersion)
         {
@@ -461,8 +460,8 @@ internal static class CaptureSchemaValidator
 
     private static void ValidateBlob(
         CaptureBlobFile blob,
-        IReadOnlyDictionary<string, CaptureBlobDescriptor> descriptors,
-        ICollection<CaptureValidationError> errors)
+        Dictionary<string, CaptureBlobDescriptor> descriptors,
+        List<CaptureValidationError> errors)
     {
         if (!descriptors.TryGetValue(blob.Descriptor.BlobId, out var manifestBlob)
             || manifestBlob != blob.Descriptor)
@@ -487,7 +486,7 @@ internal static class CaptureSchemaValidator
 
     private static void ValidateRedaction(
         CaptureRedactionManifest redaction,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         if (redaction.SchemaVersion != CaptureSchema.CurrentVersion)
         {

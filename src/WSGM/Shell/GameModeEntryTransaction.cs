@@ -223,7 +223,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
 
     /// <summary>Every display the entry has to see before it can proceed: whatever the user asked
     /// to wait for, plus every display the layout is going to configure.</summary>
-    private IReadOnlyList<DisplayTargetIdentity> RequiredDisplays()
+    private List<DisplayTargetIdentity> RequiredDisplays()
     {
         List<DisplayTargetIdentity> required = [];
         foreach (var target in new[] { launch.WaitForDisplay }.OfType<DisplayTargetIdentity>()

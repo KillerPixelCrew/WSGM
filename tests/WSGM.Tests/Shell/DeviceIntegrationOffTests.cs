@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>
 /// With Device Integration off, WSGM must be invisible to the hardware.

@@ -100,7 +100,7 @@ internal static class CaptureBundleReader
                 uncompressedTotal = checked(uncompressedTotal + entry.Length);
                 if (uncompressedTotal > CaptureSchema.MaximumArchiveBytes
                     || entry.Length > CaptureSchema.MaximumArchiveBytes
-                    || entry.CompressedLength > 0 && entry.Length > 1024 * 1024
+                    || entry is { CompressedLength: > 0, Length: > 1024 * 1024 }
                         && entry.Length / entry.CompressedLength > 100)
                 {
                     return Failure(CaptureBundleReadFailure.UnsafeArchive, "Archive exceeds its size or expansion budget.");
@@ -279,12 +279,9 @@ internal static class CaptureBundleReader
             offset += read;
         }
 
-        if (input.ReadByte() != -1)
-        {
-            throw new InvalidDataException("Archive entry exceeded its declared length.");
-        }
-
-        return bytes;
+        return input.ReadByte() != -1
+            ? throw new InvalidDataException("Archive entry exceeded its declared length.")
+            : bytes;
     }
 
     private static bool TryVerifyHashes(
@@ -325,14 +322,16 @@ internal static class CaptureBundleReader
 
             var hash = line[..64];
             var path = line[66..].TrimEnd('\r');
-            if (hash.Any(character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
-                || !CaptureBundleLayout.IsSafeRelativePath(path)
-                || string.Equals(path, CaptureBundleLayout.HashesPath, StringComparison.OrdinalIgnoreCase)
-                || !hashes.TryAdd(path, hash))
+            if (!hash.Any(character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
+                && CaptureBundleLayout.IsSafeRelativePath(path)
+                && !string.Equals(path, CaptureBundleLayout.HashesPath, StringComparison.OrdinalIgnoreCase)
+                && hashes.TryAdd(path, hash))
             {
-                error = "Hash manifest contains an invalid hash or path.";
-                return false;
+                continue;
             }
+
+            error = "Hash manifest contains an invalid hash or path.";
+            return false;
         }
 
         string[] expectedPaths = [.. entries.Keys
@@ -346,12 +345,14 @@ internal static class CaptureBundleReader
         foreach (var (path, expected) in hashes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!string.Equals(HashEntry(entries[path], cancellationToken), expected,
+            if (string.Equals(HashEntry(entries[path], cancellationToken), expected,
                 StringComparison.Ordinal))
             {
-                error = $"Content hash mismatch for '{path}'.";
-                return false;
+                continue;
             }
+
+            error = $"Content hash mismatch for '{path}'.";
+            return false;
         }
 
         return true;
@@ -383,12 +384,9 @@ internal static class CaptureBundleReader
             hash.AppendData(buffer.AsSpan(0, read));
         }
 
-        if (total != entry.Length)
-        {
-            throw new InvalidDataException("Archive entry ended before its declared length.");
-        }
-
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        return total != entry.Length
+            ? throw new InvalidDataException("Archive entry ended before its declared length.")
+            : Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
     private static T Deserialize<T>(
@@ -403,7 +401,7 @@ internal static class CaptureBundleReader
             ?? throw new InvalidDataException("A required JSON entry decoded to null.");
     }
 
-    private static IReadOnlyList<T> DeserializeLines<T>(
+    private static List<T> DeserializeLines<T>(
         ZipArchiveEntry entry,
         JsonTypeInfo<T> typeInfo,
         CancellationToken cancellationToken)
@@ -467,7 +465,7 @@ internal static class CaptureBundleReader
 
     private static void DecodeLine<T>(
         MemoryStream line,
-        ICollection<T> values,
+        List<T> values,
         JsonTypeInfo<T> typeInfo)
         where T : class
     {

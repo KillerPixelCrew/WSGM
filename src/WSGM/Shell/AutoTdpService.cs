@@ -62,7 +62,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// One second per window. Shorter windows judge a power change before the SoC has finished
     /// responding to the previous one; longer ones let a stutter run for too long before power rises.
     /// </remarks>
-    internal static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
 
     private readonly IFrametimeSource _frametimes;
     private readonly Func<IReadOnlyList<DeviceCapabilityView>> _capabilities;
@@ -71,7 +71,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private readonly AutoTdpController _controller = new();
     private readonly SemaphoreSlim _write = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     private Task _worker = Task.CompletedTask;
     private Task<bool> _lastStop = Task.FromResult(true);
@@ -200,9 +200,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     internal void Apply(bool enabled)
     {
         if (enabled && Availability.TargetFrametimeMs is null) { enabled = false; }
-        Task worker;
         Task<bool> stop;
-        CancellationTokenSource? generation;
         CancellationTokenSource applicationWrites;
         lock (_gate)
         {
@@ -232,8 +230,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 return;
             }
 
-            worker = _worker;
-            generation = _generation;
+            var worker = _worker;
+            var generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
             applicationWrites = _applicationWrites;
@@ -376,7 +374,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             applicationWrites = _applicationWrites;
         }
 
-        applicationWrites.Cancel();
+        await applicationWrites.CancelAsync().ConfigureAwait(false);
 
         // A disable may already be restoring the previous value. Let that finish before stopping a
         // newer generation or disposing the shared write gate; otherwise its late write would race
@@ -664,7 +662,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             Task<CapabilityCommandResult> command;
             lock (_gate)
             {
-                if (expectedRunningGeneration is long expected
+                if (expectedRunningGeneration is { } expected
                     && (!_enabled || (_running?.Generation ?? -1) != expected))
                 {
                     _resync = true;
@@ -676,7 +674,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 // one operation: an old application can be cancelled before or after dispatch,
                 // but never in the gap between them.
                 cancellationToken.ThrowIfCancellationRequested();
-                if (restoreFrom is int watts)
+                if (restoreFrom is { } watts)
                 {
                     if (_restoreTo is null)
                     {
@@ -822,18 +820,19 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
         lock (_gate)
         {
-            if (restored && _restoreTo == watts)
+            switch (restored)
             {
-                _restoreTo = null;
-                _restorePair = null;
-                _restoreCycle = null;
-                _restoreCapability = null;
-                _powerMayDiffer = false;
-                _controllerStarted = false;
-            }
-            else if (!restored)
-            {
-                _resync = true;
+                case true when _restoreTo == watts:
+                    _restoreTo = null;
+                    _restorePair = null;
+                    _restoreCycle = null;
+                    _restoreCapability = null;
+                    _powerMayDiffer = false;
+                    _controllerStarted = false;
+                    break;
+                case false:
+                    _resync = true;
+                    break;
             }
         }
         Publish(
@@ -849,9 +848,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     private DeviceCapabilityView? FindPowerCapability() => _capabilities()
         .FirstOrDefault(view =>
-            view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
-            && view.Descriptor.SupportsWrite
-            && view.Descriptor.ValueKind is CapabilityValueKind.Integer);
+            view.Descriptor is
+            {
+                Role: CapabilityRole.PowerSustainedLimit,
+                SupportsWrite: true,
+                ValueKind: CapabilityValueKind.Integer
+            });
 
     private DeviceCapabilityView? FindPairedPower(DeviceCapabilityView primary) =>
         primary.Descriptor.PairedPowerLimitId is { } id
@@ -882,19 +884,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
         // The running-application monitor knows which executable Steam launched; RTSS knows which
         // process is drawing. Matching them is what keeps AutoTDP from tuning power for a launcher
         // or a background renderer that happens to be in the table.
-        if (running?.ExecutablePath is { Length: > 0 } executable)
+        if (running?.ExecutablePath is { Length: > 0 } executable
+            && live.FirstOrDefault(sample => string.Equals(
+                Path.GetFileName(sample.ExecutablePath),
+                Path.GetFileName(executable),
+                StringComparison.OrdinalIgnoreCase)) is { } matched)
         {
-            var leaf = Path.GetFileName(executable);
-            foreach (var sample in live)
-            {
-                if (string.Equals(
-                    Path.GetFileName(sample.ExecutablePath),
-                    leaf,
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    return sample;
-                }
-            }
+            return matched;
         }
 
         // With exactly one renderer there is nothing to confuse it with. With several and no
@@ -952,7 +948,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             var stateMatchesEnabled = state is AutoTdpState.Off ? !_enabled : _enabled;
             if (!stateMatchesEnabled
-                || (expectedRunningGeneration is long expected
+                || (expectedRunningGeneration is { } expected
                     && (_running?.Generation ?? -1) != expected))
             {
                 return;

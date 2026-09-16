@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class ControllerProcessPriorityTests
 {
@@ -126,7 +126,7 @@ public sealed class ControllerProcessPriorityTests
 
         internal ControllerProcessPriority Owner { get; }
         internal ProcessPriorityClass Current { get; set; }
-        internal bool FailRead { get; set; }
+        internal bool FailRead { get; init; }
         internal bool FailWrite { get; set; }
         internal List<ProcessPriorityClass> Writes { get; } = [];
         internal List<string> Warnings { get; } = [];

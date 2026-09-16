@@ -6,13 +6,14 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Scaffolding;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Scaffolding;
 
 public sealed class DeviceLabScaffoldingTests
 {
@@ -61,7 +62,7 @@ public sealed class DeviceLabScaffoldingTests
     {
         using TemporaryDirectory temporary = new();
         var capturePath = temporary.GetPath("source.wsgmcap");
-        using (FileStream capture = new(capturePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        await using (FileStream capture = new(capturePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             CaptureBundleWriter.Write(capture, Capture());
         }
@@ -83,7 +84,7 @@ public sealed class DeviceLabScaffoldingTests
         Assert.Equal(Path.GetFullPath(typeof(DeviceApi).Assembly.Location), hintPath);
         Assert.True(File.Exists(hintPath));
         Assert.Equal("x64", Assert.Single(project.Descendants("PlatformTarget")).Value);
-        Assert.DoesNotContain("$(WsgmRepositoryRoot)", File.ReadAllText(projectPath), StringComparison.Ordinal);
+        Assert.DoesNotContain("$(WsgmRepositoryRoot)", await File.ReadAllTextAsync(projectPath), StringComparison.Ordinal);
         Assert.Contains(
             project.Descendants("None"),
             item => string.Equals((string?)item.Attribute("Update"), "LICENSE.txt", StringComparison.Ordinal)
@@ -95,14 +96,14 @@ public sealed class DeviceLabScaffoldingTests
         // starter ships MIT with a placeholder rather than stamping the plugin with WSGM's GPL-3
         // and this project's copyright holder, which claimed something untrue about their work.
         var scaffoldedLicense =
-            File.ReadAllText(Path.Combine(result.OutputDirectory, "LICENSE.txt")).TrimStart();
+            (await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "LICENSE.txt"))).TrimStart();
         Assert.StartsWith("MIT License", scaffoldedLicense, StringComparison.Ordinal);
         Assert.Contains("<your name here>", scaffoldedLicense, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "GNU GENERAL PUBLIC LICENSE", scaffoldedLicense, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "SPDX-License-Identifier",
-            File.ReadAllText(Path.Combine(result.OutputDirectory, "DevicePlugin.cs")),
+            await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "DevicePlugin.cs")),
             StringComparison.Ordinal);
 
         ProcessStartInfo startInfo = new()
@@ -112,32 +113,38 @@ public sealed class DeviceLabScaffoldingTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            Environment =
+            {
+                ["DOTNET_CLI_HOME"] = temporary.GetPath("dotnet-home"),
+                ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
+                ["DOTNET_NOLOGO"] = "1",
+                // Without this the SDK's first run in a fresh CLI home appends
+                // "<home>\.dotnet\tools" to the USER's persisted PATH — not just this child process's.
+                // DOTNET_SKIP_FIRST_TIME_EXPERIENCE stopped suppressing that in .NET 6, so every run of
+                // this test left one more dead temp path behind: 55 of them had accumulated on the
+                // development machine, taking PATH past 6.8 KB and breaking VsDevCmd.bat, which is what
+                // both build.ps1 and eng\verify.ps1 use to export-check the Steam Input gate.
+                ["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false",
+                ["NUGET_PACKAGES"] = temporary.GetPath("nuget-packages")
+            },
+            ArgumentList =
+            {
+                "build",
+                projectPath,
+                "--configuration",
+                "Release",
+                "--runtime",
+                "win-x64",
+                "--no-self-contained",
+                "--disable-build-servers",
+                "--nologo",
+                "--verbosity",
+                "quiet",
+                "--property:RestoreIgnoreFailedSources=true",
+                "--property:NuGetAudit=false"
+            }
         };
-        startInfo.Environment["DOTNET_CLI_HOME"] = temporary.GetPath("dotnet-home");
-        startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
-        startInfo.Environment["DOTNET_NOLOGO"] = "1";
-        // Without this the SDK's first run in a fresh CLI home appends
-        // "<home>\.dotnet\tools" to the USER's persisted PATH — not just this child process's.
-        // DOTNET_SKIP_FIRST_TIME_EXPERIENCE stopped suppressing that in .NET 6, so every run of
-        // this test left one more dead temp path behind: 55 of them had accumulated on the
-        // development machine, taking PATH past 6.8 KB and breaking VsDevCmd.bat, which is what
-        // both build.ps1 and eng\verify.ps1 use to export-check the Steam Input gate.
-        startInfo.Environment["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false";
-        startInfo.Environment["NUGET_PACKAGES"] = temporary.GetPath("nuget-packages");
-        startInfo.ArgumentList.Add("build");
-        startInfo.ArgumentList.Add(projectPath);
-        startInfo.ArgumentList.Add("--configuration");
-        startInfo.ArgumentList.Add("Release");
-        startInfo.ArgumentList.Add("--runtime");
-        startInfo.ArgumentList.Add("win-x64");
-        startInfo.ArgumentList.Add("--no-self-contained");
-        startInfo.ArgumentList.Add("--disable-build-servers");
-        startInfo.ArgumentList.Add("--nologo");
-        startInfo.ArgumentList.Add("--verbosity");
-        startInfo.ArgumentList.Add("quiet");
-        startInfo.ArgumentList.Add("--property:RestoreIgnoreFailedSources=true");
-        startInfo.ArgumentList.Add("--property:NuGetAudit=false");
 
         using var process = Process.Start(startInfo)
                             ?? throw new InvalidOperationException("The .NET SDK process did not start.");
@@ -150,12 +157,14 @@ public sealed class DeviceLabScaffoldingTests
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited)
+            const string message = "The generated plugin project did not build within one minute.";
+            if (process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                throw new TimeoutException(message);
             }
-            throw new TimeoutException("The generated plugin project did not build within one minute.");
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw new TimeoutException(message);
         }
 
         var diagnostic = await output + Environment.NewLine + await error;
@@ -180,10 +189,10 @@ public sealed class DeviceLabScaffoldingTests
         AssemblyLoadContext loader = new("scaffold-command-test", isCollectible: true);
         try
         {
-            using var assemblyBytes = File.OpenRead(Path.Combine(buildOutput, $"{result.RootNamespace}.dll"));
+            await using var assemblyBytes = File.OpenRead(Path.Combine(buildOutput, $"{result.RootNamespace}.dll"));
             var assembly = loader.LoadFromStream(assemblyBytes);
-            await using var plugin = Assert.IsAssignableFrom<IDevicePlugin>(
-                Activator.CreateInstance(assembly.GetType($"{result.RootNamespace}.DevicePlugin", throwOnError: true)!));
+            await using var plugin = Assert.IsType<IDevicePlugin>(
+                Activator.CreateInstance(assembly.GetType($"{result.RootNamespace}.DevicePlugin", throwOnError: true)!), exactMatch: false);
             var detection = await plugin.DetectAsync(new PluginDetectionContext
             {
                 Identity = new DeviceIdentitySnapshot
@@ -302,8 +311,8 @@ public sealed class DeviceLabScaffoldingTests
     public void MinimalTemplate_DemonstratesPartialStateCanonicalIoCancellationDiagnosticsAndRestore()
     {
         var assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
-        using var stream = Assert.IsAssignableFrom<Stream>(assembly.GetManifestResourceStream(
-            "WSGM.DeviceLab.Templates.MinimalPlugin.DevicePlugin.cs.template"));
+        using var stream = Assert.IsType<Stream>(assembly.GetManifestResourceStream(
+            "WSGM.DeviceLab.Templates.MinimalPlugin.DevicePlugin.cs.template"), exactMatch: false);
         using StreamReader reader = new(stream);
         var template = reader.ReadToEnd();
 

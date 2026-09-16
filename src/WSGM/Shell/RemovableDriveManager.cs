@@ -57,39 +57,41 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </remarks>
     public bool HasScanned { get; private set; }
 
-    private bool _hasDrives;
     /// <summary>Gets whether anything ejectable is present — the taskbar shows
     /// its eject tile only while this is true.</summary>
     public bool HasDrives
     {
-        get => _hasDrives;
+        get;
         private set
         {
-            if (_hasDrives != value)
+            if (field == value)
             {
-                _hasDrives = value;
-                Raise(nameof(HasDrives));
+                return;
             }
+
+            field = value;
+            Raise(nameof(HasDrives));
         }
     }
 
-    private string _statusText = "";
     /// <summary>Gets the last thing that happened ("X is safe to remove", or why
     /// an eject was refused), for the panel's status line. Empty when there is
     /// nothing to report.</summary>
     public string StatusText
     {
-        get => _statusText;
+        get;
         private set
         {
-            if (_statusText != value)
+            if (field == value)
             {
-                _statusText = value;
-                Raise(nameof(StatusText));
-                Raise(nameof(HasStatus));
+                return;
             }
+
+            field = value;
+            Raise(nameof(StatusText));
+            Raise(nameof(HasStatus));
         }
-    }
+    } = "";
 
     /// <summary>Gets whether a status line should be shown.</summary>
     public bool HasStatus => StatusText.Length > 0;
@@ -259,16 +261,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
         // Candidate volumes: mounted local disks. USB HDDs report Fixed, so the
         // type never filters — only network/optical/absent drives are skipped.
-        var volumes = new List<(char Letter, int Disk, long Size)>();
-        foreach (var volume in NativeStorage.MountedVolumes())
-        {
-            if (volume.DeviceType != NativeStorage.FileDeviceDisk
-                || volume.Disk < 0)
-            {
-                continue;
-            }
-            volumes.Add((volume.Letter, volume.Disk, volume.SizeBytes));
-        }
+        var volumes = NativeStorage.MountedVolumes()
+            .Where(volume => volume.DeviceType == NativeStorage.FileDeviceDisk && volume.Disk >= 0)
+            .Select(volume => (volume.Letter, volume.Disk, Size: volume.SizeBytes))
+            .ToList();
         // Physical interfaces exist even when Windows cannot mount any partition.
         var diskPaths = new Dictionary<int, string>();
         foreach (var path in NativeStorage.ListDiskInterfaces())
@@ -277,11 +273,13 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             if (probe.IsInvalid || !NativeStorage.TryGetDeviceNumber(probe, out var type, out var disk)
                 || type != NativeStorage.FileDeviceDisk || disk < 0) { continue; }
             diskPaths.TryAdd(disk, path);
-            if (!volumes.Any(volume => volume.Disk == disk))
+            if (volumes.Any(volume => volume.Disk == disk))
             {
-                var capacity = NativeStorage.GetDiskCapacityForQuery(probe);
-                AddUnletteredDisk(volumes, disk, capacity);
+                continue;
             }
+
+            var capacity = NativeStorage.GetDiskCapacityForQuery(probe);
+            AddUnletteredDisk(volumes, disk, capacity);
         }
         if (volumes.Count == 0)
         {
@@ -345,14 +343,11 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             {
                 // Media rows stay per-volume: a multi-slot reader ejects each
                 // card on its own.
-                foreach (var volume in group)
-                {
-                    result.Add(new EjectableDevice(
-                        volume.Letter == '\0' ? $"media:{node.Id}:{group.Key}" : $"media:{volume.Letter}",
-                        name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
-                        volume.Size, kind, devInst, volume.Letter)
-                    { DiskPath = diskPaths.GetValueOrDefault(group.Key, "") });
-                }
+                result.AddRange(group.Select(volume => new EjectableDevice(
+                    volume.Letter == '\0' ? $"media:{node.Id}:{group.Key}" : $"media:{volume.Letter}",
+                    name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
+                    volume.Size, kind, devInst, volume.Letter)
+                { DiskPath = diskPaths.GetValueOrDefault(group.Key, "") }));
             }
         }
         return result;
@@ -360,7 +355,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
     internal static void AddUnletteredDisk(List<(char Letter, int Disk, long Size)> volumes, int disk, long capacity)
     {
-        if (disk >= 0 && capacity > 0 && !volumes.Any(volume => volume.Disk == disk))
+        if (disk >= 0 && capacity > 0 && volumes.All(volume => volume.Disk != disk))
         { volumes.Add(('\0', disk, capacity)); }
     }
 
@@ -420,13 +415,15 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             row.DevInst = device.DevInst;
             row.VolumeLetter = device.VolumeLetter;
             row.DiskPath = device.DiskPath;
-            if (row.Ejected)
+            if (!row.Ejected)
             {
-                // Listed again after a successful eject = reinserted and mounted;
-                // the row is back in ordinary service.
-                row.Ejected = false;
-                row.ResultText = "";
+                continue;
             }
+
+            // Listed again after a successful eject = reinserted and mounted;
+            // the row is back in ordinary service.
+            row.Ejected = false;
+            row.ResultText = "";
         }
         var removed = 0;
         for (var i = Drives.Count - 1; i >= 0; i--)
@@ -434,11 +431,13 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             var row = Drives[i];
             // A row mid-eject is never removed: its outcome message is about to
             // land on it.
-            if (!row.Busy && !seen.Contains(row.Id))
+            if (row.Busy || seen.Contains(row.Id))
             {
-                Drives.RemoveAt(i);
-                removed++;
+                continue;
             }
+
+            Drives.RemoveAt(i);
+            removed++;
         }
         if (added > 0 || removed > 0)
         {
@@ -449,17 +448,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         HasScanned = true;
     }
 
-    private RemovableDriveEntry? FindDrive(string id)
-    {
-        foreach (var entry in Drives)
-        {
-            if (string.Equals(entry.Id, id, StringComparison.Ordinal))
-            {
-                return entry;
-            }
-        }
-        return null;
-    }
+    private RemovableDriveEntry? FindDrive(string id) =>
+        Drives.FirstOrDefault(entry => string.Equals(entry.Id, id, StringComparison.Ordinal));
 
     // ---- eject ----
 
@@ -573,11 +563,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 if (locked.IsInvalid || !NativeStorage.LockVolume(locked))
                 { return new EjectResult(false, "The card is still in use. Close its applications before ejecting it."); }
             }
-            foreach (var locked in locks)
-            {
-                if (!NativeStorage.DismountVolume(locked))
-                { return new EjectResult(false, "Windows could not dismount the card. It has not been ejected."); }
-            }
+            if (locks.Any(locked => !NativeStorage.DismountVolume(locked)))
+            { return new EjectResult(false, "Windows could not dismount the card. It has not been ejected."); }
             using var handle = NativeStorage.OpenDeviceForMediaEject(path);
             if (handle.IsInvalid || !NativeStorage.EjectMedia(handle))
             { return new EjectResult(false, "Windows could not eject this medium. No safe-removal confirmation was received."); }

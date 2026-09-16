@@ -1,6 +1,7 @@
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Inventory;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Inventory;
 
 public sealed class InventoryWorkflowTests
 {
@@ -8,33 +9,34 @@ public sealed class InventoryWorkflowTests
     public async Task CancellationReturnsBeforeAnUncooperativeSynchronousProviderFinishes()
     {
         var worker = new CancellableSynchronousWorker();
-        using ManualResetEventSlim started = new();
-        using ManualResetEventSlim release = new();
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using CancellationTokenSource cancellation = new();
+        var token = cancellation.Token;
         var call = Task.Run(() => worker.Run(
             _ =>
             {
-                started.Set();
-                release.Wait();
+                started.TrySetResult();
+                release.Task.Wait(CancellationToken.None);
                 return 1;
             },
-            cancellation.Token));
+            token), CancellationToken.None);
 
         try
         {
-            Assert.True(started.Wait(TimeSpan.FromSeconds(2)));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
             cancellation.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-                await call.WaitAsync(TimeSpan.FromSeconds(2)));
+                await call.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None));
         }
         finally
         {
-            release.Set();
+            release.TrySetResult();
         }
 
-        var next = await Task.Run(() => worker.Run(_ => 2, CancellationToken.None))
-            .WaitAsync(TimeSpan.FromSeconds(2));
+        var next = await Task.Run(() => worker.Run(_ => 2, CancellationToken.None), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
         Assert.Equal(2, next);
     }
 
@@ -59,7 +61,7 @@ public sealed class InventoryWorkflowTests
     {
         using TemporaryDirectory directory = new();
         var path = directory.GetPath("inventory.tmp");
-        using (FileStream locked = new(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             var result = Assert.IsType<DeviceLabInventoryResult>(
                 DeviceLabInventoryWorkflow.CleanupCancelledWrite(path));

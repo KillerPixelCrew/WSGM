@@ -14,7 +14,7 @@ internal sealed class DesktopTray : IDisposable
 
     internal DesktopTray(Action open, Action gameMode, Action exit)
     {
-        NativeMenu menu = new();
+        NativeMenu menu = [];
         Add(menu, "Open WSGM", open);
         Add(menu, "Enter Game Mode", gameMode);
         Add(menu, "Settings", OpenSettings);

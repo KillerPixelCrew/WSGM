@@ -1,7 +1,8 @@
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Capture;
 
 public sealed class CaptureExportTests
 {
@@ -28,12 +29,12 @@ public sealed class CaptureExportTests
                 {
                     heldFile = new FileStream(staged, FileMode.Open, FileAccess.Read, FileShare.Read);
                 }
-                if (cancelled)
+                if (!cancelled)
                 {
-                    cancellation.Cancel();
-                    cancellation.Token.ThrowIfCancellationRequested();
+                    throw new IOException("Publication failed.");
                 }
-                throw new IOException("Publication failed.");
+                cancellation.Cancel();
+                throw new OperationCanceledException(cancellation.Token);
             }
 
             if (cancelled && !locked)

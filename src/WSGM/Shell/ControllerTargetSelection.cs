@@ -39,7 +39,7 @@ internal sealed record ControllerSelection(
     internal static ControllerSelection From(DeviceIntegrationConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        var enabled = config.Enabled && config.ControllerManagementEnabled;
+        var enabled = config is { Enabled: true, ControllerManagementEnabled: true };
         var detail = enabled ? string.Empty : "Controller management is off.";
         return new ControllerSelection(enabled, config.ControllerTarget, config.ControllerTargets, detail);
     }
@@ -80,14 +80,16 @@ internal static class ControllerTargetSelection
         string? applicationId)
     {
         ArgumentNullException.ThrowIfNull(overrides);
-        if (!string.IsNullOrWhiteSpace(applicationId))
+        if (string.IsNullOrWhiteSpace(applicationId))
         {
-            foreach (var candidate in overrides)
+            return new ResolvedControllerTarget(globalDefault, ControllerTargetSource.GlobalDefault, null);
+        }
+
+        foreach (var candidate in overrides)
+        {
+            if (string.Equals(candidate.ApplicationId, applicationId, StringComparison.Ordinal))
             {
-                if (string.Equals(candidate.ApplicationId, applicationId, StringComparison.Ordinal))
-                {
-                    return new ResolvedControllerTarget(candidate.Target, ControllerTargetSource.ApplicationOverride, applicationId);
-                }
+                return new ResolvedControllerTarget(candidate.Target, ControllerTargetSource.ApplicationOverride, applicationId);
             }
         }
 

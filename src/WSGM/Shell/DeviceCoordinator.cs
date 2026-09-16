@@ -62,7 +62,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private int _userCapabilityCommands;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _powerAssignmentTask;
-    private readonly object _backgroundGate = new();
+    private readonly Lock _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
     private readonly PluginSettingsCoordinator _pluginSettings;
     private readonly DeviceOemActionRouter _oemActions = new();
@@ -147,7 +147,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal InstalledDevicePackage? InstalledPackage => PackageDiscovery.InstalledPackage;
 
     /// <summary>The device definition matched by the active plugin cycle.</summary>
-    internal string? ActiveDeviceDefinitionId { get; private set; }
+    private string? ActiveDeviceDefinitionId { get; set; }
 
     /// <summary>The latest one-slot discovery result.</summary>
     internal DevicePackageDiscovery PackageDiscovery { get; private set; } = new()
@@ -178,7 +178,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     internal (bool Available, bool Unified) ManualTdpMode =>
         (IntegrationEnabled && Capabilities.Snapshot().Any(view =>
-            view.Descriptor.Role == CapabilityRole.PowerSustainedLimit && view.Descriptor.PairedPowerLimitId is not null),
+            view.Descriptor is { Role: CapabilityRole.PowerSustainedLimit, PairedPowerLimitId: not null }),
         ManualTdpUnified);
 
     /// <summary>Whether manual TDP is unified for the running application. Unlike
@@ -282,13 +282,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// Creates the one coordinator allowed to own hardware on this machine without blocking the UI.
     /// </summary>
     /// <param name="config">Initial normalized application configuration.</param>
+    /// <param name="pluginHost">The resident plugin host that admits the device runtime.</param>
     /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
     /// <returns>The coordinator, or null when the process-wide device owner is already reserved.</returns>
-    public static Task<DeviceCoordinator?> TryStartAsync(
-        AppConfig config,
-        CancellationToken cancellationToken = default)
-        => TryStartAsync(config, new PluginHost(UiThread.Post), cancellationToken);
-
     internal static Task<DeviceCoordinator?> TryStartAsync(
         AppConfig config, PluginHost pluginHost, CancellationToken cancellationToken)
     {
@@ -388,30 +384,30 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 ControllerSelection.From(config.DeviceIntegration),
                 _runningApplicationId,
                 cancellationToken).ConfigureAwait(false);
-            if (!wasEnabled && config.DeviceIntegration.Enabled)
+            switch (wasEnabled)
             {
-                _automaticRestartAttempts = 0;
-                try
-                {
-                    await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    RestoreConfigAfterCanceledStart(previousConfig);
-                    throw;
-                }
-                return;
-            }
-
-            if (wasEnabled && !config.DeviceIntegration.Enabled)
-            {
-                var teardown = await StopCycleUnderGateAsync(
-                    PluginStopReason.IntegrationDisabled,
-                    NormalShutdownDeadline(),
-                    cancellationToken).ConfigureAwait(false);
-                PhysicalGlyphCatalog.ReplacePackageProfiles([]);
-                ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
-                return;
+                case false when config.DeviceIntegration.Enabled:
+                    _automaticRestartAttempts = 0;
+                    try
+                    {
+                        await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        RestoreConfigAfterCanceledStart(previousConfig);
+                        throw;
+                    }
+                    return;
+                case true when !config.DeviceIntegration.Enabled:
+                    {
+                        var teardown = await StopCycleUnderGateAsync(
+                            PluginStopReason.IntegrationDisabled,
+                            NormalShutdownDeadline(),
+                            cancellationToken).ConfigureAwait(false);
+                        PhysicalGlyphCatalog.ReplacePackageProfiles([]);
+                        ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
+                        return;
+                    }
             }
 
             if (config.DeviceIntegration.Enabled
@@ -551,27 +547,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Stops the cycle under one caller-owned full-deactivation deadline.</summary>
-    public async Task StopAsync(
-        PluginStopReason reason,
-        DateTimeOffset deadline,
-        CancellationToken cancellationToken = default)
-    {
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var teardown = await StopCycleUnderGateAsync(
-                reason,
-                deadline,
-                cancellationToken).ConfigureAwait(false);
-            ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-    }
-
     /// <inheritdoc />
     public ValueTask DisposeAsync() => ShutdownAsync(
         PluginStopReason.WsgmExiting,
@@ -617,7 +592,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Task[] background;
         lock (_backgroundGate)
         {
-            background = _backgroundTasks.ToArray();
+            background = [.. _backgroundTasks];
         }
         await RetainDeviceShutdownFailureAsync(
             shutdownFailures,
@@ -1013,10 +988,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Func<DateTimeOffset, CancellationToken, Task> cleanupAsync,
         Func<DateTimeOffset>? utcNow = null)
     {
-        if (budget <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(budget));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(budget, TimeSpan.Zero);
         ArgumentNullException.ThrowIfNull(cleanupAsync);
         utcNow ??= static () => DateTimeOffset.UtcNow;
         using var cleanupCancellation = new CancellationTokenSource(budget);
@@ -1203,6 +1175,18 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         DeviceClientTeardownResult? ownerTeardown = null;
+        var teardown = await RunClientTeardownWithStateNotificationsAsync(
+            Capabilities.CloseCommandAdmission,
+            () => SetState(DeviceCycleState.Deactivating),
+            TeardownOwnerAsync,
+            () => SetState(DeviceCycleState.Disabled)).ConfigureAwait(false);
+        if (ownerTeardown?.Verified is true
+            && reason is not (PluginStopReason.StartCanceled or PluginStopReason.StartFailed))
+        {
+            _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
+        }
+        return teardown;
+
         async Task<DeviceClientTeardownResult> TeardownOwnerAsync()
         {
             var result = await RunClientTeardownAsync(
@@ -1223,18 +1207,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             ownerTeardown = result;
             return result;
         }
-
-        var teardown = await RunClientTeardownWithStateNotificationsAsync(
-            Capabilities.CloseCommandAdmission,
-            () => SetState(DeviceCycleState.Deactivating),
-            TeardownOwnerAsync,
-            () => SetState(DeviceCycleState.Disabled)).ConfigureAwait(false);
-        if (ownerTeardown?.Verified is true
-            && reason is not (PluginStopReason.StartCanceled or PluginStopReason.StartFailed))
-        {
-            _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
-        }
-        return teardown;
     }
 
     private static async Task<DevicePluginState> StopPluginAsync(DevicePluginRuntime client,
@@ -1302,7 +1274,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
         }
 
-        return new DeviceClientTeardownResult(failures.ToArray());
+        return new DeviceClientTeardownResult([.. failures]);
     }
 
     /// <summary>Attempts controller and plugin cleanup before detaching and disposing the runtime.
@@ -1373,15 +1345,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             try
             {
-                try
-                {
-                    await detachAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    failures.Add(ex);
-                    Log.Warn($"Device client detach was incomplete: {ex.Message}");
-                }
+                await detachAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
+                Log.Warn($"Device client detach was incomplete: {ex.Message}");
             }
             finally
             {
@@ -1397,7 +1366,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
         }
 
-        return new DeviceClientTeardownResult(failures.ToArray());
+        return new DeviceClientTeardownResult([.. failures]);
     }
 
     internal static void ThrowIfDeviceTeardownIncomplete(
@@ -1508,12 +1477,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 result = NativeStorage.LocatePresentDeviceInstance(device.InstancePath);
                 if (result != 0) { break; }
             }
-            if (_steamPresenceResult != result)
+            if (_steamPresenceResult == result)
             {
-                _steamPresenceResult = result;
-                Log.Info(result == 0 ? "Steam handoff: released controller interfaces are present."
-                    : $"Steam handoff: waiting for released controller interfaces; Configuration Manager result=0x{result:X}.");
+                return result == 0;
             }
+
+            _steamPresenceResult = result;
+            Log.Info(result == 0 ? "Steam handoff: released controller interfaces are present."
+                : $"Steam handoff: waiting for released controller interfaces; Configuration Manager result=0x{result:X}.");
             return result == 0;
         }
         finally { _transitionGate.Release(); }
@@ -1526,7 +1497,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             return !_disposed && _steamControllerOwner is { } owner && ReferenceEquals(owner, _client)
                 && owner.CycleGeneration == _steamControllerGeneration
-                && _config.DeviceIntegration.Enabled && _config.DeviceIntegration.ControllerManagementEnabled
+                && _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true }
                 && Controllers.State == ControllerManagementState.Active;
         }
         finally { _transitionGate.Release(); }
@@ -1832,7 +1803,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Whether controller management may run in this configuration.</summary>
     internal bool ControllerManagementEnabled =>
-        _config.DeviceIntegration.ControllerManagementEnabled && _config.DeviceIntegration.Enabled;
+        _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true };
 
     /// <summary>Changes the global default managed-controller target and persists the choice.</summary>
     /// <param name="target">The target to make the global default.</param>
@@ -1966,29 +1937,30 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 value,
                 timeout,
                 cancellationToken, expectedCycle, expectedDescriptors, applyPowerPair).ConfigureAwait(false);
-            if (origin is CapabilityCommandOrigin.User)
+            switch (origin)
             {
-                NotifyManualPowerChange(capabilityId, instanceId, value, result);
-                if (value?.IntegerValue is { } boostWatts
-                    && result.Outcome == CommandOutcome.AppliedVerified
-                    && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSlowLimit)
-                {
-                    await PersistManualBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
-                }
-                NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
-                await PersistUserCapabilityValueAsync(
-                    capabilityId,
-                    instanceId,
-                    value,
-                    result,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            else if (origin is CapabilityCommandOrigin.DesiredStateRestore
-                && result.Outcome.IsApplied()
-                && FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerSustainedLimit
-                && value?.IntegerValue is { } watts)
-            {
-                _assignedPowerOverride?.Invoke(watts);
+                case CapabilityCommandOrigin.User:
+                    NotifyManualPowerChange(capabilityId, instanceId, value, result);
+                    if (value?.IntegerValue is { } boostWatts
+                        && result.Outcome == CommandOutcome.AppliedVerified
+                        && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSlowLimit)
+                    {
+                        await PersistManualBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);
+                    }
+                    NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
+                    await PersistUserCapabilityValueAsync(
+                        capabilityId,
+                        instanceId,
+                        value,
+                        result,
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+                case CapabilityCommandOrigin.DesiredStateRestore
+                    when result.Outcome.IsApplied()
+                    && FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerSustainedLimit
+                    && value?.IntegerValue is { } watts:
+                    _assignedPowerOverride?.Invoke(watts);
+                    break;
             }
 
             return result;
@@ -2234,14 +2206,16 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return [];
             }
 
-            return profile.Capabilities
-                .SelectMany(capability => capability.HardwareProfiles)
-                .Select(value => value.ProfileId)
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(id => id, StringComparer.Ordinal)
-                .Take(32)
-                .ToArray();
+            return
+            [
+                .. profile.Capabilities
+                    .SelectMany(capability => capability.HardwareProfiles)
+                    .Select(value => value.ProfileId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .Take(32)
+            ];
         }
     }
 
@@ -2583,7 +2557,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Orders coupled power writes so their transient pair remains valid.</summary>
     /// <param name="view">Capability and its observed and desired values.</param>
     /// <returns>Lower values are written first.</returns>
-    internal static int ReconciliationPriority(DeviceCapabilityView view)
+    private static int ReconciliationPriority(DeviceCapabilityView view)
     {
         var observed = view.Projection.State.ObservedValue?.IntegerValue;
         var desired = view.Projection.DesiredValue?.IntegerValue;
@@ -2599,7 +2573,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     private static string Instance(string? instanceId) =>
-        instanceId is { Length: > 0 } id ? $"/{id}" : string.Empty;
+        instanceId is { Length: > 0 } ? $"/{instanceId}" : string.Empty;
 
     /// <summary>Compares two capability values, including curves, by content.</summary>
     /// <param name="observed">What the device reports.</param>
@@ -2694,9 +2668,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             CycleGeneration = Interlocked.Read(ref _cycleGeneration),
             CapabilityCount = capabilities.Count,
             HealthyCapabilityCount = capabilities.Count(capability =>
-                capability.Projection.State.Available
-                && capability.Projection.State.Quality is HardwareStateQuality.Observed
-                    or HardwareStateQuality.Verified),
+                capability.Projection.State is
+                {
+                    Available: true,
+                    Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
+                }),
             FaultedCapabilityCount = capabilities.Count(capability =>
                 capability.Projection.State.Quality is HardwareStateQuality.Faulted),
             CapturedAt = DateTimeOffset.UtcNow
@@ -2790,7 +2766,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _ = RemoveObservedAsync(observed);
     }
 
-    private async Task CompleteObservedAsync(Task task, string operation)
+    private static async Task CompleteObservedAsync(Task task, string operation)
     {
         try
         {
@@ -2827,7 +2803,7 @@ internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failu
 
 internal sealed class DeviceTeardownFailureTracker
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly List<Exception> _failures = [];
 
     internal bool HasFailures

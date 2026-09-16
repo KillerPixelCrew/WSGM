@@ -1,7 +1,6 @@
 using Microsoft.Win32;
-using WSGM.Device.Msi.Claw8A2Vm;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
 /// <summary>
 /// The Intel shared-memory split, exercised against a disposable HKCU subtree.
@@ -164,7 +163,7 @@ public sealed class IntelGraphicsMemoryTests : IDisposable
         // Agreeing to within a fraction of a gibibyte is the arithmetic that ties this registry
         // value to the feature at all, so the test asserts the tie rather than a false exactness.
         var derived = Open().BytesForPercent(57);
-        ulong reported = 19_327_352_832;
+        const ulong reported = 19_327_352_832;
 
         Assert.InRange(reported - derived, 0UL, 256UL * 1024 * 1024);
     }

@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class SteamDownloadSortPatchTests
 {
@@ -17,8 +17,7 @@ public sealed class SteamDownloadSortPatchTests
             installed.State == SteamUiPatchState.Verified,
             $"Download sort state was {installed.State}: {installed.LastFailure}");
 
-        manager.SetPatchEnabled("wsgm.download-sort", false);
-        await manager.SynchronizeAsync();
+        await manager.SetPatchEnabledAsync("wsgm.download-sort", false);
 
         var removed = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Disabled, removed.State);

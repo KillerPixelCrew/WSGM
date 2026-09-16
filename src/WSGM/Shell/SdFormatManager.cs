@@ -67,56 +67,59 @@ public sealed class SdFormatManager : ObservableObject
     /// <summary>Gets the candidate drives, one row per physical disk.</summary>
     public ObservableCollection<FormatTargetEntry> Targets { get; } = [];
 
-    private bool _hasTargets;
     /// <summary>Gets whether any formattable drive is present.</summary>
     public bool HasTargets
     {
-        get => _hasTargets;
+        get;
         private set
         {
-            if (_hasTargets != value)
+            if (field == value)
             {
-                _hasTargets = value;
-                Raise(nameof(HasTargets));
+                return;
             }
+
+            field = value;
+            Raise(nameof(HasTargets));
         }
     }
 
-    private bool _busy;
     /// <summary>Gets whether a format run is in flight. The flow's buttons and
     /// the target list disable while true.</summary>
     public bool Busy
     {
-        get => _busy;
+        get;
         private set
         {
-            if (_busy != value)
+            if (field == value)
             {
-                _busy = value;
-                Raise(nameof(Busy));
-                Raise(nameof(NotBusy));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Busy));
+            Raise(nameof(NotBusy));
         }
     }
 
     /// <summary>Gets the inverse of <see cref="Busy"/>, for IsEnabled bindings.</summary>
     public bool NotBusy => !Busy;
 
-    private string _statusText = "";
     /// <summary>Gets the current stage or terminal outcome of the format run.</summary>
     public string StatusText
     {
-        get => _statusText;
+        get;
         private set
         {
-            if (_statusText != value)
+            if (field == value)
             {
-                _statusText = value;
-                Raise(nameof(StatusText));
-                Raise(nameof(HasStatus));
+                return;
             }
+
+            field = value;
+            Raise(nameof(StatusText));
+            Raise(nameof(HasStatus));
         }
-    }
+    } = "";
 
     /// <summary>Gets whether a status line should be shown.</summary>
     public bool HasStatus => StatusText.Length > 0;
@@ -173,14 +176,12 @@ public sealed class SdFormatManager : ObservableObject
         // Letters per disk, for the detail line (a letterless Deck card is the
         // normal case and simply shows none).
         var lettersByDisk = new Dictionary<int, List<char>>();
-        foreach (var volume in NativeStorage.MountedVolumes())
+        foreach (var volume in NativeStorage.MountedVolumes()
+                     .Where(candidate => candidate is { DeviceType: NativeStorage.FileDeviceDisk, Disk: >= 0 }))
         {
-            if (volume.DeviceType == NativeStorage.FileDeviceDisk && volume.Disk >= 0)
-            {
-                (lettersByDisk.TryGetValue(volume.Disk, out var list)
-                    ? list
-                    : lettersByDisk[volume.Disk] = []).Add(volume.Letter);
-            }
+            (lettersByDisk.TryGetValue(volume.Disk, out var list)
+                ? list
+                : lettersByDisk[volume.Disk] = []).Add(volume.Letter);
         }
 
         var result = new List<FormatTarget>();
@@ -270,7 +271,6 @@ public sealed class SdFormatManager : ObservableObject
             row.Name = target.Name;
             row.SizeBytes = target.SizeBytes;
             row.BusType = target.BusType;
-            row.HasLinuxPartitions = target.HasLinuxPartitions;
             // The card's current letter, pinned so the format reassigns exactly
             // it — a card reader must keep its letter across reformats and swaps
             // (emulator/library paths depend on it). '\0' only for a card with no
@@ -288,17 +288,8 @@ public sealed class SdFormatManager : ObservableObject
         HasTargets = Targets.Count > 0;
     }
 
-    private FormatTargetEntry? FindTarget(string id)
-    {
-        foreach (var entry in Targets)
-        {
-            if (string.Equals(entry.Id, id, StringComparison.Ordinal))
-            {
-                return entry;
-            }
-        }
-        return null;
-    }
+    private FormatTargetEntry? FindTarget(string id) =>
+        Targets.FirstOrDefault(entry => string.Equals(entry.Id, id, StringComparison.Ordinal));
 
     // ---- the format run ----
 
@@ -414,15 +405,13 @@ public sealed class SdFormatManager : ObservableObject
             // ghost entries after diskpart has erased the manifests. The removal
             // also reports the marker's id for the post-erase card retirement, so
             // the marker is read once.
-            var removal = await Task.Run(() => RemoveExistingLibrary(entry));
-            if (removal.Failure is not null)
+            (var failure, removedContentId, removedLabel, var retiredContentId) =
+                await Task.Run(() => RemoveExistingLibrary(entry));
+            if (failure is not null)
             {
-                Finish(removal.Failure, false);
+                Finish(failure, false);
                 return;
             }
-            var retiredContentId = removal.MarkerContentId;
-            removedContentId = removal.RemovedContentId;
-            removedLabel = removal.RemovedLabel;
 
             // Stand the ACF watcher down again: the removal above can spend its whole
             // CEF budget, and the first suspension window would then lapse while
@@ -642,14 +631,15 @@ public sealed class SdFormatManager : ObservableObject
         {
             return "The drive no longer reports as removable — not formatting it.";
         }
-        if (snapshot.SizeBytes != entry.SizeBytes || snapshot.BusType != entry.BusType)
+        if (snapshot.SizeBytes == entry.SizeBytes && snapshot.BusType == entry.BusType)
         {
-            Log.Warn($"Format: disk {entry.DiskNumber} changed identity "
-                + $"(size {entry.SizeBytes}->{snapshot.SizeBytes}, "
-                + $"bus {entry.BusType}->{snapshot.BusType}).");
-            return "The drive changed since it was listed — refresh and pick it again.";
+            return null;
         }
-        return null;
+
+        Log.Warn($"Format: disk {entry.DiskNumber} changed identity "
+            + $"(size {entry.SizeBytes}->{snapshot.SizeBytes}, "
+            + $"bus {entry.BusType}->{snapshot.BusType}).");
+        return "The drive changed since it was listed — refresh and pick it again.";
     }
 
     /// <summary>What a fresh look at the target's disk number says about the media
@@ -698,7 +688,7 @@ public sealed class SdFormatManager : ObservableObject
         // values on BOTH sides (the enumeration baseline can carry them too), and
         // a fact we never had cannot contradict one we just read (Shell\AGENTS.md).
         return !removable
-            || (size > 0 && expectedSize > 0 && size != expectedSize)
+            || (expectedSize > 0 && size != expectedSize)
             || (busType >= 0 && expectedBusType >= 0 && busType != expectedBusType)
             ? TargetIdentity.Changed
             : TargetIdentity.Same;
@@ -734,26 +724,23 @@ public sealed class SdFormatManager : ObservableObject
     private static TargetIdentitySnapshot ReadTargetIdentity(FormatTargetEntry entry)
     {
         var systemDisk = RemovableDriveManager.ResolveSystemDisks().Contains(entry.DiskNumber);
-        // Declared up front: an out-var introduced in the right operand of && is not
-        // definitely assigned afterwards (CS0165, an error under the Release gate).
-        var opened = false;
-        var removable = false;
-        var size = 0L;
-        var busType = -1;
         using var handle = NativeStorage.OpenDiskForRead(entry.DiskNumber);
         var handleOpened = !handle.IsInvalid;
-        if (handleOpened
-            && NativeStorage.TryGetHotplugInfo(handle, out var media, out var hotplug))
+        if (!handleOpened
+            || !NativeStorage.TryGetHotplugInfo(handle, out var media, out var hotplug))
         {
-            opened = true;
-            removable = RemovableDriveManager.Classify(hotplug, media) is not null;
-            size = NativeStorage.GetDiskLength(handle);
-            NativeStorage.TryGetDeviceDescriptor(handle, out busType, out _);
+            return Snapshot(isOpened: false, isRemovable: false, length: 0, bus: -1);
         }
-        return new TargetIdentitySnapshot(
-            CompareIdentity(opened, systemDisk, removable, size, busType,
+
+        var removable = RemovableDriveManager.Classify(hotplug, media) is not null;
+        var size = NativeStorage.GetDiskLength(handle);
+        NativeStorage.TryGetDeviceDescriptor(handle, out var busType, out _);
+        return Snapshot(isOpened: true, removable, size, busType);
+
+        TargetIdentitySnapshot Snapshot(bool isOpened, bool isRemovable, long length, int bus) => new(
+            CompareIdentity(isOpened, systemDisk, isRemovable, length, bus,
                 entry.SizeBytes, entry.BusType),
-            systemDisk, handleOpened, removable, size, busType);
+            systemDisk, handleOpened, isRemovable, length, bus);
     }
 
     /// <summary>Logs one re-verification verdict. A mismatch is an abort reason and
@@ -765,18 +752,19 @@ public sealed class SdFormatManager : ObservableObject
     private static void LogReverification(
         FormatTargetEntry entry, TargetIdentitySnapshot snapshot, string stage)
     {
-        if (snapshot.Identity == TargetIdentity.Changed)
+        switch (snapshot.Identity)
         {
-            Log.Warn($"Format: disk {entry.DiskNumber} is not the card that was picked — "
-                + $"aborting before the {stage} run (system disk {snapshot.SystemDisk}, "
-                + $"removable {snapshot.Removable}, size {entry.SizeBytes}->{snapshot.SizeBytes}, "
-                + $"bus {entry.BusType}->{snapshot.BusType}).");
-        }
-        else if (snapshot.Identity == TargetIdentity.Unreadable)
-        {
-            Log.Info($"Format: disk {entry.DiskNumber} did not answer the identity re-check "
-                + $"before the {stage} run (size {snapshot.SizeBytes}, bus {snapshot.BusType}); "
-                + "continuing — a reader that is not ready yet is not a swapped card.");
+            case TargetIdentity.Changed:
+                Log.Warn($"Format: disk {entry.DiskNumber} is not the card that was picked — "
+                    + $"aborting before the {stage} run (system disk {snapshot.SystemDisk}, "
+                    + $"removable {snapshot.Removable}, size {entry.SizeBytes}->{snapshot.SizeBytes}, "
+                    + $"bus {entry.BusType}->{snapshot.BusType}).");
+                break;
+            case TargetIdentity.Unreadable:
+                Log.Info($"Format: disk {entry.DiskNumber} did not answer the identity re-check "
+                    + $"before the {stage} run (size {snapshot.SizeBytes}, bus {snapshot.BusType}); "
+                    + "continuing — a reader that is not ready yet is not a swapped card.");
+                break;
         }
     }
 
@@ -962,14 +950,10 @@ public sealed class SdFormatManager : ObservableObject
     /// <param name="diskNumber">The physical disk number.</param>
     private static List<char> LettersOnDisk(int diskNumber)
     {
-        var letters = new List<char>();
-        foreach (var volume in NativeStorage.MountedVolumes())
-        {
-            if (volume.DeviceType == NativeStorage.FileDeviceDisk && volume.Disk == diskNumber)
-            {
-                letters.Add(volume.Letter);
-            }
-        }
+        var letters = NativeStorage.MountedVolumes()
+            .Where(volume => volume.DeviceType == NativeStorage.FileDeviceDisk && volume.Disk == diskNumber)
+            .Select(volume => volume.Letter)
+            .ToList();
         letters.Sort();
         return letters;
     }
@@ -988,14 +972,10 @@ public sealed class SdFormatManager : ObservableObject
             .ToList();
         if (Steam.TryReadLibraryFolders(out _, out var configText) && configText is not null)
         {
-            foreach (var path in SteamLibraryVdf.ValuesOf(configText, "path"))
-            {
-                if (roots.Any(root => string.Equals(Path.GetPathRoot(path), root,
-                        StringComparison.OrdinalIgnoreCase)))
-                {
-                    candidates.Add(Path.Combine(path, "libraryfolder.vdf"));
-                }
-            }
+            candidates.AddRange(SteamLibraryVdf.ValuesOf(configText, "path")
+                .Where(path => roots.Any(root => string.Equals(Path.GetPathRoot(path), root,
+                    StringComparison.OrdinalIgnoreCase)))
+                .Select(path => Path.Combine(path, "libraryfolder.vdf")));
         }
         var marker = candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
         if (marker is not null
@@ -1056,13 +1036,15 @@ public sealed class SdFormatManager : ObservableObject
         {
             return;
         }
-        if (!SteamLibraryVdf.IsContentIdRegistered(current, contentId)
-            && SteamLibraryVdf.TrySplice(current, libraryPath, contentId, entry.SizeBytes,
-                out var restored, label) && restored is not null)
+        if (SteamLibraryVdf.IsContentIdRegistered(current, contentId)
+            || !SteamLibraryVdf.TrySplice(current, libraryPath, contentId, entry.SizeBytes,
+                out var restored, label) || restored is null)
         {
-            AtomicFile.WriteText(configPath, restored, durable: true);
-            Log.Info($"Format: restored library registration {contentId} after diskpart failure.");
+            return;
         }
+
+        AtomicFile.WriteText(configPath, restored, durable: true);
+        Log.Info($"Format: restored library registration {contentId} after diskpart failure.");
     }
 
     /// <summary>Writes the script beside the log (an elevated diskpart consumes
@@ -1117,7 +1099,7 @@ public sealed class SdFormatManager : ObservableObject
     /// TRIM makes the cmdlet fail, which is reported rather than raised. Not gated on the format
     /// switch — trimming free space erases nothing.
     /// </remarks>
-    public Task<bool> TrimAsync(char letter) => RetrimVolume(letter);
+    public static Task<bool> TrimAsync(char letter) => RetrimVolume(letter);
 
     /// <summary>Issues TRIM (retrim) for the volume's free space via
     /// <c>Optimize-Volume -ReTrim</c> so the flash controller marks the freshly
@@ -1200,12 +1182,10 @@ public sealed class SdFormatManager : ObservableObject
     {
         for (var attempt = 0; attempt < attempts; attempt++)
         {
-            foreach (var volume in NativeStorage.MountedVolumes())
+            foreach (var volume in NativeStorage.MountedVolumes()
+                         .Where(candidate => candidate.Disk == diskNumber && candidate.Ready))
             {
-                if (volume.Disk == diskNumber && volume.Ready)
-                {
-                    return volume.Letter;
-                }
+                return volume.Letter;
             }
             Thread.Sleep(500);
         }
@@ -1283,6 +1263,7 @@ public sealed class SdFormatManager : ObservableObject
                 case SteamLibraryAddStatus.Rejected:
                     Log.Warn($"Format: Steam refused the library add ({live.Detail}).");
                     return $"Steam did not accept it: {live.Detail}.";
+                case SteamLibraryAddStatus.Unavailable:
                 default:
                     Log.Warn("Format: Steam debug port unavailable — not editing its live config.");
                     return "Restart Steam, then add the library under Settings > Storage.";
@@ -1366,7 +1347,7 @@ public sealed class SdFormatManager : ObservableObject
     {
         var trimmed = folderPath.TrimEnd('\\', '/');
         // "D:" / "D:\" → the conventional <root>\SteamLibrary.
-        return trimmed.Length == 2 && trimmed[1] == ':'
+        return trimmed is [_, ':']
             ? $@"{trimmed}\SteamLibrary"
             : trimmed.Length == 0 ? folderPath : trimmed;
     }
@@ -1446,17 +1427,19 @@ public sealed class SdFormatManager : ObservableObject
             SteamLibraryVdf.BuildMarker(contentId, steamExe ?? "", label),
             utf8NoBom);
         Log.Info($"Format: library marker written ({libraryPath}, contentid {contentId}).");
-        if (steamExe is not null)
+        if (steamExe is null)
         {
-            var sourceDll = Path.Combine(Path.GetDirectoryName(steamExe)!, "steam.dll");
-            if (File.Exists(sourceDll))
-            {
-                File.Copy(sourceDll, Path.Combine(libraryPath, "steam.dll"), overwrite: true);
-            }
-            else
-            {
-                Log.Warn($"Format: steam.dll not found at {sourceDll} — library still mounts.");
-            }
+            return;
+        }
+
+        var sourceDll = Path.Combine(Path.GetDirectoryName(steamExe)!, "steam.dll");
+        if (File.Exists(sourceDll))
+        {
+            File.Copy(sourceDll, Path.Combine(libraryPath, "steam.dll"), overwrite: true);
+        }
+        else
+        {
+            Log.Warn($"Format: steam.dll not found at {sourceDll} — library still mounts.");
         }
     }
 

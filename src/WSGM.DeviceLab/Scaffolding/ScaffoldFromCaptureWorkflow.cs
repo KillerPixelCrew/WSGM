@@ -196,10 +196,13 @@ internal static partial class ScaffoldFromCaptureWorkflow
         string? usbInstanceId)
     {
         UsbInterfaceInventory[] endpoints = [.. bundle.Inventory.UsbInterfaces
-            .Where(candidate => candidate.Present
-                && candidate.VendorId is { Length: 4 }
-                && candidate.ProductId is { Length: 4 }
-                && candidate.DeviceRelease is { Length: 4 })
+            .Where(candidate => candidate is
+            {
+                Present: true,
+                VendorId.Length: 4,
+                ProductId.Length: 4,
+                DeviceRelease.Length: 4
+            })
             .OrderBy(candidate => candidate.VendorId, StringComparer.Ordinal)
             .ThenBy(candidate => candidate.ProductId, StringComparer.Ordinal)
             .ThenBy(candidate => candidate.DeviceRelease, StringComparer.Ordinal)
@@ -344,12 +347,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
             rendered = rendered.Replace($"{{{{{key}}}}}", value, StringComparison.Ordinal);
         }
 
-        if (rendered.Contains("{{", StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("A checked-in plugin template contains an unresolved token.");
-        }
-
-        return rendered;
+        return rendered.Contains("{{", StringComparison.Ordinal)
+            ? throw new InvalidDataException("A checked-in plugin template contains an unresolved token.")
+            : rendered;
     }
 
     private static string Slug(string value)
@@ -370,7 +370,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
     }
 
     private static string CSharp(string value) => value
-        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace(@"\", @"\\", StringComparison.Ordinal)
         .Replace("\"", "\\\"", StringComparison.Ordinal)
         .Replace("\r", "", StringComparison.Ordinal)
         .Replace("\n", " ", StringComparison.Ordinal);

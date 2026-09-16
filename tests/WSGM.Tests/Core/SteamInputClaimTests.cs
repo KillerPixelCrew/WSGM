@@ -1,7 +1,7 @@
 using System.Reflection;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class SteamInputClaimTests
 {

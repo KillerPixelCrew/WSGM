@@ -9,8 +9,7 @@ namespace WSGM.Interop;
 internal static partial class Win32Common
 {
     [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CloseHandle(nint hObject);
+    internal static partial void CloseHandle(nint hObject);
 
     [LibraryImport("kernel32.dll")]
     internal static partial uint WaitForSingleObject(nint handle, uint milliseconds);
@@ -27,8 +26,7 @@ internal static partial class Win32Common
         out nint environment, nint token, [MarshalAs(UnmanagedType.Bool)] bool inherit);
 
     [LibraryImport("userenv.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool DestroyEnvironmentBlock(nint environment);
+    internal static partial void DestroyEnvironmentBlock(nint environment);
 
     [LibraryImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

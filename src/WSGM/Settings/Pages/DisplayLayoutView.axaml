@@ -41,65 +41,67 @@
             <Button Content="Undo last edit" Click="OnUndo" IsEnabled="{Binding CanUndo}" HorizontalAlignment="Left" />
         </StackPanel>
         <Border Grid.Column="1" Classes="layout-surface" Padding="16" VerticalAlignment="Top" IsVisible="{Binding HasSelection}">
-            <StackPanel Spacing="12" DataContext="{Binding Selected}" x:DataType="s:DisplayLayoutEditorRow">
-                <StackPanel Spacing="3">
-                    <TextBlock Text="{Binding InspectorTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding ConnectionText}" Classes="caption" TextWrapping="Wrap" />
-                </StackPanel>
-                <CheckBox Content="Use in this layout" IsChecked="{Binding Active}" />
-                <CheckBox Content="Make this the primary display" IsChecked="{Binding IsPrimary}" IsEnabled="{Binding Active}" />
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Resolution" Classes="caption" />
-                    <ComboBox x:Name="ResolutionChoice" ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}"
-                              HorizontalAlignment="Stretch" IsEnabled="{Binding HasModes}" />
-                    <TextBlock Text="No modes remembered. Connect this display and refresh the display list." Classes="caption"
-                               TextWrapping="Wrap" IsVisible="{Binding !HasModes}" />
-                </StackPanel>
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+            <Panel DataContext="{Binding Selected}">
+                <StackPanel Spacing="12" x:DataType="s:DisplayLayoutEditorRow">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding InspectorTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ConnectionText}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <CheckBox Content="Use in this layout" IsChecked="{Binding Active}" />
+                    <CheckBox Content="Make this the primary display" IsChecked="{Binding IsPrimary}" IsEnabled="{Binding Active}" />
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Refresh rate (Hz)" Classes="caption" />
-                        <ComboBox x:Name="RefreshChoice" ItemsSource="{Binding RefreshRates}" SelectedItem="{Binding RefreshHz}"
+                        <TextBlock Text="Resolution" Classes="caption" />
+                        <ComboBox x:Name="ResolutionChoice" ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}"
                                   HorizontalAlignment="Stretch" IsEnabled="{Binding HasModes}" />
+                        <TextBlock Text="No modes remembered. Connect this display and refresh the display list." Classes="caption"
+                                   TextWrapping="Wrap" IsVisible="{Binding !HasModes}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Spacing="4">
-                        <TextBlock Text="Scale (%)" Classes="caption" />
-                        <ComboBox x:Name="ScaleChoice" ItemsSource="{Binding Scales}" SelectedItem="{Binding DpiPercent}" HorizontalAlignment="Stretch" />
-                    </StackPanel>
-                </Grid>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="HDR" Classes="caption" />
-                    <ComboBox SelectedIndex="{Binding HdrIndex}" IsEnabled="{Binding HdrSupported}" HorizontalAlignment="Stretch">
-                        <ComboBoxItem Content="Off" />
-                        <ComboBoxItem Content="On" />
-                    </ComboBox>
-                    <TextBlock Text="{Binding HdrHint}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding !HdrSupported}" />
-                </StackPanel>
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Position" Classes="caption" />
-                    <ComboBox x:Name="PositionChoice" SelectedIndex="0" SelectionChanged="OnPositionChanged"
-                              IsEnabled="{Binding !IsPrimary}" HorizontalAlignment="Stretch">
-                        <ComboBoxItem Content="Custom position" />
-                        <ComboBoxItem Content="Right of primary display" />
-                        <ComboBoxItem Content="Left of primary display" />
-                        <ComboBoxItem Content="Above primary display" />
-                        <ComboBoxItem Content="Below primary display" />
-                    </ComboBox>
-                    <TextBlock Text="Primary display · origin" Classes="caption" IsVisible="{Binding IsPrimary}" />
-                </StackPanel>
-                <Expander Header="Exact position" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsEnabled="{Binding !IsPrimary}">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                         <StackPanel Spacing="4">
-                            <TextBlock Text="Horizontal (px)" Classes="caption" />
-                            <NumericUpDown Value="{Binding X}" Minimum="-32768" Maximum="32768" Increment="10" />
+                            <TextBlock Text="Refresh rate (Hz)" Classes="caption" />
+                            <ComboBox x:Name="RefreshChoice" ItemsSource="{Binding RefreshRates}" SelectedItem="{Binding RefreshHz}"
+                                      HorizontalAlignment="Stretch" IsEnabled="{Binding HasModes}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="4">
-                            <TextBlock Text="Vertical (px)" Classes="caption" />
-                            <NumericUpDown Value="{Binding Y}" Minimum="-32768" Maximum="32768" Increment="10" />
+                            <TextBlock Text="Scale (%)" Classes="caption" />
+                            <ComboBox x:Name="ScaleChoice" ItemsSource="{Binding Scales}" SelectedItem="{Binding DpiPercent}" HorizontalAlignment="Stretch" />
                         </StackPanel>
                     </Grid>
-                </Expander>
-                <TextBlock Text="These draft settings are kept while this display is disabled." Classes="caption" TextWrapping="Wrap" IsVisible="{Binding !Active}" />
-            </StackPanel>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="HDR" Classes="caption" />
+                        <ComboBox SelectedIndex="{Binding HdrIndex}" IsEnabled="{Binding HdrSupported}" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Off" />
+                            <ComboBoxItem Content="On" />
+                        </ComboBox>
+                        <TextBlock Text="{Binding HdrHint}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding !HdrSupported}" />
+                    </StackPanel>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Position" Classes="caption" />
+                        <ComboBox x:Name="PositionChoice" SelectedIndex="0" SelectionChanged="OnPositionChanged"
+                                  IsEnabled="{Binding !IsPrimary}" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Custom position" />
+                            <ComboBoxItem Content="Right of primary display" />
+                            <ComboBoxItem Content="Left of primary display" />
+                            <ComboBoxItem Content="Above primary display" />
+                            <ComboBoxItem Content="Below primary display" />
+                        </ComboBox>
+                        <TextBlock Text="Primary display · origin" Classes="caption" IsVisible="{Binding IsPrimary}" />
+                    </StackPanel>
+                    <Expander Header="Exact position" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsEnabled="{Binding !IsPrimary}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Horizontal (px)" Classes="caption" />
+                                <NumericUpDown Value="{Binding X}" Minimum="-32768" Maximum="32768" Increment="10" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="4">
+                                <TextBlock Text="Vertical (px)" Classes="caption" />
+                                <NumericUpDown Value="{Binding Y}" Minimum="-32768" Maximum="32768" Increment="10" />
+                            </StackPanel>
+                        </Grid>
+                    </Expander>
+                    <TextBlock Text="These draft settings are kept while this display is disabled." Classes="caption" TextWrapping="Wrap" IsVisible="{Binding !Active}" />
+                </StackPanel>
+            </Panel>
         </Border>
     </Grid>
 </UserControl>

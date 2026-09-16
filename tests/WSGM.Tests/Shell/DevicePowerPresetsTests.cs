@@ -4,7 +4,7 @@ using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class DevicePowerPresetsTests
 {
@@ -94,6 +94,7 @@ public sealed class DevicePowerPresetsTests
 
     internal sealed class Rig
     {
+        private static readonly string[] ScenarioValues = ["eco", "green", "sport", "comfort"];
         internal DeviceCapabilityView[] Views = [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
         internal readonly ModeApi Api = new();
         internal readonly List<(string Id, int Watts)> Calls = [];
@@ -159,8 +160,11 @@ public sealed class DevicePowerPresetsTests
                 Descriptor = scenario.Descriptor with
                 {
                     ValueKind = CapabilityValueKind.Choice,
-                    Choices = new[] { "eco", "green", "sport", "comfort" }
-                        .Select(value => new CapabilityChoice(value, new CapabilityDisplay { Key = DisplayKey.PerformanceProfile })).ToArray()
+                    Choices =
+                    [
+                        .. ScenarioValues.Select(value =>
+                            new CapabilityChoice(value, new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }))
+                    ]
                 },
                 Projection = scenario.Projection with
                 {
@@ -193,7 +197,7 @@ public sealed class DevicePowerPresetsTests
     {
         Rig rig = new();
         var service = rig.Create();
-        Assert.True((await service.ApplyAsync(preset, default)).Succeeded);
+        Assert.True((await service.ApplyAsync(preset, CancellationToken.None)).Succeeded);
         Assert.Equal(first, rig.Calls[0].Id);
         Assert.Equal(sustained, rig.Views[0].Projection.State.ObservedValue!.IntegerValue);
         Assert.Equal(slow, rig.Views[1].Projection.State.ObservedValue!.IntegerValue);
@@ -228,7 +232,7 @@ public sealed class DevicePowerPresetsTests
     {
         Rig rig = new() { FailAt = failAt };
         var service = rig.Create();
-        var result = await service.ApplyAsync("extreme", default);
+        var result = await service.ApplyAsync("extreme", CancellationToken.None);
         Assert.False(result.Succeeded);
         Assert.Contains("some values may have changed", result.Error);
         Assert.Equal(failAt, rig.Calls.Count);
@@ -240,10 +244,9 @@ public sealed class DevicePowerPresetsTests
     [Fact]
     public async Task WindowsFailureLeavesHonestCustomStateAndDoesNotUndoDeviceWrites()
     {
-        Rig rig = new();
-        rig.Api.FailWrite = true;
+        Rig rig = new() { Api = { FailWrite = true } };
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("extreme", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         Assert.Equal(2, rig.Calls.Count);
         Assert.Equal("custom", (await service.ReadAsync()).Current);
         Assert.Equal(1, rig.Api.Writes);
@@ -253,7 +256,7 @@ public sealed class DevicePowerPresetsTests
     public async Task NewDeviceGenerationStopsBeforeAnotherWrite()
     {
         Rig rig = new() { ReplaceGeneration = true };
-        Assert.False((await rig.Create().ApplyAsync("battery", default)).Succeeded);
+        Assert.False((await rig.Create().ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Single(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
     }
@@ -271,7 +274,7 @@ public sealed class DevicePowerPresetsTests
         Assert.False(DevicePowerPresets.Project([.. rig.Views, rig.Views[0]], Guid.Empty).Available);
         rig.Views = [];
         Assert.Empty((await rig.Create().ReadAsync()).Presets);
-        Assert.False((await rig.Create().ApplyAsync("battery", default)).Succeeded);
+        Assert.False((await rig.Create().ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Empty(rig.Calls);
     }
 
@@ -280,8 +283,8 @@ public sealed class DevicePowerPresetsTests
     {
         Rig rig = new();
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("custom", default)).Succeeded);
-        Assert.False((await service.ApplyAsync("unknown", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("custom", CancellationToken.None)).Succeeded);
+        Assert.False((await service.ApplyAsync("unknown", CancellationToken.None)).Succeeded);
         using var overlay = Selection(service, true);
         await overlay.RefreshAsync();
         await overlay.AssignAsync(true, "battery");
@@ -298,22 +301,20 @@ public sealed class DevicePowerPresetsTests
     [Fact]
     public async Task WindowsReadFailureDisablesBothSurfacesAndPreventsDeviceWrites()
     {
-        Rig rig = new();
-        rig.Api.FailRead = true;
+        Rig rig = new() { Api = { FailRead = true } };
         var service = rig.Create();
         Assert.False((await service.ReadAsync()).Available);
         Assert.False((await new NativeQamPowerPresetService(service, null).ReadAsync())!.Available);
-        Assert.False((await service.ApplyAsync("battery", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Empty(rig.Calls);
     }
 
     [Fact]
     public async Task UnconfirmedWindowsModeIsNotReportedAsSuccess()
     {
-        Rig rig = new();
-        rig.Api.IgnoreWrite = true;
+        Rig rig = new() { Api = { IgnoreWrite = true } };
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("battery", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Equal("custom", (await service.ReadAsync()).Current);
         Assert.Equal(1, rig.Api.Writes);
     }
@@ -324,7 +325,7 @@ public sealed class DevicePowerPresetsTests
         Rig rig = new();
         rig.Api.AfterWrite = () => rig.Views[0] = View(CapabilityRole.PowerSustainedLimit, 20);
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("extreme", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         Assert.Equal("custom", (await service.ReadAsync()).Current);
         Assert.Equal(2, rig.Calls.Count);
         Assert.Equal(1, rig.Api.Writes);
@@ -418,7 +419,7 @@ public sealed class DevicePowerPresetsTests
         Rig rig = new() { OnAc = ac };
         rig.AddScenarios();
         var service = rig.Create();
-        Assert.True((await service.ApplyAsync(preset, default)).Succeeded);
+        Assert.True((await service.ApplyAsync(preset, CancellationToken.None)).Succeeded);
         Assert.Equal("ScenarioMode", rig.Calls[0].Id);
         Assert.Equal([false, true, true], rig.Persistence);
         Assert.Equal(expected, rig.LastScenario);
@@ -446,7 +447,7 @@ public sealed class DevicePowerPresetsTests
                 };
             }
         };
-        Assert.True((await rig.Create().ApplyAsync("balanced", default)).Succeeded);
+        Assert.True((await rig.Create().ApplyAsync("balanced", CancellationToken.None)).Succeeded);
         Assert.Equal("PowerSlowLimit", rig.Calls[1].Id);
     }
 
@@ -456,7 +457,7 @@ public sealed class DevicePowerPresetsTests
         Rig rig = new() { FailAt = 1 };
         rig.AddScenarios();
         var service = rig.Create();
-        Assert.False((await service.ApplyAsync("extreme", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         await service.ReadAsync();
         Assert.Single(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
@@ -469,7 +470,7 @@ public sealed class DevicePowerPresetsTests
         rig.AddScenarios();
         var service = rig.Create();
         Assert.False((await service.ReadAsync()).Available);
-        Assert.False((await service.ApplyAsync("extreme", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         Assert.Empty(rig.Calls);
     }
 
@@ -481,7 +482,7 @@ public sealed class DevicePowerPresetsTests
         Rig rig = new();
         if (scenarios) { rig.AddScenarios(); }
         rig.AfterDeviceWrite = _ => rig.OnAc = false;
-        Assert.False((await rig.Create().ApplyAsync("extreme", default)).Succeeded);
+        Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None)).Succeeded);
         Assert.Single(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
     }
@@ -502,7 +503,7 @@ public sealed class DevicePowerPresetsTests
             { State = rig.Views[2].Projection.State with { Quality = HardwareStateQuality.Stale } }
         };
         Assert.False((await service.ReadAsync()).Available);
-        Assert.False((await service.ApplyAsync("battery", default)).Succeeded);
+        Assert.False((await service.ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Empty(rig.Calls);
     }
 
@@ -510,7 +511,7 @@ public sealed class DevicePowerPresetsTests
     public async Task AssignmentSourceChangedBeforeApplyRejectsWithoutWriting()
     {
         Rig rig = new() { OnAc = false };
-        Assert.False((await rig.Create().ApplyAsync("extreme", default, false, expectedOnAc: true)).Succeeded);
+        Assert.False((await rig.Create().ApplyAsync("extreme", CancellationToken.None, false, expectedOnAc: true)).Succeeded);
         Assert.Empty(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
     }
@@ -524,10 +525,10 @@ public sealed class DevicePowerPresetsTests
         {
             Generation = 1,
             CycleGeneration = 1,
-            Descriptors = rig.Views.Select(view => view.Descriptor).ToArray()
+            Descriptors = [.. rig.Views.Select(view => view.Descriptor)]
         };
         Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, 1, 0, out var error), error);
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(set with
-        { Descriptors = set.Descriptors.Take(2).ToArray() }, 1, 0, out _));
+        { Descriptors = [.. set.Descriptors.Take(2)] }, 1, 0, out _));
     }
 }

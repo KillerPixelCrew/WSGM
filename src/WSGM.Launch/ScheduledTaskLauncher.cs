@@ -54,11 +54,7 @@ internal static class ScheduledTaskLauncher
 
     internal static bool Delete(string? taskName)
     {
-        if (string.IsNullOrEmpty(taskName))
-        {
-            return true;
-        }
-        return RunSchtasks(["/Delete", "/TN", taskName, "/F"]);
+        return string.IsNullOrEmpty(taskName) || RunSchtasks(["/Delete", "/TN", taskName, "/F"]);
     }
 
     internal static string BuildTaskXml(string executablePath, string pipeName)
@@ -141,16 +137,17 @@ internal static class ScheduledTaskLauncher
                 return false;
             }
 
-            if (process.ExitCode != 0)
+            if (process.ExitCode == 0)
             {
-                if (logFailure)
-                {
-                    LaunchLog.Error(
-                        $"schtasks {arguments[0]} exited with code {process.ExitCode}.");
-                }
-                return false;
+                return true;
             }
-            return true;
+
+            if (logFailure)
+            {
+                LaunchLog.Error(
+                    $"schtasks {arguments[0]} exited with code {process.ExitCode}.");
+            }
+            return false;
         }
         catch (Exception ex)
         {

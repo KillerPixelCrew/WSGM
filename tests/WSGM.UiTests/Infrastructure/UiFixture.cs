@@ -16,7 +16,7 @@ using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.Themes;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Infrastructure;
 
 internal sealed class UiFixture : IDisposable
 {
@@ -48,7 +48,7 @@ internal sealed class UiFixture : IDisposable
     /// <summary>The actions a running plugin would declare. Empty means no plugin host, which is
     /// what a standalone Settings process sees.</summary>
     internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; init; } = [];
-    internal OverlayWindow.SessionState Session { get; } = new();
+    private OverlayWindow.SessionState Session { get; } = new();
 
     internal UiFixture()
     {

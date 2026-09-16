@@ -63,9 +63,9 @@ internal static class Program
             if (!CommandLine.TryParse(args, out var options, out var error))
             {
                 LaunchLog.Error(error!);
-                Console.Error.WriteLine(error);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine(CommandLine.UsageText);
+                await Console.Error.WriteLineAsync(error);
+                await Console.Error.WriteLineAsync();
+                await Console.Error.WriteLineAsync(CommandLine.UsageText);
                 return 64;
             }
 
@@ -106,7 +106,7 @@ internal static class Program
         // process tree, so a launcher that spawns the real game and exits still
         // holds the lease. The de-elevation path cannot use it — it would create
         // the process from this elevated parent, which is the thing we are avoiding.
-        if (options.AnyLease && !options.Deelevate)
+        if (options is { AnyLease: true, Deelevate: false })
         {
             return await RunLeaseWrappedAsync(options);
         }
@@ -153,7 +153,7 @@ internal static class Program
             // never started — a release handshake that fails after the game has
             // exited returns its exit code instead (see run_wrapped).
             LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
-            Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");
+            await Console.Error.WriteLineAsync($"Steam Input block unavailable: {ex.Message}");
             var payload = LaunchPayload.Capture(options.Command);
             LogSdlEnvironment(options.Command[0], "removed from fallback child payload after lease launch failure");
             return await LaunchAndWaitAsync(payload);
@@ -219,7 +219,7 @@ internal static class Program
             pipeSecurity.AddAccessRule(new PipeAccessRule(
                 identity.User!, PipeAccessRights.FullControl, AccessControlType.Allow));
         }
-        using var pipe = NamedPipeServerStreamAcl.Create(
+        await using var pipe = NamedPipeServerStreamAcl.Create(
             pipeName,
             PipeDirection.InOut,
             1,
@@ -341,21 +341,21 @@ internal static class Program
                 "TokenElevationTypeFull (a full split token WITH a linked limited token, " +
                 $"elevated={Elevation.IsCurrentProcessElevated()?.ToString() ?? "unknown"}), so " +
                 "de-elevation was possible and the report cannot be trusted.");
-            Console.Error.WriteLine(
+            await Console.Error.WriteLineAsync(
                 "De-elevation failed and the reported reason does not match this machine, so the "
                 + "game was not started elevated. Remove --deelevate from this game's launch "
                 + "options if you want it to run without de-elevation.");
             return 1;
         }
 
-        Console.Error.WriteLine(
+        await Console.Error.WriteLineAsync(
             "De-elevation is unavailable because UAC is disabled; starting the game as-is.");
         return await LaunchAndWaitAsync(payload);
     }
 
     private static async Task<int> RunMediumChildAsync(string pipeName)
     {
-        using var pipe = new NamedPipeClientStream(
+        await using var pipe = new NamedPipeClientStream(
             ".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.None);
         var launchResponseSent = false;
         try
@@ -443,7 +443,7 @@ internal static class Program
             if (completed == parentDisconnected)
             {
                 LaunchLog.Info($"Steam wrapper exited before target pid {process.Id}; stopping its process tree.");
-                treeCancellation.Cancel();
+                await treeCancellation.CancelAsync();
                 StopTargetTree(process, job);
                 await WaitForExitBoundedAsync(process).ConfigureAwait(false);
                 return 1;
@@ -451,7 +451,7 @@ internal static class Program
 
             await targetFinished.ConfigureAwait(false);
 
-            disconnectCancellation.Cancel();
+            await disconnectCancellation.CancelAsync();
             try { await parentDisconnected; } catch (OperationCanceledException) { }
             await PipeProtocol.WriteInt32Async(pipe, process.ExitCode, CancellationToken.None);
             await pipe.FlushAsync(CancellationToken.None);
@@ -460,16 +460,18 @@ internal static class Program
         catch (Exception ex)
         {
             LaunchLog.Error($"Medium-integrity child failed: {ex.Message}");
-            if (!launchResponseSent && pipe.IsConnected)
+            if (launchResponseSent || !pipe.IsConnected)
             {
-                try
-                {
-                    await WriteLaunchFailureAsync(pipe, ex.Message, CancellationToken.None);
-                }
-                catch (Exception reportEx)
-                {
-                    LaunchLog.Error($"Could not report the failure to the Steam wrapper: {reportEx.Message}");
-                }
+                return 1;
+            }
+
+            try
+            {
+                await WriteLaunchFailureAsync(pipe, ex.Message, CancellationToken.None);
+            }
+            catch (Exception reportEx)
+            {
+                LaunchLog.Error($"Could not report the failure to the Steam wrapper: {reportEx.Message}");
             }
             return 1;
         }
@@ -553,7 +555,7 @@ internal static class Program
         }
     }
 
-    internal static Process? Start(LaunchPayload payload)
+    private static Process? Start(LaunchPayload payload)
     {
         if (payload.Arguments.Length == 0)
         {

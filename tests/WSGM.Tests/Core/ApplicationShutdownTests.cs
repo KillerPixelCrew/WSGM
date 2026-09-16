@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class ApplicationShutdownTests
 {
@@ -145,7 +145,7 @@ public sealed class ApplicationShutdownTests
             _ => new ValueTask(neverCompletes.Task),
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1),
-            () => clock.Dequeue(),
+            clock.Dequeue,
             _ =>
             {
                 timerStarted = true;
@@ -170,7 +170,7 @@ public sealed class ApplicationShutdownTests
             static _ => ValueTask.CompletedTask,
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1),
-            () => clock.Dequeue(),
+            clock.Dequeue,
             static _ => throw new InvalidOperationException(
                 "A timer is unnecessary after the deadline."));
 

@@ -54,8 +54,8 @@ public static class SteamAutostartService
         {
             return result;
         }
-        IReadOnlyList<SteamAutostartSource> remaining = SteamAutostartScanner.Scan(surfaces, Steam.ExePath)
-            .Where(source => source.Enabled).ToArray();
+        IReadOnlyList<SteamAutostartSource> remaining =
+            [.. SteamAutostartScanner.Scan(surfaces, Steam.ExePath).Where(source => source.Enabled)];
         return result with
         {
             Disabled = [.. result.Disabled, .. result.NeedsElevation.Where(source =>
@@ -91,7 +91,7 @@ public static class SteamAutostartService
         try
         {
             IReadOnlyList<SteamAutostartSource> enabled =
-                [.. Scan().Where(source => source.Enabled && source.NeedsElevation)];
+                [.. Scan().Where(source => source is { Enabled: true, NeedsElevation: true })];
             if (enabled.Count == 0) { return 0; }
             return SteamAutostartTakeover.Disable(new AutostartSystem(), enabled, elevated: true, RecordDisabled)
                 .Complete ? 0 : 1;

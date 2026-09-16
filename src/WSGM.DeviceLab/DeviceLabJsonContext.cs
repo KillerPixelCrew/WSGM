@@ -60,23 +60,11 @@ internal static class DeviceLabJson
     public static string Serialize(MachineInventory inventory) =>
         JsonSerializer.Serialize(inventory, DeviceLabJsonContext.Default.MachineInventory);
 
-    /// <summary>Serializes a shareable capture manifest to canonical JSON.</summary>
-    /// <param name="manifest">Manifest to serialize.</param>
-    /// <returns>Indented JSON with deterministic property ordering.</returns>
-    public static string Serialize(ShareableCaptureManifest manifest) =>
-        JsonSerializer.Serialize(manifest, DeviceLabJsonContext.Default.ShareableCaptureManifest);
-
     /// <summary>Serializes an inert observe-only recipe to canonical JSON.</summary>
     /// <param name="recipe">Recipe to serialize.</param>
     /// <returns>Indented JSON with deterministic property ordering.</returns>
     public static string Serialize(ObserveOnlyRecipe recipe) =>
         JsonSerializer.Serialize(recipe, DeviceLabJsonContext.Default.ObserveOnlyRecipe);
-
-    /// <summary>Serializes a simulator-only fixture manifest to canonical JSON.</summary>
-    /// <param name="manifest">Manifest to serialize.</param>
-    /// <returns>Indented JSON with deterministic property ordering.</returns>
-    public static string Serialize(FixtureManifest manifest) =>
-        JsonSerializer.Serialize(manifest, DeviceLabJsonContext.Default.FixtureManifest);
 
     /// <summary>Serializes a Device Lab doctor report to canonical JSON.</summary>
     /// <param name="report">Doctor report to serialize.</param>
@@ -89,10 +77,4 @@ internal static class DeviceLabJson
     /// <returns>Indented deterministic JSON.</returns>
     public static string Serialize(ReadProbeWorkerRequest request) =>
         JsonSerializer.Serialize(request, DeviceLabJsonContext.Default.ReadProbeWorkerRequest);
-
-    /// <summary>Serializes one read-probe worker response.</summary>
-    /// <param name="response">Response to serialize.</param>
-    /// <returns>Indented deterministic JSON.</returns>
-    public static string Serialize(ReadProbeWorkerResponse response) =>
-        JsonSerializer.Serialize(response, DeviceLabJsonContext.Default.ReadProbeWorkerResponse);
 }

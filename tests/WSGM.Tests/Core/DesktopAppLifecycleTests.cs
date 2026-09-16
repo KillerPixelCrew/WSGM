@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class DesktopAppLifecycleTests
 {
@@ -120,10 +120,10 @@ public sealed class DesktopAppLifecycleTests
 
     private sealed class Backend(params int[] rules) : IDesktopAppBackend
     {
-        public List<DesktopAppInstance> Initial { get; } = rules.Select(index => new DesktopAppInstance(
-            DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe")).ToList();
-        public List<DesktopAppInstance> Running { get; } = rules.Select(index => new DesktopAppInstance(
-            DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe")).ToList();
+        public List<DesktopAppInstance> Initial { get; } = [.. rules.Select(index => new DesktopAppInstance(
+            DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe"))];
+        public List<DesktopAppInstance> Running { get; } = [.. rules.Select(index => new DesktopAppInstance(
+            DesktopAppLifecycle.Rules[index], index, DateTime.UnixEpoch, $@"C:\Apps\{index}.exe"))];
         public List<DesktopAppInstance> Stops { get; } = [];
         public List<DesktopAppInstance> Restarts { get; } = [];
         public int FailStop { get; init; } = -1;
@@ -136,7 +136,7 @@ public sealed class DesktopAppLifecycleTests
         public IReadOnlyList<DesktopAppInstance> Capture(DesktopAppRule rule)
         {
             _captures++;
-            return Running.Where(instance => instance.Rule == rule).ToArray();
+            return [.. Running.Where(instance => instance.Rule == rule)];
         }
 
         public Task StopAsync(DesktopAppInstance instance, CancellationToken cancellationToken)
@@ -144,8 +144,9 @@ public sealed class DesktopAppLifecycleTests
             if (Stops.Count == 0) { CapturesAtFirstStop = _captures; }
             Stops.Add(instance);
             if (!Respawn) { Running.Remove(instance); }
-            if (instance.ProcessId == FailStop) { throw new InvalidOperationException("Exit uncertain"); }
-            return Task.CompletedTask;
+            return instance.ProcessId == FailStop
+                ? throw new InvalidOperationException("Exit uncertain")
+                : Task.CompletedTask;
         }
 
         public bool IsRunning(DesktopAppInstance instance) => Running.Contains(instance);

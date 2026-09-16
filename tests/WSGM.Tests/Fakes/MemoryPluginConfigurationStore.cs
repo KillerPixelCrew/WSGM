@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>Plugin configuration kept in an in-memory application configuration.</summary>
 internal sealed class MemoryPluginConfigurationStore : IPluginConfigurationStore

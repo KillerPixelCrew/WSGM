@@ -5,8 +5,9 @@ using Avalonia.Input;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Settings;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Settings;
 
 public sealed class SettingsStartupTests
 {

@@ -139,12 +139,14 @@ public sealed record ArtworkSearchResult(
 
     /// <summary>The failures worth showing, one per provider that was asked and could not answer.</summary>
     public IReadOnlyList<string> Failures =>
-        Outcomes.Where(o => o.Failure is not null).Select(o => $"{o.ProviderName}: {o.Failure}").ToArray();
+        [.. Outcomes.Where(o => o.Failure is not null).Select(o => $"{o.ProviderName}: {o.Failure}")];
 
     /// <summary>The providers that were skipped, with the reason each was skipped.</summary>
     public IReadOnlyList<string> Skipped =>
-        Outcomes.Where(o => !o.Status.IsReady && o.Status.Detail.Length > 0)
-            .Select(o => $"{o.ProviderName}: {o.Status.Detail}").ToArray();
+    [
+        .. Outcomes.Where(o => !o.Status.IsReady && o.Status.Detail.Length > 0)
+            .Select(o => $"{o.ProviderName}: {o.Status.Detail}")
+    ];
 }
 
 /// <summary>Asks every configured artwork provider and merges what comes back.</summary>
@@ -195,12 +197,14 @@ public static class ArtworkSearch
         })).ConfigureAwait(false);
 
         // Exact matches first, then provider declaration order, then the provider's own ranking.
-        return results
-            .SelectMany((matches, index) => matches.Select(match => (match, index)))
-            .OrderByDescending(pair => pair.match.Exact)
-            .ThenBy(pair => pair.index)
-            .Select(pair => pair.match)
-            .ToArray();
+        return
+        [
+            .. results
+                .SelectMany((matches, index) => matches.Select(match => (match, index)))
+                .OrderByDescending(pair => pair.match.Exact)
+                .ThenBy(pair => pair.index)
+                .Select(pair => pair.match)
+        ];
     }
 
     /// <summary>Searches every ready provider for artwork for a Steam app.</summary>
@@ -251,12 +255,12 @@ public static class ArtworkSearch
         {
             if (!statuses[index].IsReady)
             {
-                return (Candidates: (IReadOnlyList<ArtworkCandidate>)[], Failure: (string?)null);
+                return (Candidates: (IReadOnlyList<ArtworkCandidate>)[], Failure: null);
             }
             try
             {
                 var candidates = await fetch(provider, cancellationToken).ConfigureAwait(false);
-                return (Candidates: candidates, Failure: (string?)null);
+                return (Candidates: candidates, Failure: null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -285,11 +289,13 @@ public static class ArtworkSearch
         {
             foreach (var candidate in answers[index].Candidates)
             {
-                if (seen.Add(candidate.Url))
+                if (!seen.Add(candidate.Url))
                 {
-                    candidates.Add(candidate);
-                    counts[index]++;
+                    continue;
                 }
+
+                candidates.Add(candidate);
+                counts[index]++;
             }
         }
 

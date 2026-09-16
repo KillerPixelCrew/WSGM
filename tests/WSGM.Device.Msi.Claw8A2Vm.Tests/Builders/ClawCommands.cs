@@ -1,6 +1,6 @@
 using WSGM.Device.Sdk.Capabilities;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Msi.Claw8A2Vm.Tests.Builders;
 
 /// <summary>Capability commands addressed to the fake hardware's cycle.</summary>
 internal static class ClawCommands

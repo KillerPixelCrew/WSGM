@@ -45,7 +45,7 @@ public partial class OverlayWindow
     {
         foreach (var button in this.GetLogicalDescendants().OfType<CardButton>())
         {
-            if (button.Tag is string id && id.Length > 0 && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal))
+            if (button.Tag is string { Length: > 0 } id && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal))
             {
                 _pinnable[id] = button;
             }
@@ -236,8 +236,15 @@ public partial class OverlayWindow
         // One walk of the logical tree for both kinds of indicator.
         foreach (var node in this.GetLogicalDescendants())
         {
-            if (node is SectionPinHeader header) { header.Refresh(pinned.Contains(header.SectionId)); }
-            if (node is CardButton button && button is not PluginWidgetPinControls) { button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned); }
+            switch (node)
+            {
+                case SectionPinHeader header:
+                    header.Refresh(pinned.Contains(header.SectionId));
+                    break;
+                case CardButton button and not PluginWidgetPinControls:
+                    button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned);
+                    break;
+            }
         }
     }
 
@@ -326,16 +333,6 @@ public partial class OverlayWindow
         // One device snapshot for the whole ancestor walk instead of one per node.
         DeviceOverlaySnapshot? snapshot = null;
         var snapshotRead = false;
-        DeviceOverlaySnapshot? DeviceSnapshot()
-        {
-            if (!snapshotRead)
-            {
-                snapshot = _deviceBridge?.Snapshot();
-                snapshotRead = true;
-            }
-            return snapshot;
-        }
-
         for (Visual? node = control; node is not null; node = node.GetVisualParent())
         {
             if (node is not Control { Tag: string tag }) { continue; }
@@ -344,6 +341,17 @@ public partial class OverlayWindow
         }
         id = "";
         return false;
+
+        DeviceOverlaySnapshot? DeviceSnapshot()
+        {
+            if (snapshotRead)
+            {
+                return snapshot;
+            }
+            snapshot = _deviceBridge?.Snapshot();
+            snapshotRead = true;
+            return snapshot;
+        }
     }
 
     /// <summary>Gamepad secondary action (X): the context menu of a focused tray
@@ -373,12 +381,13 @@ public partial class OverlayWindow
             return;
         }
         var row = e.Source as Control;
-        if (TryGetPinId(row, out var id))
+        if (!TryGetPinId(row, out var id))
         {
-            e.Handled = true;
-            Log.Info($"Touch hold: toggling pin '{id}'.");
-            PinToggleRequested?.Invoke(id);
+            return;
         }
+        e.Handled = true;
+        Log.Info($"Touch hold: toggling pin '{id}'.");
+        PinToggleRequested?.Invoke(id);
     }
 
     private void OnPointerPressedForPin(object? sender, PointerPressedEventArgs e)
@@ -396,10 +405,11 @@ public partial class OverlayWindow
             return;
         }
         var row = e.Source as Control;
-        if (TryGetPinId(row, out var id))
+        if (!TryGetPinId(row, out var id))
         {
-            e.Handled = true;
-            PinToggleRequested?.Invoke(id);
+            return;
         }
+        e.Handled = true;
+        PinToggleRequested?.Invoke(id);
     }
 }

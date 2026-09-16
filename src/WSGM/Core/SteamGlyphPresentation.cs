@@ -32,7 +32,7 @@ internal sealed class SteamInputGlyphDeliveryState
     }
 }
 
-internal sealed record SteamInputGlyphAssetReference(string Sha256, string DataUri);
+internal sealed record SteamInputGlyphAssetReference(string DataUri);
 
 internal sealed record SteamInputGlyphResourceMapping(
     string ValvePath,
@@ -210,7 +210,7 @@ internal sealed record SteamInputGlyphPresentation(
     private static void AddControllerImage(
         ImportedGlyphProfile profile,
         IDictionary<string, SteamInputGlyphAssetReference> assetReferences,
-        ICollection<SteamInputGlyphControllerImageMapping> images,
+        List<SteamInputGlyphControllerImageMapping> images,
         string slot,
         string? assetHash)
     {
@@ -234,8 +234,7 @@ internal sealed record SteamInputGlyphPresentation(
         reference = null!;
         if (assetReferences.TryGetValue(
             assetHash,
-            out var existing)
-            && existing is not null)
+            out var existing))
         {
             reference = existing;
             return true;
@@ -248,23 +247,21 @@ internal sealed record SteamInputGlyphPresentation(
 
         string mediaType;
         ReadOnlySpan<byte> bytes;
-        if (asset.Lock.Format is GlyphAssetFormat.Svg && asset.Vector is not null)
+        switch (asset.Lock.Format)
         {
-            mediaType = "image/svg+xml";
-            bytes = asset.Vector.SvgUtf8.Span;
-        }
-        else if (asset.Lock.Format is GlyphAssetFormat.Png && !asset.RasterPng.IsEmpty)
-        {
-            mediaType = "image/png";
-            bytes = asset.RasterPng.Span;
-        }
-        else
-        {
-            return false;
+            case GlyphAssetFormat.Svg when asset.Vector is not null:
+                mediaType = "image/svg+xml";
+                bytes = asset.Vector.SvgUtf8.Span;
+                break;
+            case GlyphAssetFormat.Png when !asset.RasterPng.IsEmpty:
+                mediaType = "image/png";
+                bytes = asset.RasterPng.Span;
+                break;
+            default:
+                return false;
         }
 
         reference = new SteamInputGlyphAssetReference(
-            assetHash,
             $"data:{mediaType};base64,{Convert.ToBase64String(bytes)}");
         assetReferences.Add(assetHash, reference);
         return true;

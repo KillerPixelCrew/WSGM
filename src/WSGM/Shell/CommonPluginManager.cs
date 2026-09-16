@@ -23,7 +23,7 @@ internal sealed class CommonPluginManager
     private readonly Action<Action> _postToUi;
     private readonly Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>> _load;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly object _stateGate = new();
+    private readonly Lock _stateGate = new();
     private readonly Dictionary<PluginInstanceIdentity, Entry> _entries = [];
     private volatile bool _stopping;
     private long _requestedRevision;
@@ -40,24 +40,26 @@ internal sealed class CommonPluginManager
     }
 
     internal event Action? Changed;
-    internal CommonPluginCatalog Catalog => _catalog;
     internal CommonPluginInstanceView[] Snapshot()
     {
         lock (_stateGate)
-        { return _entries.Values.Select(entry => new CommonPluginInstanceView(entry.Identity, entry.Package.Manifest, entry.Registration, entry.Error)).ToArray(); }
+        { return [.. _entries.Values.Select(entry => new CommonPluginInstanceView(entry.Identity, entry.Package.Manifest, entry.Registration, entry.Error))]; }
     }
 
     internal Task ReconcileAsync(IReadOnlyList<CommonPluginInstanceConfig> configured, CancellationToken cancellationToken)
     {
         var revision = Interlocked.Increment(ref _requestedRevision);
         if (configured.Count > 128) { throw new InvalidDataException("Too many configured plugin instances."); }
-        var desired = configured.Where(instance => instance is not null && instance.Enabled)
-            .Select(instance => new PluginInstanceIdentity(instance.PluginId, instance.InstanceId)).ToArray();
+        PluginInstanceIdentity[] desired =
+        [
+            .. configured.Where(instance => instance is not null && instance.Enabled)
+                .Select(instance => new PluginInstanceIdentity(instance.PluginId, instance.InstanceId))
+        ];
         if (desired.Any(identity => !PluginConfigurationRules.ValidKey(identity.PluginId) || !PluginConfigurationRules.ValidKey(identity.InstanceId))
             || desired.Distinct().Count() != desired.Length)
         { throw new InvalidDataException("Configured plugin instance identities are invalid or duplicated."); }
         Entry[] retiring;
-        lock (_stateGate) { retiring = _entries.Values.Where(entry => !desired.Contains(entry.Identity)).ToArray(); }
+        lock (_stateGate) { retiring = [.. _entries.Values.Where(entry => !desired.Contains(entry.Identity))]; }
         foreach (var entry in retiring)
         {
             entry.Retiring = true;
@@ -75,7 +77,7 @@ internal sealed class CommonPluginManager
             _catalog = await Task.Run(() => CommonPluginCatalog.Discover(_installedRoot), cancellationToken).ConfigureAwait(false);
             if (_stopping || revision != Volatile.Read(ref _requestedRevision)) { return; }
             Entry[] previous;
-            lock (_stateGate) { previous = _entries.Values.Reverse().ToArray(); }
+            lock (_stateGate) { previous = [.. _entries.Values.Reverse()]; }
             foreach (var entry in previous.Where(entry => entry.Retiring || !desired.Contains(entry.Identity)))
             {
                 try { await StopEntryAsync(entry, DateTimeOffset.UtcNow.AddSeconds(5)).ConfigureAwait(false); }
@@ -95,10 +97,11 @@ internal sealed class CommonPluginManager
             }
 
             var enabledPackages = _catalog.Packages.Where(package => desired.Any(identity => identity.PluginId == package.Manifest.Id)).ToArray();
-            var plan = CommonPluginDependencyPlan.Create(enabledPackages.Select(package => package.Manifest).ToArray());
+            var plan = CommonPluginDependencyPlan.Create([.. enabledPackages.Select(package => package.Manifest)]);
             List<string> errors = [.. _catalog.Errors, .. plan.Rejected.Select(pair => pair.Key + ": " + pair.Value)];
-            foreach (var identity in desired.Where(identity => !_catalog.Packages.Any(package => package.Manifest.Id == identity.PluginId)))
-            { errors.Add(identity.PluginId + ": installed package is unavailable."); }
+            errors.AddRange(desired
+                .Where(identity => _catalog.Packages.All(package => package.Manifest.Id != identity.PluginId))
+                .Select(identity => identity.PluginId + ": installed package is unavailable."));
             foreach (var manifest in plan.Ordered)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -126,7 +129,7 @@ internal sealed class CommonPluginManager
                     }
                 }
             }
-            _catalog = new CommonPluginCatalog(_catalog.Packages, errors.AsReadOnly());
+            _catalog = _catalog with { Errors = errors.AsReadOnly() };
         }
         finally { _gate.Release(); Notify(); }
     }
@@ -157,13 +160,13 @@ internal sealed class CommonPluginManager
     {
         _stopping = true;
         Entry[] entries;
-        lock (_stateGate) { entries = _entries.Values.Reverse().ToArray(); }
+        lock (_stateGate) { entries = [.. _entries.Values.Reverse()]; }
         foreach (var entry in entries) { Cancel(entry.Cancellation); }
         using var budget = new CancellationTokenSource(Remaining(deadline));
         await _gate.WaitAsync(budget.Token).ConfigureAwait(false);
         try
         {
-            lock (_stateGate) { entries = _entries.Values.Reverse().ToArray(); }
+            lock (_stateGate) { entries = [.. _entries.Values.Reverse()]; }
             List<Exception> failures = [];
             foreach (var entry in entries)
             {
@@ -185,15 +188,16 @@ internal sealed class CommonPluginManager
         {
             if (_stopping) { return; }
             Entry[] entries;
-            lock (_stateGate) { entries = _entries.Values.ToArray(); }
+            lock (_stateGate) { entries = [.. _entries.Values]; }
+            var token = budget.Token;
             await Task.WhenAll(entries.Select(async entry =>
             {
                 if (!entry.StartWork.IsCompleted || entry.Suspended == suspend
                     || entry.Registration is not { IsStopping: false, Quarantined: false } registration) { return; }
                 try
                 {
-                    if (suspend) { await registration.SuspendAsync(deadline, budget.Token).ConfigureAwait(false); }
-                    else { await registration.ResumeAsync(checked(registration.Context.Generation + 1), deadline, budget.Token).ConfigureAwait(false); }
+                    if (suspend) { await registration.SuspendAsync(deadline, token).ConfigureAwait(false); }
+                    else { await registration.ResumeAsync(checked(registration.Context.Generation + 1), deadline, token).ConfigureAwait(false); }
                     entry.Suspended = suspend;
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException) { entry.Error = "Power transition failed: " + ex.Message; }

@@ -77,29 +77,31 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         var capabilities = state.Probe.Capabilities;
         var ready = state.Probe.Availability == RtssAvailability.Ready && capabilities is not null;
-        List<DescriptorRow> rows = [];
-        rows.Add(BuildRow(
-            "frame-limit",
-            "Frame limit",
-            DescribeLayer(state.FrameLimitLayer, state.Target),
-            FormatFrameLimit(state),
-            ready && capabilities!.Supports(PerformanceControl.FrameLimit),
-            StatusFor(state, PerformanceControl.FrameLimit)) with
-        {
-            Range = ready ? FrameLimitRange(capabilities!) : null,
-            Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0
-        });
-        rows.Add(BuildRow(
-            "overlay-level",
-            "Performance overlay",
-            DescribeLayer(state.OverlayLevelLayer, state.Target),
-            FormatOverlayLevel(state),
-            ready && capabilities!.Supports(PerformanceControl.OverlayLevel),
-            StatusFor(state, PerformanceControl.OverlayLevel)) with
-        {
-            Options = ready ? OverlayLevelOptions(capabilities!) : [],
-            Value = PreferredValue(state, PerformanceControl.OverlayLevel)
-        });
+        List<DescriptorRow> rows =
+        [
+            BuildRow(
+                "frame-limit",
+                "Frame limit",
+                DescribeLayer(state.FrameLimitLayer, state.Target),
+                FormatFrameLimit(state),
+                ready && capabilities!.Supports(PerformanceControl.FrameLimit),
+                StatusFor(state, PerformanceControl.FrameLimit)) with
+            {
+                Range = ready ? FrameLimitRange(capabilities!) : null,
+                Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0
+            },
+            BuildRow(
+                "overlay-level",
+                "Performance overlay",
+                DescribeLayer(state.OverlayLevelLayer, state.Target),
+                FormatOverlayLevel(state),
+                ready && capabilities!.Supports(PerformanceControl.OverlayLevel),
+                StatusFor(state, PerformanceControl.OverlayLevel)) with
+            {
+                Options = ready ? OverlayLevelOptions(capabilities!) : [],
+                Value = PreferredValue(state, PerformanceControl.OverlayLevel)
+            }
+        ];
         List<DescriptorRow> profileRows =
         [
             BuildApplicationRow(state),
@@ -272,28 +274,16 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         canInvoke,
         status);
 
-    private static string DescribeStatus(PerformanceState state)
+    private static string DescribeStatus(PerformanceState state) => state.Command.Phase switch
     {
-        if (state.Command.Phase is PerformanceCommandPhase.Queued or PerformanceCommandPhase.Applying)
-        {
-            return "Applying RTSS performance setting…";
-        }
-
-        if (state.Command.Phase is PerformanceCommandPhase.Deferred)
-        {
-            return state.Command.Diagnostic
-                ?? "The application setting is waiting for its foreground executable.";
-        }
-
-        if (state.Command.Phase is PerformanceCommandPhase.Rejected
+        PerformanceCommandPhase.Queued or PerformanceCommandPhase.Applying => "Applying RTSS performance setting…",
+        PerformanceCommandPhase.Deferred => state.Command.Diagnostic
+            ?? "The application setting is waiting for its foreground executable.",
+        PerformanceCommandPhase.Rejected
             or PerformanceCommandPhase.TimedOut
             or PerformanceCommandPhase.Indeterminate
-            or PerformanceCommandPhase.Failed)
-        {
-            return state.Command.Diagnostic ?? "The last RTSS command did not complete.";
-        }
-
-        return state.Probe.Availability switch
+            or PerformanceCommandPhase.Failed => state.Command.Diagnostic ?? "The last RTSS command did not complete.",
+        _ => state.Probe.Availability switch
         {
             RtssAvailability.Ready => state.Target switch
             {
@@ -308,8 +298,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             RtssAvailability.Incompatible => "The installed RTSS version is not supported.",
             RtssAvailability.AdapterUnavailable => "The RTSS profile API is unavailable.",
             _ => state.Probe.Diagnostic ?? "RTSS performance controls are unavailable."
-        };
-    }
+        }
+    };
 
     private static string DescribeLayer(
         PerformancePolicyLayer layer,
@@ -401,6 +391,11 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         {
             switch (state.Command.Phase)
             {
+                case PerformanceCommandPhase.Idle:
+                case PerformanceCommandPhase.SucceededVerified:
+                case PerformanceCommandPhase.AppliedUnverified:
+                case PerformanceCommandPhase.ExternalChange:
+                    break;
                 case PerformanceCommandPhase.Queued:
                 case PerformanceCommandPhase.Applying:
                     return DescriptorStatus.Progress;
@@ -442,20 +437,18 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     private DescriptorRange FrameLimitRange(RtssCapabilities capabilities)
     {
         var ceiling = Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit);
-        if (_panelFrameLimitRange() is { } panel)
-        {
-            var floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
-            var top = Math.Min(panel.Maximum, ceiling);
-            if (top >= floor)
-            {
-                return new DescriptorRange(0, top, Step: 1, OffBelow: floor);
-            }
-        }
-
-        return new DescriptorRange(
+        DescriptorRange fallback = new(
             Math.Max(0, capabilities.MinimumFrameLimit),
             ceiling,
             Step: 1);
+        if (_panelFrameLimitRange() is not { } panel)
+        {
+            return fallback;
+        }
+
+        var floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
+        var top = Math.Min(panel.Maximum, ceiling);
+        return top >= floor ? new DescriptorRange(0, top, Step: 1, OffBelow: floor) : fallback;
     }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>
@@ -468,11 +461,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         var current = PreferredValue(state, PerformanceControl.OverlayLevel) ?? int.MinValue;
         var choices = capabilities.OverlayLevels.Order().ToArray();
-        if (choices.Length == 0)
-        {
-            throw new InvalidOperationException("RTSS published no usable overlay levels.");
-        }
-
-        return choices.FirstOrDefault(value => value > current, choices[0]);
+        return choices.Length == 0
+            ? throw new InvalidOperationException("RTSS published no usable overlay levels.")
+            : choices.FirstOrDefault(value => value > current, choices[0]);
     }
 }

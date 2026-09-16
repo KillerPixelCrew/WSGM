@@ -38,7 +38,7 @@ public static class SteamCollections
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
-            return Array.Empty<SteamCollectionInfo>();
+            return [];
         }
         try
         {
@@ -47,7 +47,7 @@ public static class SteamCollections
             if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
                 || !root.TryGetProperty("collections", out var cols))
             {
-                return Array.Empty<SteamCollectionInfo>();
+                return [];
             }
             var list = new List<SteamCollectionInfo>();
             foreach (var col in cols.EnumerateArray())
@@ -69,7 +69,7 @@ public static class SteamCollections
         catch (Exception ex)
         {
             Log.Warn($"Steam collections list parse failed: {ex.Message}");
-            return Array.Empty<SteamCollectionInfo>();
+            return [];
         }
     }
 
@@ -87,7 +87,7 @@ public static class SteamCollections
     {
         if (filterExpressions.Count == 0)
         {
-            return Array.Empty<FilterEvalResult>();
+            return [];
         }
         var expression = "(()=>JSON.stringify({values:[" + string.Join(",", filterExpressions
             .Select(static value => "JSON.parse((" + value + "))")) + "]}))()";
@@ -95,8 +95,7 @@ public static class SteamCollections
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
-            return Enumerable.Repeat(
-                new FilterEvalResult(false, false, Array.Empty<long>()), filterExpressions.Count).ToList();
+            return [.. Enumerable.Repeat(new FilterEvalResult(false, false, []), filterExpressions.Count)];
         }
         try
         {
@@ -108,7 +107,7 @@ public static class SteamCollections
                 if (!value.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
                     || !value.TryGetProperty("appids", out var appids))
                 {
-                    output.Add(new FilterEvalResult(true, false, Array.Empty<long>()));
+                    output.Add(new FilterEvalResult(true, false, []));
                     continue;
                 }
                 var ids = new List<long>();
@@ -123,15 +122,14 @@ public static class SteamCollections
             }
             while (output.Count < filterExpressions.Count)
             {
-                output.Add(new FilterEvalResult(true, false, Array.Empty<long>()));
+                output.Add(new FilterEvalResult(true, false, []));
             }
             return output;
         }
         catch (Exception ex)
         {
             Log.Warn($"Batched filter evaluation parse failed: {ex.Message}");
-            return Enumerable.Repeat(
-                new FilterEvalResult(true, false, Array.Empty<long>()), filterExpressions.Count).ToList();
+            return [.. Enumerable.Repeat(new FilterEvalResult(true, false, []), filterExpressions.Count)];
         }
     }
 
@@ -172,7 +170,7 @@ public static class SteamCollections
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
-            return Array.Empty<AppInfo>();
+            return [];
         }
         try
         {
@@ -181,20 +179,21 @@ public static class SteamCollections
             if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
                 || !root.TryGetProperty("apps", out var apps))
             {
-                return Array.Empty<AppInfo>();
+                return [];
             }
             var list = new List<AppInfo>();
             foreach (var app in apps.EnumerateArray())
             {
-                if (app.GetProperty("id").TryGetInt64(out var id))
+                if (!app.GetProperty("id").TryGetInt64(out var id))
                 {
-                    var shortcut = app.TryGetProperty("sc", out var sc)
-                        && sc.ValueKind == JsonValueKind.True;
-                    list.Add(new AppInfo(
-                        id,
-                        app.GetProperty("name").GetString() ?? id.ToString(CultureInfo.InvariantCulture),
-                        shortcut));
+                    continue;
                 }
+                var shortcut = app.TryGetProperty("sc", out var sc)
+                    && sc.ValueKind == JsonValueKind.True;
+                list.Add(new AppInfo(
+                    id,
+                    app.GetProperty("name").GetString() ?? id.ToString(CultureInfo.InvariantCulture),
+                    shortcut));
             }
             list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             return list;
@@ -202,7 +201,7 @@ public static class SteamCollections
         catch (Exception ex)
         {
             Log.Warn($"Steam games list parse failed: {ex.Message}");
-            return Array.Empty<AppInfo>();
+            return [];
         }
     }
 
@@ -234,7 +233,7 @@ public static class SteamCollections
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
-            return Array.Empty<TagInfo>();
+            return [];
         }
         try
         {
@@ -243,19 +242,20 @@ public static class SteamCollections
             if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
                 || !root.TryGetProperty("tags", out var tags))
             {
-                return Array.Empty<TagInfo>();
+                return [];
             }
             var list = new List<TagInfo>();
             foreach (var tag in tags.EnumerateArray())
             {
-                if (tag.GetProperty("id").TryGetInt32(out var id))
+                if (!tag.GetProperty("id").TryGetInt32(out var id))
                 {
-                    var name = tag.GetProperty("name").GetString() ?? "";
-                    var count = tag.TryGetProperty("count", out var c) && c.TryGetInt32(out var cv) ? cv : 0;
-                    if (name.Length > 0)
-                    {
-                        list.Add(new TagInfo(id, name, count));
-                    }
+                    continue;
+                }
+                var name = tag.GetProperty("name").GetString() ?? "";
+                var count = tag.TryGetProperty("count", out var c) && c.TryGetInt32(out var cv) ? cv : 0;
+                if (name.Length > 0)
+                {
+                    list.Add(new TagInfo(id, name, count));
                 }
             }
             return list;
@@ -263,7 +263,7 @@ public static class SteamCollections
         catch (Exception ex)
         {
             Log.Warn($"Steam tags list parse failed: {ex.Message}");
-            return Array.Empty<TagInfo>();
+            return [];
         }
     }
 

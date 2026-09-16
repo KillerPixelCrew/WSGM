@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Builders;
 
 /// <summary>Plugin admission, shutdown and action steps shared by the plugin host tests.</summary>
 internal static class PluginBuilders
@@ -19,7 +19,7 @@ internal static class PluginBuilders
 
     internal static async Task Close(PluginRegistration registration)
     {
-        Assert.True(await registration.StopAsync(Deadline, default));
+        Assert.True(await registration.StopAsync(Deadline, CancellationToken.None));
         await registration.DisposeAsync();
     }
 

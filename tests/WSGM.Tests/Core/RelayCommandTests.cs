@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>The executable specification of <see cref="RelayCommand"/> and
 /// <see cref="RelayCommand{T}"/>: always-executable forwarding, and the typed
@@ -44,7 +44,7 @@ public sealed class RelayCommandTests
 
         command.Execute("hello");
 
-        Assert.Equal(new[] { "hello" }, received);
+        Assert.Equal(["hello"], received);
     }
 
     [Fact]
@@ -106,6 +106,6 @@ public sealed class RelayCommandTests
         Assert.True(command.CanExecute(5));
         command.Execute(5);
 
-        Assert.Equal(new[] { 5 }, received);
+        Assert.Equal([5], received);
     }
 }

@@ -217,10 +217,7 @@ public sealed class DeviceColorView : OverlaySubView
         _updating = true;
         try
         {
-            if (_swatch is not null)
-            {
-                _swatch.Background = new SolidColorBrush(ToAvaloniaColor(_color));
-            }
+            _swatch?.Background = new SolidColorBrush(ToAvaloniaColor(_color));
 
             if (_spectrum is not null && !ReferenceEquals(_spectrum, source))
             {

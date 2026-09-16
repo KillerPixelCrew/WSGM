@@ -3,7 +3,7 @@ using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 /// <summary>Pure quick access sheet logic: edge-swipe routing, the header tray budget
 /// and the in-place Open apps reconciliation that keeps the focused chip alive across
@@ -99,9 +99,11 @@ public sealed class QuickAccessSheetTests
     public void SettingsSnapshotPersistsLeftAndRightSteamGestureSwitchesIndependently(
         bool left, bool right)
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.GestureLeftSteamMenu = left;
-        viewModel.GestureRightSteamQuickAccess = right;
+        var viewModel = new SettingsViewModel(new AppConfig())
+        {
+            GestureLeftSteamMenu = left,
+            GestureRightSteamQuickAccess = right
+        };
 
         var snapshot = viewModel.SnapshotForPreview();
 
@@ -115,9 +117,11 @@ public sealed class QuickAccessSheetTests
     public void SettingsSnapshotPersistsTopAndBottomSheetGestureSwitchesIndependently(
         bool top, bool bottom)
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.GestureTop = top;
-        viewModel.GestureBottom = bottom;
+        var viewModel = new SettingsViewModel(new AppConfig())
+        {
+            GestureTop = top,
+            GestureBottom = bottom
+        };
 
         var snapshot = viewModel.SnapshotForPreview();
 
@@ -249,9 +253,9 @@ public sealed class QuickAccessSheetTests
         vm.Reconcile([Window(3, "C"), Window(2, "B"), Window(4, "D")], activeHwnd: 0, Create);
 
         Assert.Equal(3, vm.Entries.Count);
-        Assert.Equal((nint)2, vm.Entries[0].Hwnd); // survivor keeps its slot
-        Assert.Equal((nint)3, vm.Entries[1].Hwnd); // new windows append in order
-        Assert.Equal((nint)4, vm.Entries[2].Hwnd);
+        Assert.Equal(2, vm.Entries[0].Hwnd); // survivor keeps its slot
+        Assert.Equal(3, vm.Entries[1].Hwnd); // new windows append in order
+        Assert.Equal(4, vm.Entries[2].Hwnd);
         Assert.True(vm.HasEntries);
     }
 
@@ -287,9 +291,9 @@ public sealed class QuickAccessSheetTests
     [Fact]
     public void WindowEntryPreservesTheActivationTargetAndPresentationState()
     {
-        var entry = new AppSwitcherEntry((nint)123, "Steam", isSteam: true, icon: null);
+        var entry = new AppSwitcherEntry(123, "Steam", isSteam: true, icon: null);
 
-        Assert.Equal((nint)123, entry.Hwnd);
+        Assert.Equal(123, entry.Hwnd);
         Assert.Equal("Steam", entry.Title);
         Assert.True(entry.IsSteam);
         Assert.True(entry.HasNoIcon);

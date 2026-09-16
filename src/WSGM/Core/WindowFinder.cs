@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -22,14 +23,14 @@ public static class WindowFinder
         public required List<AppWindow> Result;
         public uint OwnPid;
         public nint ShellWindow;
-        public required HashSet<nint> IncludedOwnWindows;
+        public required HashSet<nint> IncludedWindows;
     }
 
     // Own-process windows normally never appear in the switcher (overlay, taskbar,
     // tray host, splash — UI chrome). The settings window is the exception: in game
     // mode WSGM hosts the only taskbar, so a settings window that drops behind Big
     // Picture is otherwise unreachable. It opts in here for its lifetime.
-    private static readonly object IncludeGate = new();
+    private static readonly Lock IncludeGate = new();
     private static readonly HashSet<nint> IncludedOwnWindows = [];
 
     /// <summary>Adds an own-process top-level window to the switchable list despite
@@ -178,7 +179,7 @@ public static class WindowFinder
     /// <param name="processNames">Semicolon-separated process names that may own the window.</param>
     /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
     /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
-    public static unsafe nint FindWindow(string processNames, string? windowClass)
+    public static nint FindWindow(string processNames, string? windowClass)
         => FindWindow(FindProcessIds(processNames), windowClass);
 
     /// <summary>Finds the first qualifying top-level window owned by one of the given processes.</summary>
@@ -266,7 +267,7 @@ public static class WindowFinder
             Result = [],
             OwnPid = (uint)Environment.ProcessId,
             ShellWindow = NativeMethods.GetShellWindow(),
-            IncludedOwnWindows = included
+            IncludedWindows = included
         };
         RunEnumWindows(&ListWindowsProc, state);
         return state.Result;
@@ -308,7 +309,7 @@ public static class WindowFinder
         var length = NativeMethods.GetWindowTextW(hWnd, buffer, buffer.Length);
         // An opted-in own window (the settings window) is treated as not-ours so it
         // still has to clear every other filter (visible, titled, not a tool window).
-        var treatAsOwn = pid == state.OwnPid && !state.IncludedOwnWindows.Contains(hWnd);
+        var treatAsOwn = pid == state.OwnPid && !state.IncludedWindows.Contains(hWnd);
         // Explorer's Progman is visible, plain-styled, and titled "Program
         // Manager", yet real Alt-Tab never offers it.
         if (!PassesSwitchableFilter(

@@ -148,8 +148,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
             ulong reported = adapter.GetValue(ReportedSizeValue) switch
             {
-                long size when size > 0 => (ulong)size,
-                int size when size > 0 => (uint)size,
+                long size and > 0 => (ulong)size,
+                int size and > 0 => (uint)size,
                 _ => 0
             };
             return new IntelGraphicsMemoryState(percent, reported);
@@ -337,6 +337,9 @@ internal sealed partial class IntelGraphicsMemoryTransport
                     case AdapterMatch.Supported:
                         supported.Add(name);
                         break;
+                    case AdapterMatch.None:
+                    default:
+                        break;
                 }
             }
 
@@ -345,16 +348,15 @@ internal sealed partial class IntelGraphicsMemoryTransport
             // lone supported Intel adapter is what makes an untouched machine work at all: absent
             // is the default, so a machine nobody has configured has no value to match on.
             var candidates = storing.Count > 0 ? storing : supported;
-            if (candidates.Count == 1)
+            switch (candidates.Count)
             {
-                return $@"{_classPath}\{candidates[0]}";
-            }
-
-            if (candidates.Count > 1)
-            {
-                PluginTrace.Warn(
-                    "intel-memory",
-                    "More than one adapter could hold the shared-memory split; leaving it alone.");
+                case 1:
+                    return $@"{_classPath}\{candidates[0]}";
+                case > 1:
+                    PluginTrace.Warn(
+                        "intel-memory",
+                        "More than one adapter could hold the shared-memory split; leaving it alone.");
+                    break;
             }
 
             return null;

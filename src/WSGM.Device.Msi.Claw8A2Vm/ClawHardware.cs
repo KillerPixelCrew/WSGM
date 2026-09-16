@@ -187,7 +187,7 @@ internal sealed record ClawHardwareServices(
 /// </remarks>
 internal static class ClawWriteBudget
 {
-    internal static readonly TimeSpan Minimum = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan Minimum = TimeSpan.FromSeconds(2);
 
     internal static bool IsAvailable(DateTimeOffset deadline) =>
         deadline - DateTimeOffset.UtcNow >= Minimum;

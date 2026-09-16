@@ -628,7 +628,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
 /// </remarks>
 internal sealed class GyroFrameResampler
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private Vector3 _omega;
     private DateTimeOffset _quietCap;
     private DateTimeOffset? _accountedTo;
@@ -725,7 +725,7 @@ internal sealed class ControllerService(
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private ControllerTopology? _original;
     private CanonicalButtons _rearButtons;
-    private readonly object _hapticGate = new();
+    private readonly Lock _hapticGate = new();
     private readonly SemaphoreSlim _outputSerializer = new(1, 1);
     private byte _lastWeak;
     private byte _lastStrong;
@@ -733,7 +733,7 @@ internal sealed class ControllerService(
 
     public bool Enabled { get; set; }
 
-    public ControllerTopology? CurrentTopology { get; private set; }
+    private ControllerTopology? CurrentTopology { get; set; }
 
     public IReadOnlyList<PhysicalDeviceIdentity> LastReleasedDevices { get; private set; } = [];
 
@@ -780,7 +780,7 @@ internal sealed class ControllerService(
             "controller",
             observed is null
                 ? "discovery found no Claw controller topology."
-                : $"discovered mode={observed.Mode}, product=0x{observed.ProductId:X4}, "
+                : $"discovered mode={observed.Mode}, product=0x{observed.ProductId}, "
                     + $"location='{observed.PhysicalLocation}', "
                     + $"physicalDevices={observed.PhysicalDevices.Count}, "
                     + $"endpoints=[{observed.ObservedEndpoints}]");
@@ -842,7 +842,7 @@ internal sealed class ControllerService(
                     ? DeviceTraceLevel.Info
                     : DeviceTraceLevel.Warn,
                 "controller",
-                $"mode switch settled at {CurrentTopology.Mode}, product=0x{CurrentTopology.ProductId:X4}, "
+                $"mode switch settled at {CurrentTopology.Mode}, product=0x{CurrentTopology.ProductId}, "
                     + $"physicalDevices={CurrentTopology.PhysicalDevices.Count}, "
                     + $"endpoints=[{CurrentTopology.ObservedEndpoints}]");
         }
@@ -895,7 +895,7 @@ internal sealed class ControllerService(
             DeviceTraceLevel.Info,
             "controller",
             $"owned: published {CurrentTopology.PhysicalDevices.Count} physical identities for hiding, "
-                + $"haptics={OutputCapabilities is not null}.");
+                + "haptics=True.");
         return Set(ClawServiceState.Owned);
     }
 

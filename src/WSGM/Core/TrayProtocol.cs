@@ -69,10 +69,10 @@ public static class TrayProtocol
     /// this range or above: WinForms NotifyIcon uses WM_USER + 1024, Qt's
     /// QSystemTrayIcon uses WM_APP + 101 (WM_APP is 0x8000), and apps wanting a
     /// process-unique value call RegisterWindowMessage, which returns 0xC000..0xFFFF.</summary>
-    public const uint WmUser = 0x0400;
+    private const uint WmUser = 0x0400;
 
     /// <summary>The largest window message value (message numbers are 16-bit).</summary>
-    public const uint MaxWindowMessage = 0xFFFF;
+    private const uint MaxWindowMessage = 0xFFFF;
 
     /// <summary>Whether a registered callback is in Windows' application-defined message range.
     /// This governs activation only: registration remains successful for compatibility with
@@ -242,11 +242,8 @@ public sealed class TrayIconTable
         var byGuid = (n.Flags & TrayProtocol.NifGuid) != 0 && n.Guid != Guid.Empty;
         foreach (var icon in _icons)
         {
-            if (byGuid && icon.Guid != Guid.Empty && icon.Guid == n.Guid)
-            {
-                return icon;
-            }
-            if (icon.Hwnd == n.Hwnd && icon.Uid == n.Uid)
+            if ((byGuid && icon.Guid != Guid.Empty && icon.Guid == n.Guid)
+                || (icon.Hwnd == n.Hwnd && icon.Uid == n.Uid))
             {
                 return icon;
             }

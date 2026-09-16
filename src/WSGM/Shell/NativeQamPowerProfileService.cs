@@ -10,7 +10,7 @@ namespace WSGM.Shell;
 /// Windows; commands validate the offered GUID and never retry a write.</summary>
 internal sealed class NativeQamPowerProfileService(PowerSchemes schemes, Action<Guid> persist) : ISteamPowerProfileBackend
 {
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private string _status = string.Empty;
     private bool _requiresRead;
 
@@ -28,9 +28,11 @@ internal sealed class NativeQamPowerProfileService(PowerSchemes schemes, Action<
                 }
                 _requiresRead = false;
                 return new SteamPowerProfileState(options.Count > 0,
-                    options.Select(scheme => new SteamPowerProfileOption(scheme.Id.ToString("D"),
-                        options.Count(other => other.Name == scheme.Name) > 1
-                            ? $"{scheme.Name} ({scheme.Id:D})" : scheme.Name)).ToArray(),
+                    [
+                        .. options.Select(scheme => new SteamPowerProfileOption(scheme.Id.ToString("D"),
+                            options.Count(other => other.Name == scheme.Name) > 1
+                                ? $"{scheme.Name} ({scheme.Id:D})" : scheme.Name))
+                    ],
                     active.ToString("D"), string.IsNullOrEmpty(_status)
                         ? "Windows controls the active power profile. Changes apply immediately." : _status);
             }
@@ -59,7 +61,7 @@ internal sealed class NativeQamPowerProfileService(PowerSchemes schemes, Action<
                 }
                 try
                 {
-                    if (!schemes.Enumerate().Any(scheme => scheme.Id == id))
+                    if (schemes.Enumerate().All(scheme => scheme.Id != id))
                     {
                         return new SteamUiCommandResult(false, "The power profile is no longer installed.");
                     }

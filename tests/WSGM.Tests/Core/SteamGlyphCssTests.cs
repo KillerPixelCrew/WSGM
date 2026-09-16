@@ -4,8 +4,9 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
+using WSGM.Tests.Builders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class SteamGlyphCssTests
 {
@@ -173,7 +174,7 @@ public sealed class SteamGlyphCssTests
     public void AttributeValuesAreEscapedForTheSelector()
     {
         Assert.Equal("a\\\"b", SteamGlyphCss.Attribute("a\"b"));
-        Assert.Equal("a\\\\b", SteamGlyphCss.Attribute("a\\b"));
+        Assert.Equal(@"a\\b", SteamGlyphCss.Attribute(@"a\b"));
     }
 
     private static SteamInputGlyphPresentation Presentation(bool guide = false)
@@ -270,7 +271,7 @@ public sealed class SteamGlyphCssTests
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
-            [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n"),
+            [manifest.NoticePath] = "Example glyph notice\n"u8.ToArray(),
             [GlyphPackageLayout.Asset(controlHash, GlyphAssetFormat.Svg)] = controlSvg,
             [GlyphPackageLayout.Asset(guideHash, GlyphAssetFormat.Svg)] = guideSvg,
             [GlyphPackageLayout.Asset(controllerHash, GlyphAssetFormat.Svg)] = controllerSvg

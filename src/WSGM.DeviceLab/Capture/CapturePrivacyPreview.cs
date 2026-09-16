@@ -26,7 +26,7 @@ internal sealed record CapturePrivacyPreview
 
     public IReadOnlyList<CaptureLanePreview> Analysis { get; init; } = [];
 
-    public IReadOnlyList<CaptureBlobPreview> Blobs { get; init; } = [];
+    public IReadOnlyList<CaptureBlobPreview> Blobs { get; private init; } = [];
 
     public required string Explanation { get; init; }
 
@@ -101,12 +101,14 @@ internal sealed record CapturePrivacyPreview
             hash.AppendData(json);
             hash.AppendData(Newline);
             length = checked(length + json.Length + 1L);
-            if (remainingSamples > 0)
+            if (remainingSamples <= 0)
             {
-                using var document = JsonDocument.Parse(json);
-                samples.Add(document.RootElement.Clone());
-                remainingSamples--;
+                continue;
             }
+
+            using var document = JsonDocument.Parse(json);
+            samples.Add(document.RootElement.Clone());
+            remainingSamples--;
         }
 
         return new CaptureLanePreview

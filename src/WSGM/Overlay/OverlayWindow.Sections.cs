@@ -160,18 +160,18 @@ public partial class OverlayWindow
             }
             return panel;
         }
-        if (_deviceBridge?.Snapshot() is { } snapshot && DevicePinSections(snapshot).FirstOrDefault(section => section.Id == id) is { } section)
+        if (_deviceBridge?.Snapshot() is { } snapshot && DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == id) is { } section)
         {
             var panel = CreateSection(id, section.Title, pinned: true);
             AddDeviceSectionRows(snapshot, section, panel, pinned: true);
             return panel;
         }
-        if (id.StartsWith("section.", StringComparison.Ordinal))
+        if (!id.StartsWith("section.", StringComparison.Ordinal))
         {
-            var panel = CreateSection(id, "Section unavailable", pinned: true);
-            panel.Children.Add(new TextBlock { Text = "Its controls will return when the provider is available.", Classes = { "caption" }, TextWrapping = TextWrapping.Wrap });
-            return panel;
+            return null;
         }
-        return null;
+        var unavailable = CreateSection(id, "Section unavailable", pinned: true);
+        unavailable.Children.Add(new TextBlock { Text = "Its controls will return when the provider is available.", Classes = { "caption" }, TextWrapping = TextWrapping.Wrap });
+        return unavailable;
     }
 }

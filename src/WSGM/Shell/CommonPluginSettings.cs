@@ -20,8 +20,10 @@ internal sealed class CommonPluginSettings
     {
         var declared = plugin.Settings;
         if (!PluginConfigurationRules.IsValid(declared)) { throw new ArgumentException("Plugin settings declaration is invalid."); }
-        Schema = Array.AsReadOnly(declared.Select(setting => setting with
-        { Choices = setting.Choices is null ? null : Array.AsReadOnly(setting.Choices.ToArray()) }).ToArray());
+        Schema = Array.AsReadOnly([
+            .. declared.Select(setting => setting with
+            { Choices = setting.Choices is null ? null : Array.AsReadOnly([.. setting.Choices]) })
+        ]);
         _plugin = plugin;
         _store = store;
         _identity = identity;
@@ -29,7 +31,7 @@ internal sealed class CommonPluginSettings
 
     internal PluginConfiguration? Desired { get; private set; }
     internal PluginConfigurationResult? Result { get; private set; }
-    internal IReadOnlyList<PluginSetting> Schema { get; }
+    private IReadOnlyList<PluginSetting> Schema { get; }
 
     internal Task<PluginConfigurationResult> RestoreAsync(PluginContext context, CancellationToken cancellationToken) =>
         DeliverAsync(_store.Read(_identity), PluginConfigurationOrigin.Restore, context, cancellationToken);
@@ -37,10 +39,13 @@ internal sealed class CommonPluginSettings
     internal Task<PluginConfigurationResult> RefreshAsync(PluginContext context, CancellationToken cancellationToken)
     {
         var saved = _store.Read(_identity);
-        if (Result is { } previous && previous.Revision == saved.Revision) { return Task.FromResult(previous); }
-        if (Result is { } newer && saved.Revision < newer.Revision)
-        { return Task.FromResult(new PluginConfigurationResult(newer.Revision, PluginConfigurationOutcome.Rejected, "Saved configuration revision moved backwards.")); }
-        return DeliverAsync(saved, PluginConfigurationOrigin.Restore, context, cancellationToken);
+        return Result switch
+        {
+            { } previous when previous.Revision == saved.Revision => Task.FromResult(previous),
+            { } newer when saved.Revision < newer.Revision => Task.FromResult(new PluginConfigurationResult(newer.Revision,
+                PluginConfigurationOutcome.Rejected, "Saved configuration revision moved backwards.")),
+            _ => DeliverAsync(saved, PluginConfigurationOrigin.Restore, context, cancellationToken)
+        };
     }
 
     internal async Task<PluginConfigurationResult> ChangeAsync(long expectedRevision, IReadOnlyDictionary<string, PluginValue> changes,
@@ -50,15 +55,12 @@ internal sealed class CommonPluginSettings
         Dictionary<string, PluginValue> captured = new(changes, StringComparer.Ordinal);
         var current = _store.Read(_identity);
         if (current.Revision != expectedRevision) { throw new InvalidOperationException("Plugin preferences changed; refresh before editing."); }
-        foreach (var pair in captured)
-        {
-            var setting = Schema.FirstOrDefault(candidate => candidate.Key == pair.Key);
-            if (setting is null || !PluginConfigurationRules.Accepts(setting, pair.Value))
-            { throw new ArgumentException("Preference changes do not match the declared schema."); }
-        }
+        if (captured.Any(pair => Schema.FirstOrDefault(candidate => candidate.Key == pair.Key) is not { } setting
+                || !PluginConfigurationRules.Accepts(setting, pair.Value)))
+        { throw new ArgumentException("Preference changes do not match the declared schema."); }
         Dictionary<string, PluginValue> combined = new(current.Values, StringComparer.Ordinal);
         foreach (var pair in captured) { combined[pair.Key] = pair.Value; }
-        if (!TryCompose(new SavedPluginConfiguration(current.Revision, combined), out _))
+        if (!TryCompose(current with { Values = combined }, out _))
         { throw new ArgumentException("Saved preferences do not match the current schema."); }
         cancellationToken.ThrowIfCancellationRequested();
         // Persist only the explicit change set. Defaults, readback and a plugin response never save.

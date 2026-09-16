@@ -28,8 +28,8 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
     private DevicePackageSlotGate(
         string name,
         TimeSpan timeout,
-        CancellationToken cancellationToken,
-        Action? waitStarted)
+        Action? waitStarted,
+        CancellationToken cancellationToken)
     {
         _name = name;
         _timeout = timeout;
@@ -52,13 +52,10 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         Action? waitStarted = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (timeout < TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var contender = new DevicePackageSlotGate(name, timeout, cancellationToken, waitStarted);
+        var contender = new DevicePackageSlotGate(name, timeout, waitStarted, cancellationToken);
         var ownerThread = new Thread(contender.OwnMutex)
         {
             IsBackground = true,
@@ -85,10 +82,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(operation);
-        if (timeout < TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
 
         using var mutex = new Mutex(initiallyOwned: false, name);
         waitStarted?.Invoke();

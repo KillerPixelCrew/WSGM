@@ -60,7 +60,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             KnownStartupApps.Detected,
             SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
             request => Task.Run(() => PersistSave(request)),
-            config => Task.Run(() => owner.ApplySteamInputManagementAfterSave(config)),
+            config => Task.Run(() => ApplySteamInputManagementAfterSave(config)),
             (message, error) => { if (error is null) { Log.Info(message); } else { Log.Error(message, error); } },
             // Windows' account of the last standby. Injected so a preview or a test renders a fixed
             // report instead of whatever this machine did last night.
@@ -81,22 +81,20 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private bool _isSaving;
-
     /// <summary>Gets whether an asynchronous save is currently persisting its captured
     /// settings snapshot. The window disables every editor for this interval so it
     /// cannot acknowledge changes that were made after the snapshot was taken.</summary>
     public bool IsSaving
     {
-        get => _isSaving;
+        get;
         private set
         {
-            if (_isSaving == value)
+            if (field == value)
             {
                 return;
             }
 
-            _isSaving = value;
+            field = value;
             Raise(nameof(IsSaving));
         }
     }
@@ -129,7 +127,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, package.Manifest.Name, instance.Enabled, true));
             }
         }
-        foreach (var instance in _config.PluginInstances.Where(entry => !catalog.Packages.Any(package => package.Manifest.Id == entry.PluginId)))
+        foreach (var instance in _config.PluginInstances.Where(entry => catalog.Packages.All(package => package.Manifest.Id != entry.PluginId)))
         {
             CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, instance.PluginId, instance.Enabled, false));
         }
@@ -322,14 +320,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <see cref="RebindChoices"/>.</summary>
     public int RebindChoiceIndex
     {
-        get => _rebindChoiceIndex;
-        set => SetField(ref _rebindChoiceIndex, value, nameof(RebindChoiceIndex));
+        get;
+        set => SetField(ref field, value, nameof(RebindChoiceIndex));
     }
 
     /// <summary>The displays a migrated row can be pointed at: the ones seen most recently.</summary>
     public ObservableCollection<string> RebindChoices { get; } = [];
-
-    private int _rebindChoiceIndex;
 
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
@@ -460,9 +456,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _pluginSettingsDevice = string.Empty;
     private string _pluginSettingsPlugin = string.Empty;
 
-    private string _pluginSettingsEmptyReason =
-        "No device plugin is installed, so there are no plugin settings to show.";
-
     /// <summary>
     /// Why the plugin settings page is empty.
     /// </summary>
@@ -472,9 +465,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     public string PluginSettingsEmptyReason
     {
-        get => _pluginSettingsEmptyReason;
-        set => SetField(ref _pluginSettingsEmptyReason, value, nameof(PluginSettingsEmptyReason));
-    }
+        get;
+        set => SetField(ref field, value, nameof(PluginSettingsEmptyReason));
+    } = "No device plugin is installed, so there are no plugin settings to show.";
 
     /// <summary>Replaces the plugin settings page content.</summary>
     /// <param name="view">The projected sections and their settings, in draw order.</param>
@@ -650,16 +643,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         var scope = scopes.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, _pluginSettingsDevice, StringComparison.Ordinal)
             && string.Equals(candidate.PluginId, _pluginSettingsPlugin, StringComparison.Ordinal));
-        if (scope is null)
+        if (scope is not null)
         {
-            scope = new PluginSettingsScope
-            {
-                DeviceDefinitionId = _pluginSettingsDevice,
-                PluginId = _pluginSettingsPlugin
-            };
-            scopes.Add(scope);
+            return scope;
         }
 
+        scope = new PluginSettingsScope
+        {
+            DeviceDefinitionId = _pluginSettingsDevice,
+            PluginId = _pluginSettingsPlugin
+        };
+        scopes.Add(scope);
         return scope;
     }
 
@@ -712,18 +706,17 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? (section.CustomTitle ?? section.SectionId).ToUpperInvariant()
             : section.Key.ToString().ToUpperInvariant();
 
-    private int _gameModeLaunchKindIndex;
     /// <summary>Selected <see cref="GameModeLaunchKind"/> index.</summary>
     public int GameModeLaunchKindIndex
     {
-        get => _gameModeLaunchKindIndex;
+        get;
         set
         {
-            _gameModeLaunchKindIndex = value;
+            field = value;
             Raise(nameof(GameModeLaunchKindIndex));
             Raise(nameof(ShowCustomLaunch));
             Raise(nameof(ShowLayoutEditor));
-            if (_launchLoaded && ShowCustomLaunch && !GameLayout.HasActiveDisplays && !GameLayout.CanUndo)
+            if (_launchLoaded && ShowCustomLaunch && GameLayout is { HasActiveDisplays: false, CanUndo: false })
             { SeedDisplayLayout(GameLayout, game: true); }
             if (_launchLoaded) { RefreshLaunchSummary(); }
         }
@@ -732,18 +725,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Whether the layout and wait fields apply to the selected launch kind.</summary>
     public bool ShowCustomLaunch => GameModeLaunchKindIndex == (int)GameModeLaunchKind.Custom;
 
-    private int _gameModeReturnIndex;
     /// <summary>Selected <see cref="GameModeReturn"/> index.</summary>
     public int GameModeReturnIndex
     {
-        get => _gameModeReturnIndex;
+        get;
         set
         {
-            _gameModeReturnIndex = value;
+            field = value;
             Raise(nameof(GameModeReturnIndex));
             Raise(nameof(ShowDesktopLayout));
             Raise(nameof(ShowLayoutEditor));
-            if (_launchLoaded && ShowDesktopLayout && !DesktopLayout.HasActiveDisplays && !DesktopLayout.CanUndo)
+            if (_launchLoaded && ShowDesktopLayout && DesktopLayout is { HasActiveDisplays: false, CanUndo: false })
             { SeedDisplayLayout(DesktopLayout, game: false); }
             if (_launchLoaded) { RefreshLaunchSummary(); }
         }
@@ -752,30 +744,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Whether a Desktop layout is configured rather than captured at entry.</summary>
     public bool ShowDesktopLayout => GameModeReturnIndex == (int)GameModeReturn.DesktopLayout;
 
-    private string _launchSummaryText = "";
     /// <summary>What the saved layouts describe, including anything needing confirmation.</summary>
     public string LaunchSummaryText
     {
-        get => _launchSummaryText;
-        private set => SetField(ref _launchSummaryText, value, nameof(LaunchSummaryText));
-    }
+        get;
+        private set => SetField(ref field, value, nameof(LaunchSummaryText));
+    } = "";
 
-    private int _waitForDisplayIndex;
     /// <summary>Index into <see cref="WaitForDisplayChoices"/>; zero means no wait.</summary>
     public int WaitForDisplayIndex
     {
-        get => _waitForDisplayIndex;
-        set => SetField(ref _waitForDisplayIndex, value, nameof(WaitForDisplayIndex));
+        get;
+        set => SetField(ref field, value, nameof(WaitForDisplayIndex));
     }
 
     /// <summary>"No display wait" followed by one entry per remembered display.</summary>
     public ObservableCollection<string> WaitForDisplayChoices { get; } = [];
 
-    private string _statusText = "";
-
     /// <summary>Gets or sets the transient status line shown in the window's
     /// bottom strip: last-save time on success, otherwise the failure text.</summary>
-    public string StatusText { get => _statusText; set => SetField(ref _statusText, value, nameof(StatusText)); }
+    public string StatusText { get; set => SetField(ref field, value, nameof(StatusText)); } = "";
 
     /// <summary>Gets the compact logon-service state for the status strip,
     /// derived from the same flag the boot manifest is projected from.</summary>
@@ -786,14 +774,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Gets the compact shell state for the status strip.</summary>
     public string ShellStateText => "Shell: Explorer";
 
-    private string _steamAutostartStatusText = "";
-
     /// <summary>Gets what Windows would still start Steam from, refreshed on demand.</summary>
     public string SteamAutostartStatusText
     {
-        get => _steamAutostartStatusText;
-        private set => SetField(ref _steamAutostartStatusText, value, nameof(SteamAutostartStatusText));
-    }
+        get;
+        private set => SetField(ref field, value, nameof(SteamAutostartStatusText));
+    } = "";
 
     /// <summary>Reads startup sources on a worker. The synchronous Windows adapter waits for an
     /// asynchronous console command and must never run under the UI synchronization context.</summary>
@@ -927,51 +913,35 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     // --- Sign-in behavior ---
-    private bool _startAtSignIn = true;
 
     /// <summary>Gets or sets whether the logon service starts WSGM at sign-in.
     /// Persisted via Save; the boot manifest is rewritten there.</summary>
-    public bool StartAtSignIn { get => _startAtSignIn; set { _startAtSignIn = value; Raise(nameof(StartAtSignIn)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
-
-    private bool _steamAutostartTakeoverAccepted;
+    public bool StartAtSignIn { get; set { field = value; Raise(nameof(StartAtSignIn)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } } = true;
 
     /// <summary>Gets or sets whether WSGM may own how Steam starts, turning Windows' own Steam
     /// startup entries off. Persisted via Save; the takeover itself runs after the save, outside
     /// the config lock, because it may need an elevation prompt.</summary>
     public bool SteamAutostartTakeoverAccepted
     {
-        get => _steamAutostartTakeoverAccepted;
-        set => SetField(ref _steamAutostartTakeoverAccepted, value, nameof(SteamAutostartTakeoverAccepted));
+        get;
+        set => SetField(ref field, value, nameof(SteamAutostartTakeoverAccepted));
     }
-
-    private int _startModeIndex = (int)SessionStartMode.Game;
 
     /// <summary>Gets or sets the session mode a start produces, as the selector's index:
     /// 0 = Desktop, 1 = Game. Independent of <see cref="StartAtSignIn"/>.</summary>
-    public int StartModeIndex { get => _startModeIndex; set { _startModeIndex = value; Raise(nameof(StartModeIndex)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } }
-
-    private bool _steamInputLeaseEnabled = true;
+    public int StartModeIndex { get; set { field = value; Raise(nameof(StartModeIndex)); Raise(nameof(ServiceStateText)); Raise(nameof(ShellStatusText)); } } = (int)SessionStartMode.Game;
 
     /// <summary>Gets or sets whether WSGM leases the controller away from Steam
     /// Input while its focused surfaces are open. Off = Steam is never touched.</summary>
-    public bool SteamInputLeaseEnabled { get => _steamInputLeaseEnabled; set => SetField(ref _steamInputLeaseEnabled, value, nameof(SteamInputLeaseEnabled)); }
+    public bool SteamInputLeaseEnabled { get; set => SetField(ref field, value, nameof(SteamInputLeaseEnabled)); } = true;
 
     /// <summary>Gets or sets whether WSGM deploys its Steam Input shim into Steam's
     /// own install directory, so Steam loads it and WSGM never injects.</summary>
     public bool SteamInputManagementEnabled
     {
-        get => _steamInputManagementEnabled;
-        set => SetField(ref _steamInputManagementEnabled, value, nameof(SteamInputManagementEnabled));
-    }
-
-    private bool _steamInputManagementEnabled = true;
-
-    private bool _deviceIntegrationEnabled;
-    private bool _deviceControllerManagementEnabled;
-    private bool _deviceAutoTdpEnabled;
-    private int _deviceControllerTargetIndex = (int)ManagedControllerTarget.SteamDeckComposite;
-    private int _deviceGlyphSelectionIndex = (int)DeviceGlyphSelection.Automatic;
-    private string _deviceOwnerStatusText = "No running device coordinator detected.";
+        get;
+        set => SetField(ref field, value, nameof(SteamInputManagementEnabled));
+    } = true;
 
     // Set by the property setters, cleared once after the constructor's own seeding, so they mean
     // "the user changed this here" rather than "this window has a value for it".
@@ -982,10 +952,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Gets or sets the optional production Device Integration master switch.</summary>
     public bool DeviceIntegrationEnabled
     {
-        get => _deviceIntegrationEnabled;
+        get;
         set
         {
-            _deviceIntegrationEnabled = value;
+            field = value;
             Raise(nameof(DeviceIntegrationEnabled));
         }
     }
@@ -993,10 +963,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Gets or sets the remembered controller-management child preference.</summary>
     public bool DeviceControllerManagementEnabled
     {
-        get => _deviceControllerManagementEnabled;
+        get;
         set
         {
-            _deviceControllerManagementEnabled = value;
+            field = value;
             Raise(nameof(DeviceControllerManagementEnabled));
         }
     }
@@ -1010,10 +980,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     public bool DeviceAutoTdpEnabled
     {
-        get => _deviceAutoTdpEnabled;
+        get;
         set
         {
-            _deviceAutoTdpEnabled = value;
+            field = value;
             _deviceAutoTdpEdited = true;
             Raise(nameof(DeviceAutoTdpEnabled));
         }
@@ -1022,26 +992,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Selected global managed-controller target index.</summary>
     public int DeviceControllerTargetIndex
     {
-        get => _deviceControllerTargetIndex;
+        get;
         set
         {
-            _deviceControllerTargetIndex = value;
+            field = value;
             _deviceControllerTargetEdited = true;
             Raise(nameof(DeviceControllerTargetIndex));
         }
-    }
+    } = (int)ManagedControllerTarget.SteamDeckComposite;
 
     /// <summary>Selected physical glyph-policy index.</summary>
     public int DeviceGlyphSelectionIndex
     {
-        get => _deviceGlyphSelectionIndex;
+        get;
         set
         {
-            _deviceGlyphSelectionIndex = value;
+            field = value;
             _deviceGlyphSelectionEdited = true;
             Raise(nameof(DeviceGlyphSelectionIndex));
         }
-    }
+    } = (int)DeviceGlyphSelection.Automatic;
 
     /// <summary>Which runtime-owned device settings this window actually edited.</summary>
     /// <remarks>
@@ -1054,9 +1024,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Read-only status reported by the authoritative shell coordinator.</summary>
     public string DeviceOwnerStatusText
     {
-        get => _deviceOwnerStatusText;
-        private set => SetField(ref _deviceOwnerStatusText, value, nameof(DeviceOwnerStatusText));
-    }
+        get;
+        private set => SetField(ref field, value, nameof(DeviceOwnerStatusText));
+    } = "No running device coordinator detected.";
 
     /// <summary>Refreshes the read-only owner snapshot without creating a device cycle.</summary>
     public async Task RefreshDeviceOwnerStatusAsync()
@@ -1114,38 +1084,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private bool _cefEnabled = true;
-    private bool _cefLibraryTabs = true;
-    private bool _cefCardManager = true;
-    private bool _cefSdFormat = true;
-    private bool _cefArtwork = true;
-    private bool _cefWifiIndicator = true;
-    private bool _cefNativeQuickAccess = true;
-    private bool _cefDownloadKeepAwake = true;
-    private bool _cefDownloadQueueSort = true;
-    private bool _cefConnectedLibraryCarousel = true;
-    private bool _cefCarouselShowUninstalled;
-    private bool _performanceEnabled;
-    private int _frameLimitStrategyIndex;
-    private bool _muteWhileDisplayOff;
-    private bool _resuspendUnexplainedWakes;
-    private bool _verboseLogging;
-
     /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
     public bool PerformanceEnabled
     {
-        get => _performanceEnabled;
-        set => SetField(ref _performanceEnabled, value, nameof(PerformanceEnabled));
+        get;
+        set => SetField(ref field, value, nameof(PerformanceEnabled));
     }
-
-    private string _osdCustomOrder = "Time,GPU,CPU,VRAM,RAM,BATT,FPS";
-    private int _osdCustomTimeIndex = 2;
-    private int _osdCustomFpsIndex = 2;
-    private int _osdCustomCpuIndex = 2;
-    private int _osdCustomRamIndex = 2;
-    private int _osdCustomGpuIndex = 2;
-    private int _osdCustomVramIndex = 2;
-    private int _osdCustomBatteryIndex = 2;
 
     /// <summary>The three detail options shared by every Custom-overlay widget selector.</summary>
     public List<string> OsdCustomLevels { get; } = ["Hidden", "Minimal", "Full"];
@@ -1153,58 +1097,58 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Custom overlay (level 4) widget order, comma-separated widget names.</summary>
     public string OsdCustomOrder
     {
-        get => _osdCustomOrder;
-        set => SetField(ref _osdCustomOrder, value, nameof(OsdCustomOrder));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomOrder));
+    } = "Time,GPU,CPU,VRAM,RAM,BATT,FPS";
 
     /// <summary>Clock detail for the Custom overlay.</summary>
     public int OsdCustomTimeIndex
     {
-        get => _osdCustomTimeIndex;
-        set => SetField(ref _osdCustomTimeIndex, value, nameof(OsdCustomTimeIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomTimeIndex));
+    } = 2;
 
     /// <summary>Framerate detail for the Custom overlay.</summary>
     public int OsdCustomFpsIndex
     {
-        get => _osdCustomFpsIndex;
-        set => SetField(ref _osdCustomFpsIndex, value, nameof(OsdCustomFpsIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomFpsIndex));
+    } = 2;
 
     /// <summary>CPU detail for the Custom overlay.</summary>
     public int OsdCustomCpuIndex
     {
-        get => _osdCustomCpuIndex;
-        set => SetField(ref _osdCustomCpuIndex, value, nameof(OsdCustomCpuIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomCpuIndex));
+    } = 2;
 
     /// <summary>Memory detail for the Custom overlay.</summary>
     public int OsdCustomRamIndex
     {
-        get => _osdCustomRamIndex;
-        set => SetField(ref _osdCustomRamIndex, value, nameof(OsdCustomRamIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomRamIndex));
+    } = 2;
 
     /// <summary>GPU detail for the Custom overlay.</summary>
     public int OsdCustomGpuIndex
     {
-        get => _osdCustomGpuIndex;
-        set => SetField(ref _osdCustomGpuIndex, value, nameof(OsdCustomGpuIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomGpuIndex));
+    } = 2;
 
     /// <summary>Video-memory detail for the Custom overlay.</summary>
     public int OsdCustomVramIndex
     {
-        get => _osdCustomVramIndex;
-        set => SetField(ref _osdCustomVramIndex, value, nameof(OsdCustomVramIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomVramIndex));
+    } = 2;
 
     /// <summary>Battery detail for the Custom overlay.</summary>
     public int OsdCustomBatteryIndex
     {
-        get => _osdCustomBatteryIndex;
-        set => SetField(ref _osdCustomBatteryIndex, value, nameof(OsdCustomBatteryIndex));
-    }
+        get;
+        set => SetField(ref field, value, nameof(OsdCustomBatteryIndex));
+    } = 2;
 
     /// <summary>Gets or sets how a frame cap is paired with the panel's refresh rate.</summary>
     /// <remarks>
@@ -1215,25 +1159,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     public int FrameLimitStrategyIndex
     {
-        get => _frameLimitStrategyIndex;
-        set => SetField(ref _frameLimitStrategyIndex, value, nameof(FrameLimitStrategyIndex));
+        get;
+        set => SetField(ref field, value, nameof(FrameLimitStrategyIndex));
     }
 
     /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
     /// debug port, injects nothing, and hides the sub-toggles below and the overlay
     /// feature buttons.</summary>
-    public bool CefEnabled { get => _cefEnabled; set => SetField(ref _cefEnabled, value, nameof(CefEnabled)); }
+    public bool CefEnabled { get; set => SetField(ref field, value, nameof(CefEnabled)); } = true;
 
     /// <summary>Gets or sets the injected library filter tabs, tab order, and native-tab hiding.</summary>
-    public bool CefLibraryTabs { get => _cefLibraryTabs; set => SetField(ref _cefLibraryTabs, value, nameof(CefLibraryTabs)); }
+    public bool CefLibraryTabs { get; set => SetField(ref field, value, nameof(CefLibraryTabs)); } = true;
 
     /// <summary>Gets or sets the SD-card library manager (card tabs, badges, live labels).</summary>
-    public bool CefCardManager { get => _cefCardManager; set => SetField(ref _cefCardManager, value, nameof(CefCardManager)); }
+    public bool CefCardManager { get; set => SetField(ref field, value, nameof(CefCardManager)); } = true;
 
     /// <summary>Gets or sets Format SD Card + live library registration.</summary>
-    public bool CefSdFormat { get => _cefSdFormat; set => SetField(ref _cefSdFormat, value, nameof(CefSdFormat)); }
-
-    private bool _steamStorageFormat;
+    public bool CefSdFormat { get; set => SetField(ref field, value, nameof(CefSdFormat)); } = true;
 
     /// <summary>Gets or sets whether Steam's own storage pages may erase a drive through WSGM.</summary>
     /// <remarks>
@@ -1244,42 +1186,40 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     public bool SteamStorageFormat
     {
-        get => _steamStorageFormat;
-        set => SetField(ref _steamStorageFormat, value, nameof(SteamStorageFormat));
+        get;
+        set => SetField(ref field, value, nameof(SteamStorageFormat));
     }
 
     /// <summary>Gets or sets the shortcut-artwork changer.</summary>
-    public bool CefArtwork { get => _cefArtwork; set => SetField(ref _cefArtwork, value, nameof(CefArtwork)); }
+    public bool CefArtwork { get; set => SetField(ref field, value, nameof(CefArtwork)); } = true;
 
     /// <summary>Gets or sets the Big Picture Wi-Fi indicator.</summary>
-    public bool CefWifiIndicator { get => _cefWifiIndicator; set => SetField(ref _cefWifiIndicator, value, nameof(CefWifiIndicator)); }
+    public bool CefWifiIndicator { get; set => SetField(ref field, value, nameof(CefWifiIndicator)); } = true;
 
     /// <summary>Gets or sets the fingerprint-gated native Steam Quick Access bootstrap.</summary>
-    public bool CefNativeQuickAccess { get => _cefNativeQuickAccess; set => SetField(ref _cefNativeQuickAccess, value, nameof(CefNativeQuickAccess)); }
+    public bool CefNativeQuickAccess { get; set => SetField(ref field, value, nameof(CefNativeQuickAccess)); } = true;
 
     /// <summary>Gets or sets the automatic download wake lock (keep the device awake
     /// while Steam reports an active download).</summary>
-    public bool CefDownloadKeepAwake { get => _cefDownloadKeepAwake; set => SetField(ref _cefDownloadKeepAwake, value, nameof(CefDownloadKeepAwake)); }
+    public bool CefDownloadKeepAwake { get; set => SetField(ref field, value, nameof(CefDownloadKeepAwake)); } = true;
 
     /// <summary>Gets or sets the Name/Size/Type sort buttons injected into Big
     /// Picture's download-queue header.</summary>
-    public bool CefDownloadQueueSort { get => _cefDownloadQueueSort; set => SetField(ref _cefDownloadQueueSort, value, nameof(CefDownloadQueueSort)); }
+    public bool CefDownloadQueueSort { get; set => SetField(ref field, value, nameof(CefDownloadQueueSort)); } = true;
 
     /// <summary>Gets or sets whether Big Picture Home's carousel lists the games on the
     /// libraries attached right now.</summary>
-    public bool CefConnectedLibraryCarousel { get => _cefConnectedLibraryCarousel; set => SetField(ref _cefConnectedLibraryCarousel, value, nameof(CefConnectedLibraryCarousel)); }
+    public bool CefConnectedLibraryCarousel { get; set => SetField(ref field, value, nameof(CefConnectedLibraryCarousel)); } = true;
 
     /// <summary>Gets or sets whether that carousel also lists owned games that are not
     /// installed, greyed.</summary>
-    public bool CefCarouselShowUninstalled { get => _cefCarouselShowUninstalled; set => SetField(ref _cefCarouselShowUninstalled, value, nameof(CefCarouselShowUninstalled)); }
+    public bool CefCarouselShowUninstalled { get; set => SetField(ref field, value, nameof(CefCarouselShowUninstalled)); }
 
     /// <summary>Gets or sets muting system audio while the screen is off.</summary>
-    public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set => SetField(ref _muteWhileDisplayOff, value, nameof(MuteWhileDisplayOff)); }
+    public bool MuteWhileDisplayOff { get; set => SetField(ref field, value, nameof(MuteWhileDisplayOff)); }
 
     /// <summary>Gets or sets suspending again after a standby wake nothing accounts for.</summary>
-    public bool ResuspendUnexplainedWakes { get => _resuspendUnexplainedWakes; set => SetField(ref _resuspendUnexplainedWakes, value, nameof(ResuspendUnexplainedWakes)); }
-
-    private string _modernStandbyStatusText = "";
+    public bool ResuspendUnexplainedWakes { get; set => SetField(ref field, value, nameof(ResuspendUnexplainedWakes)); }
 
     /// <summary>Gets Windows' own account of the last standby, for the settings surface.</summary>
     /// <remarks>
@@ -1289,12 +1229,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     public string ModernStandbyStatusText
     {
-        get => _modernStandbyStatusText;
-        private set => SetField(ref _modernStandbyStatusText, value, nameof(ModernStandbyStatusText));
-    }
+        get;
+        private set => SetField(ref field, value, nameof(ModernStandbyStatusText));
+    } = "";
 
     /// <summary>Gets or sets whether the log records debug detail.</summary>
-    public bool VerboseLogging { get => _verboseLogging; set => SetField(ref _verboseLogging, value, nameof(VerboseLogging)); }
+    public bool VerboseLogging { get; set => SetField(ref field, value, nameof(VerboseLogging)); }
 
     /// <summary>Gets a user-facing explanation of the current sign-in behavior.</summary>
     public string ShellStatusText => !StartAtSignIn
@@ -1358,26 +1298,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         ? $"Detected: {exe}"
         : "Steam was not found on this PC. Install Steam first — WSGM is Steam-exclusive.";
 
-    private bool _steamAutoRelaunch;
-    private bool _steamLaunchUnelevated;
-
     /// <summary>Gets or sets whether the Steam monitor restarts Steam after an unexpected exit.</summary>
-    public bool SteamAutoRelaunch { get => _steamAutoRelaunch; set => SetField(ref _steamAutoRelaunch, value, nameof(SteamAutoRelaunch)); }
+    public bool SteamAutoRelaunch { get; set => SetField(ref field, value, nameof(SteamAutoRelaunch)); }
 
     /// <summary>Whether the complete Steam client starts at medium integrity.</summary>
     public bool SteamLaunchUnelevated
     {
-        get => _steamLaunchUnelevated;
-        set => SetField(ref _steamLaunchUnelevated, value, nameof(SteamLaunchUnelevated));
+        get;
+        set => SetField(ref field, value, nameof(SteamLaunchUnelevated));
     }
-
-    private string _steamGridDbApiKey = "";
 
     /// <summary>Gets or sets the user's SteamGridDB API key (for the Change Artwork
     /// feature). Empty disables it; get a free key at <see cref="Core.SteamGridDb.KeyPageUrl"/>.</summary>
-    public string SteamGridDbApiKey { get => _steamGridDbApiKey; set => SetField(ref _steamGridDbApiKey, value, nameof(SteamGridDbApiKey)); }
-
-    private bool _screenscraperEnabled;
+    public string SteamGridDbApiKey { get; set => SetField(ref field, value, nameof(SteamGridDbApiKey)); } = "";
 
     /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
     /// <remarks>
@@ -1385,36 +1318,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// per application, so there is nothing to obtain first, unlike SteamGridDB's personal key. See
     /// <see cref="Core.ScreenscraperCredentials"/>.
     /// </remarks>
-    public bool ScreenscraperEnabled { get => _screenscraperEnabled; set => SetField(ref _screenscraperEnabled, value, nameof(ScreenscraperEnabled)); }
-
-    private string _screenscraperUser = "";
+    public bool ScreenscraperEnabled { get; set => SetField(ref field, value, nameof(ScreenscraperEnabled)); }
 
     /// <summary>Gets or sets the optional Screenscraper account name, which raises the quota.</summary>
-    public string ScreenscraperUser { get => _screenscraperUser; set => SetField(ref _screenscraperUser, value, nameof(ScreenscraperUser)); }
-
-    private string _screenscraperUserPassword = "";
+    public string ScreenscraperUser { get; set => SetField(ref field, value, nameof(ScreenscraperUser)); } = "";
 
     /// <summary>Gets or sets the password for <see cref="ScreenscraperUser"/>.</summary>
-    public string ScreenscraperUserPassword { get => _screenscraperUserPassword; set => SetField(ref _screenscraperUserPassword, value, nameof(ScreenscraperUserPassword)); }
+    public string ScreenscraperUserPassword { get; set => SetField(ref field, value, nameof(ScreenscraperUserPassword)); } = "";
 
     // --- Startup apps ---
     /// <summary>Gets the ordered startup programs shown in the settings editor.</summary>
     public ObservableCollection<StartupAppRow> StartupApps { get; } = [];
 
-    private int _startupDelayMs;
-
     /// <summary>Gets or sets the initial delay before launching configured startup programs.</summary>
-    public int StartupDelayMs { get => _startupDelayMs; set => SetField(ref _startupDelayMs, value, nameof(StartupDelayMs)); }
-
-    private int _staggerDelayMs;
+    public int StartupDelayMs { get; set => SetField(ref field, value, nameof(StartupDelayMs)); }
 
     /// <summary>Gets or sets the delay between successive configured startup programs.</summary>
-    public int StaggerDelayMs { get => _staggerDelayMs; set => SetField(ref _staggerDelayMs, value, nameof(StaggerDelayMs)); }
-
-    private bool _bootSplashEnabled;
+    public int StaggerDelayMs { get; set => SetField(ref field, value, nameof(StaggerDelayMs)); }
 
     /// <summary>Gets or sets whether a splash window is shown while game mode starts.</summary>
-    public bool BootSplashEnabled { get => _bootSplashEnabled; set => SetField(ref _bootSplashEnabled, value, nameof(BootSplashEnabled)); }
+    public bool BootSplashEnabled { get; set => SetField(ref field, value, nameof(BootSplashEnabled)); }
 
     /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>
     /// <param name="row">The row to move, or null (a no-op).</param>
@@ -1495,23 +1418,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     public void ClearChord() => ApplyRecordedChord(0, false);
 
     // --- Gestures / glyphs ---
-    private bool _gestureBottom;
-    private bool _gestureTop;
-    private bool _gestureLeftSteamMenu;
-    private bool _gestureRightSteamQuickAccess;
     private int _glyphStyleIndex;
 
     /// <summary>Gets or sets whether a bottom-edge swipe opens quick access on its Open apps strip (game mode).</summary>
-    public bool GestureBottom { get => _gestureBottom; set => SetField(ref _gestureBottom, value, nameof(GestureBottom)); }
+    public bool GestureBottom { get; set => SetField(ref field, value, nameof(GestureBottom)); }
 
     /// <summary>Gets or sets whether a top-edge swipe opens quick access.</summary>
-    public bool GestureTop { get => _gestureTop; set => SetField(ref _gestureTop, value, nameof(GestureTop)); }
+    public bool GestureTop { get; set => SetField(ref field, value, nameof(GestureTop)); }
 
     /// <summary>Gets or sets whether a left-edge swipe opens Steam's Big Picture menu.</summary>
-    public bool GestureLeftSteamMenu { get => _gestureLeftSteamMenu; set => SetField(ref _gestureLeftSteamMenu, value, nameof(GestureLeftSteamMenu)); }
+    public bool GestureLeftSteamMenu { get; set => SetField(ref field, value, nameof(GestureLeftSteamMenu)); }
 
     /// <summary>Gets or sets whether a right-edge swipe opens Steam's Big Picture quick-access menu.</summary>
-    public bool GestureRightSteamQuickAccess { get => _gestureRightSteamQuickAccess; set => SetField(ref _gestureRightSteamQuickAccess, value, nameof(GestureRightSteamQuickAccess)); }
+    public bool GestureRightSteamQuickAccess { get; set => SetField(ref field, value, nameof(GestureRightSteamQuickAccess)); }
 
     /// <summary>Gets or sets the selected controller-glyph family index.</summary>
     public int GlyphStyleIndex { get => _glyphStyleIndex; set { _glyphStyleIndex = value; Raise(nameof(GlyphStyleIndex)); Raise(nameof(GlyphStyle)); } }
@@ -1524,11 +1443,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     public List<string> GlyphStyles { get; } = ["Xbox", "PlayStation", "Nintendo"];
 
     // --- Appearance: accent color ---
-    private string _accentColorHex = AccentPalette.DefaultAccent;
 
     /// <summary>Gets or sets the UI accent color as a hex string (e.g. "#FF9D3D").
     /// An unparsable value falls back to the default accent when applied.</summary>
-    public string AccentColorHex { get => _accentColorHex; set => SetField(ref _accentColorHex, value, nameof(AccentColorHex)); }
+    public string AccentColorHex { get; set => SetField(ref field, value, nameof(AccentColorHex)); } = AccentPalette.DefaultAccent;
 
     // --- Appearance: boot splash ---
     // The editor binds the SplashConfig instance directly ({Binding Splash.X}).
@@ -1718,17 +1636,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.GlyphStyle = GlyphStyle;
         config.AccentColor = AccentColorHex;
         config.Splash = splash;
-        config.StartupApps = StartupApps
-            .Where(r => !string.IsNullOrWhiteSpace(r.Path))
-            .Select(r => new StartupAppConfig
-            {
-                Path = r.Path.Trim(),
-                Args = r.Args.Trim(),
-                Enabled = r.Enabled,
-                Elevated = r.Elevated,
-                AutoRelaunch = r.AutoRelaunch
-            })
-            .ToList();
+        config.StartupApps =
+        [
+            .. StartupApps
+                .Where(r => !string.IsNullOrWhiteSpace(r.Path))
+                .Select(r => new StartupAppConfig
+                {
+                    Path = r.Path.Trim(),
+                    Args = r.Args.Trim(),
+                    Enabled = r.Enabled,
+                    Elevated = r.Elevated,
+                    AutoRelaunch = r.AutoRelaunch
+                })
+        ];
     }
 
     /// <summary>Seeds the launch fields from a stored configuration.</summary>
@@ -1821,8 +1741,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Whether both layouts currently describe a desktop Windows would accept.</summary>
     public bool CanSaveLayouts =>
-        (!ShowCustomLaunch || (GameLayout.HasActiveDisplays && !GameLayout.HasValidationError))
-        && (!ShowDesktopLayout || (DesktopLayout.HasActiveDisplays && !DesktopLayout.HasValidationError))
+        (!ShowCustomLaunch || GameLayout is { HasActiveDisplays: true, HasValidationError: false })
+        && (!ShowDesktopLayout || DesktopLayout is { HasActiveDisplays: true, HasValidationError: false })
         && !ActionLists.Any(list => list.HasValidationError);
 
     private void ForgetDisplay(DisplayLayoutEditorRow? row)
@@ -1933,16 +1853,17 @@ public sealed partial class SettingsViewModel : ObservableObject
                 existing.MaximumDpiPercent = Math.Max(existing.MaximumDpiPercent, facts.MaximumDpiPercent);
             }
             if (observed.Current?.Hdr is not null) { existing.HdrSupported = true; }
-            if (observed.Current is { } current)
+            if (observed.Current is not { } current)
             {
-                // The mode it is running is worth keeping even when enumeration failed, so a
-                // remembered display always offers at least what it was last seen doing.
-                DisplayMode running = new(current.Width, current.Height,
-                    (int)Math.Round(current.Refresh.Hertz));
-                if (running is { Width: > 0, Height: > 0 } && !existing.Modes.Contains(running))
-                {
-                    existing.Modes.Add(running);
-                }
+                continue;
+            }
+            // The mode it is running is worth keeping even when enumeration failed, so a
+            // remembered display always offers at least what it was last seen doing.
+            DisplayMode running = new(current.Width, current.Height,
+                (int)Math.Round(current.Refresh.Hertz));
+            if (running is { Width: > 0, Height: > 0 } && !existing.Modes.Contains(running))
+            {
+                existing.Modes.Add(running);
             }
         }
     }
@@ -2020,7 +1941,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             QuickSetupAnswered)
         {
             ForgottenDisplays = [.. _forgottenDisplays],
-            CommonPluginEdits = CommonPlugins.Where(row => row.Edited).Select(row => row.Capture()).ToArray()
+            CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())]
         };
     }
 
@@ -2201,15 +2122,16 @@ public sealed partial class SettingsViewModel : ObservableObject
         var scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal)
             && string.Equals(candidate.PluginId, pluginId, StringComparison.Ordinal));
-        if (scope is null)
+        if (scope is not null)
         {
-            scope = new PluginSettingsScope
-            {
-                DeviceDefinitionId = deviceDefinitionId,
-                PluginId = pluginId
-            };
-            config.DeviceIntegration.PluginSettings.Add(scope);
+            return scope;
         }
+        scope = new PluginSettingsScope
+        {
+            DeviceDefinitionId = deviceDefinitionId,
+            PluginId = pluginId
+        };
+        config.DeviceIntegration.PluginSettings.Add(scope);
         return scope;
     }
 
@@ -2313,12 +2235,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// runs outside <c>ConfigStore.AcquireLock</c> - that lock's timeout is sized for
     /// one small JSON write, not for file copies into Program Files.
     /// </remarks>
-    private void ApplySteamInputManagementAfterSave(AppConfig config)
+    private static void ApplySteamInputManagementAfterSave(AppConfig config)
     {
         SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         var status = SteamInputShim.Reconcile("settings-save");
-        if (status.State == SteamInputShimState.Failed
-            && status.Detail == "access denied"
+        if (status is { State: SteamInputShimState.Failed, Detail: "access denied" }
             // Tri-state: only retry when we KNOW we are unelevated. Unknown stays
             // put rather than throwing a UAC prompt at a user who may not need one.
             && ElevationCheck.IsCurrentProcessElevated() == false)

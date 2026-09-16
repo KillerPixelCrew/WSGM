@@ -6,7 +6,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class ConfigurationTests
 {
@@ -307,9 +307,9 @@ public sealed class ConfigurationTests
 
         var normalized = ConfigStore.Normalize(new AppConfig { CustomTabs = [tab] });
 
-        Assert.Equal(FilterKind.Installed, normalized.CustomTabs[0].FilterTree!.Kind);
-        Assert.Equal(FilterMode.And, normalized.CustomTabs[0].FilterTree!.Mode);
-        Assert.Equal(SdCardScope.Inserted, normalized.CustomTabs[0].FilterTree!.CardScope);
+        Assert.Equal(FilterKind.Installed, normalized.CustomTabs[0].FilterTree.Kind);
+        Assert.Equal(FilterMode.And, normalized.CustomTabs[0].FilterTree.Mode);
+        Assert.Equal(SdCardScope.Inserted, normalized.CustomTabs[0].FilterTree.CardScope);
     }
 
     [Fact]
@@ -643,14 +643,15 @@ public sealed class ConfigurationTests
             Assert.Equal(1, ConfigStore.LockDepth);
 
             // A nested scope left through an exception still pops exactly one level.
-            var nestedStepThatThrows = () =>
+            static void NestedStepThatThrows()
             {
                 using (ConfigStore.AcquireLock())
                 {
                     throw new InvalidOperationException("nested step blew up");
                 }
-            };
-            Assert.Throws<InvalidOperationException>(nestedStepThatThrows);
+            }
+
+            Assert.Throws<InvalidOperationException>(NestedStepThatThrows);
             Assert.Equal(1, ConfigStore.LockDepth);
 
             // Disposing the same scope twice must not pop a level it never pushed.
@@ -795,8 +796,8 @@ public sealed class ConfigurationTests
                 SweepEdge = SweepEdge.Top,
                 BackgroundColor = "#101010",
                 VignetteEnabled = true,
-                BackgroundImagePath = "C:\\Images\\bg.png",
-                LogoImagePath = "C:\\Images\\logo.png",
+                BackgroundImagePath = @"C:\Images\bg.png",
+                LogoImagePath = @"C:\Images\logo.png",
                 LogoMaxSize = 320,
                 TextPlacement = new SplashElementPlacement
                 {
@@ -838,8 +839,8 @@ public sealed class ConfigurationTests
         Assert.Equal(SweepEdge.Top, splash.SweepEdge);
         Assert.Equal("#101010", splash.BackgroundColor);
         Assert.True(splash.VignetteEnabled);
-        Assert.Equal("C:\\Images\\bg.png", splash.BackgroundImagePath);
-        Assert.Equal("C:\\Images\\logo.png", splash.LogoImagePath);
+        Assert.Equal(@"C:\Images\bg.png", splash.BackgroundImagePath);
+        Assert.Equal(@"C:\Images\logo.png", splash.LogoImagePath);
         Assert.Equal(320, splash.LogoMaxSize);
         Assert.Equal(SplashPlacementAnchor.BottomLeft, splash.TextPlacement.Anchor);
         Assert.Equal(32, splash.TextPlacement.PaddingX);
@@ -870,11 +871,16 @@ public sealed class ConfigurationTests
         // A presentation preference, not a feature: greyed uninstalled games stay out by default.
         Assert.False(defaults.CarouselShowUninstalled);
 
-        var original = new AppConfig();
-        original.Cef.DownloadQueueSort = false;
-        original.Cef.DownloadKeepAwake = false;
-        original.Cef.ConnectedLibraryCarousel = false;
-        original.Cef.CarouselShowUninstalled = true;
+        var original = new AppConfig
+        {
+            Cef =
+            {
+                DownloadQueueSort = false,
+                DownloadKeepAwake = false,
+                ConnectedLibraryCarousel = false,
+                CarouselShowUninstalled = true
+            }
+        };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
         var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
@@ -951,11 +957,11 @@ public sealed class ConfigurationTests
             PreviousShellValue = "explorer.exe",
             StartupApps =
             [
-                new StartupAppConfig { Path = "C:\\Tools\\companion.exe", Args = "--silent", Elevated = true }
+                new StartupAppConfig { Path = @"C:\Tools\companion.exe", Args = "--silent", Elevated = true }
             ],
             SavedDisplayScaleEntries =
             [
-                new DisplayScaleEntry { DeviceName = "\\\\.\\DISPLAY1", Percent = 150 }
+                new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }
             ]
         };
 
@@ -1007,9 +1013,14 @@ public sealed class ConfigurationTests
     [Fact]
     public void NormalizeRepairsOutOfRangeLaunchEnums()
     {
-        var config = new AppConfig();
-        config.GameModeLaunch.Kind = (GameModeLaunchKind)99;
-        config.GameModeLaunch.Return = (GameModeReturn)99;
+        var config = new AppConfig
+        {
+            GameModeLaunch =
+            {
+                Kind = (GameModeLaunchKind)99,
+                Return = (GameModeReturn)99
+            }
+        };
 
         ConfigStore.Normalize(config);
 
@@ -1022,22 +1033,27 @@ public sealed class ConfigurationTests
     {
         DisplayTargetIdentity target =
             new(@"\\?\DISPLAY#TV0001", null, null, "Living room TV", 0, 0, 3);
-        var original = new AppConfig();
-        original.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
-        original.GameModeLaunch.GameLayout = new DisplayLayout([
-            new DisplayLayoutOutput(target, 0, 0, 3840, 2160, DisplayRefresh.FromHertz(120),
-                DpiPercent: 150, Hdr: true)]);
-        original.GameModeLaunch.WaitForDisplay = target;
-        original.GameModeLaunch.EnterActions =
-        [
-            new PluginActionStep
+        var original = new AppConfig
+        {
+            GameModeLaunch =
             {
-                Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
-                ActionId = "remote-press",
-                Arguments = { ["remote"] = new PluginValue(Text: "hdmi-switch") },
-                TimeoutSeconds = 20
+                Kind = GameModeLaunchKind.Custom,
+                GameLayout = new DisplayLayout([
+                    new DisplayLayoutOutput(target, 0, 0, 3840, 2160, DisplayRefresh.FromHertz(120),
+                        DpiPercent: 150, Hdr: true)]),
+                WaitForDisplay = target,
+                EnterActions =
+                [
+                    new PluginActionStep
+                    {
+                        Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"),
+                        ActionId = "remote-press",
+                        Arguments = { ["remote"] = new PluginValue(Text: "hdmi-switch") },
+                        TimeoutSeconds = 20
+                    }
+                ]
             }
-        ];
+        };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
         var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!;
@@ -1062,12 +1078,17 @@ public sealed class ConfigurationTests
             new(@"\\?\a", null, null, "A", 0, 0, 1);
         DisplayTargetIdentity second =
             new(@"\\?\b", null, null, "B", 0, 0, 2);
-        var config = new AppConfig();
         // Two displays both claiming the origin: no primary can be chosen, so the file was either
         // hand-edited or written by something that did not check.
-        config.GameModeLaunch.GameLayout = new DisplayLayout([
-            new DisplayLayoutOutput(first, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)),
-            new DisplayLayoutOutput(second, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))]);
+        var config = new AppConfig
+        {
+            GameModeLaunch =
+            {
+                GameLayout = new DisplayLayout([
+                    new DisplayLayoutOutput(first, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)),
+                    new DisplayLayoutOutput(second, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60))])
+            }
+        };
 
         ConfigStore.Normalize(config);
 
@@ -1077,12 +1098,17 @@ public sealed class ConfigurationTests
     [Fact]
     public void NormalizeDropsAnActionStepThatNamesNoPluginAndClampsTheDeadline()
     {
-        var config = new AppConfig();
-        config.GameModeLaunch.EnterActions =
-        [
-            new PluginActionStep { ActionId = "orphan" },
-            new PluginActionStep { Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"), ActionId = "press", TimeoutSeconds = 9000 }
-        ];
+        var config = new AppConfig
+        {
+            GameModeLaunch =
+            {
+                EnterActions =
+                [
+                    new PluginActionStep { ActionId = "orphan" },
+                    new PluginActionStep { Plugin = new PluginInstanceIdentity("wsgm.ir", "blaster"), ActionId = "press", TimeoutSeconds = 9000 }
+                ]
+            }
+        };
 
         ConfigStore.Normalize(config);
 
@@ -1154,7 +1180,7 @@ public sealed class ConfigurationTests
             """{"SteamInputLeaseEnabled":true}""", ConfigJsonContext.Default.AppConfig);
 
         Assert.NotNull(restored);
-        Assert.True(restored!.SteamInputManagementEnabled);
+        Assert.True(restored.SteamInputManagementEnabled);
         Assert.Equal(0, restored.QuickSetupRevision);
     }
 

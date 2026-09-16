@@ -45,13 +45,21 @@ public sealed class DevicePowerPresetView : UserControl
         };
         _ac.SelectionChanged += async (_, _) =>
         {
-            if (!_rendering && _model is { CanAssign: true } model && _ac.SelectedItem is DevicePowerPreset choice)
-            { if (choice.Id != "custom") { await model.AssignAsync(true, choice.Id.Length == 0 ? null : choice.Id); } }
+            if (_rendering || _model is not { CanAssign: true } model
+                || _ac.SelectedItem is not DevicePowerPreset choice || choice.Id == "custom")
+            {
+                return;
+            }
+            await model.AssignAsync(true, choice.Id.Length == 0 ? null : choice.Id);
         };
         _battery.SelectionChanged += async (_, _) =>
         {
-            if (!_rendering && _model is { CanAssign: true } model && _battery.SelectedItem is DevicePowerPreset choice)
-            { if (choice.Id != "custom") { await model.AssignAsync(false, choice.Id.Length == 0 ? null : choice.Id); } }
+            if (_rendering || _model is not { CanAssign: true } model
+                || _battery.SelectedItem is not DevicePowerPreset choice || choice.Id == "custom")
+            {
+                return;
+            }
+            await model.AssignAsync(false, choice.Id.Length == 0 ? null : choice.Id);
         };
     }
 

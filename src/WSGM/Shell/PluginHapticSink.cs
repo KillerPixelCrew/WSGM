@@ -17,7 +17,7 @@ namespace WSGM.Shell;
 internal sealed class PluginHapticSink : IPhysicalHapticSink
 {
     private readonly Func<HapticOutputFrame, CancellationToken, Task> _applyAsync;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private HapticCapabilities? _capabilities;
     private long _sourceGeneration;
     private int _framesInFlight;

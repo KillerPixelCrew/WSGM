@@ -330,6 +330,8 @@ public partial class RadioWindow : Window
                         ? $"Enter this PIN on the device: {prompt.Pin}"
                         : $"Does the device show {prompt.Pin}?");
                 break;
+            case WindowsRadio.PairingKind.ConfirmOnly:
+            case WindowsRadio.PairingKind.Unknown:
             default: // Confirm-only, and an unrecognized ceremony.
                 ShowPrompt(
                     PromptMode.PairingConfirm,
@@ -405,6 +407,9 @@ public partial class RadioWindow : Window
                 break;
             case PromptMode.PairingConfirm:
                 _radios.RespondToPairing(token, accept: true, null);
+                break;
+            case PromptMode.None:
+            default:
                 break;
         }
     }

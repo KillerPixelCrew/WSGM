@@ -102,7 +102,7 @@ public static class ShellRegistration
         try
         {
             var config = new AppConfig();
-            try { config = ConfigStore.Load(); } catch { }
+            try { config = ConfigStore.Load(); } catch (Exception) { /* keep the defaults: restore must run with a broken config */ }
 
             // OpenSubKey (not CreateSubKey): a restore that finds nothing to restore
             // must not create keys as a side effect. Winlogon always exists; a null
@@ -123,7 +123,7 @@ public static class ShellRegistration
                     // Install — anything else means the user (or the Xbox app)
                     // changed it since, and that change must win.
                     var currentGaming = GamingHomeSnapshot.ReadCurrent(gaming);
-                    if (currentGaming.Exists && currentGaming.Value == 0)
+                    if (currentGaming is { Exists: true, Value: 0 })
                     {
                         GamingHomeSnapshot.Restore(gaming, config);
                     }

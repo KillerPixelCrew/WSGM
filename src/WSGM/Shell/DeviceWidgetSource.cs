@@ -44,16 +44,21 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             var value = Value(view.Projection.State.ObservedValue);
             var kind = PluginUiKind.Status;
             PluginSetting? argument = null;
-            if (row.Writable && descriptor.ValueKind == CapabilityValueKind.Integer && value.Number is not null
-                && descriptor.Minimum is { } min && descriptor.Maximum is { } max && min < max)
-            { kind = PluginUiKind.Slider; argument = new PluginSetting("value", row.Title, PluginSettingKind.Number, value, min, max); }
-            else if (row.Writable && descriptor.ValueKind == CapabilityValueKind.Boolean && value.Boolean is not null)
-            { kind = PluginUiKind.Toggle; argument = new PluginSetting("value", row.Title, PluginSettingKind.Boolean, value); }
-            else if (row.Writable && descriptor.ValueKind == CapabilityValueKind.Choice && value.Text is not null
-                && descriptor.Choices.Count > 0)
+            switch (descriptor.ValueKind)
             {
-                argument = new PluginSetting("value", row.Title, PluginSettingKind.Text, value,
-                    Choices: descriptor.Choices.Select(choice => choice.Value).ToArray());
+                case CapabilityValueKind.Integer when row.Writable && value.Number is not null
+                    && descriptor is { Minimum: { } min, Maximum: { } max } && min < max:
+                    kind = PluginUiKind.Slider;
+                    argument = new PluginSetting("value", row.Title, PluginSettingKind.Number, value, min, max);
+                    break;
+                case CapabilityValueKind.Boolean when row.Writable && value.Boolean is not null:
+                    kind = PluginUiKind.Toggle;
+                    argument = new PluginSetting("value", row.Title, PluginSettingKind.Boolean, value);
+                    break;
+                case CapabilityValueKind.Choice when row.Writable && value.Text is not null && descriptor.Choices.Count > 0:
+                    argument = new PluginSetting("value", row.Title, PluginSettingKind.Text, value,
+                        Choices: [.. descriptor.Choices.Select(choice => choice.Value)]);
+                    break;
             }
             if (argument is not null) { actions.Add(new PluginAction(key, row.Title, [argument])); }
             var choiceControl = argument?.Choices is not null;
@@ -87,7 +92,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
                                                                 && item.InstanceId == view.Descriptor.InstanceId && item.CanInvoke);
             states.Add(new PluginStatePublication(identity, _generation, ++_sequence, "enabled." + key, new PluginValue(Boolean: enabled), PluginStateOrigin.HardwareReadback));
         }
-        return states.ToArray();
+        return [.. states];
     }
 
     public async Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
@@ -98,10 +103,10 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         if (_identity != identity || generation != _generation || !_views.TryGetValue(action, out var view)
             || arguments.Count != 1 || !arguments.TryGetValue("value", out var value))
         { return new PluginActionResult(operation, PluginActionOutcome.Rejected, "The Device widget changed. Select it again."); }
-        CapabilityValue? requested = view.Descriptor.ValueKind switch
+        var requested = view.Descriptor.ValueKind switch
         {
-            CapabilityValueKind.Integer when value.Number is { } number && double.IsFinite(number)
-                && number == Math.Truncate(number) && number is >= int.MinValue and <= int.MaxValue =>
+            CapabilityValueKind.Integer when value.Number is { } number && double.IsInteger(number)
+                && number is >= int.MinValue and <= int.MaxValue =>
                 new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = (int)number },
             CapabilityValueKind.Boolean when value.Boolean is { } enabled =>
                 new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
@@ -115,8 +120,12 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         var result = await coordinator.ExecuteCapabilityAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId,
             requested, TimeSpan.FromSeconds(5), cancellationToken: cancellationToken,
             expectedCycle: state.CycleGeneration, expectedDescriptors: state.DescriptorGeneration).ConfigureAwait(false);
-        return new PluginActionResult(operation, result.Outcome == CommandOutcome.AppliedVerified ? PluginActionOutcome.AppliedVerified
-            : result.Outcome == CommandOutcome.Rejected ? PluginActionOutcome.Rejected : PluginActionOutcome.Unconfirmed, result.Reason?.Detail);
+        return new PluginActionResult(operation, result.Outcome switch
+        {
+            CommandOutcome.AppliedVerified => PluginActionOutcome.AppliedVerified,
+            CommandOutcome.Rejected => PluginActionOutcome.Rejected,
+            _ => PluginActionOutcome.Unconfirmed
+        }, result.Reason?.Detail);
     }
 
     internal static string KeyFor(string capabilityId, string? instanceId) =>

@@ -63,15 +63,12 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
         {
             throw new InvalidDataException("Selected IR command is absent.");
         }
-        foreach (var scene in Scenes)
-        {
-            if (scene is null || !ValidName(scene.Id) || !scenes.Add(scene.Id) || !ValidName(scene.Name)
+        if (Scenes.Any(scene => scene is null || !ValidName(scene.Id) || !scenes.Add(scene.Id) || !ValidName(scene.Name)
                 || scene.Steps is not { Length: > 0 and <= 32 }
                 || scene.Steps.Any(step => step is null || !identities.Contains(step.CommandId)
-                    || step.DelayAfterMs is < 0 or > 5000))
-            {
-                throw new InvalidDataException("Invalid IR scene or missing command.");
-            }
+                    || step.DelayAfterMs is < 0 or > 5000)))
+        {
+            throw new InvalidDataException("Invalid IR scene or missing command.");
         }
     }
 

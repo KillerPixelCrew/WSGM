@@ -68,14 +68,14 @@ public sealed class TabStrip : TemplatedControl
 
     /// <summary>Defines the Avalonia property holding the list of tabs. Assigning a new
     /// list rebuilds the tab buttons; mutating a previously assigned list is not observed.</summary>
-    public static readonly StyledProperty<IReadOnlyList<TabStripItem>?> TabsProperty =
+    private static readonly StyledProperty<IReadOnlyList<TabStripItem>?> TabsProperty =
         AvaloniaProperty.Register<TabStrip, IReadOnlyList<TabStripItem>?>(nameof(Tabs));
 
     /// <summary>Defines the Avalonia property holding the selected tab index.</summary>
-    public static readonly StyledProperty<int> SelectedIndexProperty =
+    private static readonly StyledProperty<int> SelectedIndexProperty =
         AvaloniaProperty.Register<TabStrip, int>(nameof(SelectedIndex));
 
-    private readonly List<Button> _tabButtons = new();
+    private readonly List<Button> _tabButtons = [];
     private Panel? _tabsHost;
 
     /// <summary>Gets or sets the list of tabs. Assigning a new list rebuilds the tab

@@ -1,6 +1,6 @@
 using WSGM.Device.Sdk.Capabilities;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Builders;
 
 /// <summary>A readable, writable 8-37 W limit for power pair and preset validation tests.</summary>
 internal static class PowerLimitDescriptors

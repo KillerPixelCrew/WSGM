@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
 
 namespace WSGM.Core;
@@ -66,7 +67,7 @@ internal static class SplashTheme
 
     /// <summary>Parent directory holding one staging directory per import, under the
     /// user's temp folder — deliberately outside the live splash assets.</summary>
-    internal static string StagingRoot => Path.Combine(Path.GetTempPath(), "WSGM.splash-import");
+    private static string StagingRoot => Path.Combine(Path.GetTempPath(), "WSGM.splash-import");
 
     /// <summary>Writes a splash theme archive to <paramref name="path"/> atomically:
     /// the archive is built in a sibling temp file and moved over the destination
@@ -89,7 +90,7 @@ internal static class SplashTheme
     /// open for the caller to dispose.</summary>
     /// <returns>True when the archive was written; false (logged) on any failure,
     /// including a selected image above the per-image import cap.</returns>
-    internal static bool Export(SplashConfig splash, Stream destination)
+    private static bool Export(SplashConfig splash, Stream destination)
     {
         try
         {
@@ -137,13 +138,14 @@ internal static class SplashTheme
     {
         var stagingDirectory = Path.Combine(StagingRoot, Guid.NewGuid().ToString("N"));
         var imported = Import(path, stagingDirectory);
-        if (imported is not null)
+        if (imported is null)
         {
-            // Claim BEFORE sweeping: a concurrent sweep in another process must never
-            // see this directory unowned, and our own sweep skips it by name anyway.
-            TrackStagingOwnership(stagingDirectory);
-            CleanUpStaleStagingDirectories(StagingRoot, keep: stagingDirectory);
+            return null;
         }
+        // Claim BEFORE sweeping: a concurrent sweep in another process must never
+        // see this directory unowned, and our own sweep skips it by name anyway.
+        TrackStagingOwnership(stagingDirectory);
+        CleanUpStaleStagingDirectories(StagingRoot, keep: stagingDirectory);
         return imported;
     }
 
@@ -309,11 +311,12 @@ internal static class SplashTheme
                 return false;
             }
             totalBytes += entry.Length;
-            if (totalBytes > MaxTotalBytes)
+            if (totalBytes <= MaxTotalBytes)
             {
-                Log.Warn($"Splash theme '{path}' rejected: total declared size exceeds {MaxTotalBytes} bytes.");
-                return false;
+                continue;
             }
+            Log.Warn($"Splash theme '{path}' rejected: total declared size exceeds {MaxTotalBytes} bytes.");
+            return false;
         }
         return true;
     }
@@ -395,14 +398,14 @@ internal static class SplashTheme
             );
             return false;
         }
-        if (info.Length > MaxImageEntryBytes)
+        if (info.Length <= MaxImageEntryBytes)
         {
-            Log.Warn(
-                $"Splash theme export refused: image '{sourcePath}' is {info.Length} bytes (limit {MaxImageEntryBytes})."
-            );
-            return false;
+            return true;
         }
-        return true;
+        Log.Warn(
+            $"Splash theme export refused: image '{sourcePath}' is {info.Length} bytes (limit {MaxImageEntryBytes})."
+        );
+        return false;
     }
 
     /// <summary>Copies the referenced image into the archive under its deterministic
@@ -765,15 +768,7 @@ internal static class SplashTheme
         }
     }
 
-    private static ZipArchiveEntry? FindConfigEntry(ZipArchive archive)
-    {
-        foreach (var entry in archive.Entries)
-        {
-            if (string.Equals(entry.FullName, ConfigEntryName, StringComparison.OrdinalIgnoreCase))
-            {
-                return entry;
-            }
-        }
-        return null;
-    }
+    private static ZipArchiveEntry? FindConfigEntry(ZipArchive archive) =>
+        archive.Entries.FirstOrDefault(entry =>
+            string.Equals(entry.FullName, ConfigEntryName, StringComparison.OrdinalIgnoreCase));
 }

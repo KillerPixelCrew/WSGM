@@ -69,12 +69,12 @@ internal static class ConsoleTool
                 Log.Warn($"{what} still running after {timeoutMs / 1000} s — treated as failed.");
                 return false;
             }
-            if (p.ExitCode != 0)
+            if (p.ExitCode == 0)
             {
-                Log.Warn($"{what} exited with {p.ExitCode}.");
-                return false;
+                return true;
             }
-            return true;
+            Log.Warn($"{what} exited with {p.ExitCode}.");
+            return false;
         }
         catch (Exception ex)
         {
@@ -182,12 +182,12 @@ internal static class ConsoleTool
                 return ConsoleToolRunOutcome.Unknown;
             }
 
-            if (process.ExitCode != 0)
+            if (process.ExitCode == 0)
             {
-                Log.Warn($"{what} exited with {process.ExitCode}.");
-                return ConsoleToolRunOutcome.Failed;
+                return ConsoleToolRunOutcome.Succeeded;
             }
-            return ConsoleToolRunOutcome.Succeeded;
+            Log.Warn($"{what} exited with {process.ExitCode}.");
+            return ConsoleToolRunOutcome.Failed;
         }
         catch (OperationCanceledException)
         {
@@ -253,12 +253,12 @@ internal static class ConsoleTool
                 // hang the caller. Bound the drain: the documented contract is
                 // (-1, output), never a wait without end.
                 var drain = Task.WhenAll(stdout, stderr);
-                if (await Task.WhenAny(drain, Task.Delay(DrainTimeoutMs)) != drain)
+                if (await Task.WhenAny(drain, Task.Delay(DrainTimeoutMs)) == drain)
                 {
-                    Log.Warn($"{what} output could not be drained after the kill.");
-                    return (-1, "");
+                    return (-1, $"{await stdout}{await stderr}");
                 }
-                return (-1, $"{await stdout}{await stderr}");
+                Log.Warn($"{what} output could not be drained after the kill.");
+                return (-1, "");
             }
             var output = $"{await stdout}{await stderr}";
             if (p.ExitCode != 0)

@@ -10,7 +10,7 @@ namespace WSGM.Core;
 public static class SteamUiAssetCatalog
 {
     /// <summary>Embedded resource name of the version-one native-QAM bootstrap.</summary>
-    public const string NativeQamBootstrapResource =
+    private const string NativeQamBootstrapResource =
         "WSGM.Core.SteamUiAssets.NativeQamBootstrap.js";
 
     /// <summary>Expected SHA-256 of the UTF-8 bootstrap source.</summary>
@@ -28,10 +28,8 @@ public static class SteamUiAssetCatalog
             stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
         var source = reader.ReadToEnd();
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
-        if (!string.Equals(hash, NativeQamBootstrapSha256, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("Embedded Steam UI bootstrap hash did not match source.");
-        }
-        return source;
+        return !string.Equals(hash, NativeQamBootstrapSha256, StringComparison.Ordinal)
+            ? throw new InvalidDataException("Embedded Steam UI bootstrap hash did not match source.")
+            : source;
     }
 }

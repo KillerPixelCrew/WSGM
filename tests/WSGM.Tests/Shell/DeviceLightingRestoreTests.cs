@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class DeviceLightingRestoreTests
 {

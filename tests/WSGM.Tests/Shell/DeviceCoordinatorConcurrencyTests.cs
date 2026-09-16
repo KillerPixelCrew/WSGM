@@ -3,7 +3,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class DeviceCoordinatorConcurrencyTests
 {
@@ -70,7 +70,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
     public async Task CanceledStart_CallerCancellationUsesAFreshBoundedCleanupContext()
     {
         using var canceledCaller = new CancellationTokenSource();
-        canceledCaller.Cancel();
+        await canceledCaller.CancelAsync();
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
         var budget = TimeSpan.FromSeconds(5);
         DateTimeOffset receivedDeadline = default;
@@ -265,7 +265,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
     public async Task ClientTeardown_CanceledHandoffStillAttemptsStopBeforeDisposal()
     {
         using var cancellation = new CancellationTokenSource();
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
         List<string> order = [];
 
         var teardown = await DeviceCoordinator.RunClientTeardownAsync(
@@ -348,7 +348,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         using var lifetime = new CancellationTokenSource();
         using var transitionGate = new SemaphoreSlim(0, 1);
         var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var registration = lifetime.Token.Register(
+        await using var registration = lifetime.Token.Register(
             () => canceled.TrySetResult());
 
         var waiting = DeviceCoordinator.CancelLifetimeAndWaitForTransitionAsync(
@@ -478,7 +478,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         // (a using scope around the maintenance body in Program), so exclusivity while held
         // and reacquirability after release are the load-bearing marker semantics.
         var name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
-        using (var reservation = Assert.IsType<Mutex>(
+        using (Assert.IsType<Mutex>(
             DeviceCoordinator.TryCreateOwnerMutex(name)))
         {
             Assert.Null(DeviceCoordinator.TryCreateOwnerMutex(name));
@@ -503,7 +503,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 await release.Task.ConfigureAwait(false);
                 return 23;
             });
-        var outcome = 0;
+        int outcome;
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));

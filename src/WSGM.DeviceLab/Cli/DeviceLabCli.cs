@@ -67,7 +67,7 @@ internal static class DeviceLabCli
             // Community plugin code is intentionally outside WSGM's exception vocabulary. The CLI
             // boundary must still return a deterministic failure instead of losing the report and
             // process status to an arbitrary plugin exception.
-            Console.Error.WriteLine($"Command failed: {exception.Message}");
+            await Console.Error.WriteLineAsync($"Command failed: {exception.Message}").ConfigureAwait(false);
             return Failed;
         }
     }
@@ -115,7 +115,7 @@ internal static class DeviceLabCli
             return UsageError("candidates requires --from <inventory.json>.");
         }
 
-        WriteJson(Application().Candidates(input, Option(args, "--device-id")));
+        WriteJson(DeviceLabApplication.Candidates(input, Option(args, "--device-id")));
         return Success;
     }
 
@@ -148,7 +148,7 @@ internal static class DeviceLabCli
             return execution.Run?.Status is ReadProbeRunStatus.Accepted ? Success : Failed;
         }
 
-        var result = application.Candidates(input);
+        var result = DeviceLabApplication.Candidates(input);
         WriteJson(new
         {
             probes = result.ReadOnlyProbes,
@@ -180,27 +180,22 @@ internal static class DeviceLabCli
                           && !string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase);
         if (!interactive)
         {
-            Console.Error.WriteLine("capture run refused: a local interactive terminal is mandatory.");
+            await Console.Error.WriteLineAsync("capture run refused: a local interactive terminal is mandatory.").ConfigureAwait(false);
             return Failed;
         }
 
-        var review = Application().ReviewCaptureRecipe(recipe);
-        Console.Error.WriteLine("Observe-only capture scope: read-only inventory and locally compiled passive observers only.");
-        Console.Error.WriteLine("Unknown observers remain unavailable; imported recipe data cannot open a device or authorize mutation.");
-        Console.Error.WriteLine(JsonSerializer.Serialize(review, OutputJson));
-        Console.Error.Write("Type OBSERVE to prepare the private session: ");
+        var review = DeviceLabApplication.ReviewCaptureRecipe(recipe);
+        await Console.Error.WriteLineAsync("Observe-only capture scope: read-only inventory and locally compiled passive observers only.").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync("Unknown observers remain unavailable; imported recipe data cannot open a device or authorize mutation.").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync(JsonSerializer.Serialize(review, OutputJson)).ConfigureAwait(false);
+        await Console.Error.WriteAsync("Type OBSERVE to prepare the private session: ").ConfigureAwait(false);
         if (!string.Equals(Console.ReadLine(), "OBSERVE", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine("Capture cancelled before observation.");
+            await Console.Error.WriteLineAsync("Capture cancelled before observation.").ConfigureAwait(false);
             return Failed;
         }
 
         using CancellationTokenSource cancellation = new();
-        void handler(object? _, ConsoleCancelEventArgs eventArgs)
-        {
-            eventArgs.Cancel = true;
-            cancellation.Cancel();
-        }
         Console.CancelKeyPress += handler;
         ObserveOnlyCaptureResult prepared;
         try
@@ -219,7 +214,7 @@ internal static class DeviceLabCli
         }
         catch (OperationCanceledException)
         {
-            Console.Error.WriteLine("Capture cancelled. No shareable bundle was written.");
+            await Console.Error.WriteLineAsync("Capture cancelled. No shareable bundle was written.").ConfigureAwait(false);
             return Failed;
         }
         finally
@@ -229,17 +224,17 @@ internal static class DeviceLabCli
 
         if (prepared.Status is not ObserveOnlyCaptureStatus.ReadyForExport || prepared.ExportPlan is null)
         {
-            Console.Error.WriteLine($"Capture failed ({prepared.Status}): {prepared.Error}");
+            await Console.Error.WriteLineAsync($"Capture failed ({prepared.Status}): {prepared.Error}").ConfigureAwait(false);
             return Failed;
         }
 
         var plan = prepared.ExportPlan;
-        Console.Error.WriteLine($"Private session: {plan.PrivateWorkingDirectory}");
-        Console.Error.WriteLine("Sanitized shareable-content preview:");
-        Console.Error.WriteLine(JsonSerializer.Serialize(
+        await Console.Error.WriteLineAsync($"Private session: {plan.PrivateWorkingDirectory}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync("Sanitized shareable-content preview:").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync(JsonSerializer.Serialize(
             CapturePrivacyPreview.Create(plan.Bundle),
-            OutputJson));
-        Console.Error.Write("Type EXPORT to write the sanitized .wsgmcap, or press Enter to keep it private: ");
+            OutputJson)).ConfigureAwait(false);
+        await Console.Error.WriteAsync("Type EXPORT to write the sanitized .wsgmcap, or press Enter to keep it private: ").ConfigureAwait(false);
         var exportConfirmed = string.Equals(Console.ReadLine(), "EXPORT", StringComparison.Ordinal);
         var exported = Application().ExportCapture(plan, exportConfirmed);
         WriteJson(new
@@ -251,6 +246,12 @@ internal static class DeviceLabCli
             exported.Error
         });
         return exported.Exported ? Success : Failed;
+
+        void handler(object? _, ConsoleCancelEventArgs eventArgs)
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        }
     }
 
     private static int RunInspect(ReadOnlySpan<string> args)
@@ -260,7 +261,7 @@ internal static class DeviceLabCli
             return UsageError("inspect requires one .wsgmcap path.");
         }
 
-        WriteJson(Application().Inspect(args[0]));
+        WriteJson(DeviceLabApplication.Inspect(args[0]));
         return Success;
     }
 
@@ -273,7 +274,7 @@ internal static class DeviceLabCli
 
         WriteJson(new
         {
-            differences = Application().Diff(args[0], args[1])
+            differences = DeviceLabApplication.Diff(args[0], args[1])
         });
         return Success;
     }
@@ -292,7 +293,7 @@ internal static class DeviceLabCli
             return UsageError("correlate requires <capture> --action <id> --sources <id,id>.");
         }
 
-        WriteJson(Application().Correlate(
+        WriteJson(DeviceLabApplication.Correlate(
             args[0],
             action,
             sources.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -344,16 +345,16 @@ internal static class DeviceLabCli
             return UsageError("validate requires one package directory.");
         }
 
-        var report = Application().ValidateOffline(args[0]);
+        var report = DeviceLabApplication.ValidateOffline(args[0]);
         WriteJson(report);
         return report.Valid ? Success : Failed;
     }
 
     private static async Task<int> RunTestAsync(string[] args)
     {
-        if (args.Length == 1 && args[0] is "sample")
+        if (args is ["sample"])
         {
-            var report = await Application().TestSyntheticPluginAsync(CancellationToken.None).ConfigureAwait(false);
+            var report = await DeviceLabApplication.TestSyntheticPluginAsync(CancellationToken.None).ConfigureAwait(false);
             WriteJson(report);
             return report.Passed ? Success : Failed;
         }
@@ -374,7 +375,7 @@ internal static class DeviceLabCli
                 return UsageError("test plugin requires --from <inventory.json>.");
             }
 
-            var report = await Application().TestPluginAsync(
+            var report = await DeviceLabApplication.TestPluginAsync(
                 package,
                 inventory,
                 CancellationToken.None).ConfigureAwait(false);
@@ -394,18 +395,18 @@ internal static class DeviceLabCli
         if (Console.IsInputRedirected || Console.IsOutputRedirected || !Environment.UserInteractive
             || string.Equals(Environment.GetEnvironmentVariable("CI"), "true", StringComparison.OrdinalIgnoreCase))
         {
-            Console.Error.WriteLine("test hardware refused: a local interactive terminal is mandatory.");
+            await Console.Error.WriteLineAsync("test hardware refused: a local interactive terminal is mandatory.").ConfigureAwait(false);
             return Failed;
         }
 
-        Console.Error.WriteLine($"Selected action: {DescribeHardwareAction(action)}.");
-        Console.Error.WriteLine("This loads the selected local plugin and may access or change matched hardware.");
-        Console.Error.WriteLine("WSGM Device Integration must be stopped. Cleanup runs immediately after activation.");
-        Console.Error.Write("Type RUN HARDWARE to continue: ");
+        await Console.Error.WriteLineAsync($"Selected action: {DescribeHardwareAction(action)}.").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync("This loads the selected local plugin and may access or change matched hardware.").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync("WSGM Device Integration must be stopped. Cleanup runs immediately after activation.").ConfigureAwait(false);
+        await Console.Error.WriteAsync("Type RUN HARDWARE to continue: ").ConfigureAwait(false);
         var confirmed = string.Equals(Console.ReadLine(), "RUN HARDWARE", StringComparison.Ordinal);
         if (!confirmed)
         {
-            Console.Error.WriteLine("Hardware action cancelled before plugin activation.");
+            await Console.Error.WriteLineAsync("Hardware action cancelled before plugin activation.").ConfigureAwait(false);
             return Failed;
         }
 
@@ -423,7 +424,7 @@ internal static class DeviceLabCli
         }
         catch (OperationCanceledException)
         {
-            Console.Error.WriteLine("Hardware action cancelled after plugin cleanup completed.");
+            await Console.Error.WriteLineAsync("Hardware action cancelled after plugin cleanup completed.").ConfigureAwait(false);
             return Failed;
         }
         WriteJson(hardware);
@@ -458,7 +459,7 @@ internal static class DeviceLabCli
             return UsageError("glyph import requires one package directory.");
         }
 
-        var report = Application().ImportGlyphs(args[1]);
+        var report = DeviceLabApplication.ImportGlyphs(args[1]);
         WriteJson(report);
         return report.Valid ? Success : Failed;
     }
@@ -528,18 +529,17 @@ internal static class DeviceLabCli
                 continue;
             }
 
-            if (valuedOptions.Contains(token, StringComparer.Ordinal))
+            if (!valuedOptions.Contains(token, StringComparer.Ordinal))
             {
-                if (index + 1 >= args.Length || args[index + 1].StartsWith("-", StringComparison.Ordinal))
-                {
-                    return $"Option '{token}' requires a value.";
-                }
-
-                index += 2;
-                continue;
+                return $"Unknown option or argument '{token}'.";
             }
 
-            return $"Unknown option or argument '{token}'.";
+            if (index + 1 >= args.Length || args[index + 1].StartsWith('-'))
+            {
+                return $"Option '{token}' requires a value.";
+            }
+
+            index += 2;
         }
 
         return null;

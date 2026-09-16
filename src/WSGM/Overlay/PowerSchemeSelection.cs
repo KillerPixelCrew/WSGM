@@ -40,15 +40,16 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
             {
                 token.ThrowIfCancellationRequested();
                 string? saveError = null;
-                if (requested is { } id)
+                if (requested is not { } id)
                 {
-                    lock (PowerSchemes.MutationGate)
-                    {
-                        schemes.Select(id, token);
-                        // Record confirmed writes even if the sheet closes meanwhile.
-                        try { persist(id); }
-                        catch (Exception ex) { saveError = $"Windows applied the profile, but WSGM could not save the reference: {ex.Message}"; }
-                    }
+                    return (Items: schemes.Enumerate(), Active: schemes.ReadActive(), SaveError: saveError);
+                }
+                lock (PowerSchemes.MutationGate)
+                {
+                    schemes.Select(id, token);
+                    // Record confirmed writes even if the sheet closes meanwhile.
+                    try { persist(id); }
+                    catch (Exception ex) { saveError = $"Windows applied the profile, but WSGM could not save the reference: {ex.Message}"; }
                 }
                 return (Items: schemes.Enumerate(), Active: schemes.ReadActive(), SaveError: saveError);
             }, token);

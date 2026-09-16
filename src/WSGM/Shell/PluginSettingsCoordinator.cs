@@ -12,11 +12,9 @@ namespace WSGM.Shell;
 /// <summary>One plugin setting as a surface should draw it.</summary>
 /// <param name="Descriptor">What the plugin declared.</param>
 /// <param name="Value">The value in force.</param>
-/// <param name="Origin">Whether it is the declared default, a stored value, or a rejected one.</param>
 internal readonly record struct PluginSettingView(
     PluginSettingDescriptor Descriptor,
-    CapabilityValue Value,
-    PluginSettingOrigin Origin
+    CapabilityValue Value
 );
 
 /// <summary>The whole declared settings surface, ordered as it should be drawn.</summary>
@@ -47,7 +45,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     /// </remarks>
     internal const string FallbackSectionId = "wsgm:other";
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly SemaphoreSlim _deliveryGate = new(1, 1);
     private DevicePluginRuntime? _client;
     private PluginSettingsManifest? _manifest;
@@ -77,8 +75,8 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             DetachUnderGate();
             _client = client;
-            _deviceDefinitionId = deviceDefinitionId ?? string.Empty;
-            _pluginId = pluginId ?? string.Empty;
+            _deviceDefinitionId = deviceDefinitionId;
+            _pluginId = pluginId;
             _config = config;
             _manifest = null;
             client.SettingsManifestReceived += OnManifest;
@@ -183,12 +181,9 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         // Only the active scope may describe the page. Keep older scopes' authored values and
         // profiles for a future device match, but clear their presentation cache so Settings never
         // renders a declaration from a device definition that is no longer active.
-        foreach (var candidate in scopes)
+        foreach (var candidate in scopes.Where(candidate => !ReferenceEquals(candidate, scope)))
         {
-            if (!ReferenceEquals(candidate, scope))
-            {
-                candidate.Declaration = null;
-            }
+            candidate.Declaration = null;
         }
 
         scope.Declaration = manifest;
@@ -271,10 +266,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             value => value.SettingId,
             value => value.Value,
             StringComparer.Ordinal);
-        var originById = resolution.Values.ToDictionary(
-            value => value.SettingId,
-            value => value.Origin,
-            StringComparer.Ordinal);
         HashSet<string> declaredSections = new(
             manifest.Sections.Select(section => section.SectionId),
             StringComparer.Ordinal);
@@ -307,8 +298,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
 
             list.Add(new PluginSettingView(
                 setting,
-                byId.GetValueOrDefault(setting.SettingId, setting.Default),
-                originById.GetValueOrDefault(setting.SettingId, PluginSettingOrigin.Default)));
+                byId.GetValueOrDefault(setting.SettingId, setting.Default)));
         }
 
         IReadOnlyList<PluginSettingSection> sections =
@@ -338,11 +328,11 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             sections,
             grouped.ToDictionary(
                 pair => pair.Key,
-                pair => (IReadOnlyList<PluginSettingView>)pair.Value,
+                IReadOnlyList<PluginSettingView> (pair) => pair.Value,
                 StringComparer.Ordinal));
     }
 
-    private IReadOnlyList<PluginSettingValue> StoredUnderGate()
+    private List<PluginSettingValue> StoredUnderGate()
     {
         if (_config is null)
         {

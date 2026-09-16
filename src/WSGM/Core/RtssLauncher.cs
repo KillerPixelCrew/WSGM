@@ -19,7 +19,7 @@ internal sealed class RtssLauncher
     /// that is indistinguishable from failing, and would make the next probe report NotRunning for
     /// an RTSS that is simply still starting.
     /// </remarks>
-    internal static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
+    private static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
 
     /// <summary>Minimum gap between start attempts.</summary>
     /// <remarks>

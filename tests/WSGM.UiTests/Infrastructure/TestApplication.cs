@@ -3,14 +3,14 @@ using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Styling;
 using WSGM.Themes;
-using WSGM.UiTests;
+using WSGM.UiTests.Infrastructure;
 using Xunit.Sdk;
 using Xunit.v3;
 
 [assembly: AvaloniaTestApplication(typeof(TestApplication))]
 [assembly: Parallelization(Mode = ParallelMode.None)]
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Infrastructure;
 
 public sealed class TestApplication : App
 {

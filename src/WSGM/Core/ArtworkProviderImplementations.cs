@@ -44,13 +44,15 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         var matches = await SteamGridDb.SearchGamesAsync(
             term, SteamGridDb.ResolveKey(config), cancellationToken).ConfigureAwait(false);
         var trimmed = (term ?? "").Trim();
-        return matches
-            .Select(game => new ArtworkGameMatch(
-                Id,
-                game.Id.ToString(CultureInfo.InvariantCulture),
-                game.Name,
-                string.Equals(game.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
+        return
+        [
+            .. matches
+                .Select(game => new ArtworkGameMatch(
+                    Id,
+                    game.Id.ToString(CultureInfo.InvariantCulture),
+                    game.Name,
+                    string.Equals(game.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
+        ];
     }
 
     /// <inheritdoc />
@@ -77,9 +79,11 @@ public sealed class SteamGridDbProvider : IArtworkProvider
         return Convert(assets);
     }
 
-    private IReadOnlyList<ArtworkCandidate> Convert(IReadOnlyList<SgdbAsset> assets) => assets
-        .Select(a => new ArtworkCandidate(Id, DisplayName, a.Id, a.Url, a.Thumb, a.Width, a.Height, a.Extension))
-        .ToArray();
+    private ArtworkCandidate[] Convert(IReadOnlyList<SgdbAsset> assets) =>
+    [
+        .. assets.Select(a => new ArtworkCandidate(
+            Id, DisplayName, a.Id, a.Url, a.Thumb, a.Width, a.Height, a.Extension))
+    ];
 }
 
 /// <summary>
@@ -250,11 +254,13 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 new ArtworkCandidate(Id, DisplayName, 0, url, url, 0, 0, extension)));
         }
 
-        return candidates
-            .OrderBy(entry => entry.TypeRank)
-            .ThenBy(entry => entry.RegionRank)
-            .Select(entry => entry.Candidate)
-            .ToArray();
+        return
+        [
+            .. candidates
+                .OrderBy(entry => entry.TypeRank)
+                .ThenBy(entry => entry.RegionRank)
+                .Select(entry => entry.Candidate)
+        ];
     }
 
     /// <inheritdoc />
@@ -297,29 +303,34 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     private static string ReadName(JsonElement game)
     {
         // Screenscraper returns names as a region-tagged list, so the same preference applies.
-        if (game.TryGetProperty("noms", out var names) && names.ValueKind == JsonValueKind.Array)
+        if (!game.TryGetProperty("noms", out var names) || names.ValueKind != JsonValueKind.Array)
         {
-            foreach (var region in RegionPreference)
-            {
-                foreach (var entry in names.EnumerateArray())
-                {
-                    if (entry.TryGetProperty("region", out var r) && r.GetString() == region
-                        && entry.TryGetProperty("text", out var text))
-                    {
-                        return text.GetString() ?? "";
-                    }
-                }
-            }
+            return ReadSingleName(game);
+        }
+
+        foreach (var region in RegionPreference)
+        {
             foreach (var entry in names.EnumerateArray())
             {
-                if (entry.TryGetProperty("text", out var text))
+                if (entry.TryGetProperty("region", out var r) && r.GetString() == region
+                    && entry.TryGetProperty("text", out var text))
                 {
                     return text.GetString() ?? "";
                 }
             }
         }
-        return game.TryGetProperty("nom", out var single) ? single.GetString() ?? "" : "";
+        foreach (var entry in names.EnumerateArray())
+        {
+            if (entry.TryGetProperty("text", out var text))
+            {
+                return text.GetString() ?? "";
+            }
+        }
+        return ReadSingleName(game);
     }
+
+    private static string ReadSingleName(JsonElement game) =>
+        game.TryGetProperty("nom", out var single) ? single.GetString() ?? "" : "";
 
     /// <summary>The image format, from the media's own field or the URL, and only if static.</summary>
     private static string? ExtensionOf(JsonElement media, string url)

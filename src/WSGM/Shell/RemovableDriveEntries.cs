@@ -46,37 +46,39 @@ public sealed class RemovableDriveEntry : ObservableObject
     internal char VolumeLetter { get; set; }
     internal string DiskPath { get; set; } = "";
 
-    private string _name = "";
     /// <summary>Gets the device's display name, or a placeholder when the
     /// hardware did not offer one.</summary>
     public string Name
     {
-        get => _name.Length == 0 ? "Removable drive" : _name;
+        get => field.Length == 0 ? "Removable drive" : field;
         internal set
         {
-            if (_name != value)
+            if (field == value)
             {
-                _name = value;
-                Raise(nameof(Name));
+                return;
             }
-        }
-    }
 
-    private string _letters = "";
+            field = value;
+            Raise(nameof(Name));
+        }
+    } = "";
+
     /// <summary>Gets the drive letter(s), e.g. "E:" or "E:, F:".</summary>
     public string Letters
     {
-        get => _letters;
+        get;
         internal set
         {
-            if (_letters != value)
+            if (field == value)
             {
-                _letters = value;
-                Raise(nameof(Letters));
-                Raise(nameof(StatusLine));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Letters));
+            Raise(nameof(StatusLine));
         }
-    }
+    } = "";
 
     /// <summary>Gets the total capacity in bytes, or zero when the device did not report one.</summary>
     /// <remarks>
@@ -86,88 +88,93 @@ public sealed class RemovableDriveEntry : ObservableObject
     /// </remarks>
     public long SizeBytes { get; internal set; }
 
-    private string _sizeText = "";
     /// <summary>Gets the total capacity as display text, e.g. "512 GB".</summary>
     public string SizeText
     {
-        get => _sizeText;
+        get;
         internal set
         {
-            if (_sizeText != value)
+            if (field == value)
             {
-                _sizeText = value;
-                Raise(nameof(StatusLine));
+                return;
             }
-        }
-    }
 
-    private bool _busy;
+            field = value;
+            Raise(nameof(StatusLine));
+        }
+    } = "";
+
     /// <summary>Gets whether an eject is in flight for this row.</summary>
     public bool Busy
     {
-        get => _busy;
+        get;
         internal set
         {
-            if (_busy != value)
+            if (field == value)
             {
-                _busy = value;
-                Raise(nameof(Busy));
-                Raise(nameof(StatusLine));
-                Raise(nameof(ActionEnabled));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Busy));
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionEnabled));
         }
     }
 
-    private bool _ejected;
     /// <summary>Gets whether this row's eject already succeeded, so the hardware
     /// is safe to pull. The row usually disappears on the next refresh; until it
     /// does, its button must not offer a second eject.</summary>
     public bool Ejected
     {
-        get => _ejected;
+        get;
         internal set
         {
-            if (_ejected != value)
+            if (field == value)
             {
-                _ejected = value;
-                Raise(nameof(Ejected));
-                Raise(nameof(StatusLine));
-                Raise(nameof(ActionEnabled));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Ejected));
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionEnabled));
         }
     }
 
-    private string _resultText = "";
     /// <summary>Gets the last eject outcome for this row ("Safe to remove", or a
     /// veto message). Cleared when a fresh snapshot shows the drive back in
     /// ordinary use.</summary>
     public string ResultText
     {
-        get => _resultText;
+        get;
         internal set
         {
-            if (_resultText != value)
+            if (field == value)
             {
-                _resultText = value;
-                Raise(nameof(StatusLine));
+                return;
             }
-        }
-    }
 
-    private bool _expanded;
+            field = value;
+            Raise(nameof(StatusLine));
+        }
+    } = "";
+
     /// <summary>Gets whether this row is showing its Eject button. Selecting
     /// reveals the action rather than taking it — a stray tap must never rip a
     /// game library out from under a running session.</summary>
     public bool Expanded
     {
-        get => _expanded;
+        get;
         internal set
         {
-            if (_expanded != value)
+            if (field == value)
             {
-                _expanded = value;
-                Raise(nameof(Expanded));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Expanded));
         }
     }
 

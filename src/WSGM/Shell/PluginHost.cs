@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -12,7 +13,7 @@ namespace WSGM.Shell;
 internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationStore? configurationStore = null)
 {
     internal IPluginConfigurationStore ConfigurationStore { get; } = configurationStore ?? new ApplicationPluginConfigurationStore();
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Dictionary<PluginInstanceIdentity, PluginRegistration> _instances = [];
     private PluginSessionMode _mode = PluginSessionMode.Desktop;
     private long _modeRevision;
@@ -59,7 +60,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
 
     internal PluginHealthPublication[] Snapshot()
     {
-        lock (_gate) { return _instances.Values.Select(instance => instance.Health).ToArray(); }
+        lock (_gate) { return [.. _instances.Values.Select(instance => instance.Health)]; }
     }
 
     internal PluginStatePublication[] StateSnapshot(PluginInstanceIdentity identity)
@@ -67,7 +68,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         lock (_gate)
         {
             return _instances.TryGetValue(identity, out var owner)
-                ? owner.State.Values.Where(state => state.Generation == owner.Context.Generation).ToArray() : [];
+                ? [.. owner.State.Values.Where(state => state.Generation == owner.Context.Generation)] : [];
         }
     }
 
@@ -79,7 +80,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 || publication.Generation != owner.Context.Generation || publication.Sequence <= 0
                 || !publication.Value.IsValid || !Enum.IsDefined(publication.Origin) || publication.ConfigurationRevision < 0
                 || string.IsNullOrEmpty(publication.Key) || publication.Key.Length > 128
-                || publication.Key.Any(character => !(character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_')))
+                || publication.Key.Any(character => character is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_')))
             { return; }
             if (owner.StateGeneration != publication.Generation)
             {
@@ -112,7 +113,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
         {
             _mode = mode;
             revision = ++_modeRevision;
-            instances = _instances.Values.ToArray();
+            instances = [.. _instances.Values];
         }
         // Separate instance lanes prevent one unresponsive plugin from blocking another.
         await Task.WhenAll(instances.Select(instance => instance.SessionChangedAsync(mode, revision, deadline, cancellationToken)))
@@ -165,7 +166,7 @@ internal sealed class PluginRegistration(
     private Exception? _stopFailure;
     private Exception? _disposeFailure;
     private long _modeRevision;
-    private readonly object _modeGate = new();
+    private readonly Lock _modeGate = new();
     private CancellationTokenSource? _modeCancellation;
     private int _stopRequested;
     private bool _stopAttempted;
@@ -292,14 +293,7 @@ internal sealed class PluginRegistration(
     internal Task<bool> StopAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
     {
         var active = Volatile.Read(ref _activeCancellation);
-        if (Interlocked.Exchange(ref _stopRequested, 1) == 0 && active is not null)
-        {
-            try
-            {
-                active.CancelAsync().ObserveFaults();
-            }
-            catch (ObjectDisposedException) { }
-        }
+        if (Interlocked.Exchange(ref _stopRequested, 1) == 0 && active is not null) { CancelQuietly(active); }
         return RunAsync(deadline, cancellationToken, async token =>
         {
             _stopAttempted = true;
@@ -327,6 +321,15 @@ internal sealed class PluginRegistration(
         }, allowDisposed: true).ConfigureAwait(false);
     }
 
+    private static void CancelQuietly(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation.CancelAsync().ObserveFaults();
+        }
+        catch (ObjectDisposedException) { }
+    }
+
     private void RequireRunning()
     {
         if (!_started || IsStopping || Quarantined) { throw new InvalidOperationException("The plugin is not running."); }
@@ -340,7 +343,7 @@ internal sealed class PluginRegistration(
         if (remaining <= TimeSpan.Zero) { throw new TimeoutException("Plugin lifecycle deadline expired."); }
         var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(remaining);
-        var operationEntered = 0;
+        StrongBox<int> operationEntered = new();
         // The worker owns the budget and gate even if the caller's wait ends first. No disposal or
         // replacement can overtake plugin code that ignored cancellation.
         var work = Task.Run(async () =>
@@ -350,10 +353,10 @@ internal sealed class PluginRegistration(
             {
                 await _lifecycle.WaitAsync(budget.Token).ConfigureAwait(false);
                 entered = true;
-                if (_disposed && !allowDisposed) { throw new ObjectDisposedException(nameof(PluginRegistration)); }
+                ObjectDisposedException.ThrowIf(_disposed && !allowDisposed, this);
                 Context = Context with { Deadline = deadline };
                 Interlocked.Exchange(ref _activeCancellation, budget);
-                Volatile.Write(ref operationEntered, 1);
+                Volatile.Write(ref operationEntered.Value, 1);
                 return await operation(budget.Token).ConfigureAwait(false);
             }
             finally
@@ -370,11 +373,14 @@ internal sealed class PluginRegistration(
         try { return await work.WaitAsync(remaining, cancellationToken).ConfigureAwait(false); }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            if (quarantineFailure && Volatile.Read(ref operationEntered) != 0 && (quarantineCancellation || ex is not OperationCanceledException))
+            if (!quarantineFailure || Volatile.Read(ref operationEntered.Value) == 0
+                || (!quarantineCancellation && ex is OperationCanceledException))
             {
-                Quarantined = true;
-                PublishHealth(new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Failed, ex.Message));
+                throw;
             }
+
+            Quarantined = true;
+            PublishHealth(new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Failed, ex.Message));
             throw;
         }
     }

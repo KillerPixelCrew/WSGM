@@ -98,7 +98,11 @@ public sealed class HybridCoreView : UserControl
 
         // The plugged-in value is what the list follows. When the two sources disagree the status
         // line says so, and applying writes both, so one selection can still represent the pair.
-        if (_items is not null && _model?.Status.OnAc is { } active)
+        if (_items is null || _model?.Status.OnAc is not { } active)
+        {
+            _modes.SelectedIndex = -1;
+        }
+        else
         {
             for (var index = 0; index < _items.Count; index++)
             {
@@ -108,10 +112,6 @@ public sealed class HybridCoreView : UserControl
                     break;
                 }
             }
-        }
-        else
-        {
-            _modes.SelectedIndex = -1;
         }
 
         _status.Text = _model?.Detail ?? "The processor core preference is unavailable.";

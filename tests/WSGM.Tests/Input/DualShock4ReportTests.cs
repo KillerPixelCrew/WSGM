@@ -1,9 +1,9 @@
 using System.Buffers.Binary;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
-using static WSGM.Tests.ControllerSamples;
+using static WSGM.Tests.Builders.ControllerSamples;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 public sealed class DualShock4ReportTests
 {
@@ -17,7 +17,7 @@ public sealed class DualShock4ReportTests
             | CanonicalButtons.LeftStick | CanonicalButtons.RightStick
             | CanonicalButtons.Guide | CanonicalButtons.RightPadClick));
 
-        Assert.Equal(0xF3F3, BinaryPrimitives.ReadUInt16LittleEndian(frame[4..6]));
+        Assert.Equal(0xF3F3, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4..6)));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public sealed class DualShock4ReportTests
         Assert.Equal(byte.MaxValue, frame[8]);
         // Both digital trigger bits accompany their analogue values from the first movement,
         // as on a real DualShock 4.
-        Assert.Equal(0x0C00, BinaryPrimitives.ReadUInt16LittleEndian(frame[4..6]) & 0x0C00);
+        Assert.Equal(0x0C00, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(4..6)) & 0x0C00);
     }
 
     [Fact]
@@ -57,11 +57,11 @@ public sealed class DualShock4ReportTests
             RightPadY = -1f
         });
 
-        Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame[9..11]));
-        Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame[11..13]));
+        Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(9..11)));
+        Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(11..13)));
         Assert.Equal(1, frame[13]);
-        Assert.Equal(1920, BinaryPrimitives.ReadUInt16LittleEndian(frame[14..16]));
-        Assert.Equal(942, BinaryPrimitives.ReadUInt16LittleEndian(frame[16..18]));
+        Assert.Equal(1920, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(14..16)));
+        Assert.Equal(942, BinaryPrimitives.ReadUInt16LittleEndian(frame.AsSpan(16..18)));
         Assert.Equal(1, frame[18]);
     }
 
@@ -83,12 +83,12 @@ public sealed class DualShock4ReportTests
             }
         });
 
-        Assert.Equal(1600, BinaryPrimitives.ReadInt16LittleEndian(frame[19..21]));
-        Assert.Equal(-3200, BinaryPrimitives.ReadInt16LittleEndian(frame[21..23]));
-        Assert.Equal(4800, BinaryPrimitives.ReadInt16LittleEndian(frame[23..25]));
-        Assert.Equal(5023, BinaryPrimitives.ReadInt16LittleEndian(frame[25..27]));
-        Assert.Equal(-2511, BinaryPrimitives.ReadInt16LittleEndian(frame[27..29]));
-        Assert.Equal(1256, BinaryPrimitives.ReadInt16LittleEndian(frame[29..31]));
+        Assert.Equal(1600, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(19..21)));
+        Assert.Equal(-3200, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(21..23)));
+        Assert.Equal(4800, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(23..25)));
+        Assert.Equal(5023, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(25..27)));
+        Assert.Equal(-2511, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(27..29)));
+        Assert.Equal(1256, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(29..31)));
     }
 
     [Fact]

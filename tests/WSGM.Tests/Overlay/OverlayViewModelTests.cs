@@ -1,6 +1,6 @@
 using WSGM.Overlay;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 public sealed class OverlayViewModelTests
 {

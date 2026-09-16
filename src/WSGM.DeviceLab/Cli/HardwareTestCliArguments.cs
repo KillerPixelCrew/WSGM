@@ -29,11 +29,13 @@ internal sealed record HardwareTestCliArguments
 
         foreach (var argument in args)
         {
-            if (string.Equals(argument, "--yes", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(argument, "--yes", StringComparison.OrdinalIgnoreCase))
             {
-                error = "test hardware never accepts --yes.";
-                return false;
+                continue;
             }
+
+            error = "test hardware never accepts --yes.";
+            return false;
         }
 
         if (args.Length == 0 || string.IsNullOrWhiteSpace(args[0]) || LooksLikeOption(args[0]))
@@ -234,16 +236,16 @@ internal sealed record HardwareTestCliArguments
         }
 
         value = args[++index];
-        if (string.IsNullOrWhiteSpace(value))
+        if (!string.IsNullOrWhiteSpace(value))
         {
-            error = $"test hardware option {option} requires a nonempty value.";
-            return false;
+            return true;
         }
 
-        return true;
+        error = $"test hardware option {option} requires a nonempty value.";
+        return false;
     }
 
     private static bool LooksLikeOption(string value) =>
         value.StartsWith("--", StringComparison.Ordinal)
-        || (value.Length == 2 && value[0] == '-' && char.IsLetter(value[1]));
+        || (value is ['-', _] && char.IsLetter(value[1]));
 }

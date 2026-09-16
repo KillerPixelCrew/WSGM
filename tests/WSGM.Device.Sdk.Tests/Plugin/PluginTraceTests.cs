@@ -4,7 +4,7 @@ using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Device.Sdk.Testing;
 
-namespace WSGM.Device.Sdk.Tests;
+namespace WSGM.Device.Sdk.Tests.Plugin;
 
 /// <summary>
 /// The diagnostic channel plugins write through, and the guarantees the layers above it rely on.

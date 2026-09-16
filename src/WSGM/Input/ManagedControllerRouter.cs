@@ -23,7 +23,7 @@ internal interface IPhysicalHapticSink
 internal sealed class ControllerOutputRouter : IAsyncDisposable
 {
     private static readonly TimeSpan MaxOutputAge = TimeSpan.FromMilliseconds(250);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly IHidBackend _backend;
     private readonly IPhysicalHapticSink _sink;
     private readonly TimeProvider _timeProvider;
@@ -140,7 +140,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
 
         _queue.Writer.TryComplete();
-        _lifetime.Cancel();
+        await _lifetime.CancelAsync().ConfigureAwait(false);
         try
         {
             await _worker.ConfigureAwait(false);
@@ -318,7 +318,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
 
         var floor = Math.Min(1f, minimumStartIntensity);
-        float Map(float value) => value <= 0f ? 0f : floor + (1f - floor) * Math.Min(1f, value);
         return frame with
         {
             LowFrequency = Map(frame.LowFrequency),
@@ -326,6 +325,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             LeftTrigger = Map(frame.LeftTrigger),
             RightTrigger = Map(frame.RightTrigger)
         };
+
+        float Map(float value) => value <= 0f ? 0f : floor + (1f - floor) * Math.Min(1f, value);
     }
 
     private bool MatchesRouteUnderGate(HidTargetOutput output) =>
@@ -569,13 +570,14 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
         var delivered = await _backend.PublishAsync(target, sample, cancellationToken)
             .ConfigureAwait(false);
-        if (delivered)
+        if (!delivered)
         {
-            _lastSequence = sample.Sequence;
-            _neutral = ManagedControllerSampleValidator.IsNeutral(sample);
+            return false;
         }
 
-        return delivered;
+        _lastSequence = sample.Sequence;
+        _neutral = ManagedControllerSampleValidator.IsNeutral(sample);
+        return true;
     }
 
     internal Task NeutralizeAsync(string reason, CancellationToken cancellationToken) =>

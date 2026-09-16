@@ -199,7 +199,7 @@ public sealed class FilterNode
         Kind = Kind,
         Inverted = Inverted,
         Mode = Mode,
-        Children = Children.Select(c => c.Clone()).ToList(),
+        Children = [.. Children.Select(c => c.Clone())],
         CollectionId = CollectionId,
         BoolValue = BoolValue,
         TagIds = [.. TagIds],
@@ -235,7 +235,7 @@ public interface ISdCardResolver
 /// <c>filterFunctions</c> evaluation (per-group <c>every</c>/<c>some</c>, per-node
 /// <c>inverted ? !r : r</c>). Pure and unit-testable — no Steam contact here; the
 /// resulting JS is run by <see cref="SteamCollections.EvaluateFiltersAsync"/>.</summary>
-public static class LibraryFilter
+public static partial class LibraryFilter
 {
     /// <summary>Bitfield category flags (values match TabMaster's so the concepts
     /// line up): which app kinds are candidates before the predicate runs.</summary>
@@ -279,11 +279,14 @@ public static class LibraryFilter
         _ => true
     };
 
+    [GeneratedRegex(@"\\[1-9]")]
+    private static partial Regex BackreferenceRegex();
+
     private static bool IsSafeRegex(string pattern)
     {
         if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > 64
             || pattern.Contains("(?", StringComparison.Ordinal)
-            || Regex.IsMatch(pattern, @"\\[1-9]")
+            || BackreferenceRegex().IsMatch(pattern)
             || HasNestedQuantifier(pattern))
         {
             return false;
@@ -368,28 +371,28 @@ public static class LibraryFilter
         var starts = new Stack<int>();
         for (var i = 0; i < pattern.Length; i++)
         {
-            var c = pattern[i];
-            if (c == '\\')
+            switch (pattern[i])
             {
-                i++;
-            }
-            else if (c == '[')
-            {
-                i = SkipCharacterClass(pattern, i);
-            }
-            else if (c == '(')
-            {
-                starts.Push(i);
-            }
-            else if (c == ')' && starts.Count > 0)
-            {
-                var start = starts.Pop();
-                var next = i + 1 < pattern.Length ? pattern[i + 1] : '\0';
-                if (next is '*' or '+' or '{' or '?'
-                    && ContainsQuantifier(pattern.AsSpan(start + 1, i - start - 1)))
-                {
-                    return true;
-                }
+                case '\\':
+                    i++;
+                    break;
+                case '[':
+                    i = SkipCharacterClass(pattern, i);
+                    break;
+                case '(':
+                    starts.Push(i);
+                    break;
+                case ')' when starts.Count > 0:
+                    {
+                        var start = starts.Pop();
+                        var next = i + 1 < pattern.Length ? pattern[i + 1] : '\0';
+                        if (next is '*' or '+' or '{' or '?'
+                            && ContainsQuantifier(pattern.AsSpan(start + 1, i - start - 1)))
+                        {
+                            return true;
+                        }
+                        break;
+                    }
             }
         }
         return false;
@@ -399,13 +402,13 @@ public static class LibraryFilter
     {
         for (var i = open + 1; i < pattern.Length; i++)
         {
-            if (pattern[i] == '\\')
+            switch (pattern[i])
             {
-                i++;
-            }
-            else if (pattern[i] == ']')
-            {
-                return i;
+                case '\\':
+                    i++;
+                    break;
+                case ']':
+                    return i;
             }
         }
         return pattern.Length - 1;
@@ -415,22 +418,20 @@ public static class LibraryFilter
     {
         for (var i = 0; i < body.Length; i++)
         {
-            var c = body[i];
-            if (c == '\\')
+            switch (body[i])
             {
-                i++;
-            }
-            else if (c == '[')
-            {
-                while (i < body.Length && body[i] != ']')
-                {
-                    if (body[i] == '\\') { i++; }
+                case '\\':
                     i++;
-                }
-            }
-            else if (c is '*' or '+' or '{' or '?')
-            {
-                return true;
+                    break;
+                case '[':
+                    while (i < body.Length && body[i] != ']')
+                    {
+                        if (body[i] == '\\') { i++; }
+                        i++;
+                    }
+                    break;
+                case '*' or '+' or '{' or '?':
+                    return true;
             }
         }
         return false;
@@ -610,14 +611,12 @@ public static class LibraryFilter
     /// <summary>Accumulates hoisted prologue declarations (sets/arrays/regexes are
     /// declared once and referenced from the per-app predicate, so nothing is rebuilt
     /// per candidate).</summary>
-    private sealed class Emitter
+    private sealed class Emitter(ISdCardResolver cards)
     {
         private readonly StringBuilder _prologue = new();
         private int _n;
 
-        public Emitter(ISdCardResolver cards) => Cards = cards;
-
-        public ISdCardResolver Cards { get; }
+        public ISdCardResolver Cards { get; } = cards;
 
         public string Prologue => _prologue.ToString();
 

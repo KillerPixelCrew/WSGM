@@ -256,7 +256,7 @@ internal static partial class NativeShellProcess
 
         try
         {
-            _ = NativeMethods.GetTokenInformation(token, TokenIntegrityLevel, (nint)0, 0, out var required);
+            _ = NativeMethods.GetTokenInformation(token, TokenIntegrityLevel, 0, 0, out var required);
             if (required < (uint)sizeof(nint))
             {
                 error = Marshal.GetLastPInvokeError();
@@ -584,12 +584,7 @@ internal sealed class NativeShellChildProcess : IDisposable
     internal bool TryTerminate(out int error)
     {
         var handle = _processHandle;
-        if (handle == 0 || HasExited)
-        {
-            error = 0;
-            return true;
-        }
-        if (NativeShellProcess.TerminateProcess(handle, 1))
+        if (handle == 0 || HasExited || NativeShellProcess.TerminateProcess(handle, 1))
         {
             error = 0;
             return true;

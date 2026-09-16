@@ -26,7 +26,7 @@ public static class SteamAutostartTakeover
 {
     /// <summary>Windows' own disabled marker: the flag byte, then a filetime it does not act on.</summary>
     private static byte[] DisabledApproval() =>
-        [.. new byte[] { 3, 0, 0, 0, 0, 0, 0, 0 }, .. BitConverter.GetBytes(DateTime.UtcNow.ToFileTimeUtc())];
+        [3, 0, 0, 0, 0, 0, 0, 0, .. BitConverter.GetBytes(DateTime.UtcNow.ToFileTimeUtc())];
 
     /// <summary>Disables the given sources, recording each previous state in the configuration
     /// before the write so an interrupted takeover is still undoable.</summary>
@@ -142,7 +142,7 @@ public static class SteamAutostartTakeover
                         continue;
                     }
                     system.WriteApproval(entry.Scope, list, entry.Name,
-                        entry.PreviousApprovalExists && entry.PreviousApproval is { } previous
+                        entry is { PreviousApprovalExists: true, PreviousApproval: { } previous }
                             ? Convert.FromBase64String(previous)
                             : null);
                 }

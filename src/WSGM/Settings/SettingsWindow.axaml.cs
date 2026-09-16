@@ -62,7 +62,7 @@ public partial class SettingsWindow : Window
     // surface is still on screen; see docs\steam-input.md.
     private readonly string _leaseOwner =
         $"settings-window#{Interlocked.Increment(ref _nextLeaseOwnerId)}";
-    private readonly object _leaseSync = new();
+    private readonly Lock _leaseSync = new();
     private readonly SettingsLeaseReconciler _leaseReconciler = new();
     private readonly bool _leaseEnabled;
     private bool _leaseHandoffPending;
@@ -268,7 +268,7 @@ public partial class SettingsWindow : Window
     /// </remarks>
     private void MaybeShowQuickSetup()
     {
-        if (DataContext is not SettingsViewModel viewModel || !viewModel.QuickSetupPending)
+        if (DataContext is not SettingsViewModel { QuickSetupPending: true } viewModel)
         {
             return;
         }
@@ -504,10 +504,7 @@ public partial class SettingsWindow : Window
         GamepadNavigation? keyboardNavigation = null;
         window.Opened += (_, _) =>
         {
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = false;
-            }
+            _navigation?.IsEnabled = false;
             keyboardNavigation = new GamepadNavigation(_gamepad, window, back: window.Close,
                 isNintendoLayout: IsNintendoLayout);
         };
@@ -515,10 +512,7 @@ public partial class SettingsWindow : Window
         {
             keyboardNavigation?.Dispose();
             keyboardNavigation = null;
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = true;
-            }
+            _navigation?.IsEnabled = true;
             if (ReferenceEquals(_keyboardDialog, window))
             {
                 _keyboardDialog = null;
@@ -605,15 +599,12 @@ public partial class SettingsWindow : Window
     /// a second acquire or release.</summary>
     private void RunLeaseAction(SettingsLeaseAction action)
     {
-        switch (action)
+        _ = action switch
         {
-            case SettingsLeaseAction.Acquire:
-                _ = Task.Run(AcquireLeaseWork);
-                break;
-            case SettingsLeaseAction.Release:
-                _ = Task.Run(ReleaseLeaseWork);
-                break;
-        }
+            SettingsLeaseAction.Acquire => Task.Run(AcquireLeaseWork),
+            SettingsLeaseAction.Release => Task.Run(ReleaseLeaseWork),
+            _ => Task.CompletedTask
+        };
     }
 
     private void AcquireLeaseWork()

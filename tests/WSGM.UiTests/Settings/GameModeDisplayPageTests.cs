@@ -9,18 +9,17 @@ using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Settings;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Settings;
 
 public sealed class GameModeDisplayPageTests
 {
     [AvaloniaFact]
     public void WindowsDisabledDisplayOffersModesAndKeepsTheSelectedResolutionAndRefresh()
     {
-        using UiFixture fixture = new()
-        {
-            Displays = new DisplayArrangement([new DisplayTargetObservation(Tv, Available: true, Active: false, Current: null)], "disabled", DateTimeOffset.UnixEpoch)
-        };
+        using UiFixture fixture = new();
+        fixture.Displays = new DisplayArrangement([new DisplayTargetObservation(Tv, Available: true, Active: false, Current: null)], "disabled", DateTimeOffset.UnixEpoch);
         fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts(
             [new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 120), new DisplayMode(1920, 1080, 60)], true, 225);
         var window = Open(fixture);
@@ -52,7 +51,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void FreshCustomLayoutCanBeEditedWithoutCopyingAndDisabledDisplaysKeepTheirInspector()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Tv);
         fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
         var window = Open(fixture);
         var model = Model(window);
@@ -85,7 +85,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void RefreshKeepsBothDraftsSelectionAndUndoIncludingInvalidEdits()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Desk, Tv);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
@@ -112,7 +113,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void CopyAndUndoAffectOnlyTheSelectedDesktopDraft()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Desk, Tv);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
@@ -129,7 +131,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void DraggingAnArrangementScreenRecordsOneUndoStep()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Desk, Tv);
         var window = Open(fixture);
         var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
@@ -191,7 +194,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void CopyCapturesTheDesktopAndRemembersWhatEachDisplaySupports()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Tv);
         fixture.DisplayFacts[Tv.DevicePath] = new DisplayCatalogFacts([new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 60)], true, 225);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
@@ -239,7 +243,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void ChoosingAPrimaryMovesTheWholeArrangementSoItSitsAtTheOrigin()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Desk, Tv);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.CopyCurrentLayoutCommand.Execute(null);
@@ -262,7 +267,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void AnOverlappingArrangementIsRefusedWithTheReasonTheApplyWouldGive()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Desk, Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Desk, Tv);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.CopyCurrentLayoutCommand.Execute(null);
@@ -276,7 +282,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void AMigratedRowIsRefusedUntilItIsPointedAtARealDisplay()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Tv);
         // What the retired per-monitor profiles migrate into: real values, no resolvable identity.
         fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([
@@ -306,7 +313,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void ForgettingADisplayRemovesItFromBothLayoutsAndTheCatalog()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Tv);
         var model = Model(Open(fixture));
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
         model.GameModeReturnIndex = (int)GameModeReturn.DesktopLayout;
@@ -339,7 +347,8 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void ASavedLayoutAndItsWaitTargetSurviveASave()
     {
-        using UiFixture fixture = new() { Displays = Desktop(Tv) };
+        using UiFixture fixture = new();
+        fixture.Displays = Desktop(Tv);
         var window = Open(fixture);
         var model = Model(window);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
@@ -359,14 +368,12 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void AnActionStepIsAddedWithItsDeclaredDefaultsAndCanBeReordered()
     {
-        using UiFixture fixture = new()
-        {
-            PluginActions =
-            [
-                Option("switch-to-pc", new PluginSetting("port", "Port", PluginSettingKind.Text, new PluginValue(Text: "1"))),
-                Option("tv-on")
-            ]
-        };
+        SettingsViewModel.PluginActionOption[] actions =
+        [
+            Option("switch-to-pc", new PluginSetting("port", "Port", PluginSettingKind.Text, new PluginValue(Text: "1"))),
+            Option("tv-on")
+        ];
+        using UiFixture fixture = new() { PluginActions = actions };
         var model = Model(Open(fixture));
         var enter = model.ActionLists[0];
         Assert.True(enter.CanAdd);
@@ -392,13 +399,11 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void AnArgumentOutsideItsDeclaredRangeBlocksTheSave()
     {
-        using UiFixture fixture = new()
-        {
-            PluginActions =
-            [
-                Option("dwell", new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new PluginValue(Number: 2), 1, 10))
-            ]
-        };
+        SettingsViewModel.PluginActionOption[] actions =
+        [
+            Option("dwell", new PluginSetting("seconds", "Seconds", PluginSettingKind.Number, new PluginValue(Number: 2), 1, 10))
+        ];
+        using UiFixture fixture = new() { PluginActions = actions };
         var model = Model(Open(fixture));
         var enter = model.ActionLists[0];
         enter.ChoiceIndex = 0;
@@ -413,13 +418,11 @@ public sealed class GameModeDisplayPageTests
     [AvaloniaFact]
     public void EditedStepsAreWhatGetsSaved()
     {
-        using UiFixture fixture = new()
-        {
-            PluginActions =
-            [
-                Option("remote-press", new PluginSetting("remote", "Remote", PluginSettingKind.Text, new PluginValue(Text: "tv")))
-            ]
-        };
+        SettingsViewModel.PluginActionOption[] actions =
+        [
+            Option("remote-press", new PluginSetting("remote", "Remote", PluginSettingKind.Text, new PluginValue(Text: "tv")))
+        ];
+        using UiFixture fixture = new() { PluginActions = actions };
         var window = Open(fixture);
         var model = Model(window);
         var enter = model.ActionLists[0];

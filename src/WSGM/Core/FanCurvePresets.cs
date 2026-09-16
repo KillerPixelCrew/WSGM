@@ -98,13 +98,13 @@ internal static class FanCurvePresets
             return [];
         }
 
-        List<CurvePoint> sampled = new(current.Count);
+        List<CurvePoint> sampled = [];
         var floor = 0;
         foreach (var point in current)
         {
             var duty = Math.Max(floor, DutyAt(preset, point.Input));
             floor = duty;
-            sampled.Add(new CurvePoint(point.Input, duty));
+            sampled.Add(point with { Output = duty });
         }
 
         return sampled;

@@ -1,4 +1,4 @@
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>A clock a test sets or advances by hand.</summary>
 internal sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider

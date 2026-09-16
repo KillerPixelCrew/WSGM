@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32;
 using WSGM.Interop;
 
@@ -134,10 +135,12 @@ internal sealed class RtssDiscovery
         RtssProcessIdentity[] processes;
         try
         {
-            processes = _environment.ReadProcesses()
-                .Where(process => SamePath(process.ExecutablePath, executable))
-                .Take(2)
-                .ToArray();
+            processes =
+            [
+                .. _environment.ReadProcesses()
+                    .Where(process => SamePath(process.ExecutablePath, executable))
+                    .Take(2)
+            ];
         }
         catch (Exception ex)
         {
@@ -240,9 +243,8 @@ internal sealed class RtssDiscovery
             && fileVersion.Major == registrationVersion.Major;
     }
 
-    private static bool ValidApi(RtssFileIdentity identity) => identity.Exists
-        && identity.Length > 0
-        && identity.SignatureValid
+    private static bool ValidApi(RtssFileIdentity identity) =>
+        identity is { Exists: true, Length: > 0, SignatureValid: true }
         && identity.Is64Bit == Environment.Is64BitProcess
         && RequiredApiExports.All(identity.Exports.Contains);
 
@@ -320,7 +322,7 @@ internal sealed class RtssDiscovery
 internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironment
 {
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
-    private readonly object _identityGate = new();
+    private readonly Lock _identityGate = new();
     private readonly Dictionary<string, CachedFileIdentity> _identities =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -361,7 +363,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
             }
         }
 
-        return records.Distinct().ToArray();
+        return [.. records.Distinct()];
     }
 
     public RtssFileIdentity ReadFileIdentity(string path)
@@ -596,18 +598,20 @@ internal static class PeExportReader
             }
 
             var candidate = section.RawOffset + delta;
-            if (candidate < (ulong)fileLength)
+            if (candidate >= (ulong)fileLength)
             {
-                offset = (long)candidate;
-                return true;
+                continue;
             }
+
+            offset = (long)candidate;
+            return true;
         }
 
         offset = 0;
         return false;
     }
 
-    private static IReadOnlySet<string> Empty() => new HashSet<string>(StringComparer.Ordinal);
+    private static HashSet<string> Empty() => new HashSet<string>(StringComparer.Ordinal);
 
     private readonly record struct PeSection(
         uint VirtualAddress,

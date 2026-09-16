@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Avalonia.Threading;
 using WSGM.Device.Sdk.Input;
 
@@ -17,7 +18,7 @@ internal sealed class CanonicalSampleQueue
     private readonly Action<CanonicalControllerSample> _submit;
     private readonly Action _sourceLost;
     private readonly Action _drain;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     // Null entries are lost-source signals. Two lists swap between queueing and draining, so the
     // steady state allocates nothing.

@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class RunningApplicationCoordinatorTests
 {
@@ -72,22 +72,23 @@ public sealed class RunningApplicationCoordinatorTests
             (_, _) => Task.CompletedTask,
             async (snapshot, cancellationToken) =>
             {
-                if (snapshot.Generation is 1)
+                switch (snapshot.Generation)
                 {
-                    firstControllerEntered.TrySetResult();
-                    try
-                    {
-                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        firstControllerCancelled.TrySetResult();
-                        throw;
-                    }
-                }
-                else if (snapshot.Generation is 2)
-                {
-                    newestControllerApplied.TrySetResult();
+                    case 1:
+                        firstControllerEntered.TrySetResult();
+                        try
+                        {
+                            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            firstControllerCancelled.TrySetResult();
+                            throw;
+                        }
+                        break;
+                    case 2:
+                        newestControllerApplied.TrySetResult();
+                        break;
                 }
             });
 
@@ -194,7 +195,7 @@ public sealed class RunningApplicationCoordinatorTests
             state,
             applicationId,
             42,
-            profileName is null ? null : $"C:\\Games\\{profileName}",
+            profileName is null ? null : $@"C:\Games\{profileName}",
             profileName,
             DateTimeOffset.UnixEpoch,
             null);

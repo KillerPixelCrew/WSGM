@@ -29,7 +29,7 @@ internal enum LogonAction
     /// <summary>Not a fresh logon (inactive session, or the startup catch-up found a
     /// session logged on longer ago than the catch-up window) — covering an
     /// established desktop unasked would be hostile.</summary>
-    SkipStale,
+    SkipStale
 }
 
 /// <summary>Pure decision core for the logon service — everything observable is a
@@ -59,7 +59,7 @@ internal static class LogonDecision
         {
             return LogonAction.SkipNoManifest;
         }
-        if (!manifest.GameModeBoot && !manifest.DesktopResident)
+        if (manifest is { GameModeBoot: false, DesktopResident: false })
         {
             return LogonAction.SkipDisabled;
         }

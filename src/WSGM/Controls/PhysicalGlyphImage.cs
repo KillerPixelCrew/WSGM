@@ -108,7 +108,7 @@ internal sealed class PhysicalGlyphImage : Control
             return;
         }
 
-        if (plan.ViewBox is not { } viewBox || viewBox.Width <= 0 || viewBox.Height <= 0)
+        if (plan.ViewBox is not { Width: > 0, Height: > 0 } viewBox)
         {
             return;
         }
@@ -166,7 +166,7 @@ internal sealed class PhysicalGlyphImage : Control
     protected override Size MeasureOverride(Size availableSize)
     {
         var plan = Plan;
-        if (plan?.ViewBox is not { } viewBox || viewBox.Width <= 0 || viewBox.Height <= 0)
+        if (plan?.ViewBox is not { Width: > 0, Height: > 0 } viewBox)
         {
             return default;
         }

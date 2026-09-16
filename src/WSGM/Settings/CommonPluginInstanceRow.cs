@@ -18,13 +18,13 @@ public sealed class CommonPluginInstanceRow : ObservableObject
     }
 
     /// <summary>Package identity.</summary>
-    public string PluginId { get; }
+    private string PluginId { get; }
     /// <summary>Stable instance identity.</summary>
-    public string InstanceId { get; }
+    private string InstanceId { get; }
     /// <summary>Installed package display name.</summary>
     public string Name { get; }
     /// <summary>Whether validated metadata and an entry assembly are installed.</summary>
-    public bool Installed { get; }
+    private bool Installed { get; }
     /// <summary>Instance information, including missing packages.</summary>
     public string Detail => Installed ? $"{PluginId} / {InstanceId}" : $"{PluginId} / {InstanceId} (package unavailable)";
     /// <summary>Whether the resident host should activate this instance after Save.</summary>

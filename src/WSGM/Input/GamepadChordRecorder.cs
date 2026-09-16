@@ -79,9 +79,6 @@ public sealed class GamepadChordRecorder : IDisposable
         Recorded?.Invoke(buttons, isHold && buttons != 0);
     }
 
-    /// <summary>Cancels recording and reports an empty chord.</summary>
-    public void Cancel() => Finish(0, isHold: false, cancelled: true);
-
     /// <summary>Stops recording; the caller's polling service keeps running.</summary>
     public void Dispose()
     {

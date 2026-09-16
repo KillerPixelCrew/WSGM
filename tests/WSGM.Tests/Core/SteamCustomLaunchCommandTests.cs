@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class SteamCustomLaunchCommandTests
 {
@@ -8,7 +8,7 @@ public sealed class SteamCustomLaunchCommandTests
     public void Build_ExeWithArguments_UsesNativeSteamAndShortcutFields()
     {
         var fields = SteamCustomLaunchCommand.Build(
-            "D:\\Launch Actions\\Tool.exe", "--profile \"Living Room\"");
+            @"D:\Launch Actions\Tool.exe", "--profile \"Living Room\"");
 
         Assert.Equal(
             "\"D:\\Launch Actions\\Tool.exe\" --profile \"Living Room\" %command%",
@@ -23,7 +23,7 @@ public sealed class SteamCustomLaunchCommandTests
     public void Build_BatchFile_UsesCommandProcessor(string file)
     {
         var fields = SteamCustomLaunchCommand.Build(
-            $"D:\\Scripts\\{file}", "--wait", "C:\\Windows\\cmd.exe");
+            $@"D:\Scripts\{file}", "--wait", @"C:\Windows\cmd.exe");
 
         Assert.Equal(
             $"\"C:\\Windows\\cmd.exe\" /d /s /c call \"D:\\Scripts\\{file}\" --wait %command%",
@@ -36,7 +36,7 @@ public sealed class SteamCustomLaunchCommandTests
     public void Build_PowerShellFile_UsesExplicitNonInteractiveHost()
     {
         var fields = SteamCustomLaunchCommand.Build(
-            "D:\\Scripts\\action.ps1", "-Profile Handheld", powerShell: "C:\\PowerShell.exe");
+            @"D:\Scripts\action.ps1", "-Profile Handheld", powerShell: @"C:\PowerShell.exe");
 
         Assert.Equal(
             "\"C:\\PowerShell.exe\" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass " +

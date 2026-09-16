@@ -37,9 +37,7 @@ public sealed class BootManifest
 /// <summary>Shared source-generated JSON metadata that keeps the app and service on one boot-manifest contract.</summary>
 [JsonSerializable(typeof(BootManifest))]
 [JsonSourceGenerationOptions(WriteIndented = true)]
-public partial class BootManifestJsonContext : JsonSerializerContext
-{
-}
+public partial class BootManifestJsonContext : JsonSerializerContext;
 
 /// <summary>Load/save helpers for boot.json. Reading is defensive on purpose: the
 /// service consumes this from SYSTEM, so garbage, truncation, or an oversized file

@@ -1,8 +1,9 @@
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using WSGM.Shell;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Shell;
 
 public sealed class SessionActivationTests
 {
@@ -13,7 +14,7 @@ public sealed class SessionActivationTests
         var name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
         Assert.False(SettingsActivation.TryRequest(name));
         var requests = 0;
-        using (SettingsActivation owner = new(() =>
+        using (new SettingsActivation(() =>
         {
             Assert.True(Dispatcher.UIThread.CheckAccess());
             requests++;
@@ -35,7 +36,7 @@ public sealed class SessionActivationTests
         using UiFixture fixture = new();
         var name = "WSGM.Test.Settings." + Guid.NewGuid().ToString("N");
         var requests = 0;
-        using (SettingsActivation owner = new(() => requests++, name))
+        using (new SettingsActivation(() => requests++, name))
         {
             Assert.True(SettingsActivation.TryRequest(name));
         }

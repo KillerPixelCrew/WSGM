@@ -50,17 +50,18 @@ public static unsafe class DisplayProfiles
     /// </para>
     /// </remarks>
     public static IReadOnlyList<DisplayResolution> EnumerateAcceptedResolutions()
-        => EnumerateAccepted(
-            "resolutions",
-            "accepted resolutions",
-            static (mode, current) => mode.BitsPerPixel == current.BitsPerPixel
-                && mode.RefreshHz == current.RefreshHz
-                && mode.Width >= MinimumUsableWidth
-                && mode.Height >= MinimumUsableHeight,
-            static (mode, current) => new CandidateMode(mode.Width, mode.Height, current.RefreshHz),
-            static mode => $"{mode.Width}x{mode.Height}")
-            .Select(mode => new DisplayResolution((int)mode.Width, (int)mode.Height))
-            .ToArray();
+        =>
+        [
+            .. EnumerateAccepted(
+                    "resolutions",
+                    "accepted resolutions",
+                    static (mode, current) => mode.BitsPerPixel == current.BitsPerPixel
+                        && mode.RefreshHz == current.RefreshHz
+                        && mode is { Width: >= MinimumUsableWidth, Height: >= MinimumUsableHeight },
+                    static (mode, current) => new CandidateMode(mode.Width, mode.Height, current.RefreshHz),
+                    static mode => $"{mode.Width}x{mode.Height}")
+                .Select(mode => new DisplayResolution(mode.Width, mode.Height))
+        ];
 
     /// <summary>
     /// The refresh rates the primary display will actually accept at its current resolution.
@@ -78,22 +79,24 @@ public static unsafe class DisplayProfiles
     /// </para>
     /// </remarks>
     public static IReadOnlyList<int> EnumerateAcceptedRefreshRates()
-        => EnumerateAccepted(
-            "refresh rates",
-            "accepted",
-            static (mode, current) => mode.Width == current.Width
-                && mode.Height == current.Height
-                && mode.BitsPerPixel == current.BitsPerPixel
-                && mode.RefreshHz > 1,
-            static (mode, current) => new CandidateMode(current.Width, current.Height, mode.RefreshHz),
-            static mode => mode.RefreshHz.ToString())
-            .Select(mode => (int)mode.RefreshHz)
-            .ToArray();
+        =>
+        [
+            .. EnumerateAccepted(
+                    "refresh rates",
+                    "accepted",
+                    static (mode, current) => mode.Width == current.Width
+                        && mode.Height == current.Height
+                        && mode.BitsPerPixel == current.BitsPerPixel
+                        && mode.RefreshHz > 1,
+                    static (mode, current) => new CandidateMode(current.Width, current.Height, mode.RefreshHz),
+                    static mode => mode.RefreshHz.ToString())
+                .Select(mode => mode.RefreshHz)
+        ];
 
     /// <summary>A full candidate mode, so one test path serves both discovery axes.</summary>
     private readonly record struct CandidateMode(int Width, int Height, int RefreshHz);
 
-    private static IReadOnlyList<CandidateMode> EnumerateAccepted(
+    private static List<CandidateMode> EnumerateAccepted(
         string noun,
         string acceptedLabel,
         Func<PrimaryDisplayMode, PrimaryDisplayMode, bool> keep,

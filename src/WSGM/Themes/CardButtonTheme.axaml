@@ -55,7 +55,8 @@
                                         VerticalAlignment="Center"
                                         Background="{TemplateBinding SwatchBrush}"
                                         IsVisible="{TemplateBinding SwatchBrush, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                <Panel Width="20"
+                                <Panel Grid.Column="0"
+                                       Width="20"
                                        Height="20"
                                        VerticalAlignment="Center"
                                        IsVisible="{TemplateBinding IconGeometry, Converter={x:Static ObjectConverters.IsNotNull}}">
@@ -188,7 +189,8 @@
                                     VerticalAlignment="Center"
                                     Background="{TemplateBinding SwatchBrush}"
                                     IsVisible="{TemplateBinding SwatchBrush, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                            <Panel Width="22"
+                            <Panel Grid.Column="0"
+                                   Width="22"
                                    Height="22"
                                    HorizontalAlignment="Left"
                                    IsVisible="{TemplateBinding IconGeometry, Converter={x:Static ObjectConverters.IsNotNull}}">

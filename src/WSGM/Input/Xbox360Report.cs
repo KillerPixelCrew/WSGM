@@ -55,7 +55,7 @@ internal static class Xbox360Report
                           | Mask(buttons, CanonicalButtons.X, X)
                           | Mask(buttons, CanonicalButtons.Y, Y);
 
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[0..4], wireButtons);
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[..4], wireButtons);
         destination[4] = Trigger(sample.LeftTrigger);
         destination[5] = Trigger(sample.RightTrigger);
         BinaryPrimitives.WriteInt16LittleEndian(destination[6..8], Axis(sample.LeftStickX));

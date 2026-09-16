@@ -29,7 +29,7 @@ internal static class SelfWorkerAuthorization
         var secret = new byte[SecretBytes];
         try
         {
-            using AnonymousPipeClientStream pipe = new(PipeDirection.In, inheritedHandle);
+            await using AnonymousPipeClientStream pipe = new(PipeDirection.In, inheritedHandle);
             var offset = 0;
             while (offset < secret.Length)
             {

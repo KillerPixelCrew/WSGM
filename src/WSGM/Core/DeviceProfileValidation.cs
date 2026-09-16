@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
@@ -69,7 +68,7 @@ public static class DeviceProfileValidation
             return DeviceProfileRejection.NotACurve;
         }
 
-        IReadOnlyList<AuthoredCurvePoint> curve = profile.Curve;
+        var curve = profile.Curve;
         if (curve.Count is 0 or > MaximumPoints)
         {
             reason = $"the curve has {curve.Count} points; 1 to {MaximumPoints} are accepted";
@@ -96,11 +95,13 @@ public static class DeviceProfileValidation
                 return DeviceProfileRejection.OutOfBounds;
             }
 
-            if (descriptor.Maximum is { } maximum && point.Output > maximum)
+            if (descriptor.Maximum is not { } maximum || point.Output <= maximum)
             {
-                reason = $"output {point.Output} is above the declared maximum {maximum}";
-                return DeviceProfileRejection.OutOfBounds;
+                continue;
             }
+
+            reason = $"output {point.Output} is above the declared maximum {maximum}";
+            return DeviceProfileRejection.OutOfBounds;
         }
 
         return DeviceProfileRejection.None;

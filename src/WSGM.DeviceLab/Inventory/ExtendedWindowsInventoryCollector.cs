@@ -37,7 +37,7 @@ internal static partial class WindowsInventoryCollector
     ];
 
     private static IReadOnlyList<GraphicsAdapterInventory> CollectGraphicsAdapters(
-        ICollection<InventoryCollectionIssue> collectionIssues)
+        List<InventoryCollectionIssue> collectionIssues)
     {
         List<GraphicsAdapterInventory> adapters = [];
         try
@@ -291,7 +291,7 @@ internal static partial class WindowsInventoryCollector
             .ThenBy(sensor => sensor.InstanceId, StringComparer.Ordinal)];
     }
 
-    private static IReadOnlyList<SensorEndpointInventory> CollectWinRtSensors()
+    private static List<SensorEndpointInventory> CollectWinRtSensors()
     {
         (string TypeName, string Kind, string Unit)[] definitions =
         [
@@ -763,13 +763,15 @@ internal static partial class WindowsInventoryCollector
                     path = process.MainModule?.FileName;
                     foreach (ProcessModule module in process.Modules)
                     {
-                        if (IsRelevant(module.ModuleName))
+                        if (!IsRelevant(module.ModuleName))
                         {
-                            modules.Add(module.FileName);
-                            if (modules.Count >= InventoryLimits.MaximumEndpointsPerLane)
-                            {
-                                break;
-                            }
+                            continue;
+                        }
+
+                        modules.Add(module.FileName);
+                        if (modules.Count >= InventoryLimits.MaximumEndpointsPerLane)
+                        {
+                            break;
                         }
                     }
                 }
@@ -889,7 +891,7 @@ internal static partial class WindowsInventoryCollector
         try
         {
             using var searcher = CreateSearcher(
-                "root\\Microsoft\\Windows\\TaskScheduler",
+                @"root\Microsoft\Windows\TaskScheduler",
                 "SELECT TaskName, TaskPath, State, Enabled FROM MSFT_ScheduledTask");
             foreach (var item in searcher.Get())
             {
@@ -930,7 +932,7 @@ internal static partial class WindowsInventoryCollector
         return [.. tasks.OrderBy(task => task.Path, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static IReadOnlyList<NativeBinaryInventory> CollectNativeBinaries(
+    private static List<NativeBinaryInventory> CollectNativeBinaries(
         IReadOnlyList<ProcessInventory> processes,
         IReadOnlyList<ServiceInventory> services)
     {
@@ -980,7 +982,7 @@ internal static partial class WindowsInventoryCollector
         return binaries;
     }
 
-    private static IReadOnlyList<ProviderInventory> CollectRelevantProviders(
+    private static ProviderInventory[] CollectRelevantProviders(
         IReadOnlyList<ProcessInventory> processes)
     {
         List<ProviderInventory> providers = [];
@@ -1061,15 +1063,14 @@ internal static partial class WindowsInventoryCollector
             }
         }
 
-        return providers
+        return [.. providers
             .GroupBy(provider =>
                 $"{provider.Kind}\0{provider.Name}\0{provider.Context}\0{provider.HostProcessId}\0{provider.ModulePath}",
                 StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .OrderBy(provider => provider.Kind, StringComparer.Ordinal)
             .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(provider => provider.Context, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+            .ThenBy(provider => provider.Context, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static IReadOnlyList<ResourceConflictInventory> DeriveResourceConflicts(
@@ -1077,42 +1078,35 @@ internal static partial class WindowsInventoryCollector
         IReadOnlyList<ServiceInventory> services,
         IReadOnlyList<NativeBinaryInventory> nativeBinaries)
     {
-        List<ResourceConflictInventory> conflicts = [];
-        foreach (var owner in processes.Select(process => process.Name)
-            .Concat(services.Select(service => service.Name))
-            .Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            var resource = owner.Contains("hidhide", StringComparison.OrdinalIgnoreCase)
+        var ownerConflicts =
+            from owner in processes.Select(process => process.Name)
+                .Concat(services.Select(service => service.Name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+            let resource = owner.Contains("hidhide", StringComparison.OrdinalIgnoreCase)
                            || owner.Contains("hidmaestro", StringComparison.OrdinalIgnoreCase)
                 ? "controller-routing"
                 : owner.Contains("msi", StringComparison.OrdinalIgnoreCase)
                     || owner.Contains("center", StringComparison.OrdinalIgnoreCase)
                     || owner.Contains("handheld", StringComparison.OrdinalIgnoreCase)
                     ? "vendor-control"
-                    : null;
-            if (resource is not null)
+                    : null
+            where resource is not null
+            select new ResourceConflictInventory
             {
-                conflicts.Add(new ResourceConflictInventory
-                {
-                    ResourceId = resource,
-                    Owner = owner,
-                    Signal = ConflictSignalKind.PresenceOnly
-                });
-            }
-        }
-
-        foreach (var binary in nativeBinaries.Where(binary =>
-            binary.Access is InventoryAccess.ExclusiveAccessDenied))
-        {
-            conflicts.Add(new ResourceConflictInventory
+                ResourceId = resource,
+                Owner = owner,
+                Signal = ConflictSignalKind.PresenceOnly
+            };
+        var exclusiveConflicts = nativeBinaries
+            .Where(binary => binary.Access is InventoryAccess.ExclusiveAccessDenied)
+            .Select(binary => new ResourceConflictInventory
             {
                 ResourceId = $"native-file:{binary.Name}",
                 Owner = "unidentified-holder",
                 Signal = ConflictSignalKind.ExclusiveAccessDenied
             });
-        }
 
-        return [.. conflicts.OrderBy(conflict => conflict.ResourceId, StringComparer.Ordinal)
+        return [.. ownerConflicts.Concat(exclusiveConflicts).OrderBy(conflict => conflict.ResourceId, StringComparer.Ordinal)
             .ThenBy(conflict => conflict.Owner, StringComparer.OrdinalIgnoreCase)];
     }
 
@@ -1151,7 +1145,7 @@ internal static partial class WindowsInventoryCollector
         return exe >= 0 ? trimmed[..(exe + 4)] : null;
     }
 
-    [GeneratedRegex(@"VEN_(?<ven>[0-9A-Fa-f]{4})&DEV_(?<dev>[0-9A-Fa-f]{4})")]
+    [GeneratedRegex("VEN_(?<ven>[0-9A-Fa-f]{4})&DEV_(?<dev>[0-9A-Fa-f]{4})")]
     private static partial Regex PciIdentifiers();
 
     [GeneratedRegex(@"\((?<port>COM\d+)\)", RegexOptions.IgnoreCase)]

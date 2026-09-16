@@ -13,7 +13,7 @@ namespace WSGM.DeviceLab.Preflight;
 internal static class DeviceLabDoctor
 {
     /// <summary>Current doctor-report schema version.</summary>
-    public const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 1;
 
     private static readonly (string Name, string Library, string Export)[] RequiredWindowsApis =
     [
@@ -48,7 +48,7 @@ internal static class DeviceLabDoctor
     /// <param name="outputDecision">Central output-path policy result.</param>
     /// <param name="capturedAt">Timestamp to record.</param>
     /// <returns>Checks in stable policy order and their aggregate status.</returns>
-    public static DeviceLabDoctorReport Evaluate(
+    private static DeviceLabDoctorReport Evaluate(
         DeviceLabDoctorSnapshot snapshot,
         DeviceLabOutputPathDecision outputDecision,
         DateTimeOffset capturedAt)
@@ -89,17 +89,16 @@ internal static class DeviceLabDoctor
                 $"{snapshot.RuntimeDescription}; {snapshot.RuntimeIdentifier}")
         ];
 
-        foreach (var api in snapshot.RequiredApis.OrderBy(api => api.Name, StringComparer.Ordinal))
-        {
-            checks.Add(Check(
+        checks.AddRange(snapshot.RequiredApis
+            .OrderBy(api => api.Name, StringComparer.Ordinal)
+            .Select(api => Check(
                 $"api.{api.Name}",
                 "api",
                 api.Available ? DeviceLabDoctorStatus.Pass : DeviceLabDoctorStatus.Blocked,
                 api.Available
                     ? $"{api.Name} API is available."
                     : $"{api.Name} API is unavailable.",
-                $"{api.Library}!{api.Export}"));
-        }
+                $"{api.Library}!{api.Export}")));
 
         checks.Add(Check(
             "permissions.elevation",
@@ -126,10 +125,10 @@ internal static class DeviceLabDoctor
         checks.Add(Check(
             "session.interactive",
             "environment",
-            snapshot.IsUserInteractive && !snapshot.IsContinuousIntegration
+            snapshot is { IsUserInteractive: true, IsContinuousIntegration: false }
                 ? DeviceLabDoctorStatus.Pass
                 : DeviceLabDoctorStatus.Warning,
-            snapshot.IsUserInteractive && !snapshot.IsContinuousIntegration
+            snapshot is { IsUserInteractive: true, IsContinuousIntegration: false }
                 ? "An interactive local user session is available."
                 : "This environment cannot run the attended plugin hardware action."));
 
@@ -179,7 +178,7 @@ internal static class DeviceLabDoctor
                 IsElevated = IsElevated(),
                 IsUserInteractive = Environment.UserInteractive,
                 IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
-                RequiredApis = RequiredWindowsApis.Select(api => ProbeApi(api)).ToArray(),
+                RequiredApis = [.. RequiredWindowsApis.Select(ProbeApi)],
                 OutputPathWritable = outputWritable,
                 OutputAccessDetail = outputDetail
             };
@@ -190,7 +189,7 @@ internal static class DeviceLabDoctor
         {
             var libraryPath = Path.Combine(Environment.SystemDirectory, api.Library);
             var handle = IntPtr.Zero;
-            var available = false;
+            bool available;
             try
             {
                 available = NativeLibrary.TryLoad(libraryPath, out handle)

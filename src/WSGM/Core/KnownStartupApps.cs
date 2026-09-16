@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace WSGM.Core;
 
@@ -30,31 +31,18 @@ public static class KnownStartupApps
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
         };
 
-        var found = new List<(string, string, bool)>();
         // Dedupe key is the bare exe FILENAME, deliberately across roots and across
         // candidates: the legacy-path entry and multi-root (x86/x64) installs of the
         // same tool collapse to the first hit in priority order. Full-path dedupe
         // would resurface those as duplicate suggestions.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var candidate in Candidates)
-        {
-            foreach (var root in roots)
-            {
-                if (string.IsNullOrEmpty(root))
-                {
-                    continue;
-                }
-                foreach (var relative in candidate.RelativePaths)
-                {
-                    var full = Path.Combine(root, relative);
-                    if (File.Exists(full) && seen.Add(Path.GetFileName(full)))
-                    {
-                        found.Add((candidate.Label, full, candidate.Elevated));
-                    }
-                }
-            }
-        }
-        return found;
+        return (from candidate in Candidates
+                from root in roots
+                where !string.IsNullOrEmpty(root)
+                from relative in candidate.RelativePaths
+                let full = Path.Combine(root, relative)
+                where File.Exists(full) && seen.Add(Path.GetFileName(full))
+                select (candidate.Label, full, candidate.Elevated)).ToList();
     }
 }

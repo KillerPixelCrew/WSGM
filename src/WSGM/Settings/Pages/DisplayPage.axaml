@@ -25,13 +25,13 @@
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
                         <TextBlock Text="{Binding Title}" Classes="setting-title" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Content="Up"
-                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).MoveActionStepUpCommand}"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).MoveActionStepUpCommand, FallbackValue={x:Null}}"
                                 CommandParameter="{Binding}" />
                         <Button Grid.Column="2" Content="Down"
-                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).MoveActionStepDownCommand}"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).MoveActionStepDownCommand, FallbackValue={x:Null}}"
                                 CommandParameter="{Binding}" />
                         <Button Grid.Column="3" Content="Remove"
-                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RemoveActionStepCommand}"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).RemoveActionStepCommand, FallbackValue={x:Null}}"
                                 CommandParameter="{Binding}" />
                     </Grid>
                     <TextBlock Text="{Binding UnavailableText}" Classes="caption" TextWrapping="Wrap"
@@ -56,7 +56,7 @@
                         <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedIndex="{Binding ChoiceIndex}"
                                   HorizontalAlignment="Stretch" IsVisible="{Binding CanAdd}" />
                         <Button Grid.Column="2" Content="Add step" IsVisible="{Binding CanAdd}"
-                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).AddActionStepCommand}"
+                                Command="{Binding $parent[UserControl].((s:SettingsViewModel)DataContext).AddActionStepCommand, FallbackValue={x:Null}}"
                                 CommandParameter="{Binding}" />
                     </Grid>
                 </Border>
@@ -82,7 +82,7 @@
                         <TextBlock Text="When entering Game Mode" Classes="setting-title" />
                         <TextBlock Text="Apply this layout before opening Big Picture." Classes="caption" />
                     </StackPanel>
-                    <StackPanel Spacing="3" IsVisible="{Binding EditingDesktopLayout}">
+                    <StackPanel Grid.Column="0" Spacing="3" IsVisible="{Binding EditingDesktopLayout}">
                         <TextBlock Text="When returning to Desktop" Classes="setting-title" />
                         <TextBlock Text="Restore the previous arrangement or use your saved Desktop layout." Classes="caption" />
                     </StackPanel>

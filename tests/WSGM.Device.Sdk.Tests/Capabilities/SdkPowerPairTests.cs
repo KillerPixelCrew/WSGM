@@ -1,8 +1,8 @@
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
-using static WSGM.Device.Tests.PowerLimitDescriptors;
+using static WSGM.Device.Sdk.Tests.Builders.PowerLimitDescriptors;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Capabilities;
 
 public sealed class SdkPowerPairTests
 {

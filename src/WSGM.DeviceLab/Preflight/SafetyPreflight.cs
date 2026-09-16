@@ -162,6 +162,9 @@ internal static class DeviceLabSafetyPreflight
             case DeviceOwnerDiscoveryState.Unknown:
                 Block(checks, "owner.unknown", "The production device owner could not be inspected safely.");
                 break;
+            case DeviceOwnerDiscoveryState.Absent:
+            default:
+                break;
         }
 
         if (requirements.Access is DeviceLabOperationAccess.AttendedPluginAction)
@@ -208,7 +211,7 @@ internal static class DeviceLabSafetyPreflight
     }
 
     private static void Block(
-        ICollection<DeviceLabPreflightCheck> checks,
+        List<DeviceLabPreflightCheck> checks,
         string code,
         string message) => checks.Add(new DeviceLabPreflightCheck
         {

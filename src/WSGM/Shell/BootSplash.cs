@@ -112,11 +112,12 @@ public sealed class BootSplash
             CloseAfter(TouchInput.CloseGrace);
             return;
         }
-        if (_armed && !_probeInFlight)
+        if (!_armed || _probeInFlight)
         {
-            _probeInFlight = true;
-            _ = ProbeBigPictureAsync();
+            return;
         }
+        _probeInFlight = true;
+        _ = ProbeBigPictureAsync();
     }
 
     // The window probe walks the process table and the top-level windows. It runs on the thread

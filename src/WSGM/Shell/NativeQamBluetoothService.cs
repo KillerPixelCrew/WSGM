@@ -49,14 +49,9 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
                 is not RadioPower.Absent and not RadioPower.Disabled;
             enabled = _radios.BluetoothOn;
             discovering = _radios.BluetoothScanning;
-            foreach (var entry in _radios.BluetoothDevices)
-            {
-                if (string.IsNullOrWhiteSpace(entry.Id))
-                {
-                    continue;
-                }
-
-                devices.Add(new SteamBluetoothDevice(
+            devices.AddRange(_radios.BluetoothDevices
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Id))
+                .Select(entry => new SteamBluetoothDevice(
                     entry.Id,
                     string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name,
                     entry.Id,
@@ -65,8 +60,7 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
                     0,
                     entry.Paired,
                     entry.AudioConnectable ? entry.AudioActive : entry.Connected)
-                { OperationInProgress = entry.Busy });
-            }
+                { OperationInProgress = entry.Busy }));
         }).ConfigureAwait(false);
 
         return new SteamBluetoothState(available, enabled, discovering, devices);

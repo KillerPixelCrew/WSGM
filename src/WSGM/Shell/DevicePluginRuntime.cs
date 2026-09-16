@@ -24,7 +24,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationTokenSource _startCancellation = new();
-    private readonly object _commandGate = new();
+    private readonly Lock _commandGate = new();
     private readonly Dictionary<Guid, CommandOperation> _commands = [];
     private readonly TaskCompletionSource<DeviceRuntimeExit> _completion = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -71,17 +71,25 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(package);
         cancellationToken.ThrowIfCancellationRequested();
-        if (pluginStateRoot is not null)
+        if (pluginStateRoot is null)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(pluginStateRoot);
-            pluginStateRoot = Path.GetFullPath(pluginStateRoot);
+            return LoadAsync(package, cycleGeneration, null, cancellationToken);
         }
-        return Task.Run(
-            () => new DevicePluginRuntime(
-                PluginPackageLoader.Load(package),
-                cycleGeneration,
-                pluginStateRoot),
-            cancellationToken);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(pluginStateRoot);
+        return LoadAsync(package, cycleGeneration, Path.GetFullPath(pluginStateRoot), cancellationToken);
+
+        static Task<DevicePluginRuntime> LoadAsync(
+            InstalledDevicePackage package,
+            long cycleGeneration,
+            string? stateRoot,
+            CancellationToken cancellationToken) =>
+            Task.Run(
+                () => new DevicePluginRuntime(
+                    PluginPackageLoader.Load(package),
+                    cycleGeneration,
+                    stateRoot),
+                cancellationToken);
     }
 
     internal async Task<DevicePluginState> StartAsync(
@@ -302,15 +310,15 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            if (!operation.Task.IsCompleted)
+            if (operation.Task.IsCompleted)
             {
-                _ = RemoveCommandWhenCompleteAsync(operation);
-                return new DeviceCommandDispatch(
-                    CanceledCommand(command, operation.DeadlinePassed),
-                    operation.Task);
+                return new DeviceCommandDispatch(await operation.Task.ConfigureAwait(false));
             }
 
-            return new DeviceCommandDispatch(await operation.Task.ConfigureAwait(false));
+            _ = RemoveCommandWhenCompleteAsync(operation);
+            return new DeviceCommandDispatch(
+                CanceledCommand(command, operation.DeadlinePassed),
+                operation.Task);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -337,12 +345,9 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         HapticOutputFrame output,
         CancellationToken cancellationToken)
     {
-        if (_cycleState is not (DeviceCycleState.Active or DeviceCycleState.Degraded))
-        {
-            return Task.CompletedTask;
-        }
-
-        return Plugin.ApplyHapticOutputAsync(output, cancellationToken).AsTask();
+        return _cycleState is not (DeviceCycleState.Active or DeviceCycleState.Degraded)
+            ? Task.CompletedTask
+            : Plugin.ApplyHapticOutputAsync(output, cancellationToken).AsTask();
     }
 
     internal async Task<ControllerHandoff> ReleaseControllerAsync(
@@ -673,9 +678,9 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         return failures;
     }
 
-    private bool Complete(DeviceRuntimeExitReason reason, string detail)
+    private void Complete(DeviceRuntimeExitReason reason, string detail)
     {
-        return _completion.TrySetResult(new DeviceRuntimeExit(reason, detail));
+        _completion.TrySetResult(new DeviceRuntimeExit(reason, detail));
     }
 
     private void ReportPluginFault(string scope, string message)
@@ -933,7 +938,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         DevicePluginRuntime owner,
         long cycleGeneration) : IPluginHostAdapter, IDisposable
     {
-        private readonly object _generationGate = new();
+        private readonly Lock _generationGate = new();
         private long _descriptorGeneration;
         private long _stateSequence;
         private volatile bool _disposed;
@@ -1075,6 +1080,9 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                     break;
                 case DeviceTraceLevel.Debug:
                     Log.Debug(line);
+                    break;
+                default:
+                    // An undefined level from the plugin boundary is dropped.
                     break;
             }
         }

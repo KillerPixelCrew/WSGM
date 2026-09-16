@@ -9,8 +9,9 @@ using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Controls;
 
 public sealed class PhysicalGlyphServiceTests
 {
@@ -264,7 +265,7 @@ public sealed class PhysicalGlyphServiceTests
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
-            [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n")
+            [manifest.NoticePath] = "Example glyph notice\n"u8.ToArray()
         };
         if (includeArtwork)
         {

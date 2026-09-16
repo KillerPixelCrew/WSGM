@@ -77,8 +77,7 @@ internal static partial class DeviceProperties
             return null;
         }
 
-        var characters = 0;
-        var result = CM_Get_Device_ID_Size(out characters, parent, 0);
+        var result = CM_Get_Device_ID_Size(out var characters, parent, 0);
         if (result != CrSuccess
             || characters <= 0
             || characters > InventoryLimits.MaximumTextCharacters)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Avalonia.Media;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
@@ -26,14 +27,11 @@ internal sealed record PhysicalGlyphPath(
     string Fill,
     string Stroke,
     decimal StrokeWidth,
-    string FillRule,
     string StrokeLineCap,
     string StrokeLineJoin);
 
 internal sealed record PhysicalGlyphRenderPlan
 {
-    internal required string? ProfileId { get; init; }
-    internal required GlyphControlId RequestedControl { get; init; }
     internal required GlyphControlId? PhysicalControl { get; init; }
     internal required PhysicalGlyphFallbackReason FallbackReason { get; init; }
     internal required GlyphViewBox? ViewBox { get; init; }
@@ -52,10 +50,10 @@ internal sealed record PhysicalGlyphRenderPlan
 /// </remarks>
 internal sealed class PhysicalGlyphService : IDisposable
 {
-    internal const int DefaultMaximumCacheEntries = 128;
-    internal const int DefaultMaximumCacheBytes = 4 * 1024 * 1024;
+    private const int DefaultMaximumCacheEntries = 128;
+    private const int DefaultMaximumCacheBytes = 4 * 1024 * 1024;
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly int _maximumCacheEntries;
     private readonly int _maximumCacheBytes;
     private readonly PhysicalGlyphCatalog _catalog;
@@ -69,14 +67,8 @@ internal sealed class PhysicalGlyphService : IDisposable
         int maximumCacheBytes = DefaultMaximumCacheBytes)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        if (maximumCacheEntries <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumCacheEntries));
-        }
-        if (maximumCacheBytes <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumCacheBytes));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCacheEntries);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCacheBytes);
 
         _catalog = catalog;
         _maximumCacheEntries = maximumCacheEntries;
@@ -117,7 +109,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         ArgumentNullException.ThrowIfNull(selection);
         if (selection.Profile is null)
         {
-            return FallbackPlan(requestedControl, selection.FallbackReason);
+            return FallbackPlan(selection.FallbackReason);
         }
 
         var authorized = surface switch
@@ -128,7 +120,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         };
         if (!authorized)
         {
-            return FallbackPlan(requestedControl, PhysicalGlyphFallbackReason.SourceNotHandheld);
+            return FallbackPlan(PhysicalGlyphFallbackReason.SourceNotHandheld);
         }
 
         var scaleBucket = Math.Clamp((int)Math.Round(scale * 4, MidpointRounding.AwayFromZero), 2, 16);
@@ -140,7 +132,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             scaleBucket);
         lock (_gate)
         {
-            if (_cache.TryGetValue(key, out var cached) && cached is not null)
+            if (_cache.TryGetValue(key, out var cached))
             {
                 Touch(cached);
                 return cached.Plan;
@@ -148,13 +140,15 @@ internal sealed class PhysicalGlyphService : IDisposable
 
             var plan = BuildPlan(selection.Profile, requestedControl);
             var cost = EstimateCost(selection.Profile, plan);
-            if (cost <= _maximumCacheBytes)
+            if (cost > _maximumCacheBytes)
             {
-                var node = _lru.AddFirst(key);
-                _cache.Add(key, new CacheEntry(plan, cost, node));
-                _cacheBytes += cost;
-                TrimCache();
+                return plan;
             }
+
+            var node = _lru.AddFirst(key);
+            _cache.Add(key, new CacheEntry(plan, cost, node));
+            _cacheBytes += cost;
+            TrimCache();
             return plan;
         }
     }
@@ -190,72 +184,65 @@ internal sealed class PhysicalGlyphService : IDisposable
         if (mapping is null || mapping.Presence is GlyphControlPresence.Absent)
         {
             return FallbackPlan(
-                requestedControl,
                 mapping is null
                     ? PhysicalGlyphFallbackReason.ArtworkMissing
                     : PhysicalGlyphFallbackReason.ControlAbsent,
-                profile.Manifest.ProfileId,
                 physicalControl);
         }
 
         if (mapping.AssetSha256 is not { } hash
-            || !profile.Assets.TryGetValue(hash, out var asset)
-            || asset is null)
+            || !profile.Assets.TryGetValue(hash, out var asset))
         {
             return FallbackPlan(
-                requestedControl,
                 PhysicalGlyphFallbackReason.ArtworkMissing,
-                profile.Manifest.ProfileId,
                 physicalControl);
         }
 
-        if (asset.Vector is { } vector)
+        if (asset.Vector is not { } vector)
         {
-            try
+            return new PhysicalGlyphRenderPlan
             {
-                var paths = vector.Paths.Select(path => new PhysicalGlyphPath(
-                    StreamGeometry.Parse(ToAvaloniaPathData(path.Data)),
-                    path.Fill,
-                    path.Stroke,
-                    path.StrokeWidth,
-                    path.FillRule,
-                    path.StrokeLineCap,
-                    path.StrokeLineJoin)).ToArray();
-                return new PhysicalGlyphRenderPlan
-                {
-                    ProfileId = profile.Manifest.ProfileId,
-                    RequestedControl = requestedControl,
-                    PhysicalControl = physicalControl,
-                    FallbackReason = PhysicalGlyphFallbackReason.None,
-                    ViewBox = vector.ViewBox,
-                    Paths = paths,
-                    RasterPng = default
-                };
-            }
-            catch (Exception)
-            {
-                // The importer accepted only its strict path grammar, but Avalonia is the final
-                // renderer authority. A parser-version disagreement is a bounded fallback, never a
-                // reason to expose source SVG bytes or take down the overlay.
-                return FallbackPlan(
-                    requestedControl,
-                    PhysicalGlyphFallbackReason.RenderRejected,
-                    profile.Manifest.ProfileId,
-                    physicalControl);
-            }
+                PhysicalControl = physicalControl,
+                FallbackReason = PhysicalGlyphFallbackReason.None,
+                ViewBox = null,
+                Paths = [],
+                RasterPng = asset.RasterPng
+            };
         }
 
-        return new PhysicalGlyphRenderPlan
+        try
         {
-            ProfileId = profile.Manifest.ProfileId,
-            RequestedControl = requestedControl,
-            PhysicalControl = physicalControl,
-            FallbackReason = PhysicalGlyphFallbackReason.None,
-            ViewBox = null,
-            Paths = [],
-            RasterPng = asset.RasterPng
-        };
+            var paths = vector.Paths.Select(path => new PhysicalGlyphPath(
+                StreamGeometry.Parse(FillRulePrefix(path.FillRule) + ToAvaloniaPathData(path.Data)),
+                path.Fill,
+                path.Stroke,
+                path.StrokeWidth,
+                path.StrokeLineCap,
+                path.StrokeLineJoin)).ToArray();
+            return new PhysicalGlyphRenderPlan
+            {
+                PhysicalControl = physicalControl,
+                FallbackReason = PhysicalGlyphFallbackReason.None,
+                ViewBox = vector.ViewBox,
+                Paths = paths,
+                RasterPng = default
+            };
+        }
+        catch (Exception)
+        {
+            // The importer accepted only its strict path grammar, but Avalonia is the final
+            // renderer authority. A parser-version disagreement is a bounded fallback, never a
+            // reason to expose source SVG bytes or take down the overlay.
+            return FallbackPlan(
+                PhysicalGlyphFallbackReason.RenderRejected,
+                physicalControl);
+        }
     }
+
+    // Avalonia's path grammar defaults to even-odd filling, while SVG defaults to non-zero; the
+    // leading fill-rule command keeps the artwork's own rule.
+    private static string FillRulePrefix(string fillRule) =>
+        string.Equals(fillRule, "evenodd", StringComparison.Ordinal) ? "F0 " : "F1 ";
 
     private static int EstimateCost(
         ImportedGlyphProfile profile,
@@ -269,7 +256,6 @@ internal sealed class PhysicalGlyphService : IDisposable
             item => item.Control == control);
         return mapping?.AssetSha256 is { } hash
             && profile.Assets.TryGetValue(hash, out var asset)
-            && asset is not null
             ? Math.Max(64, asset.RetainedBytes)
             : 64;
     }
@@ -305,29 +291,32 @@ internal sealed class PhysicalGlyphService : IDisposable
                 }
 
                 output.Append(' ');
-                if (arity == 1)
+                switch (arity)
                 {
-                    output.Append(tokens[index]);
-                }
-                else if (arity == 7)
-                {
-                    output.Append(tokens[index]).Append(',').Append(tokens[index + 1])
-                        .Append(' ').Append(tokens[index + 2])
-                        .Append(' ').Append(tokens[index + 3])
-                        .Append(' ').Append(tokens[index + 4])
-                        .Append(' ').Append(tokens[index + 5]).Append(',').Append(tokens[index + 6]);
-                }
-                else
-                {
-                    for (var parameter = 0; parameter < arity; parameter += 2)
-                    {
-                        if (parameter > 0)
+                    case 1:
+                        output.Append(tokens[index]);
+                        break;
+                    case 7:
+                        output.Append(tokens[index]).Append(',').Append(tokens[index + 1])
+                            .Append(' ').Append(tokens[index + 2])
+                            .Append(' ').Append(tokens[index + 3])
+                            .Append(' ').Append(tokens[index + 4])
+                            .Append(' ').Append(tokens[index + 5]).Append(',').Append(tokens[index + 6]);
+                        break;
+                    default:
                         {
-                            output.Append(' ');
+                            for (var parameter = 0; parameter < arity; parameter += 2)
+                            {
+                                if (parameter > 0)
+                                {
+                                    output.Append(' ');
+                                }
+                                output.Append(tokens[index + parameter]).Append(',')
+                                    .Append(tokens[index + parameter + 1]);
+                            }
+
+                            break;
                         }
-                        output.Append(tokens[index + parameter]).Append(',')
-                            .Append(tokens[index + parameter + 1]);
-                    }
                 }
                 index += arity;
             }
@@ -336,13 +325,9 @@ internal sealed class PhysicalGlyphService : IDisposable
     }
 
     private static PhysicalGlyphRenderPlan FallbackPlan(
-        GlyphControlId requestedControl,
         PhysicalGlyphFallbackReason reason,
-        string? profileId = null,
         GlyphControlId? physicalControl = null) => new()
         {
-            ProfileId = profileId,
-            RequestedControl = requestedControl,
             PhysicalControl = physicalControl,
             FallbackReason = reason,
             ViewBox = null,
@@ -362,8 +347,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         {
             var tail = _lru.Last;
             if (tail is null
-                || !_cache.Remove(tail.Value, out var removed)
-                || removed is null)
+                || !_cache.Remove(tail.Value, out var removed))
             {
                 break;
             }

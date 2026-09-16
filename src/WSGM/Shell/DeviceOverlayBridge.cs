@@ -266,7 +266,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private readonly DeviceCoordinator _coordinator;
     private readonly AutoTdpService? _autoTdp;
     private readonly PhysicalGlyphService _glyphs;
-    private readonly object _sampleGate = new();
+    private readonly Lock _sampleGate = new();
     private int _sampleObservers;
     private bool _disposed;
 
@@ -357,17 +357,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 package.Manifest?.Id ?? "Invalid device package",
                 package.Detail ?? "The installed package did not pass validation.",
                 package.RejectionCode ?? "INVALID",
-                false,
-                null,
-                null));
+                false));
         }
 
         var discovery = _coordinator.PackageDiscovery;
         if (discovery.Inventory.Cardinality is DevicePackageCardinality.Multiple)
         {
-            foreach (var packageRoot in discovery.Inventory.PackageRoots.Take(16))
-            {
-                capabilities.Add(new DeviceOverlayCapability(
+            capabilities.AddRange(discovery.Inventory.PackageRoots.Take(16)
+                .Select(packageRoot => new DeviceOverlayCapability(
                     $"wsgm.package.multiple.{Path.GetFileName(packageRoot)}",
                     null,
                     DeviceOverlaySection.Diagnostics,
@@ -375,10 +372,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     Path.GetFileName(packageRoot),
                     $"{discovery.Detail} Path: {packageRoot}",
                     discovery.ErrorCode ?? "MULTIPLE",
-                    false,
-                    null,
-                    null));
-            }
+                    false)));
         }
         // OrderBy is stable, so rows keep their order within a section.
         capabilities = [.. capabilities.OrderBy(capability => capability.Section)];
@@ -485,7 +479,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// input source is not the managed handheld, which is exactly when someone is checking it.
     /// </para>
     /// </remarks>
-    internal static DeviceOverlayGlyphPreview? GlyphPreview(
+    private static DeviceOverlayGlyphPreview? GlyphPreview(
         PhysicalGlyphSelectionResult selection,
         PhysicalGlyphService glyphs,
         bool inputTestAvailable)
@@ -547,7 +541,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// name here without a second list to forget to update. A profile that prints its own label on
     /// the device overrides this anyway.
     /// </remarks>
-    internal static string ControlLabel(GlyphControlId control)
+    private static string ControlLabel(GlyphControlId control)
     {
         var name = control.ToString();
         StringBuilder text = new(name.Length + 4);
@@ -783,7 +777,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             AutoTdpState.Idle => DescriptorStatus.Stale,
             _ => DescriptorStatus.None
         };
-        if (status?.FrametimeMs is { } frametime && status.TargetFrametimeMs is { } target)
+        if (status is { FrametimeMs: { } frametime, TargetFrametimeMs: { } target })
         {
             // Invariant, like the watts above it. The surrounding sentence is English, and a row
             // that mixed a comma decimal separator with a full stop in one line would read as a
@@ -999,14 +993,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var displayed = projection.PendingValue
                         ?? state.ObservedValue
                         ?? projection.DesiredValue;
-        var actionOnlyReady = state.Available
-                              && state.Reason is null
-                              && descriptor.SupportsAction
-                              && !descriptor.SupportsRead
-                              && state.Quality is HardwareStateQuality.Unknown;
+        var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
+                              && descriptor is { SupportsAction: true, SupportsRead: false };
         var current = actionOnlyReady
-                      || state.Available
-                      && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
+                      || state is
+                      {
+                          Available: true,
+                          Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
+                      };
         var next = NextValue(descriptor, displayed);
         var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
                          && displayed?.ColorValue is not null;
@@ -1111,29 +1105,34 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <summary>Projects the declared overlay sections for presentation, in declared order.</summary>
     internal static IReadOnlyList<DeviceOverlayPluginSection> ProjectSections(
         IReadOnlyList<CapabilitySection> sections) =>
-        DeviceSections.IncludePredefined(sections)
+    [
+        .. DeviceSections.IncludePredefined(sections)
             .Select((section, index) => (Section: section, Index: index))
             .OrderBy(item => item.Section.SortOrder)
             .ThenBy(item => item.Index)
             .Select(item => new DeviceOverlayPluginSection(
                 item.Section.SectionId,
-                item.Section.SectionId == DeviceSections.RgbId ? "RGB"
-                    : item.Section.SectionId == DeviceSections.InfoId ? "Info"
-                    : SectionTitle(item.Section.Key, item.Section.CustomTitle),
+                item.Section.SectionId switch
+                {
+                    DeviceSections.RgbId => "RGB",
+                    DeviceSections.InfoId => "Info",
+                    _ => SectionTitle(item.Section.Key, item.Section.CustomTitle)
+                },
                 item.Section.CustomDescription ?? SectionDescription(item.Section.Key),
                 item.Section.Icon,
-                item.Section.Categories
-                    .Select((category, categoryIndex) => (Category: category, Index: categoryIndex))
-                    .OrderBy(entry => entry.Category.SortOrder)
-                    .ThenBy(entry => entry.Index)
-                    .Select(entry => new DeviceOverlayCategory(
-                        entry.Category.CategoryId,
-                        SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
-                    .ToList())
+                [
+                    .. item.Section.Categories
+                        .Select((category, categoryIndex) => (Category: category, Index: categoryIndex))
+                        .OrderBy(entry => entry.Category.SortOrder)
+                        .ThenBy(entry => entry.Index)
+                        .Select(entry => new DeviceOverlayCategory(
+                            entry.Category.CategoryId,
+                            SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
+                ])
             {
                 Key = item.Section.Key
             })
-            .ToList();
+    ];
 
     /// <summary>The WSGM-owned title behind a section key; custom text is bounded plugin text.</summary>
     private static string SectionTitle(SettingSectionKey key, string? custom) => key switch
@@ -1218,22 +1217,17 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return DescriptorStatus.Stale;
         }
 
-        if (projection.State.Reason?.Code is CapabilityReasonCode.ResourceConflict
-            or CapabilityReasonCode.ResourceReleased)
+        return projection.State.Reason?.Code switch
         {
-            return DescriptorStatus.ExternallyOwned;
-        }
-
-        if (projection.State.Reason?.Code is CapabilityReasonCode.Unsupported
-            or CapabilityReasonCode.FirmwareNotVerified
-            or CapabilityReasonCode.PrerequisiteMissing)
-        {
-            return DescriptorStatus.Unsupported;
-        }
-
-        return projection.State.Available
-            ? DescriptorStatus.Available
-            : DescriptorStatus.Warning;
+            CapabilityReasonCode.ResourceConflict or CapabilityReasonCode.ResourceReleased =>
+                DescriptorStatus.ExternallyOwned,
+            CapabilityReasonCode.Unsupported
+                or CapabilityReasonCode.FirmwareNotVerified
+                or CapabilityReasonCode.PrerequisiteMissing => DescriptorStatus.Unsupported,
+            _ => projection.State.Available
+                ? DescriptorStatus.Available
+                : DescriptorStatus.Warning
+        };
     }
 
     private static CapabilityValue? NextValue(
@@ -1245,15 +1239,18 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 Kind = CapabilityValueKind.Boolean,
                 BooleanValue = !(current?.BooleanValue ?? false)
             },
-            CapabilityValueKind.Integer when descriptor.Minimum is { } minimum
-                && descriptor.Maximum is { } maximum
-                && descriptor.Step is { } step and > 0 => new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Integer,
-                    IntegerValue = current?.IntegerValue is { } value && value + step <= maximum
+            CapabilityValueKind.Integer when descriptor is
+            {
+                Minimum: { } minimum,
+                Maximum: { } maximum,
+                Step: { } step and > 0
+            } => new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Integer,
+                IntegerValue = current?.IntegerValue is { } value && value + step <= maximum
                         ? value + step
                         : minimum
-                },
+            },
             CapabilityValueKind.Choice when descriptor.Choices.Count > 0 => new CapabilityValue
             {
                 Kind = CapabilityValueKind.Choice,

@@ -37,55 +37,50 @@ public partial class OverlayWindow
         switch (capability.ValueKind)
         {
             case CapabilityValueKind.Boolean:
-                {
-                    var (row, _) = DeviceControlRows.Toggle(
-                        key,
-                        capability.Title,
-                        capability.Description,
-                        capability.CurrentValue?.BooleanValue ?? false,
-                        capability.CanInvoke,
-                        value => WriteDeviceValue(capability, new CapabilityValue
-                        {
-                            Kind = CapabilityValueKind.Boolean,
-                            BooleanValue = value
-                        }));
-                    return row;
-                }
+                return DeviceControlRows.Toggle(
+                    key,
+                    capability.Title,
+                    capability.Description,
+                    capability.CurrentValue?.BooleanValue ?? false,
+                    capability.CanInvoke,
+                    value => WriteDeviceValue(capability, new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Boolean,
+                        BooleanValue = value
+                    }));
 
             case CapabilityValueKind.Choice when capability.Choices.Count > 0:
-                {
-                    var (row, _) = DeviceControlRows.Choice(
-                        key,
-                        capability.Title,
-                        capability.Description,
-                        capability.Choices,
-                        capability.CurrentValue?.ChoiceValue,
-                        capability.CanInvoke,
-                        value => WriteDeviceValue(capability, new CapabilityValue
-                        {
-                            Kind = CapabilityValueKind.Choice,
-                            ChoiceValue = value
-                        }));
-                    return row;
-                }
+                return DeviceControlRows.Choice(
+                    key,
+                    capability.Title,
+                    capability.Description,
+                    capability.Choices,
+                    capability.CurrentValue?.ChoiceValue,
+                    capability.CanInvoke,
+                    value => WriteDeviceValue(capability, new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Choice,
+                        ChoiceValue = value
+                    }));
 
             case CapabilityValueKind.Text:
-                {
-                    var (row, _) = DeviceControlRows.Text(
-                        key,
-                        capability.Title,
-                        capability.Description,
-                        capability.CurrentValue?.TextValue,
-                        capability.MaximumLength,
-                        capability.CanInvoke,
-                        value => WriteDeviceValue(capability, new CapabilityValue
-                        {
-                            Kind = CapabilityValueKind.Text,
-                            TextValue = value
-                        }));
-                    return row;
-                }
+                return DeviceControlRows.Text(
+                    key,
+                    capability.Title,
+                    capability.CurrentValue?.TextValue,
+                    capability.MaximumLength,
+                    capability.CanInvoke,
+                    value => WriteDeviceValue(capability, new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Text,
+                        TextValue = value
+                    }));
 
+            case CapabilityValueKind.None:
+            case CapabilityValueKind.Integer:
+            case CapabilityValueKind.Choice:
+            case CapabilityValueKind.Color:
+            case CapabilityValueKind.Curve:
             default:
                 return null;
         }
@@ -215,7 +210,7 @@ public partial class OverlayWindow
         return button;
     }
 
-    private Control CreateGlyphSelectionRow(DescriptorRow descriptor, DeviceGlyphSelection selected)
+    private StackPanel CreateGlyphSelectionRow(DescriptorRow descriptor, DeviceGlyphSelection selected)
     {
         var choice = new ComboBox
         {

@@ -119,20 +119,18 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
-        // A setting is something the user changes, so a value shape that cannot be changed or has no
-        // value at all has nothing to draw.
-        if (ValueKind is CapabilityValueKind.None)
+        switch (ValueKind)
         {
-            error = $"setting '{SettingId}' must carry a value; use a capability for an action.";
-            return false;
-        }
-
-        // A curve is authored, not toggled: it belongs to a named profile with its own storage and
-        // its own editor, so letting one masquerade as a preference would give curves two homes.
-        if (ValueKind is CapabilityValueKind.Curve)
-        {
-            error = $"setting '{SettingId}' may not be a curve; declare a profile instead.";
-            return false;
+            // A setting is something the user changes, so a value shape that cannot be changed or has
+            // no value at all has nothing to draw.
+            case CapabilityValueKind.None:
+                error = $"setting '{SettingId}' must carry a value; use a capability for an action.";
+                return false;
+            // A curve is authored, not toggled: it belongs to a named profile with its own storage and
+            // its own editor, so letting one masquerade as a preference would give curves two homes.
+            case CapabilityValueKind.Curve:
+                error = $"setting '{SettingId}' may not be a curve; declare a profile instead.";
+                return false;
         }
 
         if (ValueKind is CapabilityValueKind.Integer
@@ -179,11 +177,13 @@ public sealed record PluginSettingDescriptor
                     return false;
                 }
 
-                if (!choice.Display.TryValidate(out var choiceDisplayError))
+                if (choice.Display.TryValidate(out var choiceDisplayError))
                 {
-                    error = $"setting '{SettingId}' choice '{choice.Value}' has invalid display metadata: {choiceDisplayError}";
-                    return false;
+                    continue;
                 }
+
+                error = $"setting '{SettingId}' choice '{choice.Value}' has invalid display metadata: {choiceDisplayError}";
+                return false;
             }
         }
 
@@ -327,6 +327,11 @@ public sealed record PluginSettingDescriptor
                     $"setting '{SettingId}' text",
                     out error
                 );
+
+            case CapabilityValueKind.None:
+            case CapabilityValueKind.Curve:
+            default:
+                break;
         }
 
         error = null;
@@ -409,11 +414,13 @@ public sealed record PluginSettingsManifest
                 return false;
             }
 
-            if (!sectionIds.Add(section.SectionId))
+            if (sectionIds.Add(section.SectionId))
             {
-                error = $"manifest declares section '{section.SectionId}' more than once.";
-                return false;
+                continue;
             }
+
+            error = $"manifest declares section '{section.SectionId}' more than once.";
+            return false;
         }
 
         var settingIds = new HashSet<string>(StringComparer.Ordinal);
@@ -431,11 +438,13 @@ public sealed record PluginSettingsManifest
                 return false;
             }
 
-            if (!settingIds.Add(setting.SettingId))
+            if (settingIds.Add(setting.SettingId))
             {
-                error = $"manifest declares setting '{setting.SettingId}' more than once.";
-                return false;
+                continue;
             }
+
+            error = $"manifest declares setting '{setting.SettingId}' more than once.";
+            return false;
         }
 
         error = null;

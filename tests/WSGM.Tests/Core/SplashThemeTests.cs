@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>Round-trip and robustness coverage for .wsgmsplash theme export/import
 /// (SplashTheme): bundled images, config-only archives, and archives that must be
@@ -279,7 +279,7 @@ public sealed class SplashThemeTests : IDisposable
     {
         var destination = Path.Combine(_root, "never-written.wsgmsplash");
         var tiffPath = Path.Combine(_sourceDir, "photo.tiff");
-        File.WriteAllBytes(tiffPath, [9, 9]);
+        File.WriteAllBytes(tiffPath, "\t\t"u8);
 
         Assert.False(
             SplashTheme.Export(new SplashConfig { BackgroundImagePath = tiffPath }, destination)
@@ -531,7 +531,7 @@ public sealed class SplashThemeTests : IDisposable
         // header) so its extraction throws after the fresh target directory was
         // created and logo.png staged.
         var bytes = File.ReadAllBytes(themePath);
-        var nameOffset = IndexOf(bytes, "background.png"u8.ToArray());
+        var nameOffset = bytes.AsSpan().IndexOf("background.png"u8);
         var localHeaderOffset = nameOffset - 30;
         var extraFieldLength = bytes[localHeaderOffset + 28] | (bytes[localHeaderOffset + 29] << 8);
         var dataOffset = nameOffset + "background.png".Length + extraFieldLength;
@@ -570,27 +570,6 @@ public sealed class SplashThemeTests : IDisposable
         var entry = archive.CreateEntry("splash.json");
         using var writer = new StreamWriter(entry.Open());
         writer.Write(json);
-    }
-
-    private static int IndexOf(byte[] haystack, byte[] needle)
-    {
-        for (var start = 0; start <= haystack.Length - needle.Length; start++)
-        {
-            var match = true;
-            for (var i = 0; i < needle.Length; i++)
-            {
-                if (haystack[start + i] != needle[i])
-                {
-                    match = false;
-                    break;
-                }
-            }
-            if (match)
-            {
-                return start;
-            }
-        }
-        return -1;
     }
 
     [Fact]

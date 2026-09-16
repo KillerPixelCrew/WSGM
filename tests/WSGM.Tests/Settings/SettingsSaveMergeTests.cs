@@ -3,7 +3,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Settings;
 
 public sealed class SettingsSaveMergeTests
 {

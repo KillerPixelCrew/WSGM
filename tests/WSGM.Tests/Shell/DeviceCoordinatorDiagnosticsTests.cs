@@ -2,7 +2,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class DeviceCoordinatorDiagnosticsTests
 {

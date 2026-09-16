@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace WSGM.Device.Sdk.Capabilities;
@@ -115,15 +114,13 @@ public sealed record CapabilityDescriptor
     /// and host behavior.</summary>
     public IReadOnlyList<DevicePowerPreset> PowerPresets
     {
-        get => _powerPresets;
+        get;
         init
         {
             ArgumentNullException.ThrowIfNull(value);
-            _powerPresets = Array.AsReadOnly(value.ToArray());
+            field = Array.AsReadOnly<DevicePowerPreset>([.. value]);
         }
-    }
-
-    private readonly IReadOnlyList<DevicePowerPreset> _powerPresets = [];
+    } = [];
 
     /// <summary>
     /// Longest accepted value for a <see cref="CapabilityValueKind.Text"/> capability.

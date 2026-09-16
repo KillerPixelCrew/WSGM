@@ -15,7 +15,6 @@ internal sealed class CommonPluginActions
     internal IReadOnlyList<PluginAction> Actions { get; }
     internal IReadOnlyList<PluginUiContribution> Contributions { get; }
     internal IReadOnlyList<PluginWidget> Widgets { get; }
-    internal PluginActionResult? LastResult { get; private set; }
 
     internal CommonPluginActions(IPlugin plugin)
     {
@@ -31,22 +30,21 @@ internal sealed class CommonPluginActions
             { throw new ArgumentException("Invalid plugin action declaration."); }
             captured.Add(action with
             {
-                Arguments = Array.AsReadOnly(action.Arguments.Select(argument => argument with
-                { Choices = argument.Choices is null ? null : Array.AsReadOnly(argument.Choices.ToArray()) }).ToArray())
+                Arguments = Array.AsReadOnly([
+                    .. action.Arguments.Select(argument => argument with
+                    { Choices = argument.Choices is null ? null : Array.AsReadOnly([.. argument.Choices]) })
+                ])
             });
         }
         Actions = captured.AsReadOnly();
         var contributions = plugin is IPluginUi ui ? ui.Contributions ?? throw new ArgumentException("Plugin UI declaration is absent.") : [];
         if (contributions.Count > 128) { throw new ArgumentException("Too many plugin UI contributions."); }
         ids.Clear();
-        foreach (var contribution in contributions)
-        {
-            if (contribution is null || !PluginConfigurationRules.ValidKey(contribution.Id) || !ids.Add(contribution.Id)
-                || !PluginConfigurationRules.ValidKey(contribution.Category) || !Label(contribution.Label)
-                || !ValidContribution(contribution))
-            { throw new ArgumentException("Plugin UI contribution has an invalid state or action link."); }
-        }
-        Contributions = Array.AsReadOnly(contributions.ToArray());
+        if (contributions.Any(contribution => contribution is null || !PluginConfigurationRules.ValidKey(contribution.Id)
+                || !ids.Add(contribution.Id) || !PluginConfigurationRules.ValidKey(contribution.Category)
+                || !Label(contribution.Label) || !ValidContribution(contribution)))
+        { throw new ArgumentException("Plugin UI contribution has an invalid state or action link."); }
+        Contributions = Array.AsReadOnly([.. contributions]);
         Widgets = CaptureWidgets(plugin is IPluginUi widgetSource ? widgetSource.Widgets : [], Contributions);
     }
 
@@ -65,9 +63,9 @@ internal sealed class CommonPluginActions
                 || widget.ContributionIds.Any(id => !controls.Contains(id))
                 || new[] { widget.Icon, widget.SecondaryStateKey, widget.VisibleStateKey, widget.EnabledStateKey }
                     .Any(key => key is not null && !PluginConfigurationRules.ValidKey(key))
-                || (widget.NavigationCategory is not null && !contributions.Any(item => item.Category == widget.NavigationCategory)))
+                || (widget.NavigationCategory is not null && contributions.All(item => item.Category != widget.NavigationCategory)))
             { throw new ArgumentException("Invalid plugin widget declaration or contribution link."); }
-            captured.Add(widget with { ContributionIds = Array.AsReadOnly(widget.ContributionIds.ToArray()) });
+            captured.Add(widget with { ContributionIds = Array.AsReadOnly([.. widget.ContributionIds]) });
         }
         return captured.AsReadOnly();
     }
@@ -78,28 +76,27 @@ internal sealed class CommonPluginActions
         var operationId = Guid.NewGuid();
         var action = Actions.FirstOrDefault(candidate => candidate.Id == actionId);
         if (_provider is null || action is null || !Enum.IsDefined(origin)
-            || arguments.Any(pair => !action.Arguments.Any(argument => argument.Key == pair.Key)))
-        { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Rejected, "Unknown action, origin or argument."); }
+            || arguments.Any(pair => action.Arguments.All(argument => argument.Key != pair.Key)))
+        { return new PluginActionResult(operationId, PluginActionOutcome.Rejected, "Unknown action, origin or argument."); }
         Dictionary<string, PluginValue> values = new(StringComparer.Ordinal);
         foreach (var argument in action.Arguments)
         {
             var value = arguments.TryGetValue(argument.Key, out var supplied) ? supplied : argument.Default;
             if (!PluginConfigurationRules.Accepts(argument, value))
-            { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Rejected, "Action arguments do not match the declaration."); }
+            { return new PluginActionResult(operationId, PluginActionOutcome.Rejected, "Action arguments do not match the declaration."); }
             values.Add(argument.Key, value);
         }
         cancellationToken.ThrowIfCancellationRequested();
         var request = new PluginActionRequest(operationId, actionId, origin, new ReadOnlyDictionary<string, PluginValue>(values));
-        LastResult = new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, "Action dispatch pending");
         try
         {
             var result = await _provider.ExecuteActionAsync(request, context, cancellationToken).ConfigureAwait(false);
             if (result is null || result.OperationId != operationId || !Enum.IsDefined(result.Outcome))
-            { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, "The plugin returned an invalid action confirmation."); }
-            return LastResult = result with { Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail };
+            { return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, "The plugin returned an invalid action confirmation."); }
+            return result with { Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail };
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
-        { return LastResult = new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, ex.Message.Length > 2048 ? ex.Message[..2048] : ex.Message); }
+        { return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed, ex.Message.Length > 2048 ? ex.Message[..2048] : ex.Message); }
     }
 
     private bool ValidContribution(PluginUiContribution contribution)

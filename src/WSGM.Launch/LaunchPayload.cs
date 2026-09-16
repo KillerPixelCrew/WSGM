@@ -23,17 +23,19 @@ internal sealed record LaunchPayload(
         var environment = new List<KeyValuePair<string, string>>();
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            if (entry.Key is string key && entry.Value is string value)
+            if (entry is not { Key: string key, Value: string value })
             {
-                // Steam's inherited filter can hide the VIIPER virtual pad independently of
-                // lease success. Sanitize only this controlled child's environment.
-                if (key.Equals(
-                    "SDL_GAMECONTROLLER_IGNORE_DEVICES", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                environment.Add(KeyValuePair.Create(key, value));
+                continue;
             }
+
+            // Steam's inherited filter can hide the VIIPER virtual pad independently of
+            // lease success. Sanitize only this controlled child's environment.
+            if (key.Equals(
+                "SDL_GAMECONTROLLER_IGNORE_DEVICES", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            environment.Add(KeyValuePair.Create(key, value));
         }
 
         return new LaunchPayload(Environment.CurrentDirectory, arguments, [.. environment]);

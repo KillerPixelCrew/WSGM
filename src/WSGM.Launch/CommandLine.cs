@@ -45,7 +45,7 @@ internal sealed class LaunchOptions
 
 internal static class CommandLine
 {
-    internal const string Separator = "--";
+    private const string Separator = "--";
 
     /// <summary>
     /// Parses the wrapper's own flags, stopping at <c>--</c>. Everything after the
@@ -129,22 +129,23 @@ internal static class CommandLine
                 : "A target command is required. Expected: WSGM.Launch.exe [options] -- %command%";
             return false;
         }
-        if (options.InputLease && options.InputLeaseInject)
+        if (options is { InputLease: true, InputLeaseInject: true })
         {
             // The two differ only in how the block is delivered, so asking for both
             // is a configuration mistake rather than a combination to reconcile.
             error = "--input-lease and --input-lease-inject are mutually exclusive.";
             return false;
         }
-        if (!options.Deelevate && !options.AnyLease)
+        if (options is not { Deelevate: false, AnyLease: false })
         {
-            // Launching the target with neither wrapper behaviour would silently
-            // add a process to Steam's chain for no benefit; say so instead.
-            error =
-                "At least one of --deelevate, --input-lease or --input-lease-inject is required.";
-            return false;
+            return true;
         }
-        return true;
+
+        // Launching the target with neither wrapper behaviour would silently
+        // add a process to Steam's chain for no benefit; say so instead.
+        error =
+            "At least one of --deelevate, --input-lease or --input-lease-inject is required.";
+        return false;
     }
 
     internal static string UsageText =>

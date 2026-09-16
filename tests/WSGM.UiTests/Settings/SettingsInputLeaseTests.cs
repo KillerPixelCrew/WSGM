@@ -2,8 +2,9 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Settings;
 
 public sealed class SettingsInputLeaseTests
 {
@@ -15,12 +16,12 @@ public sealed class SettingsInputLeaseTests
         using UiFixture fixture = new();
         TaskCompletionSource<string> acquiring = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<string> released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        using ManualResetEventSlim finish = new();
+        TaskCompletionSource finish = new(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.AcquireSteamInput = owner =>
         {
             Assert.False(Dispatcher.UIThread.CheckAccess());
             acquiring.TrySetResult(owner);
-            Assert.True(finish.Wait(TimeSpan.FromSeconds(10)));
+            Assert.True(finish.Task.Wait(TimeSpan.FromSeconds(10)));
         };
         fixture.ReleaseSteamInput = (owner, _) =>
         {
@@ -37,7 +38,7 @@ public sealed class SettingsInputLeaseTests
             Assert.False(window.IsVisible);
             Assert.False(released.Task.IsCompleted);
         }
-        finally { finish.Set(); }
+        finally { finish.TrySetResult(); }
         Assert.Equal(await acquiring.Task, await released.Task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 

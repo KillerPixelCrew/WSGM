@@ -42,7 +42,7 @@ public enum LogVerbosity
 /// so the log file is the primary diagnostic surface.</summary>
 public static class Log
 {
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     private static string? _path;
     private static string _name = "wsgm";
 
@@ -110,7 +110,7 @@ public static class Log
     /// visible line reports how long a state really held rather than only the part that was
     /// recorded.
     /// </remarks>
-    public static void SetMinimumLevel(LogLevel minimum) => _minimum = minimum;
+    private static void SetMinimumLevel(LogLevel minimum) => _minimum = minimum;
 
     /// <summary>Applies a configured verbosity choice.</summary>
     /// <param name="verbosity">The user's choice; verbose adds the debug level.</param>
@@ -264,12 +264,14 @@ public static class Log
             }
 
             var fi = new FileInfo(path);
-            if (fi.Exists && fi.Length > MaxLogBytes)
+            if (fi is not { Exists: true, Length: > MaxLogBytes })
             {
-                var old = Path.Combine(Path.GetDirectoryName(path)!, $"{_name}.old.log");
-                File.Delete(old);
-                File.Move(path, old);
+                return;
             }
+
+            var old = Path.Combine(Path.GetDirectoryName(path)!, $"{_name}.old.log");
+            File.Delete(old);
+            File.Move(path, old);
         }
         catch
         {
@@ -304,7 +306,8 @@ public static class Log
 
     private static void Write(LogLevel level, string message)
     {
-        if (_path is null || level < _minimum)
+        var path = _path;
+        if (path is null || level < _minimum)
         {
             return;
         }
@@ -333,7 +336,7 @@ public static class Log
                 try
                 {
                     using var stream = new FileStream(
-                        _path,
+                        path,
                         FileMode.Append,
                         FileAccess.Write,
                         FileShare.ReadWrite | FileShare.Delete);

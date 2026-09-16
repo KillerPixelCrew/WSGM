@@ -65,11 +65,9 @@ internal static class PluginPackageWorkflow
             return openingFailure;
         }
 
-        using (var captured = snapshot
-                              ?? throw new InvalidOperationException("Package capture returned no snapshot."))
-        {
-            return ValidateOffline(captured, out _, cancellationToken);
-        }
+        using var captured = snapshot
+                             ?? throw new InvalidOperationException("Package capture returned no snapshot.");
+        return ValidateOffline(captured, out _, cancellationToken);
     }
 
     private static PluginPackageValidationReport ValidateOffline(
@@ -171,92 +169,90 @@ internal static class PluginPackageWorkflow
             return openingFailure;
         }
 
-        using (var captured = snapshot
-                              ?? throw new InvalidOperationException("Package capture returned no snapshot."))
+        using var captured = snapshot
+                             ?? throw new InvalidOperationException("Package capture returned no snapshot.");
+        var report = ValidateOffline(
+            captured,
+            out var packageFiles,
+            cancellationToken);
+        if (!report.Valid)
         {
-            var report = ValidateOffline(
-                captured,
-                out var packageFiles,
-                cancellationToken);
-            if (!report.Valid)
-            {
-                return report;
-            }
+            return report;
+        }
 
-            var decision = DeviceLabOutputPathPolicy.Evaluate(
-                outputPath,
-                DeviceLabOutputTargetKind.NewFile,
-                boundaries);
-            if (!decision.IsAllowed || decision.FullPath is null)
+        var decision = DeviceLabOutputPathPolicy.Evaluate(
+            outputPath,
+            DeviceLabOutputTargetKind.NewFile,
+            boundaries);
+        if (!decision.IsAllowed || decision.FullPath is null)
+        {
+            return report with
             {
-                return report with
-                {
-                    Valid = false,
-                    Issues = [Issue("invalid-output", outputPath, decision.Reason ?? "Output path rejected.")]
-                };
-            }
+                Valid = false,
+                Issues = [Issue("invalid-output", outputPath, decision.Reason ?? "Output path rejected.")]
+            };
+        }
 
-            var temporary = $"{decision.FullPath}.{Guid.NewGuid():N}.tmp";
-            Directory.CreateDirectory(Path.GetDirectoryName(decision.FullPath)!);
+        var temporary = $"{decision.FullPath}.{Guid.NewGuid():N}.tmp";
+        Directory.CreateDirectory(Path.GetDirectoryName(decision.FullPath)!);
+        cancellationToken.ThrowIfCancellationRequested();
+        var recheck = DeviceLabOutputPathPolicy.Evaluate(
+            decision.FullPath,
+            DeviceLabOutputTargetKind.NewFile,
+            boundaries);
+        if (!recheck.IsAllowed)
+        {
+            return report with
+            {
+                Valid = false,
+                Issues = [Issue("invalid-output", outputPath, recheck.Reason ?? "Output path changed before write.")]
+            };
+        }
+
+        try
+        {
+            sourceValidated?.Invoke();
             cancellationToken.ThrowIfCancellationRequested();
-            var recheck = DeviceLabOutputPathPolicy.Evaluate(
-                decision.FullPath,
-                DeviceLabOutputTargetKind.NewFile,
-                boundaries);
-            if (!recheck.IsAllowed)
+            using (FileStream stream = new(
+                temporary,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                64 * 1024,
+                FileOptions.WriteThrough))
+            using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true, Encoding.UTF8))
             {
-                return report with
+                var fileCount = 0;
+                long totalBytes = 0;
+                foreach (var file in packageFiles.OrderBy(
+                    file => file.RelativePath,
+                    StringComparer.Ordinal))
                 {
-                    Valid = false,
-                    Issues = [Issue("invalid-output", outputPath, recheck.Reason ?? "Output path changed before write.")]
-                };
-            }
-
-            try
-            {
-                sourceValidated?.Invoke();
-                cancellationToken.ThrowIfCancellationRequested();
-                using (FileStream stream = new(
-                    temporary,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    64 * 1024,
-                    FileOptions.WriteThrough))
-                using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true, Encoding.UTF8))
-                {
-                    var fileCount = 0;
-                    long totalBytes = 0;
-                    foreach (var file in packageFiles.OrderBy(
-                        file => file.RelativePath,
-                        StringComparer.Ordinal))
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        var written = WriteEntry(
-                            archive,
-                            file,
-                            fileCount,
-                            totalBytes,
-                            cancellationToken);
-                        fileCount++;
-                        totalBytes += written;
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var written = WriteEntry(
+                        archive,
+                        file,
+                        fileCount,
+                        totalBytes,
+                        cancellationToken);
+                    fileCount++;
+                    totalBytes += written;
                 }
-
-                using (FileStream flushed = new(temporary, FileMode.Open, FileAccess.Read, FileShare.Read))
-                {
-                    _ = flushed.Length;
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                File.Move(temporary, decision.FullPath);
-                return report;
             }
-            catch
+
+            using (FileStream flushed = new(temporary, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                TryDelete(temporary);
-                throw;
+                _ = flushed.Length;
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporary, decision.FullPath);
+            return report;
+        }
+        catch
+        {
+            TryDelete(temporary);
+            throw;
         }
     }
 
@@ -325,7 +321,7 @@ internal static class PluginPackageWorkflow
 
     private static void ValidateForbiddenProvisioningArtifacts(
         IEnumerable<string> paths,
-        ICollection<PluginPackageValidationIssue> issues)
+        List<PluginPackageValidationIssue> issues)
     {
         string[] forbiddenExtensions = [".sys", ".inf", ".cat", ".ps1", ".cmd", ".bat", ".reg"];
         foreach (var path in paths.Where(path => forbiddenExtensions.Contains(
@@ -342,7 +338,7 @@ internal static class PluginPackageWorkflow
     private static void ValidateGlyphProfiles(
         DeviceLabPackageSnapshot snapshot,
         IReadOnlyList<string> packageFiles,
-        ICollection<PluginPackageValidationIssue> issues,
+        List<PluginPackageValidationIssue> issues,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -393,7 +389,7 @@ internal static class PluginPackageWorkflow
         {
             return "package-too-many-files";
         }
-        if (nextFileBytes < 0 || nextFileBytes > MaximumPackageFileBytes)
+        if (nextFileBytes is < 0 or > MaximumPackageFileBytes)
         {
             return "file-too-large";
         }
@@ -437,16 +433,16 @@ internal static class PluginPackageWorkflow
     private static bool CheckRequiredFile(
         string relative,
         IReadOnlyList<string> packageFiles,
-        ICollection<PluginPackageValidationIssue> issues)
+        List<PluginPackageValidationIssue> issues)
     {
         var canonical = relative.Replace('\\', '/');
-        if (!packageFiles.Contains(canonical, StringComparer.Ordinal))
+        if (packageFiles.Contains(canonical, StringComparer.Ordinal))
         {
-            issues.Add(Issue("missing-file", canonical, "Manifest-referenced package file is absent."));
-            return false;
+            return true;
         }
 
-        return true;
+        issues.Add(Issue("missing-file", canonical, "Manifest-referenced package file is absent."));
+        return false;
     }
 
     private static long WriteEntry(
@@ -603,12 +599,11 @@ internal sealed class SnapshotGlyphPackageSource(
 {
     private readonly DeviceLabPackageSnapshot _snapshot = snapshot
         ?? throw new ArgumentNullException(nameof(snapshot));
-    private readonly CancellationToken _cancellationToken = cancellationToken;
 
     /// <inheritdoc />
     public IReadOnlyList<string> EnumerateProfileIds()
     {
-        _cancellationToken.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
         return [.. _snapshot.Files
             .Select(file => file.RelativePath)
             .Where(path => path.StartsWith("glyphs/profiles/", StringComparison.Ordinal)
@@ -627,7 +622,7 @@ internal sealed class SnapshotGlyphPackageSource(
         bytes = [];
         try
         {
-            _cancellationToken.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             return _snapshot.TryGetFile(relativePath, out var file)
                 && file.TryReadAllBytes(maximumBytes, out bytes);
         }

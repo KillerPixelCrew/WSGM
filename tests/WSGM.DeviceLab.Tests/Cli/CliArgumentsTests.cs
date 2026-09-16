@@ -1,7 +1,7 @@
 using WSGM.DeviceLab.Cli;
 using WSGM.DeviceLab.Testing;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Cli;
 
 public sealed class CliArgumentsTests
 {
@@ -140,81 +140,63 @@ public sealed class CliArgumentsTests
         Assert.Contains("exactly one --action", error, StringComparison.Ordinal);
     }
 
-    public static TheoryData<string[]> DuplicateOptionCases => new()
-    {
-        {
-            [
-                "plugin", "--from", "one.json", "-f", "two.json", "--state-dir", "state",
-                "--action", "haptic"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "one", "--state-dir", "two",
-                "--action", "haptic"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "haptic", "--action", "controller"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "one", "--capability", "two",
-                "--value", "true"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "lighting.zone",
-                "--instance", "left", "--instance", "right", "--value", "true"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "lighting.zone",
-                "--value", "true", "--value", "false"
-            ]
-        }
-    };
+    public static TheoryData<string[]> DuplicateOptionCases =>
+    [
+        [
+            "plugin", "--from", "one.json", "-f", "two.json", "--state-dir", "state",
+            "--action", "haptic"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "one", "--state-dir", "two",
+            "--action", "haptic"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "haptic", "--action", "controller"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "capability", "--capability", "one", "--capability", "two",
+            "--value", "true"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "capability", "--capability", "lighting.zone",
+            "--instance", "left", "--instance", "right", "--value", "true"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "capability", "--capability", "lighting.zone",
+            "--value", "true", "--value", "false"
+        ]
+    ];
 
-    public static TheoryData<string[]> UnknownOrTrailingArgumentCases => new()
-    {
-        { [.. ValidFixedAction(), "--unknown", "value"] },
-        { [.. ValidFixedAction(), "trailing-value"] }
-    };
+    public static TheoryData<string[]> UnknownOrTrailingArgumentCases =>
+    [
+        [.. ValidFixedAction(), "--unknown", "value"],
+        [.. ValidFixedAction(), "trailing-value"]
+    ];
 
-    public static TheoryData<string[]> MissingValueCases => new()
-    {
-        { ["plugin", "--from"] },
-        { ["plugin", "--from", "--state-dir", "state", "--action", "haptic"] },
-        { ["plugin", "--from", "inventory.json", "--state-dir", "--action", "haptic"] },
-        { ["plugin", "--from", "inventory.json", "--state-dir", "state", "--action"] },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "--value", "true"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "lighting.zone", "--value"
-            ]
-        },
-        {
-            [
-                "plugin", "--from", "inventory.json", "--state-dir", "state",
-                "--action", "capability", "--capability", "lighting.zone",
-                "--instance", "--value", "true"
-            ]
-        }
-    };
+    public static TheoryData<string[]> MissingValueCases =>
+    [
+        ["plugin", "--from"],
+        ["plugin", "--from", "--state-dir", "state", "--action", "haptic"],
+        ["plugin", "--from", "inventory.json", "--state-dir", "--action", "haptic"],
+        ["plugin", "--from", "inventory.json", "--state-dir", "state", "--action"],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "capability", "--capability", "--value", "true"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "capability", "--capability", "lighting.zone", "--value"
+        ],
+        [
+            "plugin", "--from", "inventory.json", "--state-dir", "state",
+            "--action", "capability", "--capability", "lighting.zone",
+            "--instance", "--value", "true"
+        ]
+    ];
 
     private static string[] ValidFixedAction() =>
     [

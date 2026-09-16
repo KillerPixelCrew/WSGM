@@ -22,7 +22,7 @@ internal sealed class RotatingFileLog(
     Encoding encoding,
     int writeRetries)
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     /// <summary>Appends one complete line, including its line terminator.</summary>
     public void Append(string line)

@@ -2,7 +2,7 @@ using Avalonia.Input;
 using WSGM.Core;
 using WSGM.Input;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 public sealed class InputTests
 {

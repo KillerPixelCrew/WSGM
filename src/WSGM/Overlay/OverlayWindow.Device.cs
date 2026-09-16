@@ -98,7 +98,9 @@ public partial class OverlayWindow
         DevicePrerequisiteEnable.IsVisible = advice.CanEnableIntegration;
     }
 
-    private async void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e)
+    private void OnEnableDeviceIntegration(object? sender, RoutedEventArgs e) => _ = EnableDeviceIntegrationAsync();
+
+    private async Task EnableDeviceIntegrationAsync()
     {
         if (_devicePrerequisites is not { } prerequisites) { return; }
         DevicePrerequisiteEnable.IsEnabled = false;
@@ -155,7 +157,6 @@ public partial class OverlayWindow
         var offset = ContentScroller.Offset;
         var page = _navigation.Page;
         var sectionId = _navigation.SectionId;
-        void KeepViewport(object? sender, RequestBringIntoViewEventArgs args) => args.Handled = true;
         PanelDevice.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         PanelSystem.AddHandler(RequestBringIntoViewEvent, KeepViewport);
         try
@@ -187,6 +188,9 @@ public partial class OverlayWindow
         {
             ScheduleLiveRefresh();
         }
+        return;
+
+        static void KeepViewport(object? sender, RequestBringIntoViewEventArgs args) => args.Handled = true;
     }
 
     private void OnPointerPressedForLiveRefresh(object? sender, PointerPressedEventArgs e)
@@ -308,8 +312,8 @@ public partial class OverlayWindow
             : null;
         var restoreFocus = openSection is { } section
             ? RenderDeviceSection(snapshot, section, focusedKey)
-            : openPluginSection is { } pluginSectionId
-                ? RenderDevicePluginSection(snapshot, pluginSectionId, focusedKey)
+            : openPluginSection is not null
+                ? RenderDevicePluginSection(snapshot, openPluginSection, focusedKey)
                 : RenderDeviceSectionMenu(snapshot, performance, sectionPages, focusedKey);
 
         // A Device page that renders nothing is indistinguishable from a device that published
@@ -467,7 +471,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
-    private static Geometry? SectionIconFor(SectionIcon icon) => icon switch
+    private static StreamGeometry? SectionIconFor(SectionIcon icon) => icon switch
     {
         SectionIcon.Power => Icons.Power,
         SectionIcon.Fan => Icons.Snowflake,
@@ -566,72 +570,75 @@ public partial class OverlayWindow
             }
         }
 
-        // The authored fan profile, below the plugin's hardware profile. Two rows on one page
-        // because they are genuinely different things: the hardware profile comes from the plugin
-        // and switches its own values, while this chooses between curves the user drew in Settings.
-        if (section is DeviceOverlaySection.PowerAndThermals && snapshot.AuthoredProfile is { } authored)
+        switch (section)
         {
-            const string authoredFocusKey = "device.authored-profile";
-            DescriptorStatusRow authoredRow = new();
-            authoredRow.Apply(new DescriptorRow(
-                authoredFocusKey,
-                authored.Title,
-                authored.Description,
-                authored.TrailingText,
-                authored.CanInvoke,
-                authored.Status));
-            authoredRow.Click += (_, _) => _ = RunDeviceCommandAsync(
-                "Fan profile change", (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
-            target.Children.Add(authoredRow);
-            if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = authoredRow;
-            }
-        }
-
-        // The controller target is WSGM's own setting, not a plugin capability, so it is placed on
-        // its page directly for the same reason AutoTDP and glyph selection are.
-        if (section is DeviceOverlaySection.ControllerAndMotion
-            && snapshot.Controller is { } controller)
-        {
-            const string controllerFocusKey = "device.controller-target";
-            DescriptorStatusRow row = new();
-            row.Apply(new DescriptorRow(
-                controllerFocusKey,
-                controller.Title,
-                controller.Description,
-                controller.TrailingText,
-                controller.CanInvoke,
-                controller.Status));
-            row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                "Controller target change", (bridge, token) => bridge.CycleControllerTargetAsync(token));
-            target.Children.Add(row);
-            if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = row;
-            }
-        }
-
-        // Recovery is an action on the device cycle itself rather than on the device, so it is not a
-        // capability either. It appears only while there is something to recover.
-        if (section is DeviceOverlaySection.Diagnostics && snapshot.Recovery is { } recovery)
-        {
-            const string recoveryFocusKey = "device.retry";
-            DescriptorStatusRow row = new();
-            row.Apply(new DescriptorRow(
-                recoveryFocusKey,
-                recovery.Title,
-                recovery.Description,
-                recovery.TrailingText,
-                true,
-                recovery.Status));
-            row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                "Device integration retry", (bridge, token) => bridge.RetryDeviceCycleAsync(token));
-            target.Children.Add(row);
-            if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = row;
-            }
+            // The authored fan profile, below the plugin's hardware profile. Two rows on one page
+            // because they are genuinely different things: the hardware profile comes from the plugin
+            // and switches its own values, while this chooses between curves the user drew in Settings.
+            case DeviceOverlaySection.PowerAndThermals when snapshot.AuthoredProfile is { } authored:
+                {
+                    const string authoredFocusKey = "device.authored-profile";
+                    DescriptorStatusRow authoredRow = new();
+                    authoredRow.Apply(new DescriptorRow(
+                        authoredFocusKey,
+                        authored.Title,
+                        authored.Description,
+                        authored.TrailingText,
+                        authored.CanInvoke,
+                        authored.Status));
+                    authoredRow.Click += (_, _) => _ = RunDeviceCommandAsync(
+                        "Fan profile change", (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
+                    target.Children.Add(authoredRow);
+                    if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
+                    {
+                        restoreFocus = authoredRow;
+                    }
+                    break;
+                }
+            // The controller target is WSGM's own setting, not a plugin capability, so it is placed on
+            // its page directly for the same reason AutoTDP and glyph selection are.
+            case DeviceOverlaySection.ControllerAndMotion when snapshot.Controller is { } controller:
+                {
+                    const string controllerFocusKey = "device.controller-target";
+                    DescriptorStatusRow row = new();
+                    row.Apply(new DescriptorRow(
+                        controllerFocusKey,
+                        controller.Title,
+                        controller.Description,
+                        controller.TrailingText,
+                        controller.CanInvoke,
+                        controller.Status));
+                    row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                        "Controller target change", (bridge, token) => bridge.CycleControllerTargetAsync(token));
+                    target.Children.Add(row);
+                    if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
+                    {
+                        restoreFocus = row;
+                    }
+                    break;
+                }
+            // Recovery is an action on the device cycle itself rather than on the device, so it is not a
+            // capability either. It appears only while there is something to recover.
+            case DeviceOverlaySection.Diagnostics when snapshot.Recovery is { } recovery:
+                {
+                    const string recoveryFocusKey = "device.retry";
+                    DescriptorStatusRow row = new();
+                    row.Apply(new DescriptorRow(
+                        recoveryFocusKey,
+                        recovery.Title,
+                        recovery.Description,
+                        recovery.TrailingText,
+                        true,
+                        recovery.Status));
+                    row.Click += (_, _) => _ = RunDeviceCommandAsync(
+                        "Device integration retry", (bridge, token) => bridge.RetryDeviceCycleAsync(token));
+                    target.Children.Add(row);
+                    if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
+                    {
+                        restoreFocus = row;
+                    }
+                    break;
+                }
         }
 
         // Glyph selection is WSGM's own control rather than a plugin capability, so it is placed
@@ -916,9 +923,6 @@ public partial class OverlayWindow
     /// <summary>True when a capability should render as a slider: a writable integer with a real
     /// declared range. Colour keeps its editor; everything else stays a row.</summary>
     private static bool RendersAsSlider(DeviceOverlayCapability capability) =>
-        capability.ValueKind is CapabilityValueKind.Integer
-        && capability.Writable
-        && capability.Minimum is { } min
-        && capability.Maximum is { } max
+        capability is { ValueKind: CapabilityValueKind.Integer, Writable: true, Minimum: { } min, Maximum: { } max }
         && max > min;
 }

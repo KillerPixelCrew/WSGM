@@ -66,7 +66,6 @@ internal sealed record DeviceLabReadProbeExecutionResult
 internal sealed class DeviceLabApplication(string? repositoryRoot, string deviceLabPath)
 {
     private const int MaximumInventoryBytes = 32 * 1024 * 1024;
-    private readonly string? _repositoryRoot = repositoryRoot;
     private readonly string _deviceLabPath = Path.GetFullPath(deviceLabPath);
 
     /// <summary>Runs safe environment and output-path diagnostics.</summary>
@@ -80,7 +79,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var report = DeviceLabDoctor.Run(outputDirectory, capturedAt, _repositoryRoot);
+        var report = DeviceLabDoctor.Run(outputDirectory, capturedAt, repositoryRoot);
         cancellationToken.ThrowIfCancellationRequested();
         return report;
     }
@@ -98,7 +97,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken = default) => DeviceLabInventoryWorkflow.Run(
             new DeviceLabInventoryRequest { OutputDirectory = outputDirectory, Shareable = shareable },
             capturedAt,
-            _repositoryRoot,
+            repositoryRoot,
             cancellationToken);
 
     /// <summary>Compares the known MS-1T52 fingerprint and lists its reviewed probes without opening hardware.</summary>
@@ -106,7 +105,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="targetDeviceId">Optional exact logical device ID.</param>
     /// <param name="cancellationToken">Cancels bounded inventory parsing or assessment.</param>
     /// <returns>Explained exact comparison and read-probe outputs.</returns>
-    public DeviceLabCandidateResult Candidates(
+    public static DeviceLabCandidateResult Candidates(
         string inventoryPath,
         string? targetDeviceId = null,
         CancellationToken cancellationToken = default)
@@ -138,7 +137,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="recipePath">Imported recipe JSON.</param>
     /// <param name="cancellationToken">Cancels bounded recipe validation.</param>
     /// <returns>Closed observation steps and their approval hash.</returns>
-    public ObserveOnlyRecipeReview ReviewCaptureRecipe(
+    public static ObserveOnlyRecipeReview ReviewCaptureRecipe(
         string recipePath,
         CancellationToken cancellationToken = default) =>
         ObserveOnlyCaptureWorkflow.Review(recipePath, cancellationToken);
@@ -170,7 +169,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             cancellationToken);
         var owner = DeviceLabOwnerInspector.Inspect();
         var elevated = doctor.Checks.Any(check =>
-            check.Code == "permissions.elevation" && check.Status is DeviceLabDoctorStatus.Pass);
+            check is { Code: "permissions.elevation", Status: DeviceLabDoctorStatus.Pass });
         var continuousIntegration = DeviceLabEnvironment.IsContinuousIntegration();
         var exactFamilyMatched = ProbeFamilyMatches(probe.FamilyId, candidateResult.TargetDeviceId);
         var exactEndpointMatched = ProbeEndpointMatches(probe.EndpointId, inventory);
@@ -222,7 +221,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken) => ObserveOnlyCaptureWorkflow.PrepareAsync(
             request,
             capturedAt,
-            _repositoryRoot,
+            repositoryRoot,
             cancellationToken);
 
     /// <summary>Exports a prepared sanitized capture after separate privacy approval.</summary>
@@ -236,14 +235,14 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken = default) => ObserveOnlyCaptureWorkflow.Export(
             plan,
             exportPreviewConfirmed,
-            _repositoryRoot,
+            repositoryRoot,
             cancellationToken);
 
     /// <summary>Verifies and summarizes one sanitized capture.</summary>
     /// <param name="capturePath">Shareable capture path.</param>
     /// <param name="cancellationToken">Cancels bounded capture decoding.</param>
     /// <returns>Inspection linked to verified bundle entries.</returns>
-    public CaptureInspection Inspect(
+    public static CaptureInspection Inspect(
         string capturePath,
         CancellationToken cancellationToken = default)
     {
@@ -257,7 +256,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="rightPath">Right capture.</param>
     /// <param name="cancellationToken">Cancels either bounded capture decode or comparison.</param>
     /// <returns>Entry additions, removals, and changes.</returns>
-    public IReadOnlyList<CaptureEntryDifference> Diff(
+    public static IReadOnlyList<CaptureEntryDifference> Diff(
         string leftPath,
         string rightPath,
         CancellationToken cancellationToken = default)
@@ -274,7 +273,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="sourceIds">Expected source lanes.</param>
     /// <param name="cancellationToken">Cancels bounded decoding or correlation.</param>
     /// <returns>Findings that retain raw-event links and limitations.</returns>
-    public DeviceLabCorrelationResult Correlate(
+    public static DeviceLabCorrelationResult Correlate(
         string capturePath,
         string actionId,
         IReadOnlySet<string> sourceIds,
@@ -334,14 +333,14 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <summary>Copies the checked-in minimal plugin template with exact captured identity.</summary>
     /// <param name="capturePath">Shareable capture.</param>
     /// <param name="outputDirectory">New scaffold directory.</param>
-    /// <param name="cancellationToken">Cancels validation or atomic scaffold publication.</param>
     /// <param name="usbInstanceId">Exact endpoint selection when the capture contains more than one candidate.</param>
+    /// <param name="cancellationToken">Cancels validation or atomic scaffold publication.</param>
     /// <returns>Copied template files and identity.</returns>
     public PluginScaffoldResult Scaffold(
         string capturePath,
         string outputDirectory,
-        CancellationToken cancellationToken = default,
-        string? usbInstanceId = null) => ScaffoldFromCaptureWorkflow.Run(
+        string? usbInstanceId = null,
+        CancellationToken cancellationToken = default) => ScaffoldFromCaptureWorkflow.Run(
             capturePath,
             outputDirectory,
             Boundaries(),
@@ -351,7 +350,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <summary>Runs the built-in hardware-free synthetic plugin fixture.</summary>
     /// <param name="cancellationToken">Cancels the fixture.</param>
     /// <returns>Named public-API checks.</returns>
-    public Task<SyntheticPluginFixtureReport> TestSyntheticPluginAsync(
+    public static Task<SyntheticPluginFixtureReport> TestSyntheticPluginAsync(
         CancellationToken cancellationToken) => SyntheticPluginFixture.RunAsync(cancellationToken);
 
     /// <summary>Loads one local plugin and runs only its exact detector.</summary>
@@ -359,7 +358,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="inventoryPath">Inventory JSON whose identity is supplied to detection.</param>
     /// <param name="cancellationToken">Cancels the detection test.</param>
     /// <returns>Local load and detection result.</returns>
-    public Task<PluginTestReport> TestPluginAsync(
+    public static Task<PluginTestReport> TestPluginAsync(
         string packageDirectory,
         string inventoryPath,
         CancellationToken cancellationToken) => PluginTestWorkflow.TestDetectionAsync(
@@ -407,7 +406,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="packageDirectory">Package source directory.</param>
     /// <param name="cancellationToken">Cancels bounded source capture or validation.</param>
     /// <returns>Offline validation report.</returns>
-    public PluginPackageValidationReport ValidateOffline(
+    public static PluginPackageValidationReport ValidateOffline(
         string packageDirectory,
         CancellationToken cancellationToken = default) =>
         PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
@@ -427,12 +426,12 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     /// <param name="packageDirectory">Package source containing profiles, artwork, and notices.</param>
     /// <param name="cancellationToken">Cancels bounded source capture or glyph import.</param>
     /// <returns>Accepted profiles and deterministic import failures.</returns>
-    public GlyphPackageImportReport ImportGlyphs(
+    public static GlyphPackageImportReport ImportGlyphs(
         string packageDirectory,
         CancellationToken cancellationToken = default) =>
         GlyphPackageImportWorkflow.Import(packageDirectory, cancellationToken);
 
-    private DeviceLabPathBoundaries Boundaries() => DeviceLabPathBoundaries.ForCurrentUser(_repositoryRoot);
+    private DeviceLabPathBoundaries Boundaries() => DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
 
     private static MachineInventory ReadInventory(string path, CancellationToken cancellationToken)
     {
@@ -445,8 +444,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             bytes,
             DeviceLabJsonContext.Default.MachineInventory);
         cancellationToken.ThrowIfCancellationRequested();
-        if (inventory is null
-            || inventory.Firmware is null
+        if (inventory?.Firmware is null
             || inventory.SchemaVersion != WindowsInventoryCollector.CurrentSchemaVersion)
         {
             throw new InvalidDataException("Inventory schema is unsupported.");
@@ -474,7 +472,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     {
         cancellationToken.ThrowIfCancellationRequested();
         using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (input.Length is <= 0 || input.Length > maximumBytes)
+        if (input.Length <= 0 || input.Length > maximumBytes)
         {
             throw new InvalidDataException(invalidMessage);
         }
@@ -536,9 +534,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         EcFirmwareVersion = IdentityText.Normalize(inventory.Firmware.EmbeddedControllerVersion),
         CpuIdentity = IdentityText.Normalize(inventory.Processor?.NormalizedIdentity),
         UsbEndpoints = [.. inventory.UsbInterfaces
-            .Where(endpoint => endpoint.Present
-                && endpoint.VendorId is not null
-                && endpoint.ProductId is not null)
+            .Where(endpoint => endpoint is { Present: true, VendorId: not null, ProductId: not null })
             .Select(endpoint => new UsbEndpointObservation
             {
                 VendorId = endpoint.VendorId!,

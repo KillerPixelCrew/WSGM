@@ -130,7 +130,7 @@ internal static class NativePeInspector
         }
     }
 
-    private static IReadOnlyList<string> ReadExports(PEReader pe)
+    private static List<string> ReadExports(PEReader pe)
     {
         var directory = pe.PEHeaders.PEHeader!.ExportTableDirectory;
         if (directory.RelativeVirtualAddress == 0 || directory.Size < 40)

@@ -2,7 +2,7 @@ using System.Xml.Linq;
 using WSGM.Controls;
 using WSGM.Device.Tests;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Controls;
 
 /// <summary>
 /// The style-key contract every themed overlay row depends on.

@@ -1,7 +1,7 @@
 using System.Globalization;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>Pure logic of the taskbar status cluster: clock and date formatting and
 /// battery interpretation (incl. the GetSystemPowerStatus unknown markers). The Wi-Fi

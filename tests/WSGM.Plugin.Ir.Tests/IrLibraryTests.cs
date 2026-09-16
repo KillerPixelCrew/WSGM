@@ -1,8 +1,9 @@
 using System.Text.Json;
 using WSGM.Device.Tests;
+using WSGM.Plugin.Ir.Tests.Fakes;
 using WSGM.Plugin.Sdk;
 using Xunit;
-using static WSGM.Plugin.Ir.Tests.IrActions;
+using static WSGM.Plugin.Ir.Tests.Builders.IrActions;
 
 namespace WSGM.Plugin.Ir.Tests;
 
@@ -16,8 +17,8 @@ public sealed class IrLibraryTests
         FakeEndpoint endpoint = new();
         await using (IrPlugin plugin = new(_ => endpoint))
         {
-            await plugin.StartAsync(new RecordingPluginHost(), context, default);
-            await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
+            await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+            await plugin.ConfigureAsync(Configuration(port: "COM3"), context, CancellationToken.None);
             Assert.Equal(PluginActionOutcome.AppliedVerified, (await Invoke(plugin, context, "connect")).Outcome);
             await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "HDMI switch")), ("name", new PluginValue(Text: "PC")));
             await Invoke(plugin, context, "save-scene", ("name", new PluginValue(Text: "Game")),
@@ -29,14 +30,14 @@ public sealed class IrLibraryTests
             Assert.Equal(40000, endpoint.Sent!.CarrierHz);
             Assert.Equal("manual", endpoint.Sent.CarrierSource);
         }
-        var saved = await IrLibrary.LoadAsync(Path.Combine(temporary.Root, "library.json"), default);
+        var saved = await IrLibrary.LoadAsync(Path.Combine(temporary.Root, "library.json"), CancellationToken.None);
         Assert.Equal("measured", saved.Commands[0].Payload.CarrierSource);
         Assert.Equal(36000, saved.Commands[0].Payload.CarrierHz);
         Assert.Equal(saved.Commands[0].Id, saved.Scenes[0].Steps[0].CommandId);
         await using IrPlugin restarted = new(_ => endpoint);
-        await restarted.StartAsync(new RecordingPluginHost(), context with { Generation = 2 }, default);
+        await restarted.StartAsync(new RecordingPluginHost(), context with { Generation = 2 }, CancellationToken.None);
         await Invoke(restarted, context with { Generation = 2 }, "reset-carrier");
-        saved = await IrLibrary.LoadAsync(Path.Combine(temporary.Root, "library.json"), default);
+        saved = await IrLibrary.LoadAsync(Path.Combine(temporary.Root, "library.json"), CancellationToken.None);
         Assert.Null(saved.Commands[0].CarrierOverrideHz);
         Assert.Equal(36000, saved.Commands[0].TransmitPayload.CarrierHz);
     }
@@ -49,11 +50,11 @@ public sealed class IrLibraryTests
         FakeEndpoint endpoint = new();
         List<IrEndpointTarget> targets = [];
         await using IrPlugin plugin = new(target => { targets.Add(target); return endpoint; });
-        await plugin.StartAsync(new RecordingPluginHost(), context, default);
+        await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
         var unconfigured = await Invoke(plugin, context, "connect");
         Assert.Equal(PluginActionOutcome.Unconfirmed, unconfigured.Outcome);
         Assert.Contains("USB serial port", unconfigured.Detail);
-        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, default);
+        await plugin.ConfigureAsync(Configuration(port: "COM3"), context, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.AppliedVerified,
             (await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "Remote")), ("name", new PluginValue(Text: "Power")))).Outcome);
         Assert.Equal(1, endpoint.Identifications);
@@ -74,8 +75,8 @@ public sealed class IrLibraryTests
         List<IrEndpointTarget> targets = [];
         await using (IrPlugin plugin = new(target => { targets.Add(target); return endpoint; }))
         {
-            await plugin.StartAsync(new RecordingPluginHost(), context, default);
-            await plugin.ConfigureAsync(Configuration(port: "COM3", transport: "wifi"), context, default);
+            await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+            await plugin.ConfigureAsync(Configuration(port: "COM3", transport: "wifi"), context, CancellationToken.None);
             var unpaired = await Invoke(plugin, context, "connect");
             Assert.Equal(PluginActionOutcome.Unconfirmed, unpaired.Outcome);
             Assert.Contains("Pair the endpoint over USB", unpaired.Detail);
@@ -88,13 +89,13 @@ public sealed class IrLibraryTests
             await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "TV")), ("name", new PluginValue(Text: "Power")));
             Assert.Equal(new IrEndpointTarget(true, "wsgm-ir-abc123.local", endpoint.Network.Value.Token), targets.Last());
         }
-        var saved = (await IrPairing.LoadAsync(Path.Combine(temporary.Root, "endpoint.json"), default))!;
+        var saved = (await IrPairing.LoadAsync(Path.Combine(temporary.Root, "endpoint.json"), CancellationToken.None))!;
         Assert.Equal(endpoint.Network!.Value.Token, saved.Token);
         Assert.Equal("192.0.2.7", saved.Ip);
         Assert.DoesNotContain("hunter22", await File.ReadAllTextAsync(Path.Combine(temporary.Root, "endpoint.json")));
         await using IrPlugin restarted = new(target => { targets.Add(target); return endpoint; });
-        await restarted.StartAsync(new RecordingPluginHost(), context, default);
-        await restarted.ConfigureAsync(Configuration(port: "COM3", transport: "wifi", host: "10.0.0.9:7521"), context, default);
+        await restarted.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+        await restarted.ConfigureAsync(Configuration(port: "COM3", transport: "wifi", host: "10.0.0.9:7521"), context, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.Dispatched, (await Invoke(restarted, context, "send")).Outcome);
         Assert.Equal(new IrEndpointTarget(true, "10.0.0.9:7521", saved.Token), targets.Last());
         Assert.Equal(PluginActionOutcome.AppliedVerified, (await Invoke(restarted, context, "wifi-clear")).Outcome);
@@ -123,15 +124,15 @@ public sealed class IrLibraryTests
         var path = temporary.GetPath("library.json");
         IrLibrary library = new(1, [new IrCommand("pc", "HDMI switch", "PC", new IrPayload(38000, [9000, 4500, 560, 560]))],
             [new IrScene("game", "Game Mode", [new IrSceneStep("pc", 100)])]);
-        await library.SaveAsync(path, default);
-        var loaded = await IrLibrary.LoadAsync(path, default);
+        await library.SaveAsync(path, CancellationToken.None);
+        var loaded = await IrLibrary.LoadAsync(path, CancellationToken.None);
         Assert.Equal(library.Commands[0].Payload.TimingsUs, loaded.Commands[0].Payload.TimingsUs);
         Assert.Equal("pc", loaded.Scenes[0].Steps[0].CommandId);
         var before = await File.ReadAllBytesAsync(path);
-        await Assert.ThrowsAsync<InvalidDataException>(() => (library with { Commands = [] }).SaveAsync(path, default));
+        await Assert.ThrowsAsync<InvalidDataException>(() => (library with { Commands = [] }).SaveAsync(path, CancellationToken.None));
         Assert.Equal(before, await File.ReadAllBytesAsync(path));
         await File.WriteAllTextAsync(path, "broken");
-        await Assert.ThrowsAsync<JsonException>(() => IrLibrary.LoadAsync(path, default));
+        await Assert.ThrowsAsync<JsonException>(() => IrLibrary.LoadAsync(path, CancellationToken.None));
         Assert.Equal("broken", await File.ReadAllTextAsync(path));
     }
 
@@ -153,10 +154,10 @@ public sealed class IrLibraryTests
         Assert.True(PluginConfigurationRules.IsValid(plugin.Settings));
         Assert.All(plugin.Actions, action => Assert.True(PluginConfigurationRules.IsValid(action.Arguments)));
         var context = Context(temporary.Root);
-        Assert.Equal(PluginHealth.Ready, await plugin.StartAsync(new RecordingPluginHost(), context, default));
+        Assert.Equal(PluginHealth.Ready, await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None));
         var result = await plugin.ExecuteActionAsync(new PluginActionRequest(Guid.NewGuid(), "discover", PluginActionOrigin.User,
-            new Dictionary<string, PluginValue>()), context with { Generation = 2 }, default);
+            new Dictionary<string, PluginValue>()), context with { Generation = 2 }, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
-        Assert.True(await plugin.StopAsync(context, default));
+        Assert.True(await plugin.StopAsync(context, CancellationToken.None));
     }
 }

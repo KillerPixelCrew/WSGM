@@ -105,12 +105,9 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     private nint GetExport(string name)
     {
         var address = GetProcAddress(_module, name);
-        if (address == 0)
-        {
-            throw new EntryPointNotFoundException($"RTSS profile API export is absent: {name}.");
-        }
-
-        return address;
+        return address != 0
+            ? address
+            : throw new EntryPointNotFoundException($"RTSS profile API export is absent: {name}.");
     }
 
     private void InvokeString(delegate* unmanaged[Cdecl]<nint, void> function, string value)
@@ -132,8 +129,7 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     private static partial nint LoadLibraryEx(string fileName, nint file, uint flags);
 
     [LibraryImport("kernel32.dll", EntryPoint = "FreeLibrary")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool FreeLibrary(nint module);
+    private static partial void FreeLibrary(nint module);
 
     [LibraryImport("kernel32.dll", EntryPoint = "GetProcAddress",
         StringMarshalling = StringMarshalling.Utf8)]

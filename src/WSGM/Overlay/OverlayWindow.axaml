@@ -755,7 +755,7 @@
                         </StackPanel>
                     </ScrollViewer>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="{Binding HasEntries}">
-                        <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding $parent[Window].((ov:OverlayViewModel)DataContext).GlyphStyle}" VerticalAlignment="Center" />
+                        <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding $parent[Window].((ov:OverlayViewModel)DataContext).GlyphStyle, FallbackValue=Xbox}" VerticalAlignment="Center" />
                         <TextBlock Text="Next app" Classes="caption" VerticalAlignment="Center" />
                     </StackPanel>
                 </Grid>

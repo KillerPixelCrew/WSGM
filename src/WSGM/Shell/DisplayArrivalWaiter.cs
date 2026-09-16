@@ -43,12 +43,12 @@ internal sealed class DisplayArrivalWaiter(
     Func<TimeSpan, CancellationToken, Task> delay)
 {
     /// <summary>How long the observation must hold still before it is believed.</summary>
-    internal static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(500);
 
     /// <summary>How long to wait for a hint before looking anyway. Not a deadline: the wait
     /// continues afterwards. It exists because a display can appear without any broadcast
     /// reaching this process.</summary>
-    internal static readonly TimeSpan Backstop = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan Backstop = TimeSpan.FromSeconds(5);
 
     /// <summary>Waits until every target is connected and two observations agree.</summary>
     /// <param name="targets">Monitors that must be present. An empty list returns at once.</param>

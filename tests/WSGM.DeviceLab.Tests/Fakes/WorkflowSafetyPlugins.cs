@@ -5,7 +5,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Fakes;
 
 public class OwnerReservationLifetimePlugin : IDevicePlugin
 {
@@ -61,6 +61,7 @@ public class OwnerReservationLifetimePlugin : IDevicePlugin
     {
         var packageDirectory = Path.GetDirectoryName(typeof(OwnerReservationLifetimePlugin).Assembly.Location)!;
         File.WriteAllText(Path.Combine(packageDirectory, DisposalMarker), "disposed");
+        GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;
     }
 }
@@ -213,7 +214,11 @@ public class UnverifiedStopPlugin : IDevicePlugin
                 "synthetic restoration was unverified")
         });
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public ValueTask DisposeAsync()
+    {
+        GC.SuppressFinalize(this);
+        return ValueTask.CompletedTask;
+    }
 }
 
 public sealed class FailedStopPlugin : UnverifiedStopPlugin

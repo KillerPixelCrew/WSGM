@@ -32,7 +32,7 @@ public static class DeviceSections
 
     /// <summary>The four shared page declarations in their default presentation order.</summary>
     public static IReadOnlyList<CapabilitySection> All { get; } =
-        Array.AsReadOnly(new[] { Power, Rgb, Controller, Info });
+        Array.AsReadOnly<CapabilitySection>([Power, Rgb, Controller, Info]);
 
     /// <summary>Adds predefined sections omitted by a plugin, preserving its category declarations.</summary>
     /// <param name="declared">A validated plugin section list.</param>
@@ -40,7 +40,9 @@ public static class DeviceSections
     /// <remarks>Descriptors may reference these predefined IDs without declaring their sections.
     /// Empty pages need not be rendered. Custom sections still require explicit declarations.</remarks>
     public static IReadOnlyList<CapabilitySection> IncludePredefined(IReadOnlyList<CapabilitySection> declared) =>
-        All.Select(section => section with
+    [
+        .. All.Select(section => section with
         { Categories = declared.FirstOrDefault(item => item.SectionId == section.SectionId)?.Categories ?? section.Categories })
-            .Concat(declared.Where(item => !All.Any(section => section.SectionId == item.SectionId))).ToArray();
+            .Concat(declared.Where(item => All.All(section => section.SectionId != item.SectionId)))
+    ];
 }

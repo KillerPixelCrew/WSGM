@@ -1,6 +1,6 @@
+using WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Tests;
-using static WSGM.Device.Tests.ClawCommands;
+using static WSGM.Device.Msi.Claw8A2Vm.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
@@ -266,11 +266,9 @@ public sealed class ClawCapabilitiesTests
             if (method != "Set_Data" || package[0] != ClawHardwareFacts.ScenarioAddress) { return; }
             wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 8);
             wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 9);
-            if (package[1] == 0xC4)
-            {
-                if (cancel) { cancellation.Cancel(); }
-                else { wmi.SetData(ClawHardwareFacts.ScenarioAddress, 0xC2); }
-            }
+            if (package[1] != 0xC4) { return; }
+            if (cancel) { cancellation.Cancel(); }
+            else { wmi.SetData(ClawHardwareFacts.ScenarioAddress, 0xC2); }
         };
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
@@ -302,7 +300,7 @@ public sealed class ClawCapabilitiesTests
         wmi.SetData(ClawHardwareFacts.ScenarioAddress, initial);
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
-            CapabilityValue.Choice("inactive")), "inactive", default);
+            CapabilityValue.Choice("inactive")), "inactive", CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(expected, wmi.ReadData(ClawHardwareFacts.ScenarioAddress));
     }
@@ -313,7 +311,7 @@ public sealed class ClawCapabilitiesTests
         FakeWmiTransport wmi = new();
         ClawA2VmPowerCapability capability = new(wmi);
         var result = await capability.ApplyScenarioAsync(Command(CapabilityIds.Scenario, null,
-            CapabilityValue.Choice("turbo")), "turbo", default);
+            CapabilityValue.Choice("turbo")), "turbo", CancellationToken.None);
         Assert.Equal(CommandOutcome.Rejected, result.Outcome);
         Assert.Equal(CapabilityReasonCode.ValueOutOfRange, result.Reason?.Code);
         Assert.Empty(wmi.Writes);

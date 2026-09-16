@@ -75,7 +75,7 @@ public static class SteamCdp
     /// devtools port on next start. Idempotent and best-effort.</summary>
     /// <remarks>Finding Steam is WSGM's job, not the toolkit's, so the directory is passed in.</remarks>
     /// <param name="enabled">The configured CEF master switch, not the transport readiness gate.</param>
-    public static bool EnsureRemoteDebuggingEnabled(bool enabled) =>
+    public static void EnsureRemoteDebuggingEnabled(bool enabled) =>
         SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, enabled);
 
     /// <summary>Blocking wrapper for worker-thread callers (never call on the UI thread).</summary>
@@ -110,11 +110,9 @@ public static class SteamCdp
             BuildAddExpression(libraryPath, label, replaceExisting),
             TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable)
-        {
-            return new SteamLibraryAddResult(SteamLibraryAddStatus.Unavailable, result.Error);
-        }
-        return Interpret(result.Value);
+        return !result.Reachable
+            ? new SteamLibraryAddResult(SteamLibraryAddStatus.Unavailable, result.Error)
+            : Interpret(result.Value);
     }
 
     /// <summary>Removes the live Steam library whose registration carries
@@ -151,11 +149,9 @@ public static class SteamCdp
         var result = await SteamUiTransportSession.EvaluateAsync(
             BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable)
-        {
-            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, result.Error);
-        }
-        return InterpretRemove(result.Value);
+        return !result.Reachable
+            ? new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, result.Error)
+            : InterpretRemove(result.Value);
     }
 
     /// <summary>Removes EVERY live registration at <paramref name="libraryPath"/>,
@@ -177,11 +173,9 @@ public static class SteamCdp
         var result = await SteamUiTransportSession.EvaluateAsync(
             BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable)
-        {
-            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, result.Error);
-        }
-        return InterpretRemove(result.Value);
+        return !result.Reachable
+            ? new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, result.Error)
+            : InterpretRemove(result.Value);
     }
 
     /// <summary>Relabels the live Steam library whose registration carries
@@ -217,11 +211,9 @@ public static class SteamCdp
         var result = await SteamUiTransportSession.EvaluateAsync(
             BuildLabelExpression(libraryPath, label), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
-        if (!result.Reachable)
-        {
-            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, result.Error);
-        }
-        return InterpretLabel(result.Value);
+        return !result.Reachable
+            ? new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, result.Error)
+            : InterpretLabel(result.Value);
     }
 
     /// <summary>Normalizes a Steam folder path for comparison: trailing separators
@@ -231,8 +223,8 @@ public static class SteamCdp
     /// duplicate-library bug straight back, so separator DIRECTION is unified too
     /// and not just trailing separators trimmed.</summary>
     private const string NormalizePathJs =
-        "const norm=p=>String(p||'').replace(/\\//g,'\\\\')"
-        + ".replace(/\\\\+$/,'').toLowerCase();";
+        @"const norm=p=>String(p||'').replace(/\//g,'\\')"
+        + @".replace(/\\+$/,'').toLowerCase();";
 
     /// <summary>Builds the JS that adds the folder, labels it when a label is
     /// given, and reports the outcome as a JSON string. Both the path and label are

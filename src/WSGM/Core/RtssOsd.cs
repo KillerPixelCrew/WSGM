@@ -246,15 +246,8 @@ internal static class RtssOsdSlots
             return false;
         }
 
-        for (var i = 0; i < owner.Length; i++)
-        {
-            if (current[i] != owner[i])
-            {
-                return false;
-            }
-        }
-
-        return current[owner.Length] == 0;
+        return current.AsSpan(0, owner.Length).SequenceEqual(owner)
+            && current[owner.Length] == 0;
     }
 }
 
@@ -493,7 +486,7 @@ internal sealed record RtssOsdCustomSettings(
             Math.Clamp(configuration.OsdCustomBattery, 0, 2));
     }
 
-    private static IReadOnlyList<string> ParseOrder(string? order)
+    private static List<string> ParseOrder(string? order)
     {
         List<string> names = [];
         foreach (var part in (order ?? string.Empty).Split(
@@ -565,12 +558,7 @@ internal sealed class LhmSensorReader : IDisposable
                 }
                 _view.ReadArray(0, _buffer, 0, size);
                 var length = Array.IndexOf(_buffer, (byte)0);
-                if (length <= 0)
-                {
-                    return null;
-                }
-
-                return Encoding.UTF8.GetString(_buffer, 0, length);
+                return length <= 0 ? null : Encoding.UTF8.GetString(_buffer, 0, length);
             }
             finally
             {
@@ -662,116 +650,126 @@ internal static class RtssLhmSensors
             var inSensor = false;
             while (reader.Read())
             {
-                if (reader.NodeType == XmlNodeType.Element)
+                switch (reader.NodeType)
                 {
-                    element = reader.Name;
-                    if (element == "sensor")
-                    {
-                        inSensor = true;
-                        sensorName = sensorType = sensorValue = string.Empty;
-                    }
-                }
-                else if (reader.NodeType == XmlNodeType.Text)
-                {
-                    if (!inSensor && element == "type")
-                    {
-                        hardwareType = reader.Value;
-                    }
-                    else if (inSensor)
-                    {
-                        switch (element)
+                    case XmlNodeType.Element:
                         {
-                            case "name": sensorName = reader.Value; break;
-                            case "type": sensorType = reader.Value; break;
-                            case "value": sensorValue = reader.Value; break;
-                        }
-                    }
-                }
-                else if (reader.NodeType == XmlNodeType.EndElement
-                    && reader.Name == "sensor")
-                {
-                    inSensor = false;
-                    if (!TryParseValue(sensorValue, out var value))
-                    {
-                        continue;
-                    }
-
-                    if (hardwareType.StartsWith("Cpu", StringComparison.Ordinal))
-                    {
-                        // HC: total load, package power, package temperature.
-                        if (sensorType == "Load" && sensorName == "CPU Total")
-                        {
-                            cpuLoad = value;
-                        }
-                        else if (sensorType == "Power"
-                            && sensorName is "CPU Package" or "Package")
-                        {
-                            cpuPower = value;
-                        }
-                        else if (sensorType == "Temperature"
-                            && sensorName is "CPU Package" or "Core (Tctl/Tdie)")
-                        {
-                            cpuTemp = value;
-                        }
-                    }
-                    else if (hardwareType.StartsWith("Gpu", StringComparison.Ordinal))
-                    {
-                        if (sensorType == "Load"
-                            && (sensorName == "D3D 3D" || (sensorName == "GPU Core" && gpuLoad is null)))
-                        {
-                            gpuLoad = sensorName == "D3D 3D" ? value : gpuLoad ?? value;
-                        }
-                        else if (sensorType == "Power" && gpuPower is null
-                            && sensorName is "GPU Power" or "GPU Package" or "GPU Core" or "GPU SoC")
-                        {
-                            gpuPower = value;
-                        }
-                        else if (sensorType == "Temperature" && sensorName == "GPU Core")
-                        {
-                            gpuTemp = value;
-                        }
-                        else if (sensorType is "Data" or "SmallData")
-                        {
-                            // HC's preference order: dedicated GPU memory beats D3D dedicated
-                            // beats D3D shared; the exporter reports megabytes.
-                            var usedRank = sensorName switch
+                            element = reader.Name;
+                            if (element != "sensor")
                             {
-                                "GPU Memory Used" => 0,
-                                "D3D Dedicated Memory Used" => 1,
-                                "D3D Shared Memory Used" => 2,
-                                _ => -1
-                            };
-                            if (usedRank >= 0 && usedRank < gpuMemoryUsedRank)
-                            {
-                                gpuMemoryUsedRank = usedRank;
-                                gpuMemoryUsedMb = value;
+                                break;
                             }
 
-                            var totalRank = sensorName switch
+                            inSensor = true;
+                            sensorName = sensorType = sensorValue = string.Empty;
+                            break;
+                        }
+                    case XmlNodeType.Text:
+                        {
+                            switch (inSensor)
                             {
-                                "GPU Memory Total" => 0,
-                                "D3D Dedicated Memory Total" => 1,
-                                "D3D Shared Memory Total" => 2,
-                                _ => -1
-                            };
-                            if (totalRank >= 0 && totalRank < gpuMemoryTotalRank)
-                            {
-                                gpuMemoryTotalRank = totalRank;
-                                gpuMemoryTotalMb = value;
+                                case false when element == "type":
+                                    hardwareType = reader.Value;
+                                    break;
+                                case true:
+                                    switch (element)
+                                    {
+                                        case "name": sensorName = reader.Value; break;
+                                        case "type": sensorType = reader.Value; break;
+                                        case "value": sensorValue = reader.Value; break;
+                                    }
+                                    break;
                             }
+                            break;
                         }
-                    }
-                    else if (hardwareType == "Memory")
-                    {
-                        if (sensorType == "Data" && sensorName == "Memory Used")
+                    case XmlNodeType.EndElement when reader.Name == "sensor":
                         {
-                            memoryUsedGb = value;
+                            inSensor = false;
+                            if (!TryParseValue(sensorValue, out var value))
+                            {
+                                continue;
+                            }
+
+                            if (hardwareType.StartsWith("Cpu", StringComparison.Ordinal))
+                            {
+                                // HC: total load, package power, package temperature.
+                                switch (sensorType)
+                                {
+                                    case "Load" when sensorName == "CPU Total":
+                                        cpuLoad = value;
+                                        break;
+                                    case "Power" when sensorName is "CPU Package" or "Package":
+                                        cpuPower = value;
+                                        break;
+                                    case "Temperature" when sensorName is "CPU Package" or "Core (Tctl/Tdie)":
+                                        cpuTemp = value;
+                                        break;
+                                }
+                            }
+                            else if (hardwareType.StartsWith("Gpu", StringComparison.Ordinal))
+                            {
+                                switch (sensorType)
+                                {
+                                    case "Load"
+                                        when sensorName == "D3D 3D" || (sensorName == "GPU Core" && gpuLoad is null):
+                                        gpuLoad = sensorName == "D3D 3D" ? value : gpuLoad ?? value;
+                                        break;
+                                    case "Power" when gpuPower is null
+                                        && sensorName is "GPU Power" or "GPU Package" or "GPU Core" or "GPU SoC":
+                                        gpuPower = value;
+                                        break;
+                                    case "Temperature" when sensorName == "GPU Core":
+                                        gpuTemp = value;
+                                        break;
+                                    case "Data" or "SmallData":
+                                        {
+                                            // HC's preference order: dedicated GPU memory beats D3D dedicated
+                                            // beats D3D shared; the exporter reports megabytes.
+                                            var usedRank = sensorName switch
+                                            {
+                                                "GPU Memory Used" => 0,
+                                                "D3D Dedicated Memory Used" => 1,
+                                                "D3D Shared Memory Used" => 2,
+                                                _ => -1
+                                            };
+                                            if (usedRank >= 0 && usedRank < gpuMemoryUsedRank)
+                                            {
+                                                gpuMemoryUsedRank = usedRank;
+                                                gpuMemoryUsedMb = value;
+                                            }
+
+                                            var totalRank = sensorName switch
+                                            {
+                                                "GPU Memory Total" => 0,
+                                                "D3D Dedicated Memory Total" => 1,
+                                                "D3D Shared Memory Total" => 2,
+                                                _ => -1
+                                            };
+                                            if (totalRank < 0 || totalRank >= gpuMemoryTotalRank)
+                                            {
+                                                break;
+                                            }
+
+                                            gpuMemoryTotalRank = totalRank;
+                                            gpuMemoryTotalMb = value;
+                                            break;
+                                        }
+                                }
+                            }
+                            else if (hardwareType == "Memory")
+                            {
+                                switch (sensorType)
+                                {
+                                    case "Data" when sensorName == "Memory Used":
+                                        memoryUsedGb = value;
+                                        break;
+                                    case "Data" when sensorName == "Memory Available":
+                                        memoryAvailableGb = value;
+                                        break;
+                                }
+                            }
+                            break;
                         }
-                        else if (sensorType == "Data" && sensorName == "Memory Available")
-                        {
-                            memoryAvailableGb = value;
-                        }
-                    }
                 }
             }
         }
@@ -993,7 +991,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         {
             var milliwatts = Battery.AggregateBattery
                 .GetReport().ChargeRateInMilliwatts;
-            _batteryWatts = milliwatts is null ? null : milliwatts.Value / 1000.0;
+            _batteryWatts = milliwatts / 1000.0;
         }
         catch (Exception)
         {
@@ -1230,19 +1228,21 @@ internal static class RtssOsdContent
         }
 
         // Remaining time only while discharging, like HC: a charger makes the estimate noise.
-        if (elements.Count > 0 && !metrics.OnAcPower
-            && metrics.BatteryMinutesRemaining is int minutes)
+        if (elements.Count <= 0
+            || metrics is not { OnAcPower: false, BatteryMinutesRemaining: { } minutes })
         {
-            elements.Add(Element(Format(minutes / 60, "h"), "h"));
-            elements.Add(Element(Format(minutes % 60, "min"), "min"));
+            return elements;
         }
 
+        var (hours, remainder) = Math.DivRem(minutes, 60);
+        elements.Add(Element(Format(hours, "h"), "h"));
+        elements.Add(Element(Format(remainder, "min"), "min"));
         return elements;
     }
 
     private static void AddIfNotNull(List<string> elements, double? value, string unit)
     {
-        if (value is double present)
+        if (value is { } present)
         {
             elements.Add(Element(Format(present, unit), unit));
         }
@@ -1251,7 +1251,7 @@ internal static class RtssOsdContent
     private static void AddIfNotNull(
         List<string> elements, double? value, double? available, string unit)
     {
-        if (value is double present && available is double total)
+        if (value is { } present && available is { } total)
         {
             elements.Add(Element($"{Format(present, unit)}/{Format(total, unit)}", unit));
         }

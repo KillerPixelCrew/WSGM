@@ -3,7 +3,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Settings;
 
 public sealed class DeviceProfileAuthoringTests
 {

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
@@ -7,7 +8,7 @@ namespace WSGM.Shell;
 /// <remarks>Readback can make a first restore ready, but cannot request repeated firmware writes.</remarks>
 internal sealed class DeviceLightingRestore
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Dictionary<DeviceCapabilityKey, (long Cycle, CapabilityValue Value)> _attempts = [];
 
     internal static bool IsLighting(CapabilityRole role) => role is

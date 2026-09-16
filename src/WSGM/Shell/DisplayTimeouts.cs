@@ -28,7 +28,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
 
     private readonly Func<PowerTimeoutKind, int?> _read;
     private readonly Func<PowerTimeoutKind, int, bool> _write;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private SteamScreensaverReport? _steam;
     private long _revision;
 
@@ -117,7 +117,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     /// <returns>One row per display timeout, with only the choices the screensaver allows.</returns>
     internal SteamScreensaverState ReadState()
     {
-        List<SteamTimeoutRow> rows = new(Rows.Length);
+        List<SteamTimeoutRow> rows = [];
         foreach (var (row, kind, label) in Rows)
         {
             var current = _read(kind);
@@ -153,7 +153,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         Log.Change(
             "steam.screensaver",
             $"Steam screensaver starts after {DescribeScreensaver(report.PluggedInSeconds)} plugged in, "
-                + $"{(report.BatterySeconds is int battery ? DescribeScreensaver(battery) : "unset")} on battery; "
+                + $"{(report.BatterySeconds is { } battery ? DescribeScreensaver(battery) : "unset")} on battery; "
                 + $"Steam {(report.Battery ? "keeps them apart" : "applies the plugged-in timeout everywhere")}.");
         foreach (var kind in DisplayTimeoutPolicy.DisplayKinds)
         {

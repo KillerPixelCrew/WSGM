@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>
 /// The session's display-off timeout owner, over a fake power scheme: what Steam's report raises,
@@ -39,8 +39,7 @@ public sealed class DisplayTimeoutsTests
     [Fact]
     public async Task ARefusedRaiseIsNotRetriedWithinTheReport()
     {
-        FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 60, [PowerTimeoutKind.DisplayDc] = 60 };
-        scheme.Refuse = true;
+        FakeScheme scheme = new() { [PowerTimeoutKind.DisplayAc] = 60, [PowerTimeoutKind.DisplayDc] = 60, Refuse = true };
 
         var result = await scheme.Owner().ReportAsync(new SteamScreensaverReport(300, null, false), CancellationToken.None);
 

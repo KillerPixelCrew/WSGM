@@ -22,9 +22,9 @@ internal sealed record SelfWorkerSession<TRequest>(TRequest Request, string Resu
 internal static class SelfWorkerProtocol
 {
     internal const int ExitSuccess = 0;
-    internal const int ExitInvalidArguments = 64;
+    private const int ExitInvalidArguments = 64;
     internal const int ExitRejected = 65;
-    internal const int ExitFailure = 70;
+    private const int ExitFailure = 70;
 
     private const int MaximumMessageLength = 16_384;
     private static readonly TimeSpan AuthorizationDeadline = TimeSpan.FromSeconds(5);
@@ -93,7 +93,7 @@ internal static class SelfWorkerProtocol
 
         if (secret is null)
         {
-            Console.Error.WriteLine($"The {worker} was not authorized by its supervisor.");
+            await Console.Error.WriteLineAsync($"The {worker} was not authorized by its supervisor.").ConfigureAwait(false);
             return null;
         }
 
@@ -107,7 +107,7 @@ internal static class SelfWorkerProtocol
                     out var requestPath,
                     out var resultPath))
             {
-                Console.Error.WriteLine($"The {worker} session paths were rejected.");
+                await Console.Error.WriteLineAsync($"The {worker} session paths were rejected.").ConfigureAwait(false);
                 return null;
             }
 
@@ -119,17 +119,17 @@ internal static class SelfWorkerProtocol
             var rejection = rejectRequest(request);
             if (rejection is not null || request is null)
             {
-                Console.Error.WriteLine(rejection ?? $"The {worker} request was malformed.");
+                await Console.Error.WriteLineAsync(rejection ?? $"The {worker} request was malformed.").ConfigureAwait(false);
                 return null;
             }
 
-            if (!SelfWorkerAuthorization.VerifySecret(secret, authorizationSha256(request)))
+            if (SelfWorkerAuthorization.VerifySecret(secret, authorizationSha256(request)))
             {
-                Console.Error.WriteLine($"The {worker} was not authorized by its supervisor.");
-                return null;
+                return new SelfWorkerSession<TRequest>(request, resultPath!);
             }
 
-            return new SelfWorkerSession<TRequest>(request, resultPath!);
+            await Console.Error.WriteLineAsync($"The {worker} was not authorized by its supervisor.").ConfigureAwait(false);
+            return null;
         }
         finally
         {
@@ -197,15 +197,17 @@ internal static class SelfWorkerProtocol
         Dictionary<string, string> parsed = new(StringComparer.Ordinal);
         for (var index = 0; index < args.Count; index += 2)
         {
-            if (index + 1 >= args.Count
-                || !options.Contains(args[index], StringComparer.Ordinal)
-                || !parsed.TryAdd(args[index], args[index + 1]))
+            if (index + 1 < args.Count
+                && options.Contains(args[index], StringComparer.Ordinal)
+                && parsed.TryAdd(args[index], args[index + 1]))
             {
-                values = null;
-                error = $"The {worker} requires exactly "
-                    + $"{string.Join(", ", options.Take(options.Count - 1))}, and {options[options.Count - 1]} once each.";
-                return false;
+                continue;
             }
+
+            values = null;
+            error = $"The {worker} requires exactly "
+                + $"{string.Join(", ", options.Take(options.Count - 1))}, and {options[^1]} once each.";
+            return false;
         }
 
         if (parsed.Count != options.Count

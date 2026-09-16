@@ -1,6 +1,6 @@
 using WSGM.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Settings;
 
 public sealed class SettingsLeaseReconcilerTests
 {

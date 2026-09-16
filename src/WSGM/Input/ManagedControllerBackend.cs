@@ -11,8 +11,7 @@ internal enum HidBackendHealthState
 {
     Unavailable,
     Incompatible,
-    Ready,
-    Faulted
+    Ready
 }
 
 internal enum ManagedTargetState
@@ -120,14 +119,17 @@ internal static class ManagedControllerSampleValidator
     }
 
     internal static bool IsNeutral(CanonicalControllerSample sample) =>
-        sample.Buttons == CanonicalButtons.None
-        && sample.LeftStickX == 0
-        && sample.LeftStickY == 0
-        && sample.RightStickX == 0
-        && sample.RightStickY == 0
-        && sample.LeftTrigger == 0
-        && sample.RightTrigger == 0
-        && sample.Motion is null;
+        sample is
+        {
+            Buttons: CanonicalButtons.None,
+            LeftStickX: 0,
+            LeftStickY: 0,
+            RightStickX: 0,
+            RightStickY: 0,
+            LeftTrigger: 0,
+            RightTrigger: 0,
+            Motion: null
+        };
 
     private static bool Axis(float value) => float.IsFinite(value) && value is >= -1 and <= 1;
 

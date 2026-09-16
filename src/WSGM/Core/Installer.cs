@@ -14,13 +14,11 @@ public static class Installer
     /// <summary>Gets the installed WSGM executable path.</summary>
     public static string InstalledExePath => Path.Combine(InstallDir, "WSGM.exe");
 
-    /// <summary>Prepares the install directory for the files Inno just laid down.
-    /// Returns the installed exe path.</summary>
-    public static string InstallApp()
+    /// <summary>Prepares the install directory for the files Inno just laid down.</summary>
+    public static void InstallApp()
     {
         Directory.CreateDirectory(InstallDir);
         Log.Info($"Installed to {InstalledExePath}");
-        return InstalledExePath;
     }
 
     /// <summary>Best-effort rollback of every machine/user setting WSGM changed
@@ -67,11 +65,13 @@ public static class Installer
         try
         {
             var config = ConfigStore.Load();
-            if (config.PreviousLockOnWakeSnapshotCaptured && LockScreenSettings.SignInOnWakeDisabled())
+            if (!config.PreviousLockOnWakeSnapshotCaptured || !LockScreenSettings.SignInOnWakeDisabled())
             {
-                Log.Info("Uninstall restore: restoring lock-on-wake.");
-                LockScreenSettings.ApplyDirect(disableSignInOnWake: false);
+                return;
             }
+
+            Log.Info("Uninstall restore: restoring lock-on-wake.");
+            LockScreenSettings.ApplyDirect(disableSignInOnWake: false);
         }
         catch (Exception ex)
         {

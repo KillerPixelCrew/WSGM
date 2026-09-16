@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>
 /// Log is a static shared by the whole process, so these run in one collection and restore the

@@ -1,7 +1,7 @@
 using System.Globalization;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>Modern Standby wake decisions and the diagnostics read beside them.</summary>
 public sealed class ModernStandbyTests

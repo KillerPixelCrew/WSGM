@@ -82,7 +82,7 @@ public static class ModernStandbyDiagnostics
     /// were armed — the Wi-Fi adapter and the USB4 root router — which is the shape of answer this
     /// is for.
     /// </remarks>
-    private static IReadOnlyList<string> ReadArmedWakeSources()
+    private static List<string> ReadArmedWakeSources()
     {
         try
         {
@@ -115,10 +115,8 @@ public static class ModernStandbyDiagnostics
         {
             return string.Create(CultureInfo.CurrentCulture, $"{span.TotalSeconds:F0} seconds");
         }
-        if (span.TotalHours < 1)
-        {
-            return string.Create(CultureInfo.CurrentCulture, $"{span.TotalMinutes:F0} minutes");
-        }
-        return string.Create(CultureInfo.CurrentCulture, $"{span.TotalHours:F1} hours");
+        return span.TotalHours < 1
+            ? string.Create(CultureInfo.CurrentCulture, $"{span.TotalMinutes:F0} minutes")
+            : string.Create(CultureInfo.CurrentCulture, $"{span.TotalHours:F1} hours");
     }
 }

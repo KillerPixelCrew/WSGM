@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class PluginSettingsResolverTests
 {
@@ -121,9 +121,9 @@ public sealed class PluginSettingsResolverTests
         {
             Settings =
             [
-                Poll("a", 100, 5000, 100, 1000),
-                Poll("b", 100, 5000, 100, 1000),
-                Poll("c", 100, 5000, 100, 1000)
+                Poll("a"),
+                Poll("b"),
+                Poll("c")
             ]
         };
 

@@ -16,69 +16,71 @@ public sealed class WifiNetworkEntry : ObservableObject
     /// <summary>Gets the network name. Immutable: it is the row's identity.</summary>
     public string Ssid { get; }
 
-    private int _signal;
     /// <summary>Gets the signal quality, 0-100.</summary>
     public int Signal
     {
-        get => _signal;
-        internal set => SetFieldIfChanged(ref _signal, value, nameof(Signal));
+        get;
+        internal set => SetFieldIfChanged(ref field, value, nameof(Signal));
     }
 
-    private WifiSecurity _security;
     /// <summary>Gets how the network is protected.</summary>
     public WifiSecurity Security
     {
-        get => _security;
+        get;
         internal set
         {
-            if (_security != value)
+            if (field == value)
             {
-                _security = value;
-                Raise(nameof(Security));
-                Raise(nameof(NeedsPassword));
-                Raise(nameof(Secured));
-                Raise(nameof(StatusLine));
-                Raise(nameof(ActionEnabled));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Security));
+            Raise(nameof(NeedsPassword));
+            Raise(nameof(Secured));
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionEnabled));
         }
     }
 
-    private bool _saved;
     /// <summary>Gets whether a saved profile exists, so joining needs no password.</summary>
     public bool Saved
     {
-        get => _saved;
+        get;
         internal set
         {
-            if (_saved != value)
+            if (field == value)
             {
-                _saved = value;
-                Raise(nameof(Saved));
-                Raise(nameof(NeedsPassword));
-                Raise(nameof(StatusLine));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Saved));
+            Raise(nameof(NeedsPassword));
+            Raise(nameof(StatusLine));
         }
     }
 
-    private bool _connectable = true;
     /// <summary>Gets whether the driver believes this network can be joined at
     /// all. False leaves the row visible but its action disabled: offering a
     /// Connect the driver has already rejected produces a doomed attempt with
     /// nothing to explain it.</summary>
     public bool Connectable
     {
-        get => _connectable;
+        get;
         internal set
         {
-            if (_connectable != value)
+            if (field == value)
             {
-                _connectable = value;
-                Raise(nameof(Connectable));
-                Raise(nameof(ActionEnabled));
-                Raise(nameof(StatusLine));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Connectable));
+            Raise(nameof(ActionEnabled));
+            Raise(nameof(StatusLine));
         }
-    }
+    } = true;
 
     /// <summary>Gets whether the row's action button may be pressed. A joined
     /// network can always be disconnected, whatever the scan says about
@@ -93,22 +95,23 @@ public sealed class WifiNetworkEntry : ObservableObject
             && Security != WifiSecurity.Enterprise
             && Security != WifiSecurity.Unsupported);
 
-    private bool _connected;
     /// <summary>Gets whether this is the network currently joined.</summary>
     public bool Connected
     {
-        get => _connected;
+        get;
         internal set
         {
-            if (_connected != value)
+            if (field == value)
             {
-                _connected = value;
-                Raise(nameof(Connected));
-                Raise(nameof(IconState));
-                Raise(nameof(StatusLine));
-                Raise(nameof(ActionText));
-                Raise(nameof(ActionEnabled));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Connected));
+            Raise(nameof(IconState));
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionText));
+            Raise(nameof(ActionEnabled));
         }
     }
 
@@ -120,14 +123,13 @@ public sealed class WifiNetworkEntry : ObservableObject
     /// <summary>Gets whether the network is protected at all.</summary>
     public bool Secured => Security != WifiSecurity.Open;
 
-    private bool _expanded;
     /// <summary>Gets whether this row is showing its actions. Selecting a row
     /// reveals what can be done with it rather than acting immediately — a tap
     /// must never disconnect the network the user is using.</summary>
     public bool Expanded
     {
-        get => _expanded;
-        internal set => SetFieldIfChanged(ref _expanded, value, nameof(Expanded));
+        get;
+        internal set => SetFieldIfChanged(ref field, value, nameof(Expanded));
     }
 
     /// <summary>Gets the icon state: off is never used here (a listed network
@@ -176,98 +178,102 @@ public sealed class BluetoothDeviceEntry : ObservableObject
 
     internal IReadOnlyList<string> EndpointIds { get; set; } = [];
 
-    private string _name = "";
     /// <summary>Gets the display name, or a placeholder when the device has not
     /// advertised one yet.</summary>
     public string Name
     {
-        get => _name.Length == 0 ? "Unnamed device" : _name;
+        get => field.Length == 0 ? "Unnamed device" : field;
         internal set
         {
-            if (_name != value)
+            if (field == value)
             {
-                _name = value;
-                Raise(nameof(Name));
+                return;
             }
-        }
-    }
 
-    private bool _paired;
+            field = value;
+            Raise(nameof(Name));
+        }
+    } = "";
+
     /// <summary>Gets whether the device is paired.</summary>
     public bool Paired
     {
-        get => _paired;
+        get;
         internal set
         {
-            if (_paired != value)
+            if (field == value)
             {
-                _paired = value;
-                Raise(nameof(Paired));
-                Raise(nameof(ActionText));
-                Raise(nameof(IconState));
-                Raise(nameof(StatusLine));
-                Raise(nameof(PrimaryActionVisible));
-                Raise(nameof(RemoveVisible));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Paired));
+            Raise(nameof(ActionText));
+            Raise(nameof(IconState));
+            Raise(nameof(StatusLine));
+            Raise(nameof(PrimaryActionVisible));
+            Raise(nameof(RemoveVisible));
         }
     }
 
-    private bool _canPair;
     /// <summary>Gets whether Windows believes pairing is currently possible.</summary>
     public bool CanPair
     {
-        get => _canPair;
+        get;
         internal set
         {
-            if (_canPair != value)
+            if (field == value)
             {
-                _canPair = value;
-                Raise(nameof(CanPair));
-                Raise(nameof(StatusLine));
-                // A device that enters pairing mode later must reveal its Pair
-                // button without the row being rebuilt.
-                Raise(nameof(PrimaryActionVisible));
+                return;
             }
+
+            field = value;
+            Raise(nameof(CanPair));
+            Raise(nameof(StatusLine));
+            // A device that enters pairing mode later must reveal its Pair
+            // button without the row being rebuilt.
+            Raise(nameof(PrimaryActionVisible));
         }
     }
 
-    private bool _connected;
     /// <summary>Gets whether the device has a live connection right now. Paired
     /// and connected are different states: a paired headset that is switched
     /// off must not read as "connected".</summary>
     public bool Connected
     {
-        get => _connected;
+        get;
         internal set
         {
-            if (_connected != value)
+            if (field == value)
             {
-                _connected = value;
-                Raise(nameof(Connected));
-                Raise(nameof(IconState));
-                Raise(nameof(StatusLine));
-                Raise(nameof(ActionText));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Connected));
+            Raise(nameof(IconState));
+            Raise(nameof(StatusLine));
+            Raise(nameof(ActionText));
         }
     }
 
-    private string _containerId = "";
     /// <summary>Gets the device container id, which ties the device to its
     /// audio endpoints. Empty when Windows reported none.</summary>
     public string ContainerId
     {
-        get => _containerId;
+        get;
         internal set
         {
-            if (_containerId != value)
+            if (field == value)
             {
-                _containerId = value;
-                Raise(nameof(ContainerId));
+                return;
             }
-        }
-    }
 
-    private bool _audioConnectable;
+            field = value;
+            Raise(nameof(ContainerId));
+        }
+    } = "";
+
     /// <summary>Gets whether this device can be connected/disconnected on
     /// demand — true only for devices with audio endpoints. Everything else
     /// (mice, gamepads) reconnects on its own initiative when used, and
@@ -275,20 +281,21 @@ public sealed class BluetoothDeviceEntry : ObservableObject
     /// Pair or Remove, the same choice the Settings app makes.</summary>
     public bool AudioConnectable
     {
-        get => _audioConnectable;
+        get;
         internal set
         {
-            if (_audioConnectable != value)
+            if (field == value)
             {
-                _audioConnectable = value;
-                Raise(nameof(AudioConnectable));
-                Raise(nameof(ActionText));
-                Raise(nameof(PrimaryActionVisible));
+                return;
             }
+
+            field = value;
+            Raise(nameof(AudioConnectable));
+            Raise(nameof(ActionText));
+            Raise(nameof(PrimaryActionVisible));
         }
     }
 
-    private bool _audioActive;
     /// <summary>Gets whether this device's AUDIO endpoints are live, which is
     /// what the connect action actually toggles. Deliberately separate from
     /// <see cref="Connected"/>: a headset can hold an association for another
@@ -297,32 +304,35 @@ public sealed class BluetoothDeviceEntry : ObservableObject
     /// one-shot.</summary>
     public bool AudioActive
     {
-        get => _audioActive;
+        get;
         internal set
         {
-            if (_audioActive != value)
+            if (field == value)
             {
-                _audioActive = value;
-                Raise(nameof(AudioActive));
-                Raise(nameof(ActionText));
+                return;
             }
+
+            field = value;
+            Raise(nameof(AudioActive));
+            Raise(nameof(ActionText));
         }
     }
 
-    private bool _busy;
     /// <summary>Gets whether an operation is in flight for this device.</summary>
     public bool Busy
     {
-        get => _busy;
+        get;
         internal set
         {
-            if (_busy != value)
+            if (field == value)
             {
-                _busy = value;
-                Raise(nameof(Busy));
-                Raise(nameof(ActionText));
-                Raise(nameof(StatusLine));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Busy));
+            Raise(nameof(ActionText));
+            Raise(nameof(StatusLine));
         }
     }
 
@@ -344,13 +354,12 @@ public sealed class BluetoothDeviceEntry : ObservableObject
     /// <summary>Gets whether the Remove (unpair) button is shown.</summary>
     public bool RemoveVisible => Paired;
 
-    private bool _expanded;
     /// <summary>Gets whether this row is showing its actions. Same reasoning as
     /// the Wi-Fi rows: a tap reveals the choice, it does not take it.</summary>
     public bool Expanded
     {
-        get => _expanded;
-        internal set => SetFieldIfChanged(ref _expanded, value, nameof(Expanded));
+        get;
+        internal set => SetFieldIfChanged(ref field, value, nameof(Expanded));
     }
 
     /// <summary>Gets the icon state: accent only for a live connection, muted

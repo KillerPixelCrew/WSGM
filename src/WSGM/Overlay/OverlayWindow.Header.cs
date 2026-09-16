@@ -30,11 +30,12 @@ public partial class OverlayWindow
         var active = -1;
         for (var i = 0; i < entries.Count; i++)
         {
-            if (entries[i].IsActive)
+            if (!entries[i].IsActive)
             {
-                active = i;
-                break;
+                continue;
             }
+            active = i;
+            break;
         }
         WindowPicked?.Invoke(entries[(active + 1) % entries.Count]);
     }
@@ -50,7 +51,7 @@ public partial class OverlayWindow
     /// <summary>Tap / A-button / left click → the icon's primary activation.</summary>
     private void OnTrayClick(object? sender, RoutedEventArgs e)
     {
-        if ((sender as Control)?.DataContext is TrayIconEntry entry && sender is Control control)
+        if (sender is Control { DataContext: TrayIconEntry entry } control)
         {
             TrayIconActivated?.Invoke(entry, false, AnchorBelow(control));
         }
@@ -61,13 +62,13 @@ public partial class OverlayWindow
     /// rides PointerReleased.</summary>
     private void OnTrayPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (e.InitialPressMouseButton == MouseButton.Right
-            && (sender as Control)?.DataContext is TrayIconEntry entry
-            && sender is Control control)
+        if (e.InitialPressMouseButton != MouseButton.Right
+            || sender is not Control { DataContext: TrayIconEntry entry } control)
         {
-            e.Handled = true;
-            TrayIconActivated?.Invoke(entry, true, AnchorBelow(control));
+            return;
         }
+        e.Handled = true;
+        TrayIconActivated?.Invoke(entry, true, AnchorBelow(control));
     }
 
     /// <summary>Screen position just below the pill's centre — where the app
@@ -96,9 +97,9 @@ public partial class OverlayWindow
     /// and tray icons share this handler). Bubbles from the buttons; the scroll
     /// viewers themselves are not focusable, and the call is a no-op when the chip
     /// is already fully visible.</summary>
-    private void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
+    private static void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
     {
-        if (e.Source is Control control && control is not ScrollViewer)
+        if (e.Source is Control control and not ScrollViewer)
         {
             control.BringIntoView();
         }
@@ -231,14 +232,15 @@ public partial class OverlayWindow
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape)
+        if (e.Key != Key.Escape)
         {
-            if (!TryCancelSubView())
-            {
-                Dismissed?.Invoke();
-            }
-            e.Handled = true;
+            return;
         }
+        if (!TryCancelSubView())
+        {
+            Dismissed?.Invoke();
+        }
+        e.Handled = true;
     }
 
     private void OnHomeApp(object? sender, RoutedEventArgs e) => HomeAppRequested?.Invoke();

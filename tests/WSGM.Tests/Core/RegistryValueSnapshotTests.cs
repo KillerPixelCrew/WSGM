@@ -1,7 +1,7 @@
 using Microsoft.Win32;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class RegistryValueSnapshotTests
 {
@@ -67,7 +67,7 @@ public sealed class RegistryValueSnapshotTests
     private sealed class TestRegistryKey : IDisposable
     {
         public RegistryKey Key { get; } = Registry.CurrentUser.CreateSubKey(
-            $"Software\\WSGM.Tests\\{Guid.NewGuid():N}")!;
+            $@"Software\WSGM.Tests\{Guid.NewGuid():N}");
 
         public void Dispose()
         {

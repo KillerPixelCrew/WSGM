@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class GameWindowReturnTests
 {
@@ -20,10 +20,10 @@ public sealed class GameWindowReturnTests
         }, _ => 42, _ => false, hwnd => { foreground = hwnd; return true; }, log.Add);
 
         var work = subject.ReturnAsync(30, 42, CancellationToken.None);
-        Assert.Equal((nint)20, foreground);
+        Assert.Equal(20, foreground);
         steam.SetResult(true);
         await work;
-        Assert.Equal((nint)30, foreground);
+        Assert.Equal(30, foreground);
         Assert.Contains(log, line => line.Contains("foreground verified=True", StringComparison.Ordinal));
     }
 
@@ -37,7 +37,7 @@ public sealed class GameWindowReturnTests
             ? Task.FromException<bool>(new InvalidOperationException("unavailable")) : Task.FromResult(false),
             _ => 42, _ => false, hwnd => { focused = hwnd; return true; }, _ => { });
         await subject.ReturnAsync(30, 42, CancellationToken.None);
-        Assert.Equal((nint)30, focused);
+        Assert.Equal(30, focused);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class GameWindowReturnTests
             _ => 42, _ => true, hwnd => { focused = hwnd; return true; }, _ => { });
         await subject.ReturnAsync(20, 42, CancellationToken.None);
         Assert.False(raised);
-        Assert.Equal((nint)20, focused);
+        Assert.Equal(20, focused);
     }
 
     [Theory]
@@ -100,12 +100,14 @@ public sealed class GameWindowReturnTests
     public void SwitcherReplacesReusedHwndInsteadOfRetainingOldProcess()
     {
         var model = new AppSwitcherViewModel();
-        static AppSwitcherEntry Create(WindowFinder.AppWindow window) =>
-            new(window.Hwnd, window.Title, false, null) { ProcessId = window.ProcessId };
         model.Reconcile([new WindowFinder.AppWindow(30, "Game", 42)], 30, Create);
         var original = model.Entries[0];
         model.Reconcile([new WindowFinder.AppWindow(30, "Another process", 99)], 30, Create);
         Assert.NotSame(original, model.Entries[0]);
         Assert.Equal(99u, model.Entries[0].ProcessId);
+        return;
+
+        static AppSwitcherEntry Create(WindowFinder.AppWindow window) =>
+            new(window.Hwnd, window.Title, false, null) { ProcessId = window.ProcessId };
     }
 }

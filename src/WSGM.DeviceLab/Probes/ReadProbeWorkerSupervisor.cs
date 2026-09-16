@@ -88,13 +88,14 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         }
 
         using var containmentScope = containment;
-        using AnonymousPipeServerStream authorizationPipe = new(
+        await using AnonymousPipeServerStream authorizationPipe = new(
             PipeDirection.Out,
             HandleInheritability.Inheritable);
         startInfo.ArgumentList.Add("--authorization-handle");
         startInfo.ArgumentList.Add(authorizationPipe.GetClientHandleAsString());
 
-        using Process process = new() { StartInfo = startInfo };
+        using Process process = new();
+        process.StartInfo = startInfo;
         var assignedToContainment = false;
         try
         {
@@ -109,7 +110,7 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
             await authorizationPipe.WriteAsync(authorizationSecret, cancellationToken)
                 .ConfigureAwait(false);
             await authorizationPipe.FlushAsync(cancellationToken).ConfigureAwait(false);
-            authorizationPipe.Dispose();
+            await authorizationPipe.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is Win32Exception
             or InvalidOperationException
@@ -418,12 +419,9 @@ internal static class ReadProbeWorkerSupervisor
             return Result(ReadProbeRunStatus.MalformedResponse, exception.Message);
         }
 
-        if (response is null)
-        {
-            return Result(ReadProbeRunStatus.MalformedResponse, "Read-probe worker response was empty.");
-        }
-
-        return ReadProbeOutcomeClassifier.ClassifyResponse(metadata, response);
+        return response is null
+            ? Result(ReadProbeRunStatus.MalformedResponse, "Read-probe worker response was empty.")
+            : ReadProbeOutcomeClassifier.ClassifyResponse(metadata, response);
     }
 
     /// <summary>Whole-process deadline including time for the worker to publish its own timeout.</summary>
@@ -485,14 +483,12 @@ internal static class ReadProbeOutcomeClassifier
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(response);
-        if (response.Status is ReadProbeWorkerStatus.AccessDenied)
+        switch (response.Status)
         {
-            return WithResponse(ReadProbeRunStatus.AccessDenied, response.Error ?? "Read-probe worker was denied access.", response);
-        }
-
-        if (response.Status is ReadProbeWorkerStatus.Disconnected)
-        {
-            return WithResponse(ReadProbeRunStatus.Disconnected, response.Error ?? "The exact endpoint disconnected.", response);
+            case ReadProbeWorkerStatus.AccessDenied:
+                return WithResponse(ReadProbeRunStatus.AccessDenied, response.Error ?? "Read-probe worker was denied access.", response);
+            case ReadProbeWorkerStatus.Disconnected:
+                return WithResponse(ReadProbeRunStatus.Disconnected, response.Error ?? "The exact endpoint disconnected.", response);
         }
 
         var validation = ReadProbeResponseValidator.Validate(metadata, response);

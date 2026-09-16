@@ -449,14 +449,12 @@ internal static unsafe partial class NativeStorage
     {
         var length = 1024u;
         var buffer = stackalloc byte[1024];
-        if (CM_Get_DevNode_Registry_PropertyW(devInst, property, out _, buffer, ref length, 0)
-            != CrSuccess)
-        {
-            return "";
-        }
         // REG_SZ data is not guaranteed NUL-terminated; decode at most the
         // returned byte count (buffer holds 1024 bytes = 512 chars).
-        return ReadBoundedString((char*)buffer, (int)(Math.Min(length, 1024u) / 2));
+        return CM_Get_DevNode_Registry_PropertyW(devInst, property, out _, buffer, ref length, 0)
+            != CrSuccess
+            ? ""
+            : ReadBoundedString((char*)buffer, (int)(Math.Min(length, 1024u) / 2));
     }
 
     /// <summary>Decodes a UTF-16 buffer up to its first NUL, never reading past
@@ -673,17 +671,20 @@ internal static unsafe partial class NativeStorage
             }
             var entry = buffer.Slice(at, PartitionRecordSize);
             // Union at offset 32: GPT PartitionType GUID / MBR PartitionType byte.
-            if (style == 1)
+            switch (style)
             {
-                partitions.Add(new PartitionType(0, new Guid(entry.Slice(32, 16))));
-            }
-            else if (style == 0)
-            {
-                var mbrType = entry[32];
-                if (mbrType != 0)
-                {
-                    partitions.Add(new PartitionType(mbrType, Guid.Empty));
-                }
+                case 1:
+                    partitions.Add(new PartitionType(0, new Guid(entry.Slice(32, 16))));
+                    break;
+                case 0:
+                    {
+                        var mbrType = entry[32];
+                        if (mbrType != 0)
+                        {
+                            partitions.Add(new PartitionType(mbrType, Guid.Empty));
+                        }
+                        break;
+                    }
             }
         }
         return (style, partitions);
@@ -799,15 +800,15 @@ internal static unsafe partial class NativeStorage
         var target = QueryDosDeviceW(root[..2], buffer, 1024) == 0
             ? ""
             : ReadBoundedString(buffer, 1024);
-        if (target.Length == 0)
+        if (target.Length != 0)
         {
-            Log.Warn(
-                $"NT device-path conversion failed for {root[..2]} with Win32 error "
-                + $"{Marshal.GetLastPInvokeError()}; HidHide readability may be unavailable.");
-            return fullPath;
+            return target + fullPath[2..];
         }
 
-        return target + fullPath[2..];
+        Log.Warn(
+            $"NT device-path conversion failed for {root[..2]} with Win32 error "
+            + $"{Marshal.GetLastPInvokeError()}; HidHide readability may be unavailable.");
+        return fullPath;
     }
 
     // ---- volume identity and label ----

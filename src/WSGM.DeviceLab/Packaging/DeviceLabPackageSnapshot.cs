@@ -147,7 +147,7 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
     {
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentOutOfRangeException.ThrowIfNegative(remaining);
-        List<string> accepted = new(Math.Min(remaining, 256));
+        List<string> accepted = [];
         using var enumerator = entries.GetEnumerator();
         while (accepted.Count < remaining)
         {

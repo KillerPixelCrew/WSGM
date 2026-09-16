@@ -17,7 +17,7 @@ namespace WSGM.LogonService;
 internal static class SessionLauncher
 {
     /// <summary>Startup catch-up window: sessions logged on longer ago are stale.</summary>
-    internal static readonly TimeSpan CatchUpWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan CatchUpWindow = TimeSpan.FromSeconds(60);
 
     private const int LaunchRetries = 5;
 
@@ -35,9 +35,9 @@ internal static class SessionLauncher
         public uint ProcessId;
     }
 
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     private static readonly Dictionary<uint, SessionState> Sessions = new();
-    private static readonly HashSet<uint> InFlight = new();
+    private static readonly HashSet<uint> InFlight = [];
 
     /// <summary>Handles a logon (live SESSIONCHANGE event: <paramref name="logonAge"/>
     /// null; startup catch-up: the measured age). Runs on a worker thread.</summary>
@@ -247,23 +247,25 @@ internal static class SessionLauncher
                         $"Session {sessionId}: explorer appeared during anchor grace; SYSTEM fallback skipped.");
                 }
             }
-            if (sessionActive && dirtyExit && !explorerRunning)
+            if (!sessionActive || !dirtyExit || explorerRunning)
             {
-                // One explorer fallback per logon, always with the UNLINKED user
-                // token — explorer must run unelevated (elevated explorer breaks
-                // UWP / the touch keyboard). WSGM itself is never relaunched here;
-                // its crash-loop breaker owns that story across sign-ins.
-                ServiceLog.Warn($"Session {sessionId}: WSGM died dirty without a desktop — starting explorer fallback.");
-                var explorer = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
-                if (!TryLaunch(state.UserToken, explorer, "", out var hExplorer, out _, out var error))
-                {
-                    ServiceLog.Error($"Session {sessionId}: explorer fallback failed (error {error}).");
-                }
-                else
-                {
-                    Win32Common.CloseHandle(hExplorer);
-                }
+                return;
+            }
+
+            // One explorer fallback per logon, always with the UNLINKED user
+            // token — explorer must run unelevated (elevated explorer breaks
+            // UWP / the touch keyboard). WSGM itself is never relaunched here;
+            // its crash-loop breaker owns that story across sign-ins.
+            ServiceLog.Warn($"Session {sessionId}: WSGM died dirty without a desktop — starting explorer fallback.");
+            var explorer = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+            if (!TryLaunch(state.UserToken, explorer, "", out var hExplorer, out _, out var error))
+            {
+                ServiceLog.Error($"Session {sessionId}: explorer fallback failed (error {error}).");
+            }
+            else
+            {
+                Win32Common.CloseHandle(hExplorer);
             }
         }
         catch (Exception ex)

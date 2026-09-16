@@ -160,7 +160,7 @@ public static class SteamAutostartScanner
     /// <param name="command">The stored command line or shortcut target.</param>
     /// <param name="steamExePath">Steam's own executable path, when it is known.</param>
     /// <returns>True when the first token is Steam's executable.</returns>
-    internal static bool LaunchesSteam(string? command, string? steamExePath)
+    private static bool LaunchesSteam(string? command, string? steamExePath)
     {
         var executable = FirstToken(command);
         if (executable is null) { return false; }
@@ -191,7 +191,7 @@ public static class SteamAutostartScanner
     /// <c>C:\Program Files (x86)\Steam\steam.exe -silent</c> as <c>C:\Program</c> and miss the very
     /// entry this exists to find.
     /// </remarks>
-    internal static string? FirstToken(string? command)
+    private static string? FirstToken(string? command)
     {
         if (string.IsNullOrWhiteSpace(command)) { return null; }
         var text = Environment.ExpandEnvironmentVariables(command).Trim();

@@ -16,7 +16,7 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybridCoreBackend
 {
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private string _status = string.Empty;
     private bool _requiresRead;
 
@@ -39,8 +39,10 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
 
                 return new SteamHybridCoreState(
                     true,
-                    status.Options.Select(option =>
-                        new SteamPowerProfileOption(HybridCores.IdFor(option.Mode), option.Name)).ToArray(),
+                    [
+                        .. status.Options.Select(option =>
+                            new SteamPowerProfileOption(HybridCores.IdFor(option.Mode), option.Name))
+                    ],
                     // Empty when the machine is set to a placement WSGM does not offer. Naming one
                     // of its own modes there would claim WSGM put it there.
                     status.OnAc is { } active ? HybridCores.IdFor(active) : string.Empty,
@@ -87,7 +89,7 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
                 try
                 {
                     var status = cores.Read();
-                    if (!status.Supported || !status.Options.Any(offered => offered.Mode == mode))
+                    if (!status.Supported || status.Options.All(offered => offered.Mode != mode))
                     {
                         return new SteamUiCommandResult(
                             false, "That processor core preference is no longer offered.");

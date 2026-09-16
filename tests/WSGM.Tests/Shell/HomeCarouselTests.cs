@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>WSGM's instruction to Big Picture Home's carousel, built from the card reading.</summary>
 public sealed class HomeCarouselTests

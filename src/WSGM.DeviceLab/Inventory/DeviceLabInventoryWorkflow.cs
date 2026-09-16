@@ -60,7 +60,7 @@ internal sealed record DeviceLabInventoryResult
 internal static class DeviceLabInventoryWorkflow
 {
     /// <summary>Canonical inventory filename inside the explicit output directory.</summary>
-    public const string InventoryFileName = "inventory.json";
+    private const string InventoryFileName = "inventory.json";
 
     private static readonly (string Namespace, string ClassName)[] ProbedWmiClasses =
     [

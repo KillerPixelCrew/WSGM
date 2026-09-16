@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>A startup surface made of dictionaries. Every write is recorded, so a test can assert
 /// what WSGM changed without going near this machine's registry or task scheduler.</summary>
@@ -12,13 +12,13 @@ internal sealed class FakeAutostartSystem : IAutostartSystem
     internal Dictionary<string, string> Tasks { get; } = [];
     internal Dictionary<string, bool> TaskEnabled { get; } = [];
     internal List<string> Writes { get; } = [];
-    internal bool TaskWritesFail { get; set; }
+    internal bool TaskWritesFail { get; init; }
 
     public IReadOnlyDictionary<string, string> ReadRunValues(SteamAutostartScope scope, bool wow64) =>
         Run.TryGetValue((scope, wow64), out var values) ? values : [];
 
     public byte[]? ReadApproval(SteamAutostartScope scope, string list, string name) =>
-        Approvals.TryGetValue((scope, list, name), out var value) ? value : null;
+        Approvals.GetValueOrDefault((scope, list, name));
 
     public void WriteApproval(SteamAutostartScope scope, string list, string name, byte[]? value)
     {
@@ -253,7 +253,7 @@ public sealed class SteamAutostartTakeoverTests
         var restored = SteamAutostartTakeover.Restore(system, records, elevated: false);
 
         Assert.Single(restored);
-        Assert.Equal<byte[]?>([2, 0, 0, 0, 0, 0, 0, 0], system.Approvals[(SteamAutostartScope.User, "Run", "Steam")]);
+        Assert.Equal([2, 0, 0, 0, 0, 0, 0, 0], system.Approvals[(SteamAutostartScope.User, "Run", "Steam")]);
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public sealed class SteamAutostartTakeoverTests
 
         Assert.Single(restored);
         Assert.Empty(system.Writes);
-        Assert.Equal<byte[]?>([2, 0, 0, 0, 0, 0, 0, 0], system.Approvals[(SteamAutostartScope.User, "Run", "Steam")]);
+        Assert.Equal([2, 0, 0, 0, 0, 0, 0, 0], system.Approvals[(SteamAutostartScope.User, "Run", "Steam")]);
     }
 
     [Fact]

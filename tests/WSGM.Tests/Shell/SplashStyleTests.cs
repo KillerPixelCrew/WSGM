@@ -4,7 +4,7 @@ using Avalonia.Media;
 using WSGM.Core;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public class SplashStyleTests
 {

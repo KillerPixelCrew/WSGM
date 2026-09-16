@@ -3,7 +3,7 @@ using System.Text;
 using WSGM.Core;
 using WSGM.Overlay;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>The tray wire-format parser and icon-table semantics, exercised with
 /// synthetic TRAYNOTIFYDATA blobs shaped exactly like shell32's WM_COPYDATA
@@ -47,7 +47,7 @@ public sealed class TrayProtocolTests
     {
         Assert.True(TrayProtocol.TryParse(payload, out var parsed));
         Assert.NotNull(parsed);
-        return parsed!;
+        return parsed;
     }
 
     [Fact]
@@ -89,13 +89,13 @@ public sealed class TrayProtocolTests
 
     [Fact]
     public void ParserRejectsTruncatedPayloads()
-        => Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd).AsSpan(0, 200).ToArray(), out _));
+        => Assert.False(TrayProtocol.TryParse(Blob(TrayProtocol.NimAdd).AsSpan(0, 200), out _));
 
     private static TrayIconTable.TrayIcon Added(TrayIconTable table, byte[] blob)
     {
         Assert.Equal(TrayChange.Added, table.Apply(Parse(blob), out var icon));
         Assert.NotNull(icon);
-        return icon!;
+        return icon;
     }
 
     [Fact]

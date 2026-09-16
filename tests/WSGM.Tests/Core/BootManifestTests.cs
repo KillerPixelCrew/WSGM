@@ -1,7 +1,7 @@
 using System.Text.Json;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class BootManifestTests
 {
@@ -86,8 +86,8 @@ public sealed class BootManifestTests
     {
         var config = new AppConfig { StartAtSignIn = startAtSignIn, StartMode = mode };
 
-        Assert.Equal(gameModeBoot, config.StartAtSignIn && config.StartMode is SessionStartMode.Game);
-        Assert.Equal(desktopResident, config.StartAtSignIn && config.StartMode is SessionStartMode.Desktop);
+        Assert.Equal(gameModeBoot, config is { StartAtSignIn: true, StartMode: SessionStartMode.Game });
+        Assert.Equal(desktopResident, config is { StartAtSignIn: true, StartMode: SessionStartMode.Desktop });
     }
 
     [Fact]

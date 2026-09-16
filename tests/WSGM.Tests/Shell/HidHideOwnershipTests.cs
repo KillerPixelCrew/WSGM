@@ -1,7 +1,7 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class HidHideOwnershipTests
 {
@@ -305,7 +305,7 @@ public sealed class HidHideOwnershipTests
 
 internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private List<string> _applications;
     private List<string> _devices;
 
@@ -324,19 +324,19 @@ internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
 
     internal bool Active { get; set; }
 
-    internal Exception? NextReadFailure { get; set; }
+    private Exception? NextReadFailure { get; set; }
 
-    internal Exception? NextMutationFailure { get; set; }
+    private Exception? NextMutationFailure { get; set; }
 
     internal int? FailMutationAttempt { get; set; }
 
-    internal Action<DeterministicFakeHidHideAdapter>? BeforeNextMutation { get; set; }
+    private Action<DeterministicFakeHidHideAdapter>? BeforeNextMutation { get; set; }
 
     internal int ReadCount { get; private set; }
 
     internal int MutationCount { get; private set; }
 
-    internal int MutationAttemptCount { get; private set; }
+    private int MutationAttemptCount { get; set; }
 
     public Task<HidHideExactSnapshot> ReadAsync(CancellationToken cancellationToken)
     {
@@ -344,13 +344,13 @@ internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
         lock (_gate)
         {
             ReadCount++;
-            if (NextReadFailure is { } failure)
+            if (NextReadFailure is not { } failure)
             {
-                NextReadFailure = null;
-                throw failure;
+                return Task.FromResult(SnapshotUnderGate());
             }
 
-            return Task.FromResult(SnapshotUnderGate());
+            NextReadFailure = null;
+            throw failure;
         }
     }
 
@@ -427,19 +427,21 @@ internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
         {
             if (applications is not null)
             {
-                _applications = applications.ToList();
+                _applications = [.. applications];
             }
 
             if (devices is not null)
             {
-                _devices = devices.ToList();
+                _devices = [.. devices];
             }
 
-            if (active is { } activeValue)
+            if (active is not { } activeValue)
             {
-                Active = activeValue;
-                Health = activeValue ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
+                return;
             }
+
+            Active = activeValue;
+            Health = activeValue ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
         }
     }
 
@@ -455,7 +457,7 @@ internal sealed class InMemoryHidHideOwnershipStore : IHidHideOwnershipStore
 {
     internal HidHideOwnershipLedger? Ledger { get; private set; }
 
-    internal int SaveCount { get; private set; }
+    private int SaveCount { get; set; }
 
     public Task<HidHideOwnershipLedger?> LoadAsync(CancellationToken cancellationToken)
     {

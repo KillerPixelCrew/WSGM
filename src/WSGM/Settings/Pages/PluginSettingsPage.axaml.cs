@@ -48,7 +48,7 @@ public partial class PluginSettingsPage : UserControl
         {
             // The fan curve is the only curve capability WSGM has a semantic role for, so it is the
             // one a new profile authors until a plugin publishes another.
-            viewModel.AddDeviceProfile(FanCurveCapabilityId);
+            viewModel.AddDeviceProfile(DeviceAuthoredProfileCapabilities.FanCurve);
         }
     }
 
@@ -56,7 +56,7 @@ public partial class PluginSettingsPage : UserControl
     {
         if (DataContext is SettingsViewModel viewModel)
         {
-            viewModel.AddDeviceProfile(LightingCapabilityId, color: true);
+            viewModel.AddDeviceProfile(DeviceAuthoredProfileCapabilities.Lighting, color: true);
         }
     }
 
@@ -134,10 +134,4 @@ public partial class PluginSettingsPage : UserControl
             apply(value);
             return null;
         });
-
-    /// <summary>The capability a newly authored curve profile targets.</summary>
-    private const string FanCurveCapabilityId = "fan.curve";
-
-    /// <summary>The capability a newly authored colour profile targets.</summary>
-    private const string LightingCapabilityId = "lighting.zone-color";
 }

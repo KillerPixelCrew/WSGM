@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>
 /// The order WSGM keeps between Steam's screensaver timeout and the display-off timeout: the display

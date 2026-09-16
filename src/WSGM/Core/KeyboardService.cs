@@ -22,5 +22,5 @@ public static class KeyboardService
     /// <param name="maxLength">Maximum accepted character count.</param>
     /// <param name="onAccept">Invoked with the final text when the user accepts.</param>
     public static bool Request(string prompt, string initial, int maxLength, Action<string> onAccept)
-        => Handler is not null && Handler(prompt, initial ?? "", maxLength, onAccept);
+        => Handler is not null && Handler(prompt, initial, maxLength, onAccept);
 }

@@ -137,7 +137,7 @@ internal sealed class CardAcfWatcher : IDisposable
         try
         {
             var watcher = new FileSystemWatcher(
-                $"{letter}:\\SteamLibrary\\steamapps", "appmanifest_*.acf")
+                $@"{letter}:\SteamLibrary\steamapps", "appmanifest_*.acf")
             {
                 NotifyFilter = NotifyFilters.FileName,
                 EnableRaisingEvents = true
@@ -149,7 +149,7 @@ internal sealed class CardAcfWatcher : IDisposable
             // disposes or replaces the watcher.
             watcher.Error += (_, _) => Debounce();
             _watchers[letter] = watcher;
-            Log.Info($"Card watcher: watching {letter}:\\SteamLibrary\\steamapps.");
+            Log.Info($@"Card watcher: watching {letter}:\SteamLibrary\steamapps.");
         }
         catch (Exception ex)
         {
@@ -165,10 +165,12 @@ internal sealed class CardAcfWatcher : IDisposable
             {
                 return;
             }
-            _debounce ??= new Timer(_ => _ = SyncAsync(), null, Timeout.Infinite, Timeout.Infinite);
+            _debounce ??= new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
             _debounce.Change(2000, Timeout.Infinite);
         }
     }
+
+    private void OnDebounceElapsed(object? state) => _ = SyncAsync();
 
     private async Task SyncAsync()
     {

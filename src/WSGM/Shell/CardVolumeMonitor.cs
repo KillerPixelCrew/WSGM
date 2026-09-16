@@ -61,7 +61,7 @@ internal sealed class CardVolumeMonitor : IDisposable
     private readonly LibraryPolicy _policy;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly object _lifetimeGate = new();
+    private readonly Lock _lifetimeGate = new();
     private readonly HashSet<Task> _activePasses = [];
 
     /// <summary>Library paths seen as live removable cards this session, normalized
@@ -169,7 +169,7 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
 
         _ = pass.ContinueWith(
-            completed => CompletePass(completed),
+            CompletePass,
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
@@ -185,11 +185,13 @@ internal sealed class CardVolumeMonitor : IDisposable
         lock (_lifetimeGate)
         {
             _activePasses.Remove(pass);
-            if (_disposed && _activePasses.Count == 0)
+            if (!_disposed || _activePasses.Count != 0)
             {
-                _gate.Dispose();
-                _lifetime.Dispose();
+                return;
             }
+
+            _gate.Dispose();
+            _lifetime.Dispose();
         }
     }
 

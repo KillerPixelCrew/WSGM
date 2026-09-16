@@ -14,7 +14,7 @@ internal static class VolumeAppCommands
     internal static CoreAudio.VolumeCommand? FromShellHookLParam(nint lParam)
     {
         // GET_APPCOMMAND_LPARAM(lParam): HIWORD(lParam) without the device bits.
-        var raw = unchecked((int)(long)lParam);
+        var raw = unchecked((int)lParam);
         var command = (raw >> 16) & 0xFFFF & AppCommandMask;
         if (Supported(command) is { } packed)
         {

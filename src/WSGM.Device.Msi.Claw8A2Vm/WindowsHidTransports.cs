@@ -64,7 +64,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
                 throw new InvalidDataException("ReadProfile returned an invalid payload length.");
             }
 
-            return response.AsSpan(9, length).ToArray();
+            return [.. response.AsSpan(9, length)];
         }
         finally
         {
@@ -234,7 +234,7 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
 {
     private readonly ClawOemButtonLatch _oemButtons =
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly SemaphoreSlim _writeSerializer = new(1, 1);
     private HidEndpoint? _endpoint;
     private FileStream? _stream;
@@ -276,7 +276,7 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
                 publish,
                 firstSample,
                 _readerCancellation.Token);
-            _ = ObserveReaderAsync(_readerTask, _readerCancellation.Token, fault);
+            _ = ObserveReaderAsync(_readerTask, fault, _readerCancellation.Token);
         }
 
         try
@@ -394,8 +394,8 @@ internal sealed class WindowsClawControllerSource(ClawOemButtonLatch oemButtons)
 
     private static async Task ObserveReaderAsync(
         Task reader,
-        CancellationToken cancellationToken,
-        Action<Exception> fault)
+        Action<Exception> fault,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -492,13 +492,13 @@ internal sealed class HidEndpoint : IDisposable
             NativeHid.OPEN_EXISTING,
             NativeHid.FILE_FLAG_OVERLAPPED,
             0);
-        if (handle.IsInvalid)
+        if (!handle.IsInvalid)
         {
-            handle.Dispose();
-            throw new IOException($"The HID collection could not be opened (Win32 {Marshal.GetLastWin32Error()}).");
+            return new FileStream(handle, FileAccess.ReadWrite, 4096, isAsync: true);
         }
 
-        return new FileStream(handle, FileAccess.ReadWrite, 4096, isAsync: true);
+        handle.Dispose();
+        throw new IOException($"The HID collection could not be opened (Win32 {Marshal.GetLastWin32Error()}).");
     }
 
     public void Dispose() => _disposed = true;
@@ -515,12 +515,11 @@ internal static class HidEndpointEnumerator
     public static HidEndpoint? FindMcu() => Enumerate().FirstOrDefault(endpoint =>
         endpoint.ProductId switch
         {
-            ClawHardwareFacts.XInputProductId => endpoint.UsagePage == 0xFFA0 && endpoint.Usage == 0x0001,
-            ClawHardwareFacts.DirectInputProductId => endpoint.UsagePage == 0xFFF0 && endpoint.Usage == 0x0040,
+            ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
+            ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
             _ => false
         }
-        && endpoint.InputLength == 64
-        && endpoint.OutputLength == 64);
+        && endpoint is { InputLength: 64, OutputLength: 64 });
 
     /// <summary>The DirectInput pad the MCU presents after switching to that mode.</summary>
     /// <returns>The endpoint, or null when it cannot be found.</returns>
@@ -530,10 +529,13 @@ internal static class HidEndpointEnumerator
     /// this matching path.
     /// </remarks>
     public static HidEndpoint? FindDirectInputGamepad() => Enumerate().FirstOrDefault(endpoint =>
-        endpoint.ProductId == ClawHardwareFacts.DirectInputProductId
-        && endpoint.UsagePage == 0x0001
-        && endpoint.Usage == 0x0005
-        && endpoint.InputLength == 64);
+        endpoint is
+        {
+            ProductId: ClawHardwareFacts.DirectInputProductId,
+            UsagePage: 0x0001,
+            Usage: 0x0005,
+            InputLength: 64
+        });
 
     public static ControllerTopology? DiscoverControllerTopology()
     {
@@ -541,10 +543,12 @@ internal static class HidEndpointEnumerator
         try
         {
             var mcu = endpoints.FirstOrDefault(endpoint =>
-                endpoint.ProductId is ClawHardwareFacts.XInputProductId
-                    or ClawHardwareFacts.DirectInputProductId
-                && endpoint.OutputLength == 64
-                && endpoint.UsagePage >= 0xFF00);
+                endpoint is
+                {
+                    ProductId: ClawHardwareFacts.XInputProductId or ClawHardwareFacts.DirectInputProductId,
+                    OutputLength: 64,
+                    UsagePage: >= 0xFF00
+                });
             if (mcu is null || string.IsNullOrWhiteSpace(mcu.PhysicalLocation))
             {
                 return null;
@@ -553,21 +557,23 @@ internal static class HidEndpointEnumerator
             var mode = mcu.ProductId == ClawHardwareFacts.XInputProductId
                 ? ClawControllerMode.XInput
                 : ClawControllerMode.DirectInput;
-            IReadOnlyList<PhysicalDeviceIdentity> physical = endpoints
-                .Where(endpoint =>
-                    endpoint.ProductId == mcu.ProductId
-                    && SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation)
-                    && (endpoint.InstancePath.Contains("&IG_", StringComparison.OrdinalIgnoreCase)
-                        || (endpoint.UsagePage == 0x0001 && endpoint.Usage == 0x0005)))
-                .Select(endpoint => new PhysicalDeviceIdentity
-                {
-                    InstancePath = endpoint.InstancePath,
-                    LocationPath = endpoint.PhysicalLocation,
-                    VendorId = ClawHardwareFacts.UsbVendorId,
-                    ProductId = endpoint.ProductId,
-                    RequiresHiding = true
-                })
-                .ToArray();
+            IReadOnlyList<PhysicalDeviceIdentity> physical =
+            [
+                .. endpoints
+                    .Where(endpoint =>
+                        endpoint.ProductId == mcu.ProductId
+                        && SamePhysicalLocation(endpoint.PhysicalLocation, mcu.PhysicalLocation)
+                        && (endpoint.InstancePath.Contains("&IG_", StringComparison.OrdinalIgnoreCase)
+                            || endpoint is { UsagePage: 0x0001, Usage: 0x0005 }))
+                    .Select(endpoint => new PhysicalDeviceIdentity
+                    {
+                        InstancePath = endpoint.InstancePath,
+                        LocationPath = endpoint.PhysicalLocation,
+                        VendorId = ClawHardwareFacts.UsbVendorId,
+                        ProductId = endpoint.ProductId,
+                        RequiresHiding = true
+                    })
+            ];
             // Summarized here, where the endpoints are still alive, because they are disposed in the
             // finally below and a failed handoff otherwise has nothing to report but its own
             // absence.
@@ -596,7 +602,7 @@ internal static class HidEndpointEnumerator
     public static bool SamePhysicalLocation(string left, string right) =>
         string.Equals(CompositeLocation(left), CompositeLocation(right), StringComparison.OrdinalIgnoreCase);
 
-    private static IReadOnlyList<HidEndpoint> Enumerate()
+    private static List<HidEndpoint> Enumerate()
     {
         NativeHid.HidD_GetHidGuid(out var hidGuid);
         var set = NativeHid.SetupDiGetClassDevs(
@@ -635,7 +641,7 @@ internal static class HidEndpointEnumerator
                     0,
                     out var required,
                     0);
-                if (required == 0 || required > 64 * 1024)
+                if (required is 0 or > 64 * 1024)
                 {
                     continue;
                 }
@@ -799,7 +805,7 @@ internal static class HidEndpointEnumerator
     }
 }
 
-internal static class NativeHid
+internal static partial class NativeHid
 {
     public const uint DIGCF_PRESENT = 0x00000002;
     public const uint DIGCF_DEVICEINTERFACE = 0x00000010;
@@ -869,43 +875,47 @@ internal static class NativeHid
         public uint PropertyId;
     }
 
-    [DllImport("hid.dll")]
-    public static extern void HidD_GetHidGuid(out Guid hidGuid);
+    [LibraryImport("hid.dll")]
+    public static partial void HidD_GetHidGuid(out Guid hidGuid);
 
-    [DllImport("hid.dll")]
+    [LibraryImport("hid.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool HidD_GetAttributes(SafeFileHandle device, ref HidAttributes attributes);
+    public static partial bool HidD_GetAttributes(SafeFileHandle device, ref HidAttributes attributes);
 
-    [DllImport("hid.dll")]
+    [LibraryImport("hid.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool HidD_GetPreparsedData(SafeFileHandle device, out nint preparsedData);
+    public static partial bool HidD_GetPreparsedData(SafeFileHandle device, out nint preparsedData);
 
-    [DllImport("hid.dll")]
+    [LibraryImport("hid.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool HidD_FreePreparsedData(nint preparsedData);
+    public static partial bool HidD_FreePreparsedData(nint preparsedData);
 
     [DllImport("hid.dll")]
     public static extern int HidP_GetCaps(nint preparsedData, out HidCaps capabilities);
 
-    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern nint SetupDiGetClassDevs(
+    [LibraryImport(
+        "setupapi.dll",
+        EntryPoint = "SetupDiGetClassDevsW",
+        StringMarshalling = StringMarshalling.Utf16,
+        SetLastError = true)]
+    public static partial nint SetupDiGetClassDevs(
         ref Guid classGuid,
         string? enumerator,
         nint parent,
         uint flags);
 
-    [DllImport("setupapi.dll", SetLastError = true)]
+    [LibraryImport("setupapi.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetupDiEnumDeviceInterfaces(
+    public static partial bool SetupDiEnumDeviceInterfaces(
         nint deviceInfoSet,
         nint deviceInfoData,
         ref Guid interfaceClassGuid,
         uint memberIndex,
         ref DeviceInterfaceData deviceInterfaceData);
 
-    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetDeviceInterfaceDetailW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetupDiGetDeviceInterfaceDetail(
+    public static partial bool SetupDiGetDeviceInterfaceDetail(
         nint deviceInfoSet,
         ref DeviceInterfaceData deviceInterfaceData,
         nint detailData,
@@ -913,9 +923,9 @@ internal static class NativeHid
         out uint requiredSize,
         nint deviceInfoData);
 
-    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetDeviceInterfaceDetailW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetupDiGetDeviceInterfaceDetail(
+    public static partial bool SetupDiGetDeviceInterfaceDetail(
         nint deviceInfoSet,
         ref DeviceInterfaceData deviceInterfaceData,
         nint detailData,
@@ -932,15 +942,15 @@ internal static class NativeHid
         int instanceIdSize,
         out int requiredSize);
 
-    [DllImport("setupapi.dll")]
+    [LibraryImport("setupapi.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetupDiDestroyDeviceInfoList(nint deviceInfoSet);
+    public static partial bool SetupDiDestroyDeviceInfoList(nint deviceInfoSet);
 
-    [DllImport("cfgmgr32.dll")]
-    public static extern int CM_Get_Parent(out uint parent, uint deviceInstance, uint flags);
+    [LibraryImport("cfgmgr32.dll")]
+    public static partial int CM_Get_Parent(out uint parent, uint deviceInstance, uint flags);
 
-    [DllImport("cfgmgr32.dll", EntryPoint = "CM_Get_DevNode_PropertyW", CharSet = CharSet.Unicode)]
-    public static extern int CM_Get_Device_Property(
+    [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_DevNode_PropertyW")]
+    public static partial int CM_Get_Device_Property(
         uint deviceInstance,
         ref DevPropKey propertyKey,
         out uint propertyType,
@@ -948,8 +958,12 @@ internal static class NativeHid
         ref uint bufferLength,
         uint flags);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern SafeFileHandle CreateFile(
+    [LibraryImport(
+        "kernel32.dll",
+        EntryPoint = "CreateFileW",
+        StringMarshalling = StringMarshalling.Utf16,
+        SetLastError = true)]
+    public static partial SafeFileHandle CreateFile(
         string fileName,
         uint desiredAccess,
         uint shareMode,

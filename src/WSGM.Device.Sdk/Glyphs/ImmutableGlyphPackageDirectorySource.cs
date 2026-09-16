@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,9 @@ namespace WSGM.Device.Sdk.Glyphs;
 /// </remarks>
 public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
 {
+    private static readonly SearchValues<char> IdentifierCharacters =
+        SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-");
+
     private readonly string _root;
     private readonly string _prefix;
 
@@ -62,22 +66,23 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
 
         try
         {
-            return Directory.EnumerateFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
-                .Where(path => !IsLink(path))
-                .Select(Path.GetFileNameWithoutExtension)
-                .Where(id => !string.IsNullOrEmpty(id)
-                    && id.Length <= GlyphProfileLimits.MaxIdentifierLength
-                    && id.AsSpan().IndexOfAnyExcept(
-                        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") < 0)
-                .Select(id => id!)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
-                // One past the limit on purpose: the importer decides what to do about an
-                // over-limit package, and it can only see one if the enumeration shows it. Cutting
-                // at exactly the limit here made a package of 33 or more profiles indistinguishable
-                // from a conforming one, with the extras silently dropped.
-                .Take(GlyphProfileLimits.MaxProfiles + 1)
-                .ToArray();
+            return
+            [
+                .. Directory.EnumerateFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
+                    .Where(path => !IsLink(path))
+                    .Select(Path.GetFileNameWithoutExtension)
+                    .Where(id => !string.IsNullOrEmpty(id)
+                        && id.Length <= GlyphProfileLimits.MaxIdentifierLength
+                        && id.AsSpan().IndexOfAnyExcept(IdentifierCharacters) < 0)
+                    .Select(id => id!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    // One past the limit on purpose: the importer decides what to do about an
+                    // over-limit package, and it can only see one if the enumeration shows it.
+                    // Cutting at exactly the limit here made a package of 33 or more profiles
+                    // indistinguishable from a conforming one, with the extras silently dropped.
+                    .Take(GlyphProfileLimits.MaxProfiles + 1)
+            ];
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException
@@ -110,7 +115,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
                 FileShare.Read,
                 bufferSize: 64 * 1024,
                 FileOptions.SequentialScan);
-            if (stream.Length is <= 0 || stream.Length > maximumBytes || !PathChainIsPlain(path))
+            if (stream.Length <= 0 || stream.Length > maximumBytes || !PathChainIsPlain(path))
             {
                 return false;
             }

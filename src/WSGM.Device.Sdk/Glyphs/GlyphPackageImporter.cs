@@ -157,18 +157,19 @@ public static class GlyphPackageImporter
         }
 
         return new GlyphPackageImportResult(
-            profiles.OrderBy(profile => profile.Manifest.ProfileId, StringComparer.Ordinal).ToArray(),
-            errors.OrderBy(error => error.ProfileId, StringComparer.Ordinal)
-                .ThenBy(error => error.Path, StringComparer.Ordinal)
-                .ThenBy(error => error.Code)
-                .ToArray());
+            [.. profiles.OrderBy(profile => profile.Manifest.ProfileId, StringComparer.Ordinal)],
+            [
+                .. errors.OrderBy(error => error.ProfileId, StringComparer.Ordinal)
+                    .ThenBy(error => error.Path, StringComparer.Ordinal)
+                    .ThenBy(error => error.Code)
+            ]);
     }
 
     private static void LoadProfile(
         string profileId,
         IGlyphPackageSource source,
-        ICollection<ImportedGlyphProfile> profiles,
-        ICollection<GlyphPackageImportError> errors)
+        List<ImportedGlyphProfile> profiles,
+        List<GlyphPackageImportError> errors)
     {
         var profilePath = GlyphPackageLayout.ProfileManifest(profileId);
         if (!source.TryRead(profilePath, GlyphProfileLimits.MaxDocumentBytes, out var manifestBytes)
@@ -310,14 +311,8 @@ public static class GlyphPackageImporter
         string profileId,
         string profilePath,
         GlyphProfileManifest manifest,
-        ICollection<GlyphPackageImportError> errors)
+        List<GlyphPackageImportError> errors)
     {
-        void Invalid(string path, string message) => errors.Add(new GlyphPackageImportError(
-            profileId,
-            profilePath,
-            GlyphPackageImportCode.ProfileManifestInvalid,
-            $"{path}: {message}"));
-
         if (manifest.SchemaVersion != GlyphProfileLimits.CurrentSchemaVersion)
         {
             Invalid("schemaVersion", $"Schema version {manifest.SchemaVersion} is not supported.");
@@ -507,6 +502,12 @@ public static class GlyphPackageImporter
                 Invalid(path, "An alias must directly target a distinct, present physical control.");
             }
         }
+
+        void Invalid(string path, string message) => errors.Add(new GlyphPackageImportError(
+            profileId,
+            profilePath,
+            GlyphPackageImportCode.ProfileManifestInvalid,
+            $"{path}: {message}"));
     }
 
     private static void ValidateAssetShape(
@@ -514,42 +515,46 @@ public static class GlyphPackageImporter
         string path,
         Action<string, string> invalid)
     {
-        if (asset.Format is GlyphAssetFormat.Svg)
+        switch (asset.Format)
         {
-            if (asset.ViewBox is not { } viewBox
-                || asset.PixelWidth is not null
-                || asset.PixelHeight is not null)
-            {
-                invalid(path, "SVG artwork requires a view box and no raster dimensions.");
-                return;
-            }
-            if (viewBox.Width <= 0 || viewBox.Height <= 0
-                || viewBox.Width > GlyphProfileLimits.MaxDimension
-                || viewBox.Height > GlyphProfileLimits.MaxDimension
-                || viewBox.X < -GlyphProfileLimits.MaxDimension
-                || viewBox.X > GlyphProfileLimits.MaxDimension
-                || viewBox.Y < -GlyphProfileLimits.MaxDimension
-                || viewBox.Y > GlyphProfileLimits.MaxDimension)
-            {
-                invalid($"{path}.viewBox", "The SVG view box exceeds the coordinate budget.");
-            }
-            return;
-        }
-
-        if (asset.Format is GlyphAssetFormat.Png)
-        {
-            if (asset.ViewBox is not null || asset.PixelWidth is not > 0 || asset.PixelHeight is not > 0)
-            {
-                invalid(path, "PNG artwork requires positive pixel dimensions and no view box.");
-                return;
-            }
-            if (asset.PixelWidth > GlyphProfileLimits.MaxDimension
-                || asset.PixelHeight > GlyphProfileLimits.MaxDimension
-                || (long)asset.PixelWidth.Value * asset.PixelHeight.Value
-                    > GlyphProfileLimits.MaxRasterPixels)
-            {
-                invalid(path, "PNG dimensions exceed the axis or decoded-pixel budget.");
-            }
+            case GlyphAssetFormat.Svg:
+                {
+                    if (asset.ViewBox is not { } viewBox
+                        || asset.PixelWidth is not null
+                        || asset.PixelHeight is not null)
+                    {
+                        invalid(path, "SVG artwork requires a view box and no raster dimensions.");
+                        return;
+                    }
+                    if (viewBox.Width <= 0 || viewBox.Height <= 0
+                        || viewBox.Width > GlyphProfileLimits.MaxDimension
+                        || viewBox.Height > GlyphProfileLimits.MaxDimension
+                        || viewBox.X < -GlyphProfileLimits.MaxDimension
+                        || viewBox.X > GlyphProfileLimits.MaxDimension
+                        || viewBox.Y < -GlyphProfileLimits.MaxDimension
+                        || viewBox.Y > GlyphProfileLimits.MaxDimension)
+                    {
+                        invalid($"{path}.viewBox", "The SVG view box exceeds the coordinate budget.");
+                    }
+                    return;
+                }
+            case GlyphAssetFormat.Png:
+                {
+                    if (asset.ViewBox is not null || asset.PixelWidth is not > 0 || asset.PixelHeight is not > 0)
+                    {
+                        invalid(path, "PNG artwork requires positive pixel dimensions and no view box.");
+                        return;
+                    }
+                    if (asset.PixelWidth <= GlyphProfileLimits.MaxDimension
+                        && asset.PixelHeight <= GlyphProfileLimits.MaxDimension
+                        && (long)asset.PixelWidth.Value * asset.PixelHeight.Value
+                            <= GlyphProfileLimits.MaxRasterPixels)
+                    {
+                        return;
+                    }
+                    invalid(path, "PNG dimensions exceed the axis or decoded-pixel budget.");
+                    break;
+                }
         }
     }
 
@@ -557,7 +562,7 @@ public static class GlyphPackageImporter
         string? hash,
         GlyphAssetRole expectedRole,
         string path,
-        IReadOnlyDictionary<string, GlyphAssetLockEntry> assets,
+        Dictionary<string, GlyphAssetLockEntry> assets,
         Action<string, string> invalid)
     {
         if (hash is null)
@@ -576,7 +581,7 @@ public static class GlyphPackageImporter
         string profileId,
         string noticePath,
         IGlyphPackageSource source,
-        ICollection<GlyphPackageImportError> errors)
+        List<GlyphPackageImportError> errors)
     {
         if (!source.TryRead(noticePath, GlyphProfileLimits.MaxNoticeBytes, out var supplied)
             || supplied is not { Length: > 0 }
@@ -593,19 +598,15 @@ public static class GlyphPackageImporter
 
     private static GlyphProfileManifest OrderManifest(GlyphProfileManifest manifest) => manifest with
     {
-        ExactDeviceIds = (manifest.ExactDeviceIds ?? [])
-            .Order(StringComparer.Ordinal)
-            .ToArray(),
-        Assets = (manifest.Assets ?? [])
-            .OrderBy(asset => asset.Sha256, StringComparer.Ordinal)
-            .ToArray(),
-        Controls = (manifest.Controls ?? [])
-            .OrderBy(control => control.Control)
-            .ToArray(),
-        Aliases = (manifest.Aliases ?? [])
-            .OrderBy(alias => alias.LogicalControl)
-            .ThenBy(alias => alias.PhysicalControl)
-            .ToArray()
+        ExactDeviceIds = [.. (manifest.ExactDeviceIds ?? []).Order(StringComparer.Ordinal)],
+        Assets = [.. (manifest.Assets ?? []).OrderBy(asset => asset.Sha256, StringComparer.Ordinal)],
+        Controls = [.. (manifest.Controls ?? []).OrderBy(control => control.Control)],
+        Aliases =
+        [
+            .. (manifest.Aliases ?? [])
+                .OrderBy(alias => alias.LogicalControl)
+                .ThenBy(alias => alias.PhysicalControl)
+        ]
     };
 
     private static bool IsIdentifier(string? value)

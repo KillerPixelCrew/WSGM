@@ -83,9 +83,6 @@ internal sealed record CaptureExportPlan
     /// <summary>Sanitized bundle retained until the operator accepts its preview.</summary>
     public required SanitizedCaptureBundle Bundle { get; init; }
 
-    /// <summary>Privacy replacements and quarantined artifacts visible before export.</summary>
-    public CaptureRedactionManifest Redaction => Bundle.Redaction;
-
     /// <summary>Observation prompts retained for operator review.</summary>
     public IReadOnlyList<string> Prompts { get; init; } = [];
 

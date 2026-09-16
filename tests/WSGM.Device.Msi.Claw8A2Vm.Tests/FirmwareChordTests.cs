@@ -13,15 +13,15 @@ public sealed class FirmwareChordTests
         Assert.Equal(24, Marshal.SizeOf<NativeKeyboard.KeyboardInput>());
         Assert.Equal(32, Marshal.SizeOf<NativeKeyboard.InputUnion>());
         Assert.Equal(40, Marshal.SizeOf<NativeKeyboard.Input>());
-        Assert.Equal((nint)8, Marshal.OffsetOf<NativeKeyboard.Input>(nameof(NativeKeyboard.Input.Data)));
-        Assert.Equal((nint)16, Marshal.OffsetOf<NativeKeyboard.KeyboardInput>(nameof(NativeKeyboard.KeyboardInput.ExtraInfo)));
+        Assert.Equal(8, Marshal.OffsetOf<NativeKeyboard.Input>(nameof(NativeKeyboard.Input.Data)));
+        Assert.Equal(16, Marshal.OffsetOf<NativeKeyboard.KeyboardInput>(nameof(NativeKeyboard.KeyboardInput.ExtraInfo)));
 
         const uint marker = 0x5753474D;
         var release = NativeKeyboard.KeyInput(NativeKeyboard.VK_LWIN, keyUp: true, marker);
         Assert.Equal(NativeKeyboard.INPUT_KEYBOARD, release.Type);
-        Assert.Equal(NativeKeyboard.VK_LWIN, (uint)release.Data.Keyboard.VirtualKey);
+        Assert.Equal(NativeKeyboard.VK_LWIN, release.Data.Keyboard.VirtualKey);
         Assert.Equal(NativeKeyboard.KEYEVENTF_KEYUP | NativeKeyboard.KEYEVENTF_EXTENDEDKEY, release.Data.Keyboard.Flags);
-        Assert.Equal((nuint)marker, release.Data.Keyboard.ExtraInfo);
+        Assert.Equal(marker, release.Data.Keyboard.ExtraInfo);
     }
 
     [Theory]
@@ -264,9 +264,9 @@ public sealed class FirmwareChordTests
     [Fact]
     public void NativeKeyboard_GetMessageUsesSignedResultAndPreservesTheWin32Error()
     {
-        var method = Assert.IsAssignableFrom<MethodInfo>(typeof(NativeKeyboard).GetMethod(
+        var method = Assert.IsType<MethodInfo>(typeof(NativeKeyboard).GetMethod(
             nameof(NativeKeyboard.GetMessage),
-            BindingFlags.Public | BindingFlags.Static));
+            BindingFlags.Public | BindingFlags.Static), exactMatch: false);
         var import = Assert.IsType<DllImportAttribute>(
             method.GetCustomAttribute<DllImportAttribute>());
 

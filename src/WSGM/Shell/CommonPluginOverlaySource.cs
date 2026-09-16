@@ -48,15 +48,19 @@ internal sealed class CommonPluginOverlaySource(CommonPluginManager? manager, Pl
     internal static Task ResetPinOrderAsync() => Task.Run(() =>
         ConfigStore.Mutate(config => PluginWidgetPins.ResetOrder(config.PluginWidgetPins)));
 
-    public PluginOverlayInstance[] Snapshot() => (manager?.Snapshot() ?? []).Select(instance =>
-    {
-        var owner = instance.Registration;
-        var actions = owner?.Actions;
-        return new PluginOverlayInstance(instance.Identity, instance.Manifest.Name, owner?.Context.Generation ?? 0,
-            actions is null ? null : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
-            owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
-            owner is not null && !owner.IsStopping && !owner.Quarantined, instance.Error);
-    }).Concat(device?.Snapshot() ?? []).ToArray();
+    public PluginOverlayInstance[] Snapshot() =>
+    [
+        .. (manager?.Snapshot() ?? []).Select(instance =>
+        {
+            var owner = instance.Registration;
+            var actions = owner?.Actions;
+            return new PluginOverlayInstance(instance.Identity, instance.Manifest.Name, owner?.Context.Generation ?? 0,
+                actions is null ? null : new PluginOverlayControls(actions.Actions, actions.Contributions, actions.Widgets),
+                owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
+                owner is { IsStopping: false, Quarantined: false }, instance.Error);
+        }),
+        .. device?.Snapshot() ?? []
+    ];
     public PluginStatePublication[] State(PluginInstanceIdentity identity) =>
         device?.Snapshot().Any(instance => instance.Identity == identity) == true ? device.State(identity) : host.StateSnapshot(identity);
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,

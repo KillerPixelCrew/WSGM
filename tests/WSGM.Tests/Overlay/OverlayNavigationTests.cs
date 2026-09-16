@@ -1,6 +1,6 @@
 using WSGM.Overlay;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 public sealed class OverlayNavigationTests
 {
@@ -40,21 +40,19 @@ public sealed class OverlayNavigationTests
         OverlayNavigation navigation = new();
 
         Assert.Equal(
-            new[]
-            {
+            [
                 OverlayDestination.QuickAccess, OverlayDestination.Steam,
                 OverlayDestination.System, OverlayDestination.Power
-            },
+            ],
             navigation.VisibleDestinations);
 
         navigation.SetDeviceVisible(true);
 
         Assert.Equal(
-            new[]
-            {
+            [
                 OverlayDestination.QuickAccess, OverlayDestination.Steam,
                 OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power
-            },
+            ],
             navigation.VisibleDestinations);
     }
 
@@ -217,11 +215,13 @@ public sealed class OverlayNavigationTests
             foreach (var destination in Enum.GetValues<OverlayDestination>())
             {
                 navigation.Select(destination);
-                if (navigation.Page == page || navigation.Push(page, null))
+                if (navigation.Page != page && !navigation.Push(page, null))
                 {
-                    pushed = true;
-                    break;
+                    continue;
                 }
+
+                pushed = true;
+                break;
             }
 
             Assert.True(pushed, $"{page} is not reachable from any destination.");

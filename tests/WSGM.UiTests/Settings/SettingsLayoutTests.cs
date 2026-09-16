@@ -7,8 +7,10 @@ using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Settings;
+using WSGM.UiTests.Infrastructure;
+using WSGM.UiTests.Visual;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Settings;
 
 /// <summary>Settings window layout at handheld sizes.</summary>
 public sealed class SettingsLayoutTests
@@ -19,14 +21,12 @@ public sealed class SettingsLayoutTests
     public void DisplaySettingsShowsReadableModesAndLabeledScaling(int width)
     {
         DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 0, 0, 1);
-        using UiFixture fixture = new()
-        {
-            Displays = new DisplayArrangement([new DisplayTargetObservation(target, true, true,
-                new DisplayLayoutOutput(target, 0, 0, 1920, 1200, DisplayRefresh.FromHertz(120), DpiPercent: 150, Hdr: true))],
-                "fixture", DateTimeOffset.UnixEpoch)
-        };
+        using UiFixture fixture = new();
+        fixture.Displays = new DisplayArrangement([new DisplayTargetObservation(target, true, true,
+            new DisplayLayoutOutput(target, 0, 0, 1920, 1200, DisplayRefresh.FromHertz(120), DpiPercent: 150, Hdr: true))],
+            "fixture", DateTimeOffset.UnixEpoch);
         fixture.DisplayFacts[target.DevicePath] = new DisplayCatalogFacts([new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)], true, 225);
-        var window = fixture.Settings(width, 800);
+        var window = fixture.Settings(width);
         UiFixture.Click(window, UiFixture.Tab(window, 6));
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;

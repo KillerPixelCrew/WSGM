@@ -4,9 +4,10 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Shell;
-using static WSGM.Tests.ControllerBuilders;
+using WSGM.Tests.Input;
+using static WSGM.Tests.Builders.ControllerBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class ControllerManagerTests
 {
@@ -83,8 +84,10 @@ public sealed class ControllerManagerTests
     public async Task AnUnavailableBackendLeavesHidHideUntouchedAndFallsBackToSdl()
     {
         const string unavailableDetail = "The controller backend is not usable on this system.";
-        Harness harness = new();
-        harness.Backend.Health = new HidBackendHealth(HidBackendHealthState.Incompatible, unavailableDetail);
+        Harness harness = new()
+        {
+            Backend = { Health = new HidBackendHealth(HidBackendHealthState.Incompatible, unavailableDetail) }
+        };
         await using var manager = harness.Manager;
 
         var status = await manager.StartAsync(
@@ -105,9 +108,7 @@ public sealed class ControllerManagerTests
     [Fact]
     public async Task UnhealthyHidHideRefusesActivationWithoutCreatingATarget()
     {
-        Harness harness = new();
-        harness.HidHide.Health = HidHideHealthState.Inactive;
-        harness.HidHide.Active = false;
+        Harness harness = new() { HidHide = { Health = HidHideHealthState.Inactive, Active = false } };
         await using var manager = harness.Manager;
 
         var status = await manager.StartAsync(
@@ -675,7 +676,7 @@ public sealed class ControllerManagerTests
                     _ => { }));
         }
 
-        internal ProcessPriorityClass Priority { get; private set; } = ProcessPriorityClass.Normal;
+        private ProcessPriorityClass Priority { get; set; } = ProcessPriorityClass.Normal;
 
         internal List<ProcessPriorityClass> PriorityWrites { get; } = [];
 

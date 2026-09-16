@@ -5,11 +5,11 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Overlay;
 using WSGM.Shell;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Fakes;
 
 internal sealed class FakeDevice : IDeviceOverlaySource
 {
-    internal IDeviceOverlaySource? SampleSource { get; init; }
+    internal IDeviceOverlaySource? SampleSource { get; set; }
     private Action? _changed;
     internal int Subscribers { get; private set; }
     public event Action? Changed
@@ -19,8 +19,8 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     }
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived
     {
-        add { if (SampleSource is { } source) { source.PhysicalSampleReceived += value; } else { throw new InvalidOperationException("Unexpected physical input subscription"); } }
-        remove { if (SampleSource is { } source) { source.PhysicalSampleReceived -= value; } else { throw new InvalidOperationException("Unexpected physical input subscription removal"); } }
+        add { if (SampleSource is not null) { SampleSource.PhysicalSampleReceived += value; } else { throw new InvalidOperationException("Unexpected physical input subscription"); } }
+        remove { if (SampleSource is not null) { SampleSource.PhysicalSampleReceived -= value; } else { throw new InvalidOperationException("Unexpected physical input subscription removal"); } }
     }
     internal DeviceOverlaySnapshot State { get; set; } = new(true, "Fixture handheld", "Ready", null,
         [new DeviceOverlayCapability("fixture.temperature", null, DeviceOverlaySection.Overview, DescriptorStatus.Available,

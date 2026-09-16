@@ -156,19 +156,20 @@ public sealed class StartupAppWatcher : IDisposable
             // only the reaction is gated.
             var exited = state.WasAlive && !alive[i];
             state.WasAlive = alive[i];
-            if (exited && !state.RelaunchPending)
+            if (!exited || state.RelaunchPending)
             {
-                // A falling edge inside the cooldown isn't dropped — the relaunch is
-                // scheduled for when the cooldown expires (never sooner than the
-                // normal delay).
-                var remaining = state.LastRelaunchUtc + RelaunchCooldown - DateTime.UtcNow;
-                var delay = remaining > RelaunchDelay ? remaining : RelaunchDelay;
-                state.RelaunchPending = true;
-                Log.Info($"Startup app '{name}' exited — relaunching in {delay.TotalSeconds:0} s.");
-                Log.Observe(
-                    RelaunchAfterDelayAsync(path, name, state, delay, _lifetime.Token),
-                    $"startup app relaunch for {name}");
+                continue;
             }
+            // A falling edge inside the cooldown isn't dropped — the relaunch is
+            // scheduled for when the cooldown expires (never sooner than the
+            // normal delay).
+            var remaining = state.LastRelaunchUtc + RelaunchCooldown - DateTime.UtcNow;
+            var delay = remaining > RelaunchDelay ? remaining : RelaunchDelay;
+            state.RelaunchPending = true;
+            Log.Info($"Startup app '{name}' exited — relaunching in {delay.TotalSeconds:0} s.");
+            Log.Observe(
+                RelaunchAfterDelayAsync(path, name, state, delay, _lifetime.Token),
+                $"startup app relaunch for {name}");
         }
     }
 

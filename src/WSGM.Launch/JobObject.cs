@@ -46,15 +46,16 @@ internal sealed partial class JobObject : IDisposable
                 + "the wrapper will only track the process it started.");
             return null;
         }
-        if (!AssignProcessToJobObject(handle, processHandle))
+        if (AssignProcessToJobObject(handle, processHandle))
         {
-            LaunchLog.Error($"Could not assign the target to a job object "
-                + $"(error {Marshal.GetLastPInvokeError()}); the wrapper will only track the "
-                + "process it started.");
-            CloseHandle(handle);
-            return null;
+            return new JobObject(handle);
         }
-        return new JobObject(handle);
+
+        LaunchLog.Error($"Could not assign the target to a job object "
+            + $"(error {Marshal.GetLastPInvokeError()}); the wrapper will only track the "
+            + "process it started.");
+        CloseHandle(handle);
+        return null;
     }
 
     /// <summary>Completes once no process in the job is left running.</summary>
@@ -73,13 +74,13 @@ internal sealed partial class JobObject : IDisposable
     /// <summary>Ends every process still in the job.</summary>
     internal bool TerminateTree()
     {
-        if (_handle != 0 && !TerminateJobObject(_handle, 1))
+        if (_handle == 0 || TerminateJobObject(_handle, 1))
         {
-            LaunchLog.Error($"Could not terminate the job object (error {Marshal.GetLastPInvokeError()}).");
-            return false;
+            return _handle != 0;
         }
 
-        return _handle != 0;
+        LaunchLog.Error($"Could not terminate the job object (error {Marshal.GetLastPInvokeError()}).");
+        return false;
     }
 
     private uint ActiveProcesses()
@@ -109,11 +110,13 @@ internal sealed partial class JobObject : IDisposable
     /// dying with it.</summary>
     public void Dispose()
     {
-        if (_handle != 0)
+        if (_handle == 0)
         {
-            CloseHandle(_handle);
-            _handle = 0;
+            return;
         }
+
+        CloseHandle(_handle);
+        _handle = 0;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -147,6 +150,5 @@ internal sealed partial class JobObject : IDisposable
     private static partial bool TerminateJobObject(nint job, uint exitCode);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool CloseHandle(nint handle);
+    private static partial void CloseHandle(nint handle);
 }

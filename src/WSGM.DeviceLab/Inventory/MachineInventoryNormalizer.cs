@@ -17,33 +17,29 @@ internal static class MachineInventoryNormalizer
         {
             GraphicsAdapters = OrderAndTake(OrEmpty(inventory.GraphicsAdapters), item => item.InstanceId),
             UsbInterfaces = OrderAndTake(OrEmpty(inventory.UsbInterfaces), item => item.InstanceId),
-            WmiClasses = OrEmpty(inventory.WmiClasses)
+            WmiClasses = [.. OrEmpty(inventory.WmiClasses)
                 .OrderBy(item => item.Namespace, StringComparer.Ordinal)
                 .ThenBy(item => item.ClassName, StringComparer.Ordinal)
-                .Take(InventoryLimits.MaximumEndpointsPerLane)
-                .ToArray(),
-            SerialEndpoints = OrEmpty(inventory.SerialEndpoints)
+                .Take(InventoryLimits.MaximumEndpointsPerLane)],
+            SerialEndpoints = [.. OrEmpty(inventory.SerialEndpoints)
                 .Select(NormalizeSerial)
                 .OrderBy(item => item.InstanceId, StringComparer.Ordinal)
-                .Take(InventoryLimits.MaximumEndpointsPerLane)
-                .ToArray(),
-            Sensors = OrEmpty(inventory.Sensors)
+                .Take(InventoryLimits.MaximumEndpointsPerLane)],
+            Sensors = [.. OrEmpty(inventory.Sensors)
                 .Select(NormalizeSensor)
                 .GroupBy(item => item.Api)
                 .SelectMany(group => group
                     .OrderBy(item => item.InstanceId, StringComparer.Ordinal)
                     .Take(InventoryLimits.MaximumEndpointsPerLane))
                 .OrderBy(item => item.Api)
-                .ThenBy(item => item.InstanceId, StringComparer.Ordinal)
-                .ToArray(),
-            InputBackends = OrEmpty(inventory.InputBackends)
+                .ThenBy(item => item.InstanceId, StringComparer.Ordinal)],
+            InputBackends = [.. OrEmpty(inventory.InputBackends)
                 .Select(backend => backend with
                 {
-                    Endpoints = OrEmpty(backend.Endpoints)
+                    Endpoints = [.. OrEmpty(backend.Endpoints)
                         .Select(NormalizeInputEndpoint)
                         .OrderBy(endpoint => endpoint.EndpointId, StringComparer.Ordinal)
-                        .Take(InventoryLimits.MaximumEndpointsPerLane)
-                        .ToArray()
+                        .Take(InventoryLimits.MaximumEndpointsPerLane)]
                 })
                 .GroupBy(backend => (backend.Backend, backend.View))
                 .Select(group => group
@@ -51,64 +47,53 @@ internal static class MachineInventoryNormalizer
                     .First())
                 .OrderBy(backend => backend.Backend)
                 .ThenBy(backend => backend.View)
-                .Take(InventoryLimits.MaximumInputBackendViews)
-                .ToArray(),
-            NativeBinaries = OrEmpty(inventory.NativeBinaries)
+                .Take(InventoryLimits.MaximumInputBackendViews)],
+            NativeBinaries = [.. OrEmpty(inventory.NativeBinaries)
                 .Select(binary => binary with
                 {
-                    Exports = OrEmpty(binary.Exports)
+                    Exports = [.. OrEmpty(binary.Exports)
                         .Distinct(StringComparer.Ordinal)
                         .Order(StringComparer.Ordinal)
-                        .Take(InventoryLimits.MaximumNativeExports)
-                        .ToArray()
+                        .Take(InventoryLimits.MaximumNativeExports)]
                 })
                 .OrderBy(binary => binary.Path, StringComparer.OrdinalIgnoreCase)
-                .Take(InventoryLimits.MaximumSystemEntriesPerLane)
-                .ToArray(),
-            Processes = OrEmpty(inventory.Processes)
+                .Take(InventoryLimits.MaximumSystemEntriesPerLane)],
+            Processes = [.. OrEmpty(inventory.Processes)
                 .Select(process => process with
                 {
-                    LoadedModulePaths = OrEmpty(process.LoadedModulePaths)
+                    LoadedModulePaths = [.. OrEmpty(process.LoadedModulePaths)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Order(StringComparer.OrdinalIgnoreCase)
-                        .Take(InventoryLimits.MaximumEndpointsPerLane)
-                        .ToArray()
+                        .Take(InventoryLimits.MaximumEndpointsPerLane)]
                 })
                 .OrderBy(process => process.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(process => process.ProcessId)
-                .Take(InventoryLimits.MaximumSystemEntriesPerLane)
-                .ToArray(),
-            Services = OrEmpty(inventory.Services)
+                .Take(InventoryLimits.MaximumSystemEntriesPerLane)],
+            Services = [.. OrEmpty(inventory.Services)
                 .OrderBy(service => service.Name, StringComparer.OrdinalIgnoreCase)
-                .Take(InventoryLimits.MaximumSystemEntriesPerLane)
-                .ToArray(),
-            ScheduledTasks = OrEmpty(inventory.ScheduledTasks)
+                .Take(InventoryLimits.MaximumSystemEntriesPerLane)],
+            ScheduledTasks = [.. OrEmpty(inventory.ScheduledTasks)
                 .OrderBy(task => task.Path, StringComparer.OrdinalIgnoreCase)
-                .Take(InventoryLimits.MaximumSystemEntriesPerLane)
-                .ToArray(),
-            Providers = OrEmpty(inventory.Providers)
+                .Take(InventoryLimits.MaximumSystemEntriesPerLane)],
+            Providers = [.. OrEmpty(inventory.Providers)
                 .OrderBy(provider => provider.Kind, StringComparer.Ordinal)
                 .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(provider => provider.Context, StringComparer.OrdinalIgnoreCase)
-                .Take(InventoryLimits.MaximumSystemEntriesPerLane)
-                .ToArray(),
-            ResourceConflicts = OrEmpty(inventory.ResourceConflicts)
+                .Take(InventoryLimits.MaximumSystemEntriesPerLane)],
+            ResourceConflicts = [.. OrEmpty(inventory.ResourceConflicts)
                 .OrderBy(conflict => conflict.ResourceId, StringComparer.Ordinal)
                 .ThenBy(conflict => conflict.Owner, StringComparer.OrdinalIgnoreCase)
-                .Take(InventoryLimits.MaximumSystemEntriesPerLane)
-                .ToArray(),
-            TopologyGenerations = OrEmpty(inventory.TopologyGenerations)
+                .Take(InventoryLimits.MaximumSystemEntriesPerLane)],
+            TopologyGenerations = [.. OrEmpty(inventory.TopologyGenerations)
                 .OrderByDescending(observation => observation.Generation)
                 .ThenBy(observation => observation.InstanceId, StringComparer.Ordinal)
                 .Take(InventoryLimits.MaximumEndpointsPerLane)
                 .OrderBy(observation => observation.Generation)
-                .ThenBy(observation => observation.InstanceId, StringComparer.Ordinal)
-                .ToArray(),
-            CollectionIssues = OrEmpty(inventory.CollectionIssues)
+                .ThenBy(observation => observation.InstanceId, StringComparer.Ordinal)],
+            CollectionIssues = [.. OrEmpty(inventory.CollectionIssues)
                 .OrderBy(issue => issue.Lane, StringComparer.Ordinal)
                 .ThenBy(issue => issue.Error, StringComparer.Ordinal)
-                .Take(InventoryLimits.MaximumEndpointsPerLane)
-                .ToArray()
+                .Take(InventoryLimits.MaximumEndpointsPerLane)]
         };
     }
 
@@ -135,14 +120,13 @@ internal static class MachineInventoryNormalizer
         return endpoint with
         {
             Access = malformed ? InventoryAccess.Malformed : endpoint.Access,
-            FramingCandidates = candidates
+            FramingCandidates = [.. candidates
                 .OrderBy(candidate => candidate.BaudRate)
                 .ThenBy(candidate => candidate.DataBits)
                 .ThenBy(candidate => candidate.Parity)
                 .ThenBy(candidate => candidate.StopBits)
                 .ThenBy(candidate => candidate.Source, StringComparer.Ordinal)
-                .Take(InventoryLimits.MaximumFramingCandidates)
-                .ToArray()
+                .Take(InventoryLimits.MaximumFramingCandidates)]
         };
     }
 
@@ -157,8 +141,8 @@ internal static class MachineInventoryNormalizer
             && !intervals.Contains(minimum))
         {
             intervals = intervals.Length < InventoryLimits.MaximumSensorIntervals
-                ? intervals.Append(minimum).Order().ToArray()
-                : intervals[..^1].Append(minimum).Order().ToArray();
+                ? [.. intervals.Append(minimum).Order()]
+                : [.. intervals[..^1].Append(minimum).Order()];
         }
 
         return sensor with { SupportedReportIntervalsMilliseconds = intervals };
@@ -186,10 +170,11 @@ internal static class MachineInventoryNormalizer
 
     private static bool IsSha256(string value) => value.Length == 64 && value.All(Uri.IsHexDigit);
 
-    private static IReadOnlyList<T> OrderAndTake<T>(IEnumerable<T> items, Func<T, string> key) =>
-        items.OrderBy(key, StringComparer.Ordinal)
+    private static T[] OrderAndTake<T>(IEnumerable<T> items, Func<T, string> key) =>
+    [
+        .. items.OrderBy(key, StringComparer.Ordinal)
             .Take(InventoryLimits.MaximumEndpointsPerLane)
-            .ToArray();
+    ];
 
     // Missing JSON collections deserialize as null under the strict source-generated context even
     // though production-created records use empty initializers. Normalization owns that boundary.

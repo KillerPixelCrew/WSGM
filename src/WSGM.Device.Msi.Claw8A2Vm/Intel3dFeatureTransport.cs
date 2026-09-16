@@ -31,44 +31,6 @@ internal enum EnduranceGamingMode
     Battery = 2
 }
 
-/// <summary>How the driver presents frames, which is what "driver-level VSync" actually is.</summary>
-/// <remarks>
-/// Intel has no <c>CTL_3D_FEATURE_VSYNC</c>. What it has is <c>CTL_3D_FEATURE_GAMING_FLIP_MODES</c>,
-/// a flag set whose members are the presentation modes, and forcing VSync on is one of them. That is
-/// why this is a choice rather than a boolean: the same control also offers leaving the decision to
-/// the application, Intel's Smooth Sync and a capped-FPS mode, and a toggle could express none of
-/// them. The values are Intel's <c>ctl_gaming_flip_mode_flag_t</c> bits, not indices.
-/// <para>
-/// Measured on the reference unit on 2026-09-10 by reading
-/// <c>ctlGetSupported3DCapabilities</c>: the adapter reports twelve supported features, and feature
-/// 9 is enum-typed with a supported mask of <c>0x2d</c> — application default, VSync on, Smooth Sync
-/// and capped FPS. **VSync off is deliberately not in that mask**, because leaving it off is what
-/// the application default already means; the driver offers forcing it on, not forcing it off.
-/// </para>
-/// </remarks>
-internal enum GamingFlipMode
-{
-    /// <summary>The driver does not override the application's own choice.</summary>
-    ApplicationDefault = 1 << 0,
-
-    /// <summary>Tearing allowed; frames present as soon as they are ready.</summary>
-    /// <remarks>Not offered by the reference driver; kept because the flag exists in Intel's header.</remarks>
-    VsyncOff = 1 << 1,
-
-    /// <summary>Frames wait for the display's refresh.</summary>
-    VsyncOn = 1 << 2,
-
-    /// <summary>Intel's Smooth Sync: tearing is dithered rather than sharp.</summary>
-    SmoothSync = 1 << 3,
-
-    /// <summary>Speed Frame.</summary>
-    /// <remarks>Not offered by the reference driver.</remarks>
-    SpeedFrame = 1 << 4,
-
-    /// <summary>Capped FPS.</summary>
-    CappedFps = 1 << 5
-}
-
 /// <summary>What the driver reports for Endurance Gaming right now.</summary>
 /// <param name="Control">Whether it is off, on, or left to the driver.</param>
 /// <param name="Mode">The frame target it holds to when engaged.</param>
@@ -205,13 +167,13 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.CustomValue = (nint)(&value);
 
         var result = _getSet3dFeature(_adapter, &request);
-        if (result != ResultSuccess)
+        if (result == ResultSuccess)
         {
-            PluginTrace.Info("intel3d", $"Endurance Gaming read returned 0x{result:x}; unsupported here.");
-            return null;
+            return new EnduranceGamingState((EnduranceGamingControl)value.Control, (EnduranceGamingMode)value.Mode);
         }
 
-        return new EnduranceGamingState((EnduranceGamingControl)value.Control, (EnduranceGamingMode)value.Mode);
+        PluginTrace.Info("intel3d", $"Endurance Gaming read returned 0x{result:x}; unsupported here.");
+        return null;
     }
 
     /// <summary>Applies a control and mode, then confirms the driver reports them back.</summary>
@@ -255,52 +217,6 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
             "intel3d",
             $"Endurance Gaming write was not confirmed; asked {control}/{mode}, read {applied?.ToString() ?? "nothing"}.");
         return false;
-    }
-
-    /// <summary>Reads the driver's current frame-presentation mode.</summary>
-    /// <returns>The mode, or null when the driver does not offer the feature.</returns>
-    /// <remarks>
-    /// An enum-typed feature: <c>ctl_property_enum_t</c> is an enable byte followed by a 32-bit
-    /// value, which lands on the union's two words exactly as the bool feature's single byte does.
-    /// </remarks>
-    public GamingFlipMode? ReadGamingFlipMode()
-    {
-        if (_adapter == 0)
-        {
-            return null;
-        }
-
-        Ctl3dFeatureGetSet request = default;
-        request.Size = (uint)sizeof(Ctl3dFeatureGetSet);
-        request.FeatureType = FeatureGamingFlipModes;
-        request.ValueType = ValueTypeEnum;
-
-        var result = _getSet3dFeature(_adapter, &request);
-        if (result != ResultSuccess)
-        {
-            PluginTrace.Info("intel3d", $"Gaming flip mode read returned 0x{result:x}; unsupported here.");
-            return null;
-        }
-
-        // Zero is the driver's resting answer, not a failure: measured on the reference unit, an
-        // adapter with no override selected reports enable=1 and value=0. That is exactly what
-        // application default means, so it is reported as such rather than as "unreadable" — which
-        // is what an earlier version of this did, and it made a working feature look absent.
-        var value = request.Value.Second;
-        if (value == 0)
-        {
-            return GamingFlipMode.ApplicationDefault;
-        }
-
-        // More than one bit would be a set rather than a selection, which is not a state this can
-        // name. Reporting nothing beats picking one and calling it the answer.
-        if ((value & (value - 1)) != 0 || !Enum.IsDefined((GamingFlipMode)value))
-        {
-            PluginTrace.Info("intel3d", $"Gaming flip mode read an unrecognised value 0x{value:x}.");
-            return null;
-        }
-
-        return (GamingFlipMode)value;
     }
 
     /// <summary>Reads which flip modes this adapter's driver actually offers.</summary>
@@ -401,41 +317,6 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         return found;
     }
 
-    /// <summary>Selects a frame-presentation mode, then confirms the driver reports it back.</summary>
-    /// <param name="mode">The mode to select.</param>
-    /// <returns><see langword="true"/> only when the read-back matches what was asked for.</returns>
-    /// <remarks>Issued once and never retried, for the same reason the other writes are not.</remarks>
-    public bool TryWriteGamingFlipMode(GamingFlipMode mode)
-    {
-        if (_adapter == 0)
-        {
-            return false;
-        }
-
-        Ctl3dFeatureGetSet request = default;
-        request.Size = (uint)sizeof(Ctl3dFeatureGetSet);
-        request.FeatureType = FeatureGamingFlipModes;
-        request.ValueType = ValueTypeEnum;
-        request.Set = 1;
-        request.Value.First = 1;
-        request.Value.Second = (uint)mode;
-
-        var result = _getSet3dFeature(_adapter, &request);
-        if (result != ResultSuccess)
-        {
-            PluginTrace.Warn("intel3d", $"Gaming flip mode write failed with 0x{result:x}.");
-            return false;
-        }
-
-        if (ReadGamingFlipMode() == mode)
-        {
-            return true;
-        }
-
-        PluginTrace.Warn("intel3d", $"Gaming flip mode write to {mode} was not confirmed.");
-        return false;
-    }
-
     /// <summary>Reads whether the driver downloads prebuilt shaders for games.</summary>
     /// <returns>The current setting, or null when the driver does not offer it.</returns>
     /// <remarks>
@@ -455,14 +336,14 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         request.ValueType = ValueTypeBool;
 
         var result = _getSet3dFeature(_adapter, &request);
-        if (result != ResultSuccess)
+        if (result == ResultSuccess)
         {
-            PluginTrace.Info("intel3d", $"Shader download read returned 0x{result:x}; unsupported here.");
-            return null;
+            // ctl_property_boolean_t is a single C bool, so only the union's first byte carries it.
+            return (request.Value.First & 0xFF) != 0;
         }
 
-        // ctl_property_boolean_t is a single C bool, so only the union's first byte carries it.
-        return (request.Value.First & 0xFF) != 0;
+        PluginTrace.Info("intel3d", $"Shader download read returned 0x{result:x}; unsupported here.");
+        return null;
     }
 
     /// <summary>Turns prebuilt shader download on or off, then confirms the read-back.</summary>
@@ -507,11 +388,13 @@ internal sealed unsafe class Intel3dFeatureTransport : IDisposable
         }
 
         _adapter = 0;
-        if (_library != 0)
+        if (_library == 0)
         {
-            NativeLibrary.Free(_library);
-            _library = 0;
+            return;
         }
+
+        NativeLibrary.Free(_library);
+        _library = 0;
     }
 
     private bool TryBind()

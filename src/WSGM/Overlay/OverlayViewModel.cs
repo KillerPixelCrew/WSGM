@@ -5,32 +5,28 @@ namespace WSGM.Overlay;
 /// <summary>State for the overlay, recomputed every time it is shown.</summary>
 public sealed class OverlayViewModel : ObservableObject
 {
-    private bool _explorerRunning;
-    private bool _homeAppAlive;
-    private string _homeAppName = "Home app";
     private string _warningText = "";
-    private GlyphStyle _glyphStyle = GlyphStyle.Xbox;
 
     /// <summary>Gets or sets whether Explorer is currently running.</summary>
     public bool ExplorerRunning
     {
-        get => _explorerRunning;
-        set { if (SetFieldIfChanged(ref _explorerRunning, value, nameof(ExplorerRunning))) { Raise(nameof(DesktopButtonText)); } }
+        get;
+        set { if (SetFieldIfChanged(ref field, value, nameof(ExplorerRunning))) { Raise(nameof(DesktopButtonText)); } }
     }
 
     /// <summary>Gets or sets whether the configured home application has a live process.</summary>
     public bool HomeAppAlive
     {
-        get => _homeAppAlive;
-        set { if (SetFieldIfChanged(ref _homeAppAlive, value, nameof(HomeAppAlive))) { Raise(nameof(HomeAppButtonText)); } }
+        get;
+        set { if (SetFieldIfChanged(ref field, value, nameof(HomeAppAlive))) { Raise(nameof(HomeAppButtonText)); } }
     }
 
     /// <summary>Gets or sets the configured home application's display name.</summary>
     public string HomeAppName
     {
-        get => _homeAppName;
-        set { if (SetFieldIfChanged(ref _homeAppName, value, nameof(HomeAppName))) { Raise(nameof(HomeAppButtonText)); Raise(nameof(CloseLauncherText)); } }
-    }
+        get;
+        set { if (!SetFieldIfChanged(ref field, value, nameof(HomeAppName))) { return; } Raise(nameof(HomeAppButtonText)); Raise(nameof(CloseLauncherText)); }
+    } = "Home app";
 
     /// <summary>Gets or sets the non-fatal warning displayed by the overlay.</summary>
     public string WarningText
@@ -45,17 +41,16 @@ public sealed class OverlayViewModel : ObservableObject
     /// <summary>Gets or sets the controller glyph family used by the overlay.</summary>
     public GlyphStyle GlyphStyle
     {
-        get => _glyphStyle;
-        set => SetFieldIfChanged(ref _glyphStyle, value, nameof(GlyphStyle));
-    }
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(GlyphStyle));
+    } = GlyphStyle.Xbox;
 
-    private bool _confirmingCloseLauncher;
     /// <summary>Armed state of the destructive Close-Steam confirm. Lives here so
     /// the bound title renders it — a direct Text write would fight the binding.</summary>
     public bool ConfirmingCloseLauncher
     {
-        get => _confirmingCloseLauncher;
-        set { _confirmingCloseLauncher = value; Raise(nameof(ConfirmingCloseLauncher)); Raise(nameof(CloseLauncherText)); }
+        get;
+        set { field = value; Raise(nameof(ConfirmingCloseLauncher)); Raise(nameof(CloseLauncherText)); }
     }
 
     /// <summary>Gets the action label that switches between desktop and game mode.</summary>
@@ -73,10 +68,6 @@ public sealed class OverlayViewModel : ObservableObject
     /// <summary>Gets the destructive-action label, including confirmation state.</summary>
     public string CloseLauncherText => ConfirmingCloseLauncher ? "Really?" : $"Close {HomeAppName}";
 
-    private ManualWakeMode _keepAwakeManualMode = ManualWakeMode.Off;
-    private bool _keepAwakeDownload;
-    private string _wakeLockSummary = "";
-
     /// <summary>Whether the keep-awake row is shown at all (a session
     /// <c>KeepAwakeService</c> exists; the Settings preview overlay has none).</summary>
     public bool ShowKeepAwake { get; init; }
@@ -84,28 +75,30 @@ public sealed class OverlayViewModel : ObservableObject
     /// <summary>The user's manual wake mode (the row cycles it).</summary>
     public ManualWakeMode KeepAwakeManualMode
     {
-        get => _keepAwakeManualMode;
+        get;
         set
         {
-            if (SetFieldIfChanged(ref _keepAwakeManualMode, value, nameof(KeepAwakeManualMode)))
+            if (!SetFieldIfChanged(ref field, value, nameof(KeepAwakeManualMode)))
             {
-                Raise(nameof(KeepAwakeDescription));
-                Raise(nameof(KeepAwakeTrailing));
+                return;
             }
+            Raise(nameof(KeepAwakeDescription));
+            Raise(nameof(KeepAwakeTrailing));
         }
-    }
+    } = ManualWakeMode.Off;
 
     /// <summary>Whether the automatic download keep-awake hold is active.</summary>
     public bool KeepAwakeDownloadActive
     {
-        get => _keepAwakeDownload;
+        get;
         set
         {
-            if (SetFieldIfChanged(ref _keepAwakeDownload, value, nameof(KeepAwakeDownloadActive)))
+            if (!SetFieldIfChanged(ref field, value, nameof(KeepAwakeDownloadActive)))
             {
-                Raise(nameof(KeepAwakeDescription));
-                Raise(nameof(KeepAwakeTrailing));
+                return;
             }
+            Raise(nameof(KeepAwakeDescription));
+            Raise(nameof(KeepAwakeTrailing));
         }
     }
 
@@ -114,15 +107,15 @@ public sealed class OverlayViewModel : ObservableObject
     /// or when only WSGM itself holds locks.</summary>
     public string WakeLockSummary
     {
-        get => _wakeLockSummary;
+        get;
         set
         {
-            if (SetFieldIfChanged(ref _wakeLockSummary, value, nameof(WakeLockSummary)))
+            if (SetFieldIfChanged(ref field, value, nameof(WakeLockSummary)))
             {
                 Raise(nameof(KeepAwakeDescription));
             }
         }
-    }
+    } = "";
 
     /// <summary>Gets the status line rendered under the keep-awake row: WSGM's own
     /// mode first, then other holders seen by the indicator, then the cycle hint.</summary>
@@ -144,65 +137,51 @@ public sealed class OverlayViewModel : ObservableObject
         _ => KeepAwakeDownloadActive ? "ON" : ""
     };
 
-    private string _displayDcTimeout = "—";
-    private string _displayAcTimeout = "—";
-    private string _sleepDcTimeout = "—";
-    private string _sleepAcTimeout = "—";
-
     /// <summary>Current display-off timeout on battery, as a trailing badge ("5 min",
     /// "Never", "—" when the power API gave no answer).</summary>
     public string DisplayDcTimeout
     {
-        get => _displayDcTimeout;
-        set => SetFieldIfChanged(ref _displayDcTimeout, value, nameof(DisplayDcTimeout));
-    }
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(DisplayDcTimeout));
+    } = "—";
 
     /// <summary>Current display-off timeout when plugged in.</summary>
     public string DisplayAcTimeout
     {
-        get => _displayAcTimeout;
-        set => SetFieldIfChanged(ref _displayAcTimeout, value, nameof(DisplayAcTimeout));
-    }
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(DisplayAcTimeout));
+    } = "—";
 
     /// <summary>What a display-off row says when nothing bounds it.</summary>
     public const string DisplayTimeoutDescription = "Idle time before the display turns off";
 
-    private string _displayDcDescription = DisplayTimeoutDescription;
-    private string _displayAcDescription = DisplayTimeoutDescription;
-
     /// <summary>The battery display-off row's description, naming Steam's screensaver bound when there is one.</summary>
     public string DisplayDcDescription
     {
-        get => _displayDcDescription;
-        set => SetFieldIfChanged(ref _displayDcDescription, value, nameof(DisplayDcDescription));
-    }
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(DisplayDcDescription));
+    } = DisplayTimeoutDescription;
 
     /// <summary>The plugged-in display-off row's description, naming Steam's screensaver bound when there is one.</summary>
     public string DisplayAcDescription
     {
-        get => _displayAcDescription;
-        set => SetFieldIfChanged(ref _displayAcDescription, value, nameof(DisplayAcDescription));
-    }
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(DisplayAcDescription));
+    } = DisplayTimeoutDescription;
 
     /// <summary>Current standby timeout on battery.</summary>
     public string SleepDcTimeout
     {
-        get => _sleepDcTimeout;
-        set => SetFieldIfChanged(ref _sleepDcTimeout, value, nameof(SleepDcTimeout));
-    }
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(SleepDcTimeout));
+    } = "—";
 
     /// <summary>Current standby timeout when plugged in.</summary>
     public string SleepAcTimeout
     {
-        get => _sleepAcTimeout;
-        set => SetFieldIfChanged(ref _sleepAcTimeout, value, nameof(SleepAcTimeout));
-    }
-
-    private bool _showLibraryTabs = true;
-    private bool _showCardManager = true;
-    private bool _showArtwork = true;
-    private bool _showSdCard = true;
-    private bool _configureLaunchOptionsLive = true;
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(SleepAcTimeout));
+    } = "—";
 
     // Settable, not init-only: a config saved from another process while the panel
     // is open must be able to hide a feature the user just turned off, instead of
@@ -213,47 +192,49 @@ public sealed class OverlayViewModel : ObservableObject
     /// only entry point to that CEF feature.</summary>
     public bool ShowLibraryTabs
     {
-        get => _showLibraryTabs;
-        set { if (SetFieldIfChanged(ref _showLibraryTabs, value, nameof(ShowLibraryTabs))) { Raise(nameof(ShowSteamLibrarySection)); } }
-    }
+        get;
+        set { if (SetFieldIfChanged(ref field, value, nameof(ShowLibraryTabs))) { Raise(nameof(ShowSteamLibrarySection)); } }
+    } = true;
 
     /// <summary>Whether the CEF SD-card library-manager button is shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.CardManager</c>).</summary>
     public bool ShowCardManager
     {
-        get => _showCardManager;
+        get;
         set
         {
-            if (SetFieldIfChanged(ref _showCardManager, value, nameof(ShowCardManager)))
+            if (!SetFieldIfChanged(ref field, value, nameof(ShowCardManager)))
             {
-                Raise(nameof(ShowSteamLibrarySection));
-                Raise(nameof(ShowFormatInTools));
+                return;
             }
+            Raise(nameof(ShowSteamLibrarySection));
+            Raise(nameof(ShowFormatInTools));
         }
-    }
+    } = true;
 
     /// <summary>Whether the CEF shortcut-artwork button is shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.Artwork</c>).</summary>
     public bool ShowArtwork
     {
-        get => _showArtwork;
-        set { if (SetFieldIfChanged(ref _showArtwork, value, nameof(ShowArtwork))) { Raise(nameof(ShowSteamLibrarySection)); } }
-    }
+        get;
+        set { if (SetFieldIfChanged(ref field, value, nameof(ShowArtwork))) { Raise(nameof(ShowSteamLibrarySection)); } }
+    } = true;
 
     /// <summary>Whether the CEF Format-SD-card and Add-library buttons are shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.SdFormat</c>).</summary>
     public bool ShowSdCard
     {
-        get => _showSdCard;
+        get;
         set
         {
-            if (SetFieldIfChanged(ref _showSdCard, value, nameof(ShowSdCard)))
+            if (!SetFieldIfChanged(ref field, value, nameof(ShowSdCard)))
             {
-                Raise(nameof(ShowSteamLibrarySection));
-                Raise(nameof(ShowFormatInTools));
+                return;
             }
+            Raise(nameof(ShowSteamLibrarySection));
+            Raise(nameof(ShowFormatInTools));
         }
-    }
+    } = true;
 
     /// <summary>Whether the Tools tab still needs its own Format-SD-card button.
     /// Formatting normally lives inside the Card Manager (cards are one subject, one
@@ -272,15 +253,15 @@ public sealed class OverlayViewModel : ObservableObject
     /// clipboard for the user to paste by hand.</summary>
     public bool ConfigureLaunchOptionsLive
     {
-        get => _configureLaunchOptionsLive;
+        get;
         set
         {
-            if (SetFieldIfChanged(ref _configureLaunchOptionsLive, value, nameof(ConfigureLaunchOptionsLive)))
+            if (SetFieldIfChanged(ref field, value, nameof(ConfigureLaunchOptionsLive)))
             {
                 Raise(nameof(ShowRemoveLaunchWrapper));
             }
         }
-    }
+    } = true;
 
     /// <summary>Whether the "remove wrappers" row is shown — only meaningful when WSGM
     /// can write the launch configuration itself.</summary>

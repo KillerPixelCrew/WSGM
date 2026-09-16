@@ -94,14 +94,14 @@ public static class SteamGridDb
     {
         if (string.IsNullOrWhiteSpace(term))
         {
-            return Array.Empty<SgdbGame>();
+            return [];
         }
         var url = $"{ApiBase}/search/autocomplete/{Uri.EscapeDataString(term.Trim())}";
         var root = await GetAsync(url, key, cancellationToken).ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("data", out var data)
             || data.ValueKind != JsonValueKind.Array)
         {
-            return Array.Empty<SgdbGame>();
+            return [];
         }
         var list = new List<SgdbGame>();
         foreach (var game in data.EnumerateArray())
@@ -159,7 +159,7 @@ public static class SteamGridDb
         if (root is null || !root.Value.TryGetProperty("data", out var data)
             || data.ValueKind != JsonValueKind.Array)
         {
-            return Array.Empty<SgdbAsset>();
+            return [];
         }
         var list = new List<SgdbAsset>();
         foreach (var item in data.EnumerateArray())

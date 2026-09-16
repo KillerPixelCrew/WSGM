@@ -43,12 +43,14 @@ public sealed class GyroFrameResamplerTests
                 resampler.OnReading(new Vector3(rate, 0f, 0f), now);
             }
 
-            if (ms % 8 == 0)
+            if (ms % 8 != 0)
             {
-                var average = resampler.FrameAverage(now);
-                integrated += average.X * (now - lastFrame).TotalSeconds;
-                lastFrame = now;
+                continue;
             }
+
+            var average = resampler.FrameAverage(now);
+            integrated += average.X * (now - lastFrame).TotalSeconds;
+            lastFrame = now;
         }
 
         // Compare over the span both clocks fully covered.

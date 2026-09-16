@@ -24,7 +24,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     private readonly Func<RunningApplicationTargetSnapshot, CancellationToken, Task>?
         _setControllerTargetAsync;
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private IDisposable? _observation;
     private RunningApplicationTargetSnapshot? _pending;
     private Task _worker = Task.CompletedTask;
@@ -76,7 +76,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         _monitor.Changed -= OnTargetChanged;
         _observation?.Dispose();
         _observation = null;
-        _shutdown.Cancel();
+        await _shutdown.CancelAsync().ConfigureAwait(false);
         TryCancel(activeApply);
         try
         {
@@ -103,7 +103,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task ApplyAsync(
+    private static async Task ApplyAsync(
         Func<CancellationToken, Task> applyAsync,
         string consumer,
         RunningApplicationTargetSnapshot snapshot,
@@ -165,7 +165,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
             if (!_workerRunning)
             {
                 _workerRunning = true;
-                _worker = Task.Run(ApplyPendingAsync);
+                _worker = Task.Run(ApplyPendingAsync, CancellationToken.None);
             }
         }
 

@@ -210,16 +210,7 @@ internal static class GlyphSvgNormalizer
     private static int CountCommands(string pathData)
     {
         const string Commands = "MmZzLlHhVvCcSsQqTtAa";
-        var count = 0;
-        foreach (var character in pathData)
-        {
-            if (Commands.IndexOf(character) >= 0)
-            {
-                count++;
-            }
-        }
-
-        return count;
+        return pathData.Count(character => Commands.Contains(character));
     }
 
     /// <summary>Overlays an element's presentation attributes onto what it inherits.</summary>
@@ -247,7 +238,7 @@ internal static class GlyphSvgNormalizer
                 continue;
             }
 
-            return reader.LocalName == "svg" && reader.Depth == 0;
+            return reader is { LocalName: "svg", Depth: 0 };
         }
 
         return false;
@@ -468,10 +459,8 @@ internal static class GlyphPngInspector
     private static bool ValidColorEncoding(byte bitDepth, byte colorType) => colorType switch
     {
         0 => bitDepth is 1 or 2 or 4 or 8 or 16,
-        2 => bitDepth is 8 or 16,
+        2 or 4 or 6 => bitDepth is 8 or 16,
         3 => bitDepth is 1 or 2 or 4 or 8,
-        4 => bitDepth is 8 or 16,
-        6 => bitDepth is 8 or 16,
         _ => false
     };
 

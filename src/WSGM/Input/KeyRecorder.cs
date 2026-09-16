@@ -61,17 +61,19 @@ public sealed class KeyRecorder : IDisposable
             delegate* unmanaged<int, nint, nint, nint> callback = &HookProc;
             _hook = NativeMethods.SetWindowsHookExW(NativeMethods.WhKeyboardLl, (nint)callback, 0, 0);
         }
-        if (_hook == 0)
+        if (_hook != 0)
         {
-            var error = Marshal.GetLastWin32Error();
-            Stop();     // clear _active so the failed recorder isn't statically rooted
-            Log.Warn($"Could not install keyboard hook for recording (Win32 error {error}).");
-            Recorded?.Invoke(Cleared());
+            return;
         }
+
+        var error = Marshal.GetLastWin32Error();
+        Stop();     // clear _active so the failed recorder isn't statically rooted
+        Log.Warn($"Could not install keyboard hook for recording (Win32 error {error}).");
+        Recorded?.Invoke(Cleared());
     }
 
     /// <summary>Stops keyboard capture and removes the low-level hook.</summary>
-    public void Stop()
+    private void Stop()
     {
         if (_hook != 0)
         {

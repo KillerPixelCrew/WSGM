@@ -14,7 +14,7 @@ namespace WSGM.Input;
 internal sealed class ChordTracker : IDisposable
 {
     /// <summary>Time with no state change before a held chord counts as a hold.</summary>
-    public static readonly TimeSpan Hold = TimeSpan.FromMilliseconds(600);
+    private static readonly TimeSpan Hold = TimeSpan.FromMilliseconds(600);
 
     /// <summary>Time with no input at all before recording gives up.</summary>
     public static readonly TimeSpan RecordingExpiry = TimeSpan.FromSeconds(3);

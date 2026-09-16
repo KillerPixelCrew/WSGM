@@ -2,9 +2,9 @@ using System.Collections;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using static WSGM.Tests.PluginBuilders;
+using static WSGM.Tests.Builders.PluginBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class PluginActionSequenceTests
 {
@@ -19,7 +19,7 @@ public sealed class PluginActionSequenceTests
         };
 
         var results = await new PluginActionSequence(invoker)
-            .RunUntilFailureAsync([Step("one"), Step("two"), Step("three")], default);
+            .RunUntilFailureAsync([Step("one"), Step("two"), Step("three")], CancellationToken.None);
 
         Assert.Equal(["one", "two"], invoker.Invoked);
         Assert.Equal(2, results.Count);
@@ -38,7 +38,7 @@ public sealed class PluginActionSequenceTests
 
         List<string> log = [];
         var results = await new PluginActionSequence(invoker, log.Add)
-            .RunAllAsync([Step("one"), Step("two"), Step("three")], default);
+            .RunAllAsync([Step("one"), Step("two"), Step("three")], CancellationToken.None);
 
         Assert.Equal(["one", "two", "three"], invoker.Invoked);
         Assert.Equal([false, true, false], results.Select(result => result.Succeeded));
@@ -56,7 +56,7 @@ public sealed class PluginActionSequenceTests
         invoker.Hang = "slow";
 
         var results = await new PluginActionSequence(invoker)
-            .RunAllAsync([Step("slow", timeoutSeconds: 1), Step("after")], default);
+            .RunAllAsync([Step("slow", timeoutSeconds: 1), Step("after")], CancellationToken.None);
 
         Assert.Equal(PluginActionOutcome.Unconfirmed, results[0].Outcome);
         Assert.Contains("may still take effect", results[0].Detail, StringComparison.Ordinal);
@@ -69,7 +69,7 @@ public sealed class PluginActionSequenceTests
         Invoker invoker = new() { { "boom", PluginActionOutcome.Dispatched } };
         invoker.Throw = "boom";
 
-        var results = await new PluginActionSequence(invoker).RunAllAsync([Step("boom")], default);
+        var results = await new PluginActionSequence(invoker).RunAllAsync([Step("boom")], CancellationToken.None);
 
         Assert.Equal(PluginActionOutcome.Unconfirmed, Assert.Single(results).Outcome);
     }

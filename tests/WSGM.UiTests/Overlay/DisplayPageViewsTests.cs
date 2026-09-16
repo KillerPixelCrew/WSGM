@@ -5,8 +5,9 @@ using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 /// <summary>The brightness and display mode views on the overlay's Display page.</summary>
 public sealed class DisplayPageViewsTests

@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace WSGM.Device.Sdk.Capabilities;
 
 /// <summary>
@@ -41,13 +43,10 @@ public static class PlainText
             return false;
         }
 
-        foreach (var c in value)
+        if (value.Any(IsUnsafe))
         {
-            if (IsUnsafe(c))
-            {
-                error = $"{field} contains a control or bidirectional-override character.";
-                return false;
-            }
+            error = $"{field} contains a control or bidirectional-override character.";
+            return false;
         }
 
         error = null;
@@ -72,20 +71,10 @@ public static class PlainText
             return false;
         }
 
-        foreach (var c in value)
-        {
-            var legal =
-                c is >= 'a' and <= 'z'
-                || c is >= 'A' and <= 'Z'
-                || c is >= '0' and <= '9'
-                || c is '.' or '_' or '-';
-            if (!legal)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return value.All(c => c is >= 'a' and <= 'z'
+            or >= 'A' and <= 'Z'
+            or >= '0' and <= '9'
+            or '.' or '_' or '-');
     }
 
     /// <summary>

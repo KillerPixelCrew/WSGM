@@ -1,7 +1,7 @@
+using WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
-using WSGM.Device.Tests;
 
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 

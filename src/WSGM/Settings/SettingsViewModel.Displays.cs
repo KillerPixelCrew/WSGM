@@ -12,9 +12,7 @@ public sealed partial class SettingsViewModel
     private readonly bool _queryDisplaysOnWorker;
     private bool _launchLoaded;
     private bool _displayDiscoveryClosed;
-    private bool _editingDesktopLayout;
     private DisplayArrangement? _observedDisplays;
-    private string _displayDiscoveryText = "";
     private readonly List<DisplayTargetIdentity> _forgottenDisplays = [];
 
     /// <summary>Gets the read-only display discovery command.</summary>
@@ -29,11 +27,11 @@ public sealed partial class SettingsViewModel
     /// <summary>Gets or sets which saved layout the Display page edits.</summary>
     public bool EditingDesktopLayout
     {
-        get => _editingDesktopLayout;
+        get;
         set
         {
-            if (_editingDesktopLayout == value) { return; }
-            _editingDesktopLayout = value;
+            if (field == value) { return; }
+            field = value;
             foreach (var name in new[] { nameof(EditingDesktopLayout), nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor), nameof(DisplayPolicySummary) })
             { Raise(name); }
         }
@@ -55,9 +53,9 @@ public sealed partial class SettingsViewModel
     /// <summary>Gets a discovery error or progress message without discarding saved displays.</summary>
     public string DisplayDiscoveryText
     {
-        get => _displayDiscoveryText;
-        private set { _displayDiscoveryText = value; Raise(nameof(DisplayDiscoveryText)); Raise(nameof(HasDisplayDiscoveryMessage)); }
-    }
+        get;
+        private set { field = value; Raise(nameof(DisplayDiscoveryText)); Raise(nameof(HasDisplayDiscoveryMessage)); }
+    } = "";
 
     internal void StartDisplayDiscovery()
     {
@@ -69,7 +67,7 @@ public sealed partial class SettingsViewModel
     private void SeedDisplayLayout(DisplayLayoutEditor editor, bool game)
     {
         if (_observedDisplays is not { } observed) { return; }
-        DisplayLayout layout = new([.. observed.Targets.Where(target => target.Active && target.Current is not null)
+        DisplayLayout layout = new([.. observed.Targets.Where(target => target is { Active: true, Current: not null })
             .Select(target => game ? target.Current! with { DpiPercent = 100 } : target.Current!)]);
         if (layout.Outputs.Count > 0 && DisplayLayouts.Describe(layout) is null) { editor.CopyFrom(layout); }
     }
@@ -114,7 +112,7 @@ public sealed partial class SettingsViewModel
             RefreshDisplayChoices();
             if (copy)
             {
-                DisplayLayout layout = new([.. read.Arrangement.Targets.Where(target => target.Active && target.Current is not null)
+                DisplayLayout layout = new([.. read.Arrangement.Targets.Where(target => target is { Active: true, Current: not null })
                     .Select(target => target.Current!)]);
                 if (layout.Outputs.Count == 0 || DisplayLayouts.Describe(layout) is not null)
                 { DisplayDiscoveryText = "The current desktop could not be copied. Your draft has been kept."; return; }

@@ -62,7 +62,7 @@ internal static partial class WindowsInventoryCollector
     {
         cancellationToken.ThrowIfCancellationRequested();
         List<InventoryCollectionIssue> collectionIssues = [];
-        MachineInventory collected = new()
+        MachineInventory basic = new()
         {
             SchemaVersion = CurrentSchemaVersion,
             Firmware = CollectSection(CollectFirmware, cancellationToken),
@@ -70,7 +70,7 @@ internal static partial class WindowsInventoryCollector
             GraphicsAdapters = CollectSection(
                 () => CollectGraphicsAdapters(collectionIssues),
                 cancellationToken),
-            UsbInterfaces = CollectUsbInterfaces(cancellationToken, collectionIssues),
+            UsbInterfaces = CollectUsbInterfaces(collectionIssues, cancellationToken),
             WmiClasses = CollectWmiClasses(wmiClassesToProbe, cancellationToken),
             SerialEndpoints = CollectSection(CollectSerialEndpoints, cancellationToken),
             Sensors = CollectSection(CollectSensors, cancellationToken),
@@ -81,15 +81,15 @@ internal static partial class WindowsInventoryCollector
             CollectionIssues = collectionIssues,
             CapturedAt = capturedAt
         };
-        collected = collected with
+        var enriched = basic with
         {
             NativeBinaries = CollectSection(
-                () => CollectNativeBinaries(collected.Processes, collected.Services),
+                () => CollectNativeBinaries(basic.Processes, basic.Services),
                 cancellationToken),
             Providers = CollectSection(
-                () => CollectRelevantProviders(collected.Processes),
+                () => CollectRelevantProviders(basic.Processes),
                 cancellationToken),
-            TopologyGenerations = collected.UsbInterfaces.Select(endpoint =>
+            TopologyGenerations = [.. basic.UsbInterfaces.Select(endpoint =>
                 new TopologyGenerationInventory
                 {
                     Generation = 1,
@@ -97,16 +97,16 @@ internal static partial class WindowsInventoryCollector
                     InstanceId = endpoint.InstanceId,
                     AssociationId = endpoint.DeviceLevelLocationPath,
                     Present = endpoint.Present
-                }).ToArray()
+                })]
         };
         cancellationToken.ThrowIfCancellationRequested();
-        collected = collected with
+        var collected = enriched with
         {
             ResourceConflicts = CollectSection(
                 () => DeriveResourceConflicts(
-                    collected.Processes,
-                    collected.Services,
-                    collected.NativeBinaries),
+                    enriched.Processes,
+                    enriched.Services,
+                    enriched.NativeBinaries),
                 cancellationToken)
         };
         cancellationToken.ThrowIfCancellationRequested();
@@ -127,19 +127,13 @@ internal static partial class WindowsInventoryCollector
         using var board = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_BaseBoard");
         using var bios = QuerySingle("root\\CIMV2", "SELECT * FROM Win32_BIOS");
 
-        string? ecVersion = null;
-        if (bios is not null)
-        {
-            // Recorded exactly as reported, including 255/255 - the SMBIOS "unknown" encoding. A
-            // matcher has to be able to tell "firmware says it does not know" from "nobody looked",
-            // and the usable EC version comes from the vendor provider instead.
-            var major = Text(bios, "EmbeddedControllerMajorVersion");
-            var minor = Text(bios, "EmbeddedControllerMinorVersion");
-            if (major is not null || minor is not null)
-            {
-                ecVersion = $"{major ?? "?"}.{minor ?? "?"}";
-            }
-        }
+        // Recorded exactly as reported, including 255/255 - the SMBIOS "unknown" encoding. A
+        // matcher has to be able to tell "firmware says it does not know" from "nobody looked",
+        // and the usable EC version comes from the vendor provider instead. Text yields null for an
+        // absent BIOS object, so no version is reported then.
+        var major = Text(bios, "EmbeddedControllerMajorVersion");
+        var minor = Text(bios, "EmbeddedControllerMinorVersion");
+        var ecVersion = major is null && minor is null ? null : $"{major ?? "?"}.{minor ?? "?"}";
 
         return new FirmwareInventory
         {
@@ -177,9 +171,9 @@ internal static partial class WindowsInventoryCollector
         };
     }
 
-    private static IReadOnlyList<UsbInterfaceInventory> CollectUsbInterfaces(
-        CancellationToken cancellationToken,
-        ICollection<InventoryCollectionIssue> collectionIssues)
+    private static List<UsbInterfaceInventory> CollectUsbInterfaces(
+        List<InventoryCollectionIssue> collectionIssues,
+        CancellationToken cancellationToken)
     {
         List<UsbInterfaceInventory> interfaces = [];
 
@@ -242,7 +236,7 @@ internal static partial class WindowsInventoryCollector
         return interfaces;
     }
 
-    private static IReadOnlyList<WmiClassInventory> CollectWmiClasses(
+    private static List<WmiClassInventory> CollectWmiClasses(
         IReadOnlyList<(string Namespace, string ClassName)> classes,
         CancellationToken cancellationToken)
     {
@@ -275,7 +269,7 @@ internal static partial class WindowsInventoryCollector
 
             methods.Sort(StringComparer.Ordinal);
 
-            int? instanceCount = null;
+            int? instanceCount;
             try
             {
                 using var searcher = CreateSearcher(
@@ -423,13 +417,13 @@ internal static partial class WindowsInventoryCollector
             : null;
     }
 
-    [GeneratedRegex(@"VID_(?<vid>[0-9A-Fa-f]{4})&PID_(?<pid>[0-9A-Fa-f]{4})")]
+    [GeneratedRegex("VID_(?<vid>[0-9A-Fa-f]{4})&PID_(?<pid>[0-9A-Fa-f]{4})")]
     private static partial Regex UsbIdentifiers();
 
-    [GeneratedRegex(@"&MI_(?<mi>[0-9A-Fa-f]{2})")]
+    [GeneratedRegex("&MI_(?<mi>[0-9A-Fa-f]{2})")]
     private static partial Regex InterfaceNumber();
 
-    [GeneratedRegex(@"&REV_(?<rev>[0-9A-Fa-f]{4})")]
+    [GeneratedRegex("&REV_(?<rev>[0-9A-Fa-f]{4})")]
     private static partial Regex UsbRelease();
 
     [GeneratedRegex(@"Family\s+(?<family>\d+)\s+Model\s+(?<model>\d+)\s+Stepping\s+(?<stepping>\d+)")]

@@ -53,7 +53,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
             _radios.Networks.CollectionChanged += OnScannedNetworksChanged;
             _radios.StartScanning();
-        }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
         QueuePublication();
         return SteamUiCommandResult.Applied;
     }
@@ -84,17 +84,13 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         List<SteamNetworkAccessPoint> networks = [];
         await NativeQamUi.RunAsync(() =>
         {
-            foreach (var entry in _radios.Networks.Take(24))
-            {
-                if (!string.IsNullOrWhiteSpace(entry.Ssid))
-                {
-                    networks.Add(new SteamNetworkAccessPoint(
-                        entry.Ssid,
-                        SteamNetworkSurface.StrengthFromPercent(entry.Signal),
-                        entry.Secured,
-                        entry.Connected));
-                }
-            }
+            networks.AddRange(_radios.Networks.Take(24)
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid))
+                .Select(entry => new SteamNetworkAccessPoint(
+                    entry.Ssid,
+                    SteamNetworkSurface.StrengthFromPercent(entry.Signal),
+                    entry.Secured,
+                    entry.Connected)));
         }).ConfigureAwait(false);
 
         // The connected network is merged in from the live status rather than the scan list, which
@@ -102,28 +98,30 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         var connected = indicatorEnabled
             ? WindowsRadio.GetWifiStatus()
             : default;
-        if (indicatorEnabled
-            && connected.State == 0
-            && !string.IsNullOrWhiteSpace(connected.Ssid))
+        if (!indicatorEnabled
+            || connected.State != 0
+            || string.IsNullOrWhiteSpace(connected.Ssid))
         {
-            var existing = networks.FindIndex(network =>
-                string.Equals(network.Ssid, connected.Ssid, StringComparison.Ordinal));
-            var joined = new SteamNetworkAccessPoint(
-                connected.Ssid,
-                SteamNetworkSurface.StrengthFromPercent(connected.Signal),
-                existing >= 0 ? networks[existing].Secured : true,
-                true);
-            if (existing >= 0)
+            return new SteamNetworkState(networks);
+        }
+
+        var existing = networks.FindIndex(network =>
+            string.Equals(network.Ssid, connected.Ssid, StringComparison.Ordinal));
+        var joined = new SteamNetworkAccessPoint(
+            connected.Ssid,
+            SteamNetworkSurface.StrengthFromPercent(connected.Signal),
+            existing < 0 || networks[existing].Secured,
+            true);
+        if (existing >= 0)
+        {
+            networks[existing] = joined;
+        }
+        else
+        {
+            networks.Insert(0, joined);
+            if (networks.Count > 24)
             {
-                networks[existing] = joined;
-            }
-            else
-            {
-                networks.Insert(0, joined);
-                if (networks.Count > 24)
-                {
-                    networks.RemoveAt(networks.Count - 1);
-                }
+                networks.RemoveAt(networks.Count - 1);
             }
         }
 

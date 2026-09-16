@@ -67,7 +67,7 @@ internal sealed record PassiveObservation
 /// <summary>Thread-safe QPC-aligned timeline retaining source and receipt ordering.</summary>
 internal sealed class PassiveCaptureTimeline
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly ICaptureReceiptClock _clock;
     private readonly List<CaptureStreamEvent> _events = [];
     private readonly Dictionary<string, SourceState> _sources = new(StringComparer.Ordinal);
@@ -201,12 +201,9 @@ internal sealed class PassiveCaptureTimeline
         }
     }
 
-    private static CapturedPayload ClonePayload(CapturedPayload payload) => new()
+    private static CapturedPayload ClonePayload(CapturedPayload payload) => payload with
     {
-        Length = payload.Length,
-        Disposition = payload.Disposition,
-        Bytes = payload.Bytes is null ? null : [.. payload.Bytes],
-        Sha256 = payload.Sha256
+        Bytes = payload.Bytes is null ? null : [.. payload.Bytes]
     };
 
     private sealed class SourceState
@@ -238,7 +235,7 @@ internal interface IPassiveCaptureSource
 /// <summary>Runs inert recipe steps through registered passive sources.</summary>
 internal sealed class PassiveCaptureCoordinator
 {
-    private readonly IReadOnlyDictionary<string, IPassiveCaptureSource> _sources;
+    private readonly Dictionary<string, IPassiveCaptureSource> _sources;
     private readonly PassiveCaptureTimeline _timeline;
 
     /// <summary>Creates a coordinator over explicitly supplied observation sources.</summary>
@@ -251,12 +248,9 @@ internal sealed class PassiveCaptureCoordinator
         ArgumentNullException.ThrowIfNull(sources);
         _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         Dictionary<string, IPassiveCaptureSource> indexed = new(StringComparer.Ordinal);
-        foreach (var source in sources)
+        if (sources.Any(source => string.IsNullOrWhiteSpace(source.SourceId) || !indexed.TryAdd(source.SourceId, source)))
         {
-            if (string.IsNullOrWhiteSpace(source.SourceId) || !indexed.TryAdd(source.SourceId, source))
-            {
-                throw new ArgumentException("Passive source identifiers must be nonempty and unique.", nameof(sources));
-            }
+            throw new ArgumentException("Passive source identifiers must be nonempty and unique.", nameof(sources));
         }
 
         _sources = indexed;
@@ -407,8 +401,7 @@ internal static class GuidedOperatorMarkers
         {
             return false;
         }
-        if (parts.Length != 4
-            || parts[0] != "v1"
+        if (parts is not ["v1", _, _, _]
             || !Enum.TryParse(parts[1], ignoreCase: false, out kind)
             || !Enum.IsDefined(kind)
             || !string.Equals(parts[1], kind.ToString(), StringComparison.Ordinal)

@@ -54,8 +54,7 @@ internal static class ReadProbeMetadataPolicy
             errors.Add("At least one response status code must be allowlisted.");
         }
 
-        if (expected.MinimumValue is { } minimum
-            && expected.MaximumValue is { } maximum
+        if (expected is { MinimumValue: { } minimum, MaximumValue: { } maximum }
             && minimum > maximum)
         {
             errors.Add("Expected numeric range is reversed.");
@@ -72,7 +71,7 @@ internal static class ReadProbeMetadataPolicy
         return errors;
     }
 
-    private static void Required(string value, string label, ICollection<string> errors)
+    private static void Required(string value, string label, List<string> errors)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -190,8 +189,7 @@ internal static class ReadProbeResponseValidator
                 StringComparison.OrdinalIgnoreCase),
             ReadProbeCrossCheckKind.Present => !string.IsNullOrWhiteSpace(sample.CrossCheckValue),
             ReadProbeCrossCheckKind.InRange => sample.CrossCheckNumericValue is { } numeric
-                && crossCheck.MinimumValue is { } minimum
-                && crossCheck.MaximumValue is { } maximum
+                && crossCheck is { MinimumValue: { } minimum, MaximumValue: { } maximum }
                 && numeric >= minimum
                 && numeric <= maximum,
             _ => false

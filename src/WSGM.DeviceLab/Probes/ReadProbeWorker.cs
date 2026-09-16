@@ -56,7 +56,7 @@ internal static class ReadProbeWorker
         if (!BuiltInReadProbeRegistry.TryResolve(request.ProbeId, request.ProbeVersion, out var profile)
             || !profile.Descriptor.Matches(request, out mismatch))
         {
-            Console.Error.WriteLine(mismatch);
+            await Console.Error.WriteLineAsync(mismatch).ConfigureAwait(false);
             return SelfWorkerProtocol.ExitRejected;
         }
 

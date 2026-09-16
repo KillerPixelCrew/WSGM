@@ -2,8 +2,9 @@ using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class CommonPluginManagerTests
 {
@@ -19,16 +20,16 @@ public sealed class CommonPluginManagerTests
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"), action => action(),
             (package, _) => { FakePlugin plugin = new(package.Manifest.Id); created.Add(plugin); return Task.FromResult<IPlugin>(plugin); });
         var first = new CommonPluginInstanceConfig { PluginId = "test.plugin", InstanceId = "one", Enabled = false };
-        await manager.ReconcileAsync([first], default);
+        await manager.ReconcileAsync([first], CancellationToken.None);
         Assert.Empty(created);
         first.Enabled = true;
         var second = new CommonPluginInstanceConfig { PluginId = "test.plugin", InstanceId = "two", Enabled = true };
-        await manager.ReconcileAsync([first, second], default);
-        await manager.ReconcileAsync([first, second], default);
+        await manager.ReconcileAsync([first, second], CancellationToken.None);
+        await manager.ReconcileAsync([first, second], CancellationToken.None);
         Assert.Equal(2, created.Count);
         Assert.Equal(2, host.Snapshot().Length);
         first.Enabled = false;
-        await manager.ReconcileAsync([first, second], default);
+        await manager.ReconcileAsync([first, second], CancellationToken.None);
         Assert.Equal("two", Assert.Single(host.Snapshot()).Instance.InstanceId);
         Assert.Equal(1, created[0].Disposals);
         await manager.StopAsync(Deadline);
@@ -46,13 +47,14 @@ public sealed class CommonPluginManagerTests
             (package, _) =>
             {
                 loads++;
-                if (package.Manifest.Id == "a.bad") { throw new InvalidOperationException("Fixture load failure"); }
-                return Task.FromResult<IPlugin>(new FakePlugin(package.Manifest.Id));
+                return package.Manifest.Id == "a.bad"
+                    ? throw new InvalidOperationException("Fixture load failure")
+                    : Task.FromResult<IPlugin>(new FakePlugin(package.Manifest.Id));
             });
         CommonPluginInstanceConfig[] configuration =
             [new() { PluginId = "a.bad", Enabled = true }, new() { PluginId = "b.good", Enabled = true }];
-        await manager.ReconcileAsync(configuration, default);
-        await manager.ReconcileAsync(configuration, default);
+        await manager.ReconcileAsync(configuration, CancellationToken.None);
+        await manager.ReconcileAsync(configuration, CancellationToken.None);
         Assert.Equal(2, loads);
         Assert.NotNull(manager.Snapshot().Single(instance => instance.Identity.PluginId == "a.bad").Error);
         Assert.Equal(PluginHealth.Ready, manager.Snapshot().Single(instance => instance.Identity.PluginId == "b.good").Registration!.Health.Health);
@@ -69,12 +71,12 @@ public sealed class CommonPluginManagerTests
         CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
             (_, _) => { loads++; return Task.FromResult<IPlugin>(plugin); });
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
-        await manager.ReconcileAsync([configuration], default);
+        await manager.ReconcileAsync([configuration], CancellationToken.None);
         configuration.Enabled = false;
-        await manager.ReconcileAsync([configuration], default);
+        await manager.ReconcileAsync([configuration], CancellationToken.None);
         Assert.NotNull(Assert.Single(manager.Snapshot()).Error);
         configuration.Enabled = true;
-        await manager.ReconcileAsync([configuration], default);
+        await manager.ReconcileAsync([configuration], CancellationToken.None);
         Assert.Equal(1, loads);
         Assert.Equal(1, plugin.Stops);
         Assert.Equal(1, plugin.Disposals);
@@ -94,7 +96,7 @@ public sealed class CommonPluginManagerTests
         using CancellationTokenSource cancellation = new();
         var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], cancellation.Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
         await start;
         await Assert.ThrowsAsync<AggregateException>(() => manager.StopAsync(DateTimeOffset.UtcNow.AddMilliseconds(100)));
         Assert.Equal(0, plugin.Disposals);
@@ -136,14 +138,16 @@ public sealed class CommonPluginManagerTests
         {
             FakePlugin plugin = new("test.plugin");
             created.Add(plugin);
-            if (created.Count == 1) { entered.SetResult(); await release.Task; }
+            if (created.Count != 1) { return plugin; }
+            entered.SetResult();
+            await release.Task;
             return plugin;
         });
         var configuration = new CommonPluginInstanceConfig { PluginId = "test.plugin", Enabled = true };
-        var initial = manager.ReconcileAsync([configuration], default);
+        var initial = manager.ReconcileAsync([configuration], CancellationToken.None);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var disable = manager.ReconcileAsync([], default);
-        var latest = reenable ? manager.ReconcileAsync([configuration], default) : Task.CompletedTask;
+        var disable = manager.ReconcileAsync([], CancellationToken.None);
+        var latest = reenable ? manager.ReconcileAsync([configuration], CancellationToken.None) : Task.CompletedTask;
         release.SetResult();
         await Task.WhenAll(initial, disable, latest);
         Assert.Equal(0, created[0].Starts);
@@ -161,11 +165,11 @@ public sealed class CommonPluginManagerTests
         FakePlugin plugin = new("test.plugin");
         CommonPluginManager manager = new(new PluginHost(action => action()), installed, temporary.GetPath("state"), action => action(),
             (_, _) => Task.FromResult<IPlugin>(plugin));
-        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], default);
-        await manager.PowerTransitionAsync(true, default);
-        await manager.PowerTransitionAsync(true, default);
-        await manager.PowerTransitionAsync(false, default);
-        await manager.PowerTransitionAsync(false, default);
+        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }], CancellationToken.None);
+        await manager.PowerTransitionAsync(true, CancellationToken.None);
+        await manager.PowerTransitionAsync(true, CancellationToken.None);
+        await manager.PowerTransitionAsync(false, CancellationToken.None);
+        await manager.PowerTransitionAsync(false, CancellationToken.None);
         Assert.Equal(1, plugin.Suspends);
         Assert.Equal(1, plugin.Resumes);
         Assert.Equal(2, Assert.Single(manager.Snapshot()).Registration!.Context.Generation);

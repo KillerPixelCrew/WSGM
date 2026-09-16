@@ -11,7 +11,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // live Steam here.
 const steam = readFileSync(resolve(root, "src/WSGM/Core/Steam.cs"), "utf8");
 const coldStart = steam.match(
-  /private static AppLauncher\.LaunchResult ColdStart\(([\s\S]*?)\n    \}/u,
+  /private static AppLauncher\.LaunchResult ColdStart\(([\s\S]*?)\n {4}\}/u,
 )[1];
 assert.match(
   coldStart,
@@ -19,7 +19,7 @@ assert.match(
 );
 // The desktop client start must reach that helper with the user's own integrity and CEF choices.
 const sessionModes = readFileSync(resolve(root, "src/WSGM/Shell/SessionModes.cs"), "utf8");
-const desktopStart = sessionModes.match(/public void EnsureSteamDesktop\(\)([\s\S]*?)\n    \}/u)[1];
+const desktopStart = sessionModes.match(/public void EnsureSteamDesktop\(\)([\s\S]*?)\n {4}\}/u)[1];
 assert.match(
   desktopStart,
   /Steam\.LaunchDesktop\(_config\.SteamLaunchUnelevated, _config\.Cef\.Enabled\)/u,

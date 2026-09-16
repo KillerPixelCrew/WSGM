@@ -30,7 +30,6 @@ public sealed class ArtworkView : OverlaySubView
 
     private long _appId;
     private string _appName = "";
-    private string _apiKey = "";
 
     // The whole configuration, because provider credentials are no longer one key: each provider
     // decides its own readiness from it, and the picker must not learn what any of them needs.
@@ -65,7 +64,6 @@ public sealed class ArtworkView : OverlaySubView
         var config = await Task.Run(ConfigStore.Load);
         if (generation != _navigationGeneration) { return; }
         _config = config;
-        _apiKey = SteamGridDb.ResolveKey(config);
         _match = null;
         _sgdbLinks.Clear();
         foreach (var link in config.SgdbLinks.Where(l => l.SgdbGameId > 0))
@@ -170,7 +168,7 @@ public sealed class ArtworkView : OverlaySubView
 
     private void RenderGamePage(int page)
     {
-        var games = _games ?? Array.Empty<SteamCollections.AppInfo>();
+        var games = _games ?? [];
         var pageCount = Math.Max(1, (games.Count + GamePageSize - 1) / GamePageSize);
         page = Math.Clamp(page, 0, pageCount - 1);
         var current = page;
@@ -708,21 +706,26 @@ public sealed class ArtworkView : OverlaySubView
 
     private static void DisposeImages(Control root)
     {
-        if (root is Image image)
+        while (true)
         {
-            (image.Source as IDisposable)?.Dispose();
-            image.Source = null;
-        }
-        if (root is Panel panel)
-        {
-            foreach (var child in panel.Children.OfType<Control>())
+            switch (root)
             {
-                DisposeImages(child);
+                case Image image:
+                    (image.Source as IDisposable)?.Dispose();
+                    image.Source = null;
+                    return;
+                case Panel panel:
+                    foreach (var child in panel.Children.OfType<Control>())
+                    {
+                        DisposeImages(child);
+                    }
+                    return;
+                case ContentControl { Content: Control child }:
+                    root = child;
+                    continue;
+                default:
+                    return;
             }
-        }
-        else if (root is ContentControl { Content: Control child })
-        {
-            DisposeImages(child);
         }
     }
 

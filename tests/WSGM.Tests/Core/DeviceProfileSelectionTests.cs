@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>Choosing, clearing and resolving device profile selections.</summary>
 public sealed class DeviceProfileSelectionTests

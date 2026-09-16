@@ -96,9 +96,6 @@ internal sealed class DeviceCurveRow : Border
         Child = body;
     }
 
-    /// <summary>The editor is the focus target so gamepad focus restore lands on the control.</summary>
-    internal Control FocusTarget => _editor;
-
     /// <summary>Applies one preset to the editor and starts the commit window.</summary>
     /// <remarks>
     /// Sampled onto the curve's own breakpoints rather than replacing them: the temperatures are

@@ -8,7 +8,7 @@ namespace WSGM.Shell;
 /// after completion, the caller must use the ordinary desktop transition instead.</summary>
 internal sealed class BootTakeoverCancellation : IDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _source = new();
     private BootTakeoverState _state;
 

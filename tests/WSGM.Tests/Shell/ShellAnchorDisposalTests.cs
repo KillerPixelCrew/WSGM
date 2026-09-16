@@ -1,6 +1,6 @@
 using System.IO.Pipes;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>
 /// The disposal behaviour the game-mode transition depends on.

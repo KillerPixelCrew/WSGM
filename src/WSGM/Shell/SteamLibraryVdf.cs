@@ -52,13 +52,13 @@ public static class SteamLibraryVdf
 
     /// <summary>Escapes a Windows path for a VDF string value.</summary>
     /// <param name="path">The plain path, e.g. <c>E:\SteamLibrary</c>.</param>
-    internal static string EscapePath(string path) => path.Replace("\\", "\\\\");
+    private static string EscapePath(string path) => path.Replace(@"\", @"\\");
 
     /// <summary>Escapes a VDF string value (backslash then double-quote), for the
     /// user-chosen library label.</summary>
     /// <param name="value">The raw value.</param>
-    internal static string EscapeValue(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    private static string EscapeValue(string value) =>
+        value.Replace(@"\", @"\\").Replace("\"", @"\""");
 
     /// <summary>Builds the card marker — <c>&lt;X&gt;:\SteamLibrary\libraryfolder.vdf</c>.</summary>
     /// <param name="contentId">The generated library id.</param>
@@ -80,7 +80,7 @@ public static class SteamLibraryVdf
     /// <param name="contentId">The library id, matching the card marker.</param>
     /// <param name="totalSize">The volume size in bytes.</param>
     /// <param name="label">The user-chosen library label, or empty for none.</param>
-    internal static string BuildConfigEntry(
+    private static string BuildConfigEntry(
         int index, string libraryPath, string contentId, long totalSize, string label = "") =>
         $"\t\"{index}\"\n"
         + "\t{\n"
@@ -127,17 +127,9 @@ public static class SteamLibraryVdf
     /// path, so a reused path must not suppress the new card's entry.</summary>
     /// <param name="vdf">The config file text.</param>
     /// <param name="contentId">The library content id.</param>
-    public static bool IsContentIdRegistered(string vdf, string contentId)
-    {
-        foreach (var value in ValuesOf(vdf, "contentid"))
-        {
-            if (string.Equals(value, contentId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    public static bool IsContentIdRegistered(string vdf, string contentId) =>
+        ValuesOf(vdf, "contentid")
+            .Any(value => string.Equals(value, contentId, StringComparison.Ordinal));
 
     /// <summary>Finds the registered library path for a stable content id. This
     /// deliberately selects the registration by content id, not by path: a card
@@ -219,12 +211,14 @@ public static class SteamLibraryVdf
             for (var i = 0; i < starts.Count; i++)
             {
                 var end = i + 1 < starts.Count ? starts[i + 1] : rootClose;
-                if (end > starts[i] && IsContentIdRegistered(vdf[starts[i]..end], contentId))
+                if (end <= starts[i] || !IsContentIdRegistered(vdf[starts[i]..end], contentId))
                 {
-                    blockStart = starts[i];
-                    blockEnd = end;
-                    break;
+                    continue;
                 }
+
+                blockStart = starts[i];
+                blockEnd = end;
+                break;
             }
             if (blockStart < 0)
             {
@@ -260,21 +254,22 @@ public static class SteamLibraryVdf
         {
             var raw = vdf[labelStart..labelEnd];
             var line = raw.TrimEnd('\r');
-            var leading = line[..(line.Length - line.TrimStart('\t', ' ').Length)];
+            var leading = line[..^line.TrimStart('\t', ' ').Length];
             var replacement = leading + "\"label\"\t\t\"" + escaped + "\""
                 + (raw.EndsWith('\r') ? "\r" : "");
             updated = vdf.Remove(labelStart, labelEnd - labelStart)
                 .Insert(labelStart, replacement);
             return true;
         }
-        if (idStart >= 0)
+        if (idStart < 0)
         {
-            var idLine = vdf[idStart..idEnd].TrimEnd('\r');
-            var leading = idLine[..(idLine.Length - idLine.TrimStart('\t', ' ').Length)];
-            updated = vdf.Insert(idEnd, "\n" + leading + "\"label\"\t\t\"" + escaped + "\"");
-            return true;
+            return false;
         }
-        return false;
+
+        var idLine = vdf[idStart..idEnd].TrimEnd('\r');
+        var idLeading = idLine[..^idLine.TrimStart('\t', ' ').Length];
+        updated = vdf.Insert(idEnd, "\n" + idLeading + "\"label\"\t\t\"" + escaped + "\"");
+        return true;
     }
 
     /// <summary>Removes exactly one top-level library registration selected by
@@ -359,13 +354,15 @@ public static class SteamLibraryVdf
                 {
                     continue;
                 }
-                if (ValuesOf(current[starts[i]..end], "path")
+                if (!ValuesOf(current[starts[i]..end], "path")
                     .Any(path => string.Equals(NormalizePath(path), target, StringComparison.Ordinal)))
                 {
-                    cut = starts[i];
-                    cutEnd = end;
-                    break;
+                    continue;
                 }
+
+                cut = starts[i];
+                cutEnd = end;
+                break;
             }
             if (cut < 0)
             {
@@ -384,14 +381,11 @@ public static class SteamLibraryVdf
     /// <summary>One top-level registration's key facts, as
     /// <see cref="ReadEntries"/> reports them. Null means the block carries no
     /// such line.</summary>
-    /// <param name="Index">The numbered block's key.</param>
     /// <param name="Path">The unescaped library path.</param>
-    /// <param name="Label">The unescaped label.</param>
     /// <param name="ContentId">The library's stable identity.</param>
-    public readonly record struct ConfigEntry(
-        int Index, string? Path, string? Label, string? ContentId);
+    public readonly record struct ConfigEntry(string? Path, string? ContentId);
 
-    /// <summary>Reads every top-level registration's path, label and content id,
+    /// <summary>Reads every top-level registration's path and content id,
     /// each taken from ITS OWN block — index-zipping separate
     /// <see cref="ValuesOf"/> lists silently mispairs them when a block lacks a
     /// key.</summary>
@@ -400,8 +394,7 @@ public static class SteamLibraryVdf
     {
         var entries = new List<ConfigEntry>();
         var inEntry = false;
-        var index = 0;
-        string? path = null, label = null, contentId = null;
+        string? path = null, contentId = null;
         foreach (var rawLine in vdf.Split('\n'))
         {
             var line = rawLine.TrimEnd('\r');
@@ -409,12 +402,10 @@ public static class SteamLibraryVdf
             {
                 if (inEntry)
                 {
-                    entries.Add(new ConfigEntry(index, path, label, contentId));
+                    entries.Add(new ConfigEntry(path, contentId));
                 }
                 inEntry = true;
-                var end = line.IndexOf('"', 2);
-                index = int.Parse(line[2..end], NumberStyles.None, CultureInfo.InvariantCulture);
-                path = label = contentId = null;
+                path = contentId = null;
                 continue;
             }
             if (!inEntry)
@@ -425,10 +416,6 @@ public static class SteamLibraryVdf
             {
                 path = candidatePath;
             }
-            else if (TryReadValue(line, "label", out var candidateLabel))
-            {
-                label = candidateLabel;
-            }
             else if (TryReadValue(line, "contentid", out var candidateId))
             {
                 contentId = candidateId;
@@ -436,7 +423,7 @@ public static class SteamLibraryVdf
         }
         if (inEntry)
         {
-            entries.Add(new ConfigEntry(index, path, label, contentId));
+            entries.Add(new ConfigEntry(path, contentId));
         }
         return entries;
     }
@@ -577,11 +564,8 @@ public static class SteamLibraryVdf
         value = "";
         var trimmed = line.TrimStart('\t', ' ');
         var marker = $"\"{key}\"";
-        if (!trimmed.StartsWith(marker, StringComparison.Ordinal))
-        {
-            return false;
-        }
-        return TryReadQuoted(trimmed[marker.Length..].TrimStart('\t', ' '), out value);
+        return trimmed.StartsWith(marker, StringComparison.Ordinal)
+            && TryReadQuoted(trimmed[marker.Length..].TrimStart('\t', ' '), out value);
     }
 
     /// <summary>Reads one quoted VDF value and returns it UNESCAPED. A backslash
@@ -601,16 +585,16 @@ public static class SteamLibraryVdf
         for (var i = 1; i < rest.Length; i++)
         {
             var current = rest[i];
-            if (current == '\\' && i + 1 < rest.Length)
+            switch (current)
             {
-                builder.Append(rest[++i]);
-                continue;
+                case '\\' when i + 1 < rest.Length:
+                    builder.Append(rest[++i]);
+                    continue;
+                case '"':
+                    value = builder.ToString();
+                    return true;
             }
-            if (current == '"')
-            {
-                value = builder.ToString();
-                return true;
-            }
+
             builder.Append(current);
         }
         return false;

@@ -9,7 +9,7 @@ namespace WSGM.Shell;
 /// <summary>Serializes panel reads and writes and publishes only confirmed brightness.</summary>
 internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly SemaphoreSlim _writes = new(1, 1);
     private readonly Timer _poll;
     private readonly Func<bool> _active;
@@ -53,7 +53,7 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
     private SteamBrightnessState? ReadUnderGate()
     {
-        var next = _read() is int percent and >= 0 and <= 100
+        var next = _read() is { } percent and >= 0 and <= 100
             ? new SteamBrightnessState(percent, ++_revision) : null;
         var changed = next?.Percent != _current?.Percent;
         _current = next;

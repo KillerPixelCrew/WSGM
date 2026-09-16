@@ -9,7 +9,7 @@ namespace WSGM.Interop;
 
 internal static partial class NativeHidHide
 {
-    private const string ControlDevice = "\\\\.\\HidHide";
+    private const string ControlDevice = @"\\.\HidHide";
     private const uint ShareReadWriteDelete = 0x00000007;
     private const int InitialBufferBytes = 4096;
     private const int MaximumBufferBytes = 1024 * 1024;
@@ -51,7 +51,6 @@ internal static partial class NativeHidHide
         out int error)
     {
         byte raw = 0;
-        uint returned;
         var success = DeviceIoControl(
             handle,
             controlCode,
@@ -59,7 +58,7 @@ internal static partial class NativeHidHide
             0,
             &raw,
             1,
-            out returned,
+            out var returned,
             0);
         if (!success || returned != 1)
         {
@@ -99,22 +98,24 @@ internal static partial class NativeHidHide
 
             if (success)
             {
-                if (returned > (uint)buffer.Length || (returned & 1) != 0)
+                if (returned <= (uint)buffer.Length && (returned & 1) == 0)
                 {
-                    values = [];
-                    error = 13;
-                    return false;
+                    return TryDecodeMultiString(buffer.AsSpan(0, (int)returned), out values, out error);
                 }
 
-                return TryDecodeMultiString(buffer.AsSpan(0, (int)returned), out values, out error);
+                values = [];
+                error = 13;
+                return false;
             }
 
             error = Marshal.GetLastPInvokeError();
-            if (error is not ErrorInsufficientBuffer and not ErrorMoreData)
+            if (error is ErrorInsufficientBuffer or ErrorMoreData)
             {
-                values = [];
-                return false;
+                continue;
             }
+
+            values = [];
+            return false;
         }
 
         values = [];
@@ -130,7 +131,6 @@ internal static partial class NativeHidHide
     {
         ArgumentNullException.ThrowIfNull(values);
         var buffer = EncodeMultiString(values);
-        uint returned;
         bool success;
         fixed (byte* input = buffer)
         {
@@ -141,7 +141,7 @@ internal static partial class NativeHidHide
                 (uint)buffer.Length,
                 null,
                 0,
-                out returned,
+                out _,
                 0);
         }
 

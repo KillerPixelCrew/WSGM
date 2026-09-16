@@ -29,10 +29,10 @@ public sealed class KeepAwakeService : IDisposable
     private readonly SteamMonitor? _monitor;
     private readonly Func<bool> _automaticCefReady;
     private readonly CancellationTokenSource _cts = new();
-    private readonly object _manualGate = new();
+    private readonly Lock _manualGate = new();
     // Guards every download-hold transition together with _autoEnabled and the
     // streak, so a config change and an in-flight poll cannot interleave.
-    private readonly object _downloadGate = new();
+    private readonly Lock _downloadGate = new();
     private ManualWakeMode _manualMode = ManualWakeMode.Off;
     private bool _autoEnabled;
     private bool _monitorDownloads;
@@ -132,7 +132,7 @@ public sealed class KeepAwakeService : IDisposable
 
     /// <summary>Applies a manual wake mode (the quick-access cycle button).</summary>
     /// <param name="mode">The desired mode.</param>
-    public void SetManualMode(ManualWakeMode mode)
+    private void SetManualMode(ManualWakeMode mode)
     {
         lock (_manualGate)
         {
@@ -246,13 +246,14 @@ public sealed class KeepAwakeService : IDisposable
         {
             if (!_automaticCefReady())
             {
-                if (!_waitingForSteamUi)
-                {
-                    _waitingForSteamUi = true;
-                    Log.Info("Steam downloads: waiting for the Big Picture window before CEF polling.");
-                }
                 // This is not an inactive sample. Preserve the prior download state
                 // and wake lock across a Steam restart while its UI is rebuilding.
+                if (_waitingForSteamUi)
+                {
+                    return;
+                }
+                _waitingForSteamUi = true;
+                Log.Info("Steam downloads: waiting for the Big Picture window before CEF polling.");
                 return;
             }
             if (_waitingForSteamUi)
@@ -284,8 +285,7 @@ public sealed class KeepAwakeService : IDisposable
         lock (_downloadGate)
         {
             var activity = _monitorDownloads
-                ? SteamDownloads.ResolveActivity(_downloadActive, steamAlive, overview)
-                : false;
+                && SteamDownloads.ResolveActivity(_downloadActive, steamAlive, overview);
             if (activity != _downloadActive)
             {
                 _downloadActive = activity;
@@ -295,17 +295,18 @@ public sealed class KeepAwakeService : IDisposable
             var sampleActive = overview?.Active == true && _autoEnabled;
             var (hold, streak) = NextDownloadHold(hadHold, _inactiveStreak, sampleActive);
             _inactiveStreak = streak;
-            if (hold && !hadHold)
+            switch (hold)
             {
-                if (_downloadLock.Acquire())
-                {
-                    change = $"acquired ({detail})";
-                }
-            }
-            else if (!hold && hadHold)
-            {
-                _downloadLock.Release();
-                change = $"released ({detail})";
+                case true when !hadHold:
+                    if (_downloadLock.Acquire())
+                    {
+                        change = $"acquired ({detail})";
+                    }
+                    break;
+                case false when hadHold:
+                    _downloadLock.Release();
+                    change = $"released ({detail})";
+                    break;
             }
         }
         if (change is not null)

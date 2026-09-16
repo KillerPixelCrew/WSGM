@@ -17,16 +17,7 @@ internal sealed class TemporaryDirectory : IDisposable
 
     public string Root { get; }
 
-    public string GetPath(params string[] segments)
-    {
-        var path = Root;
-        foreach (var segment in segments)
-        {
-            path = Path.Combine(path, segment);
-        }
-
-        return path;
-    }
+    public string GetPath(params string[] segments) => segments.Aggregate(Root, Path.Combine);
 
     public void Dispose()
     {

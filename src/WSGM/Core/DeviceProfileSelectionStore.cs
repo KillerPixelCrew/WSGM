@@ -195,21 +195,23 @@ public static class DeviceProfileSelectionStore
         out bool applicationScoped)
     {
         applicationScoped = false;
-        if (applicationId is { Length: > 0 })
+        if (applicationId is not { Length: > 0 })
         {
-            var overridden = selection.ApplicationOverrides
-                .FirstOrDefault(entry => string.Equals(
-                    entry.ApplicationId,
-                    applicationId,
-                    StringComparison.Ordinal));
-            if (overridden is not null)
-            {
-                applicationScoped = true;
-                return overridden.ProfileId;
-            }
+            return selection.GlobalProfileId;
         }
 
-        return selection.GlobalProfileId;
+        var overridden = selection.ApplicationOverrides
+            .FirstOrDefault(entry => string.Equals(
+                entry.ApplicationId,
+                applicationId,
+                StringComparison.Ordinal));
+        if (overridden is null)
+        {
+            return selection.GlobalProfileId;
+        }
+
+        applicationScoped = true;
+        return overridden.ProfileId;
     }
 
     private static DeviceProfileSelection? Find(

@@ -1,4 +1,4 @@
-namespace WSGM.Tests;
+namespace WSGM.Tests.App;
 
 public sealed class ModeSelectionTests
 {

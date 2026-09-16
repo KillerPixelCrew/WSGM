@@ -18,7 +18,7 @@ internal sealed record DeviceLabOwnerInspection
 /// <summary>Handle-held reservation of the exact machine-wide production owner object.</summary>
 internal sealed class DeviceLabOwnerReservation : IDisposable
 {
-    private static readonly object RetainedReservationGate = new();
+    private static readonly Lock RetainedReservationGate = new();
     private static readonly List<IDisposable> RetainedReservations = [];
     private IDisposable? _handle;
 
@@ -65,7 +65,7 @@ internal sealed record DeviceLabOwnerReservationResult
 /// <summary>Finds the production owner without starting, stopping, or contacting it.</summary>
 internal static class DeviceLabOwnerInspector
 {
-    internal const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
+    private const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
 
     /// <summary>Returns the exact machine-wide production owner object name.</summary>
     public static string OwnerObjectName() => ProductionOwnerName;
@@ -116,15 +116,15 @@ internal static class DeviceLabOwnerInspector
         try
         {
             Mutex handle = new(initiallyOwned: false, ownerObjectName, out var createdNew);
-            if (!createdNew)
+            if (createdNew)
             {
-                handle.Dispose();
-                return ReservationResult(DeviceOwnerDiscoveryState.Present);
+                return ReservationResult(
+                    DeviceOwnerDiscoveryState.Absent,
+                    new DeviceLabOwnerReservation(handle));
             }
 
-            return ReservationResult(
-                DeviceOwnerDiscoveryState.Absent,
-                new DeviceLabOwnerReservation(handle));
+            handle.Dispose();
+            return ReservationResult(DeviceOwnerDiscoveryState.Present);
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException
             or WaitHandleCannotBeOpenedException

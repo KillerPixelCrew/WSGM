@@ -54,21 +54,22 @@ internal sealed unsafe class SettingsActivation : IDisposable
     [UnmanagedCallersOnly]
     private static nint WindowProc(nint window, uint message, nint wParam, nint lParam)
     {
-        if (message == OpenSettingsMessage && wParam == 0 && lParam == 0
-            && _instance is { } owner && owner._window == window)
+        if (message != OpenSettingsMessage || wParam != 0 || lParam != 0
+            || _instance is not { } owner || owner._window != window)
         {
-            // Acknowledge promptly. Constructing Settings may involve a cold XAML load.
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (owner._window != 0)
-                {
-                    try { owner._open(); }
-                    catch (Exception ex) { Log.Error("Resident Settings could not open", ex); }
-                }
-            });
-            return 1;
+            return NativeMethods.DefWindowProcW(window, message, wParam, lParam);
         }
-        return NativeMethods.DefWindowProcW(window, message, wParam, lParam);
+        // Acknowledge promptly. Constructing Settings may involve a cold XAML load.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (owner._window == 0)
+            {
+                return;
+            }
+            try { owner._open(); }
+            catch (Exception ex) { Log.Error("Resident Settings could not open", ex); }
+        });
+        return 1;
     }
 
     public void Dispose()

@@ -154,14 +154,16 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (result.Rollback is RollbackResult.RestoreFailed)
+        switch (result.Rollback)
         {
-            return ReplaceAsync(operation, ClawRecoveryStatus.RestoreFailed, cancellationToken);
-        }
-
-        if (result.Rollback is RollbackResult.RestoredUnverified)
-        {
-            return ReplaceAsync(operation, ClawRecoveryStatus.RestoredUnverified, cancellationToken);
+            case RollbackResult.RestoreFailed:
+                return ReplaceAsync(operation, ClawRecoveryStatus.RestoreFailed, cancellationToken);
+            case RollbackResult.RestoredUnverified:
+                return ReplaceAsync(operation, ClawRecoveryStatus.RestoredUnverified, cancellationToken);
+            case RollbackResult.NotRequired:
+            case RollbackResult.RestoredVerified:
+            default:
+                break;
         }
 
         if (operation.Opened
@@ -355,7 +357,7 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
         var document = new ClawRecoveryDocument
         {
             Version = CurrentVersion,
-            Entries = entries.OrderBy(entry => entry.ServiceId, StringComparer.Ordinal).ToArray()
+            Entries = [.. entries.OrderBy(entry => entry.ServiceId, StringComparer.Ordinal)]
         };
         ValidateDocument(document);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(

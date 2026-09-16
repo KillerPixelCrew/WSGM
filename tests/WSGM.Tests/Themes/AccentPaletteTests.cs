@@ -1,7 +1,7 @@
 using Avalonia.Media;
 using WSGM.Themes;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Themes;
 
 /// <summary>The executable specification of the pure accent-pipeline pieces:
 /// <see cref="AccentPalette.Parse"/> fallback behavior, the full-opacity accent

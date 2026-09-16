@@ -61,8 +61,8 @@ internal static class DualShock4Report
                                    // The digital bit rises with the first analogue movement, as on a real DualShock 4.
                                    // A mid-travel threshold splits the press into two Steam Input activations; the same
                                    // split double-clicked and broke drags on the Deck target (device-observed 2026-09-02).
-                                   | (sample.LeftTrigger > 0 ? L2 : (ushort)0)
-                                   | (sample.RightTrigger > 0 ? R2 : (ushort)0)
+                                   | (sample.LeftTrigger > 0 ? L2 : 0)
+                                   | (sample.RightTrigger > 0 ? R2 : 0)
                                    | Mask(buttons, CanonicalButtons.View, Share)
                                    | Mask(buttons, CanonicalButtons.Menu, Options)
                                    | Mask(buttons, CanonicalButtons.LeftStick, L3)
@@ -70,7 +70,7 @@ internal static class DualShock4Report
                                    | Mask(buttons, CanonicalButtons.Guide, Ps)
                                    | ((buttons & (CanonicalButtons.LeftPadClick | CanonicalButtons.RightPadClick)) != 0
                                        ? TouchpadClick
-                                       : (ushort)0));
+                                       : 0));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[4..6], wireButtons);
 
         destination[6] = (byte)(Mask(buttons, CanonicalButtons.DPadUp, DPadUp)
@@ -102,15 +102,17 @@ internal static class DualShock4Report
                 ScaledMotion(motion.GyroZ, GyroCountsPerDegreePerSecond));
         }
 
-        if (motion?.HasAccelerometer == true)
+        if (motion?.HasAccelerometer != true)
         {
-            BinaryPrimitives.WriteInt16LittleEndian(destination[25..27],
-                ScaledMotion(motion.AccelX, AccelCountsPerG));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[27..29],
-                ScaledMotion(motion.AccelY, AccelCountsPerG));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[29..31],
-                ScaledMotion(motion.AccelZ, AccelCountsPerG));
+            return;
         }
+
+        BinaryPrimitives.WriteInt16LittleEndian(destination[25..27],
+            ScaledMotion(motion.AccelX, AccelCountsPerG));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[27..29],
+            ScaledMotion(motion.AccelY, AccelCountsPerG));
+        BinaryPrimitives.WriteInt16LittleEndian(destination[29..31],
+            ScaledMotion(motion.AccelZ, AccelCountsPerG));
     }
 
     private static ushort Mask(CanonicalButtons buttons, CanonicalButtons flag, ushort bit) =>

@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Globalization;
+using System.Linq;
 using WindowsDeviceControl;
 
 namespace WSGM.Core;
@@ -116,14 +117,7 @@ public static class PowerTimeouts
         {
             return PresetsSeconds[0];
         }
-        foreach (var preset in PresetsSeconds)
-        {
-            if (preset > currentSeconds)
-            {
-                return preset;
-            }
-        }
-        return 0;
+        return PresetsSeconds.FirstOrDefault(preset => preset > currentSeconds);
     }
 
     /// <summary>Human label for a timeout value ("5 min", "1 h", "Never").</summary>
@@ -159,7 +153,7 @@ public static class PowerTimeouts
         }
         catch (Win32Exception ex)
         {
-            scheme = default;
+            scheme = Guid.Empty;
             Log.Warn(ex.Message);
             return false;
         }

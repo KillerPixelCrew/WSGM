@@ -1,6 +1,6 @@
 using WSGM.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Settings;
 
 public sealed class StartupAppRowTests
 {
@@ -11,7 +11,7 @@ public sealed class StartupAppRowTests
         var changed = new List<string>();
         row.PropertyChanged += (_, args) => changed.Add(args.PropertyName!);
 
-        row.Path = "C:\\Tools\\app.exe";
+        row.Path = @"C:\Tools\app.exe";
         row.Args = "--silent";
         row.Enabled = false;
         row.Elevated = true;

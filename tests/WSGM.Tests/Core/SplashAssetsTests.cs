@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class SplashAssetsTests : IDisposable
 {
@@ -36,16 +36,15 @@ public sealed class SplashAssetsTests : IDisposable
     }
 
     private string[] FileNames() =>
-        Directory
+    [
+        .. Directory
             .GetFiles(TargetDir)
             .Select(f => Path.GetFileName(f))
             .OrderBy(f => f, StringComparer.Ordinal)
-            .ToArray();
+    ];
 
     private string[] SidecarNames() =>
-        FileNames()
-            .Where(f => f.EndsWith(".wsgmnew", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        [.. FileNames().Where(f => f.EndsWith(".wsgmnew", StringComparison.OrdinalIgnoreCase))];
 
     private string WriteSource(string name, string content = "image-bytes")
     {
@@ -163,7 +162,7 @@ public sealed class SplashAssetsTests : IDisposable
         Assert.Equal(Path.Combine(TargetDir, "logo.jpg"), second.LogoImagePath);
         Assert.Equal("second-logo", File.ReadAllText(second.LogoImagePath));
         Assert.False(File.Exists(logoCopy));
-        Assert.Equal(new[] { "background.png", "logo.jpg" }, FileNames());
+        Assert.Equal(["background.png", "logo.jpg"], FileNames());
     }
 
     [Fact]
@@ -253,7 +252,7 @@ public sealed class SplashAssetsTests : IDisposable
 
         using (SplashAssets.Prepare(splash, TargetDir)) { }
 
-        Assert.Equal(new[] { "logo.png" }, FileNames());
+        Assert.Equal(["logo.png"], FileNames());
         Assert.Equal("live-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.png")));
     }
 
@@ -274,7 +273,7 @@ public sealed class SplashAssetsTests : IDisposable
         Assert.Equal("new-logo", File.ReadAllText(splash.LogoImagePath));
         Assert.Equal("new-bg", File.ReadAllText(splash.BackgroundImagePath));
         Assert.False(File.Exists(Path.Combine(TargetDir, "logo.png"))); // Stale extension gone.
-        Assert.Equal(new[] { "background.png", "logo.jpg" }, FileNames());
+        Assert.Equal(["background.png", "logo.jpg"], FileNames());
     }
 
     [Fact]
@@ -310,7 +309,7 @@ public sealed class SplashAssetsTests : IDisposable
         using var staged = SplashAssets.Prepare(splash, TargetDir);
         staged.Commit();
 
-        Assert.Equal(new[] { "logo.png" }, FileNames());
+        Assert.Equal(["logo.png"], FileNames());
         Assert.Equal("new-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.png")));
     }
 
@@ -329,7 +328,7 @@ public sealed class SplashAssetsTests : IDisposable
             FileNames(),
             name => name.EndsWith(".wsgmnew", StringComparison.OrdinalIgnoreCase)
         );
-        Assert.Equal(new[] { "logo.jpg" }, FileNames());
+        Assert.Equal(["logo.jpg"], FileNames());
         Assert.Equal("live-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.jpg")));
     }
 
@@ -369,7 +368,7 @@ public sealed class SplashAssetsTests : IDisposable
         using var staged = SplashAssets.Prepare(splash, TargetDir);
         var failed = staged.Commit();
 
-        Assert.Equal(new[] { SplashAssets.LogoSlot }, failed);
+        Assert.Equal([SplashAssets.LogoSlot], failed);
         // The picked path survives in the splash section the caller keeps, so the view
         // model can retry it; the healthy slot is materialized as usual.
         Assert.Equal(missing, splash.LogoImagePath);
@@ -393,7 +392,7 @@ public sealed class SplashAssetsTests : IDisposable
         using var staged = SplashAssets.Prepare(splash, blocked);
 
         Assert.Equal(
-            new[] { SplashAssets.LogoSlot, SplashAssets.BackgroundSlot },
+            [SplashAssets.LogoSlot, SplashAssets.BackgroundSlot],
             staged.Commit()
         );
     }
@@ -442,7 +441,7 @@ public sealed class SplashAssetsTests : IDisposable
         using var staged = SplashAssets.Prepare(splash, TargetDir);
         var failed = staged.Commit();
 
-        Assert.Equal(new[] { SplashAssets.LogoSlot }, failed);
+        Assert.Equal([SplashAssets.LogoSlot], failed);
         // The background slot is unaffected by the logo slot's failure.
         Assert.Equal("new-bg", File.ReadAllText(splash.BackgroundImagePath));
         // No sidecar survives a failed promotion.
@@ -466,7 +465,7 @@ public sealed class SplashAssetsTests : IDisposable
         using var staged = SplashAssets.Prepare(splash, TargetDir);
 
         Assert.Equal(
-            new[] { SplashAssets.LogoSlot, SplashAssets.BackgroundSlot },
+            [SplashAssets.LogoSlot, SplashAssets.BackgroundSlot],
             staged.Commit()
         );
     }
@@ -498,7 +497,7 @@ public sealed class SplashAssetsTests : IDisposable
         Assert.Equal("first-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.png")));
         Assert.Empty(secondStaged.Commit());
         Assert.Equal("second-logo", File.ReadAllText(Path.Combine(TargetDir, "logo.png")));
-        Assert.Equal(new[] { "logo.png" }, FileNames());
+        Assert.Equal(["logo.png"], FileNames());
     }
 
     [Fact]
@@ -575,7 +574,7 @@ public sealed class SplashAssetsTests : IDisposable
         File.Delete(Path.Combine(TargetDir, Assert.Single(SidecarNames())));
         File.Delete(source);
 
-        Assert.Equal(new[] { SplashAssets.LogoSlot }, staged.Commit());
+        Assert.Equal([SplashAssets.LogoSlot], staged.Commit());
         Assert.False(File.Exists(Path.Combine(TargetDir, "logo.png")));
     }
 

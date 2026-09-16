@@ -51,7 +51,7 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _lifetime.Cancel();
+        await _lifetime.CancelAsync().ConfigureAwait(false);
         try
         {
             await _worker.ConfigureAwait(false);

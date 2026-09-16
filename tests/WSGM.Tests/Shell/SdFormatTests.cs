@@ -1,9 +1,8 @@
-using System.Text;
 using WSGM.Device.Tests;
 using WSGM.Interop;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class SdFormatTests
 {
@@ -369,7 +368,7 @@ public sealed class SdFormatTests
     [Fact]
     public void SetLabelTargetsOnlyTheMatchingConfigBlock()
     {
-        var config =
+        const string config =
             "\"libraryfolders\"\n"
             + "{\n"
             + "\t\"0\"\n"
@@ -615,8 +614,8 @@ public sealed class SdFormatTests
         BitConverter.GetBytes(36).CopyTo(buffer, 12);
         BitConverter.GetBytes(44).CopyTo(buffer, 16);
         BitConverter.GetBytes(NativeStorage.BusTypeSd).CopyTo(buffer, 28);
-        Encoding.ASCII.GetBytes("SanDisk\0").CopyTo(buffer, 36);
-        Encoding.ASCII.GetBytes("Extreme\0").CopyTo(buffer, 44);
+        "SanDisk\0"u8.CopyTo(buffer.AsSpan(36));
+        "Extreme\0"u8.CopyTo(buffer.AsSpan(44));
 
         var (busType, product) = NativeStorage.ReadDeviceDescriptor(buffer);
 

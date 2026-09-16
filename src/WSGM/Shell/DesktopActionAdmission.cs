@@ -1,9 +1,11 @@
+using System.Threading;
+
 namespace WSGM.Shell;
 
 /// <summary>Coalesces desktop lifecycle notifications without retrying uncertain plugin actions.</summary>
 internal sealed class DesktopActionAdmission
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private bool _busy;
     private long? _lastStarted;
 

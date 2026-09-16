@@ -1,7 +1,7 @@
 using WSGM.Core;
-using static WSGM.Tests.PerformanceBuilders;
+using static WSGM.Tests.Builders.PerformanceBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class PerformanceServiceTests
 {
@@ -106,14 +106,12 @@ public sealed class PerformanceServiceTests
     [Fact]
     public async Task MissingRtssIsAnIsolatedRejectedFeature()
     {
-        await using var adapter = new FakeRtssAdapter
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with
         {
-            Probe = FakeRtssAdapter.ReadyProbe with
-            {
-                Availability = RtssAvailability.NotInstalled,
-                Capabilities = null,
-                Diagnostic = "RTSS is absent."
-            }
+            Availability = RtssAvailability.NotInstalled,
+            Capabilities = null,
+            Diagnostic = "RTSS is absent."
         };
         await using var service = CreateService(adapter);
 
@@ -131,14 +129,12 @@ public sealed class PerformanceServiceTests
     [Fact]
     public async Task UnprovenReadbackIsReportedAsAppliedUnverified()
     {
-        await using var adapter = new FakeRtssAdapter
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Probe = FakeRtssAdapter.ReadyProbe with
         {
-            Probe = FakeRtssAdapter.ReadyProbe with
+            Capabilities = FakeRtssAdapter.ReadyProbe.Capabilities! with
             {
-                Capabilities = FakeRtssAdapter.ReadyProbe.Capabilities! with
-                {
-                    OverlayLevelReadback = false
-                }
+                OverlayLevelReadback = false
             }
         };
         await using var service = CreateService(adapter);
@@ -179,13 +175,11 @@ public sealed class PerformanceServiceTests
     [Fact]
     public async Task AdapterTimeoutIsReportedWithoutEscaping()
     {
-        await using var adapter = new FakeRtssAdapter
+        await using var adapter = new FakeRtssAdapter();
+        adapter.OnApply = static async (_, cancellationToken) =>
         {
-            OnApply = static async (_, cancellationToken) =>
-            {
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                return new RtssApplyResult(true, null);
-            }
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new RtssApplyResult(true, null);
         };
         await using var service = new PerformanceService(
             adapter,
@@ -315,12 +309,10 @@ public sealed class PerformanceServiceTests
         await service.SetTargetAsync(new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
 
         Assert.Equal(new PerformanceValues(60, 3), service.Current.Desired);
-        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
-            && request.Control == PerformanceControl.FrameLimit
-            && request.Value == 60);
-        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
-            && request.Control == PerformanceControl.OverlayLevel
-            && request.Value == 3);
+        Assert.Contains(adapter.Applies, request =>
+            request is { RtssProfileName: "game.exe", Control: PerformanceControl.FrameLimit, Value: 60 });
+        Assert.Contains(adapter.Applies, request =>
+            request is { RtssProfileName: "game.exe", Control: PerformanceControl.OverlayLevel, Value: 3 });
     }
 
     [Fact]
@@ -448,9 +440,8 @@ public sealed class PerformanceServiceTests
             "existing-profile");
 
         Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
-        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
-            && request.Control == PerformanceControl.FrameLimit
-            && request.Value == 60);
+        Assert.Contains(adapter.Applies, request =>
+            request is { RtssProfileName: "game.exe", Control: PerformanceControl.FrameLimit, Value: 60 });
     }
 
     [Fact]
@@ -492,12 +483,10 @@ public sealed class PerformanceServiceTests
         await service.SetTargetAsync(
             new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
-        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
-            && request.Control == PerformanceControl.FrameLimit
-            && request.Value == 45);
-        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
-            && request.Control == PerformanceControl.OverlayLevel
-            && request.Value == 1);
+        Assert.Contains(adapter.Applies, request =>
+            request is { RtssProfileName: "game.exe", Control: PerformanceControl.FrameLimit, Value: 45 });
+        Assert.Contains(adapter.Applies, request =>
+            request is { RtssProfileName: "game.exe", Control: PerformanceControl.OverlayLevel, Value: 1 });
     }
 
     private sealed class FakeRtssAdapter : IRtssAdapter

@@ -129,12 +129,13 @@ internal static class PassiveCorrelationAnalyzer
             for (var offset = 0; offset < width; offset++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var byteOffset = offset;
                 byte[] baselineValues = [.. WithCancellation(baseline, cancellationToken)
-                    .Select(captureEvent => captureEvent.Payload.Bytes![offset])];
+                    .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])];
                 byte[] actionValues = [.. WithCancellation(action, cancellationToken)
-                    .Select(captureEvent => captureEvent.Payload.Bytes![offset])];
+                    .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])];
                 byte[] releaseValues = [.. WithCancellation(released, cancellationToken)
-                    .Select(captureEvent => captureEvent.Payload.Bytes![offset])];
+                    .Select(captureEvent => captureEvent.Payload.Bytes![byteOffset])];
                 if (!TrySingle(baselineValues, out var baselineValue)
                     || !TrySingle(actionValues, out var actionValue)
                     || !TrySingle(releaseValues, out var releaseValue)
@@ -178,11 +179,11 @@ internal static class PassiveCorrelationAnalyzer
             .Min(captureEvent => captureEvent.Payload.Bytes!.Length);
     }
 
-    private static bool TrySingle(IReadOnlyList<byte> values, out byte value)
+    private static bool TrySingle(byte[] values, out byte value)
     {
-        value = values.Count == 0 ? default : values[0];
+        value = values.Length == 0 ? default : values[0];
         var expected = value;
-        return values.Count != 0 && values.All(candidate => candidate == expected);
+        return values.Length != 0 && values.All(candidate => candidate == expected);
     }
 
     private static bool IsDegraded(CaptureStreamEvent captureEvent) =>

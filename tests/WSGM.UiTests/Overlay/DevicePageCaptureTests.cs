@@ -14,8 +14,11 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
+using WSGM.UiTests.Visual;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class DevicePageCaptureTests
 {
@@ -31,8 +34,8 @@ public sealed class DevicePageCaptureTests
     [InlineData("Pinned sections", 1280, 800)]
     public async Task CompleteClawPublication(string page, int width, int height)
     {
-        var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
+        var publication = JsonSerializer.Deserialize<Publication>(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json"), TestContext.Current.CancellationToken))!;
         var views = publication.Descriptors.Descriptors.Select(descriptor => new DeviceCapabilityView(descriptor,
             new CapabilityProjection
             {
@@ -42,18 +45,17 @@ public sealed class DevicePageCaptureTests
         var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
         var ids = sections.Select(section => section.SectionId).ToHashSet();
         using SimulatedDeviceOverlaySource hostControls = new();
-        using FakeDevice device = new()
+        var state = hostControls.Snapshot() with
         {
-            SampleSource = hostControls,
-            State = hostControls.Snapshot() with
-            {
-                Status = "MSI Claw 8 AI+",
-                Detail = "Device integration active",
-                Capabilities = views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)).ToArray(),
-                PluginSections = DeviceOverlayBridge.ProjectSections(sections),
-                Recovery = null
-            }
+            Status = "MSI Claw 8 AI+",
+            Detail = "Device integration active",
+            Capabilities = [.. views.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids))],
+            PluginSections = DeviceOverlayBridge.ProjectSections(sections),
+            Recovery = null
         };
+        using FakeDevice device = new();
+        device.SampleSource = hostControls;
+        device.State = state;
         await using PerformanceService performance = new(new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask,
             new PerformancePolicy(new PerformanceValues(60, 2), []));
         using PerformanceOverlayBridge performanceBridge = new(performance);
@@ -83,9 +85,9 @@ public sealed class DevicePageCaptureTests
         if (page == "Pinned sections")
         {
             List<string> pins = [];
-            window.PinToggleRequested += id => { pins.Add(id); window.SetPins(pins.ToArray()); };
+            window.PinToggleRequested += id => { pins.Add(id); window.SetPins([.. pins]); };
             UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-                .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+                .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
             foreach (var id in new[] { "section.device.plugin.power.category.control", "section.device.plugin.power.category.charging" })
             {
                 var header = window.GetVisualDescendants().OfType<SectionPinHeader>()
@@ -116,7 +118,7 @@ public sealed class DevicePageCaptureTests
             var cards = window.GetVisualDescendants().OfType<Border>()
                 .Where(border => border.Classes.Contains("device-group") && border.IsEffectivelyVisible).ToArray();
             Assert.True(cards.Length >= 5);
-            Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2));
+            Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2.0));
         }
         var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" + page.ToLowerInvariant().Replace(' ', '-')
             + (width == 1280 ? string.Empty : "-" + width));
@@ -156,7 +158,7 @@ public sealed class DevicePageCaptureTests
 
     private static void Capture(Window window, string path)
     {
-        window.FocusManager?.Focus(null);
+        window.FocusManager.Focus(null);
         foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
         { visual.Transitions = null; }
         using var frame = window.CaptureRenderedFrame();

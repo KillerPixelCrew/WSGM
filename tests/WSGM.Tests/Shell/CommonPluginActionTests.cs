@@ -1,9 +1,9 @@
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using static WSGM.Tests.PluginBuilders;
+using static WSGM.Tests.Builders.PluginBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class CommonPluginActionTests
 {
@@ -13,12 +13,12 @@ public sealed class CommonPluginActionTests
         PluginHost host = new(action => action());
         Provider plugin = new();
         var registration = Admit(host, plugin);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         try
         {
             var result = await new PluginHostActionInvoker(host).InvokeAsync(
                 new PluginActionStep { Plugin = registration.Identity, ActionId = "send" },
-                Deadline, default);
+                Deadline, CancellationToken.None);
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(PluginActionOrigin.SessionAutomation, plugin.Request!.Origin);
             Assert.Equal(1, plugin.Dispatches);
@@ -32,9 +32,9 @@ public sealed class CommonPluginActionTests
         PluginHost host = new(action => action());
         Provider plugin = new();
         var registration = Admit(host, plugin);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         var result = await host.InvokeActionAsync(registration.Identity, 1, "send", new Dictionary<string, PluginValue>(),
-            PluginActionOrigin.SessionAutomation, Deadline, default);
+            PluginActionOrigin.SessionAutomation, Deadline, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
         Assert.Equal(result.OperationId, plugin.Request!.OperationId);
         Assert.Equal(PluginActionOrigin.SessionAutomation, plugin.Request.Origin);
@@ -49,12 +49,12 @@ public sealed class CommonPluginActionTests
         PluginHost host = new(action => action());
         Provider plugin = new();
         var registration = Admit(host, plugin);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         var result = await registration.InvokeActionAsync(1, "send", new Dictionary<string, PluginValue> { ["value"] = new(Number: 11) },
-            PluginActionOrigin.User, Deadline, default);
+            PluginActionOrigin.User, Deadline, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
         await Assert.ThrowsAsync<InvalidOperationException>(() => registration.InvokeActionAsync(2, "send", new Dictionary<string, PluginValue>(),
-            PluginActionOrigin.User, Deadline, default));
+            PluginActionOrigin.User, Deadline, CancellationToken.None));
         Assert.Equal(0, plugin.Dispatches);
         Assert.False(registration.Quarantined);
         await Close(registration);
@@ -68,9 +68,9 @@ public sealed class CommonPluginActionTests
         PluginHost host = new(action => action());
         Provider plugin = new() { Fail = throws, WrongIdentity = !throws };
         var registration = Admit(host, plugin);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         var result = await registration.InvokeActionAsync(1, "send", new Dictionary<string, PluginValue>(),
-            PluginActionOrigin.User, Deadline, default);
+            PluginActionOrigin.User, Deadline, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
         Assert.Equal(1, plugin.Dispatches);
         await Close(registration);
@@ -87,8 +87,8 @@ public sealed class CommonPluginActionTests
             Work = async token => { entered.SetResult(); await Task.Delay(Timeout.InfiniteTimeSpan, token); }
         };
         var registration = Admit(host, plugin);
-        await registration.StartAsync(Deadline, default);
-        var action = registration.InvokeActionAsync(1, "send", new Dictionary<string, PluginValue>(), PluginActionOrigin.User, Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
+        var action = registration.InvokeActionAsync(1, "send", new Dictionary<string, PluginValue>(), PluginActionOrigin.User, Deadline, CancellationToken.None);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await Close(registration);
         Assert.Equal(PluginActionOutcome.Unconfirmed, (await action).Outcome);

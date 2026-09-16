@@ -3,9 +3,9 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Overlay;
 using WSGM.Shell;
-using static WSGM.Tests.ControllerBuilders;
+using static WSGM.Tests.Builders.ControllerBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>How the Device overlay bridge projects plugin capabilities and WSGM's own Device rows.</summary>
 public sealed class DeviceOverlayBridgeTests
@@ -160,8 +160,7 @@ public sealed class DeviceOverlayBridgeTests
             ["power", "cooling", "rgb"],
             snapshot.PluginSections.Select(section => section.SectionId));
         Assert.Contains(snapshot.Capabilities, capability =>
-            capability.PluginSectionId == DeviceSections.RgbId
-            && capability.Role == CapabilityRole.LightingZoneColor);
+            capability is { PluginSectionId: DeviceSections.RgbId, Role: CapabilityRole.LightingZoneColor });
         Assert.Contains(snapshot.Capabilities, capability =>
             capability.Role == CapabilityRole.LightingBrightness);
         // One row stays unplaced so the WSGM fallback grouping keeps working beside the layout.
@@ -357,13 +356,12 @@ public sealed class DeviceOverlayBridgeTests
             Recovery: DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted));
 
         Assert.Equal(
-            new[]
-            {
+            [
                 DeviceOverlaySection.PowerAndThermals,
                 DeviceOverlaySection.ControllerAndMotion,
                 DeviceOverlaySection.Diagnostics
-            },
-            DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section).ToArray());
+            ],
+            DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section));
     }
 
     [Fact]

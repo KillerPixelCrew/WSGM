@@ -10,9 +10,12 @@ using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using WSGM.Tests;
+using WSGM.Tests.Fakes;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
+using WSGM.UiTests.Visual;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 /// <summary>The common plugin panel, its pinned widgets, choice editors and pin controls.</summary>
 public sealed class CommonPluginPanelTests
@@ -62,8 +65,6 @@ public sealed class CommonPluginPanelTests
             () => { PluginWidgetPins.ResetOrder(pins); return Task.CompletedTask; });
         PinnedPluginWidgets panel = new(new MissingProvider(), (_, _) => { }, preferences);
         Window window = new() { Content = panel, Width = 600, Height = 700 };
-        Button Find(PluginWidgetPin pin, string label) => panel.GetLogicalDescendants().OfType<Button>()
-            .Single(button => Equals(button.Tag, (pin, label)));
         try
         {
             window.Show();
@@ -79,6 +80,9 @@ public sealed class CommonPluginPanelTests
             Assert.True(panel.IsFocused);
         }
         finally { window.Close(); }
+
+        Button Find(PluginWidgetPin pin, string label) => panel.GetLogicalDescendants().OfType<Button>()
+            .Single(button => Equals(button.Tag, (pin, label)));
     }
 
     [AvaloniaFact]
@@ -126,7 +130,7 @@ public sealed class CommonPluginPanelTests
             source.Available = false;
             panel.Refresh();
             Assert.Contains(panel.GetLogicalDescendants().OfType<TextBlock>(),
-                text => text.Text == "Widget unavailable" && text.IsEffectivelyVisible);
+                text => text is { Text: "Widget unavailable", IsEffectivelyVisible: true });
         }
         finally { window.Close(); }
     }

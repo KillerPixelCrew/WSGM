@@ -50,8 +50,8 @@ public static class LockScreenSettings
 
     internal static void CaptureInto(AppConfig config, WakeSecuritySnapshot snapshot)
     {
-        config.PreviousConsoleLockSchemeValues = snapshot.Schemes.Select(scheme => new PowerSchemeConsoleLock
-        { SchemeGuid = scheme.Scheme.ToString("D"), AcValue = scheme.Ac, DcValue = scheme.Dc }).ToList();
+        config.PreviousConsoleLockSchemeValues = [.. snapshot.Schemes.Select(scheme => new PowerSchemeConsoleLock
+        { SchemeGuid = scheme.Scheme.ToString("D"), AcValue = scheme.Ac, DcValue = scheme.Dc })];
         config.PreviousConsoleLockPolicyKeyExisted = snapshot.PolicyExisted;
         config.PreviousConsoleLockPolicyAc = snapshot.PolicyAc;
         config.PreviousConsoleLockPolicyDc = snapshot.PolicyDc;

@@ -23,16 +23,17 @@ internal static class KeyboardInput
         var sent = NativeMethods.SendInput(
             (uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.InputRecord>());
         var error = sent == inputs.Length ? 0 : Marshal.GetLastPInvokeError();
-        if (sent != inputs.Length)
+        if (sent == inputs.Length)
         {
-            // Never leave one of our synthetic keys down after a partial SendInput.
-            NativeMethods.InputRecord[] releases = controlAlreadyDown
-                ? [Key(virtualKey, up: true)]
-                : [Key(virtualKey, up: true), Key(NativeMethods.VkControl, up: true)];
-            NativeMethods.SendInput(
-                (uint)releases.Length, releases, Marshal.SizeOf<NativeMethods.InputRecord>());
+            return new SendResult(sent, (uint)inputs.Length, error);
         }
 
+        // Never leave one of our synthetic keys down after a partial SendInput.
+        NativeMethods.InputRecord[] releases = controlAlreadyDown
+            ? [Key(virtualKey, up: true)]
+            : [Key(virtualKey, up: true), Key(NativeMethods.VkControl, up: true)];
+        NativeMethods.SendInput(
+            (uint)releases.Length, releases, Marshal.SizeOf<NativeMethods.InputRecord>());
         return new SendResult(sent, (uint)inputs.Length, error);
     }
 

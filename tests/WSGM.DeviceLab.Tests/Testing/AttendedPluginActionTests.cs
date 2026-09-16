@@ -5,7 +5,7 @@ using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Testing;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Testing;
 
 public sealed class AttendedPluginActionTests
 {
@@ -587,11 +587,13 @@ public sealed class AttendedPluginActionTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var descriptors = host.DescriptorSets.LastOrDefault();
-            if (descriptors is null)
+            var sets = host.DescriptorSets;
+            if (sets.Count == 0)
             {
                 return;
             }
+
+            var descriptors = sets[^1];
 
             foreach (var descriptor in descriptors.Descriptors.Where(candidate =>
                 candidate.Role is CapabilityRole.ControllerSource or CapabilityRole.HapticSink))

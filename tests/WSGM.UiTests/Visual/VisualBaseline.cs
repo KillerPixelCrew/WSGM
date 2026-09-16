@@ -8,14 +8,14 @@ using Avalonia.VisualTree;
 using SkiaSharp;
 using WSGM.Device.Tests;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Visual;
 
 internal static class VisualBaseline
 {
     internal static void Verify(Window window, string name)
     {
         // Capture resting controls. Focus visuals and caret timing belong to interaction tests.
-        window.FocusManager?.Focus(null);
+        window.FocusManager.Focus(null);
         foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
         {
             visual.Transitions = null;

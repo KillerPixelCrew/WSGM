@@ -28,7 +28,7 @@ internal sealed record DeviceCapabilityView(
 /// </summary>
 internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Action<Action> _postToUi;
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
 
@@ -143,9 +143,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         await commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            CapabilityCommand command;
-            DevicePluginRuntime client;
-            var refusal = PrepareCommand(key, value, timeout, out command, out client, expectedCycle, expectedDescriptors, applyPowerPair);
+            var refusal = PrepareCommand(key, value, timeout, out var command, out var client, expectedCycle, expectedDescriptors, applyPowerPair);
             if (refusal is not null)
             {
                 ReconcileResult(key, refusal);
@@ -320,15 +318,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     "The capability is not present in the current descriptor set.");
             }
 
-            if (applyPowerPair && descriptor.PairedPowerLimitId is null)
+            if (applyPowerPair)
             {
-                return Reject(command, CapabilityReasonCode.Unsupported, "This capability does not declare a power pair.");
-            }
+                if (descriptor.PairedPowerLimitId is null)
+                {
+                    return Reject(command, CapabilityReasonCode.Unsupported, "This capability does not declare a power pair.");
+                }
 
-            if (applyPowerPair && (!_states.TryGetValue(new DeviceCapabilityKey(descriptor.PairedPowerLimitId!, null), out var peer)
-                || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(CapabilityRole.PowerSlowLimit), now, _cycleGeneration))))
-            {
-                return Reject(command, CapabilityReasonCode.ObservationExpired, "The paired power limit has no current readback.");
+                if (!_states.TryGetValue(new DeviceCapabilityKey(descriptor.PairedPowerLimitId, null), out var peer)
+                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(CapabilityRole.PowerSlowLimit), now, _cycleGeneration)))
+                {
+                    return Reject(command, CapabilityReasonCode.ObservationExpired, "The paired power limit has no current readback.");
+                }
             }
 
             if (!_states.TryGetValue(key, out var rawState))
@@ -569,7 +570,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
-    private IReadOnlyList<DeviceCapabilityView> BuildSnapshotUnderGate(DateTimeOffset now)
+    private List<DeviceCapabilityView> BuildSnapshotUnderGate(DateTimeOffset now)
     {
         List<DeviceCapabilityView> views = [];
         foreach (var (key, descriptor) in _orderedDescriptors)
@@ -635,12 +636,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         DeviceDesiredProfile? profile)
     {
         Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> index = [];
-        if (profile is not null)
+        if (profile is null)
         {
-            foreach (var preference in profile.Capabilities)
-            {
-                index.TryAdd(new DeviceCapabilityKey(preference.CapabilityId, preference.InstanceId), preference);
-            }
+            return index;
+        }
+
+        foreach (var preference in profile.Capabilities)
+        {
+            index.TryAdd(new DeviceCapabilityKey(preference.CapabilityId, preference.InstanceId), preference);
         }
         return index;
     }
@@ -809,8 +812,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// describes the device. The control is disabled until a fresh observation arrives.
     /// </remarks>
     private static bool CanCommand(CapabilityState state) =>
-        state.Available
-        && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
+        state is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified };
 
     private static CapabilityState Stale(
         CapabilityState state,
@@ -896,15 +898,17 @@ internal static class DeviceCapabilityValidation
         HashSet<DeviceCapabilityKey> keys = [];
         foreach (var descriptor in set.Descriptors)
         {
-            if (!TryValidateDescriptor(descriptor, out error)
-                || !TryValidatePlacement(descriptor, sections, out error)
-                || !keys.Add(new DeviceCapabilityKey(
+            if (TryValidateDescriptor(descriptor, out error)
+                && TryValidatePlacement(descriptor, sections, out error)
+                && keys.Add(new DeviceCapabilityKey(
                     descriptor.CapabilityId,
                     descriptor.InstanceId)))
             {
-                error ??= "Descriptor keys are duplicated.";
-                return false;
+                continue;
             }
+
+            error ??= "Descriptor keys are duplicated.";
+            return false;
         }
 
         return DevicePowerPreset.TryValidate(set.Descriptors, out error)
@@ -972,7 +976,6 @@ internal static class DeviceCapabilityValidation
                 descriptor.MaximumLength ?? 0,
                 "text",
                 out _),
-            CapabilityValueKind.None => false,
             _ => false
         };
         error = valid ? null : "Capability value violates its descriptor shape or bounds.";
@@ -1054,7 +1057,7 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        if (!descriptor.SupportsRead && !descriptor.SupportsWrite && !descriptor.SupportsAction)
+        if (descriptor is { SupportsRead: false, SupportsWrite: false, SupportsAction: false })
         {
             error = "Descriptor exposes no readable, writable, or actionable operation.";
             return false;
@@ -1068,24 +1071,22 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        if (descriptor.ValueKind is CapabilityValueKind.Integer
-            && (descriptor.Minimum is null
+        switch (descriptor.ValueKind)
+        {
+            case CapabilityValueKind.Integer
+                when descriptor.Minimum is null
                 || descriptor.Maximum is null
                 || descriptor.Minimum > descriptor.Maximum
-                || descriptor.Step is null or <= 0))
-        {
-            error = "Integer descriptors require an ordered range and positive step.";
-            return false;
-        }
-
-        if (descriptor.ValueKind is CapabilityValueKind.Choice
-            && (descriptor.Choices.Count is 0 or > MaxChoices
+                || descriptor.Step is null or <= 0:
+                error = "Integer descriptors require an ordered range and positive step.";
+                return false;
+            case CapabilityValueKind.Choice
+                when descriptor.Choices.Count is 0 or > MaxChoices
                 || descriptor.Choices.Any(choice => !DeviceIdentifier.IsValid(choice.Value, 64))
                 || descriptor.Choices.Select(choice => choice.Value).Distinct(StringComparer.Ordinal)
-                    .Count() != descriptor.Choices.Count))
-        {
-            error = "Choice descriptor values are empty, invalid, oversized, or duplicated.";
-            return false;
+                    .Count() != descriptor.Choices.Count:
+                error = "Choice descriptor values are empty, invalid, oversized, or duplicated.";
+                return false;
         }
 
         if (descriptor.ValueKind is not CapabilityValueKind.Choice && descriptor.Choices.Count != 0)

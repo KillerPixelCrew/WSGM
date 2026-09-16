@@ -39,7 +39,7 @@ internal interface IIrEndpoint : IAsyncDisposable
     Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token);
     Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token);
     /// <summary>Stores network credentials and the pairing token on the endpoint, or clears them when the SSID is empty.</summary>
-    Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string pairingToken, CancellationToken token);
+    Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken, CancellationToken token);
     /// <summary>Reads the remotes built into the firmware. Firmware before 0.4.0 has none.</summary>
     Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token);
     /// <summary>Presses one button of a built-in remote.</summary>
@@ -93,7 +93,7 @@ internal sealed class SerialIrLink : IIrLink
 /// <summary>Plain TCP link to the endpoint's local-network listener. Authentication is the per-request pairing token.</summary>
 internal sealed class TcpIrLink : IIrLink
 {
-    internal const int DefaultPort = 7521;
+    private const int DefaultPort = 7521;
     private readonly TcpClient _client = new() { NoDelay = true, ReceiveTimeout = 100, SendTimeout = 1000 };
     private readonly NetworkStream _stream;
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
@@ -234,13 +234,13 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             .ConfigureAwait(false);
     }
 
-    public async Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string pairingToken, CancellationToken token)
+    public async Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken, CancellationToken token)
     {
-        if (ssid.Length > 32 || password.Length > 63 || (ssid.Length != 0 && pairingToken.Length is < 16 or > 64))
+        if (ssid.Length > 32 || password.Length > 63 || (ssid.Length != 0 && networkToken.Length is < 16 or > 64))
         {
             throw new ArgumentException("SSID is at most 32 characters and the password at most 63.");
         }
-        using var response = await ExchangeAsync("wifi", new { ssid, password, token = pairingToken },
+        using var response = await ExchangeAsync("wifi", new { ssid, password, token = networkToken },
             TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
         return ParseIdentity(response);
     }
@@ -265,9 +265,10 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             if (operation != "identify" && Identity is null) { throw new InvalidOperationException("Identify the IR endpoint first."); }
             using var bounded = CancellationTokenSource.CreateLinkedTokenSource(token);
             bounded.CancelAfter(timeout);
+            var boundedToken = bounded.Token;
             // Opening and the synchronous driver reads run on a worker. The link's read timeout bounds
             // each poll; cancellation closes this connection and retires all outstanding responses.
-            return await Task.Run(() => Exchange(operation, arguments, bounded.Token), CancellationToken.None).ConfigureAwait(false);
+            return await Task.Run(() => Exchange(operation, arguments, boundedToken), CancellationToken.None).ConfigureAwait(false);
         }
         catch
         {
@@ -300,7 +301,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             {
                 token.ThrowIfCancellationRequested();
                 var character = _link.ReadChar();
-                if (character < 0 || character == '\r') { continue; }
+                if (character is < 0 or '\r') { continue; }
                 if (character != '\n')
                 {
                     if (line.Length >= MaxFrame) { throw new InvalidDataException("IR response exceeds frame limit."); }
@@ -317,14 +318,14 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                     continue;
                 }
                 var expected = ExpectedStatus(operation);
-                if (response.RootElement.GetProperty("v").GetInt32() != 1
-                    || response.RootElement.GetProperty("status").GetString() != expected)
+                if (response.RootElement.GetProperty("v").GetInt32() == 1
+                    && response.RootElement.GetProperty("status").GetString() == expected)
                 {
-                    var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
-                    response.Dispose();
-                    throw new InvalidDataException(Describe(operation, status));
+                    return response;
                 }
-                return response;
+                var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
+                response.Dispose();
+                throw new InvalidDataException(Describe(operation, status));
             }
         }
         catch (OperationCanceledException) when (operation == "learn")
@@ -345,7 +346,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
 
     /// <summary>The status one operation reports on success. A sequence only reports that it
     /// started: the endpoint runs its steps in the background.</summary>
-    internal static string ExpectedStatus(string operation) => operation switch
+    private static string ExpectedStatus(string operation) => operation switch
     {
         "send" or "press" or "climate" => "transmitted",
         "learn" => "learned",

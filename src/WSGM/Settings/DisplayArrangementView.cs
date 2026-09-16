@@ -75,7 +75,7 @@ public sealed class DisplayArrangementView : Canvas
                 _screens.Add(row, button);
                 Children.Add(button);
             }
-            button.IsVisible = row.Active && row.Mode is not null;
+            button.IsVisible = row is { Active: true, Mode: not null };
             button.Content = row.Number + (row.IsPrimary ? " ★" : "");
             button.Classes.Set("selected", editor.Selected == row);
             AutomationProperties.SetName(button, row.InspectorTitle + (row.IsPrimary ? ", primary" : ""));
@@ -87,20 +87,21 @@ public sealed class DisplayArrangementView : Canvas
     protected override Size ArrangeOverride(Size finalSize)
     {
         var active = _screens.Where(pair => pair.Key.Active && pair.Key.Mode is not null).ToArray();
-        if (active.Length > 0 && _press is null)
+        if (active.Length == 0 || _press is not null)
         {
-            double left = active.Min(pair => pair.Key.X), top = active.Min(pair => pair.Key.Y);
-            var width = active.Max(pair => (double)pair.Key.X + pair.Key.Mode!.Width) - left;
-            var height = active.Max(pair => (double)pair.Key.Y + pair.Key.Mode!.Height) - top;
-            _scale = Math.Max(.001, Math.Min((finalSize.Width - 32) / width, (finalSize.Height - 24) / height));
-            double offsetX = (finalSize.Width - width * _scale) / 2, offsetY = (finalSize.Height - height * _scale) / 2;
-            foreach (var (row, button) in active)
-            {
-                button.Width = row.Mode!.Width * _scale;
-                button.Height = row.Mode.Height * _scale;
-                SetLeft(button, offsetX + (row.X - left) * _scale);
-                SetTop(button, offsetY + (row.Y - top) * _scale);
-            }
+            return base.ArrangeOverride(finalSize);
+        }
+        double left = active.Min(pair => pair.Key.X), top = active.Min(pair => pair.Key.Y);
+        var width = active.Max(pair => (double)pair.Key.X + pair.Key.Mode!.Width) - left;
+        var height = active.Max(pair => (double)pair.Key.Y + pair.Key.Mode!.Height) - top;
+        _scale = Math.Max(.001, Math.Min((finalSize.Width - 32) / width, (finalSize.Height - 24) / height));
+        double offsetX = (finalSize.Width - width * _scale) / 2, offsetY = (finalSize.Height - height * _scale) / 2;
+        foreach (var (row, button) in active)
+        {
+            button.Width = row.Mode!.Width * _scale;
+            button.Height = row.Mode.Height * _scale;
+            SetLeft(button, offsetX + (row.X - left) * _scale);
+            SetTop(button, offsetY + (row.Y - top) * _scale);
         }
         return base.ArrangeOverride(finalSize);
     }
@@ -134,7 +135,7 @@ public sealed class DisplayArrangementView : Canvas
         if (_dragging && Editor is { } editor && row.Mode is { } mode)
         {
             int x = (int)Math.Round(_original.X + delta.X / _scale), y = (int)Math.Round(_original.Y + delta.Y / _scale);
-            foreach (var other in editor.Rows.Where(item => item != row && item.Active && item.Mode is not null))
+            foreach (var other in editor.Rows.Where(item => item != row && item is { Active: true, Mode: not null }))
             {
                 foreach (var candidate in new[] { other.X - mode.Width, other.X + other.Mode!.Width })
                 { if (Math.Abs((double)x - candidate) * _scale < 14) { x = candidate; } }

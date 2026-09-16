@@ -1,6 +1,6 @@
 using Avalonia.Headless.XUnit;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Infrastructure;
 
 public sealed class SmokeTests
 {

@@ -3,7 +3,7 @@ using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Overlay;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 public sealed class DeviceColorViewTests
 {

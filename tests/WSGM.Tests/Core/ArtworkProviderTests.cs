@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>
 /// The multi-provider artwork contract: a provider that cannot be searched is distinguishable from

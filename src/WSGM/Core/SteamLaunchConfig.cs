@@ -82,17 +82,17 @@ public static class SteamLaunchConfig
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
-            if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True)
+            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
             {
-                var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
-                Log.Warn($"Could not read launch configuration for {appId}: {err}.");
-                return null;
+                return new SteamLaunchDetails(
+                    root.GetProperty("launch").GetString() ?? "",
+                    root.GetProperty("exe").GetString() ?? "",
+                    root.GetProperty("args").GetString() ?? "",
+                    root.GetProperty("dir").GetString() ?? "");
             }
-            return new SteamLaunchDetails(
-                root.GetProperty("launch").GetString() ?? "",
-                root.GetProperty("exe").GetString() ?? "",
-                root.GetProperty("args").GetString() ?? "",
-                root.GetProperty("dir").GetString() ?? "");
+            var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
+            Log.Warn($"Could not read launch configuration for {appId}: {err}.");
+            return null;
         }
         catch (Exception ex)
         {
@@ -358,7 +358,7 @@ public static class SteamLaunchConfig
     // appStore uses the unsigned 32-bit app id; a shortcut id stored in a signed int
     // reads back negative, so normalize to the unsigned value the client expects.
     private static string Unsigned(long appId)
-        => (appId < 0 ? (uint)appId : appId).ToString(CultureInfo.InvariantCulture);
+        => (appId < 0 ? unchecked((uint)appId) : appId).ToString(CultureInfo.InvariantCulture);
 
     private static LaunchConfigResult Interpret(CefEvalResult result, string okMessage)
     {

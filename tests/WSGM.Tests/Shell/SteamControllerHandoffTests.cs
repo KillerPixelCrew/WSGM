@@ -1,7 +1,7 @@
 using SteamUiToolkit.Surfaces;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class SteamControllerHandoffTests
 {
@@ -92,15 +92,21 @@ public sealed class SteamControllerHandoffTests
     {
         TaskCompletionSource observed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var restores = 0;
-        await using SteamControllerHandoff owner = new(
+        SteamControllerHandoff owner = new(
             _ => Task.FromResult(true),
             _ => { restores++; return Task.FromResult(true); },
             _ => { observed.TrySetResult(); return Task.FromResult(new SteamSideMenuSnapshot(default, null)); },
             () => true, _ => { }, openTimeout: TimeSpan.Zero);
 
-        owner.TryStart(_ => Task.FromResult(true));
-        await observed.Task.WaitAsync(TimeSpan.FromSeconds(3));
-        await owner.DisposeAsync();
+        try
+        {
+            owner.TryStart(_ => Task.FromResult(true));
+            await observed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            await owner.DisposeAsync();
+        }
         Assert.Equal(0, restores);
         Assert.Equal(SteamControllerOwnership.RecoveryRequired, owner.State);
     }

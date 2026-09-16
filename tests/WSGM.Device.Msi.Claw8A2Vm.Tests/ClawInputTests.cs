@@ -1,5 +1,5 @@
 using WSGM.Device.Sdk.Input;
-using static WSGM.Device.Tests.ClawCommands;
+using static WSGM.Device.Msi.Claw8A2Vm.Tests.Builders.ClawCommands;
 
 namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 

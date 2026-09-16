@@ -2,22 +2,25 @@ using System.Buffers.Binary;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using WSGM.Device.Msi.Claw8A2Vm;
+using WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
-using static WSGM.Device.Tests.ClawCommands;
+using WSGM.Device.Tests;
+using static WSGM.Device.Msi.Claw8A2Vm.Tests.Builders.ClawCommands;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
 // PluginTrace is a process-wide static and the plugin installs its own sink in StartAsync, so any
 // class that drives the lifecycle has to be serialized against one that asserts on traces.
 [Collection("plugin-trace")]
 public sealed class ClawPluginTests
 {
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
     [Fact]
     public async Task DetectAsync_ExactBaseboardAndSku_MatchesWithoutMarketingName()
     {
@@ -102,9 +105,12 @@ public sealed class ClawPluginTests
 
         Assert.Equal(PluginOperationalState.Active, result.State);
         Assert.Contains(host.CapabilityStates, capability =>
-            capability.CapabilityId == CapabilityIds.Controller
-            && !capability.Available
-            && capability.Reason?.Code == CapabilityReasonCode.ResourceReleased);
+            capability is
+            {
+                CapabilityId: CapabilityIds.Controller,
+                Available: false,
+                Reason.Code: CapabilityReasonCode.ResourceReleased
+            });
     }
 
     // The lifecycle order is safety-relevant: stop releases the controller and motion before the
@@ -154,9 +160,8 @@ public sealed class ClawPluginTests
         var descriptors = Assert.Single(host.DescriptorSets);
 
         // Offline publication for the host's full Device-page visual fixture. No live hardware is used.
-        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "claw-ui-publication.json"),
-            JsonSerializer.Serialize(new { Descriptors = descriptors, States = host.CapabilityStates },
-                new JsonSerializerOptions { WriteIndented = true }));
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "claw-ui-publication.json"),
+            JsonSerializer.Serialize(new { Descriptors = descriptors, States = host.CapabilityStates }, IndentedJson));
 
         // The overlay layout ships with the set, and a dangling reference would silently strand a
         // row in a WSGM fallback group. Cooling was folded into Power, then Display's single
@@ -186,36 +191,32 @@ public sealed class ClawPluginTests
         var sustained = Assert.Single(descriptors.Descriptors,
             descriptor => descriptor.CapabilityId == CapabilityIds.PowerSustained);
         Assert.True(DevicePowerPreset.TryValidate(descriptors.Descriptors, out var presetError), presetError);
-        Assert.Equal(new DevicePowerPreset[]
-        {
-            new("super-battery", "Super Battery", 8, 9, DevicePowerMode.BetterBattery)
+        Assert.Equal([
+            new DevicePowerPreset("super-battery", "Super Battery", 8, 9, DevicePowerMode.BetterBattery)
             { ScenarioOnAc = "eco", ScenarioOnDc = "comfort" },
-            new("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced)
+            new DevicePowerPreset("balanced", "Balanced", 17, 18, DevicePowerMode.Balanced)
             { ScenarioOnAc = "green", ScenarioOnDc = "comfort" },
-            new("extreme-performance", "Extreme Performance", 30, 31, DevicePowerMode.BestPerformance)
+            new DevicePowerPreset("extreme-performance", "Extreme Performance", 30, 31, DevicePowerMode.BestPerformance)
             { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" },
-            new("full-power", "Full Power", 37, 37, DevicePowerMode.BestPerformance)
+            new DevicePowerPreset("full-power", "Full Power", 37, 37, DevicePowerMode.BestPerformance)
             { ScenarioOnAc = "sport", ScenarioOnDc = "comfort" }
-        }, sustained.PowerPresets);
+        ], sustained.PowerPresets);
         Assert.Contains(descriptors.Descriptors, descriptor =>
-            descriptor.CapabilityId == CapabilityIds.ChargeLimit
-            && descriptor.Role == CapabilityRole.ChargeLimit
-            && descriptor.Persistence == CapabilityPersistence.DevicePersistent);
+            descriptor is
+            {
+                CapabilityId: CapabilityIds.ChargeLimit,
+                Role: CapabilityRole.ChargeLimit,
+                Persistence: CapabilityPersistence.DevicePersistent
+            });
         Assert.Contains(descriptors.Descriptors, descriptor =>
-            descriptor.CapabilityId == CapabilityIds.LightingColor
-            && descriptor.InstanceId == CapabilityInstances.Buttons);
+            descriptor is { CapabilityId: CapabilityIds.LightingColor, InstanceId: CapabilityInstances.Buttons });
         Assert.Equal(descriptors.Descriptors.Count, host.CapabilityStates.Count);
         Assert.Contains(host.CapabilityStates, capability =>
-            capability.CapabilityId == CapabilityIds.PowerSustained
-            && capability.Available
-            && capability.ObservedValue?.IntegerValue == 30);
+            capability is { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
         Assert.Contains(host.CapabilityStates, capability =>
-            capability.CapabilityId == CapabilityIds.ChargeLimit
-            && capability.Available
-            && capability.ObservedValue?.IntegerValue == 80);
+            capability is { CapabilityId: CapabilityIds.ChargeLimit, Available: true, ObservedValue.IntegerValue: 80 });
         Assert.Contains(host.CapabilityStates, capability =>
-            capability.CapabilityId == CapabilityIds.Controller
-            && !capability.Available);
+            capability is { CapabilityId: CapabilityIds.Controller, Available: false });
         Assert.Equal(4, Assert.Single(host.OemControlSets).Count);
         var controlEvent = Assert.Single(host.OemEvents);
         Assert.Equal("oem2", controlEvent.ControlId);
@@ -382,11 +383,12 @@ public sealed class ClawPluginTests
         wmi.SetData(ClawHardwareFacts.ScenarioAddress, 0x81);
         wmi.AfterSetter = (method, package) =>
         {
-            if (method == "Set_Data" && package[0] == ClawHardwareFacts.ScenarioAddress)
+            if (method != "Set_Data" || package[0] != ClawHardwareFacts.ScenarioAddress)
             {
-                wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 8);
-                wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 9);
+                return;
             }
+            wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 8);
+            wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 9);
         };
         await using Claw8A2VmPlugin plugin = new(CreateServices(wmi));
         TestPluginHostAdapter host = new(CycleGeneration);
@@ -415,7 +417,7 @@ public sealed class ClawPluginTests
         FakeWmiTransport wmi = new();
         await using Claw8A2VmPlugin plugin = new(CreateServices(wmi));
         ControllablePluginHostAdapter host = new(CycleGeneration);
-        await plugin.StartAsync(StartContext(host, state.Root), default);
+        await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
         TaskCompletionSource blocked = new(TaskCreationOptions.RunContinuationsAsynchronously);
         wmi.AfterSetter = (method, package) =>
         {
@@ -425,13 +427,13 @@ public sealed class ClawPluginTests
         var command = Command(CapabilityIds.Scenario, null,
             CapabilityValue.Choice("sport")) with
         { Deadline = DateTimeOffset.UtcNow.AddSeconds(10) };
-        var applying = plugin.ExecuteCommandAsync(command, default).AsTask();
+        var applying = plugin.ExecuteCommandAsync(command, CancellationToken.None).AsTask();
         try
         {
             await host.CapabilityPublicationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             host.CapabilityPublicationBlock = null;
             var stopping = stop ? plugin.StopAsync(new PluginStopContext(
-                PluginStopReason.IntegrationDisabled, DateTimeOffset.UtcNow.AddSeconds(5)), default).AsTask() : null;
+                PluginStopReason.IntegrationDisabled, DateTimeOffset.UtcNow.AddSeconds(5)), CancellationToken.None).AsTask() : null;
             var result = await applying.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(CommandOutcome.Indeterminate, result.Outcome);
             Assert.Null(result.ReadbackValue);
@@ -626,9 +628,7 @@ public sealed class ClawPluginTests
 
         Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
         Assert.Contains(host.CapabilityStates, capability =>
-            capability.CapabilityId == CapabilityIds.PowerSustained
-            && capability.Available
-            && capability.ObservedValue?.IntegerValue == 30);
+            capability is { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
         await using var reconciled = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
@@ -662,7 +662,7 @@ public sealed class ClawPluginTests
             var diagnostics = await firstCycle.GetDiagnosticsAsync(CancellationToken.None);
 
             Assert.Equal("pending", diagnostics.Values["recovery"]);
-            Assert.Equal(ClawServiceState.Faulted.ToString(), diagnostics.Values[ServiceIds.Power]);
+            Assert.Equal(nameof(ClawServiceState.Faulted), diagnostics.Values[ServiceIds.Power]);
             _ = await firstCycle.StopAsync(
                 new PluginStopContext(
                     PluginStopReason.IntegrationDisabled,
@@ -695,9 +695,9 @@ public sealed class ClawPluginTests
 
     private static string[] ServiceOrder(Claw8A2VmPlugin plugin, string field) =>
     [
-        .. Assert.IsAssignableFrom<IEnumerable<ClawServiceStatus>>(typeof(Claw8A2VmPlugin)
+        .. Assert.IsType<IEnumerable<ClawServiceStatus>>(typeof(Claw8A2VmPlugin)
             .GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!
-            .GetValue(plugin)).Select(service => service.ServiceId)
+            .GetValue(plugin), exactMatch: false).Select(service => service.ServiceId)
     ];
 
     private static PluginStartContext StartContext(IPluginHostAdapter host, string stateDirectory) => new()
@@ -773,13 +773,13 @@ public sealed class ClawPluginTests
     [Fact]
     public async Task CancellationDoesNotWaitForABlockedAcPowerQuery()
     {
-        using ManualResetEventSlim release = new();
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var reader = Reader(() =>
         {
             entered.SetResult();
-            release.Wait();
+            release.Task.Wait();
             exited.SetResult();
             return true;
         });
@@ -787,14 +787,14 @@ public sealed class ClawPluginTests
         try
         {
             var read = reader.ReadAsync(cancellation.Token).AsTask();
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            cancellation.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read.WaitAsync(TimeSpan.FromSeconds(2)));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None));
         }
         finally
         {
-            release.Set();
-            await exited.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            release.TrySetResult();
+            await exited.Task.WaitAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
         }
     }
 

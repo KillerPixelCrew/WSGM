@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit.Surfaces;
@@ -23,8 +24,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly ISteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
-    private readonly object _observationGate = new();
-    private readonly SteamUiModuleSet _modules;
+    private readonly Lock _observationGate = new();
     private readonly SteamUiModuleRuntime _runtime;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
@@ -179,7 +179,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             () => !_disposed && _enabled,
             QueueStatePublication);
         _brightness.Changed += QueueStatePublication;
-        _modules = new SteamUiModuleSet(CreateModules());
+        var modules = new SteamUiModuleSet(CreateModules());
         // WSGM's composed asset and the module-derived vocabulary, named here rather than reached
         // for from inside the bridge.
         _bridge = new SteamUiBridgeHost(
@@ -187,12 +187,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             new SteamUiInjectedAsset(
                 SteamUiAssetCatalog.LoadNativeQamBootstrap(),
                 SteamUiAssetCatalog.NativeQamBootstrapSha256),
-            _modules.AllowedCommands);
+            modules.AllowedCommands);
         _patches = new SteamUiPatchManager(_transport);
         _patches.Register(new SteamUiBridgePatch(_bridge));
         _patches.Register(_overlayActivation);
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
-        _modules.RegisterPatches(_patches);
+        modules.RegisterPatches(_patches);
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
@@ -202,7 +202,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // its libraries published, so both directions stay open for it without native Quick Access.
         _runtime = new SteamUiModuleRuntime(
             _bridge,
-            _modules,
+            modules,
             commandsEnabled: () =>
                 _enabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled,
             publishEnabled: BootstrapWanted);
@@ -278,9 +278,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _patches.SetGlobalEnabled(true);
         }
-        else if (!_enabled && _network is { } network)
+        else if (!_enabled && _network is not null)
         {
-            network.PostStopScanning();
+            _network.PostStopScanning();
         }
         SetPatchStates(bootstrap: BootstrapWanted(), components: _enabled);
         QueueSynchronization();
@@ -457,17 +457,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetPatchEnabled(_overlayActivation.Id, false);
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
-        if (_network is { } network)
+        if (_network is not null)
         {
-            await network.StopScanningAsync().ConfigureAwait(false);
+            await _network.StopScanningAsync().ConfigureAwait(false);
         }
         SetPatchStates(bootstrap: true, components: false);
         SetGlyphDeliveryPatchStates();
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
         _glyphDeliveryState.Update(null);
         SetPatchStates(bootstrap: false, components: false);
-        _patches.SetGlobalEnabled(false);
-        await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
+        await _patches.SetGlobalEnabledAsync(false, _shutdown.Token).ConfigureAwait(false);
     }
 
     private void OnGenerationChanged(object? sender, SteamUiTransportSnapshot snapshot)
@@ -539,9 +538,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 {
                     ReleasePerformanceObservation();
                     SetPatchStates(bootstrap: false, components: false);
-                    _patches.SetGlobalEnabled(
-                        _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled || _surfaceObservationEnabled);
-                    await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
+                    await _patches.SetGlobalEnabledAsync(
+                            _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled || _surfaceObservationEnabled,
+                            _shutdown.Token)
+                        .ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -568,15 +568,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
-        SteamUiPatchSnapshot? surface = null;
-        foreach (var patch in _patches.GetSnapshots())
-        {
-            if (patch.Id == SteamScreensaverSurface.PatchId)
-            {
-                surface = patch;
-                break;
-            }
-        }
+        var surface = _patches.GetSnapshots().FirstOrDefault(patch => patch.Id == SteamScreensaverSurface.PatchId);
 
         if (!ScreensaverReportHolds(surface))
         {
@@ -604,7 +596,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// in this session is simply not declared. WSGM's own features — download sorting and glyph
     /// delivery — are patches of WSGM's own and are declared beside them.
     /// </remarks>
-    private IReadOnlyList<ISteamUiModule> CreateModules()
+    private List<ISteamUiModule> CreateModules()
     {
         List<ISteamUiModule> modules =
         [
@@ -716,9 +708,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 network));
         }
 
-        if (_bluetooth is { } bluetooth)
+        if (_bluetooth is not null)
         {
-            modules.Add(SteamBluetoothSurface.Module(Enabled, bluetooth.ReadStateAsync, bluetooth));
+            modules.Add(SteamBluetoothSurface.Module(Enabled, _bluetooth.ReadStateAsync, _bluetooth));
         }
 
         // Reading is synchronous: both managers keep their own state and this only projects it,
@@ -762,13 +754,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
             var enabled = patch.Id switch
             {
-                var id when id == SteamDownloadSortPatch.PatchId => _downloadSortEnabled,
-                var id when id == SteamLibraryBadgeSurface.PatchId || id == SteamLibraryBadgeSurface.DetailsPatchId =>
-                    _libraryBadgeEnabled,
-                var id when id == SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
-                var id when id == SteamScreensaverSurface.PatchId => _screensaverEnabled,
-                var id when id == SteamUiBridgePatch.PatchId => bootstrap,
-                var id when id == SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
+                SteamDownloadSortPatch.PatchId => _downloadSortEnabled,
+                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => _libraryBadgeEnabled,
+                SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
+                SteamScreensaverSurface.PatchId => _screensaverEnabled,
+                SteamUiBridgePatch.PatchId => bootstrap,
+                SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
                 _ => components
             };
             _patches.SetPatchEnabled(patch.Id, enabled);
@@ -817,16 +808,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         // RTSS polling exists for rendered native controls, not merely for the session. A failed
         // fingerprint or lost bridge generation therefore releases the shared service lease.
-        var snapshots = _patches.GetSnapshots();
-        var performancePatchVerified = false;
-        foreach (var snapshot in snapshots)
-        {
-            // The rows that actually render, whichever they are — WSGM's own frame limit and
-            // Valve's overlay level. Observation must follow the mounted rows or it never starts.
-            performancePatchVerified |= (snapshot.Id == SteamFrameLimitRow.PatchId
-                || snapshot.Id == SteamPerformanceSurface.OverlayLevelRow.Id)
-                && snapshot.State == SteamUiPatchState.Verified;
-        }
+        // The rows that actually render, whichever they are — WSGM's own frame limit and Valve's
+        // overlay level. Observation must follow the mounted rows or it never starts.
+        var performancePatchVerified = _patches.GetSnapshots().Any(snapshot =>
+            (snapshot.Id == SteamFrameLimitRow.PatchId || snapshot.Id == SteamPerformanceSurface.OverlayLevelRow.Id)
+            && snapshot.State == SteamUiPatchState.Verified);
         var shouldObserve = _enabled && _bridge.IsReady && performancePatchVerified;
         if (!shouldObserve)
         {
@@ -870,12 +856,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _disposed = true;
         _brightness.Changed -= QueueStatePublication;
         if (_ownsBrightness) { _brightness.Dispose(); }
-        if (_bluetooth is { } bluetooth) { await bluetooth.StopDiscoveryAsync().ConfigureAwait(false); }
+        if (_bluetooth is not null) { await _bluetooth.StopDiscoveryAsync().ConfigureAwait(false); }
         // A session that ends while Steam's network page is open would otherwise leave the radio
         // sweeping and this host subscribed to a collection it no longer publishes.
-        if (_network is { } network)
+        if (_network is not null)
         {
-            await network.DisposeAsync().ConfigureAwait(false);
+            await _network.DisposeAsync().ConfigureAwait(false);
         }
         _transport.GenerationChanged -= OnGenerationChanged;
         LibraryBadges.Changed -= OnSemanticStateChanged;

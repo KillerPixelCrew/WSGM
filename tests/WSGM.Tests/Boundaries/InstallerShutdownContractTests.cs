@@ -1,4 +1,4 @@
-namespace WSGM.Tests;
+namespace WSGM.Tests.Boundaries;
 
 public sealed class InstallerShutdownContractTests
 {
@@ -483,7 +483,7 @@ public sealed class InstallerShutdownContractTests
             "ReleaseDevicePublicationReservations();",
             "RestoreStoppedSetupRuntime();");
         Assert.True(restore.Contains(
-            "ServicePath := ExpandConstant('{autopf}\\WSGM\\WSGM.LogonService.exe');",
+            @"ServicePath := ExpandConstant('{autopf}\WSGM\WSGM.LogonService.exe');",
             StringComparison.Ordinal));
         Assert.True(restore.Contains(
             "Exec(ServicePath, '--install'",

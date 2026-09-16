@@ -137,33 +137,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 
         // Ejectable volumes, which may or may not correspond to a format target. An eject row with
         // no matching drive still has to appear: a USB stick is ejectable and not a format target.
-        var devices = new List<SteamStorageBlockDevice>();
-        foreach (var entry in ejectable)
-        {
-            if (entry.Ejected)
-            {
-                continue;
-            }
-
-            // The parent drive is zero rather than a guess when nothing erasable matches: Steam
-            // reads it to decide which drive a volume belongs under, and a wrong parent puts the
-            // volume on the wrong row. A USB stick with no format target has no parent here.
-            var paths = SplitLetters(entry.Letters);
-            // Label is the volume's, not the device's product name: Steam shows it as the row's own
-            // name under the drive carrying it, so "SDCard1" belongs here and "Realtek PCIE
-            // CardReader" on the drive above. Size is the volume's for the same reason — the
-            // entry's is the whole device's, which would report one size on every partition.
-            var volume = paths.Count == 0 ? null : FindVolume(volumes, paths[0]);
-            var libraries = paths.Count == 0 ? [] : LibraryPathsOn(paths[0]);
-            devices.Add(new SteamStorageBlockDevice(
-                Id: DeviceId(entry.Id),
-                DriveId: MatchingDrive(volume, formattable),
-                Label: volume is null || volume.Label.Length == 0 ? entry.Name : volume.Label,
-                FriendlyPath: paths.Count > 0 ? paths[0] : "",
-                SizeBytes: volume?.CapacityBytes ?? entry.SizeBytes,
-                MountPaths: [.. paths, .. libraries],
-                HasSteamLibrary: CarriesLibraryMarker(paths)));
-        }
+        var devices = ejectable
+            .Where(entry => !entry.Ejected)
+            .Select(entry => BlockDevice(entry, volumes, formattable))
+            .ToList();
 
         // Steam gates its two drive-menu entries on these: Eject on unmount support, Format on
         // adopt support. Unmount is reported against the rows that can actually be ejected rather
@@ -198,6 +175,35 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private uint DeviceId(string id) => _deviceIds.TryGetValue(id, out var existing)
         ? existing
         : _deviceIds[id] = (uint)(_driveIds.Count + _deviceIds.Count + 1);
+
+    /// <summary>The block-device row for one ejectable volume.</summary>
+    /// <param name="entry">The ejectable volume.</param>
+    /// <param name="volumes">What Windows reports about mounted volumes.</param>
+    /// <param name="formattable">The format targets, which name the parent drives.</param>
+    /// <returns>The row Steam shows under the volume's drive.</returns>
+    private SteamStorageBlockDevice BlockDevice(
+        RemovableDriveEntry entry, IReadOnlyList<StorageVolume> volumes,
+        IReadOnlyList<FormatTargetEntry> formattable)
+    {
+        // The parent drive is zero rather than a guess when nothing erasable matches: Steam
+        // reads it to decide which drive a volume belongs under, and a wrong parent puts the
+        // volume on the wrong row. A USB stick with no format target has no parent here.
+        var paths = SplitLetters(entry.Letters);
+        // Label is the volume's, not the device's product name: Steam shows it as the row's own
+        // name under the drive carrying it, so "SDCard1" belongs here and "Realtek PCIE
+        // CardReader" on the drive above. Size is the volume's for the same reason — the
+        // entry's is the whole device's, which would report one size on every partition.
+        var volume = paths.Count == 0 ? null : FindVolume(volumes, paths[0]);
+        var libraries = paths.Count == 0 ? [] : LibraryPathsOn(paths[0]);
+        return new SteamStorageBlockDevice(
+            Id: DeviceId(entry.Id),
+            DriveId: MatchingDrive(volume, formattable),
+            Label: volume is null || volume.Label.Length == 0 ? entry.Name : volume.Label,
+            FriendlyPath: paths.Count > 0 ? paths[0] : "",
+            SizeBytes: volume?.CapacityBytes ?? entry.SizeBytes,
+            MountPaths: [.. paths, .. libraries],
+            HasSteamLibrary: CarriesLibraryMarker(paths));
+    }
 
     /// <summary>Finds the erasable disk a volume sits on, by the disk number Windows reports.</summary>
     /// <param name="volume">What Windows says about the volume, or null when it said nothing.</param>
@@ -328,7 +334,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// only the volume root means the lookup finds nothing, so the eject has nothing to call and
     /// the press does nothing at all, with no request leaving the client.
     /// </remarks>
-    private static IReadOnlyList<string> LibraryPathsOn(string path)
+    private static string[] LibraryPathsOn(string path)
     {
         var root = SteamLibraryVdf.VolumeRoot(path);
         if (root.Length == 0)
@@ -343,10 +349,12 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 return [];
             }
 
-            return SteamLibraryVdf.ValuesOf(vdf, "path")
-                .Where(library => string.Equals(SteamLibraryVdf.VolumeRoot(library), root,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToArray();
+            return
+            [
+                .. SteamLibraryVdf.ValuesOf(vdf, "path")
+                    .Where(library => string.Equals(SteamLibraryVdf.VolumeRoot(library), root,
+                        StringComparison.OrdinalIgnoreCase))
+            ];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
             or ArgumentException)
@@ -527,7 +535,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             foreach (var letter in letters)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (await _formats.TrimAsync(letter).ConfigureAwait(false))
+                if (await SdFormatManager.TrimAsync(letter).ConfigureAwait(false))
                 {
                     trimmed++;
                 }
@@ -590,8 +598,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <summary>Turns the manager's display string of drive letters into mount paths.</summary>
     /// <param name="letters">The entry's letters as it shows them, for example "D:, E:".</param>
     /// <returns>One path per letter, in the form Windows uses.</returns>
-    internal static IReadOnlyList<string> SplitLetters(string letters) => (letters ?? "")
-        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Select(part => part.EndsWith('\\') ? part : part + "\\")
-        .ToArray();
+    internal static IReadOnlyList<string> SplitLetters(string? letters) =>
+    [
+        .. (letters ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => part.EndsWith('\\') ? part : part + "\\")
+    ];
 }

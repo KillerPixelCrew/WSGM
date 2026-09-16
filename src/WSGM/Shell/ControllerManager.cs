@@ -71,7 +71,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly string _controllerReaderApplication;
     private readonly object _stateGate = new();
-    private readonly object _sampleGate = new();
+    private readonly Lock _sampleGate = new();
 
     /// <summary>Serializes routing a sample against the neutralizations that must precede it.</summary>
     /// <remarks>
@@ -154,7 +154,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
 
     /// <summary>Why the current state holds, for logs and the overlay.</summary>
-    internal string Detail { get; private set; } = "Controller management has not started.";
+    private string Detail { get; set; } = "Controller management has not started.";
 
     /// <summary>Where WSGM's own surfaces are reading controller input from.</summary>
     /// <remarks>
@@ -162,12 +162,12 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// state falls back to SDL with the Steam Input lease, which is why that path stays a permanent
     /// capability rather than a transitional one.
     /// </remarks>
-    internal UiInputSource UiSource => State is ControllerManagementState.Active
+    private UiInputSource UiSource => State is ControllerManagementState.Active
         ? UiInputSource.ManagedCanonical
         : UiInputSource.SdlWithSteamLease;
 
     /// <summary>The target in effect and the layer that chose it.</summary>
-    internal ResolvedControllerTarget? Effective { get; private set; }
+    private ResolvedControllerTarget? Effective { get; set; }
 
     /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
     /// <remarks>
@@ -1149,27 +1149,28 @@ internal sealed class UiCaptureState
             return false;
         }
 
-        if (!wasCaptured)
+        if (wasCaptured)
         {
-            _suppressedForUi = heldAtOpen;
-            _withheldFromGame = heldAtOpen;
+            return false;
         }
 
-        return !wasCaptured;
+        _suppressedForUi = heldAtOpen;
+        _withheldFromGame = heldAtOpen;
+        return true;
     }
 
     /// <summary>Releases a claim and reports whether the last known surface closed.</summary>
     internal bool Release(string surfaceId)
     {
-        if (!_surfaces.Remove(surfaceId))
+        if (_surfaces.Remove(surfaceId))
         {
-            Log.Change(
-                $"ui-capture.{surfaceId}",
-                $"Managed UI capture release ignored: surface={surfaceId}, reason=not-claimed.");
-            return false;
+            return !IsCaptured;
         }
 
-        return !IsCaptured;
+        Log.Change(
+            $"ui-capture.{surfaceId}",
+            $"Managed UI capture release ignored: surface={surfaceId}, reason=not-claimed.");
+        return false;
     }
 
     /// <summary>Removes buttons still held from before capture began.</summary>

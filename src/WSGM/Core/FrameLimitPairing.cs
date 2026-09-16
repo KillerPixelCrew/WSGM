@@ -185,7 +185,7 @@ public static class FrameLimitPairing
         // cadence stops any more: the cap is free and SelectRefreshHz answers it with a mode, which
         // is how SteamOS's own unified Frame Limit row behaves. Callers that want the two ends
         // should ask FrameLimitRange rather than reading them back off this list.
-        List<int> caps = new(range.Maximum - range.Minimum + 2) { 0 };
+        List<int> caps = [0];
         for (var cap = range.Minimum; cap <= range.Maximum; cap++)
         {
             caps.Add(cap);

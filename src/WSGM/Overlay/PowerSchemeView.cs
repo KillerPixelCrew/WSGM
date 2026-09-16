@@ -92,11 +92,12 @@ public sealed class PowerSchemeView : UserControl
             {
                 for (var i = 0; i < _items.Count; i++)
                 {
-                    if (_items[i].Id == _model?.ActiveId)
+                    if (_items[i].Id != _model?.ActiveId)
                     {
-                        _profiles.SelectedIndex = i;
-                        break;
+                        continue;
                     }
+                    _profiles.SelectedIndex = i;
+                    break;
                 }
             }
         }

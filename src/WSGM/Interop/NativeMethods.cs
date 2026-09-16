@@ -36,8 +36,7 @@ internal static partial class NativeMethods
     internal static partial nint OpenInputDesktop(uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit, uint dwDesiredAccess);
 
     [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CloseDesktop(nint hDesktop);
+    internal static partial void CloseDesktop(nint hDesktop);
 
     [LibraryImport("user32.dll", EntryPoint = "GetUserObjectInformationW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -56,8 +55,7 @@ internal static partial class NativeMethods
     internal static partial bool RegisterHotKey(nint hWnd, int id, uint fsModifiers, uint vk);
 
     [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool UnregisterHotKey(nint hWnd, int id);
+    internal static partial void UnregisterHotKey(nint hWnd, int id);
 
     // ---- Low-level keyboard hook (shortcut recording only — see KeyRecorder) ----
     internal const int WhKeyboardLl = 13;
@@ -226,7 +224,7 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool RegisterRawInputDevices(
-        RawInputDevice[] pRawInputDevices, uint uiNumDevices, uint cbSize);
+        [In] RawInputDevice[] pRawInputDevices, uint uiNumDevices, uint cbSize);
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetRawInputData(

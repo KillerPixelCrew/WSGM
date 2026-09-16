@@ -1,7 +1,7 @@
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Probes;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Probes;
 
 public sealed class ReadProbeTests
 {

@@ -1,7 +1,7 @@
 using WindowsDeviceControl;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class BluetoothActionTests
 {
@@ -11,7 +11,7 @@ public sealed class BluetoothActionTests
         int writes = 0, reads = 0;
         BluetoothAudioConnection connection = new((_, _) => writes++,
             () => [new CoreAudio.BluetoothAudioContainer("{ABC}", ++reads >= 3)], (_, _) => Task.CompletedTask);
-        Assert.True(await connection.ApplyAsync("abc", true, default));
+        Assert.True(await connection.ApplyAsync("abc", true, CancellationToken.None));
         Assert.Equal(1, writes);
         Assert.Equal(3, reads);
     }
@@ -22,7 +22,7 @@ public sealed class BluetoothActionTests
         var writes = 0;
         BluetoothAudioConnection connection = new((_, _) => writes++,
             () => [new CoreAudio.BluetoothAudioContainer("abc", false)], (_, _) => Task.CompletedTask);
-        Assert.False(await connection.ApplyAsync("abc", true, default));
+        Assert.False(await connection.ApplyAsync("abc", true, CancellationToken.None));
         Assert.Equal(1, writes);
     }
 

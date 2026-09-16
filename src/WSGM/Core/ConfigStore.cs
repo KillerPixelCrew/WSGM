@@ -136,34 +136,45 @@ public static class ConfigStore
             // edit, or from a configuration written by a newer build — made the retry throw as
             // well, and Load then moved the whole otherwise-valid file aside, taking the registry
             // recovery snapshots and every unrelated setting with it.
-            if (root["DeviceIntegration"] is JsonObject device)
-            {
-                RepairEnum(device, "ControllerTarget", Defaults.DeviceIntegration.ControllerTarget);
-                RepairEnum(device, "GlyphSelection", Defaults.DeviceIntegration.GlyphSelection);
-                if (device["ControllerTargets"] is JsonArray targets)
-                {
-                    foreach (var target in targets.OfType<JsonObject>())
-                    {
-                        RepairEnum(target, "Target", Defaults.DeviceIntegration.ControllerTarget);
-                    }
-                }
-                if (device["Profiles"] is JsonArray profiles)
-                {
-                    foreach (var profile in profiles.OfType<JsonObject>())
-                    {
-                        RepairDeviceProfileJson(profile);
-                    }
-                }
-                if (device["PluginSettings"] is JsonArray settings)
-                {
-                    foreach (var scope in settings.OfType<JsonObject>())
-                    {
-                        RepairPluginSettingsDeclarationJson(scope["Declaration"] as JsonObject);
-                    }
-                }
-            }
+            RepairDeviceIntegrationJson(root["DeviceIntegration"] as JsonObject);
             return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig)
                 ?? throw new JsonException("Configuration JSON contained null instead of an object.");
+        }
+    }
+
+    /// <summary>Repairs the enum-bearing members of the device-integration section.</summary>
+    /// <param name="device">The stored section, or null when the file has none.</param>
+    private static void RepairDeviceIntegrationJson(JsonObject? device)
+    {
+        if (device is null)
+        {
+            return;
+        }
+
+        RepairEnum(device, "ControllerTarget", Defaults.DeviceIntegration.ControllerTarget);
+        RepairEnum(device, "GlyphSelection", Defaults.DeviceIntegration.GlyphSelection);
+        if (device["ControllerTargets"] is JsonArray targets)
+        {
+            foreach (var target in targets.OfType<JsonObject>())
+            {
+                RepairEnum(target, "Target", Defaults.DeviceIntegration.ControllerTarget);
+            }
+        }
+        if (device["Profiles"] is JsonArray profiles)
+        {
+            foreach (var profile in profiles.OfType<JsonObject>())
+            {
+                RepairDeviceProfileJson(profile);
+            }
+        }
+        if (device["PluginSettings"] is not JsonArray settings)
+        {
+            return;
+        }
+
+        foreach (var scope in settings.OfType<JsonObject>())
+        {
+            RepairPluginSettingsDeclarationJson(scope["Declaration"] as JsonObject);
         }
     }
 
@@ -266,12 +277,14 @@ public static class ConfigStore
         RepairEnum(filter, "ScoreType", FilterDefaults.ScoreType);
         RepairEnum(filter, "Units", FilterDefaults.Units);
         RepairEnum(filter, "CardScope", FilterDefaults.CardScope);
-        if (filter["Children"] is JsonArray children)
+        if (filter["Children"] is not JsonArray children)
         {
-            foreach (var child in children.OfType<JsonObject>())
-            {
-                RepairFilterJson(child);
-            }
+            return;
+        }
+
+        foreach (var child in children.OfType<JsonObject>())
+        {
+            RepairFilterJson(child);
         }
     }
 
@@ -344,8 +357,11 @@ public static class ConfigStore
         config.Gestures ??= new GestureConfig();
         config.QuickAccessPins ??= [];
         config.PluginWidgetPins = PluginWidgetPins.Normalize(config.PluginWidgetPins);
-        config.QuickAccessPins = config.QuickAccessPins
-            .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        config.QuickAccessPins =
+        [
+            .. config.QuickAccessPins
+                .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)
+        ];
         config.SavedDisplayScaleEntries ??= [];
         config.GameModeLaunch ??= new GameModeLaunchConfiguration();
         NormalizeGameModeLaunch(config.GameModeLaunch);
@@ -353,8 +369,11 @@ public static class ConfigStore
         config.PreviousConsoleLockSchemeValues ??= [];
         config.CardLibraries ??= [];
         config.ForgottenInsertedCardIds ??= [];
-        config.ForgottenInsertedCardIds = config.ForgottenInsertedCardIds
-            .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        config.ForgottenInsertedCardIds =
+        [
+            .. config.ForgottenInsertedCardIds
+                .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)
+        ];
         config.CustomTabs ??= [];
         config.LibraryTabOrder ??= [];
         config.HiddenNativeTabs ??= [];
@@ -384,14 +403,14 @@ public static class ConfigStore
             wrapper.CustomActionPath ??= "";
             wrapper.CustomArguments ??= "";
         }
-        config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
+        config.CardLibraries = [.. config.CardLibraries.Where(static card => card is not null)];
         foreach (var card in config.CardLibraries)
         {
             card.ContentId ??= "";
             card.Name ??= "";
             card.AppIds ??= [];
         }
-        config.CustomTabs = config.CustomTabs.Where(static tab => tab is not null).ToList();
+        config.CustomTabs = [.. config.CustomTabs.Where(static tab => tab is not null)];
         foreach (var tab in config.CustomTabs)
         {
             tab.Id = string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id;
@@ -399,12 +418,9 @@ public static class ConfigStore
             tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
             NormalizeFilter(tab.FilterTree);
         }
-        config.LibraryTabOrder = config.LibraryTabOrder
-            .Where(static key => key is not null).ToList();
-        config.HiddenNativeTabs = config.HiddenNativeTabs
-            .Where(static id => id is not null).ToList();
-        config.KnownNativeTabs = config.KnownNativeTabs
-            .Where(static tab => tab is not null).ToList();
+        config.LibraryTabOrder = [.. config.LibraryTabOrder.Where(static key => key is not null)];
+        config.HiddenNativeTabs = [.. config.HiddenNativeTabs.Where(static id => id is not null)];
+        config.KnownNativeTabs = [.. config.KnownNativeTabs.Where(static tab => tab is not null)];
         foreach (var native in config.KnownNativeTabs)
         {
             native.Id ??= "";
@@ -546,13 +562,15 @@ public static class ConfigStore
 
                 for (var index = 1; index < profile.Curve.Count; index++)
                 {
-                    if (profile.Curve[index].Input <= profile.Curve[index - 1].Input)
+                    if (profile.Curve[index].Input > profile.Curve[index - 1].Input)
                     {
-                        Log.Warn(
-                            $"Device profile '{profile.ProfileId}' was dropped: its curve inputs "
-                            + "are not strictly ascending.");
-                        return true;
+                        continue;
                     }
+
+                    Log.Warn(
+                        $"Device profile '{profile.ProfileId}' was dropped: its curve inputs "
+                        + "are not strictly ascending.");
+                    return true;
                 }
 
                 return false;
@@ -666,14 +684,17 @@ public static class ConfigStore
         // as long as it still says something.
         performance.Applications.RemoveAll(static application =>
             string.IsNullOrWhiteSpace(application.RtssProfileName)
-            && !application.UsePerGameProfile
-            && application.FrameLimit is null
-            && application.OverlayLevel is null
-            && application.TdpWatts is null
-            && application.ManualTdp is null
-            && application.AcPowerPreset is null
-            && application.BatteryPowerPreset is null
-            && application.VariableRefreshRate is null);
+            && application is
+            {
+                UsePerGameProfile: false,
+                FrameLimit: null,
+                OverlayLevel: null,
+                TdpWatts: null,
+                ManualTdp: null,
+                AcPowerPreset: null,
+                BatteryPowerPreset: null,
+                VariableRefreshRate: null
+            });
     }
 
     private static DevicePowerPresetReference? NormalizePowerPreset(DevicePowerPresetReference? reference)
@@ -687,7 +708,7 @@ public static class ConfigStore
         reference.PresetId = presetId;
         if (presetId == "custom")
         {
-            if (reference.CustomValues is not { } values || values.SustainedWatts <= 0
+            if (reference.CustomValues is not { SustainedWatts: > 0 } values
                 || values.SlowWatts < values.SustainedWatts || !Enum.IsDefined(values.WindowsMode)
                 || values.Scenario is { Length: 0 or > 128 }) { return null; }
         }
@@ -709,9 +730,12 @@ public static class ConfigStore
         launch.KnownDisplays.RemoveAll(static display => display?.Target is null);
         foreach (var display in launch.KnownDisplays)
         {
-            display.Modes = (display.Modes ?? [])
-                .Where(static mode => mode is { Width: > 0 and <= 16384, Height: > 0 and <= 16384 })
-                .Distinct().Take(512).ToList();
+            display.Modes =
+            [
+                .. (display.Modes ?? [])
+                    .Where(static mode => mode is { Width: > 0 and <= 16384, Height: > 0 and <= 16384 })
+                    .Distinct().Take(512)
+            ];
             display.MaximumDpiPercent = Math.Clamp(display.MaximumDpiPercent, 0, 500);
         }
     }
@@ -733,8 +757,7 @@ public static class ConfigStore
     private static List<PluginActionStep> NormalizeSteps(List<PluginActionStep>? steps)
     {
         steps ??= [];
-        steps.RemoveAll(static step => step is null
-            || step.Plugin is not { } plugin
+        steps.RemoveAll(static step => step?.Plugin is not { } plugin
             || string.IsNullOrWhiteSpace(plugin.PluginId)
             || string.IsNullOrWhiteSpace(plugin.InstanceId)
             || string.IsNullOrWhiteSpace(step.ActionId));
@@ -743,7 +766,7 @@ public static class ConfigStore
             step.Arguments ??= [];
             step.TimeoutSeconds = Math.Clamp(step.TimeoutSeconds, 1, 120);
         }
-        return steps.Take(32).ToList();
+        return [.. steps.Take(32)];
     }
 
     private static void NormalizeFilter(FilterNode node)
@@ -758,7 +781,7 @@ public static class ConfigStore
         node.CollectionId ??= "";
         node.Pattern ??= "";
         node.ContentId ??= "";
-        node.Children = (node.Children ?? []).Where(static child => child is not null).ToList();
+        node.Children = [.. (node.Children ?? []).Where(static child => child is not null)];
         node.TagIds ??= [];
         node.AppIds ??= [];
         foreach (var child in node.Children)
@@ -767,43 +790,42 @@ public static class ConfigStore
         }
     }
 
-    // The single source of the editor bounds: AppearancePage.axaml binds its
-    // NumericUpDown Minimum/Maximum and TextBox MaxLength values to these via
-    // x:Static, and normalization applies the same limits to config load and
-    // theme import, so the renderer sees the same bounded values regardless of
-    // their source.
+    // The single source of the normalization bounds: AppearancePage.axaml mirrors
+    // them as literal NumericUpDown Minimum/Maximum and TextBox MaxLength values,
+    // and normalization applies the same limits to config load and theme import,
+    // so the renderer sees the same bounded values regardless of their source.
     /// <summary>Smallest splash font size the editor and normalization accept.</summary>
-    public const int MinFontSize = 1;
+    private const int MinFontSize = 1;
     /// <summary>Largest splash title font size.</summary>
-    public const int MaxTitleFontSize = 400;
+    private const int MaxTitleFontSize = 400;
     /// <summary>Largest splash caption font size.</summary>
-    public const int MaxCaptionFontSize = 200;
+    private const int MaxCaptionFontSize = 200;
     /// <summary>Smallest spinner size in logical pixels.</summary>
-    public const int MinSpinnerSize = 1;
+    private const int MinSpinnerSize = 1;
     /// <summary>Largest spinner size in logical pixels.</summary>
-    public const int MaxSpinnerSize = 1024;
+    private const int MaxSpinnerSize = 1024;
     /// <summary>Smallest logo maximum-edge length.</summary>
-    public const int MinLogoMaxSize = 1;
+    private const int MinLogoMaxSize = 1;
     /// <summary>Largest logo maximum-edge length.</summary>
-    public const int MaxLogoMaxSize = 4096;
+    private const int MaxLogoMaxSize = 4096;
     /// <summary>Smallest anchored-edge padding.</summary>
-    public const int MinPadding = 0;
+    private const int MinPadding = 0;
     /// <summary>Largest anchored-edge padding.</summary>
-    public const int MaxPadding = 4096;
+    private const int MaxPadding = 4096;
     /// <summary>Smallest absolute placement coordinate (an element placed off the
     /// top-left is unreachable, not a feature).</summary>
-    public const int MinAbsoluteCoordinate = 0;
+    private const int MinAbsoluteCoordinate = 0;
     /// <summary>Largest absolute placement coordinate in logical pixels.</summary>
-    public const int MaxAbsoluteCoordinate = 16384;
+    private const int MaxAbsoluteCoordinate = 16384;
 
     /// <summary>Splash title and caption are single unwrapped lines. This cap bounds
     /// both Settings and boot layout work while remaining longer than the panel can
     /// display usefully.</summary>
-    public const int MaxSplashTextLength = 200;
+    private const int MaxSplashTextLength = 200;
 
     /// <summary>Covers hexadecimal and named Avalonia colours with room to spare,
     /// while bounding the text parsed on each live Appearance-page edit.</summary>
-    public const int MaxColorLength = 32;
+    private const int MaxColorLength = 32;
 
     /// <summary>Repairs explicit JSON nulls inside a splash section (see
     /// <see cref="Normalize"/>), bounds the display strings, and clamps every

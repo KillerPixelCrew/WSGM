@@ -4,13 +4,13 @@ namespace WSGM.DeviceLab.Gui;
 internal sealed record DeviceLabGuiOperationState
 {
     /// <summary>The last successfully serialized operation result.</summary>
-    public string? LastSuccessfulResult { get; init; }
+    public string? LastSuccessfulResult { get; private init; }
 
     /// <summary>Current concise operation status.</summary>
     public required string StatusText { get; init; }
 
     /// <summary>Whether the operation gate is occupied.</summary>
-    public bool IsRunning { get; init; }
+    public bool IsRunning { get; private init; }
 
     /// <summary>Initial idle projection.</summary>
     public static DeviceLabGuiOperationState Initial { get; } = new() { StatusText = "Ready." };
@@ -23,7 +23,7 @@ internal sealed record DeviceLabGuiOperationState
     };
 
     /// <summary>Publishes a successful immutable result.</summary>
-    public DeviceLabGuiOperationState Succeeded(string result) => this with
+    public DeviceLabGuiOperationState Succeeded(string result) => new()
     {
         LastSuccessfulResult = result,
         StatusText = "Completed successfully.",

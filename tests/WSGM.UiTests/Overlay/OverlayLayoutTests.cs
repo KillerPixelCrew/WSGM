@@ -9,8 +9,11 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
+using WSGM.UiTests.Visual;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class OverlayLayoutTests
 {
@@ -26,11 +29,12 @@ public sealed class OverlayLayoutTests
         window.SetPins(["section.device.overview"]);
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Dispatcher.UIThread.RunJobs();
-        CardButton Action() => panel.GetVisualDescendants().OfType<CardButton>().Single();
         Action().Focus();
         UiFixture.Click(window, Action());
         Dispatcher.UIThread.RunJobs();
         Assert.True(Action().IsFocused);
+
+        CardButton Action() => panel.GetVisualDescendants().OfType<CardButton>().Single();
     }
 
     [AvaloniaFact]
@@ -42,20 +46,21 @@ public sealed class OverlayLayoutTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
         var reading = window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Processor temperature");
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Processor temperature" });
         List<string> pins = [];
         window.PinToggleRequested += pins.Add;
         Assert.False(reading.IsEffectivelyEnabled);
-        Button Header() => window.GetVisualDescendants().OfType<SectionPinHeader>()
-            .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
         Assert.True(Header().Focus());
         device.Notify();
         Dispatcher.UIThread.RunJobs();
         Assert.True(Header().IsFocused);
         UiFixture.Click(window, Header());
         Assert.Equal(["section.device.overview"], pins);
+
+        Button Header() => window.GetVisualDescendants().OfType<SectionPinHeader>()
+            .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
     }
 
     [AvaloniaFact]
@@ -119,7 +124,7 @@ public sealed class OverlayLayoutTests
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
         var type = kind switch
         {
             CapabilityValueKind.Integer => typeof(Slider),
@@ -136,8 +141,15 @@ public sealed class OverlayLayoutTests
         Assert.Equal(["section.device.overview"], requests);
         UiFixture.Click(window, editor, MouseButton.Right);
         Assert.Equal(2, requests.Count);
-        if (editor is Slider slider) { Assert.Equal(50, slider.Value); }
-        if (editor is ComboBox choice) { Assert.False(choice.IsDropDownOpen); }
+        switch (editor)
+        {
+            case Slider slider:
+                Assert.Equal(50, slider.Value);
+                break;
+            case ComboBox choice:
+                Assert.False(choice.IsDropDownOpen);
+                break;
+        }
         var header = window.GetVisualDescendants().OfType<SectionPinHeader>().Single(header => header.IsEffectivelyVisible);
         UiFixture.Click(window, header.GetVisualDescendants().OfType<Button>().Single());
         Assert.Equal(3, requests.Count);
@@ -188,7 +200,7 @@ public sealed class OverlayLayoutTests
         window.AttachBrightness(brightness, () => Task.FromResult<DisplayModeSnapshot?>(modes));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Display"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Display" }));
         Assert.Equal(720, host.Bounds.Width);
         VisualBaseline.Verify(window, "overlay-display-1280");
         window.SetPins(["section.display"]);

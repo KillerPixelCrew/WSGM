@@ -13,11 +13,6 @@ internal sealed class PluginWidgetPinControls : CardButton
         IconGeometry = Icons.Pin;
         var pinned = false;
         var busy = false;
-        void ShowState()
-        {
-            IsPinned = pinned;
-            Description = pinned ? "Pinned to Quick access - Select to unpin" : "Select to pin to Quick access";
-        }
         ShowState();
         AttachedToVisualTree += async (_, _) =>
         {
@@ -43,5 +38,12 @@ internal sealed class PluginWidgetPinControls : CardButton
             catch (Exception ex) { Description = "Pin change failed: " + ex.Message; }
             finally { busy = false; IsEnabled = true; }
         };
+        return;
+
+        void ShowState()
+        {
+            IsPinned = pinned;
+            Description = pinned ? "Pinned to Quick access - Select to unpin" : "Select to pin to Quick access";
+        }
     }
 }

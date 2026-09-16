@@ -195,61 +195,60 @@ public sealed class GamepadNavigation : IDisposable
         {
             return;
         }
-        // Value controls need
-        // the same arrows they would receive from a keyboard: left/right nudges
-        // a slider and up/down changes the current ComboBox item. Without this,
-        // the taskbar audio panel was keyboard/touch-only despite being focused.
-        if (target is Slider slider
-            && (buttons.HasFlag(GamepadButtons.DPadLeft)
-                || buttons.HasFlag(GamepadButtons.DPadRight)))
+        switch (target)
         {
-            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            slider.Value = AdjustSliderValue(
-                slider.Value,
-                slider.Minimum,
-                slider.Maximum,
-                slider.TickFrequency,
-                buttons.HasFlag(GamepadButtons.DPadRight));
-            return;
-        }
-        // The color spectrum keeps Left/Right for its hue sweep, exactly like a horizontal
-        // slider; Up/Down still move focus so the d-pad can reach the channel sliders below it.
-        if (target is DeviceColorSpectrum spectrum
-            && (buttons.HasFlag(GamepadButtons.DPadLeft)
-                || buttons.HasFlag(GamepadButtons.DPadRight)))
-        {
-            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            spectrum.ApplyDirection(buttons.HasFlag(GamepadButtons.DPadRight)
-                ? NavigationDirection.Right
-                : NavigationDirection.Left);
-            return;
-        }
-        if (target is ComboBox { IsDropDownOpen: true } openSelector
-            && (buttons.HasFlag(GamepadButtons.DPadUp)
-                || buttons.HasFlag(GamepadButtons.DPadDown)))
-        {
-            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            var forward = buttons.HasFlag(GamepadButtons.DPadDown);
-            openSelector.SelectedIndex = AdjustComboBoxIndex(
-                openSelector.SelectedIndex,
-                openSelector.ItemCount,
-                forward);
-            return;
-        }
-        if (target is CurveEditor curve
-            && DirectionForButtons(buttons) is { } curveDirection)
-        {
-            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            curve.ApplyDirection(curveDirection);
-            return;
+            // Value controls need
+            // the same arrows they would receive from a keyboard: left/right nudges
+            // a slider and up/down changes the current ComboBox item. Without this,
+            // the taskbar audio panel was keyboard/touch-only despite being focused.
+            case Slider slider
+                when buttons.HasFlag(GamepadButtons.DPadLeft)
+                     || buttons.HasFlag(GamepadButtons.DPadRight):
+                _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+                slider.Value = AdjustSliderValue(
+                    slider.Value,
+                    slider.Minimum,
+                    slider.Maximum,
+                    slider.TickFrequency,
+                    buttons.HasFlag(GamepadButtons.DPadRight));
+                return;
+            // The color spectrum keeps Left/Right for its hue sweep, exactly like a horizontal
+            // slider; Up/Down still move focus so the d-pad can reach the channel sliders below it.
+            case DeviceColorSpectrum spectrum
+                when buttons.HasFlag(GamepadButtons.DPadLeft)
+                     || buttons.HasFlag(GamepadButtons.DPadRight):
+                _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+                spectrum.ApplyDirection(buttons.HasFlag(GamepadButtons.DPadRight)
+                    ? NavigationDirection.Right
+                    : NavigationDirection.Left);
+                return;
+            case ComboBox { IsDropDownOpen: true } openSelector
+                when buttons.HasFlag(GamepadButtons.DPadUp)
+                     || buttons.HasFlag(GamepadButtons.DPadDown):
+                {
+                    _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+                    var forward = buttons.HasFlag(GamepadButtons.DPadDown);
+                    openSelector.SelectedIndex = AdjustComboBoxIndex(
+                        openSelector.SelectedIndex,
+                        openSelector.ItemCount,
+                        forward);
+                    return;
+                }
+            case CurveEditor curve
+                when DirectionForButtons(buttons) is { } curveDirection:
+                _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+                curve.ApplyDirection(curveDirection);
+                return;
         }
 
         var direction = DirectionForButtons(buttons);
-        if (direction is not null)
+        if (direction is null)
         {
-            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            MoveFocus(direction.Value);
+            return;
         }
+
+        _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+        MoveFocus(direction.Value);
     }
 
     /// <summary>Maps each physical direction to Avalonia's matching spatial
@@ -314,11 +313,13 @@ public sealed class GamepadNavigation : IDisposable
         {
             return false;
         }
-        if (!_loggedKeyboardLed)
+        if (_loggedKeyboardLed)
         {
-            _loggedKeyboardLed = true;
-            Log.Info("Gamepad nav: Steam's mirrored arrow key led the pad edge for the same press; suppressing the duplicate pad step.");
+            return true;
         }
+
+        _loggedKeyboardLed = true;
+        Log.Info("Gamepad nav: Steam's mirrored arrow key led the pad edge for the same press; suppressing the duplicate pad step.");
         return true;
     }
 
@@ -339,11 +340,13 @@ public sealed class GamepadNavigation : IDisposable
                 return;
             }
             _suppressBackPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            if (CurrentTarget() is ComboBox { IsDropDownOpen: true } combo)
+            if (CurrentTarget() is not ComboBox { IsDropDownOpen: true } combo)
             {
-                e.Handled = true;
-                combo.IsDropDownOpen = false;
+                return;
             }
+
+            e.Handled = true;
+            combo.IsDropDownOpen = false;
             return;
         }
         if (e.Key is Key.Enter or Key.Space)
@@ -357,11 +360,13 @@ public sealed class GamepadNavigation : IDisposable
                 return;
             }
             _suppressConfirmPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-            if (CurrentTarget() is ComboBox combo)
+            if (CurrentTarget() is not ComboBox combo)
             {
-                e.Handled = true;
-                combo.IsDropDownOpen = !combo.IsDropDownOpen;
+                return;
             }
+
+            e.Handled = true;
+            combo.IsDropDownOpen = !combo.IsDropDownOpen;
             return;
         }
         var direction = e.Key switch
@@ -417,7 +422,7 @@ public sealed class GamepadNavigation : IDisposable
     }
 
     private InputElement? GetFocused()
-        => TopLevel.GetTopLevel(_window)?.FocusManager?.GetFocusedElement() as InputElement;
+        => TopLevel.GetTopLevel(_window)?.FocusManager.GetFocusedElement() as InputElement;
 
     /// <summary>The element navigation should act on: FocusManager's answer when it
     /// is one of ours, otherwise the last element this class focused.</summary>
@@ -433,16 +438,19 @@ public sealed class GamepadNavigation : IDisposable
             _lastFocused = focused;
             return focused;
         }
-        if (_lastFocused is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } last && IsInWindow(last))
+        if (_lastFocused is not { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } last || !IsInWindow(last))
         {
-            if (!_loggedFocusFallback)
-            {
-                _loggedFocusFallback = true;
-                Log.Info("Gamepad nav: FocusManager lost track (never-activated window), using last focused element.");
-            }
+            return null;
+        }
+
+        if (_loggedFocusFallback)
+        {
             return last;
         }
-        return null;
+
+        _loggedFocusFallback = true;
+        Log.Info("Gamepad nav: FocusManager lost track (never-activated window), using last focused element.");
+        return last;
     }
 
     private void MoveFocus(NavigationDirection direction)
@@ -462,48 +470,53 @@ public sealed class GamepadNavigation : IDisposable
         {
             next = NextInDirection(textBox, direction);
         }
-        if (next is TextBox)
+        switch (next)
         {
-            // Guard exhausted — a tab cycle of only TextBoxes. Leave focus where
-            // it is rather than land on a text field and pop the touch keyboard.
-            if (!_loggedTextBoxCycle)
+            case TextBox:
+                {
+                    // Guard exhausted — a tab cycle of only TextBoxes. Leave focus where
+                    // it is rather than land on a text field and pop the touch keyboard.
+                    if (_loggedTextBoxCycle)
+                    {
+                        return;
+                    }
+
+                    _loggedTextBoxCycle = true;
+                    Log.Warn("Gamepad nav: TextBox-skip guard exhausted, focus unchanged.");
+                    return;
+                }
+            case InputElement input:
+                input.Focus(NavigationMethod.Directional);
+                _lastFocused = input;
+                // The move landed, so the next edge in any direction is a new event
+                // and gets its own log line.
+                _loggedEdgeHandoff = null;
+                return;
+        }
+
+        // Window edge in this direction: let the controller cross into an adjacent
+        // window (the keyboard beside the sidebar) if one is there.
+        if (_onEdge is not null)
+        {
+            // Log the attempted direction before transferring focus, but only
+            // once per sustained push: a direction held against an edge repeats
+            // every 150 ms and would flood the device log.
+            if (_loggedEdgeHandoff != direction)
             {
-                _loggedTextBoxCycle = true;
-                Log.Warn("Gamepad nav: TextBox-skip guard exhausted, focus unchanged.");
+                _loggedEdgeHandoff = direction;
+                Log.Info($"Gamepad nav: window edge in the {direction} direction; invoking peer handoff.");
             }
+            _onEdge(direction);
             return;
         }
-        if (next is InputElement input)
+
+        if (_loggedEdge)
         {
-            input.Focus(NavigationMethod.Directional);
-            _lastFocused = input;
-            // The move landed, so the next edge in any direction is a new event
-            // and gets its own log line.
-            _loggedEdgeHandoff = null;
+            return;
         }
-        else
-        {
-            // Window edge in this direction: let the controller cross into an adjacent
-            // window (the keyboard beside the sidebar) if one is there.
-            if (_onEdge is not null)
-            {
-                // Log the attempted direction before transferring focus, but only
-                // once per sustained push: a direction held against an edge repeats
-                // every 150 ms and would flood the device log.
-                if (_loggedEdgeHandoff != direction)
-                {
-                    _loggedEdgeHandoff = direction;
-                    Log.Info($"Gamepad nav: window edge in the {direction} direction; invoking peer handoff.");
-                }
-                _onEdge(direction);
-                return;
-            }
-            if (!_loggedEdge)
-            {
-                _loggedEdge = true;
-                Log.Info($"Gamepad nav: no focusable control in the {direction} direction; focus unchanged.");
-            }
-        }
+
+        _loggedEdge = true;
+        Log.Info($"Gamepad nav: no focusable control in the {direction} direction; focus unchanged.");
     }
 
     /// <summary>Peeks at the next element in the requested visual direction without moving focus —
@@ -511,7 +524,7 @@ public sealed class GamepadNavigation : IDisposable
     /// focusing a text field pops the touch keyboard. Scoped to this window so a
     /// search cannot walk into another top level.</summary>
     private IInputElement? NextInDirection(IInputElement from, NavigationDirection direction)
-        => TopLevel.GetTopLevel(_window)?.FocusManager?.FindNextElement(
+        => TopLevel.GetTopLevel(_window)?.FocusManager.FindNextElement(
             direction,
             new FindNextElementOptions { FocusedElement = from, SearchRoot = _window });
 

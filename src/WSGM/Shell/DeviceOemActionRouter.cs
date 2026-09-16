@@ -52,7 +52,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private const int MaxControls = 16;
     private const int MaxDeduplicationEntries = 256;
     private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
@@ -281,10 +281,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
     {
         var assignment = _profile?.OemAssignments.FirstOrDefault(item =>
             string.Equals(item.ControlId, control.ControlId, StringComparison.Ordinal));
-        if (assignment is not null)
-        {
-            return assignment.Action;
-        }
 
         // WSGM claims no physical button by default. The handheld's OEM buttons reach Steam as the
         // virtual target's own Steam and Quick Access buttons — the plugin puts them in the
@@ -292,7 +288,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         // them nor synthesizes anything on their behalf.
         // Putting a WSGM surface on a hardware button is an explicit Settings assignment; an
         // unassigned button does nothing here.
-        return OemAction.Disabled;
+        return assignment?.Action ?? OemAction.Disabled;
     }
 
     private void ExpireDeduplicationUnderGate(DateTimeOffset now)
@@ -305,15 +301,17 @@ internal sealed class DeviceOemActionRouter : IDisposable
             _recentEvents.Remove(key);
         }
 
-        if (_recentEvents.Count >= MaxDeduplicationEntries)
+        if (_recentEvents.Count < MaxDeduplicationEntries)
         {
-            foreach (var key in _recentEvents.OrderBy(item => item.Value)
-                .Take(_recentEvents.Count - MaxDeduplicationEntries + 1)
-                .Select(item => item.Key)
-                .ToArray())
-            {
-                _recentEvents.Remove(key);
-            }
+            return;
+        }
+
+        foreach (var key in _recentEvents.OrderBy(item => item.Value)
+            .Take(_recentEvents.Count - MaxDeduplicationEntries + 1)
+            .Select(item => item.Key)
+            .ToArray())
+        {
+            _recentEvents.Remove(key);
         }
     }
 

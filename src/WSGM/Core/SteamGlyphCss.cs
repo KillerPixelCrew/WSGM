@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -105,7 +106,7 @@ internal static class SteamGlyphCss
     /// does not pair it with a hardcoded number per control, because the row carries the glyph for
     /// its own input and that identifies it just as precisely.
     /// </remarks>
-    internal const string BindingRowIdToken = "EControllerModeInput";
+    private const string BindingRowIdToken = "EControllerModeInput";
 
     /// <summary>Steam's readable class for one control group in the binding editor.</summary>
     /// <remarks>
@@ -223,7 +224,7 @@ internal static class SteamGlyphCss
             return 0;
         }
 
-        var container = "." + InlineLogoContainerClass;
+        const string container = "." + InlineLogoContainerClass;
         var path = $"svg path[d=\"{Attribute(SteamLogoPathData)}\"]";
         // The inner svg is hidden rather than removed, and the replacement is painted on the
         // container: the svg is Steam's own node, and WSGM owns no DOM here, only style.
@@ -325,8 +326,10 @@ internal static class SteamGlyphCss
     /// <param name="value">The raw value.</param>
     /// <returns>The escaped value.</returns>
     internal static string Attribute(string value) =>
-        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+        value.Replace(@"\", @"\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal);
+
+    private static readonly SearchValues<char> UnsafeUrlCharacters = SearchValues.Create("\"'()\\\r\n");
 
     /// <summary>
     /// Rejects anything that could break out of a CSS <c>url("…")</c> token.
@@ -338,7 +341,7 @@ internal static class SteamGlyphCss
     internal static string Url(string value)
     {
         if (!value.StartsWith("data:", StringComparison.Ordinal)
-            || value.AsSpan().ContainsAny("\"'()\\\r\n"))
+            || value.AsSpan().ContainsAny(UnsafeUrlCharacters))
         {
             throw new ArgumentException(
                 "Only a bounded data URI may be emitted into a glyph stylesheet.",

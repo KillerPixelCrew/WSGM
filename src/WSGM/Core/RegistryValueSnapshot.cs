@@ -62,11 +62,9 @@ internal sealed class RegistryValueSnapshot<T>
 
         var sentinel = new object();
         var value = key.GetValue(_valueName, sentinel, RegistryValueOptions.DoNotExpandEnvironmentNames);
-        if (ReferenceEquals(value, sentinel))
-        {
-            return new State(false, false, _absentValue, _defaultKind);
-        }
-        return new State(false, true, _coerce(value!), key.GetValueKind(_valueName));
+        return ReferenceEquals(value, sentinel)
+            ? new State(false, false, _absentValue, _defaultKind)
+            : new State(false, true, _coerce(value), key.GetValueKind(_valueName));
     }
 
     /// <summary>Persists a previously read state into the bound AppConfig fields,

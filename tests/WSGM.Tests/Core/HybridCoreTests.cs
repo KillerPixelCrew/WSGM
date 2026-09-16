@@ -2,8 +2,9 @@ using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class HybridCoreTests
 {
@@ -112,11 +113,16 @@ public sealed class HybridCoreTests
     [Fact]
     public void TheEffectiveModeIsReadSeparatelyForEachPowerSource()
     {
-        FakeHybridCoreApi api = new();
-        api.States[false] = new HybridCoreState(0, HybridSchedulingPolicy.PreferPerformantProcessors,
-            HybridSchedulingPolicy.PreferPerformantProcessors);
-        api.States[true] = new HybridCoreState(4, HybridSchedulingPolicy.PreferEfficientProcessors,
-            HybridSchedulingPolicy.PreferEfficientProcessors);
+        FakeHybridCoreApi api = new()
+        {
+            States =
+            {
+                [false] = new HybridCoreState(0, HybridSchedulingPolicy.PreferPerformantProcessors,
+                    HybridSchedulingPolicy.PreferPerformantProcessors),
+                [true] = new HybridCoreState(4, HybridSchedulingPolicy.PreferEfficientProcessors,
+                    HybridSchedulingPolicy.PreferEfficientProcessors)
+            }
+        };
 
         var status = new HybridCores(api).Read();
 
@@ -225,7 +231,7 @@ public sealed class HybridCoreTests
             ["automatic", "prefer-performance", "prefer-efficiency", "performance-only", "efficiency-only"],
             state.Options.Select(option => option.Id));
 
-        Assert.True((await qam.SetHybridCoresAsync("prefer-performance", default)).Succeeded);
+        Assert.True((await qam.SetHybridCoresAsync("prefer-performance", CancellationToken.None)).Succeeded);
         Assert.Equal("prefer-performance", (await qam.ReadAsync())!.Current);
         Assert.Equal(HybridCoreMode.PreferPerformance, new HybridCores(api).Read().OnAc);
     }
@@ -237,7 +243,7 @@ public sealed class HybridCoreTests
         var qam = new NativeQamHybridCoreService(new HybridCores(api));
         await qam.ReadAsync();
 
-        Assert.False((await qam.SetHybridCoresAsync("turbo", default)).Succeeded);
+        Assert.False((await qam.SetHybridCoresAsync("turbo", CancellationToken.None)).Succeeded);
         Assert.Equal(0, api.Refreshes);
     }
 
@@ -250,8 +256,8 @@ public sealed class HybridCoreTests
         var qam = new NativeQamHybridCoreService(new HybridCores(api));
         await qam.ReadAsync();
 
-        Assert.False((await qam.SetHybridCoresAsync("efficiency-only", default)).Succeeded);
-        var second = await qam.SetHybridCoresAsync("efficiency-only", default);
+        Assert.False((await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None)).Succeeded);
+        var second = await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None);
 
         Assert.False(second.Succeeded);
         Assert.Contains("must be refreshed", second.Error!, StringComparison.Ordinal);

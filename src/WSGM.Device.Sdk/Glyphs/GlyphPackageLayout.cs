@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 
 namespace WSGM.Device.Sdk.Glyphs;
 
@@ -10,6 +11,11 @@ namespace WSGM.Device.Sdk.Glyphs;
 /// </remarks>
 public static class GlyphPackageLayout
 {
+    private static readonly SearchValues<char> IdentifierCharacters =
+        SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-");
+
+    private static readonly SearchValues<char> LowercaseHexCharacters = SearchValues.Create("0123456789abcdef");
+
     /// <summary>Returns the fixed profile-manifest path for one stable profile identifier.</summary>
     /// <param name="profileId">Validated package-scoped profile identifier.</param>
     /// <returns>Forward-slash relative package path.</returns>
@@ -17,8 +23,7 @@ public static class GlyphPackageLayout
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
         if (profileId.Length > GlyphProfileLimits.MaxIdentifierLength
-            || profileId.AsSpan().IndexOfAnyExcept(
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") >= 0)
+            || profileId.AsSpan().IndexOfAnyExcept(IdentifierCharacters) >= 0)
         {
             throw new ArgumentException("Profile identifiers contain only ASCII letters, digits, '.', '_', and '-'.",
                 nameof(profileId));
@@ -46,7 +51,7 @@ public static class GlyphPackageLayout
     private static void ValidateHash(string sha256)
     {
         ArgumentNullException.ThrowIfNull(sha256);
-        if (sha256.Length != 64 || sha256.AsSpan().IndexOfAnyExcept("0123456789abcdef") >= 0)
+        if (sha256.Length != 64 || sha256.AsSpan().IndexOfAnyExcept(LowercaseHexCharacters) >= 0)
         {
             throw new ArgumentException(
                 "Content hash must be exactly 64 lowercase hexadecimal characters.",

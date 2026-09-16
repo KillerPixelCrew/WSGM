@@ -23,8 +23,6 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
     /// <summary>Stable id of the one glyph delivery patch.</summary>
     internal const string PatchId = "wsgm.steam-input.glyph-style";
 
-    private readonly SteamInputGlyphDeliveryState _state = state;
-
     /// <inheritdoc/>
     public string Id => PatchId;
 
@@ -66,7 +64,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_state.Current is null)
+        if (state.Current is null)
         {
             return new SteamUiPatchProbeResult(
                 true,
@@ -117,7 +115,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
             true,
             compatible,
             compatible,
-            compatible ? $"wsgm-glyph-style-v1:{_state.Current.ProfileId}:{_state.Current.Revision}" : null,
+            compatible ? $"wsgm-glyph-style-v1:{state.Current.ProfileId}:{state.Current.Revision}" : null,
             compatible ? null : SteamUiPatchEvaluation.Bounded(result.Value));
     }
 
@@ -127,7 +125,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_state.Current is not { } presentation)
+        if (state.Current is not { } presentation)
         {
             return Task.FromResult(new SteamUiPatchOperationResult(
                 false,
@@ -220,7 +218,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
               const id={{SteamCef.JsString(SteamGlyphCss.ElementId)}};
               const owned={{SteamCef.JsString(SteamGlyphCss.OwnedClass)}};
               const style=document.getElementById(id);
-              const expected={{SteamCef.JsString(_state.Current is { } current ? SteamGlyphCss.Build(current, true) : "")}};
+              const expected={{SteamCef.JsString(state.Current is { } current ? SteamGlyphCss.Build(current, true) : "")}};
               if(!style||!style.classList.contains(owned))
                 return JSON.stringify({ok:false,error:'the WSGM glyph stylesheet is absent'});
               if(!expected||!style.textContent.startsWith(expected))return JSON.stringify({ok:false,error:'the WSGM glyph profile changed'});

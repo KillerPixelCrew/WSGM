@@ -141,12 +141,14 @@ internal static class CurveEditing
 
         for (var index = 0; index < points.Count; index++)
         {
-            if (points[index].Input == clampedInput)
+            if (points[index].Input != clampedInput)
             {
-                List<CurvePoint> replaced = [.. points];
-                replaced[index] = new CurvePoint(clampedInput, clampedOutput);
-                return replaced;
+                continue;
             }
+
+            List<CurvePoint> replaced = [.. points];
+            replaced[index] = new CurvePoint(clampedInput, clampedOutput);
+            return replaced;
         }
 
         if (points.Count >= MaximumPoints)

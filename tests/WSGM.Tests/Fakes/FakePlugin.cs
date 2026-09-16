@@ -1,6 +1,6 @@
 using WSGM.Plugin.Sdk;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>A common plugin that records every lifecycle call it receives.</summary>
 /// <param name="id">The plugin id.</param>

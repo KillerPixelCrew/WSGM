@@ -1,8 +1,8 @@
 using System.Text;
-using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Packaging;
+using WSGM.Device.Tests;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Packaging;
 
 public sealed class SdkManifestTests
 {

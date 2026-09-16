@@ -1,7 +1,7 @@
 using System.Text;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>
 /// The RTSS shared-memory layout, as an executable specification.

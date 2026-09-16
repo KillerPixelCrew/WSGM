@@ -29,5 +29,6 @@
         <StyleInclude Source="/Themes/DisplayLayoutTheme.axaml" />
         <StyleInclude Source="/Themes/TabStripTheme.axaml" />
         <StyleInclude Source="/Themes/CardButtonTheme.axaml" />
+        <StyleInclude Source="/Themes/SettingsPages.axaml" />
     </Application.Styles>
 </Application>

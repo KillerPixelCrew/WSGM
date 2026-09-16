@@ -27,7 +27,7 @@ internal static class DisplayLayoutDiagnostics
                       + $"outcome={result.Outcome}, nativeStatus={result.NativeStatus}, "
                       + $"rollbackAttempted={result.RollbackAttempted}, rollbackSucceeded={result.RollbackSucceeded}, "
                       + $"detail={result.Detail}, warnings={JsonSerializer.Serialize(result.Warnings)}";
-        if (result.Applied && result.Warnings.Count == 0) { info(outcome); }
+        if (result is { Applied: true, Warnings.Count: 0 }) { info(outcome); }
         else { warn(outcome); }
         try { info($"{prefix} readback: {JsonSerializer.Serialize(observe())}"); }
         catch (Exception ex) { warn($"{prefix} readback unavailable: {ex.Message}"); }

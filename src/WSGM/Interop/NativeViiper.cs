@@ -68,10 +68,10 @@ internal static partial class NativeViiper
 
     /// <summary>Returns the last error text, or null; release it with <see cref="FreeString"/>.</summary>
     [LibraryImport(Library, EntryPoint = "viiper_last_error")]
-    internal static partial IntPtr LastError();
+    private static partial IntPtr LastError();
 
     [LibraryImport(Library, EntryPoint = "viiper_free_string")]
-    internal static partial void FreeString(IntPtr value);
+    private static partial void FreeString(IntPtr value);
 
     /// <summary>Reads and releases the library's last error message.</summary>
     /// <returns>The message, or a stable placeholder when the library reported none.</returns>

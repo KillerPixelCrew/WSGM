@@ -3,7 +3,7 @@ using WSGM.Device.Sdk.Settings;
 using WSGM.Overlay;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 public sealed class DeviceOverlaySectionPagesTests
 {
@@ -60,7 +60,7 @@ public sealed class DeviceOverlaySectionPagesTests
     public void ASectionCardShowsTheMostSeriousStatusInside()
     {
         var snapshot = Snapshot(
-            Capability("ok", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Available),
+            Capability("ok", DeviceOverlaySection.PowerAndThermals),
             Capability("bad", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Faulted),
             Capability("warn", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Warning));
 

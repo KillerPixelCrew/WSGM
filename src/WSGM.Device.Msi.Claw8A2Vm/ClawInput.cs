@@ -33,7 +33,7 @@ internal sealed class ClawOemButtonLatch
     /// </remarks>
     internal static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(120);
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private DateTimeOffset _guideUntil;
     private DateTimeOffset _quickAccessUntil;
 
@@ -219,11 +219,13 @@ internal sealed class FirmwareChordStateMachine
     {
         _leftWindowsReleased |= leftAccepted;
         _rightWindowsReleased |= rightAccepted;
-        if (_pendingGSuppression)
+        if (!_pendingGSuppression)
         {
-            _gSuppressed = leftAccepted || rightAccepted;
-            _pendingGSuppression = false;
+            return;
         }
+
+        _gSuppressed = leftAccepted || rightAccepted;
+        _pendingGSuppression = false;
     }
 
     public void SynchronizeModifiers(bool controlDown, bool altDown, bool shiftDown)
@@ -306,19 +308,19 @@ internal sealed class FirmwareChordStateMachine
 
         // Like HC, intercept the initial G down before Windows can activate Game Bar.
         // The hook cannot distinguish the OEM button from ordinary keyboard Win+G.
-        if (keyDown && !_gDown && (_leftWindowsDown || _rightWindowsDown))
+        if (!keyDown || _gDown || (!_leftWindowsDown && !_rightWindowsDown))
         {
-            _gDown = true;
-            _pendingGSuppression = (_leftWindowsDown && !_leftWindowsReleased)
-                || (_rightWindowsDown && !_rightWindowsReleased);
-            _gSuppressed = !_pendingGSuppression;
-            return new ChordDecision(
-                true,
-                _leftWindowsDown && !_leftWindowsReleased,
-                _rightWindowsDown && !_rightWindowsReleased);
+            return ObserveTarget(ref _gDown, keyDown);
         }
 
-        return ObserveTarget(ref _gDown, keyDown);
+        _gDown = true;
+        _pendingGSuppression = (_leftWindowsDown && !_leftWindowsReleased)
+            || (_rightWindowsDown && !_rightWindowsReleased);
+        _gSuppressed = !_pendingGSuppression;
+        return new ChordDecision(
+            true,
+            _leftWindowsDown && !_leftWindowsReleased,
+            _rightWindowsDown && !_rightWindowsReleased);
     }
 
     private ChordDecision ObserveTarget(ref bool targetDown, bool keyDown)
@@ -350,7 +352,7 @@ internal sealed class FirmwareChordStateMachine
 internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 {
     private const uint Marker = 0x5753474D;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly FirmwareChordStateMachine _state = new();
     private readonly NativeKeyboard.Input[] _batch = new NativeKeyboard.Input[4];
     private readonly NativeKeyboard.Input[] _cleanup = new NativeKeyboard.Input[1];
@@ -536,7 +538,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
         }
 
-        if (!decision.ReleaseLeftWindows && !decision.ReleaseRightWindows)
+        if (decision is { ReleaseLeftWindows: false, ReleaseRightWindows: false })
         {
             return 1;
         }
@@ -702,33 +704,34 @@ internal static partial class NativeKeyboard
         nint module,
         uint threadId);
 
-    [DllImport("user32.dll")]
+    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool UnhookWindowsHookEx(nint hook);
+    public static partial bool UnhookWindowsHookEx(nint hook);
 
-    [DllImport("user32.dll")]
-    public static extern nint CallNextHookEx(nint hook, int code, nuint message, nint data);
+    [LibraryImport("user32.dll")]
+    public static partial nint CallNextHookEx(nint hook, int code, nuint message, nint data);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern uint SendInput(uint count, [In] Input[] inputs, int size);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    public static partial uint SendInput(uint count, [In] Input[] inputs, int size);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int GetMessage(out Message message, nint window, uint minimum, uint maximum);
 
-    [DllImport("user32.dll")]
+    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool TranslateMessage(in Message message);
+    public static partial bool TranslateMessage(in Message message);
 
-    [DllImport("user32.dll")]
-    public static extern nint DispatchMessage(in Message message);
+    // DllImport resolved these through their ANSI exports; the explicit names keep that binding.
+    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageA")]
+    public static partial nint DispatchMessage(in Message message);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageA", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool PostThreadMessage(uint threadId, uint message, nuint wParam, nint lParam);
+    public static partial bool PostThreadMessage(uint threadId, uint message, nuint wParam, nint lParam);
 
-    [DllImport("user32.dll")]
-    public static extern short GetAsyncKeyState(int virtualKey);
+    [LibraryImport("user32.dll")]
+    public static partial short GetAsyncKeyState(int virtualKey);
 
-    [DllImport("kernel32.dll")]
-    public static extern uint GetCurrentThreadId();
+    [LibraryImport("kernel32.dll")]
+    public static partial uint GetCurrentThreadId();
 }

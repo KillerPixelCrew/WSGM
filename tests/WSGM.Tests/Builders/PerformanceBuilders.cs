@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Builders;
 
 /// <summary>Performance services over the hardware-free RTSS simulation.</summary>
 internal static class PerformanceBuilders

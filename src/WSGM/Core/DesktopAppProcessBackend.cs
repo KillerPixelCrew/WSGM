@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -116,14 +117,7 @@ internal sealed class DesktopAppProcessBackend : IDesktopAppBackend
 
     public bool IsRunning(DesktopAppInstance instance)
     {
-        foreach (var current in Capture(instance.Rule))
-        {
-            if (string.Equals(current.ExecutablePath, instance.ExecutablePath, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
+        return Capture(instance.Rule).Any(current => string.Equals(current.ExecutablePath, instance.ExecutablePath, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<ScheduledTaskLaunchDisposition> RestartAsync(DesktopAppInstance instance, DateTimeOffset deadline)

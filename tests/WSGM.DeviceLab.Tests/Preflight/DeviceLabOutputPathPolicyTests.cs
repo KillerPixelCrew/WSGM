@@ -1,6 +1,7 @@
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Preflight;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Preflight;
 
 public sealed class DeviceLabOutputPathPolicyTests : IDisposable
 {

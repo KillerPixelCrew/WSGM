@@ -132,11 +132,13 @@ internal static class ConfigMigrations
                 game.Add(gameOutput);
                 gameX += gameOutput.Width;
             }
-            if (Output(identity, profile.Desktop, profile.HdrAvailable, desktopX) is { } desktopOutput)
+            if (Output(identity, profile.Desktop, profile.HdrAvailable, desktopX) is not { } desktopOutput)
             {
-                desktop.Add(desktopOutput);
-                desktopX += desktopOutput.Width;
+                continue;
             }
+
+            desktop.Add(desktopOutput);
+            desktopX += desktopOutput.Width;
         }
         return (Valid(game), Valid(desktop));
     }
@@ -204,7 +206,7 @@ internal static class ConfigMigrations
 
     private static T? Read<T>(JsonNode? node, JsonTypeInfo<T> type) where T : class
     {
-        try { return node is null ? null : JsonSerializer.Deserialize(node, type); }
+        try { return node is null ? null : node.Deserialize(type); }
         catch (JsonException) { return null; }
         catch (NotSupportedException) { return null; }
     }

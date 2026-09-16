@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class ConsoleToolTests
 {
@@ -41,7 +41,7 @@ public sealed class ConsoleToolTests
             _ => process);
 
         await process.KillRequested.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
         Assert.Equal(1, process.KillCalls);

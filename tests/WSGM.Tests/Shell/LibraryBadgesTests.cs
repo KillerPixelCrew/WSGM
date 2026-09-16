@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>The library badge reading built from the card model.</summary>
 public sealed class LibraryBadgesTests
@@ -76,7 +76,6 @@ public sealed class LibraryBadgesTests
     public void UpdatingReplacesTheReadingAndRaisesChanged()
     {
         var raised = 0;
-        void OnChanged() => raised++;
         LibraryBadges.Changed += OnChanged;
         try
         {
@@ -88,13 +87,15 @@ public sealed class LibraryBadgesTests
             LibraryBadges.Update(config, new HashSet<string>());
 
             Assert.Equal(2, raised);
-            Assert.True(LibraryBadges.Current!.Revision > first);
+            Assert.True(LibraryBadges.Current.Revision > first);
             Assert.False(Assert.Single(LibraryBadges.Current.Libraries).Connected);
         }
         finally
         {
             LibraryBadges.Changed -= OnChanged;
         }
+
+        void OnChanged() => raised++;
     }
 
     [Fact]

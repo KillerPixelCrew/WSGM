@@ -155,16 +155,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Control is PerformanceControl.FrameLimit
-            && request.Value is < 0 or > 1000)
+        switch (request.Control)
         {
-            return new RtssApplyResult(false, "The frame-limit value is outside the verified RTSS range.");
-        }
-
-        if (request.Control is PerformanceControl.OverlayLevel
-            && request.Value is < 0 or > MaximumOverlayLevel)
-        {
-            return new RtssApplyResult(false, "The overlay level is outside the supported range.");
+            case PerformanceControl.FrameLimit when request.Value is < 0 or > 1000:
+                return new RtssApplyResult(false, "The frame-limit value is outside the verified RTSS range.");
+            case PerformanceControl.OverlayLevel when request.Value is < 0 or > MaximumOverlayLevel:
+                return new RtssApplyResult(false, "The overlay level is outside the supported range.");
         }
 
         await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
@@ -283,17 +279,18 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     public ValueTask DisposeAsync()
     {
-        if (!_disposed)
+        if (_disposed)
         {
-            _disposed = true;
-            _osd.Dispose();
-            ReleaseApi();
+            return ValueTask.CompletedTask;
         }
 
+        _disposed = true;
+        _osd.Dispose();
+        ReleaseApi();
         return ValueTask.CompletedTask;
     }
 
-    private async Task<RtssProbe> RequireReadyAsync(
+    private async Task RequireReadyAsync(
         long generation,
         CancellationToken cancellationToken)
     {
@@ -308,8 +305,6 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             throw new InvalidOperationException(
                 "RTSS availability or process generation changed before the operation.");
         }
-
-        return probe;
     }
 
     private void EnsureApi(RtssProbe probe)
@@ -398,7 +393,6 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         }
 
         var values = _profiles.TryGetValue(rtssProfileName, out var profile)
-                     && profile is not null
             ? profile
             : _profiles[string.Empty];
         return Task.FromResult(new RtssReadback(
@@ -422,7 +416,6 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         var current = _profiles.TryGetValue(
                           request.RtssProfileName,
                           out var profile)
-                      && profile is not null
             ? profile
             : _profiles[string.Empty];
         _profiles[request.RtssProfileName] = current.With(request.Control, request.Value);

@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 // The exit event's name and its DACL are a cross-version contract: during an
 // upgrade the object is created by the OLD build and the new installer only opens

@@ -21,7 +21,7 @@ public static class ElevationPolicy
         {
             return "Steam requires matching elevation";
         }
-        if (config.StartupApps.Any(app => app.Enabled && app.Elevated))
+        if (config.StartupApps.Any(app => app is { Enabled: true, Elevated: true }))
         {
             return "the configuration starts elevated apps";
         }
@@ -33,11 +33,7 @@ public static class ElevationPolicy
         // WSGM starts Steam itself in every mode, and children inherit the token. Elevating here is
         // what keeps Steam Input and the Steam Overlay working against elevated windows once the
         // user's own elevated Steam autostart is gone.
-        if (!config.SteamLaunchUnelevated)
-        {
-            return "WSGM starts Steam at its own integrity";
-        }
-        return null;
+        return !config.SteamLaunchUnelevated ? "WSGM starts Steam at its own integrity" : null;
     }
 
     /// <summary>Whether the configuration wants WSGM elevated.</summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace WSGM.Core;
 
@@ -25,7 +26,7 @@ internal sealed class RefreshRatePairingService
     private readonly Func<IReadOnlyList<int>> _readAdvertisedRates;
     private readonly Func<int, bool> _applyRate;
     private readonly Func<int?> _readCurrentRate;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     private IReadOnlyList<int>? _accepted;
     private IReadOnlyList<int>? _advertised;
@@ -140,15 +141,15 @@ internal sealed class RefreshRatePairingService
         }
 
         var accepted = AcceptedRates();
-        if (!accepted.Contains(refreshHz))
+        if (accepted.Contains(refreshHz))
         {
-            Log.Warn(
-                $"Manual refresh rate {refreshHz} Hz refused: accepted rates are "
-                + $"[{string.Join(",", accepted)}].");
-            return false;
+            return _applyRate(refreshHz);
         }
 
-        return _applyRate(refreshHz);
+        Log.Warn(
+            $"Manual refresh rate {refreshHz} Hz refused: accepted rates are "
+            + $"[{string.Join(",", accepted)}].");
+        return false;
     }
 
     /// <summary>The frame caps worth offering under the current strategy.</summary>

@@ -28,13 +28,9 @@ namespace WSGM.Core;
 public static class ScreenscraperCredentials
 {
     /// <summary>Environment variable carrying the developer debug password, for local builds.</summary>
-    public const string DebugPasswordVariable = "WSGM_SCREENSCRAPER_DEBUG";
+    private const string DebugPasswordVariable = "WSGM_SCREENSCRAPER_DEBUG";
 
-    private static readonly byte[] Key =
-    [
-        78, 122, 55, 113, 76, 50, 118, 88, 57, 107, 82, 52,
-        109, 66, 56, 112, 87, 49, 115, 68, 54, 116, 71, 51
-    ];
+    private static ReadOnlySpan<byte> Key => "Nz7qL2vX9kR4mB8pW1sD6tG3"u8;
 
     private static readonly byte[] FoldedDevId =
         [0, 19, 80, 25, 56, 97, 2, 55, 75, 6, 99, 4, 93, 114];

@@ -1,7 +1,7 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Capabilities;
 
 public sealed class SdkCapabilitySectionTests
 {
@@ -138,7 +138,7 @@ public sealed class SdkCapabilitySectionTests
     [Fact]
     public void SharedSectionsAreAvailableWithoutPluginDeclarations()
     {
-        Assert.Equal(new[] { "power", "rgb", "controller", "info" },
+        Assert.Equal(["power", "rgb", "controller", "info"],
             DeviceSections.IncludePredefined([]).Select(section => section.SectionId));
         Assert.All(DeviceSections.All, section => Assert.True(section.TryValidate(out _)));
     }

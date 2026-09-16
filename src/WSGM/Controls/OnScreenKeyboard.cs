@@ -23,7 +23,7 @@ namespace WSGM.Controls;
 public sealed class OnScreenKeyboard : Decorator
 {
     /// <summary>Defines the <see cref="Target"/> property.</summary>
-    public static readonly StyledProperty<TextBox?> TargetProperty =
+    private static readonly StyledProperty<TextBox?> TargetProperty =
         AvaloniaProperty.Register<OnScreenKeyboard, TextBox?>(nameof(Target));
 
     /// <summary>Raised when the user presses the accept key.</summary>
@@ -135,7 +135,12 @@ public sealed class OnScreenKeyboard : Decorator
             {
                 _layer = (_layer + 1) % 3;
                 ShowLayer();
-                FocusControl(_layer == LayerSymbols ? "#+=" : _layer == LayerMoreSymbols ? "abc" : "?123");
+                FocusControl(_layer switch
+                {
+                    LayerSymbols => "#+=",
+                    LayerMoreSymbols => "abc",
+                    _ => "?123"
+                });
             },
             width: 58));
         controls.Children.Add(KeyButton("Shift", () =>
@@ -164,16 +169,18 @@ public sealed class OnScreenKeyboard : Decorator
         {
             foreach (var button in row.Children.OfType<Button>())
             {
-                if (string.Equals(button.Content?.ToString(), label, StringComparison.Ordinal))
+                if (!string.Equals(button.Content?.ToString(), label, StringComparison.Ordinal))
                 {
-                    button.Focus();
-                    return;
+                    continue;
                 }
+
+                button.Focus();
+                return;
             }
         }
     });
 
-    private Button KeyButton(string label, Action action, double width = 44)
+    private static Button KeyButton(string label, Action action, double width = 44)
     {
         var button = new Button
         {
@@ -194,12 +201,14 @@ public sealed class OnScreenKeyboard : Decorator
     private void Insert(string text)
     {
         InsertExternalText(text);
-        if (_shift && _layer == LayerLetters)
+        if (!_shift || _layer != LayerLetters)
         {
-            _shift = false;
-            ShowLayer();
-            FocusControl(text == " " ? "Space" : text.ToLowerInvariant());
+            return;
         }
+
+        _shift = false;
+        ShowLayer();
+        FocusControl(text == " " ? "Space" : text.ToLowerInvariant());
     }
 
     /// <summary>Inserts pasted text at the selection or caret, respecting the target limit.</summary>
@@ -256,12 +265,14 @@ public sealed class OnScreenKeyboard : Decorator
     /// <summary>Resets to the lower-case letter layer.</summary>
     public void Reset()
     {
-        if (_shift || _layer != LayerLetters)
+        if (!_shift && _layer == LayerLetters)
         {
-            _shift = false;
-            _layer = LayerLetters;
-            ShowLayer();
+            return;
         }
+
+        _shift = false;
+        _layer = LayerLetters;
+        ShowLayer();
     }
 
     /// <summary>The key rows, exposed so a test can assert the layout covers

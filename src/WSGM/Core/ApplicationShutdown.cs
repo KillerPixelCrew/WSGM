@@ -136,13 +136,13 @@ internal static class ApplicationShutdownCoordinator
                 // TimeoutException is still an unverified cleanup result, while a successful
                 // synchronous cleanup that consumed the complete owner budget is an outer timeout.
                 await cleanup.ConfigureAwait(false);
-                if (remaining <= TimeSpan.Zero)
+                if (remaining > TimeSpan.Zero)
                 {
-                    ReportTimeout(reason, budget);
-                    return ApplicationShutdownOutcome.TimedOut;
+                    return ApplicationShutdownOutcome.Clean;
                 }
 
-                return ApplicationShutdownOutcome.Clean;
+                ReportTimeout(reason, budget);
+                return ApplicationShutdownOutcome.TimedOut;
             }
 
             if (remaining <= TimeSpan.Zero)

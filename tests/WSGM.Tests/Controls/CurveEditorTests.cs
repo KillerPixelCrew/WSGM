@@ -2,7 +2,7 @@ using Avalonia.Input;
 using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Controls;
 
 public sealed class CurveEditorTests
 {

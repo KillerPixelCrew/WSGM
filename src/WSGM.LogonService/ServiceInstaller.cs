@@ -95,7 +95,7 @@ internal static class ServiceInstaller
     /// <param name="service">An open service handle with start rights.</param>
     private static unsafe bool StartForInstall(nint service)
     {
-        var started = false;
+        bool started;
         fixed (char* tag = ServiceHost.InstallStartArgument)
         {
             var argv = stackalloc nint[1];
@@ -158,13 +158,15 @@ internal static class ServiceInstaller
                     do
                     {
                         Thread.Sleep(250);
-                        if (!NativeMethods.QueryServiceStatus(service, out status))
+                        if (NativeMethods.QueryServiceStatus(service, out status))
                         {
-                            ServiceLog.Error(
-                                $"Uninstall: service-state query failed while stopping "
-                                    + $"(error {Marshal.GetLastWin32Error()}).");
-                            return 1;
+                            continue;
                         }
+
+                        ServiceLog.Error(
+                            $"Uninstall: service-state query failed while stopping "
+                                + $"(error {Marshal.GetLastWin32Error()}).");
+                        return 1;
                     }
                     while (status.dwCurrentState != NativeMethods.ServiceStopped
                         && elapsed.Elapsed < StopTimeout);

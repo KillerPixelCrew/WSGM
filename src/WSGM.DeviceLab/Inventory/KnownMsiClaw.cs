@@ -135,7 +135,7 @@ internal static class KnownDeviceMatcher
         string label,
         string? actual,
         string expected,
-        ICollection<string> explanations)
+        List<string> explanations)
     {
         var matched = string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
         explanations.Add(matched
@@ -179,14 +179,13 @@ internal static class KnownMsiClaw
             "root/WMI:MSI_ACPI.Get_WMI", "vendor-wmi", ReadProbeValueKind.Version, 4, 4,
             0, 255),
         Probe("msi.claw-a2vm.ec-version", ReadProbeFamily.EmbeddedController,
-            "root/WMI:MSI_ACPI.Get_EC", "vendor-wmi", ReadProbeValueKind.Bytes, 32, 32,
-            null, null),
+            "root/WMI:MSI_ACPI.Get_EC", "vendor-wmi", ReadProbeValueKind.Bytes, 32, 32),
         Probe("msi.claw-a2vm.scenario-status", ReadProbeFamily.WmiStatus,
             "root/WMI:MSI_ACPI.Get_Data:0xd2", "power-policy", ReadProbeValueKind.Integer, 2, 2,
             0, 255),
         Probe("msi.claw-a2vm.fan-rpm", ReadProbeFamily.FanRpm,
             "root/WMI:MSI_ACPI.Get_Fan:0", "fan-control", ReadProbeValueKind.Text, 5, 5,
-            null, null, stable: false, crossCheck: ReadProbeCrossCheckKind.Present),
+            stable: false, crossCheck: ReadProbeCrossCheckKind.Present),
         Probe("msi.claw-a2vm.charge-limit", ReadProbeFamily.ChargeState,
             "root/WMI:MSI_ACPI.Get_Data:0xd7", "charge-policy", ReadProbeValueKind.Integer, 2, 2,
             0, 100)

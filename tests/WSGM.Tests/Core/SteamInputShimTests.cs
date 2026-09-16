@@ -1,7 +1,7 @@
 using System.Text;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>Deployment coverage for the Steam Input shim: which candidate name it
 /// takes, when it refuses to touch a file, when it re-copies, and what the disable
@@ -48,7 +48,7 @@ public sealed class SteamInputShimTests : IDisposable
         File.WriteAllBytes(path, Encoding.ASCII.GetBytes($"MZ...{Signature}...{body}"));
 
     private static void WriteForeign(string path) =>
-        File.WriteAllBytes(path, Encoding.ASCII.GetBytes("MZ... someone else's controller dll"));
+        File.WriteAllBytes(path, "MZ... someone else's controller dll"u8);
 
     private SteamInputShimStatus Reconcile(bool enabled = true) =>
         SteamInputShim.ReconcileIn(_steamDir, _payload, enabled, "test");

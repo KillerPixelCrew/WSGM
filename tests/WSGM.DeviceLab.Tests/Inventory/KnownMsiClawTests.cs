@@ -2,7 +2,7 @@ using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Probes;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Inventory;
 
 public sealed class KnownMsiClawTests
 {

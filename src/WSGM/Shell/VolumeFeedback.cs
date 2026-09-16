@@ -106,13 +106,15 @@ internal static class VolumeFeedback
         try
         {
             var result = _player?.Play() ?? 1;
-            if (result < 0)
+            if (result >= 0)
             {
-                Log.Warn($"Volume feedback sound failed (HRESULT 0x{result:X8}).");
-                _player?.Dispose();
-                _player = null;
-                Interlocked.Exchange(ref _initializationState, 0);
+                return;
             }
+
+            Log.Warn($"Volume feedback sound failed (HRESULT 0x{result:X8}).");
+            _player?.Dispose();
+            _player = null;
+            Interlocked.Exchange(ref _initializationState, 0);
         }
         finally
         {

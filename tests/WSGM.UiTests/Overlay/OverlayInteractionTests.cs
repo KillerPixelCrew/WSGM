@@ -12,8 +12,10 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class OverlayInteractionTests
 {
@@ -22,6 +24,33 @@ public sealed class OverlayInteractionTests
     [InlineData(false)]
     public async Task CustomAssignmentIsSelectedOnlyForItsPowerSource(bool ac)
     {
+        DevicePowerPresetReference custom = new()
+        {
+            PluginId = "fixture",
+            PresetId = "custom",
+            CustomValues = new DevicePowerCustomValues { SustainedWatts = 16, SlowWatts = 18, WindowsMode = DevicePowerMode.Balanced }
+        };
+        DevicePowerPresetReference balanced = new() { PluginId = "fixture", PresetId = "balanced" };
+        PerformanceConfig config = new() { AcPowerPreset = ac ? custom : balanced, BatteryPowerPreset = ac ? balanced : custom };
+        DevicePowerPresets service = new(() => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
+            (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
+            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
+        DevicePowerAssignments assignments = new(service, () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, ac),
+            (_, _, _) => throw new InvalidOperationException("Rendering must not save assignments"));
+        using DevicePowerPresetSelection model = new(service, false, assignments);
+        using UiFixture fixture = new();
+        DevicePowerPresetView view = new();
+        view.Attach(model);
+        await model.RefreshAsync();
+        var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
+        foreach (var choice in choices)
+        {
+            var isAc = Equals(choice.Tag, "device.power-assignment.ac");
+            Assert.Equal(isAc == ac ? "custom" : "balanced", Assert.IsType<DevicePowerPreset>(choice.SelectedItem).Id);
+            Assert.Equal(isAc == ac, choice.Items.Cast<DevicePowerPreset>().Any(item => item.Id == "custom"));
+        }
+        Assert.Equal(2, choices.Length);
+
         DeviceCapabilityView Power(CapabilityRole role, int watts) => new(new CapabilityDescriptor
         {
             CapabilityId = role.ToString(),
@@ -51,32 +80,6 @@ public sealed class OverlayInteractionTests
                 ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts }
             }
         }, null);
-        DevicePowerPresetReference custom = new()
-        {
-            PluginId = "fixture",
-            PresetId = "custom",
-            CustomValues = new DevicePowerCustomValues { SustainedWatts = 16, SlowWatts = 18, WindowsMode = DevicePowerMode.Balanced }
-        };
-        DevicePowerPresetReference balanced = new() { PluginId = "fixture", PresetId = "balanced" };
-        PerformanceConfig config = new() { AcPowerPreset = ac ? custom : balanced, BatteryPowerPreset = ac ? balanced : custom };
-        DevicePowerPresets service = new(() => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
-            (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
-            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
-        DevicePowerAssignments assignments = new(service, () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, ac),
-            (_, _, _) => throw new InvalidOperationException("Rendering must not save assignments"));
-        using DevicePowerPresetSelection model = new(service, false, assignments);
-        using UiFixture fixture = new();
-        DevicePowerPresetView view = new();
-        view.Attach(model);
-        await model.RefreshAsync();
-        var choices = view.GetLogicalDescendants().OfType<ComboBox>().ToArray();
-        foreach (var choice in choices)
-        {
-            var isAc = Equals(choice.Tag, "device.power-assignment.ac");
-            Assert.Equal(isAc == ac ? "custom" : "balanced", Assert.IsType<DevicePowerPreset>(choice.SelectedItem).Id);
-            Assert.Equal(isAc == ac, choice.Items.Cast<DevicePowerPreset>().Any(item => item.Id == "custom"));
-        }
-        Assert.Equal(2, choices.Length);
     }
 
     [AvaloniaFact]
@@ -96,7 +99,7 @@ public sealed class OverlayInteractionTests
         window.AttachPowerSchemes(schemes);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
         var plans = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower");
         Assert.True(plans.IsVisible);
         device.State = device.State with { Visible = false };
@@ -111,6 +114,40 @@ public sealed class OverlayInteractionTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
+        DeviceCapabilityView[] views = [Power(CapabilityRole.PowerSustainedLimit, 17), Power(CapabilityRole.PowerSlowLimit, 18)];
+        var service = new DevicePowerPresets(() => views,
+            (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
+            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
+        PerformanceConfig config = new();
+        var saves = 0;
+        var assignments = new DevicePowerAssignments(service, () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
+            (_, ac, reference) => { Assert.False(ac); config.BatteryPowerPreset = reference; saves++; return Task.CompletedTask; });
+        using var model = new DevicePowerPresetSelection(service, false, assignments);
+        await model.RefreshAsync();
+        var window = fixture.Overlay();
+        window.AttachDeviceBridge(device);
+        window.AttachPowerPresets(model);
+        UiFixture.Click(window, UiFixture.Tab(window, 2));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
+        var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
+        Assert.DoesNotContain(dropdowns, control => Equals(control.Tag, "device.power-preset.choice"));
+        var battery = dropdowns.Single(control => Equals(control.Tag, "device.power-assignment.battery"));
+        await service.MutationGate.WaitAsync();
+        var refresh = model.RefreshAsync();
+        TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.Changed += () => { if (!model.Busy && saves > 0) { finished.TrySetResult(); } };
+        try
+        {
+            Assert.True(battery.IsEnabled);
+            battery.SelectedIndex = 1;
+            Assert.True(model.Busy);
+        }
+        finally { service.MutationGate.Release(); }
+        await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, saves);
+        Assert.Equal("balanced", config.BatteryPowerPreset?.PresetId);
+
         DeviceCapabilityView Power(CapabilityRole role, int watts) => new(new CapabilityDescriptor
         {
             CapabilityId = role.ToString(),
@@ -139,39 +176,6 @@ public sealed class OverlayInteractionTests
                 ObservedAt = DateTimeOffset.UtcNow
             }
         }, null);
-        DeviceCapabilityView[] views = [Power(CapabilityRole.PowerSustainedLimit, 17), Power(CapabilityRole.PowerSlowLimit, 18)];
-        var service = new DevicePowerPresets(() => views,
-            (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
-            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
-        PerformanceConfig config = new();
-        var saves = 0;
-        var assignments = new DevicePowerAssignments(service, () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
-            (_, ac, reference) => { Assert.False(ac); config.BatteryPowerPreset = reference; saves++; return Task.CompletedTask; });
-        using var model = new DevicePowerPresetSelection(service, false, assignments);
-        await model.RefreshAsync();
-        var window = fixture.Overlay();
-        window.AttachDeviceBridge(device);
-        window.AttachPowerPresets(model);
-        UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Power"));
-        var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
-        Assert.DoesNotContain(dropdowns, control => Equals(control.Tag, "device.power-preset.choice"));
-        var battery = dropdowns.Single(control => Equals(control.Tag, "device.power-assignment.battery"));
-        await service.MutationGate.WaitAsync();
-        var refresh = model.RefreshAsync();
-        TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        model.Changed += () => { if (!model.Busy && saves > 0) { finished.TrySetResult(); } };
-        try
-        {
-            Assert.True(battery.IsEnabled);
-            battery.SelectedIndex = 1;
-            Assert.True(model.Busy);
-        }
-        finally { service.MutationGate.Release(); }
-        await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Equal(1, saves);
-        Assert.Equal("balanced", config.BatteryPowerPreset?.PresetId);
     }
 
     [AvaloniaFact]
@@ -182,7 +186,7 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         // The Steam root is a menu now; the launch fixes are one level down.
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Per-game launch fixes"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Per-game launch fixes" }));
         var last = UiFixture.Named<CardButton>(window, "RemoveFixesButton");
         UiFixture.Named<CardButton>(window, "DeelevateFixButton").Focus();
         for (var step = 0; step < 12 && !last.IsFocused; step++)
@@ -236,13 +240,13 @@ public sealed class OverlayInteractionTests
         var dismissed = 0;
         window.Dismissed += () => dismissed++;
         var entry = window.GetVisualDescendants().OfType<CardButton>()
-            .First(card => card.IsEffectivelyVisible && card.Title == "Overview");
+            .First(card => card is { IsEffectivelyVisible: true, Title: "Overview" });
         UiFixture.Click(window, entry);
         Assert.True(UiFixture.Named<Control>(window, "BackButton").IsVisible);
         UiFixture.Key(window, Key.Escape);
         Assert.Equal(0, dismissed);
         Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
-        Assert.Equal(entry.Tag, (window.FocusManager?.GetFocusedElement() as Control)?.Tag);
+        Assert.Equal(entry.Tag, (window.FocusManager.GetFocusedElement() as Control)?.Tag);
         UiFixture.Key(window, Key.Escape);
         Assert.True(UiFixture.Named<Control>(window, "PanelQuickAccess").IsVisible);
         UiFixture.Key(window, Key.Escape);
@@ -347,7 +351,7 @@ public sealed class OverlayInteractionTests
         var reopened = fixture.Overlay();
         var power = UiFixture.Named<Control>(reopened, "PanelPower");
         Assert.True(power.IsVisible);
-        var focused = reopened.FocusManager?.GetFocusedElement() as Control;
+        var focused = reopened.FocusManager.GetFocusedElement() as Control;
         Assert.NotNull(focused);
         Assert.Contains(power, focused.GetVisualAncestors());
     }
@@ -365,7 +369,7 @@ public sealed class OverlayInteractionTests
         using DevicePowerPresetSelection presets = new(service, false);
         TaskCompletionSource operation = new();
         TaskCompletionSource completed = new();
-        CancellationToken observed = default;
+        CancellationToken observed = CancellationToken.None;
         device.State = device.State with
         {
             Capabilities = [device.State.Capabilities[0] with { CanInvoke = true }]
@@ -373,7 +377,7 @@ public sealed class OverlayInteractionTests
         device.Invoke = async (_, token) =>
         {
             observed = token;
-            using var registration = token.Register(() => operation.TrySetCanceled(token));
+            await using var registration = token.Register(() => operation.TrySetCanceled(token));
             try { await operation.Task; }
             finally { completed.TrySetResult(); }
         };
@@ -385,9 +389,9 @@ public sealed class OverlayInteractionTests
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
         UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Processor temperature"));
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Processor temperature" }));
         Assert.True(observed.CanBeCanceled);
         Assert.False(operation.Task.IsCompleted);
 
@@ -401,7 +405,7 @@ public sealed class OverlayInteractionTests
         Assert.Null(PrivateField<Delegate>(schemes, "Changed"));
         Assert.Null(PrivateField<Delegate>(presets, "Changed"));
         Assert.True(observed.IsCancellationRequested);
-        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(operation.Task.IsCanceled);
         Assert.Equal(0, device.Subscribers);
     }
@@ -431,9 +435,9 @@ public sealed class OverlayInteractionTests
         Assert.Equal(1, combo.SelectedIndex);
         Assert.Equal(0, api.Writes);
         var apply = window.GetVisualDescendants().OfType<Button>().Single(control => Equals(control.Tag, "system.power-profile.apply"));
-        using ManualResetEventSlim release = new(false);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        api.BeforeWrite = () => { entered.TrySetResult(); Assert.True(release.Wait(TimeSpan.FromSeconds(10))); };
+        api.BeforeWrite = () => { entered.TrySetResult(); Assert.True(release.Task.Wait(TimeSpan.FromSeconds(10))); };
         api.Reject = true;
         TaskCompletionSource finished = new();
         selection.Changed += () => { if (!selection.Busy) { finished.TrySetResult(); } };
@@ -445,7 +449,7 @@ public sealed class OverlayInteractionTests
             Assert.False(combo.IsEnabled);
             Assert.False(apply.IsEnabled);
         }
-        finally { release.Set(); }
+        finally { release.TrySetResult(); }
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, api.Writes);
         Assert.Contains("Refresh", selection.Status);

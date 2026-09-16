@@ -35,12 +35,11 @@ public sealed class DeviceProfileRowViewModel : ObservableObject
         _color = profile.Color;
     }
 
-    /// <inheritdoc />
     /// <summary>Stable identifier the overlay selects by. Never changes with a rename.</summary>
     public string ProfileId { get; }
 
     /// <summary>The capability this profile authors.</summary>
-    public string CapabilityId { get; }
+    private string CapabilityId { get; }
 
     /// <summary>Gets or sets what the user calls it.</summary>
     public string Name

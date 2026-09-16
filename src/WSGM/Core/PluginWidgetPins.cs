@@ -13,9 +13,12 @@ public sealed record PluginWidgetPin(string PluginId, string InstanceId, string 
 /// <summary>Bounded pin ordering that retains unavailable plugin identities.</summary>
 internal static class PluginWidgetPins
 {
-    internal static List<PluginWidgetPin> Normalize(IEnumerable<PluginWidgetPin>? pins) =>
-        (pins ?? []).Where(pin => pin is not null && Valid(pin.PluginId) && Valid(pin.InstanceId) && Valid(pin.WidgetId))
-            .Distinct().Take(64).ToList();
+    internal static List<PluginWidgetPin> Normalize(IEnumerable<PluginWidgetPin?>? pins) =>
+    [
+        .. (pins ?? []).OfType<PluginWidgetPin>()
+            .Where(pin => Valid(pin.PluginId) && Valid(pin.InstanceId) && Valid(pin.WidgetId))
+            .Distinct().Take(64)
+    ];
 
     internal static void Set(List<PluginWidgetPin> pins, PluginWidgetPin pin, bool pinned)
     {

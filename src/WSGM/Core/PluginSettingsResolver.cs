@@ -130,7 +130,7 @@ public static class PluginSettingsResolver
     /// between plugin versions therefore produces an empty value and is rejected with a reason,
     /// rather than silently reinterpreting an integer as a colour.
     /// </remarks>
-    internal static CapabilityValue ToCapabilityValue(PluginSettingValue entry, CapabilityValueKind kind) =>
+    private static CapabilityValue ToCapabilityValue(PluginSettingValue entry, CapabilityValueKind kind) =>
         kind switch
         {
             CapabilityValueKind.Boolean => new CapabilityValue

@@ -16,7 +16,6 @@ internal static unsafe partial class NativeDisplay
     internal const int GetSourceNameType = 1;   // DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
     internal const uint QdcOnlyActivePaths = 0x00000002;
 
-    internal const uint DisplayDeviceActive = 0x00000001;
     internal const uint DisplayDevicePrimary = 0x00000004;
     internal const uint GetDeviceInterfaceName = 0x00000001;
 

@@ -189,8 +189,8 @@ internal sealed class DeviceSliderRow : Border
         _onCommit((int)Math.Round(_slider.Value));
     }
 
-    private string Format(int value) => _format is { } custom
-        ? custom(value)
+    private string Format(int value) => _format is not null
+        ? _format(value)
         : $"{value.ToString(CultureInfo.CurrentCulture)}{Suffix(_unit)}";
 
     private static string Suffix(CapabilityUnit unit) => unit switch

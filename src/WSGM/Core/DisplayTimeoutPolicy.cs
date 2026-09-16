@@ -32,7 +32,7 @@ internal static class DisplayTimeoutPolicy
         var seconds = kind switch
         {
             PowerTimeoutKind.DisplayAc => steam.PluggedInSeconds,
-            PowerTimeoutKind.DisplayDc => steam.Battery && steam.BatterySeconds is int battery
+            PowerTimeoutKind.DisplayDc => steam is { Battery: true, BatterySeconds: { } battery }
                 ? battery
                 : steam.PluggedInSeconds,
             _ => 0

@@ -41,7 +41,7 @@ internal static class SplashStyle
     /// <summary>Minimum bottom margin for bottom-row anchors, keeping elements
     /// clear of the splash's "Switch to desktop" button (Margin 0,0,28,24 +
     /// MinHeight 44 occupies roughly the bottom 68 px, plus breathing room).</summary>
-    internal const double BottomClearance = 128;
+    private const double BottomClearance = 128;
 
     /// <summary>Parses a user-supplied color string, falling back on bad input.
     /// Never throws: null/empty input silently yields the fallback; a non-empty

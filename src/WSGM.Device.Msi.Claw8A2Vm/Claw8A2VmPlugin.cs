@@ -43,7 +43,6 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private bool _disposed;
     private CancellationTokenSource? _observationLoop;
     private CancellationToken _observationToken;
-    private Task? _observationTask;
 
     /// <summary>How often the plugin re-reads and republishes what it observes.</summary>
     /// <remarks>
@@ -269,20 +268,22 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             var result = await ExecuteBoundCommandAsync(command, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (_host is not null && result.Outcome is CommandOutcome.AppliedVerified)
+            if (_host is null || result.Outcome is not CommandOutcome.AppliedVerified)
             {
-                var published = await PublishPostCommandObservationAsync(command, cancellationToken).ConfigureAwait(false);
-                if (!published && command.CapabilityId == CapabilityIds.Scenario)
+                return result;
+            }
+
+            var published = await PublishPostCommandObservationAsync(command, cancellationToken).ConfigureAwait(false);
+            if (!published && command.CapabilityId == CapabilityIds.Scenario)
+            {
+                return result with
                 {
-                    return result with
-                    {
-                        Outcome = CommandOutcome.Indeterminate,
-                        ReadbackValue = null,
-                        Rollback = RollbackResult.NotRequired,
-                        Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable,
-                            "Scenario was written, but its resulting power limits could not be published.")
-                    };
-                }
+                    Outcome = CommandOutcome.Indeterminate,
+                    ReadbackValue = null,
+                    Rollback = RollbackResult.NotRequired,
+                    Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable,
+                        "Scenario was written, but its resulting power limits could not be published.")
+                };
             }
 
             return result;
@@ -396,7 +397,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             ["cycle"] = DiagnosticCycleState(),
             ["recovery"] = DiagnosticRecoveryState()
         };
-        foreach (ClawServiceStatus service in _cycleServices)
+        foreach (var service in _cycleServices)
         {
             values[service.ServiceId] = BoundDiagnosticValue(service.State.ToString());
         }
@@ -558,11 +559,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             _descriptorSet = null;
             _cycleServices = [];
             _suspendableServices = [];
-            if (_journal is not null)
+            if (_journal is null)
             {
-                await _journal.DisposeAsync().ConfigureAwait(false);
-                _journal = null;
+                return result;
             }
+
+            await _journal.DisposeAsync().ConfigureAwait(false);
+            _journal = null;
 
             return result;
         }
@@ -1114,7 +1117,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     }
                 ]
                 : (IReadOnlyList<CapabilityDescriptor>)[],
-            .. FlipModeChoices() is { Count: > 1 } flipChoices
+            .. FlipModeChoices() is { Length: > 1 } flipChoices
                 ? [
                     // A choice, not a toggle. Intel has no VSync boolean: it has a presentation
                     // mode whose members include forcing sync on, Smooth Sync and a capped-FPS
@@ -1485,8 +1488,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
 
         var requested = command.RequestedValue!.IntegerValue!.Value;
-        if (requested < IntelGraphicsMemoryTransport.MinimumPercent
-            || requested > IntelGraphicsMemoryTransport.MaximumPercent)
+        if (requested is < IntelGraphicsMemoryTransport.MinimumPercent
+            or > IntelGraphicsMemoryTransport.MaximumPercent)
         {
             return ValueTask.FromResult(ClawResults.Rejected(
                 command,
@@ -1519,7 +1522,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     /// </remarks>
     private ValueTask<CapabilityCommandResult> ApplyDriverVsyncCommand(CapabilityCommand command)
     {
-        if (_arcSync is not { } display || FlipModeChoices() is not { Count: > 1 } choices)
+        if (_arcSync is not { } display || FlipModeChoices() is not { Length: > 1 } choices)
         {
             return ValueTask.FromResult(ClawResults.Rejected(
                 command,
@@ -1720,14 +1723,16 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     return ValueOutOfRange($"{integer} is above the maximum of {maximum}.");
                 }
 
-                if (descriptor.Step is { } step and > 0)
+                if (descriptor.Step is not { } step || step <= 0)
                 {
-                    var origin = descriptor.Minimum ?? 0;
-                    if ((integer - origin) % step != 0)
-                    {
-                        return ValueOutOfRange(
-                            $"{integer} is not on the {step} step boundary from {origin}.");
-                    }
+                    return null;
+                }
+
+                var origin = descriptor.Minimum ?? 0;
+                if ((integer - origin) % step != 0)
+                {
+                    return ValueOutOfRange(
+                        $"{integer} is not on the {step} step boundary from {origin}.");
                 }
 
                 return null;
@@ -1777,6 +1782,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
                 return null;
 
+            case CapabilityValueKind.None:
+            case CapabilityValueKind.Text:
             default:
                 return new CapabilityReason(
                     CapabilityReasonCode.Unsupported,
@@ -2000,136 +2007,121 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private CapabilityValue? CurrentState(CapabilityDescriptor descriptor)
     {
-        if (descriptor.CapabilityId == CapabilityIds.PowerSustained)
+        switch (descriptor.CapabilityId)
         {
-            return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.SustainedWatts) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.PowerBoost)
-        {
-            return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.BoostWatts) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.Scenario)
-        {
-            return _power!.LastObserved is { } value ? Scenario(value.Scenario) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.ChargeLimit)
-        {
-            return _chargeLimit!.LastObserved is { } value ? CapabilityValue.Integer(value.Percent) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.FanMode)
-        {
-            return _fans!.LastObserved is { } value ? FanMode(value) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.FanCurve)
-        {
-            // The left channel stands for both. Every write installs one curve on the pair, so the
-            // two tables can only disagree if something outside WSGM wrote one of them, and the
-            // next write puts them back together.
-            var value = _fans!.LastObserved;
-            return value is null ? null : CapabilityValue.Curve(ClawA2VmFanCapability.DecodeCurve(value.Left));
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.FanRpm)
-        {
-            var value = _telemetry!.LastTelemetry;
-            return value is null
-                ? null
-                : CapabilityValue.Integer(
-                    descriptor.InstanceId == CapabilityInstances.Left ? value.LeftRpm : value.RightRpm);
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.Temperature)
-        {
-            return _telemetry!.LastTelemetry is { } value
-                ? CapabilityValue.Integer(value.TemperatureCelsius)
-                : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.LightingBrightness)
-        {
-            return _lighting!.LastObserved is { } value ? CapabilityValue.Integer(value.Brightness) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.LightingColor)
-        {
-            var value = _lighting!.LastObserved;
-            return value is null
-                ? null
-                : CapabilityValue.Color(descriptor.InstanceId switch
+            case CapabilityIds.PowerSustained:
                 {
-                    CapabilityInstances.RightRing => value.RightRingColor,
-                    CapabilityInstances.LeftRing => value.LeftRingColor,
-                    CapabilityInstances.Buttons => value.ButtonsColor,
-                    _ => 0
-                });
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.Rumble)
-        {
-            // A sink has no value to report. Its descriptor says so, and its state has to agree or
-            // the state is rejected for a kind mismatch the way the descriptor set was.
-            return CapabilityValue.None();
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.VariableRefreshRate)
-        {
-            // This branch was missing, and its absence was invisible until it wasn't: VRR fell
-            // through to the controller-ownership Choice below, publishing a Choice value against a
-            // Boolean descriptor. The router rejected every VRR state for the kind mismatch, the
-            // capability never became available, and Valve's own VRR row — which hides itself
-            // through exactly that availability — never rendered. One log line every ten seconds
-            // said all of this; it took a missing row to make anyone read it.
-            var state = _arcSync?.Read();
-            return state is { Supported: true } observed ? CapabilityValue.Boolean(observed.Enabled) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.EnduranceGaming)
-        {
-            return _arcSync?.ReadEnduranceGaming() is { } endurance
-                ? CapabilityValue.Choice(endurance.Control switch
+                    return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.SustainedWatts) : null;
+                }
+            case CapabilityIds.PowerBoost:
                 {
-                    EnduranceGamingControl.On => "on",
-                    EnduranceGamingControl.Auto => "auto",
-                    _ => "off"
-                })
-                : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.ShaderDownload)
-        {
-            return _arcSync?.ReadShaderDownload() is { } shader ? CapabilityValue.Boolean(shader) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.DriverVsync)
-        {
-            // An adapter that stores nothing is at Intel's default, which is application default.
-            var stored = _arcSync?.ReadFlipMode() ?? 0;
-            var match = Array.Find(FlipModes, mode => mode.Bit == stored);
-            return CapabilityValue.Choice(match.Value ?? "application-default");
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.SharedGpuMemory)
-        {
-            // The stored percentage, not the size the driver currently reports. Those two disagree
-            // between a write and the next restart, and the row has to show what was asked for.
-            return _arcSync?.ReadSharedGpuMemory() is { } memory ? CapabilityValue.Integer(memory.Percent) : null;
-        }
-
-        if (descriptor.CapabilityId == CapabilityIds.EnduranceGamingMode)
-        {
-            return _arcSync?.ReadEnduranceGaming() is { } target
-                ? CapabilityValue.Choice(target.Mode switch
+                    return _power!.LastObserved is { } value ? CapabilityValue.Integer(value.BoostWatts) : null;
+                }
+            case CapabilityIds.Scenario:
                 {
-                    EnduranceGamingMode.Balanced => "balanced",
-                    EnduranceGamingMode.Battery => "battery",
-                    _ => "performance"
-                })
-                : null;
+                    return _power!.LastObserved is { } value ? Scenario(value.Scenario) : null;
+                }
+            case CapabilityIds.ChargeLimit:
+                {
+                    return _chargeLimit!.LastObserved is { } value ? CapabilityValue.Integer(value.Percent) : null;
+                }
+            case CapabilityIds.FanMode:
+                {
+                    return _fans!.LastObserved is { } value ? FanMode(value) : null;
+                }
+            case CapabilityIds.FanCurve:
+                {
+                    // The left channel stands for both. Every write installs one curve on the pair, so the
+                    // two tables can only disagree if something outside WSGM wrote one of them, and the
+                    // next write puts them back together.
+                    var value = _fans!.LastObserved;
+                    return value is null ? null : CapabilityValue.Curve(ClawA2VmFanCapability.DecodeCurve(value.Left));
+                }
+            case CapabilityIds.FanRpm:
+                {
+                    var value = _telemetry!.LastTelemetry;
+                    return value is null
+                        ? null
+                        : CapabilityValue.Integer(
+                            descriptor.InstanceId == CapabilityInstances.Left ? value.LeftRpm : value.RightRpm);
+                }
+            case CapabilityIds.Temperature:
+                {
+                    return _telemetry!.LastTelemetry is { } value
+                        ? CapabilityValue.Integer(value.TemperatureCelsius)
+                        : null;
+                }
+            case CapabilityIds.LightingBrightness:
+                {
+                    return _lighting!.LastObserved is { } value ? CapabilityValue.Integer(value.Brightness) : null;
+                }
+            case CapabilityIds.LightingColor:
+                {
+                    var value = _lighting!.LastObserved;
+                    return value is null
+                        ? null
+                        : CapabilityValue.Color(descriptor.InstanceId switch
+                        {
+                            CapabilityInstances.RightRing => value.RightRingColor,
+                            CapabilityInstances.LeftRing => value.LeftRingColor,
+                            CapabilityInstances.Buttons => value.ButtonsColor,
+                            _ => 0
+                        });
+                }
+            case CapabilityIds.Rumble:
+                // A sink has no value to report. Its descriptor says so, and its state has to agree or
+                // the state is rejected for a kind mismatch the way the descriptor set was.
+                return CapabilityValue.None();
+            case CapabilityIds.VariableRefreshRate:
+                {
+                    // This branch was missing, and its absence was invisible until it wasn't: VRR fell
+                    // through to the controller-ownership Choice below, publishing a Choice value against a
+                    // Boolean descriptor. The router rejected every VRR state for the kind mismatch, the
+                    // capability never became available, and Valve's own VRR row — which hides itself
+                    // through exactly that availability — never rendered. One log line every ten seconds
+                    // said all of this; it took a missing row to make anyone read it.
+                    var state = _arcSync?.Read();
+                    return state is { Supported: true } observed ? CapabilityValue.Boolean(observed.Enabled) : null;
+                }
+            case CapabilityIds.EnduranceGaming:
+                {
+                    return _arcSync?.ReadEnduranceGaming() is { } endurance
+                        ? CapabilityValue.Choice(endurance.Control switch
+                        {
+                            EnduranceGamingControl.On => "on",
+                            EnduranceGamingControl.Auto => "auto",
+                            _ => "off"
+                        })
+                        : null;
+                }
+            case CapabilityIds.ShaderDownload:
+                {
+                    return _arcSync?.ReadShaderDownload() is { } shader ? CapabilityValue.Boolean(shader) : null;
+                }
+            case CapabilityIds.DriverVsync:
+                {
+                    // An adapter that stores nothing is at Intel's default, which is application default.
+                    var stored = _arcSync?.ReadFlipMode() ?? 0;
+                    var match = Array.Find(FlipModes, mode => mode.Bit == stored);
+                    return CapabilityValue.Choice(match.Value ?? "application-default");
+                }
+            case CapabilityIds.SharedGpuMemory:
+                {
+                    // The stored percentage, not the size the driver currently reports. Those two disagree
+                    // between a write and the next restart, and the row has to show what was asked for.
+                    return _arcSync?.ReadSharedGpuMemory() is { } memory ? CapabilityValue.Integer(memory.Percent) : null;
+                }
+            case CapabilityIds.EnduranceGamingMode:
+                {
+                    return _arcSync?.ReadEnduranceGaming() is { } target
+                        ? CapabilityValue.Choice(target.Mode switch
+                        {
+                            EnduranceGamingMode.Balanced => "balanced",
+                            EnduranceGamingMode.Battery => "battery",
+                            _ => "performance"
+                        })
+                        : null;
+                }
         }
 
         return CapabilityValue.Choice(OwnershipOf(
@@ -2158,7 +2150,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         CancellationTokenSource loop = new();
         _observationLoop = loop;
         _observationToken = loop.Token;
-        _observationTask = Task.Run(() => ObservationLoopAsync(loop.Token));
+        _ = Task.Run(() => ObservationLoopAsync(loop.Token), loop.Token);
     }
 
     /// <summary>Stops and forgets the observation loop, if one is running.</summary>
@@ -2166,7 +2158,6 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         var loop = _observationLoop;
         _observationLoop = null;
-        _observationTask = null;
         if (loop is null)
         {
             return;
@@ -2270,22 +2261,21 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         string capabilityId,
         CancellationToken cancellationToken)
     {
-        if (capabilityId is CapabilityIds.PowerSustained or CapabilityIds.PowerBoost or CapabilityIds.Scenario)
+        switch (capabilityId)
         {
-            await _power!.RefreshAsync(cancellationToken).ConfigureAwait(false);
-        }
-        else if (capabilityId == CapabilityIds.ChargeLimit)
-        {
-            await _chargeLimit!.RefreshAsync(cancellationToken).ConfigureAwait(false);
-        }
-        else if (capabilityId is CapabilityIds.FanMode or CapabilityIds.FanCurve)
-        {
-            await _fans!.RefreshAsync(cancellationToken).ConfigureAwait(false);
-            await _telemetry!.RefreshAsync(cancellationToken).ConfigureAwait(false);
-        }
-        else if (capabilityId is CapabilityIds.LightingBrightness or CapabilityIds.LightingColor)
-        {
-            await _lighting!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+            case CapabilityIds.PowerSustained or CapabilityIds.PowerBoost or CapabilityIds.Scenario:
+                await _power!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                break;
+            case CapabilityIds.ChargeLimit:
+                await _chargeLimit!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                break;
+            case CapabilityIds.FanMode or CapabilityIds.FanCurve:
+                await _fans!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                await _telemetry!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                break;
+            case CapabilityIds.LightingBrightness or CapabilityIds.LightingColor:
+                await _lighting!.RefreshAsync(cancellationToken).ConfigureAwait(false);
+                break;
         }
     }
 
@@ -2347,26 +2337,30 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         _ = await _journal.CompleteCommandAsync(operation, result, CancellationToken.None)
             .ConfigureAwait(false);
-        if (result.Rollback is RollbackResult.RestoreFailed)
+        if (result.Rollback is not RollbackResult.RestoreFailed)
         {
-            ClawServiceStatus? service = serviceId switch
-            {
-                ServiceIds.Power => _power,
-                ServiceIds.Fans => _fans,
-                _ => null
-            };
-            if (service is not null)
-            {
-                CapabilityReason reason = new(
-                    CapabilityReasonCode.TransportFaulted,
-                    "A command rollback failed; the resource is faulted until reconciliation.");
-                service.Fault(reason);
-                await ApplyServiceLifecycleStateAsync(
-                    service,
-                    new ClawServiceResult(ClawServiceState.Faulted, reason),
-                    CancellationToken.None).ConfigureAwait(false);
-            }
+            return result;
         }
+
+        ClawServiceStatus? service = serviceId switch
+        {
+            ServiceIds.Power => _power,
+            ServiceIds.Fans => _fans,
+            _ => null
+        };
+        if (service is null)
+        {
+            return result;
+        }
+
+        CapabilityReason reason = new(
+            CapabilityReasonCode.TransportFaulted,
+            "A command rollback failed; the resource is faulted until reconciliation.");
+        service.Fault(reason);
+        await ApplyServiceLifecycleStateAsync(
+            service,
+            new ClawServiceResult(ClawServiceState.Faulted, reason),
+            CancellationToken.None).ConfigureAwait(false);
 
         return result;
     }
@@ -2499,10 +2493,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private void BlockService(string serviceId, CapabilityReason reason)
     {
         var service = ServiceFor(serviceId);
-        if (service is not null)
-        {
-            service.ReconciliationBlockReason = reason;
-        }
+        service?.ReconciliationBlockReason = reason;
     }
 
     private ClawServiceStatus? ServiceFor(string serviceId) => serviceId switch
@@ -2518,8 +2509,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private PluginStartResult CurrentStartResult()
     {
-        IEnumerable<ClawServiceStatus> requiredServices = _cycleServices.Where(
-            service => service != _controller || _controller.Enabled);
+        var requiredServices = _cycleServices.Where(
+            service => service != _controller || _controller.Enabled).ToArray();
         var owned = requiredServices.Count(service => service.State is ClawServiceState.Owned);
         var unhealthy = requiredServices.Any(service => service.State is not ClawServiceState.Owned);
         var firstUnhealthy = requiredServices.FirstOrDefault(
@@ -2553,7 +2544,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
 
         StringBuilder detail = new();
-        foreach (ClawServiceStatus service in _cycleServices)
+        foreach (var service in _cycleServices)
         {
             if (detail.Length > 0)
             {
@@ -2561,16 +2552,18 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             }
 
             detail.Append(service.ServiceId).Append('=').Append(service.State);
-            if (service.State is not ClawServiceState.Owned && service.Reason is { } reason)
+            if (service.State is ClawServiceState.Owned || service.Reason is not { } reason)
             {
-                detail.Append('(').Append(reason.Code);
-                if (!string.IsNullOrWhiteSpace(reason.Detail))
-                {
-                    detail.Append(": ").Append(reason.Detail);
-                }
-
-                detail.Append(')');
+                continue;
             }
+
+            detail.Append('(').Append(reason.Code);
+            if (!string.IsNullOrWhiteSpace(reason.Detail))
+            {
+                detail.Append(": ").Append(reason.Detail);
+            }
+
+            detail.Append(')');
         }
 
         _host.Trace(
@@ -2693,13 +2686,11 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     /// Fewer than two is not a control: a row offering one option can only ever refuse, which is why
     /// the descriptor is not published at all in that case.
     /// </remarks>
-    private IReadOnlyList<string> FlipModeChoices()
+    private string[] FlipModeChoices()
     {
-        if (_arcSync?.ReadSupportedFlipModes() is not { } mask)
-        {
-            return [];
-        }
-        return FlipModes.Where(mode => (mask & mode.Bit) != 0).Select(mode => mode.Value).ToArray();
+        return _arcSync?.ReadSupportedFlipModes() is not { } mask
+            ? []
+            : [.. FlipModes.Where(mode => (mask & mode.Bit) != 0).Select(mode => mode.Value)];
     }
 
     private static CapabilityDescriptor ChoiceDescriptor(
@@ -2721,9 +2712,12 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             Display = new CapabilityDisplay { Key = display },
             SupportsRead = true,
             SupportsWrite = writable,
-            Choices = choices.Select(choice => new CapabilityChoice(
-                choice,
-                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = choice })).ToArray(),
+            Choices =
+            [
+                .. choices.Select(choice => new CapabilityChoice(
+                    choice,
+                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = choice }))
+            ],
             Persistence = CapabilityPersistence.Volatile
         };
 

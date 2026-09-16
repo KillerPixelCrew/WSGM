@@ -2,9 +2,10 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
-using static WSGM.Tests.PluginBuilders;
+using WSGM.Tests.Fakes;
+using static WSGM.Tests.Builders.PluginBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class CommonPluginSettingsTests
 {
@@ -15,12 +16,12 @@ public sealed class CommonPluginSettingsTests
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
         var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         Assert.Empty(store.Config.PluginConfigurations);
         Assert.Equal(0, registration.Settings!.Desired!.Revision);
         Assert.Equal(PluginConfigurationOrigin.Restore, plugin.Deliveries[0].Origin);
         plugin.Outcome = PluginConfigurationOutcome.Unconfirmed;
-        var result = await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, default);
+        var result = await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, CancellationToken.None);
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, result.Outcome);
         var saved = Assert.Single(store.Config.PluginConfigurations);
         Assert.Equal(new PluginValue(Number: 40), Assert.Single(saved.Values).Value);
@@ -37,14 +38,14 @@ public sealed class CommonPluginSettingsTests
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
         var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         var changes = new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) };
-        await registration.ConfigureAsync(0, changes, Deadline, default);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => registration.ConfigureAsync(0, changes, Deadline, default));
+        await registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None));
         Assert.Equal(2, plugin.Deliveries.Count);
         Assert.False(registration.Quarantined);
         changes["level"] = new PluginValue(Number: 30);
-        await registration.ConfigureAsync(1, changes, Deadline, default);
+        await registration.ConfigureAsync(1, changes, Deadline, CancellationToken.None);
         Assert.Equal(2, registration.Settings!.Desired!.Revision);
         await Close(registration);
     }
@@ -56,15 +57,15 @@ public sealed class CommonPluginSettingsTests
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
         var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         var changes = new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) };
         store.FailSave = true;
-        await Assert.ThrowsAsync<IOException>(() => registration.ConfigureAsync(0, changes, Deadline, default));
+        await Assert.ThrowsAsync<IOException>(() => registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None));
         Assert.Single(plugin.Deliveries);
         Assert.Empty(store.Config.PluginConfigurations);
         store.FailSave = false;
         plugin.WrongRevision = true;
-        var result = await registration.ConfigureAsync(0, changes, Deadline, default);
+        var result = await registration.ConfigureAsync(0, changes, Deadline, CancellationToken.None);
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, result.Outcome);
         Assert.Equal(1, registration.Settings!.Desired!.Revision);
         Assert.Equal(1, Assert.Single(store.Config.PluginConfigurations).Revision);
@@ -94,15 +95,15 @@ public sealed class CommonPluginSettingsTests
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
         var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         store.Save(registration.Identity, 0, new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) });
         plugin.Outcome = PluginConfigurationOutcome.Unconfirmed;
-        await registration.RefreshConfigurationAsync(Deadline, default);
-        await registration.RefreshConfigurationAsync(Deadline, default);
+        await registration.RefreshConfigurationAsync(Deadline, CancellationToken.None);
+        await registration.RefreshConfigurationAsync(Deadline, CancellationToken.None);
         Assert.Equal(2, plugin.Deliveries.Count);
         Assert.Equal(1, registration.Settings!.Desired!.Revision);
         store.Config.PluginConfigurations[0].Revision = 0;
-        var stale = await registration.RefreshConfigurationAsync(Deadline, default);
+        var stale = await registration.RefreshConfigurationAsync(Deadline, CancellationToken.None);
         Assert.Equal(PluginConfigurationOutcome.Rejected, stale.Outcome);
         Assert.Equal(2, plugin.Deliveries.Count);
         await Close(registration);
@@ -115,10 +116,10 @@ public sealed class CommonPluginSettingsTests
         PluginHost host = new(action => action(), store);
         Configurable plugin = new();
         var registration = Admit(host, plugin, category: PluginCategories.Peripheral);
-        await registration.StartAsync(Deadline, default);
+        await registration.StartAsync(Deadline, CancellationToken.None);
         plugin.FailConfiguration = true;
         await Assert.ThrowsAsync<IOException>(() => registration.ConfigureAsync(0,
-            new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, default));
+            new Dictionary<string, PluginValue> { ["level"] = new(Number: 40) }, Deadline, CancellationToken.None));
         Assert.Equal(new PluginValue(Number: 40), Assert.Single(store.Config.PluginConfigurations).Values["level"]);
         Assert.Equal(PluginConfigurationOutcome.Unconfirmed, registration.Settings!.Result!.Outcome);
         Assert.Equal(2, plugin.Deliveries.Count);

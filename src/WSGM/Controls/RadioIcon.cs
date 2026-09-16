@@ -100,7 +100,7 @@ public sealed class RadioIcon : Control
     /// Windows reports 0-100 and shows four levels; the arcs here are the outer
     /// three, so the thresholds split the range into thirds with a dead band at
     /// the bottom — a network at 5% should not look like a usable one.</summary>
-    internal static int ArcsForSignal(int signal) => signal switch
+    private static int ArcsForSignal(int signal) => signal switch
     {
         >= 70 => 3,
         >= 40 => 2,
@@ -136,15 +136,17 @@ public sealed class RadioIcon : Control
             DrawWifi(context, origin, size, accent, muted, dim, on);
         }
 
-        if (State == RadioIconState.Off)
+        if (State != RadioIconState.Off)
         {
-            // The slash reads as "off" only if it clearly crosses the glyph.
-            var pen = new Pen(muted, size * 0.09, lineCap: PenLineCap.Round);
-            context.DrawLine(
-                pen,
-                new Point(origin.X + size * 0.16, origin.Y + size * 0.16),
-                new Point(origin.X + size * 0.84, origin.Y + size * 0.84));
+            return;
         }
+
+        // The slash reads as "off" only if it clearly crosses the glyph.
+        var pen = new Pen(muted, size * 0.09, lineCap: PenLineCap.Round);
+        context.DrawLine(
+            pen,
+            new Point(origin.X + size * 0.16, origin.Y + size * 0.16),
+            new Point(origin.X + size * 0.84, origin.Y + size * 0.84));
     }
 
     private void DrawWifi(

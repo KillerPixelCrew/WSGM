@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -33,11 +34,13 @@ public sealed class AudioEndpointEntry : ObservableObject
         get => _name;
         internal set
         {
-            if (_name != value)
+            if (_name == value)
             {
-                _name = value;
-                Raise(nameof(Name));
+                return;
             }
+
+            _name = value;
+            Raise(nameof(Name));
         }
     }
 }
@@ -153,28 +156,30 @@ public sealed class AudioManager : ObservableObject, IDisposable
         get => _inputMuted;
         private set
         {
-            if (_inputMuted != value)
+            if (_inputMuted == value)
             {
-                _inputMuted = value;
-                Raise(nameof(InputMuted));
+                return;
             }
+
+            _inputMuted = value;
+            Raise(nameof(InputMuted));
         }
     }
-
-    private bool _muted;
 
     /// <summary>Gets whether the default output endpoint is muted.</summary>
     public bool Muted
     {
-        get => _muted;
+        get;
         private set
         {
-            if (_muted != value)
+            if (field == value)
             {
-                _muted = value;
-                Raise(nameof(Muted));
-                Raise(nameof(VolumeText));
+                return;
             }
+
+            field = value;
+            Raise(nameof(Muted));
+            Raise(nameof(VolumeText));
         }
     }
 
@@ -196,22 +201,22 @@ public sealed class AudioManager : ObservableObject, IDisposable
         set => SelectEndpoint(value, output: false);
     }
 
-    private string _errorText = "";
-
     /// <summary>Gets a non-fatal audio error to show in the panel.</summary>
     public string ErrorText
     {
-        get => _errorText;
+        get;
         private set
         {
-            if (_errorText != value)
+            if (field == value)
             {
-                _errorText = value;
-                Raise(nameof(ErrorText));
-                Raise(nameof(HasError));
+                return;
             }
+
+            field = value;
+            Raise(nameof(ErrorText));
+            Raise(nameof(HasError));
         }
-    }
+    } = "";
 
     /// <summary>Gets whether <see cref="ErrorText"/> should be visible.</summary>
     public bool HasError => ErrorText.Length > 0;
@@ -428,21 +433,25 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             SetFailure("list audio inputs", snapshot.InputResult);
         }
-        if (snapshot.OutputResult >= 0 && snapshot.InputResult >= 0)
+        if (snapshot is not { OutputResult: >= 0, InputResult: >= 0 })
         {
-            var summary = $"Audio endpoints: {OutputEndpoints.Count} output(s), "
-                + $"default='{SelectedOutput?.Name ?? "none"}'; {InputEndpoints.Count} input(s), "
-                + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}; "
-                + $"microphone={(InputVolumePercent is { } inputVolume
-                    ? inputVolume.ToString("0", CultureInfo.InvariantCulture) + "%"
-                    : "unavailable")}, "
-                + $"muted={InputMuted}.";
-            if (_endpointSummary != summary)
-            {
-                _endpointSummary = summary;
-                Log.Info(summary);
-            }
+            return;
         }
+
+        var summary = $"Audio endpoints: {OutputEndpoints.Count} output(s), "
+            + $"default='{SelectedOutput?.Name ?? "none"}'; {InputEndpoints.Count} input(s), "
+            + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}; "
+            + $"microphone={(InputVolumePercent is { } inputVolume
+                ? inputVolume.ToString("0", CultureInfo.InvariantCulture) + "%"
+                : "unavailable")}, "
+            + $"muted={InputMuted}.";
+        if (_endpointSummary == summary)
+        {
+            return;
+        }
+
+        _endpointSummary = summary;
+        Log.Info(summary);
     }
 
     private void ApplyVolume(int percentage, bool muted)
@@ -493,27 +502,13 @@ public sealed class AudioManager : ObservableObject, IDisposable
         ObservableCollection<AudioEndpointEntry> entries,
         IReadOnlyList<CoreAudio.AudioEndpoint> snapshot)
     {
-        string? defaultId = null;
-        foreach (var endpoint in snapshot)
-        {
-            if (endpoint.IsDefault)
-            {
-                defaultId = endpoint.Id;
-                break;
-            }
-        }
-        if (defaultId is null)
-        {
-            return null;
-        }
-        foreach (var entry in entries)
-        {
-            if (entry.Id == defaultId)
-            {
-                return entry;
-            }
-        }
-        return null;
+        var defaultId = snapshot
+            .Where(endpoint => endpoint.IsDefault)
+            .Select(string? (endpoint) => endpoint.Id)
+            .FirstOrDefault();
+        return defaultId is null
+            ? null
+            : entries.FirstOrDefault(entry => entry.Id == defaultId);
     }
 
     /// <summary>Reconciles endpoint rows in place so a periodic refresh does not
@@ -625,11 +620,13 @@ public sealed class AudioManager : ObservableObject, IDisposable
     {
         if (output)
         {
-            if (!ReferenceEquals(_selectedOutput, value))
+            if (ReferenceEquals(_selectedOutput, value))
             {
-                _selectedOutput = value;
-                Raise(nameof(SelectedOutput));
+                return;
             }
+
+            _selectedOutput = value;
+            Raise(nameof(SelectedOutput));
         }
         else if (!ReferenceEquals(_selectedInput, value))
         {
@@ -651,12 +648,14 @@ public sealed class AudioManager : ObservableObject, IDisposable
         VolumeFeedback.Play();
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_disposed)
+            if (_disposed)
             {
-                ApplyVolume(requested, muted != 0);
-                _stickyError = false;
-                ErrorText = "";
+                return;
             }
+
+            ApplyVolume(requested, muted != 0);
+            _stickyError = false;
+            ErrorText = "";
         });
     }
 
@@ -672,12 +671,14 @@ public sealed class AudioManager : ObservableObject, IDisposable
         Log.Info($"Microphone volume set to {requested}% (muted={muted != 0}).");
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_disposed)
+            if (_disposed)
             {
-                ApplyInputVolume(requested, muted != 0);
-                _stickyError = false;
-                ErrorText = "";
+                return;
             }
+
+            ApplyInputVolume(requested, muted != 0);
+            _stickyError = false;
+            ErrorText = "";
         });
     }
 
@@ -716,11 +717,13 @@ public sealed class AudioManager : ObservableObject, IDisposable
         Log.Warn(message);
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_disposed)
+            if (_disposed)
             {
-                _stickyError |= sticky;
-                ErrorText = message;
+                return;
             }
+
+            _stickyError |= sticky;
+            ErrorText = message;
         });
     }
 
@@ -748,7 +751,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
     /// <param name="label">What is written, for the failure messages.</param>
     private sealed class CoalescingVolumeWrite(string label)
     {
-        private readonly object _gate = new();
+        private readonly Lock _gate = new();
         private int? _pending;
         private bool _running;
 
@@ -774,7 +777,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
                         int requested;
                         lock (_gate)
                         {
-                            if (_pending is not int pending || stopped())
+                            if (_pending is not { } pending || stopped())
                             {
                                 _running = false;
                                 return;

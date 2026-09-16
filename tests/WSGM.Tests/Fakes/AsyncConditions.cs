@@ -1,4 +1,4 @@
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>Polls for a condition a background Steam UI task makes true.</summary>
 internal static class AsyncConditions

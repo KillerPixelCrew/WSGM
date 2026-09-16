@@ -20,7 +20,7 @@ public static class UacSettings
     private const string PolicyKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
     private const string ConsentPromptBehaviorAdmin = "ConsentPromptBehaviorAdmin";
     private const string PromptOnSecureDesktop = "PromptOnSecureDesktop";
-    private const string EnableLua = "EnableLUA";
+    private const string EnableLuaPolicy = "EnableLUA";
 
     // Windows defaults ("Notify me only when apps try to make changes").
     private const int DefaultConsentPrompt = 5;
@@ -43,16 +43,16 @@ public static class UacSettings
         }
 
         /// <summary>Gets whether the policy values could be read.</summary>
-        public bool Readable { get; init; }
+        public bool Readable { get; }
 
         /// <summary>Gets the administrator consent-prompt policy value.</summary>
-        public int ConsentPrompt { get; init; }
+        public int ConsentPrompt { get; }
 
         /// <summary>Gets the secure-desktop policy value.</summary>
-        public int SecureDesktop { get; init; }
+        public int SecureDesktop { get; }
 
         /// <summary>Gets the base UAC enablement policy value.</summary>
-        public int EnableLua { get; init; }
+        public int EnableLua { get; }
 
         /// <summary>Deconstructs the snapshot using its original positional-record shape.</summary>
         /// <param name="readable">Receives whether the policy values could be read.</param>
@@ -86,7 +86,7 @@ public static class UacSettings
                 true,
                 key.GetValue(ConsentPromptBehaviorAdmin) as int? ?? DefaultConsentPrompt,
                 key.GetValue(PromptOnSecureDesktop) as int? ?? DefaultSecureDesktop,
-                key.GetValue(EnableLua) as int? ?? 1);
+                key.GetValue(EnableLuaPolicy) as int? ?? 1);
         }
         catch (Exception ex)
         {
@@ -112,7 +112,7 @@ public static class UacSettings
 
             if (disablePrompts)
             {
-                if (!config.PreviousUacSnapshotCaptured && current.Readable && !current.PromptsDisabled)
+                if (!config.PreviousUacSnapshotCaptured && current is { Readable: true, PromptsDisabled: false })
                 {
                     config.PreviousUacSnapshotCaptured = true;
                     config.PreviousUacConsentPrompt = current.ConsentPrompt;

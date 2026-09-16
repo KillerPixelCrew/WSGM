@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Avalonia.Threading;
@@ -51,7 +52,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private const int TriggerDistancePx = 48;
     private const ulong TriggerTimeMs = 800;
 
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     // Raw-input registration is per-process per HID usage: registering a second
     // window RETARGETS delivery, and one RIDEV_REMOVE kills it for everyone. So
     // ONE shared message-only window owns the registration, WM_INPUT is dispatched
@@ -204,14 +205,15 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <summary>Resume gesture detection (overlay closed).</summary>
     public void Arm()
     {
-        if (!_disposed && !_armed)
+        if (_disposed || _armed)
         {
-            _armed = true;
-            // Reset the one-shot so every arm cycle proves whether raw reports
-            // still flow — swipes reportedly die when specific apps take focus.
-            _loggedFirstReport = false;
-            Log.Info($"Touch edge swipes armed (foreground {DescribeForeground()}).");
+            return;
         }
+        _armed = true;
+        // Reset the one-shot so every arm cycle proves whether raw reports
+        // still flow — swipes reportedly die when specific apps take focus.
+        _loggedFirstReport = false;
+        Log.Info($"Touch edge swipes armed (foreground {DescribeForeground()}).");
     }
 
     private static string DescribeForeground()
@@ -235,59 +237,68 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <summary>Suspend gesture detection (overlay open).</summary>
     public void Disarm()
     {
-        if (_armed)
+        if (!_armed)
         {
-            _armed = false;
-            _tracking = false;
-            Log.Info("Touch edge swipes disarmed.");
+            return;
         }
+        _armed = false;
+        _tracking = false;
+        Log.Info("Touch edge swipes disarmed.");
     }
 
     [UnmanagedCallersOnly]
     private static nint WndProc(nint hwnd, uint message, nint wParam, nint lParam)
     {
-        if (hwnd == _sharedHwnd)
+        if (hwnd != _sharedHwnd)
         {
-            var monitors = Volatile.Read(ref _instanceSnapshot);
-            try
+            return NativeMethods.DefWindowProcW(hwnd, message, wParam, lParam);
+        }
+
+        var monitors = Volatile.Read(ref _instanceSnapshot);
+        try
+        {
+            switch (message)
             {
-                if (message == NativeMethods.WmInput)
-                {
-                    // hRawInput (lParam) is only valid during synchronous processing;
-                    // read here, then still let DefWindowProc do the WM_INPUT cleanup.
-                    foreach (var monitor in monitors)
+                case NativeMethods.WmInput:
                     {
-                        if (!monitor._disposed)
-                        {
-                            monitor.ProcessRawInput(lParam);
-                        }
-                    }
-                }
-                else if (message == NativeMethods.WmInputDeviceChange)
-                {
-                    // With RIDEV_DEVNOTIFY, GIDC_ARRIVAL also fires at registration
-                    // for devices already present — proves the WM_INPUT channel is
-                    // alive before the first touch.
-                    if (wParam == NativeMethods.GidcArrival)
-                    {
-                        Log.Info($"Touch digitizer 0x{lParam:X} present.");
-                    }
-                    else if (wParam == NativeMethods.GidcRemoval)
-                    {
+                        // hRawInput (lParam) is only valid during synchronous processing;
+                        // read here, then still let DefWindowProc do the WM_INPUT cleanup.
                         foreach (var monitor in monitors)
                         {
                             if (!monitor._disposed)
                             {
-                                monitor.EvictDevice(lParam);
+                                monitor.ProcessRawInput(lParam);
                             }
                         }
+                        break;
                     }
-                }
+                case NativeMethods.WmInputDeviceChange:
+                    // With RIDEV_DEVNOTIFY, GIDC_ARRIVAL also fires at registration
+                    // for devices already present — proves the WM_INPUT channel is
+                    // alive before the first touch.
+                    switch (wParam)
+                    {
+                        case NativeMethods.GidcArrival:
+                            Log.Info($"Touch digitizer 0x{lParam:X} present.");
+                            break;
+                        case NativeMethods.GidcRemoval:
+                            {
+                                foreach (var monitor in monitors)
+                                {
+                                    if (!monitor._disposed)
+                                    {
+                                        monitor.EvictDevice(lParam);
+                                    }
+                                }
+                                break;
+                            }
+                    }
+                    break;
             }
-            catch (Exception ex)
-            {
-                Log.Error("Raw touch input processing failed", ex);
-            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Raw touch input processing failed", ex);
         }
 
         return NativeMethods.DefWindowProcW(hwnd, message, wParam, lParam);
@@ -405,7 +416,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         return caps.Usable ? caps : null;
     }
 
-    private DeviceCaps BuildDeviceCaps(nint hDevice)
+    private static DeviceCaps BuildDeviceCaps(nint hDevice)
     {
         var caps = new DeviceCaps();
 
@@ -467,10 +478,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 continue;
             }
             var coversX = vc.IsRange != 0
-                ? vc.UsageMin <= NativeMethods.HidUsageX && NativeMethods.HidUsageX <= vc.UsageMax
+                ? vc is { UsageMin: <= NativeMethods.HidUsageX, UsageMax: >= NativeMethods.HidUsageX }
                 : vc.UsageMin == NativeMethods.HidUsageX;
             var coversY = vc.IsRange != 0
-                ? vc.UsageMin <= NativeMethods.HidUsageY && NativeMethods.HidUsageY <= vc.UsageMax
+                ? vc is { UsageMin: <= NativeMethods.HidUsageY, UsageMax: >= NativeMethods.HidUsageY }
                 : vc.UsageMin == NativeMethods.HidUsageY;
             if (coversX && !xByCollection.ContainsKey(vc.LinkCollection))
             {
@@ -484,13 +495,14 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
         var found = false;
         ushort bestCollection = 0;
-        foreach (var collection in xByCollection.Keys)
+        foreach (var collection in xByCollection.Keys.Where(yByCollection.ContainsKey))
         {
-            if (yByCollection.ContainsKey(collection) && (!found || collection < bestCollection))
+            if (found && collection >= bestCollection)
             {
-                bestCollection = collection;
-                found = true;
+                continue;
             }
+            bestCollection = collection;
+            found = true;
         }
         if (!found)
         {
@@ -539,11 +551,12 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             for (var i = 0; i < usageCount; i++)
             {
-                if (_usageBuffer[i] == NativeMethods.HidUsageTipSwitch)
+                if (_usageBuffer[i] != NativeMethods.HidUsageTipSwitch)
                 {
-                    tipDown = true;
-                    break;
+                    continue;
                 }
+                tipDown = true;
+                break;
             }
         }
         else if (!caps.WarnedUsagesFailed)
@@ -570,11 +583,12 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 NativeMethods.HidUsageY, out var rawY, caps.PreparsedData, report, reportLength) !=
             NativeMethods.HidpStatusSuccess)
         {
-            if (!caps.WarnedBadReport)
+            if (caps.WarnedBadReport)
             {
-                caps.WarnedBadReport = true;
-                Log.Warn("Touch digitizer report without X/Y values, ignoring.");
+                return;
             }
+            caps.WarnedBadReport = true;
+            Log.Warn("Touch digitizer report without X/Y values, ignoring.");
             return;
         }
 
@@ -641,12 +655,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         {
             return;
         }
-        if (!_armed)
-        {
-            _tracking = false;
-            return;
-        }
-        if ((ulong)Environment.TickCount64 - _startedAt > TriggerTimeMs)
+        if (!_armed || (ulong)Environment.TickCount64 - _startedAt > TriggerTimeMs)
         {
             _tracking = false;
             return;
@@ -728,18 +737,19 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 return;
             }
             var distance = InwardDistance(edge, startX, startY, x, y);
-            if (distance > bestDistance)
+            if (distance <= bestDistance)
             {
-                bestDistance = distance;
-                bestEdge = edge;
+                return;
             }
+            bestDistance = distance;
+            bestEdge = edge;
         }
     }
 
     private (int X, int Y) ScaleToScreen(DeviceCaps caps, uint rawX, uint rawY)
     {
-        var x = (int)(((long)rawX - caps.XMin) * (_screenW - 1) / (caps.XMax - caps.XMin));
-        var y = (int)(((long)rawY - caps.YMin) * (_screenH - 1) / (caps.YMax - caps.YMin));
+        var x = (int)((rawX - caps.XMin) * (_screenW - 1) / (caps.XMax - caps.XMin));
+        var y = (int)((rawY - caps.YMin) * (_screenH - 1) / (caps.YMax - caps.YMin));
         return (x, y);
     }
 
@@ -804,12 +814,9 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             }
         }
 
-        foreach (var caps in _devices.Values)
+        foreach (var caps in _devices.Values.Where(device => device.PreparsedData != 0))
         {
-            if (caps.PreparsedData != 0)
-            {
-                Marshal.FreeHGlobal(caps.PreparsedData);
-            }
+            Marshal.FreeHGlobal(caps.PreparsedData);
         }
         _devices.Clear();
     }

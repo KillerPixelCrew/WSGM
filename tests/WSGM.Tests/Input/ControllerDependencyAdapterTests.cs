@@ -4,7 +4,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 public sealed class ControllerDependencyAdapterTests
 {
@@ -260,14 +260,14 @@ public sealed class ControllerDependencyAdapterTests
             _error = error;
         }
 
-        internal bool Active { get; }
+        private bool Active { get; }
 
-        internal bool Inverse { get; }
+        private bool Inverse { get; }
 
         internal int WriteCount { get; private set; }
 
         public HidHideControlState Read() => _error == 0
-            ? new HidHideControlState(true, 0, Active, Inverse, _applications.ToArray(), _devices.ToArray())
+            ? new HidHideControlState(true, 0, Active, Inverse, [.. _applications], [.. _devices])
             : new HidHideControlState(false, _error, false, false, [], []);
 
         public int Write(HidHideEntryKind entryKind, IReadOnlyList<string> entries)
@@ -275,17 +275,17 @@ public sealed class ControllerDependencyAdapterTests
             WriteCount++;
             if (entryKind is HidHideEntryKind.Application)
             {
-                _applications = entries.ToList();
+                _applications = [.. entries];
             }
             else
             {
-                _devices = entries.ToList();
+                _devices = [.. entries];
             }
 
             return 0;
         }
 
         internal void ReplaceApplications(IEnumerable<string> entries) =>
-            _applications = entries.ToList();
+            _applications = [.. entries];
     }
 }

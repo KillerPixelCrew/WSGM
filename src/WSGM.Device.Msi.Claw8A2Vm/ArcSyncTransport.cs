@@ -7,13 +7,9 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 /// <summary>What Arc Sync reports for the panel right now.</summary>
 /// <param name="Supported">Whether the panel supports variable refresh at all.</param>
 /// <param name="Enabled">Whether a profile other than OFF is applied.</param>
-/// <param name="MinimumHz">Lowest refresh the panel can hold under variable refresh.</param>
-/// <param name="MaximumHz">Highest refresh the panel can hold under variable refresh.</param>
 internal readonly record struct ArcSyncState(
     bool Supported,
-    bool Enabled,
-    float MinimumHz,
-    float MaximumHz
+    bool Enabled
 );
 
 /// <summary>
@@ -146,17 +142,15 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
         ArcSyncProfileParams profile = default;
         profile.Size = (uint)sizeof(ArcSyncProfileParams);
         var profileResult = _getProfile(_panel, &profile);
-        if (profileResult != ResultSuccess)
+        if (profileResult == ResultSuccess)
         {
-            PluginTrace.Warn("arcsync", $"Profile read failed with 0x{profileResult:x}.");
-            return null;
+            return new ArcSyncState(
+                monitor.IsSupported != 0,
+                profile.Profile != ProfileOff);
         }
 
-        return new ArcSyncState(
-            monitor.IsSupported != 0,
-            profile.Profile != ProfileOff,
-            monitor.MinimumHz,
-            monitor.MaximumHz);
+        PluginTrace.Warn("arcsync", $"Profile read failed with 0x{profileResult:x}.");
+        return null;
     }
 
     /// <summary>
@@ -258,11 +252,13 @@ internal sealed unsafe class ArcSyncTransport : IDisposable
         }
 
         _panel = 0;
-        if (_library != 0)
+        if (_library == 0)
         {
-            NativeLibrary.Free(_library);
-            _library = 0;
+            return;
         }
+
+        NativeLibrary.Free(_library);
+        _library = 0;
     }
 
     private bool TryBind()

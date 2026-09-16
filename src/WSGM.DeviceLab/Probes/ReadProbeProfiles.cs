@@ -48,7 +48,7 @@ internal sealed record CompiledReadProbeDescriptor(
 
 internal static class BuiltInReadProbeRegistry
 {
-    private static readonly IReadOnlyDictionary<(string Id, int Version), IReadProbeProfile> Profiles =
+    private static readonly Dictionary<(string Id, int Version), IReadProbeProfile> Profiles =
         new Dictionary<(string, int), IReadProbeProfile>
         {
             [(MsiWmiVersionProbe.ProbeId, 1)] = new MsiWmiVersionProbe(),
@@ -71,7 +71,7 @@ internal static class ReadProbeExecutor
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(request.TimeoutMilliseconds);
-        List<ReadProbeSample> samples = new(request.Repetitions);
+        List<ReadProbeSample> samples = [];
         var minimumDelay = checked((int)Math.Ceiling(2000d / request.MaximumReadsPerSecond));
 
         try
@@ -140,26 +140,21 @@ internal static class ReadProbeExecutor
 // endpoint, and rate into the disposable self-worker. The request envelope cannot substitute a method or address.
 // Get_* still crosses the vendor provider and is therefore an explicit local read; it is never
 // exposed as a production runtime command and it never falls back to a Set_* method.
-internal abstract class MsiWmiReadProbeProfile : IReadProbeProfile
+internal abstract class MsiWmiReadProbeProfile(
+    string id,
+    ReadProbeFamily family,
+    string endpoint,
+    int repetitions = 2) : IReadProbeProfile
 {
-    protected MsiWmiReadProbeProfile(
-        string id,
-        ReadProbeFamily family,
-        string endpoint,
-        int repetitions = 2)
-    {
-        Descriptor = new CompiledReadProbeDescriptor(
-            id,
-            1,
-            "msi.claw-a2vm.ms-1t52",
-            endpoint,
-            family,
-            2,
-            5_000,
-            repetitions);
-    }
-
-    public CompiledReadProbeDescriptor Descriptor { get; }
+    public CompiledReadProbeDescriptor Descriptor { get; } = new(
+        id,
+        1,
+        "msi.claw-a2vm.ms-1t52",
+        endpoint,
+        family,
+        2,
+        5_000,
+        repetitions);
 
     public abstract ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken);
 
@@ -201,20 +196,16 @@ internal abstract class MsiWmiReadProbeProfile : IReadProbeProfile
             using var output = instance.InvokeMethod(methodName, input, null)
                                ?? throw new IOException($"{methodName} returned no response.");
             if (output["Data"] is not ManagementBaseObject returned
-                || returned["Bytes"] is not byte[] response
-                || response.Length != 32)
+                || returned["Bytes"] is not byte[] { Length: 32 } response)
             {
                 throw new InvalidDataException($"{methodName} did not return the reviewed Package_32 shape.");
             }
 
             using (returned)
             {
-                if (response[0] != 0x01)
-                {
-                    throw new InvalidDataException($"{methodName} returned status 0x{response[0]:x2}.");
-                }
-
-                return response;
+                return response[0] != 0x01
+                    ? throw new InvalidDataException($"{methodName} returned status 0x{response[0]:x2}.")
+                    : response;
             }
         }
     }
@@ -236,14 +227,10 @@ internal abstract class MsiWmiReadProbeProfile : IReadProbeProfile
         };
 }
 
-internal sealed class MsiWmiVersionProbe : MsiWmiReadProbeProfile
+internal sealed class MsiWmiVersionProbe()
+    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.Version, "root/WMI:MSI_ACPI.Get_WMI")
 {
     public const string ProbeId = "msi.claw-a2vm.wmi-version";
-
-    public MsiWmiVersionProbe()
-        : base(ProbeId, ReadProbeFamily.Version, "root/WMI:MSI_ACPI.Get_WMI")
-    {
-    }
 
     public override ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken)
     {
@@ -264,14 +251,10 @@ internal sealed class MsiWmiVersionProbe : MsiWmiReadProbeProfile
     }
 }
 
-internal sealed class MsiEmbeddedControllerVersionProbe : MsiWmiReadProbeProfile
+internal sealed class MsiEmbeddedControllerVersionProbe()
+    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.EmbeddedController, "root/WMI:MSI_ACPI.Get_EC")
 {
     public const string ProbeId = "msi.claw-a2vm.ec-version";
-
-    public MsiEmbeddedControllerVersionProbe()
-        : base(ProbeId, ReadProbeFamily.EmbeddedController, "root/WMI:MSI_ACPI.Get_EC")
-    {
-    }
 
     public override ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken)
     {
@@ -292,14 +275,10 @@ internal sealed class MsiEmbeddedControllerVersionProbe : MsiWmiReadProbeProfile
     }
 }
 
-internal sealed class MsiScenarioStatusProbe : MsiWmiReadProbeProfile
+internal sealed class MsiScenarioStatusProbe()
+    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.WmiStatus, "root/WMI:MSI_ACPI.Get_Data:0xd2")
 {
     public const string ProbeId = "msi.claw-a2vm.scenario-status";
-
-    public MsiScenarioStatusProbe()
-        : base(ProbeId, ReadProbeFamily.WmiStatus, "root/WMI:MSI_ACPI.Get_Data:0xd2")
-    {
-    }
 
     public override ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken)
     {
@@ -312,14 +291,10 @@ internal sealed class MsiScenarioStatusProbe : MsiWmiReadProbeProfile
     }
 }
 
-internal sealed class MsiFanRpmProbe : MsiWmiReadProbeProfile
+internal sealed class MsiFanRpmProbe()
+    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.FanRpm, "root/WMI:MSI_ACPI.Get_Fan:0")
 {
     public const string ProbeId = "msi.claw-a2vm.fan-rpm";
-
-    public MsiFanRpmProbe()
-        : base(ProbeId, ReadProbeFamily.FanRpm, "root/WMI:MSI_ACPI.Get_Fan:0")
-    {
-    }
 
     public override ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken)
     {
@@ -350,14 +325,10 @@ internal sealed class MsiFanRpmProbe : MsiWmiReadProbeProfile
     }
 }
 
-internal sealed class MsiChargeLimitProbe : MsiWmiReadProbeProfile
+internal sealed class MsiChargeLimitProbe()
+    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.ChargeState, "root/WMI:MSI_ACPI.Get_Data:0xd7")
 {
     public const string ProbeId = "msi.claw-a2vm.charge-limit";
-
-    public MsiChargeLimitProbe()
-        : base(ProbeId, ReadProbeFamily.ChargeState, "root/WMI:MSI_ACPI.Get_Data:0xd7")
-    {
-    }
 
     public override ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken)
     {

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace WSGM.Core;
 
@@ -54,14 +55,10 @@ public static class InstallProfile
     {
         ArgumentNullException.ThrowIfNull(args);
         const string prefix = "--profile=";
-        foreach (var argument in args)
-        {
-            if (argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return argument[prefix.Length..];
-            }
-        }
-        return null;
+        return args
+            .Where(argument => argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(argument => argument[prefix.Length..])
+            .FirstOrDefault();
     }
 
     /// <summary>Applies the mode to a configuration that has just been created.</summary>

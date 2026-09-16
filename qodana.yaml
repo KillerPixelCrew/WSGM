@@ -24,3 +24,14 @@ exclude:
       - src/WSGM/Native
       - src/WSGM.Plugin.Ir/Firmware/.pio
       - TestResults
+  # Windows application manifests use the side-by-side assembly schema, which the XML
+  # inspection does not know, so every element reads as undeclared.
+  - name: XmlHighlighting
+    paths:
+      - src/WSGM/app.manifest
+      - src/WSGM.Launch/app.manifest
+      - src/WSGM.LogonService/app.manifest
+  # The taint rule flags every Process.Start. WSGM starts fixed Windows tools, configured
+  # applications and itself for the signed-in user, with arguments WSGM builds from fixed values
+  # and local configuration. No remote input reaches them.
+  - name: csharp_injection_rule-CommandInjection

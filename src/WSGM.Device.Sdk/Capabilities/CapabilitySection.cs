@@ -99,26 +99,26 @@ public sealed record CapabilityCategory
             return false;
         }
 
-        if (Key is not SettingSectionKey.Custom)
+        if (Key is SettingSectionKey.Custom)
         {
-            // A title alongside a real key is dead weight that some surface eventually renders
-            // instead of the localized string.
-            if (CustomTitle is not null)
-            {
-                error = $"category '{CategoryId}' may only carry a customTitle when key is Custom.";
-                return false;
-            }
-
-            error = null;
-            return true;
+            return PlainText.TryValidate(
+                CustomTitle,
+                MaxCustomTitleLength,
+                $"category '{CategoryId}' customTitle",
+                out error
+            );
         }
 
-        return PlainText.TryValidate(
-            CustomTitle,
-            MaxCustomTitleLength,
-            $"category '{CategoryId}' customTitle",
-            out error
-        );
+        // A title alongside a real key is dead weight that some surface eventually renders
+        // instead of the localized string.
+        if (CustomTitle is not null)
+        {
+            error = $"category '{CategoryId}' may only carry a customTitle when key is Custom.";
+            return false;
+        }
+
+        error = null;
+        return true;
     }
 }
 
@@ -263,11 +263,13 @@ public sealed record CapabilitySection
                 return false;
             }
 
-            if (!ids.Add(category.CategoryId))
+            if (ids.Add(category.CategoryId))
             {
-                error = $"section '{SectionId}' declares category '{category.CategoryId}' twice.";
-                return false;
+                continue;
             }
+
+            error = $"section '{SectionId}' declares category '{category.CategoryId}' twice.";
+            return false;
         }
 
         error = null;

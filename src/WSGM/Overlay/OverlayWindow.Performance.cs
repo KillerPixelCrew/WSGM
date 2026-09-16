@@ -120,7 +120,7 @@ public partial class OverlayWindow
     /// </remarks>
     private Control? TryCreatePerformanceControl(DescriptorRow descriptor, string key)
     {
-        if (descriptor.Range is { } range && descriptor.Value is { } current)
+        if (descriptor is { Range: { } range, Value: { } current })
         {
             return new DeviceSliderRow(
                 key,
@@ -136,35 +136,34 @@ public partial class OverlayWindow
                 value => FormatFrameRate(SettledValue(range, value)));
         }
 
-        if (descriptor.Options.Count > 0)
+        if (descriptor.Options.Count == 0)
         {
-            IReadOnlyList<CapabilityChoice> choices =
-                [.. descriptor.Options.Select(option => new CapabilityChoice(
-                    option.Value.ToString(CultureInfo.InvariantCulture),
-                    new CapabilityDisplay
-                    {
-                        Key = DisplayKey.Custom,
-                        CustomLabel = option.Label
-                    }))];
-            var selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
-            var (row, _) = DeviceControlRows.Choice(
-                key,
-                descriptor.Title,
-                descriptor.Description,
-                choices,
-                selected,
-                descriptor.CanInvoke,
-                value =>
-                {
-                    if (int.TryParse(value, CultureInfo.InvariantCulture, out var level))
-                    {
-                        WritePerformanceValue(descriptor.Id, level);
-                    }
-                });
-            return row;
+            return null;
         }
 
-        return null;
+        IReadOnlyList<CapabilityChoice> choices =
+            [.. descriptor.Options.Select(option => new CapabilityChoice(
+                option.Value.ToString(CultureInfo.InvariantCulture),
+                new CapabilityDisplay
+                {
+                    Key = DisplayKey.Custom,
+                    CustomLabel = option.Label
+                }))];
+        var selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
+        return DeviceControlRows.Choice(
+            key,
+            descriptor.Title,
+            descriptor.Description,
+            choices,
+            selected,
+            descriptor.CanInvoke,
+            value =>
+            {
+                if (int.TryParse(value, CultureInfo.InvariantCulture, out var level))
+                {
+                    WritePerformanceValue(descriptor.Id, level);
+                }
+            });
     }
 
     /// <summary>What a slider position actually commits, once the row's off band is applied.</summary>
@@ -279,12 +278,13 @@ public partial class OverlayWindow
     private void PlacePerformanceSection(bool deviceVisible)
     {
         var target = deviceVisible ? DevicePerformanceColumn : PanelSystemPerformance;
-        if (!target.Children.Contains(PerformanceSection))
+        if (target.Children.Contains(PerformanceSection))
         {
-            DevicePerformanceColumn.Children.Remove(PerformanceSection);
-            PanelSystemPerformance.Children.Remove(PerformanceSection);
-            target.Children.Add(PerformanceSection);
+            return;
         }
+        DevicePerformanceColumn.Children.Remove(PerformanceSection);
+        PanelSystemPerformance.Children.Remove(PerformanceSection);
+        target.Children.Add(PerformanceSection);
     }
 
     /// <summary>Whether the performance rows belong on the page currently showing.</summary>

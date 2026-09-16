@@ -12,8 +12,7 @@ namespace WSGM.Shell;
 /// <summary>Structured outcome for tab synchronization and retry policy.</summary>
 /// <param name="Summary">User-facing summary.</param>
 /// <param name="Success">Whether the tab definitions synchronized.</param>
-/// <param name="Reachable">Whether Steam's CEF target was reachable.</param>
-public readonly record struct LibraryTabSyncResult(string Summary, bool Success, bool Reachable);
+public readonly record struct LibraryTabSyncResult(string Summary, bool Success);
 
 /// <summary>Builds Steam library tabs as injected in-memory definitions over CEF:
 /// <list type="bullet">
@@ -55,7 +54,7 @@ public sealed class LibraryTabManager
             // CEF library-tabs feature gate (master + sub-toggle): when off, the tab
             // strip is never pushed. Discovery, badges, and config merge below still
             // run so the SD-card manager and its badges remain independent.
-            var tabsEnabled = config.Cef.Enabled && config.Cef.LibraryTabs;
+            var tabsEnabled = config.Cef is { Enabled: true, LibraryTabs: true };
             TabSyncResult sync;
             if (reachable != false && !filterFailed && tabsEnabled)
             {
@@ -118,7 +117,7 @@ public sealed class LibraryTabManager
                 // The tab strip is switched off, so there is nothing left to push and
                 // nothing pending: report success, or every caller keeps re-running a
                 // full sync (the overlay only arms its auto-sync throttle on success).
-                return new LibraryTabSyncResult("Library tabs are turned off.", true, reachedSteam);
+                return new LibraryTabSyncResult("Library tabs are turned off.", true);
             }
             if (!reachedSteam || !ok)
             {
@@ -126,30 +125,30 @@ public sealed class LibraryTabManager
                 {
                     return new LibraryTabSyncResult(
                         "Saved the tabs, but one filter failed in Steam; existing tabs were preserved.",
-                        false, true);
+                        false);
                 }
                 return new LibraryTabSyncResult(
                     "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.",
-                    false, reachedSteam);
+                    false);
             }
 
             Log.Info($"Library tabs: {tabs.Count} injected.");
             var summary = tabs.Count == 0
                 ? "No library tabs yet — add a custom tab or insert a card library."
                 : $"Synced {tabs.Count} library tabs.";
-            return new LibraryTabSyncResult(summary, true, true);
+            return new LibraryTabSyncResult(summary, true);
         }
         catch (OperationCanceledException)
         {
             // Expected: a desktop transition cancels the shared token mid-evaluation.
             // Not a failure, and it must not put a stack trace into the device log.
             Log.Info("Library tabs: sync cancelled.");
-            return new LibraryTabSyncResult("Library tab sync cancelled.", false, false);
+            return new LibraryTabSyncResult("Library tab sync cancelled.", false);
         }
         catch (Exception ex)
         {
             Log.Error("Library tabs: sync failed.", ex);
-            return new LibraryTabSyncResult("Could not sync library tabs — see the log.", false, false);
+            return new LibraryTabSyncResult("Could not sync library tabs — see the log.", false);
         }
         finally
         {
@@ -212,7 +211,7 @@ public sealed class LibraryTabManager
                 return valid;
             }).ToList();
         var expressions = customTabs.Select(tab => LibraryFilter.BuildEvaluation(
-            tab.FilterTree!, tab.Categories == 0
+            tab.FilterTree, tab.Categories == 0
                 ? LibraryFilter.Categories.Games
                 : (LibraryFilter.Categories)tab.Categories, resolver)).ToList();
         var evaluations = await SteamCollections.EvaluateFiltersAsync(expressions, cancellationToken)
@@ -240,14 +239,11 @@ public sealed class LibraryTabManager
         // who wants a genre tab makes a custom tab with a Tag filter (same engine).
         var present = new HashSet<string>(
             discovered.Select(d => d.ContentId), StringComparer.Ordinal);
-        foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
-        {
-            var keep = present.Contains(card.ContentId) || config.KeepEjectedCardTabs;
-            if (keep && card.AppIds.Count > 0)
-            {
-                tabs.Add(new InjectedTab($"wsgm-card-{card.ContentId}", card.Name, card.AppIds));
-            }
-        }
+        tabs.AddRange(config.CardLibraries
+            .Where(c => c is { Enabled: true, Hidden: false })
+            .Where(card => (present.Contains(card.ContentId) || config.KeepEjectedCardTabs)
+                && card.AppIds.Count > 0)
+            .Select(card => new InjectedTab($"wsgm-card-{card.ContentId}", card.Name, card.AppIds)));
 
         // Only a filter evaluation talks to Steam here; with none, reachability is
         // unknown rather than proven.
@@ -436,16 +432,17 @@ public sealed class LibraryTabManager
             // Read back rather than trust the write: a replace that half-applied, or a
             // volume that went away underneath it, must not be reported as a rename the
             // next scan will contradict.
-            if (!SteamLibraryVdf.TryReadMarker(libraryPath, out var written, out var name)
-                || !string.Equals(written, contentId, StringComparison.Ordinal)
-                || !string.Equals(name, label, StringComparison.Ordinal))
+            if (SteamLibraryVdf.TryReadMarker(libraryPath, out var written, out var name)
+                && string.Equals(written, contentId, StringComparison.Ordinal)
+                && string.Equals(name, label, StringComparison.Ordinal))
             {
-                Log.Warn($"Card rename: {marker} reads back as "
-                    + $"'{name}' (content id {written ?? "none"}) after the write; "
-                    + "the card's name is not what was asked for.");
-                return markerBehind;
+                return null;
             }
-            return null;
+
+            Log.Warn($"Card rename: {marker} reads back as "
+                + $"'{name}' (content id {written ?? "none"}) after the write; "
+                + "the card's name is not what was asked for.");
+            return markerBehind;
         }
         catch (Exception ex)
         {
@@ -533,9 +530,11 @@ public sealed class LibraryTabManager
             string configText;
             try
             {
-                configText = File.Exists(configPath) ? File.ReadAllText(configPath) : "";
+                configText = File.Exists(configPath)
+                    ? await File.ReadAllTextAsync(configPath, cancellationToken).ConfigureAwait(false)
+                    : "";
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Log.Warn($"Card rename: could not read Steam config: {ex.Message}");
                 return steamBehind;
@@ -556,19 +555,22 @@ public sealed class LibraryTabManager
         {
             try
             {
-                if (File.Exists(configPath)
-                    && SteamLibraryVdf.TrySetLabel(
+                if (!File.Exists(configPath)
+                    || !SteamLibraryVdf.TrySetLabel(
                         File.ReadAllText(configPath), contentId, label, out var updatedConfig)
-                    && updatedConfig is not null)
+                    || updatedConfig is null)
                 {
-                    if (Steam.IsRunning)
-                    {
-                        // Started between the check and the write; its exit rewrite
-                        // would clobber ours (and ours could corrupt its view).
-                        return false;
-                    }
-                    AtomicFile.WriteText(configPath, updatedConfig, durable: true);
+                    return true;
                 }
+
+                if (Steam.IsRunning)
+                {
+                    // Started between the check and the write; its exit rewrite
+                    // would clobber ours (and ours could corrupt its view).
+                    return false;
+                }
+
+                AtomicFile.WriteText(configPath, updatedConfig, durable: true);
                 return true;
             }
             catch (Exception ex)
@@ -666,7 +668,7 @@ public sealed class LibraryTabManager
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Task UpdateCardAsync(string contentId, Action<CardLibraryConfig> apply,
+    private static Task<object?> UpdateCardAsync(string contentId, Action<CardLibraryConfig> apply,
         CancellationToken cancellationToken)
         => MutateConfigAsync<object?>(config =>
         {
@@ -778,15 +780,6 @@ public sealed class LibraryTabManager
 
         var pool = new List<TabOrderEntry>();
         var pooled = new HashSet<string>(StringComparer.Ordinal);
-        void AddNative(string id)
-        {
-            if (!string.IsNullOrEmpty(id) && pooled.Add(id))
-            {
-                pool.Add(new TabOrderEntry(
-                    id, titles.TryGetValue(id, out var title) ? title : id, true,
-                    hidden.Contains(id)));
-            }
-        }
         foreach (var (id, _) in DefaultNativeTabs)
         {
             AddNative(id);
@@ -799,22 +792,15 @@ public sealed class LibraryTabManager
         {
             AddNative(id);
         }
-        foreach (var tab in config.CustomTabs
+        pool.AddRange(config.CustomTabs
             .Where(t => t.Enabled && !string.IsNullOrWhiteSpace(t.Name))
-            .OrderBy(t => t.Position))
-        {
-            if (pooled.Add($"wsgm-custom-{tab.Id}"))
-            {
-                pool.Add(new TabOrderEntry($"wsgm-custom-{tab.Id}", tab.Name, false, false));
-            }
-        }
-        foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
-        {
-            if (pooled.Add($"wsgm-card-{card.ContentId}"))
-            {
-                pool.Add(new TabOrderEntry($"wsgm-card-{card.ContentId}", card.Name, false, false));
-            }
-        }
+            .OrderBy(t => t.Position)
+            .Where(tab => pooled.Add($"wsgm-custom-{tab.Id}"))
+            .Select(tab => new TabOrderEntry($"wsgm-custom-{tab.Id}", tab.Name, false, false)));
+        pool.AddRange(config.CardLibraries
+            .Where(c => c is { Enabled: true, Hidden: false })
+            .Where(card => pooled.Add($"wsgm-card-{card.ContentId}"))
+            .Select(card => new TabOrderEntry($"wsgm-card-{card.ContentId}", card.Name, false, false)));
 
         var byKey = pool.ToDictionary(e => e.Key, StringComparer.Ordinal);
         var result = new List<TabOrderEntry>();
@@ -828,6 +814,15 @@ public sealed class LibraryTabManager
         }
         result.AddRange(pool.Where(entry => used.Add(entry.Key)));
         return result;
+
+        void AddNative(string id)
+        {
+            if (!string.IsNullOrEmpty(id) && pooled.Add(id))
+            {
+                pool.Add(new TabOrderEntry(
+                    id, titles.GetValueOrDefault(id, id), true, hidden.Contains(id)));
+            }
+        }
     }
 
     /// <summary>A removable Steam library found on a mounted drive.</summary>

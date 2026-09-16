@@ -101,7 +101,6 @@ internal enum OverlayBackAction
 
 /// <summary>A navigation-stack entry with a semantic focus target for its caller.</summary>
 internal readonly record struct OverlayRoute(
-    OverlayDestination Destination,
     OverlayPage Page,
     string? ReturnFocusKey,
     string? SectionId = null);
@@ -176,7 +175,7 @@ internal sealed class OverlayNavigation
 
         Destination = destination;
         _stack.Clear();
-        _stack.Add(new OverlayRoute(destination, RootPage(destination), null));
+        _stack.Add(new OverlayRoute(RootPage(destination), null));
         Log.Debug($"Overlay nav: destination {destination}, page {Page}.");
         return true;
     }
@@ -190,7 +189,7 @@ internal sealed class OverlayNavigation
             return false;
         }
 
-        _stack.Add(new OverlayRoute(Destination, page, returnFocusKey, sectionId));
+        _stack.Add(new OverlayRoute(page, returnFocusKey, sectionId));
         Log.Info($"Overlay nav: pushed {page} (depth={_stack.Count}).");
         return true;
     }

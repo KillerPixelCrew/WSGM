@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -94,7 +93,7 @@ public partial class StartupPage : UserControl
             AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("Applications") { Patterns = ["*.exe"] }]
         });
-        return files.FirstOrDefault()?.TryGetLocalPath();
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
     private void ObservePickerAction(Func<Task> action, string operation) =>

@@ -70,12 +70,13 @@ internal sealed class DisplayBrightnessView : Border
             {
                 _pending = null;
                 var result = await _service.SetBrightnessAsync(value, _closed.Token);
-                if (!result.Succeeded)
+                if (result.Succeeded)
                 {
-                    failure = "Brightness change was not confirmed.";
-                    _pending = null;
-                    break;
+                    continue;
                 }
+                failure = "Brightness change was not confirmed.";
+                _pending = null;
+                break;
             }
         }
         catch (OperationCanceledException) when (_closed.IsCancellationRequested) { }

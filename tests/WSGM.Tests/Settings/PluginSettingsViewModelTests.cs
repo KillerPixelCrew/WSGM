@@ -4,7 +4,7 @@ using WSGM.Device.Sdk.Settings;
 using WSGM.Settings;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Settings;
 
 public sealed class PluginSettingsViewModelTests
 {

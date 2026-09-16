@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class SteamControllerOwnershipAdapterTests
 {
@@ -137,7 +137,7 @@ public sealed class SteamControllerOwnershipAdapterTests
             _ => Task.FromResult(true), _ => throw new InvalidOperationException("No acquisition during shutdown"),
             new Gate(calls), physicalIsPresent: _ => Task.FromResult(false));
         var restore = adapter.RestoreAsync(cancellation.Token);
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => restore);
         Assert.Empty(calls);
     }

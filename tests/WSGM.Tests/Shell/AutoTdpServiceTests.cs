@@ -1,9 +1,9 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
-using static WSGM.Tests.ControllerBuilders;
+using static WSGM.Tests.Builders.ControllerBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class AutoTdpServiceTests
 {
@@ -70,8 +70,7 @@ public sealed class AutoTdpServiceTests
     [Fact]
     public async Task ADisabledServiceNeverWritesPower()
     {
-        Harness harness = new();
-        harness.Frametimes.Live = [Rendering(22.0)];
+        Harness harness = new() { Frametimes = { Live = [Rendering(22.0)] } };
 
         await harness.Service.TickAsync(CancellationToken.None);
 
@@ -149,7 +148,7 @@ public sealed class AutoTdpServiceTests
     {
         Harness harness = new();
         harness.Service.Apply(enabled: true);
-        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Service.ApplyRunningApplication(Running());
         harness.Frametimes.Live =
         [
             Rendering(9.0, @"C:\Games\other.exe", processId: 2),
@@ -173,7 +172,7 @@ public sealed class AutoTdpServiceTests
     {
         Harness harness = new();
         harness.Service.Apply(enabled: true);
-        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Service.ApplyRunningApplication(Running());
         harness.Frametimes.Live = [Rendering(22.0)];
         for (var tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
         {
@@ -213,7 +212,7 @@ public sealed class AutoTdpServiceTests
     {
         Harness harness = new();
         harness.Service.Apply(enabled: true);
-        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Service.ApplyRunningApplication(Running());
         harness.Frametimes.Live = [Rendering(22.0)];
         for (var tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
         {
@@ -244,7 +243,7 @@ public sealed class AutoTdpServiceTests
     {
         Harness harness = new();
         harness.Service.Apply(enabled: true);
-        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Service.ApplyRunningApplication(Running());
         harness.Frametimes.Live = [Rendering(22.0)];
         for (var tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
         {
@@ -279,7 +278,7 @@ public sealed class AutoTdpServiceTests
     {
         Harness harness = new();
         harness.Service.Apply(enabled: true);
-        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Service.ApplyRunningApplication(Running());
         harness.Frametimes.Live = [Rendering(22.0)];
         for (var tick = 1; tick < AutoTdpController.SustainedMisses; tick++)
         {
@@ -308,7 +307,7 @@ public sealed class AutoTdpServiceTests
         using ManualResetEventSlim capabilitiesEntered = new();
         using ManualResetEventSlim continueCapabilities = new();
         harness.Service.Apply(enabled: true);
-        harness.Service.ApplyRunningApplication(Running(GameExecutable));
+        harness.Service.ApplyRunningApplication(Running());
 
         // Availability reads capabilities too, so the gate is installed after enabling: holding the
         // caller's own thread inside Apply would deadlock the test rather than the tick it targets.
@@ -530,7 +529,7 @@ public sealed class AutoTdpServiceTests
         uint processId = 1) =>
         new(processId, executable, frametimeMs, 60, 100);
 
-    private sealed record Write(string CapabilityId, string? InstanceId, CapabilityValue Value);
+    private sealed record Write(string CapabilityId, CapabilityValue Value);
 
     private sealed class FakeFrametimeSource : IFrametimeSource
     {
@@ -551,22 +550,22 @@ public sealed class AutoTdpServiceTests
                     BeforeCapabilitiesRead?.Invoke();
                     return views;
                 },
-                (power, value, pair, cancellationToken) =>
+                (power, value, _, cancellationToken) =>
                 {
-                    Writes.Add(new Write(power.Descriptor.CapabilityId, power.Descriptor.InstanceId, value));
-                    if (PendingWrite is { } pending)
+                    Writes.Add(new Write(power.Descriptor.CapabilityId, value));
+                    if (PendingWrite is not { } pending)
                     {
-                        PendingWrite = null;
-                        return pending.Task.WaitAsync(cancellationToken);
+                        return Task.FromResult(new CapabilityCommandResult
+                        {
+                            CommandId = Guid.NewGuid(),
+                            Outcome = Outcome,
+                            ReadbackValue = value,
+                            CompletedAt = DateTimeOffset.UtcNow
+                        });
                     }
 
-                    return Task.FromResult(new CapabilityCommandResult
-                    {
-                        CommandId = Guid.NewGuid(),
-                        Outcome = Outcome,
-                        ReadbackValue = value,
-                        CompletedAt = DateTimeOffset.UtcNow
-                    });
+                    PendingWrite = null;
+                    return pending.Task.WaitAsync(cancellationToken);
                 },
                 () => TargetFrametimeMs);
         }
@@ -626,6 +625,26 @@ public sealed class AutoTdpServiceTests
     {
         DeviceCapabilityView[] views = [View("primary", 12, true), View("boost", 17, false)];
         List<(string Id, int Watts, bool Pair)> writes = [];
+        AutoTdpService service = new(new FakeFrametimeSource { Live = [new RtssFrametimeSample(1, "game.exe", 22, 60, 100)] }, () => views,
+            (power, value, pair, _) => Write(power.Descriptor.CapabilityId, value, pair), () => 16.6);
+        service.Apply(true);
+        for (var i = 0; i < 3; i++) { await service.TickAsync(CancellationToken.None); }
+        Assert.Contains(writes, w => w == ("primary", 13, true));
+        var restorePrimary = manualOverride ? 14 : 12;
+        var restoreBoost = manualOverride ? 20 : 17;
+        if (manualOverride)
+        {
+            views[0] = View("primary", restorePrimary, true);
+            views[1] = View("boost", restoreBoost, false);
+            service.NoteManualChange(restorePrimary);
+            Assert.False(service.OwnsPower);
+        }
+        await service.DisposeAsync();
+        Assert.Equal([("primary", restorePrimary, true), ("boost", restoreBoost, false)], writes.TakeLast(2));
+        Assert.Equal(restorePrimary, views[0].Projection.State.ObservedValue?.IntegerValue);
+        Assert.Equal(restoreBoost, views[1].Projection.State.ObservedValue?.IntegerValue);
+        return;
+
         Task<CapabilityCommandResult> Write(string id, CapabilityValue value, bool pair)
         {
             var watts = value.IntegerValue!.Value;
@@ -649,37 +668,21 @@ public sealed class AutoTdpServiceTests
                 CompletedAt = DateTimeOffset.UtcNow
             });
         }
-        AutoTdpService service = new(new FakeFrametimeSource { Live = [new RtssFrametimeSample(1, "game.exe", 22, 60, 100)] }, () => views,
-            (power, value, pair, _) => Write(power.Descriptor.CapabilityId, value, pair), () => 16.6);
-        service.Apply(true);
-        for (var i = 0; i < 3; i++) { await service.TickAsync(CancellationToken.None); }
-        Assert.Contains(writes, w => w == ("primary", 13, true));
-        var restorePrimary = manualOverride ? 14 : 12;
-        var restoreBoost = manualOverride ? 20 : 17;
-        if (manualOverride)
-        {
-            views[0] = View("primary", restorePrimary, true);
-            views[1] = View("boost", restoreBoost, false);
-            service.NoteManualChange(restorePrimary);
-            Assert.False(service.OwnsPower);
-        }
-        await service.DisposeAsync();
-        Assert.Equal(new[] { ("primary", restorePrimary, true), ("boost", restoreBoost, false) }, writes.TakeLast(2));
-        Assert.Equal(restorePrimary, views[0].Projection.State.ObservedValue?.IntegerValue);
-        Assert.Equal(restoreBoost, views[1].Projection.State.ObservedValue?.IntegerValue);
     }
 
     [Fact]
     public async Task MissingCompanionBlocksControlInsteadOfWritingOnlyThePrimary()
     {
         var writes = 0;
-        Task<CapabilityCommandResult> Write(DeviceCapabilityView _, CapabilityValue value, bool pair, CancellationToken token)
-        { writes++; throw new InvalidOperationException("No write should be dispatched."); }
         await using AutoTdpService service = new(new FakeFrametimeSource { Live = [new RtssFrametimeSample(1, "game.exe", 22, 60, 100)] }, () => [View("primary", 12, true)], Write, () => 16.6);
         Assert.False(service.Availability.Available);
         service.Apply(true);
         for (var i = 0; i < 8; i++) { await service.TickAsync(CancellationToken.None); }
         Assert.Equal(0, writes);
+        return;
+
+        Task<CapabilityCommandResult> Write(DeviceCapabilityView _, CapabilityValue value, bool pair, CancellationToken token)
+        { writes++; throw new InvalidOperationException("No write should be dispatched."); }
     }
 
     [Fact]

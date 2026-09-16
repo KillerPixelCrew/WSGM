@@ -82,7 +82,7 @@ public sealed class LibraryTabsView : OverlaySubView
             foreach (var tab in _config.CustomTabs.OrderBy(t => t.Position).ToList())
             {
                 var t = tab;
-                var state = t.Enabled ? $"{t.FilterTree?.Children.Count ?? 0} filters" : "disabled";
+                var state = t.Enabled ? $"{t.FilterTree.Children.Count} filters" : "disabled";
                 stack.Children.Add(Row(string.IsNullOrWhiteSpace(t.Name) ? "(unnamed)" : t.Name,
                     state, Icons.Wrench, () => OpenTabEditor(t)));
             }
@@ -154,12 +154,13 @@ public sealed class LibraryTabsView : OverlaySubView
             {
                 foreach (var child in stack.Children)
                 {
-                    if (child is CardButton { IsEffectivelyEnabled: true } button
-                        && button.Title == focusTitle)
+                    if (child is not CardButton { IsEffectivelyEnabled: true } button
+                        || button.Title != focusTitle)
                     {
-                        button.Focus(NavigationMethod.Directional);
-                        return;
+                        continue;
                     }
+                    button.Focus(NavigationMethod.Directional);
+                    return;
                 }
             });
         }
@@ -238,7 +239,7 @@ public sealed class LibraryTabsView : OverlaySubView
             {
                 Log.Warn($"Library tab order push failed: {ex.Message}");
             }
-        });
+        }, cts.Token);
     }
 
     // ---- Level: tab editor ----
@@ -250,7 +251,6 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         _editingOriginal = existing;
         _editing = existing is null ? new CustomTabConfig() : Clone(existing);
-        _editing.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
         Navigate(RenderTabEditor);
     }
 
@@ -264,10 +264,10 @@ public sealed class LibraryTabsView : OverlaySubView
                 _editing.Name = v.Trim();
             })));
 
-        stack.Children.Add(CycleRow("Match", _editing.FilterTree!.Mode == FilterMode.And
+        stack.Children.Add(CycleRow("Match", _editing.FilterTree.Mode == FilterMode.And
             ? "All filters (AND)" : "Any filter (OR)", () =>
         {
-            _editing.FilterTree!.Mode = _editing.FilterTree.Mode == FilterMode.And
+            _editing.FilterTree.Mode = _editing.FilterTree.Mode == FilterMode.And
                 ? FilterMode.Or : FilterMode.And;
             Replace(RenderTabEditor);
         }));
@@ -280,7 +280,7 @@ public sealed class LibraryTabsView : OverlaySubView
         }));
 
         stack.Children.Add(SectionLabel("FILTERS"));
-        var filters = _editing.FilterTree!.Children;
+        var filters = _editing.FilterTree.Children;
         if (filters.Count == 0)
         {
             stack.Children.Add(Caption("No filters yet — add one below."));
@@ -319,7 +319,7 @@ public sealed class LibraryTabsView : OverlaySubView
             Toast("A tab needs a name.");
             return;
         }
-        if (_editing.FilterTree!.Children.Count == 0 || !_editing.FilterTree.Children.All(LibraryFilter.IsValid))
+        if (_editing.FilterTree.Children.Count == 0 || !_editing.FilterTree.Children.All(LibraryFilter.IsValid))
         {
             Toast("Finish every filter first (no ⚠).");
             return;
@@ -369,7 +369,7 @@ public sealed class LibraryTabsView : OverlaySubView
         _ = SyncQuietly();
     }
 
-    private Task PersistTabsAsync()
+    private Task<object?> PersistTabsAsync()
     {
         var tabs = _config.CustomTabs.Select(Clone).ToList();
         var baseline = _openedTabIds.ToHashSet(StringComparer.Ordinal);
@@ -474,7 +474,7 @@ public sealed class LibraryTabsView : OverlaySubView
         }
         if (_replacingFilter is not null)
         {
-            var list = _editing.FilterTree!.Children;
+            var list = _editing.FilterTree.Children;
             var idx = list.IndexOf(_replacingFilter);
             if (idx >= 0)
             {
@@ -484,7 +484,7 @@ public sealed class LibraryTabsView : OverlaySubView
         }
         else
         {
-            _editing.FilterTree!.Children.Add(node);
+            _editing.FilterTree.Children.Add(node);
         }
         // Replace the picker level with the editor for the new node.
         _current = () => RenderFilterEditor(node);
@@ -515,7 +515,7 @@ public sealed class LibraryTabsView : OverlaySubView
             () => OpenFilterPicker(node)));
         stack.Children.Add(DangerRow("Remove filter", "Delete this filter", Icons.Close, () =>
         {
-            RemoveNode(_editing.FilterTree!, node);
+            RemoveNode(_editing.FilterTree, node);
             Back();
         }));
         stack.Children.Add(PrimaryRow("Done", "Back to the tab", Icons.Play, () => Back()));
@@ -650,6 +650,9 @@ public sealed class LibraryTabsView : OverlaySubView
                 stack.Children.Add(Row("Add to group", "Nested filter", Icons.FolderPlus,
                     () => OpenChildPicker(node)));
                 break;
+
+            default:
+                break;
         }
     }
 
@@ -727,7 +730,7 @@ public sealed class LibraryTabsView : OverlaySubView
         Replace(() => RenderMultiSelect("Tags", _tags!.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
         {
-            node.TagIds = selected.Select(static id => checked((int)id)).ToList();
+            node.TagIds = [.. selected.Select(static id => checked((int)id))];
             Back();
         }));
     }
@@ -747,7 +750,7 @@ public sealed class LibraryTabsView : OverlaySubView
         var selected = new HashSet<long>(node.AppIds);
         Replace(() => RenderMultiSelect("Games", _games!.Select(g => (g.AppId, g.Name)), selected, () =>
         {
-            node.AppIds = selected.ToList();
+            node.AppIds = [.. selected];
             Back();
         }));
     }
@@ -826,7 +829,7 @@ public sealed class LibraryTabsView : OverlaySubView
 
     // ---- Tab-side builders ----
 
-    private void AddStepper(StackPanel stack, string label, double value, double min, double max,
+    private static void AddStepper(StackPanel stack, string label, double value, double min, double max,
         double step, Action<double> onChange)
     {
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
@@ -871,6 +874,7 @@ public sealed class LibraryTabsView : OverlaySubView
                     node.CardScope = SdCardScope.Inserted;
                 }
                 break;
+            case SdCardScope.Specific:
             default:
                 var idx = cards.FindIndex(c => c.ContentId == node.ContentId);
                 if (idx < 0 || idx + 1 >= cards.Count)
@@ -892,9 +896,9 @@ public sealed class LibraryTabsView : OverlaySubView
     private static int NextCategories(int current)
     {
         // Cycle a few useful presets rather than exposing the full bitfield.
-        var g = (int)LibraryFilter.Categories.Games;
-        var gs = g | (int)LibraryFilter.Categories.Software;
-        var gsh = gs | (int)LibraryFilter.Categories.Hidden;
+        const int g = (int)LibraryFilter.Categories.Games;
+        const int gs = g | (int)LibraryFilter.Categories.Software;
+        const int gsh = gs | (int)LibraryFilter.Categories.Hidden;
         if (current == g)
         {
             return gs;
@@ -948,9 +952,12 @@ public sealed class LibraryTabsView : OverlaySubView
             FilterKind.Installed => node.BoolValue ? "Installed" : "Not installed",
             FilterKind.Collection => CollectionName(node.CollectionId),
             FilterKind.Regex => $"Title ~ {node.Pattern}",
-            FilterKind.SdCard => node.CardScope == SdCardScope.Specific
-                ? $"On {CardName(node.ContentId)}"
-                : node.CardScope == SdCardScope.Any ? "On any card" : "On inserted card",
+            FilterKind.SdCard => node.CardScope switch
+            {
+                SdCardScope.Specific => $"On {CardName(node.ContentId)}",
+                SdCardScope.Any => "On any card",
+                _ => "On inserted card"
+            },
             FilterKind.TimePlayed => $"Playtime {Cond(node)} {node.Threshold:0.##}",
             FilterKind.SizeOnDisk => $"Size {Cond(node)} {node.Threshold:0.##} GB",
             FilterKind.ReviewScore => $"Score {Cond(node)} {node.Threshold:0}",
@@ -973,6 +980,6 @@ public sealed class LibraryTabsView : OverlaySubView
         Enabled = t.Enabled,
         Position = t.Position,
         Categories = t.Categories,
-        FilterTree = t.FilterTree?.Clone() ?? new FilterNode { Kind = FilterKind.Merge }
+        FilterTree = t.FilterTree.Clone()
     };
 }

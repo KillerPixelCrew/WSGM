@@ -2,7 +2,7 @@ using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class CommonPluginCatalogTests
 {
@@ -24,7 +24,7 @@ public sealed class CommonPluginCatalogTests
         {
             var root = Path.Combine(installed, id);
             Directory.CreateDirectory(root);
-            await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
+            await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), """
                 {"id":"valid.plugin","name":"Fixture","version":"1.0","category":"example.status",
                  "entryAssembly":"Fixture.dll","entryType":"Fixture.MustNotExecute"}
                 """);

@@ -54,7 +54,7 @@ internal sealed class LibraryPolicy
     /// not on the slot.
     /// </remarks>
     private readonly Dictionary<string, string> _ejected = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     /// <summary>Runs before the media is ejected.</summary>
     /// <param name="entry">The row being ejected.</param>
@@ -115,10 +115,11 @@ internal sealed class LibraryPolicy
     /// <summary>The card library paths that would sit on one row's volumes.</summary>
     /// <param name="entry">The row being ejected.</param>
     /// <returns>One path per mounted letter, in the layout the card scan uses.</returns>
-    private static IReadOnlyList<string> LibraryPathsOn(RemovableDriveEntry entry) =>
-        SteamStorageBridge.SplitLetters(entry.Letters)
+    private static string[] LibraryPathsOn(RemovableDriveEntry entry) =>
+    [
+        .. SteamStorageBridge.SplitLetters(entry.Letters)
             .Select(path => Path.Combine(path, "SteamLibrary"))
-            .ToArray();
+    ];
 
     /// <summary>The library identity at a path, or empty when it carries none.</summary>
     /// <param name="libraryPath">The card library path.</param>
@@ -151,13 +152,15 @@ internal sealed class LibraryPolicy
             foreach (var path in mountPaths)
             {
                 var root = SteamLibraryVdf.VolumeRoot(path);
-                if (root.Length > 0)
+                if (root.Length == 0)
                 {
-                    _ejected[root] = contentId ?? "";
-                    Log.Info($"Library policy: {root} ejected on purpose"
-                        + $"{(contentId is { Length: > 0 } ? $" (library {contentId})" : "")}; "
-                        + "it will not be re-registered until the card is replaced or adopted.");
+                    continue;
                 }
+
+                _ejected[root] = contentId ?? "";
+                Log.Info($"Library policy: {root} ejected on purpose"
+                    + $"{(contentId is { Length: > 0 } ? $" (library {contentId})" : "")}; "
+                    + "it will not be re-registered until the card is replaced or adopted.");
             }
         }
     }
@@ -309,7 +312,7 @@ internal sealed class LibraryPolicy
     /// on a volume that is gone, which is the state its own UI renders as a disconnected drive and
     /// which the monitor then has to clean up on a later pass.
     /// </remarks>
-    internal static Task<bool> UnregisterAsync(
+    private static Task<bool> UnregisterAsync(
         string libraryPath, CancellationToken cancellationToken) =>
         ApplyAsync(LibraryTransition.Purge, libraryPath, "", cancellationToken);
 }

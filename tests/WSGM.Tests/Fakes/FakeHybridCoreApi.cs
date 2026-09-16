@@ -1,22 +1,22 @@
 using WindowsDeviceControl;
 using WSGM.Interop;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>An in-memory hybrid core power policy API that records reads, writes and refreshes.</summary>
 internal sealed class FakeHybridCoreApi : IHybridCoreApi
 {
     private static readonly Guid Scheme = new("381b4222-f694-41f0-9685-ff5bb260df2e");
 
-    internal IReadOnlyList<HybridCoreClass> Classes { get; set; } = [new(0, 4, 4), new(1, 4, 4)];
+    internal IReadOnlyList<HybridCoreClass> Classes { get; init; } = [new(0, 4, 4), new(1, 4, 4)];
 
-    internal bool Configurable { get; set; } = true;
+    internal bool Configurable { get; init; } = true;
 
-    internal bool IgnoreWrites { get; set; }
+    internal bool IgnoreWrites { get; init; }
 
-    internal IReadOnlyList<uint> HeterogeneousPolicies { get; set; } = [0, 1, 2, 3, 4];
+    internal IReadOnlyList<uint> HeterogeneousPolicies { get; init; } = [0, 1, 2, 3, 4];
 
-    internal IReadOnlyList<HybridSchedulingPolicy> Policies { get; set; } =
+    internal IReadOnlyList<HybridSchedulingPolicy> Policies { get; init; } =
     [
         HybridSchedulingPolicy.AllProcessors,
         HybridSchedulingPolicy.PerformantProcessors,

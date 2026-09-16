@@ -72,15 +72,15 @@ public static class ImageHeader
             return false;
         }
 
-        if (!IsWithinLimits(width, height))
+        if (IsWithinLimits(width, height))
         {
-            Log.Warn(
-                $"{logPrefix}: image declares {width}x{height} px (limit {MaxDimension} px per side, "
-                    + $"{MaxPixels / 1_000_000} MP total), {refusal}");
-            return false;
+            return true;
         }
 
-        return true;
+        Log.Warn(
+            $"{logPrefix}: image declares {width}x{height} px (limit {MaxDimension} px per side, "
+                + $"{MaxPixels / 1_000_000} MP total), {refusal}");
+        return false;
     }
 
     /// <summary>Reads the declared pixel dimensions from the file's header only.
@@ -219,21 +219,18 @@ public static class ImageHeader
                 }
             } while (marker == 0xFF);
 
-            if (marker == 0xD9)
+            switch (marker)
             {
-                // End of image: the file ended without a frame header. Continuing
-                // here would scan a crafted file byte by byte to EOF.
-                return false;
-            }
-            if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8))
-            {
-                // Standalone markers: no length field follows.
-                continue;
-            }
-            if (marker == 0xDA)
-            {
-                // Start of scan: no frame header was found before the image data.
-                return false;
+                case 0xD9:
+                    // End of image: the file ended without a frame header. Continuing
+                    // here would scan a crafted file byte by byte to EOF.
+                    return false;
+                case 0x01 or (>= 0xD0 and <= 0xD8):
+                    // Standalone markers: no length field follows.
+                    continue;
+                case 0xDA:
+                    // Start of scan: no frame header was found before the image data.
+                    return false;
             }
             if (!TryFill(stream, pair))
             {
@@ -245,7 +242,7 @@ public static class ImageHeader
                 return false;
             }
 
-            var isFrameHeader = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
+            var isFrameHeader = marker is >= 0xC0 and <= 0xCF and not 0xC4 and not 0xC8 and not 0xCC;
             if (isFrameHeader)
             {
                 if (length < 7 || !TryFill(stream, frame))
@@ -279,28 +276,27 @@ public static class ImageHeader
         {
             return false;
         }
-        var headerSize = BinaryPrimitives.ReadUInt32LittleEndian(dib[0..4]);
+        var headerSize = BinaryPrimitives.ReadUInt32LittleEndian(dib[..4]);
         int w, h;
-        if (headerSize >= 40)
+        switch (headerSize)
         {
-            // BITMAPINFOHEADER / V4 / V5: signed 32-bit, negative height = top-down.
-            w = BinaryPrimitives.ReadInt32LittleEndian(dib[4..8]);
-            h = BinaryPrimitives.ReadInt32LittleEndian(dib[8..12]);
-            if (h == int.MinValue)
-            {
-                return false; // no positive counterpart to report
-            }
-            h = Math.Abs(h);
-        }
-        else if (headerSize == 12)
-        {
-            // BITMAPCOREHEADER (OS/2 1.x): unsigned 16-bit, always bottom-up.
-            w = BinaryPrimitives.ReadUInt16LittleEndian(dib[4..6]);
-            h = BinaryPrimitives.ReadUInt16LittleEndian(dib[6..8]);
-        }
-        else
-        {
-            return false;
+            case >= 40:
+                // BITMAPINFOHEADER / V4 / V5: signed 32-bit, negative height = top-down.
+                w = BinaryPrimitives.ReadInt32LittleEndian(dib[4..8]);
+                h = BinaryPrimitives.ReadInt32LittleEndian(dib[8..12]);
+                if (h == int.MinValue)
+                {
+                    return false; // no positive counterpart to report
+                }
+                h = Math.Abs(h);
+                break;
+            case 12:
+                // BITMAPCOREHEADER (OS/2 1.x): unsigned 16-bit, always bottom-up.
+                w = BinaryPrimitives.ReadUInt16LittleEndian(dib[4..6]);
+                h = BinaryPrimitives.ReadUInt16LittleEndian(dib[6..8]);
+                break;
+            default:
+                return false;
         }
         if (w <= 0 || h <= 0)
         {

@@ -2,8 +2,9 @@ using WSGM.Device.Tests;
 using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class CommonPluginPackageTests
 {
@@ -20,7 +21,7 @@ public sealed class CommonPluginPackageTests
              "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
             """);
         var manifest = CommonPluginPackage.ReadManifest(root);
-        var package = await CommonPluginPackage.LoadAsync(root, manifest, default);
+        var package = await CommonPluginPackage.LoadAsync(root, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var deviceState = temporary.GetPath("device-state");
         var irState = temporary.GetPath("ir-state");
@@ -30,19 +31,19 @@ public sealed class CommonPluginPackageTests
             PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, deviceState);
         var ir = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, irState);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
-        await device.StartAsync(deadline, default);
-        await ir.StartAsync(deadline, default);
+        await device.StartAsync(deadline, CancellationToken.None);
+        await ir.StartAsync(deadline, CancellationToken.None);
         Assert.Equal(2, host.Snapshot().Length);
         Assert.Contains(ir.Actions!.Actions, action => action.Id == "save-scene");
         var backup = await host.InvokeActionAsync(ir.Identity, 1, "export", new Dictionary<string, PluginValue>(),
-            PluginActionOrigin.User, deadline, default);
+            PluginActionOrigin.User, deadline, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.AppliedVerified, backup.Outcome);
         Assert.True(File.Exists(Path.Combine(irState, "library.backup.json")));
-        await host.SetModeAsync(PluginSessionMode.Game, deadline, default);
-        Assert.True(await ir.StopAsync(deadline, default));
+        await host.SetModeAsync(PluginSessionMode.Game, deadline, CancellationToken.None);
+        Assert.True(await ir.StopAsync(deadline, CancellationToken.None));
         await ir.DisposeAsync();
         Assert.Single(host.Snapshot());
-        Assert.True(await device.StopAsync(deadline, default));
+        Assert.True(await device.StopAsync(deadline, CancellationToken.None));
         await device.DisposeAsync();
         Assert.Empty(host.Snapshot());
     }
@@ -58,25 +59,25 @@ public sealed class CommonPluginPackageTests
         File.Copy(assembly, Path.Combine(root, name));
         await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
             {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
-             "entryAssembly":"{{name}}","entryType":"WSGM.Tests.CommonPluginFixture"}
+             "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture"}
             """);
         var manifest = CommonPluginPackage.ReadManifest(root);
-        var package = await CommonPluginPackage.LoadAsync(root, manifest, default);
+        var package = await CommonPluginPackage.LoadAsync(root, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var state = temporary.GetPath("state");
         Directory.CreateDirectory(state);
         var registration = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category, PluginCategoryPolicy.Multiple, false, 1, state);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
-        await registration.StartAsync(deadline, default);
+        await registration.StartAsync(deadline, CancellationToken.None);
         Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value.Boolean);
-        await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["label"] = new(Text: "hello") }, deadline, default);
-        await host.SetModeAsync(PluginSessionMode.Game, deadline, default);
+        await registration.ConfigureAsync(0, new Dictionary<string, PluginValue> { ["label"] = new(Text: "hello") }, deadline, CancellationToken.None);
+        await host.SetModeAsync(PluginSessionMode.Game, deadline, CancellationToken.None);
         var result = await host.InvokeActionAsync(registration.Identity, 1, "record", new Dictionary<string, PluginValue>(),
-            PluginActionOrigin.SessionAutomation, deadline, default);
+            PluginActionOrigin.SessionAutomation, deadline, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.AppliedVerified, result.Outcome);
         Assert.Equal("hello:Game", await File.ReadAllTextAsync(Path.Combine(state, "action.txt")));
         Assert.Single(registration.Actions!.Contributions);
-        Assert.True(await registration.StopAsync(deadline, default));
+        Assert.True(await registration.StopAsync(deadline, CancellationToken.None));
         await registration.DisposeAsync();
         Assert.Empty(host.Snapshot());
         Assert.True(File.Exists(Path.Combine(state, "disposed.txt")));

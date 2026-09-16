@@ -16,16 +16,8 @@ public static class AccentPalette
 {
     /// <summary>The default WSGM accent (Handheld Companion orange), used when the
     /// configured value is missing or unparsable. The single source for the accent
-    /// digits — the RGB-only forms below are derived from it.</summary>
+    /// digits.</summary>
     public const string DefaultAccent = "#FFFF9D3D";
-
-    /// <summary>The default accent as a <c>#RRGGBB</c> string, for the splash
-    /// contract whose colors carry no alpha channel.</summary>
-    public static readonly string DefaultAccentRgbHex = "#" + DefaultAccent[3..];
-
-    /// <summary>The default accent's packed RGB value, for the numeric color the
-    /// device-profile contract stores.</summary>
-    public static readonly int DefaultAccentRgb = Convert.ToInt32(DefaultAccent[3..], 16);
 
     /// <summary>Parses a configured accent color string. The result is always
     /// fully opaque (see <see cref="ForceOpaque"/>): an #AARRGGBB value keeps its
@@ -50,10 +42,7 @@ public static class AccentPalette
     {
         accent = ForceOpaque(accent);
         var theme = app.Styles.OfType<FluentAvaloniaTheme>().FirstOrDefault();
-        if (theme is not null)
-        {
-            theme.CustomAccentColor = accent;
-        }
+        theme?.CustomAccentColor = accent;
 
         var onAccent = UseBlackForeground(accent) ? Colors.Black : Colors.White;
         var onAccentCaption = new Color(0xCC, onAccent.R, onAccent.G, onAccent.B);

@@ -27,11 +27,9 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
             "Get_Data",
             ClawHardwareFacts.ScenarioAddress,
             cancellationToken).ConfigureAwait(false);
-        if (scenario.Length < 2)
-        {
-            throw new InvalidOperationException("The scenario getter returned a truncated response.");
-        }
-        return new PowerPair(ReadInt32(sustained), ReadInt32(boost), scenario[1]);
+        return scenario.Length < 2
+            ? throw new InvalidOperationException("The scenario getter returned a truncated response.")
+            : new PowerPair(ReadInt32(sustained), ReadInt32(boost), scenario[1]);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplySustainedAsync(
@@ -255,11 +253,9 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
 
     private static int ReadInt32(byte[] response)
     {
-        if (response.Length < 1 + sizeof(int))
-        {
-            throw new InvalidOperationException("The power getter returned a truncated response.");
-        }
-        return BinaryPrimitives.ReadInt32LittleEndian(response.AsSpan(1, sizeof(int)));
+        return response.Length < 1 + sizeof(int)
+            ? throw new InvalidOperationException("The power getter returned a truncated response.")
+            : BinaryPrimitives.ReadInt32LittleEndian(response.AsSpan(1, sizeof(int)));
     }
 }
 
@@ -331,7 +327,7 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
             rollback);
     }
 
-    internal static byte Encode(int percent) => checked((byte)percent);
+    private static byte Encode(int percent) => checked((byte)percent);
 
     private async ValueTask<RollbackResult> TryRestoreAsync(
         byte rawValue,
@@ -525,7 +521,7 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
             is RollbackResult.RestoredVerified;
     }
 
-    internal static bool TryValidateCurve(IReadOnlyList<CurvePoint> curve, out string? error)
+    private static bool TryValidateCurve(IReadOnlyList<CurvePoint> curve, out string? error)
     {
         if (curve.Count != 6)
         {
@@ -542,11 +538,13 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
                 return false;
             }
 
-            if (i > 0 && (point.Input < curve[i - 1].Input || point.Output < curve[i - 1].Output))
+            if (i <= 0 || (point.Input >= curve[i - 1].Input && point.Output >= curve[i - 1].Output))
             {
-                error = "Fan-curve temperatures and duties must be monotonic.";
-                return false;
+                continue;
             }
+
+            error = "Fan-curve temperatures and duties must be monotonic.";
+            return false;
         }
 
         error = null;
@@ -554,11 +552,12 @@ internal sealed class ClawA2VmFanCapability(IMsiWmiTransport transport)
     }
 
     internal static IReadOnlyList<CurvePoint> DecodeCurve(FanTable table) =>
-        Enumerable.Range(0, TemperatureOffsets.Length)
+    [
+        .. Enumerable.Range(0, TemperatureOffsets.Length)
             .Select(index => new CurvePoint(
                 table.TemperatureBuffer[TemperatureOffsets[index]],
                 table.DutyBuffer[DutyOffsets[index]]))
-            .ToArray();
+    ];
 
     private async ValueTask<FanTable> ReadTableAsync(byte channel, CancellationToken cancellationToken)
     {
@@ -776,18 +775,18 @@ internal sealed class ClawA2VmLightingCapability(IClawMcuTransport transport)
                 rollback);
         }
 
-        if (readback != wanted || _observedProfile is null || !_observedProfile.SequenceEqual(payload))
+        if (readback == wanted && _observedProfile is not null && _observedProfile.SequenceEqual(payload))
         {
-            var rollback = await RollbackAsync(before, restore, CancellationToken.None)
-                .ConfigureAwait(false);
-            return ClawResults.Indeterminate(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                "Persistent lighting readback did not match the committed profile.",
-                rollback);
+            return VerifiedValue(command, readback);
         }
 
-        return VerifiedValue(command, readback);
+        var mismatchRollback = await RollbackAsync(before, restore, CancellationToken.None)
+            .ConfigureAwait(false);
+        return ClawResults.Indeterminate(
+            command,
+            CapabilityReasonCode.TransportFaulted,
+            "Persistent lighting readback did not match the committed profile.",
+            mismatchRollback);
     }
 
     /// <summary>Restores the exact profile the device held before an unverified write.</summary>

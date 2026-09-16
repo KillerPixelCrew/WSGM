@@ -3,8 +3,9 @@ using System.Text;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
+using WSGM.Device.Tests;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Glyphs;
 
 public sealed class SdkGlyphTests
 {
@@ -164,7 +165,7 @@ public sealed class SdkGlyphTests
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
             [GlyphPackageLayout.Asset(hash, GlyphAssetFormat.Svg)] = svg,
-            [manifest.NoticePath] = "Synthetic test artwork.\n"u8.ToArray()
+            [manifest.NoticePath] = [.. "Synthetic test artwork.\n"u8]
         };
         return new DictionaryGlyphSource(manifest.ProfileId, files);
     }
@@ -238,7 +239,7 @@ public sealed class SdkGlyphTests
             if (files.TryGetValue(relativePath, out var value)
                 && value.Length <= maximumBytes)
             {
-                bytes = value.ToArray();
+                bytes = [.. value];
                 return true;
             }
 

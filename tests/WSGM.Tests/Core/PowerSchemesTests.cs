@@ -2,7 +2,7 @@ using System.ComponentModel;
 using WSGM.Core;
 using WSGM.Interop;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class PowerSchemesTests
 {
@@ -98,7 +98,7 @@ public sealed class PowerSchemesTests
                 api.Active = Balanced;
                 return true;
             }));
-        Task? selection = null;
+        Task selection;
         try
         {
             await timeoutEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -113,7 +113,7 @@ public sealed class PowerSchemesTests
         }
         finally { releaseTimeout.Set(); }
         await timeout;
-        if (selection is not null) { await selection; }
+        await selection;
         Assert.Equal(Custom, api.Active);
         Assert.Equal(1, api.Writes);
     }
@@ -181,11 +181,7 @@ public sealed class PowerSchemesTests
         public Guid ReadActive()
         {
             Calls.Add("read");
-            if (ReadFailure is not null)
-            {
-                throw ReadFailure;
-            }
-            return Active;
+            return ReadFailure is null ? Active : throw ReadFailure;
         }
 
         public void SetActive(Guid id)

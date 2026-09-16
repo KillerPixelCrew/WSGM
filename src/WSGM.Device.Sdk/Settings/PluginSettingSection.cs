@@ -94,25 +94,25 @@ public sealed record PluginSettingSection
             return false;
         }
 
-        if (Key is not SettingSectionKey.Custom)
+        if (Key is SettingSectionKey.Custom)
         {
-            // A title alongside a real key is dead weight that some surface eventually renders
-            // instead of the localized string.
-            if (CustomTitle is not null)
-            {
-                error = $"section '{SectionId}' may only carry a customTitle when key is Custom.";
-                return false;
-            }
-
-            error = null;
-            return true;
+            return PlainText.TryValidate(
+                CustomTitle,
+                MaxCustomTitleLength,
+                $"section '{SectionId}' customTitle",
+                out error
+            );
         }
 
-        return PlainText.TryValidate(
-            CustomTitle,
-            MaxCustomTitleLength,
-            $"section '{SectionId}' customTitle",
-            out error
-        );
+        // A title alongside a real key is dead weight that some surface eventually renders
+        // instead of the localized string.
+        if (CustomTitle is not null)
+        {
+            error = $"section '{SectionId}' may only carry a customTitle when key is Custom.";
+            return false;
+        }
+
+        error = null;
+        return true;
     }
 }

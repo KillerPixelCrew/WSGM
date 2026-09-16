@@ -57,22 +57,22 @@ internal sealed class DeviceColorSpectrum : ColorSpectrum
     /// </remarks>
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        switch (e.Key)
+        NavigationDirection? direction = e.Key switch
         {
-            case Key.Left:
-                ApplyDirection(NavigationDirection.Left);
-                e.Handled = true;
-                return;
-            case Key.Right:
-                ApplyDirection(NavigationDirection.Right);
-                e.Handled = true;
-                return;
-            case Key.Up:
-            case Key.Down:
-                return;
-            default:
-                base.OnKeyDown(e);
-                return;
+            Key.Left => NavigationDirection.Left,
+            Key.Right => NavigationDirection.Right,
+            _ => null
+        };
+        if (direction is { } horizontal)
+        {
+            ApplyDirection(horizontal);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key is not (Key.Up or Key.Down))
+        {
+            base.OnKeyDown(e);
         }
     }
 }

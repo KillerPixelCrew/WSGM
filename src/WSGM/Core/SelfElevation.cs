@@ -118,13 +118,13 @@ public static class SelfElevation
             {
                 return false;
             }
-            if (!p.WaitForExit(timeoutMs))
+            if (p.WaitForExit(timeoutMs))
             {
-                // ExitCode would throw on a still-running process.
-                Log.Warn($"{description}: elevated instance still running after {timeoutMs / 1000} s — result unknown.");
-                return false;
+                return p.ExitCode == 0;
             }
-            return p.ExitCode == 0;
+            // ExitCode would throw on a still-running process.
+            Log.Warn($"{description}: elevated instance still running after {timeoutMs / 1000} s — result unknown.");
+            return false;
         }
         catch (Exception ex)
         {
@@ -148,18 +148,17 @@ public static class SelfElevation
         var backslashes = 0;
         foreach (var c in arg)
         {
-            if (c == '\\')
+            switch (c)
             {
-                backslashes++;
-                continue;
-            }
-            if (c == '"')
-            {
-                sb.Append('\\', backslashes * 2 + 1);
-            }
-            else
-            {
-                sb.Append('\\', backslashes);
+                case '\\':
+                    backslashes++;
+                    continue;
+                case '"':
+                    sb.Append('\\', backslashes * 2 + 1);
+                    break;
+                default:
+                    sb.Append('\\', backslashes);
+                    break;
             }
             sb.Append(c);
             backslashes = 0;

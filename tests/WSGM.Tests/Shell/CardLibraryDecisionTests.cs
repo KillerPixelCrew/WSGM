@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>The rule that decides what a card swap means for Steam's install-folder
 /// list. The reader reuses one drive letter for every card, so path alone can never

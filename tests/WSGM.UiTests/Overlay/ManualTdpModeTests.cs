@@ -1,8 +1,9 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using WSGM.Overlay;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class ManualTdpModeTests
 {

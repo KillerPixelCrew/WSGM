@@ -1,6 +1,6 @@
 using SkiaSharp;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Visual;
 
 public sealed class VisualComparisonTests
 {

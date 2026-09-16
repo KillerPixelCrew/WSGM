@@ -8,8 +8,10 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Overlay;
 
 public sealed class ControllerNavigationTests
 {
@@ -17,17 +19,16 @@ public sealed class ControllerNavigationTests
     public async Task ControllerCardOpensGlyphsAndExplainsUnavailableOutputWithoutIntegration()
     {
         using SimulatedDeviceOverlaySource source = new();
-        using FakeDevice device = new()
+        var state = source.Snapshot() with
         {
-            SampleSource = source,
-            State = source.Snapshot() with
-            {
-                Visible = false,
-                Capabilities = [],
-                Controller = null,
-                PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSections.IncludePredefined([]))
-            }
+            Visible = false,
+            Capabilities = [],
+            Controller = null,
+            PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSections.IncludePredefined([]))
         };
+        using FakeDevice device = new();
+        device.SampleSource = source;
+        device.State = state;
         using UiFixture fixture = new();
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power write"));
@@ -39,24 +40,24 @@ public sealed class ControllerNavigationTests
         window.AttachPowerSchemes(schemes);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         var controller = window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card.IsEffectivelyVisible && card.Title == "Controller");
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Controller" });
         UiFixture.Click(window, controller);
         Dispatcher.UIThread.RunJobs();
         Assert.DoesNotContain(window.GetVisualDescendants().OfType<CardButton>(),
-            card => card.IsEffectivelyVisible && card.Title == "Controller");
+            card => card is { IsEffectivelyVisible: true, Title: "Controller" });
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
             text => text.IsEffectivelyVisible && text.Text?.Contains("Device integration is off.") is true);
         Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(),
-            choice => choice.IsEffectivelyVisible && Equals(choice.Tag, "device.glyph-selection"));
+            choice => choice is { IsEffectivelyVisible: true, Tag: "device.glyph-selection" });
         Assert.Null(requested);
         var glyphs = window.GetVisualDescendants().OfType<ComboBox>()
-            .Single(choice => choice.IsEffectivelyVisible && Equals(choice.Tag, "device.glyph-selection"));
+            .Single(choice => choice is { IsEffectivelyVisible: true, Tag: "device.glyph-selection" });
         UiFixture.Click(window, glyphs);
         UiFixture.Key(window, Key.Down);
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(DeviceGlyphSelection.NativeSteam, requested);
         UiFixture.Key(window, Key.Escape);
         Assert.Contains(window.GetVisualDescendants().OfType<CardButton>(),
-            card => card.IsEffectivelyVisible && card.Title == "Controller");
+            card => card is { IsEffectivelyVisible: true, Title: "Controller" });
     }
 }

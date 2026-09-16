@@ -9,7 +9,7 @@ using static WSGM.Interop.Kernel32;
 namespace WSGM.Interop;
 
 /// <summary>Locks every source path component against replacement while package files are copied.</summary>
-internal sealed partial class NativePackageSource : IDisposable
+internal sealed class NativePackageSource : IDisposable
 {
     private readonly List<SafeFileHandle> _directoryHandles = [];
     private bool _disposed;
@@ -39,7 +39,6 @@ internal sealed partial class NativePackageSource : IDisposable
         }
 
         List<SafeFileHandle> handles = [];
-        NativePathIdentity rootIdentity = default;
         try
         {
             while (ancestors.Count > 0)
@@ -64,15 +63,17 @@ internal sealed partial class NativePackageSource : IDisposable
                     return null;
                 }
 
-                rootIdentity = entry.Identity;
+                var rootIdentity = entry.Identity;
                 handles.Add(entry.TakeHandle());
-                if (ancestors.Count == 0)
+                if (ancestors.Count != 0)
                 {
-                    NativePackageSource source = new(root, rootIdentity);
-                    source._directoryHandles.AddRange(handles);
-                    handles.Clear();
-                    return source;
+                    continue;
                 }
+
+                NativePackageSource source = new(root, rootIdentity);
+                source._directoryHandles.AddRange(handles);
+                handles.Clear();
+                return source;
             }
 
             return null;
@@ -134,12 +135,9 @@ internal sealed partial class NativePackageSource : IDisposable
         {
             var error = Marshal.GetLastPInvokeError();
             probe.Dispose();
-            if (error is ErrorFileNotFound or ErrorPathNotFound)
-            {
-                return null;
-            }
-
-            throw NativeIoException("open", path, error);
+            return error is ErrorFileNotFound or ErrorPathNotFound
+                ? null
+                : throw NativeIoException("open", path, error);
         }
 
         try
@@ -150,7 +148,6 @@ internal sealed partial class NativePackageSource : IDisposable
             if (isDirectory || isReparsePoint)
             {
                 NativePackageSourceEntry result = new(
-                    path,
                     probe,
                     probeInformation.Identity,
                     isDirectory,
@@ -181,7 +178,6 @@ internal sealed partial class NativePackageSource : IDisposable
                 }
 
                 NativePackageSourceEntry result = new(
-                    path,
                     readHandle,
                     readInformation.Identity,
                     isDirectory: false,
@@ -266,23 +262,18 @@ internal sealed class NativePackageSourceEntry : IDisposable
     private SafeFileHandle? _handle;
 
     internal NativePackageSourceEntry(
-        string path,
         SafeFileHandle handle,
         NativePathIdentity identity,
         bool isDirectory,
         bool isReparsePoint,
         long length)
     {
-        Path = path;
         _handle = handle;
         Identity = identity;
         IsDirectory = isDirectory;
         IsReparsePoint = isReparsePoint;
         Length = length;
     }
-
-    /// <summary>Lexical path used to open this secured entry.</summary>
-    internal string Path { get; }
 
     /// <summary>Filesystem identity observed from the no-follow handle.</summary>
     internal NativePathIdentity Identity { get; }

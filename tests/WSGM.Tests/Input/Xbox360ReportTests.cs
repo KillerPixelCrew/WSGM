@@ -1,9 +1,9 @@
 using System.Buffers.Binary;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
-using static WSGM.Tests.ControllerSamples;
+using static WSGM.Tests.Builders.ControllerSamples;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 public sealed class Xbox360ReportTests
 {
@@ -45,10 +45,10 @@ public sealed class Xbox360ReportTests
 
         Assert.Equal(128, frame[4]);
         Assert.Equal(byte.MaxValue, frame[5]);
-        Assert.Equal(short.MinValue + 1, BinaryPrimitives.ReadInt16LittleEndian(frame[6..8]));
-        Assert.Equal(short.MaxValue, BinaryPrimitives.ReadInt16LittleEndian(frame[8..10]));
-        Assert.Equal(16384, BinaryPrimitives.ReadInt16LittleEndian(frame[10..12]));
-        Assert.Equal(-16384, BinaryPrimitives.ReadInt16LittleEndian(frame[12..14]));
+        Assert.Equal(short.MinValue + 1, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(6..8)));
+        Assert.Equal(short.MaxValue, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(8..10)));
+        Assert.Equal(16384, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(10..12)));
+        Assert.Equal(-16384, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(12..14)));
         Assert.Equal(new byte[6], frame[14..20]);
     }
 

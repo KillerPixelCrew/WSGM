@@ -22,7 +22,7 @@ public partial class OverlayWindow
     /// anything, the way every other name row in the panel reads.</summary>
     private void SetFormatName(string value)
     {
-        _formatName = value ?? "";
+        _formatName = value;
         FormatNameButton.Description = _formatName.Length > 0 ? _formatName : "(required)";
     }
 
@@ -86,8 +86,7 @@ public partial class OverlayWindow
 
     private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubViewToOrigin();
 
-    private LibraryTabManager? _libraryTabs;
-    private LibraryTabManager LibraryTabs => _libraryTabs ??= new LibraryTabManager();
+    private LibraryTabManager LibraryTabs => field ??= new LibraryTabManager();
 
     // Debounce for the on-open auto-sync, shared across overlay instances (the
     // window is recreated per open). Auto-sync keeps card and category tabs current
@@ -198,7 +197,7 @@ public partial class OverlayWindow
         {
             return;
         }
-        var path = folders[0].Path.IsAbsoluteUri && folders[0].Path.IsFile
+        var path = folders[0].Path is { IsAbsoluteUri: true, IsFile: true }
             ? folders[0].Path.LocalPath
             : null;
         if (string.IsNullOrEmpty(path))
@@ -225,17 +224,19 @@ public partial class OverlayWindow
     /// without it the lower keyboard rows could be focused off-screen.</summary>
     private void OnContentGotFocus(object? sender, FocusChangedEventArgs e)
     {
-        if (e.Source is Control control && control is not ScrollViewer)
+        if (e.Source is not Control control || control is ScrollViewer)
         {
-            control.BringIntoView();
-            if (!AnySubView && control.Tag is string semanticKey)
-            {
-                _session.Focus.Remember(
-                    _navigation.Destination,
-                    semanticKey,
-                    ContentScroller.Offset.Y);
-            }
+            return;
         }
+        control.BringIntoView();
+        if (AnySubView || control.Tag is not string semanticKey)
+        {
+            return;
+        }
+        _session.Focus.Remember(
+            _navigation.Destination,
+            semanticKey,
+            ContentScroller.Offset.Y);
     }
 
     /// <summary>Returns the format flow to its heading when its state changes.

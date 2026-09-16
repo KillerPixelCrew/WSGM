@@ -5,8 +5,10 @@ using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.UiTests.Fakes;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Visual;
 
 public sealed class VisualTests
 {
@@ -46,7 +48,7 @@ public sealed class VisualTests
             if (page == "plugin")
             {
                 UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-                    .Single(card => card.IsEffectivelyVisible && card.Title == "Overview"));
+                    .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
             }
         }
         Dispatcher.UIThread.RunJobs();

@@ -166,6 +166,10 @@ internal sealed class ApplicationPerformanceReconciler(
 
             case PerAppPowerAction.Leave:
                 break;
+
+            default:
+                Log.Warn($"Per-application power decision {decision.Action} is unknown; the limit is left as is.");
+                break;
         }
     }
 
@@ -321,9 +325,12 @@ internal sealed class ApplicationPerformanceReconciler(
 
     private DeviceCapabilityView? FindPowerLimitCapability() =>
         readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
-            && view.Descriptor.SupportsWrite
-            && view.Descriptor.ValueKind is CapabilityValueKind.Integer);
+            view.Descriptor is
+            {
+                Role: CapabilityRole.PowerSustainedLimit,
+                SupportsWrite: true,
+                ValueKind: CapabilityValueKind.Integer
+            });
 
     private DeviceCapabilityView? FindVariableRefreshCapability() =>
         readCoordinator()?.Capabilities.Snapshot().FirstOrDefault(view =>

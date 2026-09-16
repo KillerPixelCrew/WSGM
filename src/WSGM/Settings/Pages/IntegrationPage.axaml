@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:s="using:WSGM.Settings"
-             xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.IntegrationPage"
              x:DataType="s:SettingsViewModel">
     <!-- Everything WSGM injects into the running Steam client over its debug

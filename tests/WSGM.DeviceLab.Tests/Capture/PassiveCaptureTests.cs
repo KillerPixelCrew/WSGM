@@ -1,7 +1,7 @@
 using System.Text;
 using WSGM.DeviceLab.Capture;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Capture;
 
 public sealed class PassiveCaptureTests
 {

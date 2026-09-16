@@ -4,11 +4,11 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Shell;
-using static WSGM.Tests.ControllerBuilders;
+using static WSGM.Tests.Builders.ControllerBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
-public sealed class NativeQamSemanticServicesTests
+public sealed partial class NativeQamSemanticServicesTests
 {
     [Fact]
     public void TdpProjectionUsesTheAuthoritativeDesiredObservedAndProgressState()
@@ -134,13 +134,9 @@ public sealed class NativeQamSemanticServicesTests
         Assert.True(state.LightingBrightness?.Available);
         Assert.Equal(2, state.LightingZones.Count);
         Assert.Contains(state.LightingZones, zone =>
-            zone.Id == "right-ring"
-            && zone.Label == "Right ring"
-            && zone.ObservedColor == 0xFF8000);
+            zone is { Id: "right-ring", Label: "Right ring", ObservedColor: 0xFF8000 });
         Assert.Contains(state.LightingZones, zone =>
-            zone.Id == "buttons"
-            && zone.Label == "Buttons"
-            && zone.ObservedColor == 0x0080FF);
+            zone is { Id: "buttons", Label: "Buttons", ObservedColor: 0x0080FF });
     }
 
     [Fact]
@@ -284,7 +280,7 @@ public sealed class NativeQamSemanticServicesTests
     }
 
     /// <summary>The progress terms the injected frame-limit row will accept, from the built asset.</summary>
-    private static IReadOnlyList<string> InjectedProgressVocabulary()
+    private static string[] InjectedProgressVocabulary()
     {
         var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
         const string Marker = "validEnum(value.progress, [";
@@ -294,12 +290,15 @@ public sealed class NativeQamSemanticServicesTests
         var end = source.IndexOf("])", start, StringComparison.Ordinal);
         Assert.True(end > start, "The progress vocabulary in the injected asset is unterminated.");
 
-        string[] terms = [.. Regex
-            .Matches(source[start..end], "\"([a-z-]+)\"")
+        string[] terms = [.. QuotedTerm()
+            .Matches(source[start..end])
             .Select(match => match.Groups[1].Value)];
         Assert.NotEmpty(terms);
         return terms;
     }
+
+    [GeneratedRegex("\"([a-z-]+)\"")]
+    private static partial Regex QuotedTerm();
 
     private static PerformanceState PerformanceStateFixture(
         IReadOnlySet<int> overlayLevels,
@@ -620,9 +619,8 @@ public sealed class NativeQamSemanticServicesTests
             supportedTargets: [ManagedControllerTarget.SteamDeckComposite]);
 
         Assert.True(state.Available);
-        Assert.Collection(
-            state.Targets,
-            target => Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), target.Id));
+        var target = Assert.Single(state.Targets);
+        Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), target.Id);
     }
 
     [Fact]

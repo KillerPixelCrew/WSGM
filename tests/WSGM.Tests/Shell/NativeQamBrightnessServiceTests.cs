@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class NativeQamBrightnessServiceTests
 {
@@ -112,7 +112,7 @@ public sealed class NativeQamBrightnessServiceTests
         using NativeQamBrightnessService service = new(() => active, () => { },
             () => 31, _ => { writes++; return true; }, Timeout.InfiniteTimeSpan);
         using CancellationTokenSource canceled = new();
-        canceled.Cancel();
+        await canceled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.SetBrightnessAsync(31, canceled.Token));
         Assert.False((await service.SetBrightnessAsync(101, CancellationToken.None)).Succeeded);
         active = false;

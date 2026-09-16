@@ -7,11 +7,12 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using PluginManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class DevicePluginRuntimeTests
 {
@@ -25,12 +26,12 @@ public sealed class DevicePluginRuntimeTests
         var registration = host.Admit(adapter, new PluginInstanceIdentity(adapter.Id, "device"), PluginCategories.Device,
             PluginCategoryPolicy.Device, true, InitialGeneration, runtime.StateDirectory);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
-        await registration.StartAsync(deadline, default);
-        await host.SetModeAsync(PluginSessionMode.Game, deadline, default);
-        await registration.SuspendAsync(deadline, default);
-        await registration.ResumeAsync(InitialGeneration + 1, deadline, default);
+        await registration.StartAsync(deadline, CancellationToken.None);
+        await host.SetModeAsync(PluginSessionMode.Game, deadline, CancellationToken.None);
+        await registration.SuspendAsync(deadline, CancellationToken.None);
+        await registration.ResumeAsync(InitialGeneration + 1, deadline, CancellationToken.None);
         Assert.Equal(PluginHealth.Ready, Assert.Single(host.Snapshot()).Health);
-        Assert.True(await registration.StopAsync(deadline, default));
+        Assert.True(await registration.StopAsync(deadline, CancellationToken.None));
         await registration.DisposeAsync();
         Assert.Empty(host.Snapshot());
         Assert.True(File.Exists(Path.Combine(runtime.StateDirectory, "disposed.txt")));
@@ -45,15 +46,15 @@ public sealed class DevicePluginRuntimeTests
         CommonHost host = new();
         var context = new PluginContext(new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"),
             InitialGeneration, PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
-        Assert.Equal(PluginHealth.Ready, await adapter.StartAsync(host, context, default));
-        await adapter.SessionChangedAsync(context with { Mode = PluginSessionMode.Game }, default);
+        Assert.Equal(PluginHealth.Ready, await adapter.StartAsync(host, context, CancellationToken.None));
+        await adapter.SessionChangedAsync(context with { Mode = PluginSessionMode.Game }, CancellationToken.None);
         Assert.Equal(DeviceCycleState.Active, adapter.LastState!.State);
-        await adapter.SuspendAsync(context, default);
+        await adapter.SuspendAsync(context, CancellationToken.None);
         var resumed = context with { Generation = InitialGeneration + 1 };
-        await adapter.ResumeAsync(resumed, default);
+        await adapter.ResumeAsync(resumed, CancellationToken.None);
         Assert.Equal(InitialGeneration + 1, runtime.CycleGeneration);
         Assert.Contains(host.States, state => state.Generation == resumed.Generation && state.Health == PluginHealth.Ready);
-        Assert.True(await adapter.StopAsync(resumed, default));
+        Assert.True(await adapter.StopAsync(resumed, CancellationToken.None));
     }
 
     [Fact]
@@ -64,9 +65,9 @@ public sealed class DevicePluginRuntimeTests
         await using DevicePluginCompatibilityAdapter adapter = new(runtime, new DeviceIdentitySnapshot(), false);
         var context = new PluginContext(new PluginInstanceIdentity("other.plugin", "device"), InitialGeneration,
             PluginSessionMode.Desktop, DateTimeOffset.UtcNow.AddSeconds(5), temporary.GetPath("state"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, default).AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
         context = context with { Instance = new PluginInstanceIdentity(RuntimeFixturePlugin.PackageIdValue, "device"), Generation = InitialGeneration - 1 };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, default).AsTask());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.StartAsync(new CommonHost(), context, CancellationToken.None).AsTask());
         Assert.False(File.Exists(temporary.GetPath("state", RuntimeFixturePlugin.PackageIdValue, "started.txt")));
     }
 
@@ -127,7 +128,7 @@ public sealed class DevicePluginRuntimeTests
             CancellationToken.None);
         Assert.Equal(DeviceCycleState.Suspended, suspended.State);
 
-        var resumedGeneration = InitialGeneration + 1;
+        const long resumedGeneration = InitialGeneration + 1;
         var resumed = await runtime.ResumeAsync(
             resumedGeneration,
             DateTimeOffset.UtcNow.AddSeconds(1),
@@ -196,12 +197,11 @@ public sealed class DevicePluginRuntimeTests
                 InitialGeneration,
                 DateTimeOffset.UtcNow.AddMilliseconds(30));
 
-            var dispatched = await runtime.ExecuteCommandAsync(
+            var (immediate, late) = await runtime.ExecuteCommandAsync(
                 command,
                 CancellationToken.None);
 
-            Assert.Equal(CommandOutcome.TimedOut, dispatched.Immediate.Outcome);
-            var late = dispatched.LateCompletion;
+            Assert.Equal(CommandOutcome.TimedOut, immediate.Outcome);
             Assert.NotNull(late);
             var completed = await late.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Equal(command.CommandId, completed.CommandId);
@@ -232,7 +232,7 @@ public sealed class DevicePluginRuntimeTests
         await runtime.SuspendAsync(
             DateTimeOffset.UtcNow.AddSeconds(1),
             CancellationToken.None);
-        var resumedGeneration = InitialGeneration + 1;
+        const long resumedGeneration = InitialGeneration + 1;
         await runtime.ResumeAsync(
             resumedGeneration,
             DateTimeOffset.UtcNow.AddSeconds(1),

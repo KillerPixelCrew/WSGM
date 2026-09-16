@@ -92,10 +92,9 @@ internal sealed record DeviceLabPathBoundaries
         {
             LiveDataDirectory = liveDataDirectory,
             RepositoryRoot = repositoryRoot,
-            BroadHomeDirectories = broadHomeDirectories
+            BroadHomeDirectories = [.. broadHomeDirectories
                 .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray()
+                .Distinct(StringComparer.OrdinalIgnoreCase)]
         };
     }
 }
@@ -165,24 +164,22 @@ internal static class DeviceLabOutputPathPolicy
                 fullPath);
         }
 
-        if (kind is DeviceLabOutputTargetKind.Directory
-            && boundaries.BroadHomeDirectories.Any(directory =>
-                PathsEqual(normalized, NormalizeDirectory(directory))))
+        switch (kind)
         {
-            return Reject(
-                DeviceLabOutputPathRisk.BroadHomeDirectory,
-                "Choose a specific child directory instead of a broad home directory.",
-                fullPath);
-        }
-
-        if (kind is DeviceLabOutputTargetKind.Directory
-            && boundaries.RepositoryRoot is { Length: > 0 } repositoryRoot
-            && PathsEqual(normalized, NormalizeDirectory(repositoryRoot)))
-        {
-            return Reject(
-                DeviceLabOutputPathRisk.RepositoryRoot,
-                "Choose a dedicated output directory instead of the repository root.",
-                fullPath);
+            case DeviceLabOutputTargetKind.Directory
+                when boundaries.BroadHomeDirectories.Any(directory =>
+                    PathsEqual(normalized, NormalizeDirectory(directory))):
+                return Reject(
+                    DeviceLabOutputPathRisk.BroadHomeDirectory,
+                    "Choose a specific child directory instead of a broad home directory.",
+                    fullPath);
+            case DeviceLabOutputTargetKind.Directory
+                when boundaries.RepositoryRoot is { Length: > 0 } repositoryRoot
+                    && PathsEqual(normalized, NormalizeDirectory(repositoryRoot)):
+                return Reject(
+                    DeviceLabOutputPathRisk.RepositoryRoot,
+                    "Choose a dedicated output directory instead of the repository root.",
+                    fullPath);
         }
 
         if (HasExistingReparsePoint(fullPath))
@@ -193,28 +190,22 @@ internal static class DeviceLabOutputPathPolicy
                 fullPath);
         }
 
-        if (kind is DeviceLabOutputTargetKind.NewFile
-            && (File.Exists(fullPath) || Directory.Exists(fullPath)))
+        return kind switch
         {
-            return Reject(
+            DeviceLabOutputTargetKind.NewFile when File.Exists(fullPath) || Directory.Exists(fullPath) => Reject(
                 DeviceLabOutputPathRisk.ExistingTarget,
                 "Device Lab will not overwrite an existing output target.",
-                fullPath);
-        }
-
-        if (kind is DeviceLabOutputTargetKind.Directory && File.Exists(fullPath))
-        {
-            return Reject(
+                fullPath),
+            DeviceLabOutputTargetKind.Directory when File.Exists(fullPath) => Reject(
                 DeviceLabOutputPathRisk.NotDirectory,
                 "The requested output directory is an existing file.",
-                fullPath);
-        }
-
-        return new DeviceLabOutputPathDecision
-        {
-            IsAllowed = true,
-            FullPath = fullPath,
-            Risk = DeviceLabOutputPathRisk.None
+                fullPath),
+            _ => new DeviceLabOutputPathDecision
+            {
+                IsAllowed = true,
+                FullPath = fullPath,
+                Risk = DeviceLabOutputPathRisk.None
+            }
         };
     }
 
@@ -313,12 +304,10 @@ internal static class DeviceLabRepositoryLocator
             : new DirectoryInfo(fullPath);
         while (directory is not null)
         {
-            foreach (var marker in SolutionMarkers)
+            var candidate = directory.FullName;
+            if (SolutionMarkers.Any(marker => File.Exists(Path.Combine(candidate, marker))))
             {
-                if (File.Exists(Path.Combine(directory.FullName, marker)))
-                {
-                    return directory.FullName;
-                }
+                return candidate;
             }
 
             directory = directory.Parent;

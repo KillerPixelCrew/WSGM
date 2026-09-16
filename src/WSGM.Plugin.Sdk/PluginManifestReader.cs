@@ -50,7 +50,7 @@ public static class PluginManifestReader
         if (string.IsNullOrEmpty(manifest.EntryAssembly) || manifest.EntryAssembly.Length > 128
             || !manifest.EntryAssembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
             || manifest.EntryAssembly.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-'))
-            || manifest.EntryAssembly.StartsWith(".", StringComparison.Ordinal))
+            || manifest.EntryAssembly.StartsWith('.'))
         { errors.Add("Entry assembly must be a bounded DLL filename at the package root."); }
         if (string.IsNullOrWhiteSpace(manifest.EntryType) || manifest.EntryType.Length > 256
             || manifest.EntryType.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '+')))
@@ -61,11 +61,13 @@ public static class PluginManifestReader
             HashSet<string> ids = new(StringComparer.Ordinal);
             foreach (var dependency in manifest.Dependencies)
             {
-                if (dependency is null || !Identifier(dependency.Id) || dependency.Id == manifest.Id || !ids.Add(dependency.Id)
-                    || !Version.TryParse(dependency.MinimumVersion, out var minimum)
-                    || (dependency.MaximumVersionExclusive is { } upper
-                        && (!Version.TryParse(upper, out var maximum) || maximum <= minimum)))
-                { errors.Add("Invalid, duplicate or self-referencing dependency."); break; }
+                if (dependency is not null && Identifier(dependency.Id) && dependency.Id != manifest.Id && ids.Add(dependency.Id)
+                    && Version.TryParse(dependency.MinimumVersion, out var minimum)
+                    && (dependency.MaximumVersionExclusive is not { } upper
+                        || (Version.TryParse(upper, out var maximum) && maximum > minimum)))
+                { continue; }
+                errors.Add("Invalid, duplicate or self-referencing dependency.");
+                break;
             }
         }
         if (manifest.Permissions is null || manifest.Permissions.Count > 32 || manifest.Permissions.Any(permission => !Identifier(permission))

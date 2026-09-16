@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace WSGM.Core;
 
@@ -47,12 +48,10 @@ public enum SteamInputShimState
 /// <summary>A snapshot of the shim deployment.</summary>
 /// <param name="State">What the deployment looks like on disk.</param>
 /// <param name="Vector">Which name the shim occupies, if any.</param>
-/// <param name="DeployedPath">Full path of the deployed file, when there is one.</param>
 /// <param name="Detail">Extra context for the Settings status line and the log.</param>
 public readonly record struct SteamInputShimStatus(
     SteamInputShimState State,
     SteamInputShimVector Vector,
-    string? DeployedPath,
     string? Detail);
 
 /// <summary>Owns the Steam Input shim that lives in Steam's own install directory.
@@ -100,11 +99,11 @@ public static class SteamInputShim
 
     /// <summary>Serializes reconciles: the config watcher and a Settings save can
     /// both reach this at once, and every operation here is short.</summary>
-    private static readonly object Sync = new();
+    private static readonly Lock Sync = new();
 
     private static volatile bool _enabled = true;
     private static SteamInputShimStatus _lastStatus =
-        new(SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null, null);
+        new(SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
     private static SteamInputShimVector? _loadedVector;
 
     /// <summary>Mirrors the persisted Steam Input Management setting so this static
@@ -197,7 +196,7 @@ public static class SteamInputShim
         {
             RemoveIn(Steam.InstallDirectory, reason);
             _lastStatus = new SteamInputShimStatus(
-                SteamInputShimState.Disabled, SteamInputShimVector.None, null, null);
+                SteamInputShimState.Disabled, SteamInputShimVector.None, null);
         }
     }
 
@@ -231,31 +230,31 @@ public static class SteamInputShim
             {
                 Log.Info("Steam Input shim: Steam is not installed - nothing deployed.");
                 return new SteamInputShimStatus(
-                    SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null, null);
+                    SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
             }
-            if (IsReparsePoint(steamDirectory))
+            if (!IsReparsePoint(steamDirectory))
             {
-                Log.Warn(
-                    $"Steam Input shim directory {steamDirectory} is a reparse point - refusing to write.");
-                return new SteamInputShimStatus(
-                    SteamInputShimState.Failed, SteamInputShimVector.None, null, "reparse point");
+                return enabled
+                    ? Deploy(steamDirectory, sourcePath, reason)
+                    : Park(steamDirectory, reason);
             }
 
-            return enabled
-                ? Deploy(steamDirectory, sourcePath, reason)
-                : Park(steamDirectory, reason);
+            Log.Warn(
+                $"Steam Input shim directory {steamDirectory} is a reparse point - refusing to write.");
+            return new SteamInputShimStatus(
+                SteamInputShimState.Failed, SteamInputShimVector.None, "reparse point");
         }
         catch (UnauthorizedAccessException ex)
         {
             Log.Warn($"Steam Input shim write refused in {steamDirectory} ({ex.Message}).");
             return new SteamInputShimStatus(
-                SteamInputShimState.Failed, SteamInputShimVector.None, null, "access denied");
+                SteamInputShimState.Failed, SteamInputShimVector.None, "access denied");
         }
         catch (Exception ex)
         {
             Log.Error($"Steam Input shim reconcile failed ({reason}).", ex);
             return new SteamInputShimStatus(
-                SteamInputShimState.Failed, SteamInputShimVector.None, null, ex.Message);
+                SteamInputShimState.Failed, SteamInputShimVector.None, ex.Message);
         }
     }
 
@@ -272,39 +271,39 @@ public static class SteamInputShim
             if (steamDirectory is null || !Directory.Exists(steamDirectory))
             {
                 return new SteamInputShimStatus(
-                    SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null, null);
+                    SteamInputShimState.SteamNotInstalled, SteamInputShimVector.None, null);
             }
             foreach (var vector in Vectors)
             {
                 var deployed = Path.Combine(steamDirectory, FileNameFor(vector));
-                if (IsOurs(deployed))
+                if (!IsOurs(deployed))
                 {
-                    var state = enabled
-                        ? IsStale(sourcePath, deployed, MarkerPath(steamDirectory, vector))
-                            ? SteamInputShimState.UpdatePending
-                            : SteamInputShimState.Deployed
-                        : SteamInputShimState.Deployed;
-                    return new SteamInputShimStatus(state, vector, deployed, null);
+                    continue;
                 }
+                var state = enabled
+                    ? IsStale(sourcePath, deployed, MarkerPath(steamDirectory, vector))
+                        ? SteamInputShimState.UpdatePending
+                        : SteamInputShimState.Deployed
+                    : SteamInputShimState.Deployed;
+                return new SteamInputShimStatus(state, vector, null);
             }
             foreach (var vector in Vectors)
             {
                 if (IsOurs(ParkedPath(steamDirectory, vector)))
                 {
                     return new SteamInputShimStatus(
-                        SteamInputShimState.Disabled, vector, null, "parked");
+                        SteamInputShimState.Disabled, vector, "parked");
                 }
             }
             return new SteamInputShimStatus(
                 enabled ? SteamInputShimState.Blocked : SteamInputShimState.Disabled,
                 SteamInputShimVector.None,
-                null,
                 null);
         }
         catch (Exception ex)
         {
             return new SteamInputShimStatus(
-                SteamInputShimState.Failed, SteamInputShimVector.None, null, ex.Message);
+                SteamInputShimState.Failed, SteamInputShimVector.None, ex.Message);
         }
     }
 
@@ -358,7 +357,7 @@ public static class SteamInputShim
         {
             Log.Warn($"Steam Input shim payload is missing at {sourcePath} - nothing deployed.");
             return new SteamInputShimStatus(
-                SteamInputShimState.Failed, SteamInputShimVector.None, null, "payload missing");
+                SteamInputShimState.Failed, SteamInputShimVector.None, "payload missing");
         }
 
         foreach (var vector in Vectors)
@@ -388,7 +387,7 @@ public static class SteamInputShim
                     $"Steam Input shim deployed as {FileNameFor(vector)} in {steamDirectory} ({reason}).");
                 CleanOtherVectors(steamDirectory, vector);
                 return new SteamInputShimStatus(
-                    SteamInputShimState.Deployed, vector, deployed, null);
+                    SteamInputShimState.Deployed, vector, null);
             }
 
             if (!IsStale(sourcePath, deployed, marker))
@@ -397,7 +396,7 @@ public static class SteamInputShim
                     $"Steam Input shim already current ({FileNameFor(vector)}) - no copy needed.");
                 CleanOtherVectors(steamDirectory, vector);
                 return new SteamInputShimStatus(
-                    SteamInputShimState.Deployed, vector, deployed, null);
+                    SteamInputShimState.Deployed, vector, null);
             }
 
             try
@@ -408,7 +407,7 @@ public static class SteamInputShim
                     $"Steam Input shim updated as {FileNameFor(vector)} in {steamDirectory} ({reason}).");
                 CleanOtherVectors(steamDirectory, vector);
                 return new SteamInputShimStatus(
-                    SteamInputShimState.Deployed, vector, deployed, null);
+                    SteamInputShimState.Deployed, vector, null);
             }
             catch (IOException)
             {
@@ -418,14 +417,14 @@ public static class SteamInputShim
                 Log.Info(
                     $"Steam Input shim update deferred - {FileNameFor(vector)} is mapped by a running Steam; it will be replaced the next time WSGM starts Steam.");
                 return new SteamInputShimStatus(
-                    SteamInputShimState.UpdatePending, vector, deployed, "mapped by Steam");
+                    SteamInputShimState.UpdatePending, vector, "mapped by Steam");
             }
         }
 
         Log.Warn(
             $"Steam Input shim has no free vector in {steamDirectory} (XInput1_4.dll, dinput8.dll both belong to another program) - Steam Input Management is inactive.");
         return new SteamInputShimStatus(
-            SteamInputShimState.Blocked, SteamInputShimVector.None, null, "all vectors occupied");
+            SteamInputShimState.Blocked, SteamInputShimVector.None, "all vectors occupied");
     }
 
     /// <summary>Renames every deployed shim aside so Steam stops loading it.</summary>
@@ -443,15 +442,16 @@ public static class SteamInputShim
                 }
                 continue;
             }
-            if (TryPark(deployed, ParkedPath(steamDirectory, vector)))
+            if (!TryPark(deployed, ParkedPath(steamDirectory, vector)))
             {
-                parkedVector = vector;
-                Log.Info(
-                    $"Steam Input shim parked as {Path.GetFileName(ParkedPath(steamDirectory, vector))} (Steam Input Management turned off, {reason}).");
+                continue;
             }
+            parkedVector = vector;
+            Log.Info(
+                $"Steam Input shim parked as {Path.GetFileName(ParkedPath(steamDirectory, vector))} (Steam Input Management turned off, {reason}).");
         }
         return new SteamInputShimStatus(
-            SteamInputShimState.Disabled, parkedVector, null, null);
+            SteamInputShimState.Disabled, parkedVector, null);
     }
 
     /// <summary>Renames a deployed file aside, clearing a previous parked copy of our

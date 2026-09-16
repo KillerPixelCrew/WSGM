@@ -5,7 +5,7 @@ using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Overlay;
 
 public sealed class PowerSchemeSelectionTests
 {
@@ -33,15 +33,15 @@ public sealed class PowerSchemeSelectionTests
         Assert.True(state!.Available);
         Assert.Equal(First.ToString("D"), state.Current);
         Assert.Equal(2, state.Options.Count);
-        await qam.SetPowerProfileAsync("not-a-guid", default);
-        await qam.SetPowerProfileAsync(Guid.NewGuid().ToString("D"), default);
+        await qam.SetPowerProfileAsync("not-a-guid", CancellationToken.None);
+        await qam.SetPowerProfileAsync(Guid.NewGuid().ToString("D"), CancellationToken.None);
         Assert.Equal(0, api.Writes);
-        await qam.SetPowerProfileAsync(Second.ToString("D"), default);
+        await qam.SetPowerProfileAsync(Second.ToString("D"), CancellationToken.None);
         Assert.Equal(Second, saved);
         Assert.Equal(Second.ToString("D"), (await qam.ReadAsync())!.Current);
         api.Reject = true;
-        await qam.SetPowerProfileAsync(First.ToString("D"), default);
-        await qam.SetPowerProfileAsync(First.ToString("D"), default);
+        await qam.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
+        await qam.SetPowerProfileAsync(First.ToString("D"), CancellationToken.None);
         Assert.Equal(2, api.Writes);
         Assert.Equal(Second, saved);
         Assert.Contains("not confirmed", (await qam.ReadAsync())!.StatusText, StringComparison.Ordinal);
@@ -140,7 +140,7 @@ public sealed class PowerSchemeSelectionTests
         using ManualResetEventSlim release = new(false);
         TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         api.BeforeRead = () => { entered.TrySetResult(); release.Wait(TimeSpan.FromSeconds(10)); };
-        using var model = new PowerSchemeSelection(new PowerSchemes(api), _ => { });
+        var model = new PowerSchemeSelection(new PowerSchemes(api), _ => { });
         var notifications = 0;
         model.Changed += () => notifications++;
         var pending = model.RefreshAsync();
@@ -172,8 +172,7 @@ public sealed class PowerSchemeSelectionTests
         public Guid ReadActive()
         {
             BeforeRead?.Invoke();
-            if (ReadFailure) { throw new Win32Exception(5); }
-            return Active;
+            return ReadFailure ? throw new Win32Exception(5) : Active;
         }
         public void SetActive(Guid id)
         {

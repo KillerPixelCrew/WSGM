@@ -35,12 +35,12 @@ internal sealed class SettingsLeaseReconciler
     {
         _desired = true;
         _claimed = true;
-        if (!_busy)
+        if (_busy)
         {
-            _busy = true;
-            return SettingsLeaseAction.Acquire;
+            return Next();
         }
-        return Next();
+        _busy = true;
+        return SettingsLeaseAction.Acquire;
     }
 
     internal SettingsLeaseAction CompleteAcquireFor()

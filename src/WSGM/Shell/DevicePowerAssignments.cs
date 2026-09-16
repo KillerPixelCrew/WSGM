@@ -39,8 +39,12 @@ internal sealed class DevicePowerAssignments(
         {
             var current = context();
             var application = Application(current);
-            var assignment = current.OnAc == true ? application?.AcPowerPreset ?? current.Config.AcPowerPreset
-                : current.OnAc == false ? application?.BatteryPowerPreset ?? current.Config.BatteryPowerPreset : null;
+            var assignment = current.OnAc switch
+            {
+                true => application?.AcPowerPreset ?? current.Config.AcPowerPreset,
+                false => application?.BatteryPowerPreset ?? current.Config.BatteryPowerPreset,
+                null => null
+            };
             return current.Enabled && assignment?.PluginId == current.PluginId && assignment is not null;
         }
     }
@@ -57,7 +61,7 @@ internal sealed class DevicePowerAssignments(
                 || current.PluginId != confirmed.PluginId || current.Cycle != confirmed.Cycle
                 || current.Enabled != confirmed.Enabled || current.OnAc != confirmed.OnAc)
             { throw new InvalidOperationException("The application, device, power source or configuration changed before saving the assignment."); }
-            if (id is not null && (current.PluginId is null || !state.Presets.Any(preset => preset.Id == id)))
+            if (id is not null && (current.PluginId is null || state.Presets.All(preset => preset.Id != id)))
             {
                 throw new InvalidOperationException("This device power profile is no longer available.");
             }
@@ -116,7 +120,7 @@ internal sealed class DevicePowerAssignments(
         {
             var changed = assignment.CustomValues is { } custom
                 ? state.Values != custom : state.Current != assignment.PresetId;
-            if (!changed || state.Values is not { } values || values.SustainedWatts <= 0
+            if (!changed || state.Values is not { SustainedWatts: > 0 } values
                 || values.SlowWatts < values.SustainedWatts) { return; }
             var customAssignment = new DevicePowerPresetReference
             { PluginId = current.PluginId!, PresetId = "custom", CustomValues = values };

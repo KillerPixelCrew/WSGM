@@ -2,9 +2,9 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
-using static WSGM.Tests.AsyncConditions;
+using static WSGM.Tests.Fakes.AsyncConditions;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class SteamUiSessionHostTests
 {
@@ -82,7 +82,7 @@ public sealed class SteamUiSessionHostTests
             transport,
             async cancellationToken =>
             {
-                using var registration = cancellationToken.Register(
+                await using var registration = cancellationToken.Register(
                     () => requestCancelled.TrySetResult());
                 requestStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -93,8 +93,7 @@ public sealed class SteamUiSessionHostTests
         host.Apply(true);
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "steam-ui.bridge"
-            && snapshot.State == SteamUiPatchState.Verified));
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }));
 
         transport.EmitToggleRequest();
         await requestStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -119,8 +118,7 @@ public sealed class SteamUiSessionHostTests
         host.ApplyDownloadSort(true);
         await transport.FirstDownloadInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "wsgm.download-sort"
-            && snapshot.State == SteamUiPatchState.Verified));
+            snapshot is { Id: "wsgm.download-sort", State: SteamUiPatchState.Verified }));
 
         transport.AdvanceGeneration(SteamUiTargetRole.SharedJsContext);
 
@@ -133,8 +131,7 @@ public sealed class SteamUiSessionHostTests
                 + string.Join(", ", host.GetPatchSnapshots().Select(snapshot =>
                     $"{snapshot.Id}={snapshot.State}/{snapshot.Generations}")));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "wsgm.download-sort"
-            && snapshot.State == SteamUiPatchState.Verified));
+            snapshot is { Id: "wsgm.download-sort", State: SteamUiPatchState.Verified }));
     }
 
     [Fact]
@@ -174,15 +171,13 @@ public sealed class SteamUiSessionHostTests
         host.ApplyGlyphs(true, profile);
         await transport.FirstGlyphInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == SteamInputGlyphStylePatch.PatchId
-            && snapshot.State == SteamUiPatchState.Verified));
+            snapshot is { Id: SteamInputGlyphStylePatch.PatchId, State: SteamUiPatchState.Verified }));
 
         transport.AdvanceGeneration(SteamUiTargetRole.MainWindow);
 
         await transport.SecondGlyphInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == SteamInputGlyphStylePatch.PatchId
-            && snapshot.State == SteamUiPatchState.Verified));
+            snapshot is { Id: SteamInputGlyphStylePatch.PatchId, State: SteamUiPatchState.Verified }));
     }
 
     [Fact]
@@ -458,14 +453,16 @@ public sealed class SteamUiSessionHostTests
         }
 
         public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
-            _generations.Select(pair => new SteamUiTransportSnapshot(
-                pair.Key,
-                SteamUiTransportHealth.Ready,
-                pair.Value,
-                "fixture-" + pair.Key,
-                null,
-                0,
-                1)).ToArray();
+            [
+                .. _generations.Select(pair => new SteamUiTransportSnapshot(
+                    pair.Key,
+                    SteamUiTransportHealth.Ready,
+                    pair.Value,
+                    "fixture-" + pair.Key,
+                    null,
+                    0,
+                    1))
+            ];
 
         internal void AdvanceGeneration(SteamUiTargetRole role)
         {
@@ -541,8 +538,7 @@ public sealed class SteamUiSessionHostTests
             performance);
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "steam-ui.bridge"
-            && snapshot.State == SteamUiPatchState.Verified), timeoutSeconds: 3);
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), timeoutSeconds: 3);
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",
@@ -589,7 +585,7 @@ public sealed class SteamUiSessionHostTests
                     return true;
                 }
 
-                using var registration = cancellationToken.Register(
+                await using var registration = cancellationToken.Register(
                     () => firstCancelled.TrySetResult());
                 firstStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
@@ -599,8 +595,7 @@ public sealed class SteamUiSessionHostTests
             performance);
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "steam-ui.bridge"
-            && snapshot.State == SteamUiPatchState.Verified), timeoutSeconds: 3);
+            snapshot is { Id: "steam-ui.bridge", State: SteamUiPatchState.Verified }), timeoutSeconds: 3);
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",
@@ -648,8 +643,7 @@ public sealed class SteamUiSessionHostTests
         host.Apply(true);
 
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "steam-ui.frame-limit"
-            && snapshot.State == SteamUiPatchState.Verified), timeoutSeconds: 3);
+            snapshot is { Id: "steam-ui.frame-limit", State: SteamUiPatchState.Verified }), timeoutSeconds: 3);
         await WaitForAsync(() => performance.ObserverCount == 1, timeoutSeconds: 3);
 
         transport.BridgeHandshakeSucceeds = false;
@@ -661,7 +655,7 @@ public sealed class SteamUiSessionHostTests
 
     private sealed class RoutingTransport : ISteamUiTransport
     {
-        private readonly object _responseGate = new();
+        private readonly Lock _responseGate = new();
         private readonly Dictionary<SteamUiTargetRole, SteamUiGenerations> _generations = new()
         {
             [SteamUiTargetRole.SharedJsContext] = new SteamUiGenerations(1, 1, 1, 1, 1, 1),
@@ -763,14 +757,16 @@ public sealed class SteamUiSessionHostTests
         }
 
         public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
-            _generations.Select(pair => new SteamUiTransportSnapshot(
-                pair.Key,
-                SteamUiTransportHealth.Ready,
-                pair.Value,
-                "fixture-" + pair.Key,
-                null,
-                0,
-                1)).ToArray();
+            [
+                .. _generations.Select(pair => new SteamUiTransportSnapshot(
+                    pair.Key,
+                    SteamUiTransportHealth.Ready,
+                    pair.Value,
+                    "fixture-" + pair.Key,
+                    null,
+                    0,
+                    1))
+            ];
 
         internal void EmitRequest(
             string patchId,
@@ -807,7 +803,7 @@ public sealed class SteamUiSessionHostTests
 
         internal void AdvanceSharedGeneration()
         {
-            var role = SteamUiTargetRole.SharedJsContext;
+            const SteamUiTargetRole role = SteamUiTargetRole.SharedJsContext;
             _generations[role] = _generations[role] with
             {
                 ExecutionContext = _generations[role].ExecutionContext + 1,

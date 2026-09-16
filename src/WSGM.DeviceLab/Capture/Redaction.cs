@@ -143,12 +143,13 @@ internal sealed partial class CaptureRedactor
             value = value.Replace(userName, "[USER]", StringComparison.OrdinalIgnoreCase);
         }
 
-        if (machineName.Length > 2 && value.Contains(machineName, StringComparison.OrdinalIgnoreCase))
+        if (machineName.Length <= 2 || !value.Contains(machineName, StringComparison.OrdinalIgnoreCase))
         {
-            Count(RedactionCategory.AccountName);
-            value = value.Replace(machineName, "[MACHINE]", StringComparison.OrdinalIgnoreCase);
+            return value;
         }
 
+        Count(RedactionCategory.AccountName);
+        value = value.Replace(machineName, "[MACHINE]", StringComparison.OrdinalIgnoreCase);
         return value;
     }
 
@@ -196,7 +197,7 @@ internal sealed partial class CaptureRedactor
     /// </para>
     /// </remarks>
     [GeneratedRegex(
-        @"(?<prefix>VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}(?:&[A-Za-z0-9_]+)*)(?:\\|#)[^\\""#\s]+")]
+        """(?<prefix>VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}(?:&[A-Za-z0-9_]+)*)(?:\\|#)[^\\"#\s]+""")]
     private static partial Regex DeviceInstancePath();
 
     [GeneratedRegex(

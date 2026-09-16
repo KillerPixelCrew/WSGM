@@ -225,13 +225,14 @@ public partial class OverlayWindow : Window
 
         foreach (var view in SubViews)
         {
-            if (view.Host is OverlaySubView host)
+            if (view.Host is not OverlaySubView host)
             {
-                var page = view.Page;
-                var leave = () => LeaveSubView(page);
-                host.CloseRequested += leave;
-                _subViewCloseHandlers.Add((host, leave));
+                continue;
             }
+            var page = view.Page;
+            var leave = () => LeaveSubView(page);
+            host.CloseRequested += leave;
+            _subViewCloseHandlers.Add((host, leave));
         }
         CardManagerHost.FormatRequested += OnFormatFromCardManager;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
@@ -273,13 +274,13 @@ public partial class OverlayWindow : Window
         nint lParam,
         ref bool handled)
     {
-        if (msg == NativeMethods.WmMouseActivate && SuppressMouseActivation)
+        if (msg != NativeMethods.WmMouseActivate || !SuppressMouseActivation)
         {
-            handled = true;
-            return NativeMethods.MaNoActivate;
+            return nint.Zero;
         }
 
-        return nint.Zero;
+        handled = true;
+        return NativeMethods.MaNoActivate;
     }
 
     /// <summary>When set before the first show, the window primes the process-global render

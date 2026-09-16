@@ -111,18 +111,10 @@ internal static class DevicePackagePolicy
             return new DevicePackageInventory { PackageRoots = [root] };
         }
 
-        List<string> packages = [];
-        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
-        {
-            FileAttributes? attributes = readAttributes(entry)
-                ?? throw new IOException("A package-slot entry disappeared during inspection.");
-            if ((attributes.Value & FileAttributes.Directory) != 0)
-            {
-                packages.Add(NormalizeDirectoryPath(entry));
-            }
-        }
-
-        var sortedPackages = packages
+        var sortedPackages = Directory.EnumerateFileSystemEntries(root)
+            .Where(entry => ((readAttributes(entry)
+                ?? throw new IOException("A package-slot entry disappeared during inspection.")) & FileAttributes.Directory) != 0)
+            .Select(entry => NormalizeDirectoryPath(entry))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return new DevicePackageInventory { PackageRoots = sortedPackages };
@@ -142,27 +134,22 @@ internal static class DevicePackagePolicy
         ArgumentException.ThrowIfNullOrWhiteSpace(packageRoot);
         var readAttributes = attributeReader ?? ReadPathAttributes;
         var inventory = Inventory(packageRoot, readAttributes);
-        if (inventory.Cardinality is DevicePackageCardinality.Empty)
+        return inventory.Cardinality switch
         {
-            return new DevicePackageDiscovery { Inventory = inventory };
-        }
-
-        if (inventory.Cardinality is DevicePackageCardinality.Multiple)
-        {
-            return new DevicePackageDiscovery
+            DevicePackageCardinality.Empty => new DevicePackageDiscovery { Inventory = inventory },
+            DevicePackageCardinality.Multiple => new DevicePackageDiscovery
             {
                 Inventory = inventory,
                 ErrorCode = "multiple-package-roots",
                 Detail = "Normal startup refuses every package when the protected slot contains more than one root."
-            };
-        }
-
-        return new DevicePackageDiscovery
-        {
-            Inventory = inventory,
-            InstalledPackage = ValidateInstalledPackage(
-                inventory.PackageRoots[0],
-                readAttributes)
+            },
+            _ => new DevicePackageDiscovery
+            {
+                Inventory = inventory,
+                InstalledPackage = ValidateInstalledPackage(
+                    inventory.PackageRoots[0],
+                    readAttributes)
+            }
         };
     }
 
@@ -328,7 +315,7 @@ internal static class DevicePackagePolicy
     }
 
     /// <summary>Resolves a manifest-relative path while refusing escapes and reparse traversal.</summary>
-    internal static string Constrain(
+    private static string Constrain(
         string root,
         string relativePath,
         Func<string, FileAttributes?>? attributeReader = null)

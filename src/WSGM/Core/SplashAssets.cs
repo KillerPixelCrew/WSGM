@@ -35,7 +35,7 @@ public static class SplashAssets
     internal const string BackgroundSlot = "background";
 
     /// <summary>Gets the per-user directory that holds the materialized splash images.</summary>
-    public static string Directory => Path.Combine(Log.Directory, "splash");
+    private static string Directory => Path.Combine(Log.Directory, "splash");
 
     /// <summary>Stages the images referenced by <paramref name="splash"/> as sidecar
     /// files inside <see cref="Directory"/> and rewrites the config paths to the FINAL
@@ -71,7 +71,7 @@ public static class SplashAssets
     /// <c>{baseName}{ext}</c> path returned as the new config value.</summary>
     private static string PrepareSlot(
         Transaction transaction,
-        string sourcePath,
+        string? sourcePath,
         string baseName,
         string targetDirectory
     )

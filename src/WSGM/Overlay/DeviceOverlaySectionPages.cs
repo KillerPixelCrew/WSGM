@@ -55,9 +55,6 @@ internal static class DeviceOverlaySectionPages
     /// </remarks>
     internal const string ApplicationProfileRowId = "application-profile";
 
-    /// <summary>The reset action among the performance profile rows.</summary>
-    internal const string ResetProfileRowId = "reset-profile";
-
     /// <summary>The fixed order sections are offered in.</summary>
     /// <remarks>
     /// Ordered by how often a handheld user reaches for them, not by the enum. Power comes first
@@ -102,7 +99,7 @@ internal static class DeviceOverlaySectionPages
     /// <param name="snapshot">The current Device snapshot.</param>
     /// <param name="section">The WSGM-owned section.</param>
     /// <returns>The declared section id that absorbs it.</returns>
-    internal static string? AbsorbedBy(DeviceOverlaySnapshot snapshot, DeviceOverlaySection section)
+    private static string? AbsorbedBy(DeviceOverlaySnapshot snapshot, DeviceOverlaySection section)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (DeclaredKeyFor(section) is not { } key)
@@ -303,22 +300,16 @@ internal static class DeviceOverlaySectionPages
             });
         }
 
-        foreach (var section in Order)
-        {
-            var count = counts.GetValueOrDefault(section);
-            if (count == 0 || AbsorbedBy(snapshot, section) is not null)
-            {
-                continue;
-            }
-
-            entries.Add(new DeviceOverlaySectionEntry(
-                section,
-                PageFor(section),
-                TitleFor(section),
-                DescriptionFor(section),
-                count,
-                statuses.GetValueOrDefault(section, DescriptorStatus.None)));
-        }
+        entries.AddRange(Order
+            .Select(section => (Section: section, Count: counts.GetValueOrDefault(section)))
+            .Where(item => item.Count != 0 && AbsorbedBy(snapshot, item.Section) is null)
+            .Select(item => new DeviceOverlaySectionEntry(
+                item.Section,
+                PageFor(item.Section),
+                TitleFor(item.Section),
+                DescriptionFor(item.Section),
+                item.Count,
+                statuses.GetValueOrDefault(item.Section, DescriptorStatus.None))));
 
         return entries;
     }
@@ -326,7 +317,7 @@ internal static class DeviceOverlaySectionPages
     /// <summary>The direct rows and the section each belongs to, in presentation order.</summary>
     /// <remarks>One table for the menu counting above and for the section renderer, so a row can
     /// never be counted into one section and drawn on another.</remarks>
-    internal static IEnumerable<(DeviceOverlaySection Section, DescriptorRow? Row)> DirectRows(
+    private static IEnumerable<(DeviceOverlaySection Section, DescriptorRow? Row)> DirectRows(
         DeviceOverlaySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -351,16 +342,11 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection section)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        List<DeviceOverlayCapability> matching = [];
-        foreach (var capability in snapshot.Capabilities)
-        {
-            if (capability.PluginSectionId is null && capability.Section == section)
-            {
-                matching.Add(capability);
-            }
-        }
-
-        return matching;
+        return
+        [
+            .. snapshot.Capabilities.Where(capability =>
+                capability.PluginSectionId is null && capability.Section == section)
+        ];
     }
 
     /// <summary>Selects the capabilities of one plugin-declared section, in placement order.</summary>
@@ -372,16 +358,18 @@ internal static class DeviceOverlaySectionPages
         string sectionId)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return snapshot.Capabilities
-            .Select((capability, index) => (Capability: capability, Index: index))
-            .Where(item => string.Equals(
-                item.Capability.PluginSectionId,
-                sectionId,
-                StringComparison.Ordinal))
-            .OrderBy(item => item.Capability.SortOrder)
-            .ThenBy(item => item.Index)
-            .Select(item => item.Capability)
-            .ToList();
+        return
+        [
+            .. snapshot.Capabilities
+                .Select((capability, index) => (Capability: capability, Index: index))
+                .Where(item => string.Equals(
+                    item.Capability.PluginSectionId,
+                    sectionId,
+                    StringComparison.Ordinal))
+                .OrderBy(item => item.Capability.SortOrder)
+                .ThenBy(item => item.Index)
+                .Select(item => item.Capability)
+        ];
     }
 
     /// <summary>Picks the status a section should advertise from those of its rows.</summary>

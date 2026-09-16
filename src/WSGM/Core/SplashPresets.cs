@@ -108,11 +108,11 @@ internal static class SplashPresets
     };
 
     /// <summary>The classic default look — exactly the <see cref="SplashConfig"/> defaults.</summary>
-    internal static SplashConfig Classic() => new();
+    private static SplashConfig Classic() => new();
 
     /// <summary>Black background, large centered "WSGM" title with a "STARTING STEAM"
     /// caption and a small white ring spinner riding the text stack.</summary>
-    internal static SplashConfig Wordmark() => new()
+    private static SplashConfig Wordmark() => new()
     {
         Text = "WSGM",
         TitleFontSize = 44,
@@ -134,7 +134,7 @@ internal static class SplashPresets
 
     /// <summary>Near-black vignetted background with a small "WSGM" mark and a large
     /// accent-orange ring spinner drawn around the centered text block.</summary>
-    internal static SplashConfig MonogramRing() => new()
+    private static SplashConfig MonogramRing() => new()
     {
         Text = "WSGM",
         TitleFontSize = 17,
@@ -167,7 +167,7 @@ internal static class SplashPresets
     /// <summary>Minimal quiet look: a dim "Starting Steam" line with a tiny ring
     /// spinner, anchored toward the bottom of an almost-black screen. (The mockup's
     /// corner brand mark needs a user-supplied logo image; presets never fabricate one.)</summary>
-    internal static SplashConfig QuietConsole() => new()
+    private static SplashConfig QuietConsole() => new()
     {
         Text = "Starting Steam",
         TitleFontSize = 14,
@@ -188,7 +188,7 @@ internal static class SplashPresets
 
     /// <summary>Black background, centered "WSGM" wordmark, and an accent-orange
     /// sweep-line spinner traveling along the bottom edge.</summary>
-    internal static SplashConfig SweepLine() => new()
+    private static SplashConfig SweepLine() => new()
     {
         Text = "WSGM",
         TitleFontSize = 40,

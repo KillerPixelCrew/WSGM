@@ -190,15 +190,16 @@ internal static class DevicePackageStager
                 }
                 catch
                 {
-                    if (previousMoved && !ValidateDirectoryPath(
+                    if (!previousMoved || ValidateDirectoryPath(
                         destination,
                         "Installed package root",
                         readProtectedAttributes))
                     {
-                        Directory.Move(backupRoot, destination);
-                        previousMoved = false;
+                        throw;
                     }
 
+                    Directory.Move(backupRoot, destination);
+                    previousMoved = false;
                     throw;
                 }
 
@@ -207,36 +208,39 @@ internal static class DevicePackageStager
             }
             finally
             {
-                if (!replacementInstalled && ValidateDirectoryPath(
-                    stagingRoot,
-                    "Device package staging root",
-                    readProtectedAttributes))
+                switch (replacementInstalled)
                 {
-                    Directory.Delete(stagingRoot, recursive: true);
-                }
-
-                if (replacementInstalled && previousMoved)
-                {
-                    try
-                    {
-                        if (ValidateDirectoryPath(
-                            backupRoot,
-                            "Device package replacement recovery",
-                            readProtectedAttributes))
+                    case false when ValidateDirectoryPath(
+                        stagingRoot,
+                        "Device package staging root",
+                        readProtectedAttributes):
+                        Directory.Delete(stagingRoot, recursive: true);
+                        break;
+                    case true when previousMoved:
+                        try
                         {
-                            Directory.Delete(backupRoot, recursive: true);
+                            if (ValidateDirectoryPath(
+                                backupRoot,
+                                "Device package replacement recovery",
+                                readProtectedAttributes))
+                            {
+                                Directory.Delete(backupRoot, recursive: true);
+                            }
                         }
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        Log.Warn($"Device package replacement recovery cleanup failed: {ex.Message}");
-                    }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            Log.Warn($"Device package replacement recovery cleanup failed: {ex.Message}");
+                        }
+                        break;
                 }
             }
         }
         finally
         {
-            manifestPin?.Dispose();
+            if (manifestPin is not null)
+            {
+                await manifestPin.DisposeAsync().ConfigureAwait(false);
+            }
             packageSource?.Dispose();
         }
     }
@@ -435,7 +439,7 @@ internal static class DevicePackageStager
             DevicePackagePolicy.MaxMetadataBytes,
             "Plugin manifest");
         var result = PluginManifestReader.Read(bytes);
-        return result.IsValid && result.Manifest is not null
+        return result is { IsValid: true, Manifest: not null }
             ? result.Manifest
             : throw new InvalidDataException(
                 "Plugin manifest is invalid: "
@@ -491,24 +495,14 @@ internal static class DevicePackageStager
 
         var firstLineage = ReadPathLineage(first, readPathIdentity);
         var secondLineage = ReadPathLineage(second, readPathIdentity);
-        foreach (var firstEntry in firstLineage)
-        {
-            foreach (var secondEntry in secondLineage)
-            {
-                if (firstEntry.Identity == secondEntry.Identity
-                    && RelativePathsOverlap(
-                        firstEntry.RelativeSegments,
-                        secondEntry.RelativeSegments))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return firstLineage.Any(firstEntry => secondLineage.Any(secondEntry =>
+            firstEntry.Identity == secondEntry.Identity
+            && RelativePathsOverlap(
+                firstEntry.RelativeSegments,
+                secondEntry.RelativeSegments)));
     }
 
-    private static IReadOnlyList<PathLineageEntry> ReadPathLineage(
+    private static List<PathLineageEntry> ReadPathLineage(
         string path,
         Func<string, NativePathIdentity?> readPathIdentity)
     {
@@ -559,18 +553,12 @@ internal static class DevicePackageStager
             return false;
         }
 
-        for (var index = 0; index < candidatePrefix.Count; index++)
-        {
-            if (!string.Equals(
-                candidatePrefix[index],
+        return !candidatePrefix
+            .Where((segment, index) => !string.Equals(
+                segment,
                 candidate[index],
                 StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-
-        return true;
+            .Any();
     }
 
     private static bool PathTraversesLink(string path)
@@ -630,11 +618,13 @@ internal static class DevicePackageStager
         bool exists,
         Action<string>? beforeDirectoryDelete = null)
     {
-        if (exists)
+        if (!exists)
         {
-            beforeDirectoryDelete?.Invoke(path);
-            Directory.Delete(path, recursive: true);
+            return;
         }
+
+        beforeDirectoryDelete?.Invoke(path);
+        Directory.Delete(path, recursive: true);
     }
 
     private static bool ValidateDirectoryPath(
@@ -651,12 +641,9 @@ internal static class DevicePackageStager
         {
             throw new InvalidDataException($"{description} must be a directory.");
         }
-        if ((attributes.Value & FileAttributes.ReparsePoint) != 0)
-        {
-            throw new InvalidDataException($"{description} may not be a link or reparse point.");
-        }
-
-        return true;
+        return (attributes.Value & FileAttributes.ReparsePoint) == 0
+            ? true
+            : throw new InvalidDataException($"{description} may not be a link or reparse point.");
     }
 
     private static bool IsSameOrDescendant(string candidate, string root)

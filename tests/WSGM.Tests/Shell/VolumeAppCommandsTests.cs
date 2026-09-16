@@ -1,7 +1,7 @@
 using WindowsDeviceControl;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class VolumeAppCommandsTests
 {
@@ -27,6 +27,6 @@ public sealed class VolumeAppCommandsTests
     [Fact]
     public void FromShellHookLParam_IgnoresNonVolumeCommand()
     {
-        Assert.Null(VolumeAppCommands.FromShellHookLParam((nint)(14 << 16)));
+        Assert.Null(VolumeAppCommands.FromShellHookLParam(14 << 16));
     }
 }

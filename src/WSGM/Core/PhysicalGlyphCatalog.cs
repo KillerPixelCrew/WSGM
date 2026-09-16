@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Core;
@@ -25,7 +26,7 @@ internal sealed record PhysicalGlyphSelectionResult(
 /// <summary>Owns immutable package profiles and applies the closed physical-glyph selection policy.</summary>
 internal sealed class PhysicalGlyphCatalog : IDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private Dictionary<string, ImportedGlyphProfile> _profiles = new(StringComparer.Ordinal);
     private bool _disposed;
 

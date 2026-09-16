@@ -15,6 +15,8 @@ namespace WSGM.Overlay;
 /// <summary>Retains pinned plugin controls on the front page, including missing-provider placeholders.</summary>
 internal sealed class PinnedPluginWidgets : StackPanel
 {
+    private bool _closed;
+
     internal PinnedPluginWidgets(ICommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate,
         PluginWidgetPreferences? preferences = null)
     {
@@ -25,16 +27,23 @@ internal sealed class PinnedPluginWidgets : StackPanel
         Focusable = true;
         PluginWidgetPin[] previous = [];
         (PluginWidgetPin? Pin, string Label, int Index)? pendingFocus = null;
-        bool reading = false, closed = false;
+        var reading = false;
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
+        DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
+        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
+        timer.Tick += async (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } await RefreshAsync(); };
+        AttachedToVisualTree += async (_, _) => { timer.Start(); await RefreshAsync(); };
+        DetachedFromVisualTree += (_, _) => { _closed = true; timer.Stop(); };
+        return;
+
         async Task RefreshAsync()
         {
-            if (reading || closed) { return; }
+            if (reading || _closed) { return; }
             reading = true;
             try
             {
                 var pins = await preferences.Read();
-                if (closed || previous.SequenceEqual(pins)) { return; }
+                if (_closed || previous.SequenceEqual(pins)) { return; }
                 previous = pins;
                 var expanded = Children.OfType<StackPanel>().Where(card => card.Children.OfType<Expander>().Any(e => e.IsExpanded))
                     .Select(card => card.Tag).ToHashSet();
@@ -46,10 +55,29 @@ internal sealed class PinnedPluginWidgets : StackPanel
 
                     card.Children.Add(new CommonPluginPanel(source, pin, navigate));
                     StackPanel actions = new() { Spacing = 4 };
+                    Add("Move up", () => preferences.Move(pin, -1));
+                    Add("Move down", () => preferences.Move(pin, 1));
+                    Add("Unpin", () => preferences.Remove(pin));
+                    card.Children.Add(new Expander
+                    {
+                        Header = "Arrange widget",
+                        Content = actions,
+                        IsExpanded = expanded.Contains(pin) || pendingFocus is not null,
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch
+                    });
+                    Children.Add(card);
+                    continue;
+
                     void Add(string label, Func<Task> action)
                     {
-                        CardButton button = new() { Title = label, Tag = (pin, label), IconGeometry = label == "Unpin" ? Icons.Pin : Icons.Restart };
-                        button.IsEnabled = label != "Move up" || pin != pins[0];
+                        CardButton button = new()
+                        {
+                            Title = label,
+                            Tag = (pin, label),
+                            IconGeometry = label == "Unpin" ? Icons.Pin : Icons.Restart,
+                            IsEnabled = label != "Move up" || pin != pins[0]
+                        };
                         if (label == "Move down" && pin == pins[^1]) { button.IsEnabled = false; }
                         button.Click += async (_, _) =>
                         {
@@ -67,18 +95,6 @@ internal sealed class PinnedPluginWidgets : StackPanel
                         };
                         actions.Children.Add(button);
                     }
-                    Add("Move up", () => preferences.Move(pin, -1));
-                    Add("Move down", () => preferences.Move(pin, 1));
-                    Add("Unpin", () => preferences.Remove(pin));
-                    card.Children.Add(new Expander
-                    {
-                        Header = "Arrange widget",
-                        Content = actions,
-                        IsExpanded = expanded.Contains(pin) || pendingFocus is not null,
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        HorizontalContentAlignment = HorizontalAlignment.Stretch
-                    });
-                    Children.Add(card);
                 }
                 if (pins.Length > 0)
                 {
@@ -107,7 +123,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
             finally
             {
                 reading = false;
-                if (!closed && pendingFocus is { } target)
+                if (!_closed && pendingFocus is { } target)
                 {
                     pendingFocus = null;
                     var buttons = this.GetLogicalDescendants().OfType<Button>().ToArray();
@@ -126,10 +142,5 @@ internal sealed class PinnedPluginWidgets : StackPanel
                 }
             }
         }
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(1) };
-        // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
-        timer.Tick += async (_, _) => { if (this.GetVisualParent() is { IsEffectivelyVisible: false }) { return; } await RefreshAsync(); };
-        AttachedToVisualTree += async (_, _) => { timer.Start(); await RefreshAsync(); };
-        DetachedFromVisualTree += (_, _) => { closed = true; timer.Stop(); };
     }
 }

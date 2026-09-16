@@ -1,7 +1,7 @@
 using System.Xml.Linq;
 using WSGM.Device.Tests;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Boundaries;
 
 public sealed class DeviceBoundaryTests
 {

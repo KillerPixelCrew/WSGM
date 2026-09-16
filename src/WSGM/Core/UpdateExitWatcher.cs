@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading;
@@ -39,7 +40,7 @@ public static class UpdateExitWatcher
     /// <summary>Gets the per-session event a <c>--restore-shell</c> run signals so a resident shell
     /// runs its normal shutdown, which restores Explorer and retires its own taskbar, before the
     /// recovery process touches the desktop.</summary>
-    public const string RestoreShellEventName = @"Local\WSGM.ExitForRestoreShell";
+    private const string RestoreShellEventName = @"Local\WSGM.ExitForRestoreShell";
 
     // The setup is ALWAYS elevated (PrivilegesRequired=admin): the user-SID ACE
     // covers every same-user WSGM instance (elevated or filtered token — the user
@@ -149,23 +150,21 @@ public static class UpdateExitWatcher
 
     /// <summary>Asks a resident WSGM shell in this session to shut down normally and waits for it.</summary>
     /// <param name="timeout">How long to wait for the resident process to exit.</param>
-    /// <returns>Whether a resident shell was asked and exited in time; false when none was
-    /// listening or it did not exit.</returns>
     /// <remarks>Runs on the <c>--restore-shell</c> path before logging and configuration, so it
     /// uses only the named event and the process table. A resident shell that ignores the request
     /// is left running; the caller then falls back to its own recovery.</remarks>
-    internal static bool RequestResidentShellExit(TimeSpan timeout)
+    internal static void RequestResidentShellExit(TimeSpan timeout)
     {
         var request = NativeMethods.OpenEventW(NativeMethods.EventModifyState, false, RestoreShellEventName);
         if (request == 0)
         {
-            return false;
+            return;
         }
         try
         {
             if (!NativeMethods.SetEvent(request))
             {
-                return false;
+                return;
             }
         }
         finally
@@ -177,22 +176,12 @@ public static class UpdateExitWatcher
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            var residentAlive = false;
-            foreach (var pid in WindowFinder.FindProcessIds("WSGM"))
+            if (!WindowFinder.FindProcessIds("WSGM").Any(pid => pid != self))
             {
-                if (pid != self)
-                {
-                    residentAlive = true;
-                    break;
-                }
-            }
-            if (!residentAlive)
-            {
-                return true;
+                return;
             }
             Thread.Sleep(200);
         }
-        return false;
     }
 
     private static nint StartHandoffEvent(
@@ -229,7 +218,13 @@ public static class UpdateExitWatcher
         {
             try
             {
-                Win32Common.WaitForSingleObject(exitEvent, uint.MaxValue);
+                // Only a signaled event is an exit request; a failed wait must not shut WSGM down.
+                var wait = Win32Common.WaitForSingleObject(exitEvent, uint.MaxValue);
+                if (wait != 0 /* WAIT_OBJECT_0 */)
+                {
+                    Log.Warn($"{operation}-exit watcher: wait ended without a request (result {wait}).");
+                    return;
+                }
                 Log.Info($"Exit requested by installer ({operation}).");
                 callback();
             }
@@ -285,24 +280,24 @@ public static class UpdateExitWatcher
             NativeMethods.LocalFree(securityDescriptor);
         }
 
-        if (exitEvent == 0 && createError == 5 /* ERROR_ACCESS_DENIED */)
+        switch (exitEvent)
         {
-            exitEvent = NativeMethods.OpenEventW(
-                NativeMethods.Synchronize | NativeMethods.EventModifyState,
-                false,
-                eventName);
-            if (exitEvent == 0)
-            {
-                Log.Warn(
-                    $"{operation}: OpenEvent fallback failed "
-                    + $"(error {Marshal.GetLastWin32Error()}).");
+            case 0 when createError == 5 /* ERROR_ACCESS_DENIED */:
+                exitEvent = NativeMethods.OpenEventW(
+                    NativeMethods.Synchronize | NativeMethods.EventModifyState,
+                    false,
+                    eventName);
+                if (exitEvent == 0)
+                {
+                    Log.Warn(
+                        $"{operation}: OpenEvent fallback failed "
+                        + $"(error {Marshal.GetLastWin32Error()}).");
+                    return 0;
+                }
+                break;
+            case 0:
+                Log.Warn($"{operation}: CreateEvent failed (error {createError}).");
                 return 0;
-            }
-        }
-        else if (exitEvent == 0)
-        {
-            Log.Warn($"{operation}: CreateEvent failed (error {createError}).");
-            return 0;
         }
 
         if (clearStaleSignal && !NativeMethods.ResetEvent(exitEvent))

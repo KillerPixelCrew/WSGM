@@ -1,7 +1,8 @@
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class AutoTdpControllerTests
 {
@@ -312,7 +313,7 @@ public sealed class AutoTdpControllerTests
         AutoTdpController controller = new();
         controller.Start(20, Limits, Context);
         var decisions = Run(controller, 180, 16.6);
-        Assert.Equal(new[] { 18, 16, 14, 12, 10, 8 },
+        Assert.Equal([18, 16, 14, 12, 10, 8],
             decisions.Where(d => d.Action == AutoTdpAction.Probe).Select(d => d.Watts));
         Assert.All(decisions.TakeLast(20), d =>
         {

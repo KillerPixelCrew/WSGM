@@ -33,7 +33,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     public event Action? DisplaysChanged;
 
     /// <summary>Gets the native handle, or zero once disposed.</summary>
-    public nint Handle { get; private set; }
+    private nint Handle { get; set; }
 
     /// <summary>Gets or creates the process-wide display-change window.</summary>
     /// <returns>The singleton window.</returns>
@@ -44,7 +44,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
 
         const string className = "WSGM.DisplayChangeWindow";
         var hInstance = NativeMethods.GetModuleHandleW(0);
-        var terminated = className + "\0";
+        const string terminated = className + "\0";
         fixed (char* pClassName = terminated)
         {
             NativeMethods.WndClassW wc = new()
@@ -61,7 +61,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
         }
 
         var hwnd = NativeMethods.CreateWindowExW(
-            (uint)(NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate),
+            NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate,
             className, null, NativeMethods.WsPopup,
             0, 0, 0, 0,
             0, 0, hInstance, 0);
@@ -79,13 +79,13 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
     {
         var instance = _instance;
         if (instance is null) { return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam); }
-        if (msg == NativeMethods.WmDisplayChange
-            || (msg == NativeMethods.WmDeviceChange && wParam == NativeMethods.DbtDevnodesChanged))
+        if (msg != NativeMethods.WmDisplayChange
+            && (msg != NativeMethods.WmDeviceChange || wParam != NativeMethods.DbtDevnodesChanged))
         {
-            Dispatcher.UIThread.Post(() => instance.DisplaysChanged?.Invoke());
-            return 0;
+            return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
         }
-        return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
+        Dispatcher.UIThread.Post(() => instance.DisplaysChanged?.Invoke());
+        return 0;
     }
 
     /// <summary>Destroys the native window and clears the process singleton.</summary>

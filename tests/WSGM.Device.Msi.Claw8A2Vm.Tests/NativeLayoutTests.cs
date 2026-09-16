@@ -1,6 +1,5 @@
-using WSGM.Device.Msi.Claw8A2Vm;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 
 public sealed class NativeLayoutTests
 {

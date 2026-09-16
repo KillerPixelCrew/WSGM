@@ -31,8 +31,8 @@ internal sealed class HidHideExactSnapshot
     {
         Health = health;
         Active = active;
-        Applications = applications.ToArray();
-        Devices = devices.ToArray();
+        Applications = [.. applications];
+        Devices = [.. devices];
         Detail = detail;
     }
 
@@ -182,13 +182,11 @@ internal sealed class FileHidHideOwnershipStore : IHidHideOwnershipStore
 
 internal sealed record HidHideActivationResult(
     bool Activated,
-    string Detail,
-    HidHideOwnershipLedger? Ledger);
+    string Detail);
 
 internal sealed record HidHideCleanupResult(
     bool Verified,
-    string Detail,
-    HidHideOwnershipLedger? RemainingLedger);
+    string Detail);
 
 internal sealed class HidHideOwnedDeltaManager
 {
@@ -296,8 +294,7 @@ internal sealed class HidHideOwnedDeltaManager
                     // Recovery could not put HidHide back, which is a real reason to keep hands off.
                     return new HidHideActivationResult(
                         false,
-                        $"A previous HidHide ownership ledger could not be recovered: {recovery.Detail}",
-                        existing);
+                        $"A previous HidHide ownership ledger could not be recovered: {recovery.Detail}");
                 }
 
                 Log.Info("Recovered an orphaned HidHide ownership ledger from a previous session.");
@@ -308,8 +305,7 @@ internal sealed class HidHideOwnedDeltaManager
             if (snapshot.Health is not HidHideHealthState.Ready || !snapshot.Active)
             {
                 return new HidHideActivationResult(false,
-                    $"HidHide prerequisite unavailable: {snapshot.Health} ({snapshot.Detail}).",
-                    null);
+                    $"HidHide prerequisite unavailable: {snapshot.Health} ({snapshot.Detail}).");
             }
 
             HidHideOwnershipLedger ledger = new();
@@ -344,7 +340,7 @@ internal sealed class HidHideOwnedDeltaManager
                     throw new InvalidOperationException("HidHide readback did not contain every required entry.");
                 }
 
-                return new HidHideActivationResult(true, "WSGM-owned HidHide deltas applied and verified.", ledger);
+                return new HidHideActivationResult(true, "WSGM-owned HidHide deltas applied and verified.");
             }
             catch (Exception ex)
             {
@@ -355,8 +351,7 @@ internal sealed class HidHideOwnedDeltaManager
                 return new HidHideActivationResult(false,
                     cleanup.Verified
                         ? $"HidHide activation rolled back: {ex.Message}"
-                        : $"HidHide activation cleanup is unverified: {ex.Message}",
-                    cleanup.RemainingLedger);
+                        : $"HidHide activation cleanup is unverified: {ex.Message}");
             }
         }
         finally
@@ -373,7 +368,7 @@ internal sealed class HidHideOwnedDeltaManager
             var ledger = await _store.LoadAsync(cancellationToken)
                 .ConfigureAwait(false);
             return ledger is null
-                ? new HidHideCleanupResult(true, "No WSGM-owned HidHide state exists.", null)
+                ? new HidHideCleanupResult(true, "No WSGM-owned HidHide state exists.")
                 : await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -417,12 +412,14 @@ internal sealed class HidHideOwnedDeltaManager
                 return snapshot;
             }
 
-            if (Contains(Entries(snapshot, entryKind), value))
+            if (!Contains(Entries(snapshot, entryKind), value))
             {
-                ledger.Deltas.Remove(delta);
-                await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
-                return snapshot;
+                continue;
             }
+
+            ledger.Deltas.Remove(delta);
+            await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
+            return snapshot;
         }
 
         throw new IOException($"HidHide {entryKind} entry kept changing during activation.");
@@ -456,12 +453,12 @@ internal sealed class HidHideOwnedDeltaManager
         if (problems.Count == 0)
         {
             await _store.DeleteAsync(cancellationToken).ConfigureAwait(false);
-            return new HidHideCleanupResult(true, "Only WSGM-owned HidHide deltas were removed.", null);
+            return new HidHideCleanupResult(true, "Only WSGM-owned HidHide deltas were removed.");
         }
 
         ledger.RecoveryDetail = "Cleanup refused ambiguous entries: " + string.Join(", ", problems);
         await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
-        return new HidHideCleanupResult(false, ledger.RecoveryDetail, ledger);
+        return new HidHideCleanupResult(false, ledger.RecoveryDetail);
     }
 
     private async Task<bool> RemoveOwnedDeltaAsync(
@@ -559,7 +556,7 @@ internal sealed class HidHideOwnedDeltaManager
 
         // C:\rest  ->  \rest. Deliberately only a drive letter: a UNC path has no volume to strip
         // and must keep its server and share, which are part of what identifies it.
-        if (path.Length >= 2 && path[1] == ':' && char.IsLetter(path[0]))
+        if (path is [_, ':', ..] && char.IsLetter(path[0]))
         {
             return path.Length == 2 ? string.Empty : path[2..];
         }

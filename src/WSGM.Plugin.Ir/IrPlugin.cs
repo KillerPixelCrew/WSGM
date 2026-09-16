@@ -186,13 +186,14 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_port != port || _transport != transport || _hostName != hostName)
+            if (_port == port && _transport == transport && _hostName == hostName)
             {
-                if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
-                _port = port;
-                _transport = transport;
-                _hostName = hostName;
+                return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
             }
+            if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
+            _port = port;
+            _transport = transport;
+            _hostName = hostName;
             return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
         }
         finally { _lane.Release(); }
@@ -217,12 +218,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 _endpoint = null;
                 await previousEndpoint.DisposeAsync().ConfigureAwait(false);
             }
-            string Arg(string key) => request.Arguments[key].Text ?? "";
             Publish("status", $"{request.ActionId} requested", request.OperationId);
             switch (request.ActionId)
             {
                 case "discover":
-                    string[] ports = SerialPort.GetPortNames().Order(StringComparer.Ordinal).ToArray();
+                    string[] ports = [.. SerialPort.GetPortNames().Order(StringComparer.Ordinal)];
                     Publish("ports", ports.Length == 0 ? "No USB serial ports found." : string.Join(", ", ports), request.OperationId);
                     break;
                 case "connect":
@@ -284,7 +284,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     var delay = IntegerArgument(request, "delay-ms", 0, 5000);
                     var existing = _library.Scenes.FirstOrDefault(item => item.Name == name);
                     IrScene created = new(existing?.Id ?? Guid.NewGuid().ToString("N"), name,
-                        names.Select(item => new IrSceneStep(ResolveCommand(item).Id, delay)).ToArray());
+                        [.. names.Select(item => new IrSceneStep(ResolveCommand(item).Id, delay))]);
                     await SaveLibraryAsync(_library with
                     {
                         Scenes = [.. _library.Scenes.Where(item => item.Id != created.Id), created]
@@ -292,7 +292,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     break;
                 case "delete-scene":
                     var removed = ResolveScene(Arg("scene"));
-                    await SaveLibraryAsync(_library with { Scenes = _library.Scenes.Where(item => item.Id != removed.Id).ToArray() },
+                    await SaveLibraryAsync(_library with { Scenes = [.. _library.Scenes.Where(item => item.Id != removed.Id)] },
                         context, cancellationToken).ConfigureAwait(false);
                     break;
                 case "set-carrier":
@@ -311,8 +311,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     }
                     var edited = _library with
                     {
-                        Commands = _library.Commands.Select(item => item.Id == commandId
-                            ? original with { CarrierOverrideHz = frequency } : item).ToArray()
+                        Commands =
+                        [
+                            .. _library.Commands.Select(item => item.Id == commandId
+                                ? original with { CarrierOverrideHz = frequency } : item)
+                        ]
                     };
                     await edited.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
                     _library = edited;
@@ -338,7 +341,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     }
                     var deleted = _library with
                     {
-                        Commands = _library.Commands.Where(item => item.Id != removedId).ToArray(),
+                        Commands = [.. _library.Commands.Where(item => item.Id != removedId)],
                         SelectedCommandId = _library.SelectedCommandId == removedId ? null : _library.SelectedCommandId
                     };
                     await deleted.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
@@ -369,6 +372,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             PublishLibrary();
             Publish("status", $"{request.ActionId} completed", request.OperationId);
             return new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified);
+
+            string Arg(string key) => request.Arguments[key].Text ?? "";
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -386,11 +391,12 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     private async Task<IIrEndpoint> EndpointAsync(Guid operation, CancellationToken token)
     {
         _endpoint ??= _createEndpoint(Target());
-        if (_endpoint.Identity is null)
+        if (_endpoint.Identity is not null)
         {
-            var identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
-            Publish("status", Describe(identity), operation);
+            return _endpoint;
         }
+        var identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
+        Publish("status", Describe(identity), operation);
         return _endpoint;
     }
 
@@ -410,7 +416,6 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     /// </summary>
     private async Task<PluginActionResult> RemoteActionAsync(PluginActionRequest request, CancellationToken token)
     {
-        string Arg(string key) => request.Arguments[key].Text ?? "";
         var endpoint = await EndpointAsync(request.OperationId, token).ConfigureAwait(false);
         if (endpoint.Identity is { Remotes: 0 })
         {
@@ -435,7 +440,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         {
             case "remote-press":
                 var button = Arg("button");
-                if (!remote.Buttons.Any(item => item.Id == button))
+                if (remote.Buttons.All(item => item.Id != button))
                 {
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" has no button \"{button}\".");
@@ -446,7 +451,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 break;
             case "remote-run":
                 var sequence = Arg("sequence");
-                if (!remote.Sequences.Any(item => item.Id == sequence))
+                if (remote.Sequences.All(item => item.Id != sequence))
                 {
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                         $"\"{remote.Name}\" has no sequence \"{sequence}\".");
@@ -485,6 +490,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched, "IR emitted; appliance state is not verified.");
 
         IrRemote? Find(string id) => _remotes?.Remotes.FirstOrDefault(item => item.Id == id || item.Name == id);
+        string Arg(string key) => request.Arguments[key].Text ?? "";
     }
 
     /// <summary>Waits for a started sequence to finish by polling the endpoint's own flag. A
@@ -524,8 +530,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             var address = _hostName.Length != 0 ? _hostName : _pairing.Hostname;
             return new IrEndpointTarget(true, address, _pairing.Token);
         }
-        if (string.IsNullOrEmpty(_port)) { throw new InvalidOperationException("Select a USB serial port in plugin preferences first."); }
-        return new IrEndpointTarget(false, _port, null);
+        return string.IsNullOrEmpty(_port)
+            ? throw new InvalidOperationException("Select a USB serial port in plugin preferences first.")
+            : new IrEndpointTarget(false, _port, null);
     }
 
     private async Task<IrPayload> LearnAsync(Guid operation, CancellationToken token)
@@ -614,7 +621,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         _library = library;
     }
     private Task ReplaceCommandAsync(IrCommand command, PluginContext context, CancellationToken token) =>
-        SaveLibraryAsync(_library with { Commands = _library.Commands.Select(item => item.Id == command.Id ? command : item).ToArray() }, context, token);
+        SaveLibraryAsync(_library with { Commands = [.. _library.Commands.Select(item => item.Id == command.Id ? command : item)] }, context, token);
     private async Task SendAsync(string id, Guid operation, CancellationToken token)
     {
         var command = ResolveCommand(id);
@@ -659,7 +666,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         try
         {
             _stopped = true;
-            if (_endpoint is not null) { await _endpoint.DisposeAsync().ConfigureAwait(false); _endpoint = null; }
+            if (_endpoint is null) { return true; }
+            await _endpoint.DisposeAsync().ConfigureAwait(false);
+            _endpoint = null;
             return true;
         }
         finally { _lane.Release(); }

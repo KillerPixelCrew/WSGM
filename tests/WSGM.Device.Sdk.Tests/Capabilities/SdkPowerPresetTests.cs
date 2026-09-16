@@ -1,8 +1,8 @@
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
-using static WSGM.Device.Tests.PowerLimitDescriptors;
+using static WSGM.Device.Sdk.Tests.Builders.PowerLimitDescriptors;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Capabilities;
 
 public sealed class SdkPowerPresetTests
 {
@@ -30,7 +30,7 @@ public sealed class SdkPowerPresetTests
         list.Clear();
         Assert.Equal(preset, Assert.Single(fromArray.PowerPresets));
         Assert.Equal(preset, Assert.Single(fromList.PowerPresets));
-        var exposed = Assert.IsAssignableFrom<IList<DevicePowerPreset>>(fromArray.PowerPresets);
+        var exposed = Assert.IsType<IList<DevicePowerPreset>>(fromArray.PowerPresets, exactMatch: false);
         Assert.True(exposed.IsReadOnly);
         Assert.Throws<NotSupportedException>(() => exposed[0] = array[0]);
     }
@@ -73,7 +73,7 @@ public sealed class SdkPowerPresetTests
     {
         var preset = new DevicePowerPreset("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery);
         Assert.False(DevicePowerPreset.TryValidate(Pair(preset, preset), out _));
-        Assert.False(DevicePowerPreset.TryValidate(Pair(Enumerable.Range(0, 17).Select(i => preset with { Id = $"p{i}" }).ToArray()), out _));
+        Assert.False(DevicePowerPreset.TryValidate(Pair([.. Enumerable.Range(0, 17).Select(i => preset with { Id = $"p{i}" })]), out _));
     }
 
     [Fact]

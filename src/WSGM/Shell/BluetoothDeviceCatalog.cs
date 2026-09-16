@@ -53,21 +53,24 @@ internal sealed class BluetoothDeviceCatalog
         else { _endpoints.Remove(id); }
     }
 
-    private IReadOnlyList<BluetoothLogicalDevice> Snapshot() => _endpoints.Values
-        .GroupBy(device => Container(device.Container) is { Length: > 0 } container
-            ? $"container:{container}" : $"endpoint:{device.Id}", StringComparer.OrdinalIgnoreCase)
-        .Select(group =>
-        {
-            var members = group.OrderByDescending(d => d.Paired).ThenByDescending(d => d.Connected)
-                .ThenBy(d => d.Id, StringComparer.OrdinalIgnoreCase).ToArray();
-            var selected = members[0];
-            var pairable = members.FirstOrDefault(d => d.CanPair && !d.Paired);
-            return new BluetoothLogicalDevice(group.Key, selected.Id,
-                string.IsNullOrEmpty(pairable.Id) ? selected.Id : pairable.Id,
-                members.Select(d => d.Name).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? "Unnamed device",
-                Container(selected.Container), members.Any(d => d.Paired), members.Any(d => d.CanPair),
-                members.Any(d => d.Connected), members.Select(d => d.Id).ToArray());
-        }).OrderBy(device => device.Id, StringComparer.OrdinalIgnoreCase).ToArray();
+    private BluetoothLogicalDevice[] Snapshot() =>
+    [
+        .. _endpoints.Values
+            .GroupBy(device => Container(device.Container) is { Length: > 0 } container
+                ? $"container:{container}" : $"endpoint:{device.Id}", StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var members = group.OrderByDescending(d => d.Paired).ThenByDescending(d => d.Connected)
+                    .ThenBy(d => d.Id, StringComparer.OrdinalIgnoreCase).ToArray();
+                var selected = members[0];
+                var pairable = members.FirstOrDefault(d => d is { CanPair: true, Paired: false });
+                return new BluetoothLogicalDevice(group.Key, selected.Id,
+                    string.IsNullOrEmpty(pairable.Id) ? selected.Id : pairable.Id,
+                    members.Select(d => d.Name).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? "Unnamed device",
+                    Container(selected.Container), members.Any(d => d.Paired), members.Any(d => d.CanPair),
+                    members.Any(d => d.Connected), [.. members.Select(d => d.Id)]);
+            }).OrderBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
+    ];
 
     private static string Container(string? value) =>
         Guid.TryParse(value, out var id) && id != Guid.Empty ? id.ToString("D") : string.Empty;

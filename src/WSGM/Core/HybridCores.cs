@@ -66,7 +66,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
     internal static HybridCores Windows { get; } = new(new WindowsHybridCoreApi());
 
     /// <summary>Windows applies processor policy on scheme activation, and activation is global.</summary>
-    internal static object MutationGate { get; } = new();
+    private static object MutationGate { get; } = new();
 
     private static readonly HybridCoreOption[] Offered =
     [
@@ -164,28 +164,21 @@ internal sealed class HybridCores(IHybridCoreApi api)
 
         var performance = 0;
         var efficiency = 0;
-        byte best = 0;
-        foreach (var observed in support.Classes)
-        {
-            best = Math.Max(best, observed.EfficiencyClass);
-        }
+        var best = support.Classes.Aggregate<HybridCoreClass, byte>(
+            0,
+            (current, observed) => Math.Max(current, observed.EfficiencyClass));
         foreach (var observed in support.Classes)
         {
             if (observed.EfficiencyClass == best) { performance += observed.Cores; }
             else { efficiency += observed.Cores; }
         }
 
-        List<HybridCoreOption> options = [];
-        foreach (var option in Offered)
-        {
-            // Only modes this Windows build actually publishes a value for. A mode offered here that
-            // the machine will not accept is a control that does nothing when pressed.
-            if (support.SchedulingPolicies.Contains(PolicyFor(option.Mode))
+        // Only modes this Windows build actually publishes a value for. A mode offered here that
+        // the machine will not accept is a control that does nothing when pressed.
+        var options = Offered
+            .Where(option => support.SchedulingPolicies.Contains(PolicyFor(option.Mode))
                 && support.ShortSchedulingPolicies.Contains(PolicyFor(option.Mode)))
-            {
-                options.Add(option);
-            }
-        }
+            .ToList();
 
         return new HybridCoreStatus(
             options.Count > 0,

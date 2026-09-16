@@ -32,7 +32,6 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
             var status = assignments.Snapshot().Status;
             return new SteamUiCommandResult(string.IsNullOrEmpty(status), string.IsNullOrEmpty(status) ? null : status);
         }
-        catch (OperationCanceledException) { throw; }
         catch (InvalidOperationException ex) { return new SteamUiCommandResult(false, ex.Message); }
     }
 }

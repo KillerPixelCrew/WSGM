@@ -1,7 +1,7 @@
 using System.Runtime.Loader;
 using WSGM.Plugin.Sdk;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Fakes;
 
 /// <summary>Hardware-free package fixture using only common SDK and BCL contracts.</summary>
 public sealed class CommonPluginFixture : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi

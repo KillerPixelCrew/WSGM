@@ -39,7 +39,6 @@ public partial class OverlayWindow
     }
     internal void AttachManualTdp(DeviceCoordinator coordinator)
     {
-        Control Create() => new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync);
         ManualTdpHost.Tag = "section.device.manual-tdp";
         ManualTdpHost.Children.Add(CreateSectionHeader("section.device.manual-tdp", "Manual power mode"));
         var view = Create();
@@ -50,6 +49,9 @@ public partial class OverlayWindow
         ManualTdpHost.Children.Add(view);
         _controlPinFactories["section.device.manual-tdp"] = ("Manual power mode", Create);
         RenderPins();
+        return;
+
+        Control Create() => new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync);
     }
     internal void AttachBrightness(NativeQamBrightnessService service, Func<Task<DisplayModeSnapshot?>>? readMode = null)
     {
@@ -70,6 +72,24 @@ public partial class OverlayWindow
 
     internal void AttachSteamOwnership(Func<SteamControllerHandoff?> getOwner)
     {
+        ReleaseSteamOwnership.Click += (_, _) => { getOwner()?.ReleaseManually(); Refresh(); };
+        ReacquireSteamOwnership.Click += (_, _) => { getOwner()?.ReacquireManually(); Refresh(); };
+        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+        // Polled only while the rows can be seen: on the Controller page, or pinned to Quick access,
+        // whose mirrors follow these buttons' enabled state.
+        timer.Tick += (_, _) =>
+        {
+            if (PanelSystemController.IsEffectivelyVisible
+                || PinShowing("system.release-steam") || PinShowing("system.reacquire-steam"))
+            {
+                Refresh();
+            }
+        };
+        Opened += (_, _) => { Refresh(); timer.Start(); };
+        Closed += (_, _) => timer.Stop();
+        Refresh();
+        return;
+
         void Refresh()
         {
             var owner = getOwner();
@@ -90,22 +110,6 @@ public partial class OverlayWindow
             ReacquireSteamOwnership.IsEnabled = owner is { ManualRelease: true, State: SteamControllerOwnership.Steam }
                 or { State: SteamControllerOwnership.RecoveryRequired };
         }
-        ReleaseSteamOwnership.Click += (_, _) => { getOwner()?.ReleaseManually(); Refresh(); };
-        ReacquireSteamOwnership.Click += (_, _) => { getOwner()?.ReacquireManually(); Refresh(); };
-        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
-        // Polled only while the rows can be seen: on the Controller page, or pinned to Quick access,
-        // whose mirrors follow these buttons' enabled state.
-        timer.Tick += (_, _) =>
-        {
-            if (PanelSystemController.IsEffectivelyVisible
-                || PinShowing("system.release-steam") || PinShowing("system.reacquire-steam"))
-            {
-                Refresh();
-            }
-        };
-        Opened += (_, _) => { Refresh(); timer.Start(); };
-        Closed += (_, _) => timer.Stop();
-        Refresh();
     }
 
     internal void AttachPowerSchemes(PowerSchemeSelection selection)
@@ -181,21 +185,22 @@ public partial class OverlayWindow
         DeviceWidgetPinsHost.Children.Clear();
         PinnedPluginWidgetsHost.Children.Clear();
         SystemPluginsTile.IsVisible = source is not null;
-        if (source is not null)
+        if (source is null)
         {
-            CommonPluginPanel panel = new(source, readPins: PluginWidgetPreferences.Default.Read);
-            CommonPluginRows.Children.Add(panel);
-            if (source.Device is { } device)
-            { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true, readPins: PluginWidgetPreferences.Default.Read)); }
-            PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
-            {
-                // The rows moved a level down when Tools became a menu, so the jump has to open the
-                // Plugins category too: selecting the destination alone now lands on the tiles.
-                SelectDestination(OverlayDestination.System);
-                EnterSubView(OverlayPage.SystemPlugins);
-                Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
-            }));
+            return;
         }
+        CommonPluginPanel panel = new(source, readPins: PluginWidgetPreferences.Default.Read);
+        CommonPluginRows.Children.Add(panel);
+        if (source.Device is { } device)
+        { DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true, readPins: PluginWidgetPreferences.Default.Read)); }
+        PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
+        {
+            // The rows moved a level down when Tools became a menu, so the jump has to open the
+            // Plugins category too: selecting the destination alone now lands on the tiles.
+            SelectDestination(OverlayDestination.System);
+            EnterSubView(OverlayPage.SystemPlugins);
+            Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
+        }));
     }
 
     /// <summary>Supplies the reader behind the Device page's missing-prerequisites banner.</summary>

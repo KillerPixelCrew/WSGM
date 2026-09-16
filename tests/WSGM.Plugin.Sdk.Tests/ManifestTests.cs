@@ -1,4 +1,3 @@
-using System.Text;
 using Xunit;
 
 namespace WSGM.Plugin.Sdk.Tests;
@@ -47,10 +46,10 @@ public sealed class ManifestTests
     public void CompatibilityAndUnknownJsonMembersFailBeforeLoading()
     {
         Assert.NotEmpty(PluginManifestReader.Validate(Valid with { MinimumApiVersion = 2, MaximumApiVersion = 3 }));
-        var json = Encoding.UTF8.GetBytes("""
+        var json = """
                                           {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
                                            "entryAssembly":"Remote.dll","entryType":"Example.Remote","unexpected":true}
-                                          """);
+                                          """u8;
         Assert.False(PluginManifestReader.TryRead(json, out var rejected, out var errors));
         Assert.Null(rejected); Assert.NotEmpty(errors);
     }
@@ -58,10 +57,10 @@ public sealed class ManifestTests
     [Fact]
     public void StrictReaderAcceptsCommonMetadataAndBoundsMalformedInputs()
     {
-        var json = Encoding.UTF8.GetBytes("""
+        var json = """
                                           {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
                                            "entryAssembly":"Remote.dll","entryType":"Example.Remote"}
-                                          """);
+                                          """u8;
         Assert.True(PluginManifestReader.TryRead(json, out var manifest, out var errors), string.Join("; ", errors));
         Assert.Empty(errors); Assert.Equal("example.remote", manifest!.Id);
         Assert.False(PluginManifestReader.TryRead(new byte[PluginManifestReader.MaximumBytes + 1], out _, out _));

@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>
 /// The rules the Steam storage bridge enforces before anything reaches a storage manager.

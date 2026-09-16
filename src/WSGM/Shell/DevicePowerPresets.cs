@@ -69,16 +69,6 @@ internal sealed class DevicePowerPresets(
                 var cycle = sustained!.Projection.State.CycleGeneration;
                 var generation = sustained.Projection.State.DescriptorGeneration;
                 var onAc = expectedOnAc ?? readOnAc?.Invoke();
-                void CheckCurrent()
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (!SameGeneration(snapshot(), cycle, generation, preset, customValues is not null)
-                        || readOnAc?.Invoke() != onAc
-                        || (preset.ScenarioOnAc is not null && onAc is null))
-                    {
-                        throw new InvalidOperationException("Device capabilities or power source changed during selection.");
-                    }
-                }
                 CheckCurrent();
                 if (preset.ScenarioOnAc is not null)
                 {
@@ -136,6 +126,17 @@ internal sealed class DevicePowerPresets(
                 _status = string.Empty;
                 Log.Info($"Power preset {id} applied and verified (AC={onAc}, persist={persistValues}).");
                 return new SteamUiCommandResult(true, null);
+
+                void CheckCurrent()
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!SameGeneration(snapshot(), cycle, generation, preset, customValues is not null)
+                        || readOnAc?.Invoke() != onAc
+                        || (preset.ScenarioOnAc is not null && onAc is null))
+                    {
+                        throw new InvalidOperationException("Device capabilities or power source changed during selection.");
+                    }
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -164,7 +165,7 @@ internal sealed class DevicePowerPresets(
                 && (onAc is null || !Current(ScenarioView(views))
                     || ScenarioView(views)!.Projection.State.ObservedValue?.ChoiceValue is null
                     || ScenarioView(views)!.Projection.State.CycleGeneration != sustained!.Projection.State.CycleGeneration
-                    || ScenarioView(views)!.Projection.State.DescriptorGeneration != sustained!.Projection.State.DescriptorGeneration)))
+                    || ScenarioView(views)!.Projection.State.DescriptorGeneration != sustained.Projection.State.DescriptorGeneration)))
         {
             return new DevicePowerPresetState(presets, false, string.Empty, "Waiting for current device power readings.");
         }
@@ -194,14 +195,14 @@ internal sealed class DevicePowerPresets(
     }
 
     private static DevicePowerPreset[] Presets(IReadOnlyList<DeviceCapabilityView> views) =>
-        DevicePowerPreset.TryValidate(views.Select(view => view.Descriptor).ToArray(), out _)
-            ? views.SelectMany(view => view.Descriptor.PowerPresets).ToArray() : [];
+        DevicePowerPreset.TryValidate([.. views.Select(view => view.Descriptor)], out _)
+            ? [.. views.SelectMany(view => view.Descriptor.PowerPresets)] : [];
 
     private static bool ValidTarget(IReadOnlyList<DeviceCapabilityView> views, DevicePowerPreset preset, bool custom) =>
         custom ? Presets(views).Length > 0
             && Presets(views).Any(item => item.ScenarioOnAc is not null) == preset.ScenarioOnAc is not null
-            && DevicePowerPreset.TryValidate(views.Select(view => view.Descriptor with
-            { PowerPresets = view.Descriptor.Role == CapabilityRole.PowerSustainedLimit ? [preset] : [] }).ToArray(), out _)
+            && DevicePowerPreset.TryValidate([.. views.Select(view => view.Descriptor with
+            { PowerPresets = view.Descriptor.Role == CapabilityRole.PowerSustainedLimit ? [preset] : [] })], out _)
         : Presets(views).Contains(preset);
 
     private static bool SameGeneration(IReadOnlyList<DeviceCapabilityView> views, long cycle, long generation, DevicePowerPreset preset, bool custom) =>
@@ -231,10 +232,15 @@ internal sealed class DevicePowerPresets(
             && sustained.Projection.State.DescriptorGeneration == slow.Projection.State.DescriptorGeneration;
     }
 
-    private static bool Current(DeviceCapabilityView? view) => view is not null
-        && view.Projection.State.Available
-        && view.Projection.State.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified
-        && view.Projection.State.ObservedValue is not null
+    private static bool Current(DeviceCapabilityView? view) => view is
+    {
+        Projection.State:
+        {
+            Available: true,
+            Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+            ObservedValue: not null
+        }
+    }
         && view.Projection.Progress != CommandProgress.Pending
         && (view.Projection.Progress != CommandProgress.Uncertain
             || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);

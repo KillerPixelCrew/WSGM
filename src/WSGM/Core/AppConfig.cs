@@ -710,7 +710,7 @@ public sealed class AppConfig
     public int StaggerDelayMs { get; set; } = 1500;
 
     /// <summary>Extra delay before Steam Big Picture is started at logon.</summary>
-    public int SteamDelayMs { get; set; } = 0;
+    public int SteamDelayMs { get; set; }
     /// <summary>Mute system audio only while the screen is off and Steam reports an
     /// active download (see Shell\DisplayOffMuteService). Screen-off alone stays
     /// audible; download completion restores after a short grace period, and display
@@ -1039,6 +1039,4 @@ public sealed class CefConfig
 [JsonSerializable(typeof(LegacyDisplayRoutes))]
 [JsonSerializable(typeof(LegacyMonitorDisplayProfile))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
-internal partial class ConfigJsonContext : JsonSerializerContext
-{
-}
+internal partial class ConfigJsonContext : JsonSerializerContext;

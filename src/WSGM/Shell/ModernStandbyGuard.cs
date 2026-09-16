@@ -73,11 +73,8 @@ internal sealed class ModernStandbyGuard : IDisposable
         _messages.DisplayStateChanged += OnDisplayStateChanged;
     }
 
-    /// <summary>The reason the most recent look reached, for diagnostics and tests.</summary>
-    internal ModernStandbyOutcome LastOutcome { get; private set; } = ModernStandbyOutcome.Disabled;
-
     /// <summary>How many times the current wake has been slept through.</summary>
-    internal int Attempts { get; private set; }
+    private int Attempts { get; set; }
 
     private void OnSystemResumed()
     {
@@ -128,12 +125,10 @@ internal sealed class ModernStandbyGuard : IDisposable
             // A guard that cannot read the machine leaves it awake. Staying on is recoverable by
             // the user; suspending on a state WSGM could not establish is not.
             _timer.Stop();
-            LastOutcome = ModernStandbyOutcome.Disabled;
             Log.Warn($"Modern Standby guard: could not read wake state, leaving the machine awake: {ex.Message}");
             return;
         }
 
-        LastOutcome = decision.Outcome;
         if (decision.ShouldKeepWatching)
         {
             _timer.Start();

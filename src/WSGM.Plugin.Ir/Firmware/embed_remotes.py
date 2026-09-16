@@ -11,6 +11,7 @@ import html
 import json
 import re
 from pathlib import Path
+from typing import NoReturn
 
 Import("env")
 
@@ -32,7 +33,7 @@ class DefinitionError(Exception):
     pass
 
 
-def fail(where, message):
+def fail(where, message) -> NoReturn:
     raise DefinitionError(f"{where}: {message}")
 
 
@@ -409,14 +410,17 @@ def load(identifier, folder, library):
     where = folder.relative_to(PROJECT).as_posix()
     try:
         source = json.loads((folder / "remote.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        fail(where, f"remote.json is not readable JSON ({error})")
+    except (OSError, ValueError) as problem:
+        fail(where, f"remote.json is not readable JSON ({problem})")
     fields(where, source, {"name", "defaults", "buttons", "climate", "sequences"})
     defaults = fields(f"{where}.defaults", source.get("defaults", {}),
                       {"protocol", "address", "bits", "repeats"})
-    entry = {"id": identifier, "name": text(f"{where}.name", source.get("name"), 64)}
-    entry["buttons"] = [{"id": key, **button(f"{where}.buttons.{key}", value, defaults, library)}
-                        for key, value in entries(f"{where}.buttons", source.get("buttons", {}))]
+    entry = {
+        "id": identifier,
+        "name": text(f"{where}.name", source.get("name"), 64),
+        "buttons": [{"id": key, **button(f"{where}.buttons.{key}", value, defaults, library)}
+                    for key, value in entries(f"{where}.buttons", source.get("buttons", {}))],
+    }
     if len(entry["buttons"]) > 128:
         fail(where, "has more than 128 buttons")
     if "climate" in source:

@@ -1,6 +1,6 @@
 using WSGM.Device.Sdk.Capabilities;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Capabilities;
 
 public sealed class CapabilityValueFactoryTests
 {

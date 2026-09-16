@@ -37,7 +37,7 @@ public static class SteamPageBridge
         "if(r.width<600||r.width<=r.height)continue;" +
         "if(r.bottom<=0||r.top>=ch||cx<r.left||cx>r.right)continue;" +
         "if(i.checkVisibility&&!i.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))continue;" +
-        "const m=(i.src||'').match(/assets\\/(\\d+)\\//);" +
+        @"const m=(i.src||'').match(/assets\/(\d+)\//);" +
         "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}" +
         "return {id:best,src:best?'hero image':'none'};}catch(e){return {id:0,src:'error'};}})()";
 
@@ -47,7 +47,7 @@ public static class SteamPageBridge
     // on this machine with a shortcut open in Big Picture (route carried the
     // shortcut's generated id while the page had zero library-asset images).
     private const string RouteAppIdJs =
-        "(()=>{try{const m=window.location.pathname.match(/\\/library\\/app\\/(\\d+)/);" +
+        @"(()=>{try{const m=window.location.pathname.match(/\/library\/app\/(\d+)/);" +
         "return m?Number(m[1]):0;}catch(e){return 0;}})()";
 
     /// <summary>The app id of the game page the user is currently viewing, or 0 when
@@ -61,7 +61,7 @@ public static class SteamPageBridge
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<long> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
     {
-        var expression = "JSON.stringify(Object.assign({ok:true}," + CurrentAppIdJs + "))";
+        const string expression = "JSON.stringify(Object.assign({ok:true}," + CurrentAppIdJs + "))";
         var result = await SteamUiTransportSession.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         var fromPage = ParseAppId(result);

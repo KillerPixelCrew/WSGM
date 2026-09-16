@@ -216,16 +216,17 @@ public sealed class DisplayOffMuteService : IDisposable
             ReconcileMuteState();
             return;
         }
-        if (DisplayMuteDecider.MayReportDark(source))
+        if (!DisplayMuteDecider.MayReportDark(source))
         {
-            _displayOff = true;
-            if (!_downloadActive)
-            {
-                Log.Info("Mute on display off: screen dark without an active Steam "
-                    + "download, leaving audio unchanged.");
-            }
-            ReconcileMuteState();
+            return;
         }
+        _displayOff = true;
+        if (!_downloadActive)
+        {
+            Log.Info("Mute on display off: screen dark without an active Steam "
+                + "download, leaving audio unchanged.");
+        }
+        ReconcileMuteState();
     }
 
     private void OnSessionUnlocked()
@@ -270,6 +271,9 @@ public sealed class DisplayOffMuteService : IDisposable
                 break;
             case DisplayMuteAction.DelayRestore:
                 ScheduleDownloadCompletionRestore();
+                break;
+            case DisplayMuteAction.NoChange:
+            default:
                 break;
         }
     }
@@ -330,14 +334,15 @@ public sealed class DisplayOffMuteService : IDisposable
             Log.Info("Mute on display off: already muted, leaving it alone.");
             return;
         }
-        if (SetMuted(true))
+        if (!SetMuted(true))
         {
-            _mutedByUs = true;
-            _inputRecoveryLogged = false;
-            _inputBaseline = ReadLastInputTick();
-            Log.Info("Mute on display off: muted.");
-            SyncRecoveryTimer();
+            return;
         }
+        _mutedByUs = true;
+        _inputRecoveryLogged = false;
+        _inputBaseline = ReadLastInputTick();
+        Log.Info("Mute on display off: muted.");
+        SyncRecoveryTimer();
     }
 
     /// <summary>Asks for the mute this service applied to be undone. The claim survives a
@@ -463,12 +468,12 @@ public sealed class DisplayOffMuteService : IDisposable
         try
         {
             var hr = CoreAudio.SetMuted(muted);
-            if (hr < 0)
+            if (hr >= 0)
             {
-                Log.Warn($"Mute on display off: setting muted={muted} failed (0x{hr:X8}).");
-                return false;
+                return true;
             }
-            return true;
+            Log.Warn($"Mute on display off: setting muted={muted} failed (0x{hr:X8}).");
+            return false;
         }
         catch (Exception ex)
         {

@@ -3,14 +3,14 @@ using System.Text;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Capture;
 
 public sealed class CaptureBundleReaderTests
 {
     [Fact]
     public void NullBlobHashReturnsAStructuredSchemaFailure()
     {
-        var bytes = Encoding.UTF8.GetBytes("blob");
+        var bytes = "blob"u8.ToArray();
         CaptureBlobDescriptor descriptor = new()
         {
             BlobId = "blob-1",

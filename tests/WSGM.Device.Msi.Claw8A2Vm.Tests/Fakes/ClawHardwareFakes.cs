@@ -1,9 +1,8 @@
 using System.Buffers.Binary;
-using WSGM.Device.Msi.Claw8A2Vm;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 
 internal sealed class FakeIdentityReader : IClawIdentityReader
 {
@@ -184,7 +183,7 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
     public byte[] Profile
     {
         get => [.. _profile];
-        set => _profile = [.. value];
+        init => _profile = [.. value];
     }
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
@@ -241,13 +240,12 @@ internal sealed class FakeMcuTransport : IClawMcuTransport
 
 internal sealed class FakeControllerSource : IClawControllerSource
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
-    private Action<Exception>? _fault;
     private CancellationTokenSource? _readerCancellation;
     private Task? _activePublication;
 
-    public ControllerTopology Topology { get; set; } = new(
+    public ControllerTopology Topology { get; init; } = new(
         ClawControllerMode.XInput,
         ClawHardwareFacts.XInputProductId,
         "PCIROOT(0)#USBROOT(0)#USB(2)",
@@ -255,7 +253,7 @@ internal sealed class FakeControllerSource : IClawControllerSource
 
     public bool FailNextRumble { get; set; }
 
-    public bool FailStop { get; set; }
+    public bool FailStop { get; init; }
 
     public int RumbleWriteAttempts { get; private set; }
 
@@ -277,7 +275,6 @@ internal sealed class FakeControllerSource : IClawControllerSource
             _readerCancellation?.Dispose();
             _readerCancellation = new CancellationTokenSource();
             _publish = publish;
-            _fault = fault;
         }
 
         return ValueTask.CompletedTask;
@@ -309,7 +306,6 @@ internal sealed class FakeControllerSource : IClawControllerSource
         lock (_gate)
         {
             _publish = null;
-            _fault = null;
             _activePublication = null;
             _readerCancellation?.Dispose();
             _readerCancellation = null;
@@ -323,40 +319,27 @@ internal sealed class FakeControllerSource : IClawControllerSource
 
     public ValueTask EmitAsync(CanonicalControllerSample sample)
     {
-        Func<CanonicalControllerSample, CancellationToken, ValueTask> publish;
-        CancellationToken cancellationToken;
         lock (_gate)
         {
-            publish = _publish ?? throw new InvalidOperationException("The fake reader is not active.");
-            cancellationToken = _readerCancellation?.Token
+            var publish = _publish ?? throw new InvalidOperationException("The fake reader is not active.");
+            var cancellationToken = _readerCancellation?.Token
                 ?? throw new InvalidOperationException("The fake reader has no cancellation source.");
             _activePublication = publish(sample, cancellationToken).AsTask();
             return new ValueTask(_activePublication);
         }
     }
 
-    public void TriggerFault(Exception exception)
-    {
-        Action<Exception> fault;
-        lock (_gate)
-        {
-            fault = _fault ?? throw new InvalidOperationException("The fake reader is not active.");
-        }
-
-        fault(exception);
-    }
-
     public ValueTask WriteRumbleAsync(byte weak, byte strong, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         RumbleWriteAttempts++;
-        if (FailNextRumble)
+        if (!FailNextRumble)
         {
-            FailNextRumble = false;
-            throw new IOException("Synthetic rumble write failure.");
+            return ValueTask.CompletedTask;
         }
 
-        return ValueTask.CompletedTask;
+        FailNextRumble = false;
+        throw new IOException("Synthetic rumble write failure.");
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

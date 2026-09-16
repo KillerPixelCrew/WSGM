@@ -110,12 +110,9 @@ internal static class FixtureSchemaValidator
         ValidateArtifacts(manifest.ExpectedOutputs, FixtureSchema.ExpectedPrefix, errors);
 
         HashSet<string> allPaths = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs))
+        foreach (var artifact in manifest.Inputs.Concat(manifest.ExpectedOutputs).Where(artifact => !allPaths.Add(artifact.Path)))
         {
-            if (!allPaths.Add(artifact.Path))
-            {
-                errors.Add(new CaptureValidationError(artifact.Path, "Fixture path is duplicated."));
-            }
+            errors.Add(new CaptureValidationError(artifact.Path, "Fixture path is duplicated."));
         }
 
         return errors;
@@ -124,7 +121,7 @@ internal static class FixtureSchemaValidator
     private static void ValidateArtifacts(
         IReadOnlyList<FixtureArtifact> artifacts,
         string requiredPrefix,
-        ICollection<CaptureValidationError> errors)
+        List<CaptureValidationError> errors)
     {
         foreach (var artifact in artifacts)
         {
@@ -134,7 +131,7 @@ internal static class FixtureSchemaValidator
                 errors.Add(new CaptureValidationError(artifact.Path, $"Fixture artifact must be below '{requiredPrefix}'."));
             }
 
-            if (artifact.Length < 0 || artifact.Length > CaptureSchema.MaximumBlobBytes)
+            if (artifact.Length is < 0 or > CaptureSchema.MaximumBlobBytes)
             {
                 errors.Add(new CaptureValidationError(artifact.Path,
                     $"Fixture artifact length must be between 0 and {CaptureSchema.MaximumBlobBytes}."));

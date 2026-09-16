@@ -19,7 +19,7 @@ internal enum SteamControllerOwnership
 /// <summary>Serializes a Steam interaction independently of the OEM dispatch deadline.</summary>
 internal sealed class SteamControllerHandoff : IAsyncDisposable
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<CancellationToken, Task<bool>> _release;
     private readonly Func<CancellationToken, Task<bool>> _restore;
@@ -49,11 +49,9 @@ internal sealed class SteamControllerHandoff : IAsyncDisposable
                 or SteamControllerOwnership.RecoveryRequired || !_steamAlive()) { return false; }
             _trace($"Steam handoff: manual release requested from {_state}.");
             _manualRelease = true;
-            if (_state == SteamControllerOwnership.Wsgm)
-            {
-                _state = SteamControllerOwnership.Releasing;
-                _interaction = Task.Run(() => RunAsync(_ => Task.FromResult(false)));
-            }
+            if (_state != SteamControllerOwnership.Wsgm) { return true; }
+            _state = SteamControllerOwnership.Releasing;
+            _interaction = Task.Run(() => RunAsync(_ => Task.FromResult(false)));
             return true;
         }
     }

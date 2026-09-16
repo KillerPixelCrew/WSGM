@@ -95,7 +95,7 @@ public static class SteamArtwork
     // appStore uses the unsigned 32-bit app id; a shortcut id stored in a signed int
     // reads back negative, so normalize to the unsigned value the client expects.
     private static string ToUnsigned(long appId)
-        => (appId < 0 ? (uint)appId : appId).ToString(CultureInfo.InvariantCulture);
+        => (appId < 0 ? unchecked((uint)appId) : appId).ToString(CultureInfo.InvariantCulture);
 
     // Steam persists SetCustomArtworkForApp into userdata\<account>\config\grid using
     // the unsigned app id plus a per-slot suffix. Filenames per slot:
@@ -148,11 +148,12 @@ public static class SteamArtwork
                         continue;
                     }
                     var time = File.GetLastWriteTimeUtc(candidate);
-                    if (time > newestTime)
+                    if (time <= newestTime)
                     {
-                        newestTime = time;
-                        newest = candidate;
+                        continue;
                     }
+                    newestTime = time;
+                    newest = candidate;
                 }
             }
             return newest;

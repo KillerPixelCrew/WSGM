@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Builders;
 
 /// <summary>Replays a recorded frametime trace through the controller.</summary>
 /// <remarks>
@@ -20,13 +20,7 @@ internal static class AutoTdpReplay
         ArgumentNullException.ThrowIfNull(controller);
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(trace);
-        List<AutoTdpDecision> decisions = [];
-        foreach (var sample in trace)
-        {
-            decisions.Add(controller.Evaluate(sample, limits));
-        }
-
-        return decisions;
+        return trace.Select(sample => controller.Evaluate(sample, limits)).ToList();
     }
 
     /// <summary>Builds a run of identical windows.</summary>

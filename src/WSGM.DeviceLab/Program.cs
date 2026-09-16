@@ -26,11 +26,8 @@ internal static class Program
             return ReadProbeWorker.Run(args[1..]);
         }
 
-        if (string.Equals(args[0], PluginTestWorker.Mode, StringComparison.Ordinal))
-        {
-            return PluginTestWorker.Run(args[1..]);
-        }
-
-        return DeviceLabCli.RunAsync(args).GetAwaiter().GetResult();
+        return string.Equals(args[0], PluginTestWorker.Mode, StringComparison.Ordinal)
+            ? PluginTestWorker.Run(args[1..])
+            : DeviceLabCli.RunAsync(args).GetAwaiter().GetResult();
     }
 }

@@ -38,7 +38,7 @@ public partial class VolumeIndicatorWindow : Window
 
     private void PositionAndMakeClickThrough()
     {
-        var screen = Screens?.Primary;
+        var screen = Screens.Primary;
         if (screen is not null)
         {
             // Window scaling, not screen.Scaling — the screens cache is stale
@@ -53,21 +53,24 @@ public partial class VolumeIndicatorWindow : Window
         }
 
         var hwnd = TryGetPlatformHandle()?.Handle ?? 0;
-        if (hwnd != 0)
+        if (hwnd == 0)
         {
-            var style = NativeMethods.GetWindowLong(hwnd, NativeMethods.GwlExStyle);
-            NativeMethods.SetWindowLong(hwnd, NativeMethods.GwlExStyle,
-                style | NativeMethods.WsExNoActivate | NativeMethods.WsExTransparent);
+            return;
         }
+
+        var style = NativeMethods.GetWindowLong(hwnd, NativeMethods.GwlExStyle);
+        _ = NativeMethods.SetWindowLong(hwnd, NativeMethods.GwlExStyle,
+            style | NativeMethods.WsExNoActivate | NativeMethods.WsExTransparent);
     }
 
     private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == NativeMethods.WmNcHitTest)
+        if (msg != NativeMethods.WmNcHitTest)
         {
-            handled = true;
-            return (IntPtr)NativeMethods.HtTransparent;
+            return IntPtr.Zero;
         }
-        return IntPtr.Zero;
+
+        handled = true;
+        return NativeMethods.HtTransparent;
     }
 }

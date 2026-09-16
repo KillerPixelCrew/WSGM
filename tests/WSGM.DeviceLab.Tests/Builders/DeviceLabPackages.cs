@@ -1,6 +1,7 @@
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Preflight;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Builders;
 
 /// <summary>Package workflow inputs shared by the packaging and plugin workflow tests.</summary>
 internal static class DeviceLabPackages

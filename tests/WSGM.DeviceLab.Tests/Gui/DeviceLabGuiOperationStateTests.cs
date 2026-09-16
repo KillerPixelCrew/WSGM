@@ -1,6 +1,6 @@
 using WSGM.DeviceLab.Gui;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Gui;
 
 public sealed class DeviceLabGuiOperationStateTests
 {

@@ -1,9 +1,9 @@
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Shell;
-using static WSGM.Tests.PerformanceBuilders;
+using static WSGM.Tests.Builders.PerformanceBuilders;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 /// <summary>The Native QAM performance adapter's refresh-rate and per-application writes.</summary>
 public sealed class NativeQamPerformanceAdapterTests

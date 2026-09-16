@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class WindowFinderTests
 {
@@ -22,17 +22,17 @@ public sealed class WindowFinderTests
     [Fact]
     public void WindowSnapshotCarriesTheMinimizedStateForSwitcherPresentation()
     {
-        var window = new WindowFinder.AppWindow((nint)456, "Game", 789) { IsMinimized = true };
+        var window = new WindowFinder.AppWindow(456, "Game", 789) { IsMinimized = true };
 
         Assert.True(window.IsMinimized);
-        Assert.False(new WindowFinder.AppWindow((nint)1, "A", 2).IsMinimized);
+        Assert.False(new WindowFinder.AppWindow(1, "A", 2).IsMinimized);
     }
 
     [Fact]
     public void RegistryAndWindowSnapshotsRetainTheirPositionalRecordContracts()
     {
         var uac = new UacSettings.UacState(true, 0, 1, 1);
-        var window = new WindowFinder.AppWindow((nint)456, "Game", 789);
+        var window = new WindowFinder.AppWindow(456, "Game", 789);
 
         var (readable, consentPrompt, secureDesktop, enableLua) = uac;
         var (hwnd, title, processId) = window;
@@ -41,7 +41,7 @@ public sealed class WindowFinderTests
         Assert.Equal(0, consentPrompt);
         Assert.Equal(1, secureDesktop);
         Assert.Equal(1, enableLua);
-        Assert.Equal((nint)456, hwnd);
+        Assert.Equal(456, hwnd);
         Assert.Equal("Game", title);
         Assert.Equal(789u, processId);
     }

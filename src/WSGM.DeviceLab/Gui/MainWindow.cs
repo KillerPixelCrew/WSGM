@@ -117,7 +117,7 @@ internal sealed class MainWindow : Window
         Content = root;
     }
 
-    private Control Header()
+    private Grid Header()
     {
         Grid header = new()
         {
@@ -190,7 +190,7 @@ internal sealed class MainWindow : Window
             var inventoryFile = inventoryPath.Text!;
             var targetDevice = string.IsNullOrWhiteSpace(deviceId.Text) ? null : deviceId.Text;
             await RunAsync(token => Task.Run<object?>(
-                () => _application.Candidates(inventoryFile, targetDevice, token), token));
+                () => DeviceLabApplication.Candidates(inventoryFile, targetDevice, token), token));
         };
         Button runProbe = new() { Content = "Run selected reviewed read probe" };
         runProbe.Click += async (_, _) =>
@@ -245,7 +245,7 @@ internal sealed class MainWindow : Window
             var recipePath = recipe.Text!;
             await RunAsync(
                 token => Task.Run<object?>(
-                    () => _application.ReviewCaptureRecipe(recipePath, token),
+                    () => DeviceLabApplication.ReviewCaptureRecipe(recipePath, token),
                     token),
                 accepted =>
                 {
@@ -307,12 +307,9 @@ internal sealed class MainWindow : Window
             var previewConfirmed = exportReview.IsChecked is true;
             await RunAsync(token => Task.Run<object?>(() =>
             {
-                if (plan is null)
-                {
-                    throw new InvalidOperationException("Prepare a capture before exporting it.");
-                }
-
-                return _application.ExportCapture(plan, previewConfirmed, token);
+                return plan is null
+                    ? throw new InvalidOperationException("Prepare a capture before exporting it.")
+                    : _application.ExportCapture(plan, previewConfirmed, token);
             }, token));
         };
         return Tab(
@@ -337,14 +334,14 @@ internal sealed class MainWindow : Window
         inspect.Click += async (_, _) =>
         {
             var capturePath = left.Text!;
-            await RunAsync(token => Task.Run<object?>(() => _application.Inspect(capturePath, token), token));
+            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.Inspect(capturePath, token), token));
         };
         Button diff = new() { Content = "Diff A ↔ B" };
         diff.Click += async (_, _) =>
         {
             var leftPath = left.Text!;
             var rightPath = right.Text!;
-            await RunAsync(token => Task.Run<object?>(() => _application.Diff(leftPath, rightPath, token), token));
+            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.Diff(leftPath, rightPath, token), token));
         };
         Button correlate = new() { Content = "Correlate action" };
         correlate.Click += async (_, _) =>
@@ -355,7 +352,7 @@ internal sealed class MainWindow : Window
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .ToHashSet(StringComparer.Ordinal);
             await RunAsync(token => Task.Run<object?>(
-                () => _application.Correlate(capturePath, actionId, sourceIds, token), token));
+                () => DeviceLabApplication.Correlate(capturePath, actionId, sourceIds, token), token));
         };
         return Tab(
             "Capture workbench",
@@ -389,8 +386,8 @@ internal sealed class MainWindow : Window
                 () => _application.Scaffold(
                     capturePath,
                     outputPath,
-                    token,
-                    string.IsNullOrWhiteSpace(usbInstance.Text) ? null : usbInstance.Text), token));
+                    string.IsNullOrWhiteSpace(usbInstance.Text) ? null : usbInstance.Text,
+                    token), token));
         };
         Button fixture = new() { Content = "Extract simulator-only fixture" };
         fixture.Click += async (_, _) =>
@@ -431,20 +428,13 @@ internal sealed class MainWindow : Window
         {
             PlaceholderText = "true | 24 | choice | #RRGGBB | 40:20,70:60 | plain text"
         };
-        void ApplyHardwareActionSelection()
-        {
-            var capabilitySelected = hardwareAction.SelectedIndex == 0;
-            capabilityId.IsEnabled = capabilitySelected;
-            capabilityInstance.IsEnabled = true;
-            capabilityValue.IsEnabled = capabilitySelected;
-        }
         hardwareAction.SelectionChanged += (_, _) => ApplyHardwareActionSelection();
         ApplyHardwareActionSelection();
         Button validate = new() { Content = "Validate offline" };
         validate.Click += async (_, _) =>
         {
             var packagePath = packageDirectory.Text!;
-            await RunAsync(token => Task.Run<object?>(() => _application.ValidateOffline(packagePath, token), token));
+            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.ValidateOffline(packagePath, token), token));
         };
         Button pack = new() { Content = "Validate and pack" };
         pack.Click += async (_, _) =>
@@ -457,19 +447,19 @@ internal sealed class MainWindow : Window
         generateGlyphs.Click += async (_, _) =>
         {
             var packagePath = packageDirectory.Text!;
-            await RunAsync(token => Task.Run<object?>(() => _application.ImportGlyphs(packagePath, token), token));
+            await RunAsync(token => Task.Run<object?>(() => DeviceLabApplication.ImportGlyphs(packagePath, token), token));
         };
         Button testSample = new() { Content = "Test synthetic sample" };
         testSample.Click += async (_, _) =>
         {
-            await RunAsync(async token => await _application.TestSyntheticPluginAsync(token).ConfigureAwait(false));
+            await RunAsync(async token => await DeviceLabApplication.TestSyntheticPluginAsync(token).ConfigureAwait(false));
         };
         Button testPlugin = new() { Content = "Test plugin detection" };
         testPlugin.Click += async (_, _) =>
         {
             var packagePath = packageDirectory.Text!;
             var inventoryPath = inventory.Text!;
-            await RunAsync(async token => await _application.TestPluginAsync(
+            await RunAsync(async token => await DeviceLabApplication.TestPluginAsync(
                 packagePath,
                 inventoryPath,
                 token).ConfigureAwait(false));
@@ -542,6 +532,14 @@ internal sealed class MainWindow : Window
             Buttons(validate, testSample, testPlugin),
             Buttons(generateGlyphs, pack),
             Buttons(runHardware));
+
+        void ApplyHardwareActionSelection()
+        {
+            var capabilitySelected = hardwareAction.SelectedIndex == 0;
+            capabilityId.IsEnabled = capabilitySelected;
+            capabilityInstance.IsEnabled = true;
+            capabilityValue.IsEnabled = capabilitySelected;
+        }
     }
 
     private async Task<bool> ConfirmHardwareActionAsync(AttendedPluginActionRequest action)
@@ -678,10 +676,17 @@ internal sealed class MainWindow : Window
         }
 
         eventArgs.Cancel = true;
-        operation.Cancel();
-        await finished.Task;
-        _closeAfterOperation = true;
-        Close();
+        try
+        {
+            await operation.CancelAsync();
+            await finished.Task;
+            _closeAfterOperation = true;
+            Close();
+        }
+        catch (Exception exception)
+        {
+            ApplyDisplayState(_displayState.Failed(OperationFailureMessage(exception)));
+        }
     }
 
     private void ApplyMode()
@@ -716,7 +721,7 @@ internal sealed class MainWindow : Window
         };
     }
 
-    private Control Labeled(string label, Control input)
+    private Grid Labeled(string label, Control input)
     {
         Grid row = new()
         {
@@ -759,7 +764,7 @@ internal sealed class MainWindow : Window
         FontWeight = FontWeight.SemiBold
     };
 
-    private TextBox PathInput(
+    private PathTextBox PathInput(
         string recentKey,
         PathSelectionKind selectionKind,
         string? initial = null,
@@ -793,7 +798,7 @@ internal sealed class MainWindow : Window
         return input;
     }
 
-    private Control PathPicker(PathTextBox input)
+    private Grid PathPicker(PathTextBox input)
     {
         Grid picker = new()
         {
@@ -812,7 +817,7 @@ internal sealed class MainWindow : Window
     {
         try
         {
-            string? selected = null;
+            string? selected;
             switch (input.SelectionKind)
             {
                 case PathSelectionKind.Folder:
@@ -823,7 +828,7 @@ internal sealed class MainWindow : Window
                             Title = "Select folder",
                             AllowMultiple = false
                         });
-                    selected = folders.FirstOrDefault()?.Path.LocalPath;
+                    selected = folders.Count == 0 ? null : folders[0].Path.LocalPath;
                     if (selected is not null && input.SelectionKind is PathSelectionKind.NewFolder)
                     {
                         selected = NextAvailableDirectory(selected, input.SuggestedName!);
@@ -840,6 +845,7 @@ internal sealed class MainWindow : Window
                         });
                     selected = saved?.Path.LocalPath;
                     break;
+                case PathSelectionKind.OpenFile:
                 default:
                     var files = await StorageProvider.OpenFilePickerAsync(
                         new FilePickerOpenOptions
@@ -847,7 +853,7 @@ internal sealed class MainWindow : Window
                             Title = "Select file",
                             AllowMultiple = false
                         });
-                    selected = files.FirstOrDefault()?.Path.LocalPath;
+                    selected = files.Count == 0 ? null : files[0].Path.LocalPath;
                     break;
             }
 

@@ -170,22 +170,23 @@ internal static class SteamDeckNeptuneReport
                 ScaledMotion(motion.AccelY, AccelCountsPerG));
         }
 
-        if (motion.HasGyro)
-        {
-            BinaryPrimitives.WriteInt16LittleEndian(
-                destination[30..32],
-                ScaledMotion(motion.GyroX, GyroCountsPerDegreePerSecond));
-            BinaryPrimitives.WriteInt16LittleEndian(
-                destination[32..34],
-                ScaledMotion(-motion.GyroZ, GyroCountsPerDegreePerSecond));
-            BinaryPrimitives.WriteInt16LittleEndian(
-                destination[34..36],
-                ScaledMotion(motion.GyroY, GyroCountsPerDegreePerSecond));
-        }
-
         // The orientation quaternion at bytes 36..44 stays zero on purpose. WSGM publishes raw
         // angular velocity and never computes an orientation, and a frozen identity quaternion
         // makes Steam ignore the raw gyro and collapse gyro-to-stick to centre.
+        if (!motion.HasGyro)
+        {
+            return;
+        }
+
+        BinaryPrimitives.WriteInt16LittleEndian(
+            destination[30..32],
+            ScaledMotion(motion.GyroX, GyroCountsPerDegreePerSecond));
+        BinaryPrimitives.WriteInt16LittleEndian(
+            destination[32..34],
+            ScaledMotion(-motion.GyroZ, GyroCountsPerDegreePerSecond));
+        BinaryPrimitives.WriteInt16LittleEndian(
+            destination[34..36],
+            ScaledMotion(motion.GyroY, GyroCountsPerDegreePerSecond));
     }
 
     private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit) =>

@@ -186,12 +186,11 @@ public sealed unsafe class MessageWindow : IDisposable
     /// <c>GUID_MONITOR_POWER_ON</c> are redundant wake sources: a subscriber may act on
     /// them only to undo something, never to start it. Registering the extras costs one
     /// call each and a setting Windows never sends simply stays silent.</para></summary>
-    /// <returns>True when the primary registration is active.</returns>
-    public bool RegisterDisplayStateNotifications()
+    public void RegisterDisplayStateNotifications()
     {
         if (_displayNotify != 0)
         {
-            return true;
+            return;
         }
         _displayNotify = WindowsPower.RegisterSettingNotification(
             Handle, NativeMethods.GuidSessionDisplayStatus);
@@ -206,7 +205,6 @@ public sealed unsafe class MessageWindow : IDisposable
             Handle, NativeMethods.GuidMonitorPowerOn);
         Log.Info($"Display-state notifications registered (session={_displayNotify != 0}, "
             + $"console={_consoleDisplayNotify != 0}, legacy={_legacyDisplayNotify != 0}).");
-        return _displayNotify != 0;
     }
 
     /// <summary>Stops this window receiving display on/off notifications.</summary>
@@ -362,11 +360,7 @@ public sealed unsafe class MessageWindow : IDisposable
             0, className, null, 0,
             0, 0, 0, 0,
             NativeMethods.HwndMessage, 0, hInstance, 0);
-        if (hwnd == 0)
-        {
-            throw new InvalidOperationException(failureMessage);
-        }
-        return hwnd;
+        return hwnd != 0 ? hwnd : throw new InvalidOperationException(failureMessage);
     }
 
     [UnmanagedCallersOnly]
@@ -377,91 +371,86 @@ public sealed unsafe class MessageWindow : IDisposable
         {
             return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
         }
-        if (msg == NativeMethods.WmHotkey)
+        switch (msg)
         {
-            var id = (int)wParam;
-            Dispatcher.UIThread.Post(() => instance.HotkeyPressed?.Invoke(id));
-            return 0;
+            case NativeMethods.WmHotkey:
+                {
+                    var id = (int)wParam;
+                    Dispatcher.UIThread.Post(() => instance.HotkeyPressed?.Invoke(id));
+                    return 0;
+                }
+            case NativeMethods.WmPowerBroadcast
+                when wParam == NativeMethods.PbtPowerSettingChange && lParam != 0:
+                {
+                    var setting = Marshal.PtrToStructure<NativeMethods.PowerBroadcastSetting>(lParam);
+                    // The same window could later carry other power settings; only the three
+                    // display settings are ours, and only a 4-byte DWORD payload is the
+                    // documented shape.
+                    DisplayStateSource? source = null;
+                    if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus)
+                    {
+                        source = DisplayStateSource.Session;
+                    }
+                    else if (setting.PowerSetting == NativeMethods.GuidConsoleDisplayState)
+                    {
+                        source = DisplayStateSource.Console;
+                    }
+                    else if (setting.PowerSetting == NativeMethods.GuidMonitorPowerOn)
+                    {
+                        source = DisplayStateSource.LegacyMonitor;
+                    }
+                    if (source is not { } reported || setting.DataLength < 4)
+                    {
+                        return 1;
+                    }
+
+                    var state = Marshal.ReadInt32(
+                        lParam + (int)Marshal.OffsetOf<NativeMethods.PowerBroadcastSetting>(
+                            nameof(NativeMethods.PowerBroadcastSetting.Data)));
+                    Dispatcher.UIThread.Post(
+                        () => instance.DisplayStateChanged?.Invoke(state, reported));
+                    return 1;
+                }
+            case NativeMethods.WmPowerBroadcast when wParam == NativeMethods.PbtApmSuspend:
+                Dispatcher.UIThread.Post(() => instance.SystemSuspending?.Invoke());
+                return 1;
+            case NativeMethods.WmPowerBroadcast
+                when wParam is NativeMethods.PbtApmResumeAutomatic or NativeMethods.PbtApmResumeSuspend:
+                Dispatcher.UIThread.Post(() => instance.SystemResumed?.Invoke());
+                return 1;
+            case NativeMethods.WmWtsSessionChange when instance._sessionNotify:
+                switch (wParam)
+                {
+                    case NativeMethods.WtsSessionLock:
+                        Dispatcher.UIThread.Post(() => instance.SessionLocked?.Invoke());
+                        return 0;
+                    case NativeMethods.WtsSessionUnlock:
+                        Dispatcher.UIThread.Post(() => instance.SessionUnlocked?.Invoke());
+                        return 0;
+                    case NativeMethods.WtsSessionLogoff:
+                        Dispatcher.UIThread.Post(() => instance.SessionEnding?.Invoke());
+                        return 0;
+                }
+                break;
+            case NativeMethods.WmDeviceChange
+                when instance._volumeNotify != 0
+                && wParam is NativeMethods.DbtDeviceArrival or NativeMethods.DbtDeviceRemoveComplete:
+                {
+                    // The payload is not read: see the VolumeChanged remarks. Returning
+                    // TRUE is the documented answer for a device event that is not a
+                    // removal QUERY, which this window never registers for.
+                    var arrived = wParam == NativeMethods.DbtDeviceArrival;
+                    Dispatcher.UIThread.Post(() => instance.VolumeChanged?.Invoke(arrived));
+                    return 1;
+                }
         }
-        if (msg == NativeMethods.WmPowerBroadcast
-            && wParam == NativeMethods.PbtPowerSettingChange
-            && lParam != 0)
+        if (msg != instance._shellHookMessage || !instance._shellHookRegistered)
         {
-            var setting = Marshal.PtrToStructure<NativeMethods.PowerBroadcastSetting>(lParam);
-            // The same window could later carry other power settings; only the three
-            // display settings are ours, and only a 4-byte DWORD payload is the
-            // documented shape.
-            DisplayStateSource? source = null;
-            if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus)
-            {
-                source = DisplayStateSource.Session;
-            }
-            else if (setting.PowerSetting == NativeMethods.GuidConsoleDisplayState)
-            {
-                source = DisplayStateSource.Console;
-            }
-            else if (setting.PowerSetting == NativeMethods.GuidMonitorPowerOn)
-            {
-                source = DisplayStateSource.LegacyMonitor;
-            }
-            if (source is { } reported && setting.DataLength >= 4)
-            {
-                var state = Marshal.ReadInt32(
-                    lParam + (int)Marshal.OffsetOf<NativeMethods.PowerBroadcastSetting>(
-                        nameof(NativeMethods.PowerBroadcastSetting.Data)));
-                Dispatcher.UIThread.Post(
-                    () => instance.DisplayStateChanged?.Invoke(state, reported));
-            }
-            return 1;
+            return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
         }
-        if (msg == NativeMethods.WmPowerBroadcast
-            && wParam == NativeMethods.PbtApmSuspend)
-        {
-            Dispatcher.UIThread.Post(() => instance.SystemSuspending?.Invoke());
-            return 1;
-        }
-        if (msg == NativeMethods.WmPowerBroadcast
-            && (wParam == NativeMethods.PbtApmResumeAutomatic
-                || wParam == NativeMethods.PbtApmResumeSuspend))
-        {
-            Dispatcher.UIThread.Post(() => instance.SystemResumed?.Invoke());
-            return 1;
-        }
-        if (msg == NativeMethods.WmWtsSessionChange && instance._sessionNotify)
-        {
-            if (wParam == NativeMethods.WtsSessionLock)
-            {
-                Dispatcher.UIThread.Post(() => instance.SessionLocked?.Invoke());
-                return 0;
-            }
-            if (wParam == NativeMethods.WtsSessionUnlock)
-            {
-                Dispatcher.UIThread.Post(() => instance.SessionUnlocked?.Invoke());
-                return 0;
-            }
-            if (wParam == NativeMethods.WtsSessionLogoff)
-            {
-                Dispatcher.UIThread.Post(() => instance.SessionEnding?.Invoke());
-                return 0;
-            }
-        }
-        if (msg == NativeMethods.WmDeviceChange && instance._volumeNotify != 0
-            && (wParam == NativeMethods.DbtDeviceArrival
-                || wParam == NativeMethods.DbtDeviceRemoveComplete))
-        {
-            // The payload is not read: see the VolumeChanged remarks. Returning
-            // TRUE is the documented answer for a device event that is not a
-            // removal QUERY, which this window never registers for.
-            var arrived = wParam == NativeMethods.DbtDeviceArrival;
-            Dispatcher.UIThread.Post(() => instance.VolumeChanged?.Invoke(arrived));
-            return 1;
-        }
-        if (msg == instance._shellHookMessage && instance._shellHookRegistered)
-        {
-            Dispatcher.UIThread.Post(() => instance.ShellHookReceived?.Invoke(wParam, lParam));
-            return 0;
-        }
-        return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
+
+        Dispatcher.UIThread.Post(() => instance.ShellHookReceived?.Invoke(wParam, lParam));
+        return 0;
     }
 
     /// <summary>Destroys the native window and clears the process singleton.</summary>

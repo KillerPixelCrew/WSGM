@@ -15,7 +15,6 @@ internal static class TouchKeyboard
     /// <summary>Toggles the keyboard and reports whether Windows accepted the request.</summary>
     internal static bool Toggle()
     {
-        ITipInvocation? invocation = null;
         object? instance = null;
         try
         {
@@ -24,7 +23,7 @@ internal static class TouchKeyboard
                 throwOnError: true)!;
             instance = Activator.CreateInstance(type)
                 ?? throw new COMException("Windows did not create the touch-keyboard service.");
-            invocation = (ITipInvocation)instance;
+            var invocation = (ITipInvocation)instance;
             invocation.Toggle(NativeMethods.GetForegroundWindow());
             return true;
         }

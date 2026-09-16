@@ -36,14 +36,16 @@ internal static class DeviceControlRows
 
         var body = new StackPanel { Spacing = 2 };
         body.Children.Add(headerRow);
-        if (!string.IsNullOrWhiteSpace(description))
+        var tile = new Border { Classes = { "tile" }, Tag = key, Child = body };
+        if (string.IsNullOrWhiteSpace(description))
         {
-            var caption = new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap };
-            caption.Classes.Add("caption");
-            body.Children.Add(caption);
+            return tile;
         }
 
-        return new Border { Classes = { "tile" }, Tag = key, Child = body };
+        var caption = new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap };
+        caption.Classes.Add("caption");
+        body.Children.Add(caption);
+        return tile;
     }
 
     /// <summary>A boolean capability as a switch.</summary>
@@ -53,8 +55,8 @@ internal static class DeviceControlRows
     /// <param name="isOn">Current state.</param>
     /// <param name="enabled">Whether input is accepted.</param>
     /// <param name="onChanged">Invoked with the new state.</param>
-    /// <returns>The tile and its focus target.</returns>
-    internal static (Border Row, Control Focus) Toggle(
+    /// <returns>The tile.</returns>
+    internal static Border Toggle(
         string key,
         string title,
         string description,
@@ -72,18 +74,8 @@ internal static class DeviceControlRows
             OffContent = null,
             OnContent = null
         };
-        var syncing = true;
-        toggle.IsCheckedChanged += (_, _) =>
-        {
-            if (syncing)
-            {
-                return;
-            }
-
-            onChanged(toggle.IsChecked ?? false);
-        };
-        syncing = false;
-        return (Tile(key, title, description, toggle), toggle);
+        toggle.IsCheckedChanged += (_, _) => onChanged(toggle.IsChecked ?? false);
+        return Tile(key, title, description, toggle);
     }
 
     /// <summary>A choice capability as a dropdown.</summary>
@@ -94,8 +86,8 @@ internal static class DeviceControlRows
     /// <param name="selected">Currently selected value, or null.</param>
     /// <param name="enabled">Whether input is accepted.</param>
     /// <param name="onChanged">Invoked with the chosen value.</param>
-    /// <returns>The tile and its focus target.</returns>
-    internal static (Border Row, Control Focus) Choice(
+    /// <returns>The tile.</returns>
+    internal static Border Choice(
         string key,
         string title,
         string description,
@@ -111,7 +103,7 @@ internal static class DeviceControlRows
         var combo = new ComboBox
         {
             ItemsSource = items,
-            DisplayMemberBinding = new Binding(nameof(ChoiceItem.Label)),
+            DisplayMemberBinding = CompiledBinding.Create((ChoiceItem item) => item.Label),
             SelectedIndex = Math.Max(0, items.FindIndex(item =>
                 string.Equals(item.Value, selected, StringComparison.Ordinal))),
             IsEnabled = enabled,
@@ -119,33 +111,29 @@ internal static class DeviceControlRows
             MinWidth = 160,
             HorizontalAlignment = HorizontalAlignment.Right
         };
-        var syncing = true;
         combo.SelectionChanged += (_, _) =>
         {
-            if (syncing || combo.SelectedItem is not ChoiceItem item)
+            if (combo.SelectedItem is not ChoiceItem item)
             {
                 return;
             }
 
             onChanged(item.Value);
         };
-        syncing = false;
-        return (Tile(key, title, description, combo), combo);
+        return Tile(key, title, description, combo);
     }
 
     /// <summary>A text capability edited through the shared controller keyboard.</summary>
     /// <param name="key">Stable focus key.</param>
     /// <param name="title">Row heading.</param>
-    /// <param name="description">Supporting line.</param>
     /// <param name="text">Current text.</param>
     /// <param name="maximumLength">Maximum accepted length, or null.</param>
     /// <param name="enabled">Whether input is accepted.</param>
     /// <param name="onCommit">Invoked with the committed text.</param>
-    /// <returns>The tile and its focus target.</returns>
-    internal static (Border Row, Control Focus) Text(
+    /// <returns>The tile.</returns>
+    internal static Border Text(
         string key,
         string title,
-        string description,
         string? text,
         int? maximumLength,
         bool enabled,
@@ -173,7 +161,7 @@ internal static class DeviceControlRows
                 editor.Description = "Keyboard unavailable. Reopen the overlay to retry.";
             }
         };
-        return (new Border { Tag = key, Child = editor }, editor);
+        return new Border { Tag = key, Child = editor };
     }
 
     private static string LabelFor(CapabilityChoice choice) =>

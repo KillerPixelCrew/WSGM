@@ -78,25 +78,26 @@ public static class SteamLibraryTabs
         {
             return new TabSyncResult(false, []);
         }
-        if (result.Value is not null)
+        if (result.Value is null)
         {
-            try
+            return new TabSyncResult(false, []);
+        }
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var root = document.RootElement;
+            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
             {
-                using var document = JsonDocument.Parse(result.Value);
-                var root = document.RootElement;
-                if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
-                {
-                    var count = root.TryGetProperty("count", out var c) ? c.GetInt32() : 0;
-                    Log.Info($"Library tabs injected: {count} tabs.");
-                    return new TabSyncResult(true, ParseNativeTabs(root));
-                }
-                var err = root.TryGetProperty("err", out var e) ? e.GetString() : null;
-                Log.Warn($"Library tab injection failed: {err}.");
+                var count = root.TryGetProperty("count", out var c) ? c.GetInt32() : 0;
+                Log.Info($"Library tabs injected: {count} tabs.");
+                return new TabSyncResult(true, ParseNativeTabs(root));
             }
-            catch (Exception ex)
-            {
-                Log.Warn($"Library tab injection parse failed: {ex.Message}");
-            }
+            var err = root.TryGetProperty("err", out var e) ? e.GetString() : null;
+            Log.Warn($"Library tab injection failed: {err}.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Library tab injection parse failed: {ex.Message}");
         }
         return new TabSyncResult(false, []);
     }
@@ -143,19 +144,20 @@ public static class SteamLibraryTabs
     private static List<NativeTabConfig> ParseNativeTabs(JsonElement root)
     {
         var natives = new List<NativeTabConfig>();
-        if (root.TryGetProperty("nativeTabs", out var array)
-            && array.ValueKind == JsonValueKind.Array)
+        if (!root.TryGetProperty("nativeTabs", out var array)
+            || array.ValueKind != JsonValueKind.Array)
         {
-            foreach (var element in array.EnumerateArray())
+            return natives;
+        }
+        foreach (var element in array.EnumerateArray())
+        {
+            var id = element.TryGetProperty("id", out var i) ? i.GetString() : null;
+            if (string.IsNullOrEmpty(id))
             {
-                var id = element.TryGetProperty("id", out var i) ? i.GetString() : null;
-                if (string.IsNullOrEmpty(id))
-                {
-                    continue;
-                }
-                var title = element.TryGetProperty("title", out var t) ? t.GetString() : null;
-                natives.Add(new NativeTabConfig { Id = id, Title = title ?? "" });
+                continue;
             }
+            var title = element.TryGetProperty("title", out var t) ? t.GetString() : null;
+            natives.Add(new NativeTabConfig { Id = id, Title = title ?? "" });
         }
         return natives;
     }

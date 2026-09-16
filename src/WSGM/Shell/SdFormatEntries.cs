@@ -39,39 +39,37 @@ public sealed class FormatTargetEntry : ObservableObject
     /// letter yet (raw / ext4 Deck card).</summary>
     internal char PreferredLetter { get; set; }
 
-    private string _name = "";
     /// <summary>Gets the device's vendor/product identity, or a placeholder.</summary>
     public string Name
     {
-        get => _name.Length == 0 ? "Removable drive" : _name;
+        get => field.Length == 0 ? "Removable drive" : field;
         internal set
         {
-            if (_name != value)
+            if (field == value)
             {
-                _name = value;
-                Raise(nameof(Name));
+                return;
             }
-        }
-    }
 
-    private string _detail = "";
+            field = value;
+            Raise(nameof(Name));
+        }
+    } = "";
+
     /// <summary>Gets the second line: capacity, bus kind, current letters, and
     /// the Steam-Deck-card hint when Linux partitions were found.</summary>
     public string Detail
     {
-        get => _detail;
+        get => field;
         internal set
         {
-            if (_detail != value)
+            if (field == value)
             {
-                _detail = value;
-                Raise(nameof(Detail));
+                return;
             }
-        }
-    }
 
-    /// <summary>Whether Linux partitions were found on the disk — shown as the
-    /// "looks like a Steam Deck card" hint.</summary>
-    internal bool HasLinuxPartitions { get; set; }
+            field = value;
+            Raise(nameof(Detail));
+        }
+    } = "";
 
 }

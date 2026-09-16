@@ -8,7 +8,7 @@ using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Serialization;
 using WSGM.Interop;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class DevicePackagePolicyTests : IDisposable
 {
@@ -407,7 +407,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         var nestedSource = CreatePackage("nested-source", installed);
         var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
+        await File.WriteAllTextAsync(Path.Combine(recovery, "must-survive"), "recovery");
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(nestedSource, installed));
         Assert.True(Directory.Exists(nestedSource));
@@ -441,7 +441,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         CreatePackage("live", installed);
         var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
+        await File.WriteAllTextAsync(Path.Combine(recovery, "must-survive"), "recovery");
         var sourceParent = Directory.CreateDirectory(
             Path.Combine(_root, "external-source")).FullName;
         var source = CreatePackage("source", sourceParent);
@@ -471,7 +471,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         CreatePackage("live", installed);
         var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
+        await File.WriteAllTextAsync(Path.Combine(recovery, "must-survive"), "recovery");
         var missingSource = Path.Combine(_root, "missing-link", "package");
         var inspected = false;
 
@@ -498,7 +498,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         CreatePackage("live", installed);
         var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
+        await File.WriteAllTextAsync(Path.Combine(recovery, "must-survive"), "recovery");
         var sourceParent = Directory.CreateDirectory(
             Path.Combine(_root, "alternate-spelling")).FullName;
         var source = CreatePackage("source", sourceParent);
@@ -527,7 +527,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         CreatePackage("live", installed);
         var recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        File.WriteAllText(Path.Combine(recovery, "must-survive"), "recovery");
+        await File.WriteAllTextAsync(Path.Combine(recovery, "must-survive"), "recovery");
         var sourceParent = Directory.CreateDirectory(
             Path.Combine(_root, "identity-race")).FullName;
         var source = CreatePackage("source", sourceParent);
@@ -831,7 +831,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
                 () => waitStarted.TrySetResult());
             await waitStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-            cancellation.Cancel();
+            await cancellation.CancelAsync();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
                 await waiting.ConfigureAwait(false));

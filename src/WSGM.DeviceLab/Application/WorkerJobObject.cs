@@ -33,18 +33,18 @@ internal sealed partial class WorkerJobObject : IDisposable
 
         JobObjectExtendedLimitInformation information = new();
         information.BasicLimitInformation.LimitFlags = LimitKillOnJobClose;
-        if (!SetInformationJobObject(
+        if (SetInformationJobObject(
                 handle,
                 ExtendedLimitInformation,
                 &information,
                 (uint)sizeof(JobObjectExtendedLimitInformation)))
         {
-            var error = Marshal.GetLastPInvokeError();
-            handle.Dispose();
-            throw new Win32Exception(error, "Could not configure disposable worker containment.");
+            return new WorkerJobObject(handle);
         }
 
-        return new WorkerJobObject(handle);
+        var configurationError = Marshal.GetLastPInvokeError();
+        handle.Dispose();
+        throw new Win32Exception(configurationError, "Could not configure disposable worker containment.");
     }
 
     internal void Assign(Process process)
@@ -65,10 +65,7 @@ internal sealed partial class WorkerJobObject : IDisposable
     /// <returns>True only when no process remains in the job.</returns>
     internal async Task<bool> TerminateAndWaitAsync(TimeSpan timeout)
     {
-        if (timeout <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
 
         var handle = _handle
                      ?? throw new ObjectDisposedException(nameof(WorkerJobObject));

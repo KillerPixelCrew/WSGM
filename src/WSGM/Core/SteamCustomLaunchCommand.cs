@@ -51,11 +51,9 @@ internal static class SteamCustomLaunchCommand
     private static string NormalizeArguments(string? arguments)
     {
         var value = arguments?.Trim() ?? "";
-        if (value.IndexOfAny(['\0', '\r', '\n']) >= 0)
-        {
-            throw new ArgumentException("Custom arguments must be a single line.", nameof(arguments));
-        }
-        return value;
+        return value.IndexOfAny(['\0', '\r', '\n']) >= 0
+            ? throw new ArgumentException("Custom arguments must be a single line.", nameof(arguments))
+            : value;
     }
 
     private static string ResolveCommandProcessor() =>

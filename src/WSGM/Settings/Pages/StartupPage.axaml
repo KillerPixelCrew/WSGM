@@ -34,16 +34,16 @@
                                               ToolTip.Tip="Relaunch this tool automatically if it exits or crashes" />
                                     <Button Grid.Column="7" Classes="icon" Content="↑" ToolTip.Tip="Move up"
                                             AutomationProperties.Name="Move startup application up"
-                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveUpCommand}"
+                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveUpCommand, FallbackValue={x:Null}}"
                                             CommandParameter="{Binding}" />
                                     <Button Grid.Column="8" Classes="icon" Content="↓" ToolTip.Tip="Move down"
                                             AutomationProperties.Name="Move startup application down"
-                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveDownCommand}"
+                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveDownCommand, FallbackValue={x:Null}}"
                                             CommandParameter="{Binding}" />
                                     <Button Grid.Column="9" Content="Browse" Click="OnBrowseStartupApp" />
                                     <Button Grid.Column="10" Classes="icon danger" Content="×" ToolTip.Tip="Remove"
                                             AutomationProperties.Name="Remove startup application"
-                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).RemoveAppCommand}"
+                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).RemoveAppCommand, FallbackValue={x:Null}}"
                                             CommandParameter="{Binding}" />
                                 </Grid>
                             </Border>

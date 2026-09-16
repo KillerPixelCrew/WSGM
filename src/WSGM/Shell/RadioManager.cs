@@ -76,43 +76,45 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <summary>Gets the Bluetooth devices that are paired or visible.</summary>
     public ObservableCollection<BluetoothDeviceEntry> BluetoothDevices { get; } = [];
 
-    private RadioPower _wifiPower = RadioPower.Unknown;
     /// <summary>Gets the Wi-Fi radio's power state.</summary>
     public RadioPower WifiPower
     {
-        get => _wifiPower;
+        get;
         private set
         {
-            if (_wifiPower != value)
+            if (field == value)
             {
-                _wifiPower = value;
-                Raise(nameof(WifiPower));
-                Raise(nameof(WifiOn));
-                Raise(nameof(WifiStateText));
-                Raise(nameof(WifiUnavailableText));
-                Raise(nameof(WifiIconState));
+                return;
             }
-        }
-    }
 
-    private RadioPower _bluetoothPower = RadioPower.Unknown;
+            field = value;
+            Raise(nameof(WifiPower));
+            Raise(nameof(WifiOn));
+            Raise(nameof(WifiStateText));
+            Raise(nameof(WifiUnavailableText));
+            Raise(nameof(WifiIconState));
+        }
+    } = RadioPower.Unknown;
+
     /// <summary>Gets the Bluetooth radio's power state.</summary>
     public RadioPower BluetoothPower
     {
-        get => _bluetoothPower;
+        get;
         private set
         {
-            if (_bluetoothPower != value)
+            if (field == value)
             {
-                _bluetoothPower = value;
-                Raise(nameof(BluetoothPower));
-                Raise(nameof(BluetoothOn));
-                Raise(nameof(BluetoothStateText));
-                Raise(nameof(BluetoothUnavailableText));
-                Raise(nameof(BluetoothIconState));
+                return;
             }
+
+            field = value;
+            Raise(nameof(BluetoothPower));
+            Raise(nameof(BluetoothOn));
+            Raise(nameof(BluetoothStateText));
+            Raise(nameof(BluetoothUnavailableText));
+            Raise(nameof(BluetoothIconState));
         }
-    }
+    } = RadioPower.Unknown;
 
     /// <summary>Gets whether the Wi-Fi radio is on.</summary>
     public bool WifiOn => WifiPower == RadioPower.On;
@@ -161,105 +163,106 @@ public sealed class RadioManager : ObservableObject, IDisposable
         _ => RadioIconState.Off
     };
 
-    private int _bluetoothConnectedCount;
     /// <summary>Gets how many Bluetooth devices have a live connection. Read
     /// from PnP state every status tick, so the tile is correct whether or not
     /// the panel has ever been opened.</summary>
     public int BluetoothConnectedCount
     {
-        get => _bluetoothConnectedCount;
+        get;
         private set
         {
-            if (_bluetoothConnectedCount != value)
+            if (field == value)
             {
-                _bluetoothConnectedCount = value;
-                Raise(nameof(BluetoothConnectedCount));
-                Raise(nameof(BluetoothIconState));
+                return;
             }
+
+            field = value;
+            Raise(nameof(BluetoothConnectedCount));
+            Raise(nameof(BluetoothIconState));
         }
     }
 
-    private bool _wifiConnected;
     /// <summary>Gets whether Wi-Fi is joined to a network — the only state that
     /// tints the taskbar's Wi-Fi tile with the accent color.</summary>
     public bool WifiConnected
     {
-        get => _wifiConnected;
+        get;
         private set
         {
-            if (_wifiConnected != value)
+            if (field == value)
             {
-                _wifiConnected = value;
-                Raise(nameof(WifiConnected));
-                Raise(nameof(WifiIconState));
+                return;
             }
+
+            field = value;
+            Raise(nameof(WifiConnected));
+            Raise(nameof(WifiIconState));
         }
     }
 
-    private int _wifiSignal;
     /// <summary>Gets the joined network's signal quality, 0-100. Drives the bars
     /// on the taskbar tile.</summary>
     public int WifiSignal
     {
-        get => _wifiSignal;
+        get;
         private set
         {
-            if (_wifiSignal != value)
+            if (field == value)
             {
-                _wifiSignal = value;
-                Raise(nameof(WifiSignal));
+                return;
             }
+
+            field = value;
+            Raise(nameof(WifiSignal));
         }
     }
 
-    private string _connectedSsid = "";
     /// <summary>Gets the joined network's name, or an empty string.</summary>
     public string ConnectedSsid
     {
-        get => _connectedSsid;
-        private set => SetFieldIfChanged(ref _connectedSsid, value, nameof(ConnectedSsid));
-    }
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(ConnectedSsid));
+    } = "";
 
-    private string _wifiStateText = "State unavailable";
     /// <summary>Gets the Wi-Fi state line for the taskbar tile's flyout.</summary>
     public string WifiStateText
     {
-        get => _wifiStateText;
-        private set => SetFieldIfChanged(ref _wifiStateText, value, nameof(WifiStateText));
-    }
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(WifiStateText));
+    } = "State unavailable";
 
-    private string _bluetoothStateText = "State unavailable";
     /// <summary>Gets the Bluetooth state line for the taskbar tile's flyout.</summary>
     public string BluetoothStateText
     {
-        get => _bluetoothStateText;
-        private set => SetFieldIfChanged(ref _bluetoothStateText, value, nameof(BluetoothStateText));
-    }
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(BluetoothStateText));
+    } = "State unavailable";
 
     /// <summary>Whether <see cref="StatusText"/> currently holds a scan
     /// failure, and may therefore be cleared once scanning recovers.</summary>
     private bool _statusIsScanFailure;
 
-    private string _statusText = "";
     /// <summary>Gets the last thing that happened, for the panel's status line.
     /// Empty when there is nothing to report.</summary>
     public string StatusText
     {
-        get => _statusText;
+        get;
         private set
         {
             // Any writer takes ownership of the message; only Apply's own scan
             // branch re-claims it, so a connect or pairing result is never
             // cleared by an unrelated successful scan.
             _statusIsScanFailure = false;
-            if (_statusText != value)
+            if (field == value)
             {
-                _statusText = value;
-                Raise(nameof(StatusText));
-                Raise(nameof(HasStatus));
+                return;
             }
+
+            field = value;
+            Raise(nameof(StatusText));
+            Raise(nameof(HasStatus));
         }
-    }
+    } = "";
 
     /// <summary>Gets whether a status line should be shown.</summary>
     public bool HasStatus => StatusText.Length > 0;
@@ -429,7 +432,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// leave the reopened panel with no discovery at all.</summary>
     private static Task _feedWork = Task.CompletedTask;
 
-    private void QueueFeedWork(Action work)
+    private static void QueueFeedWork(Action work)
     {
         _feedWork = _feedWork.ContinueWith(
             _ =>
@@ -448,13 +451,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
             TaskScheduler.Default);
     }
 
-    private bool _bluetoothScanning;
     /// <summary>Gets whether a Bluetooth sweep is still running, so the panel can
     /// show that more devices may still appear.</summary>
     public bool BluetoothScanning
     {
-        get => _bluetoothScanning;
-        private set => SetFieldIfChanged(ref _bluetoothScanning, value, nameof(BluetoothScanning));
+        get;
+        private set => SetFieldIfChanged(ref field, value, nameof(BluetoothScanning));
     }
 
     private void OnTick(object? sender, EventArgs e)
@@ -566,18 +568,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         // Only while the panel is open: the audio-endpoint set decides which
         // Bluetooth rows get a Connect action, and only the panel shows rows.
         // Local PnP enumeration, no radio traffic.
-        IReadOnlyList<CoreAudio.BluetoothAudioContainer>? audio = null;
-        if (includeNetworks)
-        {
-            try
-            {
-                audio = CoreAudio.ListBluetoothAudioContainers();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Bluetooth audio endpoint query failed: {ex.Message}");
-            }
-        }
+        var audio = includeNetworks ? QueryBluetoothAudioContainers() : null;
 
         return new Snapshot(
             wifiPower,
@@ -590,6 +581,19 @@ public sealed class RadioManager : ObservableObject, IDisposable
             networks,
             audio,
             failure);
+    }
+
+    private static IReadOnlyList<CoreAudio.BluetoothAudioContainer>? QueryBluetoothAudioContainers()
+    {
+        try
+        {
+            return CoreAudio.ListBluetoothAudioContainers();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Bluetooth audio endpoint query failed: {ex.Message}");
+            return null;
+        }
     }
 
     private bool _feedsStarted;
@@ -609,7 +613,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     private void ApplyAudioState(BluetoothDeviceEntry row)
     {
         var known = row.ContainerId.Length > 0
-            && _audioContainers.TryGetValue(row.ContainerId, out var active);
+            && _audioContainers.TryGetValue(row.ContainerId, out _);
         row.AudioConnectable = known;
         row.AudioActive = known && _audioContainers[row.ContainerId];
     }
@@ -797,20 +801,22 @@ public sealed class RadioManager : ObservableObject, IDisposable
             ReconcileNetworks(snapshot.Networks);
         }
 
-        if (snapshot.AudioContainers is { } audio)
+        if (snapshot.AudioContainers is not { } audio)
         {
-            _audioContainers.Clear();
-            foreach (var container in audio)
-            {
-                // Active kept, not just the id: it is what the Connect button
-                // actually toggles, and the row's broader AEP state can say
-                // "connected" while the audio endpoints sit unplugged.
-                _audioContainers[container.Container] = container.Active;
-            }
-            foreach (var row in BluetoothDevices)
-            {
-                ApplyAudioState(row);
-            }
+            return;
+        }
+
+        _audioContainers.Clear();
+        foreach (var container in audio)
+        {
+            // Active kept, not just the id: it is what the Connect button
+            // actually toggles, and the row's broader AEP state can say
+            // "connected" while the audio endpoints sit unplugged.
+            _audioContainers[container.Container] = container.Active;
+        }
+        foreach (var row in BluetoothDevices)
+        {
+            ApplyAudioState(row);
         }
     }
 
@@ -903,17 +909,8 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
     }
 
-    private WifiNetworkEntry? FindNetwork(string ssid)
-    {
-        foreach (var entry in Networks)
-        {
-            if (string.Equals(entry.Ssid, ssid, StringComparison.Ordinal))
-            {
-                return entry;
-            }
-        }
-        return null;
-    }
+    private WifiNetworkEntry? FindNetwork(string ssid) =>
+        Networks.FirstOrDefault(entry => string.Equals(entry.Ssid, ssid, StringComparison.Ordinal));
 
     // ---- commands ----
 
@@ -1299,11 +1296,13 @@ public sealed class RadioManager : ObservableObject, IDisposable
                 + $"handler attached: {handled}).");
             PairingRequested?.Invoke(new PairingPrompt(
                 request.Token, request.Kind, request.Pin, request.DeviceName));
-            if (!handled)
+            if (handled)
             {
-                Log.Warn($"Bluetooth pairing: no UI attached, declining token {request.Token}.");
-                RespondToPairing(request.Token, accept: false, null);
+                return;
             }
+
+            Log.Warn($"Bluetooth pairing: no UI attached, declining token {request.Token}.");
+            RespondToPairing(request.Token, accept: false, null);
         });
     }
 

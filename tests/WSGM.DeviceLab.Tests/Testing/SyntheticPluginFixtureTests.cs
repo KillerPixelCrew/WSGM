@@ -3,7 +3,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Testing;
 using WSGM.DeviceLab.Testing;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Testing;
 
 public sealed class SyntheticPluginFixtureTests
 {

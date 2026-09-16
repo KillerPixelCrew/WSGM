@@ -23,14 +23,6 @@ internal static class DesktopReturnSequence
         IDesktopReturnBackend backend, bool runLeaveActions, Action<string, Exception> error,
         Action<string>? trace = null)
     {
-        async Task<bool> Attempt(string phase, Func<Task> action)
-        {
-            var elapsed = Stopwatch.StartNew();
-            try { await action().ConfigureAwait(false); return true; }
-            catch (Exception ex) { error(phase, ex); return false; }
-            finally { trace?.Invoke($"Desktop return: {phase} settled in {elapsed.ElapsedMilliseconds} ms."); }
-        }
-
         await Attempt("Leaving Big Picture", backend.ExitBigPictureAsync).ConfigureAwait(false);
         var layoutRestored = false;
         await Attempt("Restoring the desktop layout", async () =>
@@ -39,19 +31,28 @@ internal static class DesktopReturnSequence
         var desktopRestored = false;
         await Attempt("Restoring Explorer", async () =>
             desktopRestored = await backend.RestoreExplorerAsync().ConfigureAwait(false)).ConfigureAwait(false);
-        if (desktopRestored)
+        if (!desktopRestored)
         {
-            // Settle the durable recovery record before an optional plugin can stall or throw.
-            if (layoutRestored)
-            {
-                await Attempt("Clearing the desktop recovery record", backend.ClearPendingReturnAsync)
-                    .ConfigureAwait(false);
-            }
-            if (runLeaveActions)
-            {
-                await Attempt("Running leave actions", backend.RunLeaveActionsAsync).ConfigureAwait(false);
-            }
+            return false;
         }
-        return desktopRestored;
+        // Settle the durable recovery record before an optional plugin can stall or throw.
+        if (layoutRestored)
+        {
+            await Attempt("Clearing the desktop recovery record", backend.ClearPendingReturnAsync)
+                .ConfigureAwait(false);
+        }
+        if (runLeaveActions)
+        {
+            await Attempt("Running leave actions", backend.RunLeaveActionsAsync).ConfigureAwait(false);
+        }
+        return true;
+
+        async Task Attempt(string phase, Func<Task> action)
+        {
+            var elapsed = Stopwatch.StartNew();
+            try { await action().ConfigureAwait(false); }
+            catch (Exception ex) { error(phase, ex); }
+            finally { trace?.Invoke($"Desktop return: {phase} settled in {elapsed.ElapsedMilliseconds} ms."); }
+        }
     }
 }

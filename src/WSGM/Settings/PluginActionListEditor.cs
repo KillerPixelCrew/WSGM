@@ -22,7 +22,6 @@ public sealed class PluginArgumentRow : ObservableObject
         _changed = changed;
     }
 
-    /// <inheritdoc />
     /// <summary>Gets the argument's label.</summary>
     public string Label => _field.Label;
 
@@ -96,7 +95,7 @@ public sealed class PluginActionStepEditorRow : ObservableObject
         Available = option is not null;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the configured step this row edits.</summary>
     internal PluginActionStep Step { get; }
 
     /// <summary>Gets which plugin instance and action this step names.</summary>
@@ -162,7 +161,6 @@ public sealed class PluginActionListEditor : ObservableObject
         _changed = changed;
     }
 
-    /// <inheritdoc />
     /// <summary>Gets the session event this list runs at.</summary>
     public string Title { get; }
 
@@ -186,11 +184,9 @@ public sealed class PluginActionListEditor : ObservableObject
     /// <summary>Gets or sets which action the Add button would append.</summary>
     public int ChoiceIndex
     {
-        get => _choiceIndex;
-        set => SetField(ref _choiceIndex, value, nameof(ChoiceIndex));
-    }
-
-    private int _choiceIndex = -1;
+        get;
+        set => SetField(ref field, value, nameof(ChoiceIndex));
+    } = -1;
 
     /// <summary>Gets whether any step's arguments would be refused.</summary>
     public bool HasValidationError => Rows.Any(row => row.HasValidationError);

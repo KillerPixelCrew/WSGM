@@ -8,8 +8,9 @@ using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Settings;
 using WSGM.Themes;
+using WSGM.UiTests.Infrastructure;
 
-namespace WSGM.UiTests;
+namespace WSGM.UiTests.Settings;
 
 public sealed class SettingsInteractionTests
 {
@@ -43,7 +44,7 @@ public sealed class SettingsInteractionTests
         system.Focus();
         UiFixture.Key(window, Key.Enter);
         Assert.True(UiFixture.Named<Control>(window, "PageSystem").IsVisible);
-        Assert.NotNull(window.FocusManager?.GetFocusedElement());
+        Assert.NotNull(window.FocusManager.GetFocusedElement());
     }
 
     [AvaloniaFact]
@@ -100,7 +101,7 @@ public sealed class SettingsInteractionTests
             UiFixture.Key(window, Key.Escape);
             Assert.False(window.IsVisible);
             Assert.Equal("#4CC2FF", fixture.Saved.AccentColor);
-            var brush = Assert.IsAssignableFrom<ISolidColorBrush>(Application.Current!.Resources["HcAccentBrush"]);
+            var brush = Assert.IsType<ISolidColorBrush>(Application.Current!.Resources["HcAccentBrush"], exactMatch: false);
             Assert.Equal(AccentPalette.Parse(fixture.Saved.AccentColor), brush.Color);
         }
         Assert.Equal(3, fixture.Calls.Count(call => call == "input-start"));

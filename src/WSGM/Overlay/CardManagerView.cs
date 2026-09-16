@@ -69,7 +69,7 @@ public sealed class CardManagerView : OverlaySubView
             {
                 return;
             }
-            cards = Array.Empty<LibraryTabManager.CardView>();
+            cards = [];
             failed = true;
         }
         var stack = NewStack("Card Manager");

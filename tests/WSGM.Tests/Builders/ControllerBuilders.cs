@@ -2,7 +2,7 @@ using WSGM.Core;
 using WSGM.Input;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Builders;
 
 /// <summary>Controller targets, running applications and controller manager states for tests.</summary>
 internal static class ControllerBuilders

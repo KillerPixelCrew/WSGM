@@ -27,7 +27,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     private const uint WinEventOutOfContext = 0x0000;
     private const uint WinEventSkipOwnProcess = 0x0002;
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly WinEventProc _callback;
     private readonly Timer _poll;
     private nint _hook;
@@ -89,11 +89,16 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
         }
 
         _poll.Dispose();
-        if (_hook != 0)
+        if (_hook == 0)
         {
-            UnhookWinEvent(_hook);
-            _hook = 0;
+            return;
         }
+
+        if (!UnhookWinEvent(_hook))
+        {
+            Log.Warn("Foreground watcher: WinEvent hook could not be removed.");
+        }
+        _hook = 0;
     }
 
     private void OnWinEvent(
@@ -107,16 +112,18 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     {
         // Nothing but a signal: resolving the process from inside a system hook callback would run
         // a handle open and a path read on whatever thread Windows delivered the event on.
-        if (eventType == EventSystemForeground && window != 0)
+        if (eventType != EventSystemForeground || window == 0)
         {
-            Interlocked.Exchange(ref _pendingWindow, window);
-            if (Interlocked.Exchange(ref _evaluationQueued, 1) == 0)
-            {
-                ThreadPool.UnsafeQueueUserWorkItem(
-                    static watcher => watcher.DrainWinEvents(),
-                    this,
-                    preferLocal: false);
-            }
+            return;
+        }
+
+        Interlocked.Exchange(ref _pendingWindow, window);
+        if (Interlocked.Exchange(ref _evaluationQueued, 1) == 0)
+        {
+            ThreadPool.UnsafeQueueUserWorkItem(
+                static watcher => watcher.DrainWinEvents(),
+                this,
+                preferLocal: false);
         }
     }
 
@@ -204,16 +211,18 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
             return (string.Empty, null, 0);
         }
 
-        if (string.Equals(
+        if (!string.Equals(
                 ClassName(window),
                 ForegroundApplicationFilter.UwpHostWindowClass,
                 StringComparison.Ordinal))
         {
-            var hosted = FindHostedProcess(window, processId);
-            if (hosted != 0)
-            {
-                processId = hosted;
-            }
+            return ExecutableIdentity(processId);
+        }
+
+        var hosted = FindHostedProcess(window, processId);
+        if (hosted != 0)
+        {
+            processId = hosted;
         }
 
         return ExecutableIdentity(processId);
@@ -227,16 +236,16 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
             (child, parameter) =>
             {
                 _ = NativeMethods.GetWindowThreadProcessId(child, out var childProcessId);
-                if (childProcessId != 0 && childProcessId != hostProcessId)
+                if (childProcessId == 0 || childProcessId == hostProcessId)
                 {
-                    found = childProcessId;
-
-                    // Stop at the first child owned by another process: that is the hosted
-                    // application, and continuing would only find its own child windows.
-                    return false;
+                    return true;
                 }
 
-                return true;
+                found = childProcessId;
+
+                // Stop at the first child owned by another process: that is the hosted
+                // application, and continuing would only find its own child windows.
+                return false;
             },
             0);
         return found;
@@ -288,7 +297,7 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", StringMarshalling = StringMarshalling.Utf16)]
     private static partial int GetClassNameW(nint window, char* className, int maxCount);
 
+    // The result is ambiguous once the callback stops the walk early, so it is not returned.
     [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool EnumChildWindows(nint parent, EnumChildProc callback, nint parameter);
+    private static partial void EnumChildWindows(nint parent, EnumChildProc callback, nint parameter);
 }

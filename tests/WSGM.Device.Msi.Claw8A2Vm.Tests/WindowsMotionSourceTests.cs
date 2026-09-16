@@ -115,7 +115,7 @@ public sealed class WindowsMotionSourceTests
             TimeSpan.FromMilliseconds(100));
         await source.StartAsync(_ => ValueTask.CompletedTask, CancellationToken.None);
         using CancellationTokenSource caller = new();
-        caller.Cancel();
+        await caller.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => source.StopAsync(caller.Token).AsTask());
         await Assert.ThrowsAsync<TimeoutException>(() => source.DisposeAsync().AsTask());

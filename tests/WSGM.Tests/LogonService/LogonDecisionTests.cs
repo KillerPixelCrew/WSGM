@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.LogonService;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.LogonService;
 
 public sealed class LogonDecisionTests
 {

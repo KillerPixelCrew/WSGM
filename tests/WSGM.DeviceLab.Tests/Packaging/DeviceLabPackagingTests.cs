@@ -1,8 +1,10 @@
 using System.IO.Compression;
 using WSGM.Device.Sdk.Packaging;
+using WSGM.Device.Tests;
 using WSGM.DeviceLab.Packaging;
+using WSGM.DeviceLab.Tests.Builders;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Packaging;
 
 public sealed class DeviceLabPackagingTests
 {
@@ -96,15 +98,6 @@ public sealed class DeviceLabPackagingTests
     public void BoundedEntryCapture_StopsAfterOneOverflowObservationBeforeSorting()
     {
         var observed = 0;
-        IEnumerable<string> Entries()
-        {
-            while (true)
-            {
-                observed++;
-                yield return $"entry-{observed}";
-            }
-        }
-
         var accepted = DeviceLabPackageSnapshot.TakeBoundedEntries(
             Entries(),
             remaining: 4,
@@ -114,6 +107,16 @@ public sealed class DeviceLabPackagingTests
         Assert.True(exceeded);
         Assert.Equal(4, accepted.Count);
         Assert.Equal(5, observed);
+
+        IEnumerable<string> Entries()
+        {
+            // Unbounded in practice: the capture must stop on its own after one overflow entry.
+            while (observed < int.MaxValue)
+            {
+                observed++;
+                yield return $"entry-{observed}";
+            }
+        }
     }
 
     [Fact]

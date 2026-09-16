@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -50,14 +51,7 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
     {
         if (AppLauncher.IsProtocol(path)) { return false; }
         var name = Path.GetFileNameWithoutExtension(path);
-        foreach (var rule in Rules)
-        {
-            foreach (var processName in rule.ProcessNames)
-            {
-                if (string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)) { return true; }
-            }
-        }
-        return false;
+        return Rules.Any(rule => rule.ProcessNames.Any(processName => string.Equals(name, processName, StringComparison.OrdinalIgnoreCase)));
     }
 
     internal async Task<bool> StopAsync(CancellationToken cancellationToken)
@@ -77,11 +71,9 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
             }
             foreach (var rule in Rules)
             {
-                if (backend.Capture(rule).Count != 0)
-                {
-                    warn($"{rule.Name} is still running; preserving Explorer.");
-                    return false;
-                }
+                if (backend.Capture(rule).Count == 0) { continue; }
+                warn($"{rule.Name} is still running; preserving Explorer.");
+                return false;
             }
             return true;
         }

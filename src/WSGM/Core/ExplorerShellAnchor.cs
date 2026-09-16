@@ -32,14 +32,12 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
     private int _ipcFaulted;
 
     private ExplorerShellAnchor(
-        string pipeName,
         string secret,
         NativeShellChildProcess process,
         NamedPipeClientStream pipe,
         StreamReader reader,
         StreamWriter writer)
     {
-        PipeName = pipeName;
         _secret = secret;
         _process = process;
         _pipe = pipe;
@@ -49,9 +47,6 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
 
     /// <summary>Gets the anchor process identifier.</summary>
     internal uint ProcessId => _process.ProcessId;
-
-    /// <summary>Gets the private pipe name used for diagnostics.</summary>
-    internal string PipeName { get; }
 
     /// <summary>Gets whether this session currently has a WSGM-owned anchor recovery process.</summary>
     internal static bool HasRecoveryOwner(int sessionId)
@@ -120,11 +115,9 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
 
         var repairJob = NativeShellProcess.Inspect(parent.ProcessId).JobMembership
             is NativeJobMembership.InJob;
-        NativeShellChildProcess? process;
-        int launchError;
         var created = repairJob
             ? NativeShellProcess.TryStartWithShellToken(parent, executable, commandLine,
-                Path.GetDirectoryName(executable)!, out process, out launchError)
+                Path.GetDirectoryName(executable)!, out var process, out var launchError)
             : NativeShellProcess.TryStartWithParent(parent, executable, commandLine,
                 Path.GetDirectoryName(executable)!, out process, out launchError);
         if (!created)
@@ -151,27 +144,26 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
                 AutoFlush = true
             };
             var ready = await reader.ReadLineAsync(timeout.Token).ConfigureAwait(false);
-            if (!string.Equals(ready, $"ready {secret}", StringComparison.Ordinal))
+            if (string.Equals(ready, $"ready {secret}", StringComparison.Ordinal))
             {
-                await StopFailedChildAsync(process!, pipe, reader, writer).ConfigureAwait(false);
-                return new ExplorerShellAnchorStartResult(null,
-                    $"Anchor pid {process!.ProcessId} returned an invalid readiness handshake.");
+                return new ExplorerShellAnchorStartResult(
+                    new ExplorerShellAnchor(secret, process!, pipe, reader, writer),
+                    string.Empty);
             }
 
-            return new ExplorerShellAnchorStartResult(
-                new ExplorerShellAnchor(pipeName, secret, process!, pipe, reader, writer),
-                string.Empty);
+            await StopFailedChildAsync(process!, pipe, reader, writer).ConfigureAwait(false);
+            return new ExplorerShellAnchorStartResult(null,
+                $"Anchor pid {process!.ProcessId} returned an invalid readiness handshake.");
         }
         catch (Exception ex)
         {
             await StopFailedChildAsync(process!, pipe, reader, writer).ConfigureAwait(false);
-            if (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            switch (ex)
             {
-                return new ExplorerShellAnchorStartResult(null, $"Anchor pid {process!.ProcessId} did not become ready before the timeout.");
-            }
-            if (ex is IOException or TimeoutException)
-            {
-                return new ExplorerShellAnchorStartResult(null, $"Anchor pid {process!.ProcessId} did not become ready: {ex.Message}");
+                case OperationCanceledException when !cancellationToken.IsCancellationRequested:
+                    return new ExplorerShellAnchorStartResult(null, $"Anchor pid {process!.ProcessId} did not become ready before the timeout.");
+                case IOException or TimeoutException:
+                    return new ExplorerShellAnchorStartResult(null, $"Anchor pid {process!.ProcessId} did not become ready: {ex.Message}");
             }
             throw;
         }
@@ -424,12 +416,13 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
                 // owner-loss recovery, Exit and Recover both end the anchor, Wait continues.
                 async Task<bool> ShouldExitForOwnerActionAsync(ExplorerAnchorDisconnectAction action)
                 {
-                    if (action is ExplorerAnchorDisconnectAction.Recover)
+                    if (action is not ExplorerAnchorDisconnectAction.Recover)
                     {
-                        await RecoverAfterOwnerLossAsync(expectedSessionId, stop).ConfigureAwait(false);
-                        return true;
+                        return action is ExplorerAnchorDisconnectAction.Exit;
                     }
-                    return action is ExplorerAnchorDisconnectAction.Exit;
+
+                    await RecoverAfterOwnerLossAsync(expectedSessionId, stop).ConfigureAwait(false);
+                    return true;
                 }
 
                 var connection = pipe.WaitForConnectionAsync();
@@ -456,10 +449,8 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
                 ownerWaitFaulted = OwnerWaitFaulted(ownerExit);
 
                 using StreamReader reader = new(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
-                using StreamWriter writer = new(pipe, new UTF8Encoding(false), 1024, leaveOpen: true)
-                {
-                    AutoFlush = true
-                };
+                await using StreamWriter writer = new(pipe, new UTF8Encoding(false), 1024, leaveOpen: true);
+                writer.AutoFlush = true;
                 await writer.WriteLineAsync($"ready {secret}").ConfigureAwait(false);
 
                 while (true)
@@ -483,7 +474,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
                             read,
                             () => WaitAfterPipeDisconnectAsync(owner, ownerExit, stop))
                         .ConfigureAwait(false);
-                    if (commandRead.DisconnectAction is ExplorerAnchorDisconnectAction action)
+                    if (commandRead.DisconnectAction is { } action)
                     {
                         _ = await ShouldExitForOwnerActionAsync(action).ConfigureAwait(false);
                         return 0;
@@ -586,7 +577,7 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
     }
 
     private static bool OwnerWaitFaulted(Task ownerExit) =>
-        ownerExit.IsCompleted && !ownerExit.IsCompletedSuccessfully;
+        ownerExit is { IsCompleted: true, IsCompletedSuccessfully: false };
 
     private static bool TryVerifyOwnerExited(Process owner)
     {
@@ -713,9 +704,12 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
             _ = process.TryTerminate(out _);
             _ = await process.WaitForExitAsync(StopTimeout).ConfigureAwait(false);
         }
-        writer?.Dispose();
+        if (writer is not null)
+        {
+            await writer.DisposeAsync().ConfigureAwait(false);
+        }
         reader?.Dispose();
-        pipe.Dispose();
+        await pipe.DisposeAsync().ConfigureAwait(false);
         process.Dispose();
     }
 

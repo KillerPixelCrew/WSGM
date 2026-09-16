@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using WindowsDeviceControl;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class AudioManagerTests
 {

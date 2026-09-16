@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Msi.Claw8A2Vm;
@@ -13,12 +14,12 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 /// directly and uses their hardware report counter to distinguish a new sample from a repeated
 /// <c>GetData</c> result.
 /// </remarks>
-internal sealed class LegacyPhysicalMotionSensors : IDisposable
+internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
 {
-    internal const string ExpectedAccelerometerName = "Physical Accelerometer";
-    internal const string ExpectedGyrometerName = "Physical Gyrometer";
+    private const string ExpectedAccelerometerName = "Physical Accelerometer";
+    private const string ExpectedGyrometerName = "Physical Gyrometer";
 
-    internal static readonly Guid CustomSensorType =
+    private static readonly Guid CustomSensorType =
         new("E83AF229-8640-4D18-A213-E22675EBB2C3");
 
     private static readonly Guid CustomDataFormat =
@@ -35,7 +36,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     private static readonly PropertyKey AxisZ = new(CustomDataFormat, 9);
     private static readonly PropertyKey HardwareReportCounter = new(CustomDataFormat, 34);
 
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private ISensor? _accelerometer;
     private ISensor? _gyrometer;
     private IntervalState _accelerometerInterval;
@@ -55,10 +56,10 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     }
 
     /// <summary>The Sensor API path for the Intel ISS physical accelerometer.</summary>
-    public string AccelerometerPath { get; }
+    private string AccelerometerPath { get; }
 
     /// <summary>The Sensor API path for the Intel ISS physical gyrometer.</summary>
-    public string GyrometerPath { get; }
+    private string GyrometerPath { get; }
 
     /// <summary>Finds, validates, and configures the exact physical LSM6DSO collections.</summary>
     /// <returns>An owned sensor pair, or null when either reviewed collection is unavailable.</returns>
@@ -394,15 +395,15 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             }
 
             result = report.GetTimestamp(out var systemTime);
-            if (result < 0 || !systemTime.TryToUtc(out timestamp))
+            if (result >= 0 && systemTime.TryToUtc(out timestamp))
             {
-                error = result < 0
-                    ? $"Physical Gyrometer timestamp returned 0x{result:X8}"
-                    : "Physical Gyrometer returned an invalid SYSTEMTIME";
-                return PhysicalMotionReadResult.Failed;
+                return PhysicalMotionReadResult.Fresh;
             }
 
-            return PhysicalMotionReadResult.Fresh;
+            error = result < 0
+                ? $"Physical Gyrometer timestamp returned 0x{result:X8}"
+                : "Physical Gyrometer returned an invalid SYSTEMTIME";
+            return PhysicalMotionReadResult.Failed;
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException)
         {
@@ -423,13 +424,13 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         try
         {
             var result = sensor.GetData(out report);
-            if (result < 0 || report is null)
+            if (result >= 0 && report is not null)
             {
-                error = $"Physical Accelerometer GetData returned 0x{result:X8}";
-                return false;
+                return TryReadVector(report, out value, out error);
             }
 
-            return TryReadVector(report, out value, out error);
+            error = $"Physical Accelerometer GetData returned 0x{result:X8}";
+            return false;
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException)
         {
@@ -461,8 +462,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
 
     private static string? ReadStringProperty(ISensor sensor, PropertyKey key)
     {
-        PropVariant value = default;
-        var result = sensor.GetProperty(ref key, out value);
+        var result = sensor.GetProperty(ref key, out var value);
         if (result < 0)
         {
             return null;
@@ -474,15 +474,14 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         }
         finally
         {
-            PropVariantClear(ref value);
+            _ = PropVariantClear(ref value);
         }
     }
 
     private static bool TryReadUnsignedProperty(ISensor sensor, PropertyKey key, out uint result)
     {
         result = 0;
-        PropVariant value = default;
-        var hresult = sensor.GetProperty(ref key, out value);
+        var hresult = sensor.GetProperty(ref key, out var value);
         if (hresult < 0)
         {
             return false;
@@ -500,7 +499,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         }
         finally
         {
-            PropVariantClear(ref value);
+            _ = PropVariantClear(ref value);
         }
     }
 
@@ -524,13 +523,13 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             }
 
             result = sensor.SetProperties(properties, out results);
-            if (result < 0)
+            if (result >= 0)
             {
-                error = $"SetProperties returned 0x{result:X8}";
-                return false;
+                return true;
             }
 
-            return true;
+            error = $"SetProperties returned 0x{result:X8}";
+            return false;
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidOperationException)
         {
@@ -552,8 +551,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     {
         value = 0;
         error = null;
-        PropVariant variant = default;
-        var result = report.GetSensorValue(ref key, out variant);
+        var result = report.GetSensorValue(ref key, out var variant);
         if (result < 0)
         {
             error = $"custom field {key.PropertyId} returned 0x{result:X8}";
@@ -577,17 +575,17 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
             }
 
             value = (float)present;
-            if (!float.IsFinite(value))
+            if (float.IsFinite(value))
             {
-                error = $"custom field {key.PropertyId} exceeded the finite single-precision range";
-                return false;
+                return true;
             }
 
-            return true;
+            error = $"custom field {key.PropertyId} exceeded the finite single-precision range";
+            return false;
         }
         finally
         {
-            PropVariantClear(ref variant);
+            _ = PropVariantClear(ref variant);
         }
     }
 
@@ -599,8 +597,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
     {
         value = 0;
         error = null;
-        PropVariant variant = default;
-        var result = report.GetSensorValue(ref key, out variant);
+        var result = report.GetSensorValue(ref key, out var variant);
         if (result < 0)
         {
             error = $"custom field {key.PropertyId} returned 0x{result:X8}";
@@ -620,7 +617,7 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         }
         finally
         {
-            PropVariantClear(ref variant);
+            _ = PropVariantClear(ref variant);
         }
     }
 
@@ -632,8 +629,8 @@ internal sealed class LegacyPhysicalMotionSensors : IDisposable
         }
     }
 
-    [DllImport("ole32.dll")]
-    private static extern int PropVariantClear(ref PropVariant value);
+    [LibraryImport("ole32.dll")]
+    private static partial int PropVariantClear(ref PropVariant value);
 
     private readonly record struct IntervalState(uint Original, uint Applied, bool Changed);
 

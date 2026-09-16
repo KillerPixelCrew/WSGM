@@ -1,7 +1,7 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.Device.Sdk.Tests.Settings;
 
 public sealed class SdkPluginSettingsTests
 {
@@ -287,7 +287,7 @@ public sealed class SdkPluginSettingsTests
     [Fact]
     public void Setting_UndefinedValueKind_IsRejectedBeforeItCanBehaveLikeAnUnconstrainedKind()
     {
-        var undefined = (CapabilityValueKind)int.MaxValue;
+        const CapabilityValueKind undefined = (CapabilityValueKind)int.MaxValue;
         var setting = Toggle() with
         {
             ValueKind = undefined,

@@ -20,7 +20,7 @@ namespace WSGM.Shell;
 /// </remarks>
 internal static class LibraryBadges
 {
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     private static SteamLibraryBadgeState? _current;
     private static long _revision;
 
@@ -46,11 +46,9 @@ internal static class LibraryBadges
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(presentContentIds);
-        SteamLibraryBadgeState next;
         lock (Gate)
         {
-            next = Build(config, presentContentIds, ++_revision);
-            _current = next;
+            _current = Build(config, presentContentIds, ++_revision);
         }
         Changed?.Invoke();
     }
@@ -63,11 +61,13 @@ internal static class LibraryBadges
     internal static SteamLibraryBadgeState Build(
         AppConfig config, IReadOnlySet<string> presentContentIds, long revision = 0)
     {
-        IReadOnlyList<SteamLibraryBadgeLibrary> libraries = config.CardLibraries
-            .Where(card => !string.IsNullOrWhiteSpace(card.Name) && card.AppIds.Count > 0)
-            .Select(card => new SteamLibraryBadgeLibrary(
-                card.Name, presentContentIds.Contains(card.ContentId), card.AppIds.ToArray()))
-            .ToArray();
+        IReadOnlyList<SteamLibraryBadgeLibrary> libraries =
+        [
+            .. config.CardLibraries
+                .Where(card => !string.IsNullOrWhiteSpace(card.Name) && card.AppIds.Count > 0)
+                .Select(card => new SteamLibraryBadgeLibrary(
+                    card.Name, presentContentIds.Contains(card.ContentId), [.. card.AppIds]))
+        ];
         return new SteamLibraryBadgeState(libraries, "Internal", revision);
     }
 }
@@ -86,12 +86,13 @@ internal sealed class LibraryBadgeBackend : ISteamLibraryBadgeBackend
     /// <inheritdoc />
     public Task<SteamUiCommandResult> HomeLayoutAsync(bool bigArt, CancellationToken cancellationToken)
     {
-        if (BigArt != bigArt)
+        if (BigArt == bigArt)
         {
-            BigArt = bigArt;
-            Log.Change("steam.home.layout", $"Steam Home layout: Big Art Mode {(bigArt ? "on" : "off")}.");
+            return Task.FromResult(SteamUiCommandResult.Applied);
         }
 
+        BigArt = bigArt;
+        Log.Change("steam.home.layout", $"Steam Home layout: Big Art Mode {(bigArt ? "on" : "off")}.");
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 }

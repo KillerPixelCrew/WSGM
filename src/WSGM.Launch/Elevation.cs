@@ -71,5 +71,5 @@ internal static partial class Elevation
         out int returnLength);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial int CloseHandle(nint handle);
+    private static partial void CloseHandle(nint handle);
 }

@@ -1,6 +1,7 @@
 using WSGM.Core;
+using WSGM.Tests.Fakes;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 /// <summary>
 /// When WSGM may start RTSS for itself, and when it must not.

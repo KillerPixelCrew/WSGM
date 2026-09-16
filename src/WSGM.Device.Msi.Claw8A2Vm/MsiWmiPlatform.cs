@@ -24,7 +24,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             static () =>
             {
                 using ManagementClass definition = new("root\\WMI", "MSI_ACPI", null);
-                if (!definition.Methods.Cast<MethodData>().Any(method => method.Name == "Get_WMI"))
+                if (definition.Methods.Cast<MethodData>().All(method => method.Name != "Get_WMI"))
                 {
                     return false;
                 }
@@ -163,8 +163,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 
         using (returned)
         {
-            if (returned["Bytes"] is not byte[] response
-                || response.Length != ClawHardwareFacts.WmiPackageLength)
+            if (returned["Bytes"] is not byte[] { Length: ClawHardwareFacts.WmiPackageLength } response)
             {
                 throw new InvalidDataException($"{methodName} returned an invalid Package_32 response.");
             }
@@ -381,7 +380,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
     {
         var endpoints = new List<UsbEndpointObservation>();
         using ManagementObjectSearcher searcher = new(
-            "root\\CIMV2",
+            @"root\CIMV2",
             "SELECT DeviceID, HardwareID FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB\\\\VID_0DB0&PID_19%' ");
         using var candidates = searcher.Get();
         foreach (var item in candidates.Cast<ManagementObject>())
@@ -471,7 +470,7 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
 
 internal sealed class MsiOemEventSource : IMsiOemEventSource
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private ManagementEventWatcher? _watcher;
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
 

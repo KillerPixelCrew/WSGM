@@ -90,8 +90,8 @@ public static class Program
             // a read-modify-write and goes through the strict mutation path, which
             // aborts rather than replacing the registry recovery snapshots with
             // defaults.
-            try { BootManifestWriter.WriteSignInDisabled(ConfigStore.Load()); } catch { }
-            try { ConfigStore.Mutate(static c => c.StartAtSignIn = false); } catch { }
+            try { BootManifestWriter.WriteSignInDisabled(ConfigStore.Load()); } catch (Exception) { /* Best effort: logging is not up yet. */ }
+            try { ConfigStore.Mutate(static c => c.StartAtSignIn = false); } catch (Exception) { /* Best effort: logging is not up yet. */ }
             // A resident WSGM shell still owns its Shell_TrayWnd and would keep running with its
             // registration and sign-in start changed underneath it. Ask it to shut down normally,
             // which restores Explorer itself; the start below then finds the desktop running.
@@ -234,11 +234,13 @@ public static class Program
             // Self-guarding no-op unless a snapshotted shell value needs restoring —
             // WSGM boots via the logon service over an explorer shell.
             ShellRegistration.Uninstall();
-            if (config is not null)
+            if (config is null)
             {
-                ShellRegistration.ApplyGamingHomeGuard(config);
-                BootManifestWriter.WriteCurrent(config);
+                return 0;
             }
+
+            ShellRegistration.ApplyGamingHomeGuard(config);
+            BootManifestWriter.WriteCurrent(config);
             return 0;
         }
 
@@ -317,7 +319,7 @@ public static class Program
             }
         }
 
-        using EventWaitHandle? activation = Mode == RunMode.Shell
+        using var activation = Mode == RunMode.Shell
             ? new EventWaitHandle(false, EventResetMode.AutoReset, SessionActivation.EventName) : null;
         if (Mode == RunMode.Shell)
         {
@@ -395,15 +397,17 @@ public static class Program
             {
                 SteamInputBlocker.ReleaseBestEffort("shutdown");
             }
-            if (Mode == RunMode.Shell)
+            if (Mode != RunMode.Shell)
             {
-                RestoreDisplayScalesBestEffort();
-                // A clean exit is NOT a crash: without this, two update restarts
-                // plus a sign-in inside 2 minutes read as a crash loop and disarm
-                // the shell (device-observed). Only dirty deaths — which never
-                // reach this line — may accumulate toward the breaker.
-                CrashLoopBreaker.Reset();
+                return exitCode;
             }
+
+            RestoreDisplayScalesBestEffort();
+            // A clean exit is NOT a crash: without this, two update restarts
+            // plus a sign-in inside 2 minutes read as a crash loop and disarm
+            // the shell (device-observed). Only dirty deaths — which never
+            // reach this line — may accumulate toward the breaker.
+            CrashLoopBreaker.Reset();
             return exitCode;
         }
         catch (Exception ex)
@@ -476,12 +480,9 @@ public static class Program
             return RunMode.Settings;
         }
 
-        if (args.Contains("--overlay-test", StringComparer.OrdinalIgnoreCase))
-        {
-            return RunMode.OverlayTest;
-        }
-
-        return RunMode.Settings;
+        return args.Contains("--overlay-test", StringComparer.OrdinalIgnoreCase)
+            ? RunMode.OverlayTest
+            : RunMode.Settings;
     }
 
     /// <summary>True when the command line carries the logon service's --boot flag
@@ -522,19 +523,18 @@ public static class Program
         }
 
         var elevated = ElevationCheck.IsCurrentProcessElevated();
-        if (elevated is false)
+        switch (elevated)
         {
-            return SelfElevation.RunElevatedAction(
-                elevatedArguments,
-                $"Device plugin {operation}",
-                Timeout.Infinite)
-                ? 0
-                : 1;
-        }
-        if (elevated is null)
-        {
-            Log.Error($"Device plugin maintenance: current elevation could not be verified; {operation} refused.");
-            return 1;
+            case false:
+                return SelfElevation.RunElevatedAction(
+                    elevatedArguments,
+                    $"Device plugin {operation}",
+                    Timeout.Infinite)
+                    ? 0
+                    : 1;
+            case null:
+                Log.Error($"Device plugin maintenance: current elevation could not be verified; {operation} refused.");
+                return 1;
         }
 
         DevicePackageSlotGate? slotGate;
@@ -587,14 +587,14 @@ public static class Program
     {
         ArgumentNullException.ThrowIfNull(maintenance);
         using var ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(ownerName);
-        if (ownerReservation is null)
+        if (ownerReservation is not null)
         {
-            Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
-                + $"could not be reserved; {operation} refused.");
-            return 1;
+            return await maintenance().ConfigureAwait(false);
         }
 
-        return await maintenance().ConfigureAwait(false);
+        Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
+            + $"could not be reserved; {operation} refused.");
+        return 1;
     }
 
     private static async Task<int> RunDevicePluginMaintenanceUnderOwnerAsync(
@@ -639,12 +639,11 @@ public static class Program
 
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
     /// <param name="args">Process arguments.</param>
-    /// <returns>The verbosity applied, for tests; the side effect on <see cref="Log"/> is the point.</returns>
     /// <remarks>
     /// Configuration is read defensively: a damaged config.json must not decide whether the log
     /// that would explain the damage exists. Any failure keeps the default.
     /// </remarks>
-    internal static LogVerbosity ApplyLogVerbosity(string[] args)
+    private static void ApplyLogVerbosity(string[] args)
     {
         var verbosity = LogVerbosity.Normal;
         if (HasVerboseFlag(args))
@@ -665,7 +664,6 @@ public static class Program
         }
 
         Log.SetVerbosity(verbosity);
-        return verbosity;
     }
 
     internal static DevicePluginMaintenanceMode ParseDevicePluginMaintenance(string[] args)
@@ -678,21 +676,16 @@ public static class Program
             return DevicePluginMaintenanceMode.None;
         }
 
-        if (args.Length == 1
-            && string.Equals(args[0], "--remove-device-plugin", StringComparison.OrdinalIgnoreCase))
+        return args.Length switch
         {
-            return DevicePluginMaintenanceMode.Remove;
-        }
-
-        if (args.Length == 2
-            && string.Equals(args[0], "--install-device-plugin", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(args[1])
-            && !args[1].StartsWith("--", StringComparison.Ordinal))
-        {
-            return DevicePluginMaintenanceMode.Install;
-        }
-
-        return DevicePluginMaintenanceMode.Invalid;
+            1 when string.Equals(args[0], "--remove-device-plugin", StringComparison.OrdinalIgnoreCase)
+                => DevicePluginMaintenanceMode.Remove,
+            2 when string.Equals(args[0], "--install-device-plugin", StringComparison.OrdinalIgnoreCase)
+                   && !string.IsNullOrWhiteSpace(args[1])
+                   && !args[1].StartsWith("--", StringComparison.Ordinal)
+                => DevicePluginMaintenanceMode.Install,
+            _ => DevicePluginMaintenanceMode.Invalid
+        };
     }
 
     private static DevicePackageInventory? InventoryDevicePackagesForStartup(
@@ -867,7 +860,10 @@ internal static class CrashLoopBreaker
         {
             File.AppendAllText(MarkerPath, DateTime.UtcNow.ToString("O") + Environment.NewLine);
         }
-        catch { }
+        catch (Exception)
+        {
+            // Best effort: a missing marker only weakens crash-loop detection.
+        }
     }
 
     /// <summary>Call AFTER RecordStart so the current start counts toward the 3.</summary>
@@ -911,6 +907,9 @@ internal static class CrashLoopBreaker
         {
             File.Delete(MarkerPath);
         }
-        catch { }
+        catch (Exception)
+        {
+            // Best effort: a stale marker only makes the next loop check stricter.
+        }
     }
 }

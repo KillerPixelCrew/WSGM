@@ -1,8 +1,8 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
-using static WSGM.Tests.ControllerSamples;
+using static WSGM.Tests.Builders.ControllerSamples;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Input;
 
 /// <summary>
 /// The Steam Deck controller frame, as an executable specification.

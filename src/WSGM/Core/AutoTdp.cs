@@ -90,7 +90,7 @@ internal sealed class AutoTdpController
     internal const double MissRatio = 1.05;
 
     /// <summary>How comfortably a window has to beat its deadline before it counts as headroom.</summary>
-    internal const double ComfortRatio = 0.92;
+    private const double ComfortRatio = 0.92;
 
     /// <summary>Consecutive missed windows before power is raised.</summary>
     internal const int SustainedMisses = 3;
@@ -142,19 +142,20 @@ internal sealed class AutoTdpController
     internal int Start(int watts, AutoTdpLimits limits, string contextKey)
     {
         ArgumentNullException.ThrowIfNull(limits);
-        _contextKey = contextKey ?? string.Empty;
+        _contextKey = contextKey;
         Watts = limits.Clamp(watts);
         LastGood = Watts;
         ResetWindows();
         _settling = 0;
         IsPaused = false;
         IsProbing = false;
-        if (_learnedFloor.TryGetValue(_contextKey, out var floor))
+        if (!_learnedFloor.TryGetValue(_contextKey, out var floor))
         {
-            Watts = limits.Clamp(Math.Max(floor, limits.Minimum));
-            LastGood = Watts;
+            return Watts;
         }
 
+        Watts = limits.Clamp(Math.Max(floor, limits.Minimum));
+        LastGood = Watts;
         return Watts;
     }
 
@@ -254,12 +255,7 @@ internal sealed class AutoTdpController
         {
             _comfortable = 0;
             _misses = Math.Min(_misses + 1, SustainedMisses);
-            if (_misses < SustainedMisses)
-            {
-                return Hold("miss-unconfirmed");
-            }
-
-            return Raise(limits);
+            return _misses < SustainedMisses ? Hold("miss-unconfirmed") : Raise(limits);
         }
 
         _misses = 0;
@@ -272,12 +268,7 @@ internal sealed class AutoTdpController
         }
 
         _comfortable = Math.Min(_comfortable + 1, SettledWindows);
-        if (_comfortable < SettledWindows)
-        {
-            return Hold("settling-headroom");
-        }
-
-        return BeginProbe(limits);
+        return _comfortable < SettledWindows ? Hold("settling-headroom") : BeginProbe(limits);
     }
 
     /// <summary>Ends automatic control and reports the limit to restore.</summary>

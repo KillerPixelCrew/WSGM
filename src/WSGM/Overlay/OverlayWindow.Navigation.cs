@@ -164,7 +164,7 @@ public partial class OverlayWindow
 
         PlacePerformanceSection(deviceAvailable);
 
-        Tabs.Tabs = _navigation.VisibleDestinations.Select(CreateDestinationTab).ToList();
+        Tabs.Tabs = [.. _navigation.VisibleDestinations.Select(CreateDestinationTab)];
         var selectedIndex = DestinationIndex(_navigation.Destination);
         // Rebuilding a dynamic strip can change the meaning of an unchanged numeric
         // index (System 2 becomes Device 2). Force one descriptor-based selection.
@@ -345,6 +345,7 @@ public partial class OverlayWindow
                 return true;
             case OverlayBackAction.ClosePopup:
                 return true;
+            case OverlayBackAction.CloseOverlay:
             default:
                 return false;
         }

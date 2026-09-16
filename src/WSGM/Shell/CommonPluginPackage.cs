@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,13 +13,11 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
 {
     private readonly PluginPackageLoader.PluginLoadContext _context;
     private readonly IPlugin _plugin;
-    private readonly PluginManifest _manifest;
     private bool _disposed;
 
-    private CommonPluginPackage(PluginPackageLoader.PluginLoadContext context, IPlugin plugin, PluginManifest manifest)
-    { _context = context; _plugin = plugin; _manifest = manifest; }
+    private CommonPluginPackage(PluginPackageLoader.PluginLoadContext context, IPlugin plugin)
+    { _context = context; _plugin = plugin; }
 
-    internal PluginManifest Manifest => Snapshot(_manifest);
     public string Id => _plugin.Id;
     public IReadOnlyList<PluginSetting> Settings => _plugin is IConfigurablePlugin configurable ? configurable.Settings : [];
     public IReadOnlyList<PluginAction> Actions => _plugin is IPluginActions actions ? actions.Actions : [];
@@ -58,7 +55,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
             try
             {
                 Assembly assembly;
-                using (var entry = File.OpenRead(entryPath)) { assembly = context.LoadFromStream(entry); }
+                await using (var entry = File.OpenRead(entryPath)) { assembly = context.LoadFromStream(entry); }
                 var type = assembly.GetType(snapshot.EntryType, throwOnError: false, ignoreCase: false);
                 if (type is null || !type.IsPublic || type.IsAbstract || type.ContainsGenericParameters
                     || !typeof(IPlugin).IsAssignableFrom(type) || type.GetConstructor(Type.EmptyTypes) is null)
@@ -66,7 +63,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
                 plugin = (IPlugin)Activator.CreateInstance(type)!;
                 if (plugin.Id != snapshot.Id) { throw new InvalidDataException("Plugin code and manifest identities differ."); }
                 cancellationToken.ThrowIfCancellationRequested();
-                return new CommonPluginPackage(context, plugin, snapshot);
+                return new CommonPluginPackage(context, plugin);
             }
             catch (Exception loadFailure)
             {
@@ -86,8 +83,8 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
 
     private static PluginManifest Snapshot(PluginManifest manifest) => manifest with
     {
-        Dependencies = Array.AsReadOnly(manifest.Dependencies.ToArray()),
-        Permissions = Array.AsReadOnly(manifest.Permissions.ToArray())
+        Dependencies = Array.AsReadOnly([.. manifest.Dependencies]),
+        Permissions = Array.AsReadOnly([.. manifest.Permissions])
     };
 
     private static string PackageFile(string root, string name)
@@ -96,9 +93,9 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         if ((rootAttributes & FileAttributes.ReparsePoint) != 0 || (rootAttributes & FileAttributes.Directory) == 0)
         { throw new InvalidDataException("Plugin package roots cannot be reparse points."); }
         var path = PluginPackageLoader.ConstrainPackagePath(root, name);
-        if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
-        { throw new InvalidDataException("Plugin package files cannot be reparse points."); }
-        return path;
+        return (File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0
+            ? throw new InvalidDataException("Plugin package files cannot be reparse points.")
+            : path;
     }
 
     public ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken cancellationToken) =>

@@ -12,10 +12,8 @@ internal static class Program
         {
             return ServiceInstaller.Install();
         }
-        if (args.Contains("--uninstall", StringComparer.OrdinalIgnoreCase))
-        {
-            return ServiceInstaller.Uninstall();
-        }
-        return ServiceHost.RunDispatcher();
+        return args.Contains("--uninstall", StringComparer.OrdinalIgnoreCase)
+            ? ServiceInstaller.Uninstall()
+            : ServiceHost.RunDispatcher();
     }
 }

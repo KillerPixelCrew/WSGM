@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -16,19 +17,19 @@ namespace WSGM.Shell;
 public sealed class SessionModes
 {
     /// <summary>The warning shown when the required Steam installation cannot be found.</summary>
-    public const string SteamNotFoundWarning = "Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.";
+    private const string SteamNotFoundWarning = "Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.";
 
     /// <summary>The warning shown when Steam Big Picture could not be started.</summary>
     public const string BigPictureStartFailedWarning = "Couldn't start Steam Big Picture.";
 
     /// <summary>The warning shown when the windowed desktop Steam client could not be started.</summary>
-    public const string SteamStartFailedWarning = "Couldn't start Steam.";
+    private const string SteamStartFailedWarning = "Couldn't start Steam.";
 
     private AppConfig _config;
     private CancellationTokenSource? _entryCancellation;
     private readonly SteamMonitor? _monitor;
     private readonly ExplorerDesktopHost? _desktopHost;
-    private readonly object _homeLaunchGate = new();
+    private readonly Lock _homeLaunchGate = new();
     private bool _homeLaunchInProgress;
     private DateTime _lastHomeLaunchUtc;
 
@@ -136,10 +137,7 @@ public sealed class SessionModes
     internal void CommitGameMode()
     {
         GameModeEntered?.Invoke();
-        if (_monitor is not null)
-        {
-            _monitor.Paused = false;
-        }
+        _monitor?.Paused = false;
     }
 
     private int _explorerTransition;
@@ -193,13 +191,13 @@ public sealed class SessionModes
             Log.Warn($"Ignoring {reason}: an explorer transition is already in progress.");
             return false;
         }
-        if (Volatile.Read(ref _shutdownRequested) != 0)
+        if (Volatile.Read(ref _shutdownRequested) == 0)
         {
-            EndTransition();
-            Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
-            return false;
+            return true;
         }
-        return true;
+        EndTransition();
+        Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
+        return false;
     }
 
     /// <summary>Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
@@ -228,10 +226,7 @@ public sealed class SessionModes
             return;
         }
         Log.Info("Entering desktop mode.");
-        if (_monitor is not null)
-        {
-            _monitor.Paused = true;
-        }
+        _monitor?.Paused = true;
         _ = Task.Run(async () =>
         {
             try { await ReturnToDesktopAsync(null, runLeaveActions: true).ConfigureAwait(false); }
@@ -255,9 +250,9 @@ public sealed class SessionModes
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _desktopReturnComplete = restored && warnings.Count == 0;
-                if (_monitor is not null) { _monitor.Paused = !restored; }
+                _monitor?.Paused = !restored;
                 if (restored) { EnsureSteamDesktop(); }
-                if (!restored) { warnings.Add(ExplorerDesktopPendingWarning); }
+                else { warnings.Add(ExplorerDesktopPendingWarning); }
                 if (warnings.Count > 0) { SteamStartFailed?.Invoke(string.Join(" ", warnings)); }
             });
         }
@@ -305,10 +300,9 @@ public sealed class SessionModes
         public async Task RunLeaveActionsAsync()
         {
             if (modes.GameModeEntryServices is not { } services) { return; }
-            foreach (var step in await services.RunLeaveActionsAsync().ConfigureAwait(false))
-            {
-                if (!step.Succeeded) { warnings.Add("Leave Game Mode action: " + step.Detail); }
-            }
+            var steps = await services.RunLeaveActionsAsync().ConfigureAwait(false);
+            warnings.AddRange(steps.Where(step => !step.Succeeded)
+                .Select(step => "Leave Game Mode action: " + step.Detail));
         }
         public Task ClearPendingReturnAsync() =>
             modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? Task.CompletedTask;
@@ -368,12 +362,9 @@ public sealed class SessionModes
         }
         _desktopReturnComplete = false;
         Log.Info("Entering game mode.");
-        if (_monitor is not null)
-        {
-            // Desktop mode already pauses it, but make the transition transactional:
-            // no Steam lifecycle edge may react until Explorer is confirmed gone.
-            _monitor.Paused = true;
-        }
+        // Desktop mode already pauses it, but make the transition transactional:
+        // no Steam lifecycle edge may react until Explorer is confirmed gone.
+        _monitor?.Paused = true;
         var cancellation = new CancellationTokenSource();
         _entryCancellation = cancellation;
         _ = Task.Run(async () =>
@@ -473,10 +464,7 @@ public sealed class SessionModes
     public void CloseSteam()
     {
         Volatile.Write(ref _steamClosedByUser, 1);
-        if (_monitor is not null)
-        {
-            _monitor.Paused = true;
-        }
+        _monitor?.Paused = true;
         Log.Info("Closing Steam (steam://exit).");
         AppLauncher.StartProtocol(Steam.ExitUrl);
     }
@@ -493,10 +481,7 @@ public sealed class SessionModes
             return;
         }
         Volatile.Write(ref _steamClosedByUser, 0);
-        if (_monitor is not null)
-        {
-            _monitor.Paused = false;
-        }
+        _monitor?.Paused = false;
         if (_monitor?.IsAlive == true)
         {
             FocusSteam();
@@ -558,12 +543,12 @@ public sealed class SessionModes
         // Live check, not the up-to-5 s-stale monitor poll: a desktop session leaves Steam running
         // windowed, so the protocol has to re-activate that client into Big Picture rather than
         // start a second cold one.
-        if (Steam.IsRunning)
+        if (!Steam.IsRunning)
         {
-            FocusSteam(force: true);
-            return null;
+            return StartBigPicture();
         }
-        return StartBigPicture();
+        FocusSteam(force: true);
+        return null;
     }
 
     /// <summary>The one Steam start + warning flow (shared by boot and the overlay):

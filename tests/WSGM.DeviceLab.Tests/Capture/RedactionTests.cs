@@ -1,7 +1,7 @@
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 
-namespace WSGM.Device.Tests;
+namespace WSGM.DeviceLab.Tests.Capture;
 
 public sealed class RedactionTests
 {
@@ -41,7 +41,7 @@ public sealed class RedactionTests
         Assert.Equal(inventoryId, streams[1].SourceId);
         Assert.NotEqual(inventoryId, streams[0].SourceId);
         Assert.Equal(first, original.UsbInterfaces[0].InstanceId);
-        Assert.Contains(redactor.Summarize(), summary => summary.Category == RedactionCategory.DeviceInstance && summary.Occurrences == 2);
+        Assert.Contains(redactor.Summarize(), summary => summary is { Category: RedactionCategory.DeviceInstance, Occurrences: 2 });
     }
 
     [Fact]

@@ -38,18 +38,19 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(value);
         _descriptor = descriptor;
-        Choices = descriptor.Choices
-            .Select(static choice => new PluginSettingChoiceViewModel(
-                choice.Value,
-                DisplayLabel(choice.Display, choice.Value)))
-            .ToArray();
+        Choices =
+        [
+            .. descriptor.Choices
+                .Select(static choice => new PluginSettingChoiceViewModel(
+                    choice.Value,
+                    DisplayLabel(choice.Display, choice.Value)))
+        ];
         Adopt(value);
     }
 
     /// <summary>Raised after an edit, carrying the setting id and its new value.</summary>
     public event Action<string, CapabilityValue>? Edited;
 
-    /// <inheritdoc />
     /// <summary>The declared setting this row edits.</summary>
     public string SettingId => _descriptor.SettingId;
 
@@ -159,7 +160,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             // Clamped here as well as validated on commit. A slider bound to a stale range can
             // otherwise report a value the plugin already refuses, and the user sees a control that
             // moves and then springs back with no explanation.
-            var clamped = _descriptor.Minimum is { } min && _descriptor.Maximum is { } max
+            var clamped = _descriptor is { Minimum: { } min, Maximum: { } max }
                 ? Math.Clamp(value, min, max)
                 : value;
             if (_integerValue == clamped)
@@ -217,14 +218,16 @@ public sealed class PluginSettingRowViewModel : ObservableObject
 
             _selectedChoice = value;
             Raise(nameof(SelectedChoice));
-            if (value is { } choice)
+            if (value is null)
             {
-                Publish(new CapabilityValue
-                {
-                    Kind = CapabilityValueKind.Choice,
-                    ChoiceValue = choice.Value
-                });
+                return;
             }
+
+            Publish(new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Choice,
+                ChoiceValue = value.Value
+            });
         }
     }
 

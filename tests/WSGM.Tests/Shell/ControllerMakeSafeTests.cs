@@ -1,7 +1,7 @@
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Shell;
 
 public sealed class ControllerMakeSafeTests
 {

@@ -117,7 +117,7 @@ public sealed class ShellSession : IAsyncDisposable
     // ReadDirectoryChangesW state) and silently stops raising events.
     private FileSystemWatcher? _configWatcher;
     private Timer? _configDebounce;
-    private readonly object _configDebounceGate = new();
+    private readonly Lock _configDebounceGate = new();
     private long _configReloadGeneration;
     private Task? _startupTask;
     private DeviceCoordinator? _deviceCoordinator;
@@ -229,6 +229,13 @@ public sealed class ShellSession : IAsyncDisposable
             return false;
         }
         TaskCompletionSource<bool> dispatched = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (action == SteamNativeSurfaceAction.Keyboard && target.KeyboardOpen == true
+            && _steamControllerHandoff?.State == SteamControllerOwnership.Steam) { return true; }
+        if (_steamControllerHandoff is not { } owner || !owner.TryStart(Replay)) { return false; }
+        if (action != SteamNativeSurfaceAction.Keyboard) { return true; }
+        var finished = await Task.WhenAny(dispatched.Task, owner.Completion).WaitAsync(cancellationToken).ConfigureAwait(false);
+        return finished == dispatched.Task && await dispatched.Task.ConfigureAwait(false);
+
         async Task<bool> Replay(CancellationToken token)
         {
             try
@@ -244,13 +251,6 @@ public sealed class ShellSession : IAsyncDisposable
                 throw;
             }
         }
-
-        if (action == SteamNativeSurfaceAction.Keyboard && target.KeyboardOpen == true
-            && _steamControllerHandoff?.State == SteamControllerOwnership.Steam) { return true; }
-        if (_steamControllerHandoff is not { } owner || !owner.TryStart(Replay)) { return false; }
-        if (action != SteamNativeSurfaceAction.Keyboard) { return true; }
-        var finished = await Task.WhenAny(dispatched.Task, owner.Completion).WaitAsync(cancellationToken).ConfigureAwait(false);
-        return finished == dispatched.Task && await dispatched.Task.ConfigureAwait(false);
     }
 
     private SteamUiSessionHost? _steamUi;
@@ -259,7 +259,7 @@ public sealed class ShellSession : IAsyncDisposable
     private MessageWindow? _messageWindow;
     private DisplayChangeWindow? _displayChangeWindow;
     private CommonPluginOverlaySource? _pluginOverlaySource;
-    private readonly object _devicePowerGate = new();
+    private readonly Lock _devicePowerGate = new();
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
     private bool? _pendingDeviceSuspended;
@@ -281,10 +281,10 @@ public sealed class ShellSession : IAsyncDisposable
         _config = config;
         _applicationProfiles = new ApplicationPerformanceReconciler(() => _config, () => _deviceCoordinator, () => _performance, () => _autoTdp);
         _cefMasterEnabled = config.Cef.Enabled;
-        _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
-        _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
-        _libraryBadgeEnabled = config.Cef.Enabled && config.Cef.CardManager;
-        _homeCarouselEnabled = config.Cef.Enabled && config.Cef.ConnectedLibraryCarousel;
+        _wifiIndicatorEnabled = config.Cef is { Enabled: true, WifiIndicator: true };
+        _downloadSortEnabled = config.Cef is { Enabled: true, DownloadQueueSort: true };
+        _libraryBadgeEnabled = config.Cef is { Enabled: true, CardManager: true };
+        _homeCarouselEnabled = config.Cef is { Enabled: true, ConnectedLibraryCarousel: true };
         _carouselShowUninstalled = config.Cef.CarouselShowUninstalled;
         _screensaverTimeoutsEnabled = config.Cef.Enabled;
         // The real shell opens the transport only through the readiness gate, once it is
@@ -422,7 +422,7 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     return;
                 }
-                _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+                _steamUi?.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
                 _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
                 _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
                 ApplySteamUiSurfacePreferences();
@@ -556,7 +556,7 @@ public sealed class ShellSession : IAsyncDisposable
         _displayMute = new DisplayOffMuteService(_messageWindow!);
         _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
         _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
-        if (_config.MuteWhileDisplayOff && !_config.Cef.Enabled)
+        if (_config is { MuteWhileDisplayOff: true, Cef.Enabled: false })
         {
             // The mute only engages while Steam reports a download, and that comes
             // from the CEF poll. An upgraded config can carry MuteWhileDisplayOff
@@ -658,44 +658,46 @@ public sealed class ShellSession : IAsyncDisposable
                 // The arrival wait falls back to polling, which is correct, just slower.
                 Log.Warn("Display-change window unavailable: " + ex.Message);
             }
-            if (_deviceCoordinator is { } deviceCoordinator)
+            if (_deviceCoordinator is not { } deviceCoordinator)
             {
-                _autoTdp = new AutoTdpService(
-                    new RtssFrametimeReader(),
-                    deviceCoordinator.Capabilities.Snapshot,
-                    (power, value, pair, token) =>
-                        deviceCoordinator.ExecuteCapabilityAsync(
-                            power.Descriptor.CapabilityId,
-                            power.Descriptor.InstanceId,
-                            value,
-                            TimeSpan.FromSeconds(5),
-                            CapabilityCommandOrigin.AutomaticControl,
-                            token, power.Projection.State.CycleGeneration,
-                            power.Projection.State.DescriptorGeneration, applyPowerPair: pair),
-                    TargetFrametimeMs);
-                var autoTdp = _autoTdp;
-                deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
-                deviceCoordinator.PowerPresets.AutomaticPowerOwner = () => autoTdp.OwnsPower;
-                // A power limit the user set by hand pauses control permanently and is persisted to
-                // whichever profile layer is in force, so it is restored on the next launch instead
-                // of leaking onto the desktop. The hook is rooted here because this is where both
-                // objects exist; every surface's power write already goes through the coordinator,
-                // so this is the one place that sees all of them. Restore writes use the
-                // ProfileRestore origin and never reach this funnel.
-                deviceCoordinator.AttachAutoTdpManualOverride(watts =>
-                {
-                    _autoTdp?.NoteManualChange(watts);
-                    _applicationProfiles.PersistManualPowerLimit(watts);
-                }, assigned: watts => _autoTdp?.NoteManualChange(watts));
-
-                // Variable refresh is stored the same way and for the same reason. Rooted on the
-                // coordinator rather than on the one control that used to save it, because the
-                // overlay's Device row reaches the capability directly and would otherwise apply a
-                // state the profile never learned about.
-                deviceCoordinator.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
-
-                _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp);
+                return;
             }
+
+            _autoTdp = new AutoTdpService(
+                new RtssFrametimeReader(),
+                deviceCoordinator.Capabilities.Snapshot,
+                (power, value, pair, token) =>
+                    deviceCoordinator.ExecuteCapabilityAsync(
+                        power.Descriptor.CapabilityId,
+                        power.Descriptor.InstanceId,
+                        value,
+                        TimeSpan.FromSeconds(5),
+                        CapabilityCommandOrigin.AutomaticControl,
+                        token, power.Projection.State.CycleGeneration,
+                        power.Projection.State.DescriptorGeneration, applyPowerPair: pair),
+                TargetFrametimeMs);
+            var autoTdp = _autoTdp;
+            deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
+            deviceCoordinator.PowerPresets.AutomaticPowerOwner = () => autoTdp.OwnsPower;
+            // A power limit the user set by hand pauses control permanently and is persisted to
+            // whichever profile layer is in force, so it is restored on the next launch instead
+            // of leaking onto the desktop. The hook is rooted here because this is where both
+            // objects exist; every surface's power write already goes through the coordinator,
+            // so this is the one place that sees all of them. Restore writes use the
+            // ProfileRestore origin and never reach this funnel.
+            deviceCoordinator.AttachAutoTdpManualOverride(watts =>
+            {
+                _autoTdp?.NoteManualChange(watts);
+                _applicationProfiles.PersistManualPowerLimit(watts);
+            }, assigned: watts => _autoTdp?.NoteManualChange(watts));
+
+            // Variable refresh is stored the same way and for the same reason. Rooted on the
+            // coordinator rather than on the one control that used to save it, because the
+            // overlay's Device row reaches the capability directly and would otherwise apply a
+            // state the profile never learned about.
+            deviceCoordinator.AttachManualVariableRefreshOverride(_applicationProfiles.PersistManualVariableRefresh);
+
+            _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp);
         }
         else
         {
@@ -729,50 +731,46 @@ public sealed class ShellSession : IAsyncDisposable
                 "steam:480",
                 480,
                 "PreviewGame.exe"));
+            return;
         }
 
         // Overlay-test runs without a real display to move, and pairing is the one performance
         // concern that changes hardware state rather than an RTSS profile.
-        if (!_overlayTestOnly)
-        {
-            _refreshPairing = new RefreshRatePairingService();
-            _resolutions = new DisplayResolutionService();
-            _refreshPairing.SetStrategy(_config.Performance.FrameLimitStrategy);
-            _performance.StateChanged += OnPerformanceStateForPairing;
-            _autoTdp?.Apply(ShouldRunAutoTdp(_config.DeviceIntegration));
-        }
-        if (!_overlayTestOnly)
-        {
-            _steamUiTransport = new PersistentSteamUiTransport(requireMainWindow: true);
-            // Decide the gate BEFORE attaching: Attach copies the session flag into the
-            // transport, and an open transport with a subscriber starts discovering
-            // Steam's port at once.
-            ApplySteamUiTransportGate();
-            SteamUiTransportSession.Attach(_steamUiTransport);
-            _transportGateWork = Task.Run(() =>
-                RunSteamUiTransportGateAsync(_shutdownCancellation.Token));
-            // Its own reader rather than AutoTDP's: RtssFrametimeReader is not thread-safe, and
-            // these two poll on different threads at different cadences. The mapping is read-only,
-            // so a second view of it costs a handle and nothing else.
-            _pairingFrametimes = new RtssFrametimeReader();
-            _runningApplications = new RunningApplicationMonitor(
-                new SteamRunningApplicationProbe(_steamUiTransport),
-                _config.Cef.Enabled,
-                _pairingFrametimes.ReadLive);
+        _refreshPairing = new RefreshRatePairingService();
+        _resolutions = new DisplayResolutionService();
+        _refreshPairing.SetStrategy(_config.Performance.FrameLimitStrategy);
+        _performance.StateChanged += OnPerformanceStateForPairing;
+        _autoTdp?.Apply(ShouldRunAutoTdp(_config.DeviceIntegration));
 
-            // The second identity source. It feeds the same monitor rather than driving policy on
-            // its own, so per-application settings also work on the desktop and for titles Steam
-            // never launched — which is the only way the overlay's per-game rows mean anything
-            // outside a Steam game.
-            _foregroundWindows = new ForegroundWindowWatcher();
-            _foregroundWindows.ApplicationChanged += OnForegroundApplicationChanged;
-            _runningApplicationTargets = new RunningApplicationCoordinator(
-                _runningApplications,
-                _performance.SetTargetAsync,
-                _deviceCoordinator is null
-                    ? null
-                    : ApplyRunningApplicationTargetAsync);
-        }
+        _steamUiTransport = new PersistentSteamUiTransport(requireMainWindow: true);
+        // Decide the gate BEFORE attaching: Attach copies the session flag into the
+        // transport, and an open transport with a subscriber starts discovering
+        // Steam's port at once.
+        ApplySteamUiTransportGate();
+        SteamUiTransportSession.Attach(_steamUiTransport);
+        _transportGateWork = Task.Run(() =>
+            RunSteamUiTransportGateAsync(_shutdownCancellation.Token));
+        // Its own reader rather than AutoTDP's: RtssFrametimeReader is not thread-safe, and
+        // these two poll on different threads at different cadences. The mapping is read-only,
+        // so a second view of it costs a handle and nothing else.
+        _pairingFrametimes = new RtssFrametimeReader();
+        _runningApplications = new RunningApplicationMonitor(
+            new SteamRunningApplicationProbe(_steamUiTransport),
+            _config.Cef.Enabled,
+            _pairingFrametimes.ReadLive);
+
+        // The second identity source. It feeds the same monitor rather than driving policy on
+        // its own, so per-application settings also work on the desktop and for titles Steam
+        // never launched — which is the only way the overlay's per-game rows mean anything
+        // outside a Steam game.
+        _foregroundWindows = new ForegroundWindowWatcher();
+        _foregroundWindows.ApplicationChanged += OnForegroundApplicationChanged;
+        _runningApplicationTargets = new RunningApplicationCoordinator(
+            _runningApplications,
+            _performance.SetTargetAsync,
+            _deviceCoordinator is null
+                ? null
+                : ApplyRunningApplicationTargetAsync);
     }
 
     /// <summary>Creates the Steam monitor, session modes, keep-awake and the audio, radio and storage services Steam's surfaces use.</summary>
@@ -822,35 +820,37 @@ public sealed class ShellSession : IAsyncDisposable
         // Started here rather than by the taskbar, because Steam's audio namespace has to answer
         // while the taskbar is closed. Overlay-test keeps the old behaviour and lets the status
         // cluster own its own, since no Steam surface exists there to serve.
-        if (!_overlayTestOnly)
+        if (_overlayTestOnly)
         {
-            _audio = new AudioManager();
-            _audio.Start();
-
-            // Not started here: scanning is expensive and belongs to whichever surface is showing a
-            // network list. The manager exists for the whole session so Steam's Internet page can
-            // drive it, but it stays idle until something asks.
-            _radios = new RadioManager();
-
-            // Started here rather than by the taskbar, for the same reason as audio: Steam's
-            // storage pages ask what is ejectable while the overlay is closed, and an unstarted
-            // manager would answer "nothing" to someone holding a card.
-            _drives = new RemovableDriveManager();
-
-            // Every eject surface reaches the manager, so the policy hangs here rather than at
-            // each call site: the overlay's panel and Steam's storage page then mean the same
-            // thing by an eject without either knowing about the other.
-            _drives.EjectObserver = _libraryPolicy;
-            _drives.Start();
-            _formats = new SdFormatManager();
-
-            // Over the same two managers the overlay's storage flows use. Steam's revived pages are
-            // a second surface on one backend, not a second implementation. The format switch is
-            // read through the session's live config, so switching it in Settings takes effect on
-            // the next press rather than the next session.
-            _steamStorage = new SteamStorageBridge(
-                _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
+            return;
         }
+
+        _audio = new AudioManager();
+        _audio.Start();
+
+        // Not started here: scanning is expensive and belongs to whichever surface is showing a
+        // network list. The manager exists for the whole session so Steam's Internet page can
+        // drive it, but it stays idle until something asks.
+        _radios = new RadioManager();
+
+        // Started here rather than by the taskbar, for the same reason as audio: Steam's
+        // storage pages ask what is ejectable while the overlay is closed, and an unstarted
+        // manager would answer "nothing" to someone holding a card.
+        _drives = new RemovableDriveManager();
+
+        // Every eject surface reaches the manager, so the policy hangs here rather than at
+        // each call site: the overlay's panel and Steam's storage page then mean the same
+        // thing by an eject without either knowing about the other.
+        _drives.EjectObserver = _libraryPolicy;
+        _drives.Start();
+        _formats = new SdFormatManager();
+
+        // Over the same two managers the overlay's storage flows use. Steam's revived pages are
+        // a second surface on one backend, not a second implementation. The format switch is
+        // read through the session's live config, so switching it in Settings takes effect on
+        // the next press rather than the next session.
+        _steamStorage = new SteamStorageBridge(
+            _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
     }
 
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
@@ -891,10 +891,9 @@ public sealed class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
-            {
-                return _config.Cef.Enabled && _steamUiTransport is { } transport
-                    && await SteamGameWindowActivation.RaiseAsync(transport, processId, token);
-            }, _shutdownCancellation.Token);
+                _config.Cef.Enabled && _steamUiTransport is { } transport
+                && await SteamGameWindowActivation.RaiseAsync(transport, processId, token),
+                _shutdownCancellation.Token);
         }
         if (!_overlayTestOnly)
         {
@@ -930,38 +929,41 @@ public sealed class ShellSession : IAsyncDisposable
         // objects exist: the coordinator owns the stream and the controller owns the surfaces.
         // Nothing is unsubscribed on device teardown — the manager simply stops raising, and the
         // router falls back to SDL, which never stopped running.
-        if (_deviceCoordinator is { } canonicalSource && _overlay is { } overlay)
+        if (_deviceCoordinator is not { } canonicalSource || _overlay is not { } overlay)
         {
-            // Queued to the UI thread, never called inline. This event is raised from the plugin
-            // runtime's registered ThreadPool wait and runs straight into GamepadNavigation, which
-            // reads window visibility and mutates Avalonia focus and controls: UI-thread-owned state
-            // that a worker thread must not touch. The rate is bounded by design: the manager raises
-            // this only while a WSGM surface has captured input. Losses share the queue, so no
-            // sample is delivered ahead of one.
-            CanonicalSampleQueue canonicalSamples = new(overlay.SubmitCanonicalSample, overlay.ManagedInputLost);
-            canonicalSource.Controllers.UiSampleReceived += canonicalSamples.Enqueue;
-            canonicalSource.StateChanged += state =>
-            {
-                if (state is not DeviceCycleState.Active)
-                {
-                    canonicalSamples.SourceLost();
-                }
-            };
-            // The cycle staying Active is not the same as samples still arriving. Disabling
-            // controller management runs make-safe and leaves the cycle Active while the plugin
-            // stops publishing, so without this the router waited on a source that had gone quiet
-            // and WSGM's own surfaces stopped answering a controller SDL could already see.
-            canonicalSource.Controllers.StatusChanged += status =>
-            {
-                if (status.State is not ControllerManagementState.Active)
-                {
-                    Log.Info(
-                        $"Managed UI input falls back to SDL: controller management is "
-                        + $"{status.State} ({status.Detail}).");
-                    canonicalSamples.SourceLost();
-                }
-            };
+            return;
         }
+
+        // Queued to the UI thread, never called inline. This event is raised from the plugin
+        // runtime's registered ThreadPool wait and runs straight into GamepadNavigation, which
+        // reads window visibility and mutates Avalonia focus and controls: UI-thread-owned state
+        // that a worker thread must not touch. The rate is bounded by design: the manager raises
+        // this only while a WSGM surface has captured input. Losses share the queue, so no
+        // sample is delivered ahead of one.
+        CanonicalSampleQueue canonicalSamples = new(overlay.SubmitCanonicalSample, overlay.ManagedInputLost);
+        canonicalSource.Controllers.UiSampleReceived += canonicalSamples.Enqueue;
+        canonicalSource.StateChanged += state =>
+        {
+            if (state is not DeviceCycleState.Active)
+            {
+                canonicalSamples.SourceLost();
+            }
+        };
+        // The cycle staying Active is not the same as samples still arriving. Disabling
+        // controller management runs make-safe and leaves the cycle Active while the plugin
+        // stops publishing, so without this the router waited on a source that had gone quiet
+        // and WSGM's own surfaces stopped answering a controller SDL could already see.
+        canonicalSource.Controllers.StatusChanged += status =>
+        {
+            if (status.State is ControllerManagementState.Active)
+            {
+                return;
+            }
+            Log.Info(
+                $"Managed UI input falls back to SDL: controller management is "
+                + $"{status.State} ({status.Detail}).");
+            canonicalSamples.SourceLost();
+        };
     }
 
     /// <summary>Connects OEM actions, the card badge and the Steam monitor's lifecycle events to the session.</summary>
@@ -1054,7 +1056,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _brightness,
                 _steamStorage,
                 _overlayTestOnly ? null : _displayTimeouts);
-            _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+            _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
             {
@@ -1126,14 +1128,15 @@ public sealed class ShellSession : IAsyncDisposable
         _monitor.SteamStarted += () =>
         {
             RequestSteamUiTransportGateCheck();
-            if (_inGameMode)
+            if (!_inGameMode)
             {
-                KickTabBootSync();
-                // A restarted client rebuilds its folder list from libraryfolders.vdf,
-                // which can bring back a library for a card that is no longer in the
-                // reader — and no volume notification will fire to say so.
-                _cardVolumes?.Kick("Steam restarted");
+                return;
             }
+            KickTabBootSync();
+            // A restarted client rebuilds its folder list from libraryfolders.vdf,
+            // which can bring back a library for a card that is no longer in the
+            // reader — and no volume notification will fire to say so.
+            _cardVolumes?.Kick("Steam restarted");
         };
         // Steam leaving in game mode closes the transport gate at once, so a restart's
         // fresh, still-headless CEF session cannot be connected before its own Big
@@ -1312,14 +1315,16 @@ public sealed class ShellSession : IAsyncDisposable
                     if (desktopRequested)
                     {
                         BeginDesktopModeFromSplash();
+                        return;
                     }
-                    else if (result is BootTakeoverResult.DesktopPreserved)
+                    switch (result)
                     {
-                        ResumePreservedDesktopAfterBootFailure();
-                    }
-                    else if (result is BootTakeoverResult.DesktopRestoreRequired)
-                    {
-                        BeginDesktopModeAfterBootFailure();
+                        case BootTakeoverResult.DesktopPreserved:
+                            ResumePreservedDesktopAfterBootFailure();
+                            break;
+                        case BootTakeoverResult.DesktopRestoreRequired:
+                            BeginDesktopModeAfterBootFailure();
+                            break;
                     }
                 });
             }
@@ -1488,10 +1493,7 @@ public sealed class ShellSession : IAsyncDisposable
         {
             // Pause immediately so even a worker already leaving the takeover
             // cannot race through LaunchAppsAsync into Big Picture.
-            if (_monitor is not null)
-            {
-                _monitor.Paused = true;
-            }
+            _monitor?.Paused = true;
             Log.Info("Boot splash desktop request accepted — cancelling takeover.");
             return;
         }
@@ -1516,12 +1518,9 @@ public sealed class ShellSession : IAsyncDisposable
         _inGameMode = false;
         _ = NotifyPluginModeAsync(PluginSessionMode.Desktop);
         RequestSteamUiTransportGateCheck();
-        if (_monitor is not null)
-        {
-            // The session settles on the preserved desktop, which is an ordinary desktop steady
-            // state: watch Steam again rather than staying in the transition's paused state.
-            _monitor.Paused = false;
-        }
+        // The session settles on the preserved desktop, which is an ordinary desktop steady
+        // state: watch Steam again rather than staying in the transition's paused state.
+        _monitor?.Paused = false;
         _modes!.ReportWarning(SessionModes.ExplorerTakeoverRefusedWarning);
         _modes.EnsureSteamDesktop();
     }
@@ -1803,7 +1802,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// alongside the other injections that mode excludes.</summary>
     /// <param name="config">The configuration to read the gates from.</param>
     private bool AutoKeepAwakeEnabled(AppConfig config)
-        => !_overlayTestOnly && config.Cef.Enabled && config.Cef.DownloadKeepAwake;
+        => !_overlayTestOnly && config.Cef is { Enabled: true, DownloadKeepAwake: true };
 
     /// <summary>Whether the shared Steam download poll has at least one consumer.
     /// The mute feature reuses the same answer even when its automatic wake lock is
@@ -1992,11 +1991,22 @@ public sealed class ShellSession : IAsyncDisposable
     private DisplayArrivalWaiter CreateArrivalWaiter() => new(
         new ShellDisplayPresence(),
         new ShellDisplayChangeSignal(_displayChangeWindow),
-        (wait, token) => Task.Delay(wait, token));
+        Task.Delay);
 
     /// <summary>Runs the desktop startup or wake action list, coalesced.</summary>
     /// <param name="startup">True for the startup list, false for the wake list.</param>
-    private void QueueDesktopActions(bool startup) => Dispatcher.UIThread.Post(async () =>
+    /// <remarks>
+    /// The work starts synchronously inside the posted callback, and a fault that escapes it is
+    /// rethrown on the dispatcher, as an async callback would have raised it there.
+    /// </remarks>
+    private void QueueDesktopActions(bool startup) => Dispatcher.UIThread.Post(() =>
+        _ = RunDesktopActionsAsync(startup).ContinueWith(
+            static task => Dispatcher.UIThread.Post(() => task.GetAwaiter().GetResult()),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default));
+
+    private async Task RunDesktopActionsAsync(bool startup)
     {
         if (_shutdownRequested || _overlayTestOnly || !_desktopActionAdmission.TryBegin(
             _inGameMode, _modes?.TransitionInProgress != false, Environment.TickCount64)) { return; }
@@ -2034,7 +2044,7 @@ public sealed class ShellSession : IAsyncDisposable
             if (acquired) { _displayActionGate.Release(); }
             _desktopActionAdmission.End();
         }
-    });
+    }
 
     /// <summary>Quiesces or revives the device cycle with the session it belongs to.</summary>
     /// <param name="suspend">Whether the cycle should quiesce.</param>
@@ -2192,7 +2202,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// therefore has no rate to name — which is also what makes the label collapse from
     /// "60 FPS (60 Hz)" to plain "60 FPS" without a second flag saying so.
     /// </remarks>
-    private static IReadOnlyDictionary<int, int>? ReadPairedRefreshRates(
+    private static Dictionary<int, int>? ReadPairedRefreshRates(
         RefreshRatePairingService? pairing,
         IReadOnlyList<int> options,
         bool uncoupled)
@@ -2328,11 +2338,11 @@ public sealed class ShellSession : IAsyncDisposable
                             ApplyGlyphConfig(config);
                         }
                         ApplySteamInputManagement(config.SteamInputManagementEnabled);
-                        ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
-                        ApplyDownloadSort(config.Cef.Enabled && config.Cef.DownloadQueueSort);
-                        ApplyLibraryBadge(config.Cef.Enabled && config.Cef.CardManager);
+                        ApplyNetworkIndicator(config.Cef is { Enabled: true, WifiIndicator: true });
+                        ApplyDownloadSort(config.Cef is { Enabled: true, DownloadQueueSort: true });
+                        ApplyLibraryBadge(config.Cef is { Enabled: true, CardManager: true });
                         ApplyHomeCarousel(
-                            config.Cef.Enabled && config.Cef.ConnectedLibraryCarousel,
+                            config.Cef is { Enabled: true, ConnectedLibraryCarousel: true },
                             config.Cef.CarouselShowUninstalled);
                         ApplyScreensaverTimeouts(config.Cef.Enabled);
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
@@ -2370,11 +2380,12 @@ public sealed class ShellSession : IAsyncDisposable
                 Debounce();
                 try
                 {
-                    if (sender is FileSystemWatcher watcher)
+                    if (sender is not FileSystemWatcher watcher)
                     {
-                        watcher.EnableRaisingEvents = false;
-                        watcher.EnableRaisingEvents = true;
+                        return;
                     }
+                    watcher.EnableRaisingEvents = false;
+                    watcher.EnableRaisingEvents = true;
                 }
                 catch (Exception ex)
                 {
@@ -2398,7 +2409,7 @@ public sealed class ShellSession : IAsyncDisposable
             return false;
         }
         return await Dispatcher.UIThread.InvokeAsync(() =>
-            _shutdownRequested ? false : action());
+            !_shutdownRequested && action());
     }
 
     private async Task<bool> CyclePerformanceOverlayLevelAsync(
@@ -3070,7 +3081,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>Applies the Device Integration master switch to AutoTDP at every entry point.</summary>
     internal static bool ShouldRunAutoTdp(DeviceIntegrationConfig config) =>
-        config.Enabled && config.AutoTdpEnabled;
+        config is { Enabled: true, AutoTdpEnabled: true };
 
     private static bool GlyphsEnabled(AppConfig config) =>
         config.Cef.Enabled
@@ -3145,7 +3156,7 @@ public sealed class ShellSession : IAsyncDisposable
         var reportedTdpWatts = tdp.Available
             ? tdp.ObservedWatts ?? tdp.DesiredWatts
             : null;
-        var tdpWatts = enabled && autoTdp?.Watts is int automaticWatts
+        var tdpWatts = enabled && autoTdp?.Watts is { } automaticWatts
             ? automaticWatts
             : reportedTdpWatts;
         performance.ApplyOsdPowerStatus(new RtssOsdPowerStatus(
@@ -3291,19 +3302,13 @@ public sealed class ShellSession : IAsyncDisposable
         AppConfig config,
         bool forceEnabled)
     {
-        List<PerformanceApplicationPolicy> applications = [];
-        foreach (var application in config.Performance.Applications)
-        {
-            if (!application.UsePerGameProfile)
-            {
-                continue;
-            }
-
-            applications.Add(new PerformanceApplicationPolicy(
+        var applications = config.Performance.Applications
+            .Where(application => application.UsePerGameProfile)
+            .Select(application => new PerformanceApplicationPolicy(
                 application.ApplicationId,
                 application.RtssProfileName,
-                new PerformanceValues(application.FrameLimit, application.OverlayLevel)));
-        }
+                new PerformanceValues(application.FrameLimit, application.OverlayLevel)))
+            .ToList();
 
         return new PerformancePolicy(
             new PerformanceValues(

@@ -19,16 +19,12 @@ internal sealed class PluginPackageLoader : IDisposable
     private bool _disposed;
 
     private PluginPackageLoader(
-        string packageRoot,
         PluginLoadContext loadContext,
         IDevicePlugin plugin)
     {
-        PackageRoot = packageRoot;
         _loadContext = loadContext;
         Plugin = plugin;
     }
-
-    internal string PackageRoot { get; }
 
     internal IDevicePlugin Plugin { get; }
 
@@ -94,7 +90,7 @@ internal sealed class PluginPackageLoader : IDisposable
                     "The plugin code and manifest package identifiers differ.");
             }
 
-            return new PluginPackageLoader(root, context, plugin);
+            return new PluginPackageLoader(context, plugin);
         }
         catch (Exception loadFailure)
         {
@@ -152,12 +148,9 @@ internal sealed class PluginPackageLoader : IDisposable
         var rootPrefix = packageRoot.TrimEnd(Path.DirectorySeparatorChar)
                          + Path.DirectorySeparatorChar;
         var candidate = Path.GetFullPath(Path.Combine(packageRoot, relativePath));
-        if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException("A package path escaped the package directory.");
-        }
-
-        return candidate;
+        return candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+            ? candidate
+            : throw new InvalidDataException("A package path escaped the package directory.");
     }
 
     internal sealed class PluginLoadContext : AssemblyLoadContext

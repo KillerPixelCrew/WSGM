@@ -1,6 +1,6 @@
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class ShellRegistrationTests
 {
@@ -9,11 +9,11 @@ public sealed class ShellRegistrationTests
     [InlineData("   ", null)]
     [InlineData("C:\\WSGM.exe --shell", "C:\\WSGM.exe")]
     [InlineData("  C:\\WSGM.exe --shell  ", "C:\\WSGM.exe")]
-    [InlineData("\"C:\\Program Files\\WSGM.exe\" --shell", "C:\\Program Files\\WSGM.exe")]
+    [InlineData(@"""C:\Program Files\WSGM.exe"" --shell", @"C:\Program Files\WSGM.exe")]
     [InlineData("\"unterminated", null)]
     [InlineData("WSGM.exe", "WSGM.exe")]
     [InlineData("C:\\Tools\\app.exe\t--argument", "C:\\Tools\\app.exe\t--argument")]
-    [InlineData("\"C:\\Tools\\app.exe\"", "C:\\Tools\\app.exe")]
+    [InlineData(@"""C:\Tools\app.exe""", @"C:\Tools\app.exe")]
     public void ShellCommandParserReadsOnlyTheExecutableTokenWithWinlogonSpaceSemantics(string? command, string? expected)
         => Assert.Equal(expected, ShellRegistration.ExtractExecutablePath(command));
 }

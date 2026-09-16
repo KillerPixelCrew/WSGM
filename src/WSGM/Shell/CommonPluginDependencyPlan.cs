@@ -27,9 +27,11 @@ internal sealed record CommonPluginDependencyPlan(IReadOnlyList<PluginManifest> 
                 if (!packages.TryGetValue(dependency.Id, out var installed))
                 { rejected[package.Id] = "Missing or ambiguous dependency: " + dependency.Id; break; }
                 var version = NumericVersion(installed.Version);
-                if (version < NumericVersion(dependency.MinimumVersion)
-                    || (dependency.MaximumVersionExclusive is { } maximum && version >= NumericVersion(maximum)))
-                { rejected[package.Id] = "Incompatible dependency: " + dependency.Id; break; }
+                if (version >= NumericVersion(dependency.MinimumVersion)
+                    && (dependency.MaximumVersionExclusive is not { } maximum || version < NumericVersion(maximum)))
+                { continue; }
+                rejected[package.Id] = "Incompatible dependency: " + dependency.Id;
+                break;
             }
         }
         List<PluginManifest> ordered = [];

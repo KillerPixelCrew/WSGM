@@ -2,7 +2,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Settings;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Settings;
 
 // Every view model below is built through the injected-config constructor. The
 // parameterless one calls ConfigStore.Load(), which reads the developer's real
@@ -17,10 +17,15 @@ public sealed class SettingsViewModelSplashTests
         // shell — the overlay and the native quick-access menu change all three while this window
         // is open. A save merges over a fresh load, so writing this window's startup snapshot back
         // unconditionally silently reverted whichever of them had changed in the meantime.
-        AppConfig config = new();
-        config.DeviceIntegration.AutoTdpEnabled = true;
-        config.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
-        config.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
+        AppConfig config = new()
+        {
+            DeviceIntegration =
+            {
+                AutoTdpEnabled = true,
+                ControllerTarget = ManagedControllerTarget.DualShock4,
+                GlyphSelection = DeviceGlyphSelection.NativeSteam
+            }
+        };
 
         SettingsViewModel viewModel = new(config);
 
@@ -33,9 +38,10 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void ChangingOneRuntimeOwnedDeviceValueMarksOnlyThatOne()
     {
-        SettingsViewModel viewModel = new(new AppConfig());
-
-        viewModel.DeviceGlyphSelectionIndex = (int)DeviceGlyphSelection.ManualReviewedProfile;
+        SettingsViewModel viewModel = new(new AppConfig())
+        {
+            DeviceGlyphSelectionIndex = (int)DeviceGlyphSelection.ManualReviewedProfile
+        };
 
         Assert.Equal((false, false, true), viewModel.DeviceEditsMade);
     }
@@ -212,7 +218,7 @@ public sealed class SettingsViewModelSplashTests
 
         Assert.NotNull(failure);
         // The write sees the REPAIRED state, not the one the first save persisted.
-        Assert.Equal(new[] { "old-logo.png" }, saved);
+        Assert.Equal(["old-logo.png"], saved);
     }
 
     [Fact]
@@ -254,9 +260,11 @@ public sealed class SettingsViewModelSplashTests
         // the persisted path goes back to the previous copy while the EDITOR keeps the
         // user's pick, so pressing Save again retries that image.
         const string picked = @"D:\Downloads\pick.png";
-        var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.SplashLogoPath = picked;
-        viewModel.SplashBackgroundImagePath = @"D:\Downloads\bg.png";
+        var viewModel = new SettingsViewModel(new AppConfig())
+        {
+            SplashLogoPath = picked,
+            SplashBackgroundImagePath = @"D:\Downloads\bg.png"
+        };
         // What the save just persisted: the failed slot still names the picked file,
         // the healthy one already names its materialized copy.
         var config = ConfigWith(picked, @"C:\splash\background.png");
@@ -270,7 +278,7 @@ public sealed class SettingsViewModelSplashTests
 
         // Persisted: the previous copy, which is the file that is actually there.
         Assert.Equal(@"C:\splash\logo.png", config.Splash.LogoImagePath);
-        Assert.Equal(new[] { @"C:\splash\logo.png" }, saved);
+        Assert.Equal([@"C:\splash\logo.png"], saved);
         // Editor: the user's pick, so a retry is one button press.
         Assert.Equal(picked, viewModel.SplashLogoPath);
         // The healthy slot adopts its materialized copy in both places.
@@ -283,9 +291,11 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void EverySlotThatWentLiveAdoptsItsMaterializedPath()
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.SplashLogoPath = @"D:\Downloads\pick.png";
-        viewModel.SplashBackgroundImagePath = @"E:\usb\bg.png";
+        var viewModel = new SettingsViewModel(new AppConfig())
+        {
+            SplashLogoPath = @"D:\Downloads\pick.png",
+            SplashBackgroundImagePath = @"E:\usb\bg.png"
+        };
 
         viewModel.AdoptMaterializedPaths(
             new SplashConfig
@@ -302,11 +312,16 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void SnapshotForPreviewCarriesSplashAndAccentAndStaysIsolatedFromLaterEdits()
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.AccentColorHex = "#112233";
-        viewModel.Splash.Text = "Snapshot title";
-        viewModel.Splash.SpinnerStyle = SplashSpinnerStyle.SweepLine;
-        viewModel.SplashBackgroundColorHex = "#101010";
+        var viewModel = new SettingsViewModel(new AppConfig())
+        {
+            AccentColorHex = "#112233",
+            Splash =
+            {
+                Text = "Snapshot title",
+                SpinnerStyle = SplashSpinnerStyle.SweepLine
+            },
+            SplashBackgroundColorHex = "#101010"
+        };
 
         var snapshot = viewModel.SnapshotForPreview();
 

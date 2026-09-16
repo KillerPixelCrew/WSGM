@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace WSGM.Core;
 
@@ -20,7 +21,7 @@ namespace WSGM.Core;
 /// </remarks>
 internal sealed class DisplayResolutionService
 {
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Func<IReadOnlyList<DisplayResolution>> _discover;
     private readonly Func<int, int, bool> _apply;
     private readonly Func<DisplayResolution?> _readCurrent;

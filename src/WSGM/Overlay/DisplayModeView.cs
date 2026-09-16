@@ -30,8 +30,8 @@ internal sealed class DisplayModeView : StackPanel
     {
         _read = read ?? (() => Task.Run(() =>
         {
-            var path = DisplayTopology.CaptureActive().Paths.FirstOrDefault();
-            return path is null ? null : DisplayModes.Read(path.Target);
+            var paths = DisplayTopology.CaptureActive().Paths;
+            return paths.Count == 0 ? null : DisplayModes.Read(paths[0].Target);
         }));
         Classes.Add("overlay-control");
         Spacing = 8;
@@ -49,7 +49,7 @@ internal sealed class DisplayModeView : StackPanel
         DetachedFromVisualTree += (_, _) => { _closed = true; _timer.Stop(); };
     }
 
-    private static Control Selector(string label, ComboBox selector)
+    private static Border Selector(string label, ComboBox selector)
     {
         AutomationProperties.SetName(selector, label);
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,240"), ColumnSpacing = 12 };

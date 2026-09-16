@@ -1,7 +1,7 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class DeviceDesiredStateTests
 {

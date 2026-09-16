@@ -10,7 +10,7 @@ namespace WSGM.Core;
 public static class BootManifestWriter
 {
     /// <summary>Absolute path of the per-user boot manifest.</summary>
-    public static string ManifestPath => Path.Combine(Log.Directory, BootManifestStore.FileName);
+    private static string ManifestPath => Path.Combine(Log.Directory, BootManifestStore.FileName);
 
     /// <summary>Writes boot.json from <paramref name="config"/>. Best effort: a
     /// failed write only logs — the service then skips the next logon, which is

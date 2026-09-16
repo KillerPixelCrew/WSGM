@@ -1,7 +1,7 @@
 using WindowsDeviceControl;
 using WSGM.Core;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Core;
 
 public sealed class PowerRequestListTests
 {
@@ -151,8 +151,8 @@ public sealed class PowerRequestListTests
     }
 
     [Theory]
-    [InlineData(1, @"C:\a\steam.exe", "Process (pid 10): C:\\a\\steam.exe")]
-    [InlineData(2, @"C:\a\svc.exe", "Service (pid 10): C:\\a\\svc.exe")]
+    [InlineData(1, @"C:\a\steam.exe", @"Process (pid 10): C:\a\steam.exe")]
+    [InlineData(2, @"C:\a\svc.exe", @"Service (pid 10): C:\a\svc.exe")]
     public void DetailNamesTheCallerKindAndPid(uint callerType, string name, string expected)
         => Assert.Equal(expected, WakeLockHolders.Describe(
             new PowerRequestEntry(false, true, false, callerType, name, 10, null)));

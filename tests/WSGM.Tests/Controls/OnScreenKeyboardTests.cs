@@ -1,7 +1,7 @@
 using Avalonia.Controls;
 using WSGM.Controls;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Controls;
 
 public class OnScreenKeyboardTests
 {

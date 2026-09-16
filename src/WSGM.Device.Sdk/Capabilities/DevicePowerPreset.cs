@@ -53,34 +53,46 @@ public sealed record DevicePowerPreset(
             if (sustained.Length != 1 || slow.Length != 1 || sustained[0] != descriptor
                 || !IsPowerLimit(descriptor) || !IsPowerLimit(slow[0])) { return false; }
             HashSet<string> ids = new(StringComparer.Ordinal);
-            foreach (var preset in descriptor.PowerPresets)
-            {
-                if (preset is null || string.IsNullOrEmpty(preset.Id) || preset.Id.Length > 64
+            if (descriptor.PowerPresets.Any(preset =>
+                    preset is null || string.IsNullOrEmpty(preset.Id) || preset.Id.Length > 64
                     || preset.Id == "custom" || !preset.Id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')
                     || !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, 120, "preset name", out _)
                     || !Enum.IsDefined(preset.WindowsMode) || preset.SustainedWatts > preset.SlowWatts
                     || !Fits(preset.SustainedWatts, descriptor) || !Fits(preset.SlowWatts, slow[0])
-                    || !ValidScenario(preset, descriptors)) { return false; }
-            }
+                    || !ValidScenario(preset, descriptors))) { return false; }
         }
         error = null;
         return true;
     }
 
     private static bool IsPowerLimit(CapabilityDescriptor descriptor) =>
-        descriptor.InstanceId is null && descriptor.SupportsRead && descriptor.SupportsWrite
-        && descriptor.ValueKind == CapabilityValueKind.Integer && descriptor.Unit == CapabilityUnit.Watt
-        && descriptor.Minimum is > 0 && descriptor.Maximum >= descriptor.Minimum && descriptor.Step is > 0;
+        descriptor is
+        {
+            InstanceId: null,
+            SupportsRead: true,
+            SupportsWrite: true,
+            ValueKind: CapabilityValueKind.Integer,
+            Unit: CapabilityUnit.Watt,
+            Minimum: > 0,
+            Step: > 0
+        }
+        && descriptor.Maximum >= descriptor.Minimum;
 
     private static bool ValidScenario(DevicePowerPreset preset, IReadOnlyList<CapabilityDescriptor> descriptors)
     {
         if (preset.ScenarioOnAc is null && preset.ScenarioOnDc is null) { return true; }
         var scenarios = descriptors.Where(d => d.Role == CapabilityRole.ScenarioMode).ToArray();
-        return scenarios.Length == 1 && scenarios[0].InstanceId is null
-            && scenarios[0].SupportsRead && scenarios[0].SupportsWrite
-            && scenarios[0].AvailableOnAc && scenarios[0].AvailableOnDc
-            && scenarios[0].ValueKind == CapabilityValueKind.Choice
-            && scenarios[0].Choices is not null
+        return scenarios.Length == 1
+            && scenarios[0] is
+            {
+                InstanceId: null,
+                SupportsRead: true,
+                SupportsWrite: true,
+                AvailableOnAc: true,
+                AvailableOnDc: true,
+                ValueKind: CapabilityValueKind.Choice,
+                Choices: not null
+            }
             && !string.IsNullOrEmpty(preset.ScenarioOnAc) && !string.IsNullOrEmpty(preset.ScenarioOnDc)
             && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnAc)
             && scenarios[0].Choices.Any(choice => choice.Value == preset.ScenarioOnDc);

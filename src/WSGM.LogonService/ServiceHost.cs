@@ -52,22 +52,23 @@ internal static class ServiceHost
                 lpServiceProc = &ServiceMain
             };
             table[1] = default;
-            if (!NativeMethods.StartServiceCtrlDispatcherW(table))
+            if (NativeMethods.StartServiceCtrlDispatcherW(table))
             {
-                var error = Marshal.GetLastWin32Error();
-                if (error == NativeMethods.ErrorFailedServiceControllerConnect)
-                {
-                    ServiceLog.Warn("Started from a console — this exe is a Windows service. " +
-                                    "Use --install / --uninstall (elevated), or let the SCM start it.");
-                }
-                else
-                {
-                    ServiceLog.Error($"StartServiceCtrlDispatcherW failed (error {error}).");
-                }
-                return 1;
+                return 0;
             }
+
+            var error = Marshal.GetLastWin32Error();
+            if (error == NativeMethods.ErrorFailedServiceControllerConnect)
+            {
+                ServiceLog.Warn("Started from a console — this exe is a Windows service. " +
+                                "Use --install / --uninstall (elevated), or let the SCM start it.");
+            }
+            else
+            {
+                ServiceLog.Error($"StartServiceCtrlDispatcherW failed (error {error}).");
+            }
+            return 1;
         }
-        return 0;
     }
 
     [UnmanagedCallersOnly]
@@ -165,14 +166,18 @@ internal static class ServiceHost
                     return NativeMethods.NoError;
 
                 case NativeMethods.ServiceControlSessionChange:
-                    if (eventData != 0)
+                    if (eventData == 0)
                     {
-                        var sessionId = Marshal.PtrToStructure<NativeMethods.WtsSessionNotification>(eventData).dwSessionId;
-                        // Logon and logoff only. Deliberately NOT WTS_CONSOLE_CONNECT:
-                        // a fast-user-switch reconnect keeps whatever was running —
-                        // game-mode boot is a per-logon event.
-                        if (eventType == NativeMethods.WtsSessionLogon)
-                        {
+                        return NativeMethods.NoError;
+                    }
+
+                    var sessionId = Marshal.PtrToStructure<NativeMethods.WtsSessionNotification>(eventData).dwSessionId;
+                    // Logon and logoff only. Deliberately NOT WTS_CONSOLE_CONNECT:
+                    // a fast-user-switch reconnect keeps whatever was running —
+                    // game-mode boot is a per-logon event.
+                    switch (eventType)
+                    {
+                        case NativeMethods.WtsSessionLogon:
                             ServiceLog.Info($"Session {sessionId} logon.");
                             ThreadPool.QueueUserWorkItem(_ =>
                             {
@@ -185,11 +190,10 @@ internal static class ServiceHost
                                     ServiceLog.Error($"Session {sessionId} logon handling failed: {ex.Message}");
                                 }
                             });
-                        }
-                        else if (eventType == NativeMethods.WtsSessionLogoff)
-                        {
+                            break;
+                        case NativeMethods.WtsSessionLogoff:
                             ThreadPool.QueueUserWorkItem(_ => SessionLauncher.OnSessionLogoff(sessionId));
-                        }
+                            break;
                     }
                     return NativeMethods.NoError;
 

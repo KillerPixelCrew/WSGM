@@ -1,6 +1,6 @@
 using WSGM.Device.Sdk.Glyphs;
 
-namespace WSGM.Tests;
+namespace WSGM.Tests.Builders;
 
 internal sealed class GlyphTestPackageSource(
     string profileId,

@@ -101,11 +101,12 @@ public sealed class SteamMonitor : IDisposable
         else if (_seenDead)
         {
             _seenDead = false;
-            if (!Paused)
+            if (Paused)
             {
-                Log.Info("Steam started.");
-                SteamStarted?.Invoke();
+                return;
             }
+            Log.Info("Steam started.");
+            SteamStarted?.Invoke();
         }
     }
 

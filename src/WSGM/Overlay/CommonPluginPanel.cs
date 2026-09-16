@@ -55,8 +55,8 @@ internal sealed class CommonPluginPanel : StackPanel
         _observed = instances;
         if (_widget is { } pin)
         {
-            instances = instances.Where(instance => instance.Identity.PluginId == pin.PluginId
-                && instance.Identity.InstanceId == pin.InstanceId).ToArray();
+            instances = [.. instances.Where(instance => instance.Identity.PluginId == pin.PluginId
+                && instance.Identity.InstanceId == pin.InstanceId)];
         }
         if (!SameStructure(instances))
         {
@@ -76,19 +76,13 @@ internal sealed class CommonPluginPanel : StackPanel
     /// <summary>Whether the instances still have the shape the rows were built for.</summary>
     private bool SameStructure(PluginOverlayInstance[] instances)
     {
-        if (_structure is null || _structure.Length != instances.Length)
+        var structure = _structure;
+        if (structure is null || structure.Length != instances.Length)
         {
             return false;
         }
-        for (var index = 0; index < instances.Length; index++)
-        {
-            var instance = instances[index];
-            if (_structure[index] != (instance.Identity, instance.Generation, instance.Controls is not null, instance.Error))
-            {
-                return false;
-            }
-        }
-        return true;
+        return instances.Index().All(item => structure[item.Index]
+            == (item.Item.Identity, item.Item.Generation, item.Item.Controls is not null, item.Item.Error));
     }
 
     private void AddInstance(PluginOverlayInstance instance)
@@ -143,13 +137,15 @@ internal sealed class CommonPluginPanel : StackPanel
             _refresh.Add(() =>
             {
                 var states = _source.State(instance.Identity).Where(value => value.Generation == owner.Generation).ToArray();
-                bool Predicate(string? key) => key is null || states.FirstOrDefault(value => value.Key == key)?.Value.Boolean == true;
                 var available = Predicate(widget.VisibleStateKey);
                 var enabled = available && Predicate(widget.EnabledStateKey);
                 foreach (var control in controls) { control.IsEnabled = enabled; }
                 secondary.Text = !available ? "Widget unavailable" : widget.SecondaryStateKey is { } key
                     ? states.FirstOrDefault(value => value.Key == key) is { } state ? Format(state.Value) : "No confirmed value" : "";
                 secondary.IsVisible = !string.IsNullOrWhiteSpace(secondary.Text);
+                return;
+
+                bool Predicate(string? stateKey) => stateKey is null || states.FirstOrDefault(value => value.Key == stateKey)?.Value.Boolean == true;
             });
             return;
         }
@@ -157,7 +153,7 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);
             Children.Add(new PluginWidgetPinControls(widget.Label,
-                pinned => CommonPluginOverlaySource.SetPinnedAsync(pin, pinned),
+                isPinned => CommonPluginOverlaySource.SetPinnedAsync(pin, isPinned),
                 _readPins is null ? null : async () => (await _readPins()).Contains(pin)));
         }
         if (_pinsOnly) { return; }
@@ -178,8 +174,12 @@ internal sealed class CommonPluginPanel : StackPanel
     internal void FocusCategory(PluginWidgetPin pin, string category)
     {
         Refresh();
-        if (_categories.TryGetValue((pin.PluginId, pin.InstanceId, category), out var anchor))
-        { anchor.BringIntoView(); anchor.Focus(); }
+        if (!_categories.TryGetValue((pin.PluginId, pin.InstanceId, category), out var anchor))
+        {
+            return;
+        }
+        anchor.BringIntoView();
+        anchor.Focus();
     }
 
     private void AddContribution(PluginOverlayInstance instance, PluginOverlayInstance owner, PluginUiContribution contribution)
@@ -211,52 +211,71 @@ internal sealed class CommonPluginPanel : StackPanel
             foreach (var field in action.Arguments)
             {
                 inputs.Children.Add(new TextBlock { Text = field.Label, Classes = { "caption" } });
-                if (field.Kind == PluginSettingKind.Boolean)
+                switch (field.Kind)
                 {
-                    var editor = new ToggleSwitch { IsChecked = field.Default.Boolean };
-                    inputs.Children.Add(editor);
-                    argumentReaders.Add(field.Key, () => new PluginValue(Boolean: editor.IsChecked == true));
-                }
-                else if (field.Kind == PluginSettingKind.Number)
-                {
-                    var (editor, readArgument) = CreateTextArgumentEditor(field);
-                    inputs.Children.Add(editor);
-                    argumentReaders.Add(field.Key, readArgument);
-                }
-                else if (field.Choices is { } choices)
-                {
-                    var editor = new ComboBox { ItemsSource = choices, SelectedItem = field.Default.Text };
-                    inputs.Children.Add(editor);
-                    argumentReaders.Add(field.Key, () => new PluginValue(Text: editor.SelectedItem as string ?? ""));
-                }
-                else
-                {
-                    var (editor, readArgument) = CreateTextArgumentEditor(field);
-                    inputs.Children.Add(editor);
-                    argumentReaders.Add(field.Key, readArgument);
+                    case PluginSettingKind.Boolean:
+                        {
+                            var editor = new ToggleSwitch { IsChecked = field.Default.Boolean };
+                            inputs.Children.Add(editor);
+                            argumentReaders.Add(field.Key, () => new PluginValue(Boolean: editor.IsChecked == true));
+                            break;
+                        }
+                    case PluginSettingKind.Number:
+                        {
+                            var (editor, readArgument) = CreateTextArgumentEditor(field);
+                            inputs.Children.Add(editor);
+                            argumentReaders.Add(field.Key, readArgument);
+                            break;
+                        }
+                    case PluginSettingKind.Text:
+                    default:
+                        {
+                            if (field.Choices is { } choices)
+                            {
+                                var editor = new ComboBox { ItemsSource = choices, SelectedItem = field.Default.Text };
+                                inputs.Children.Add(editor);
+                                argumentReaders.Add(field.Key, () => new PluginValue(Text: editor.SelectedItem as string ?? ""));
+                            }
+                            else
+                            {
+                                var (editor, readArgument) = CreateTextArgumentEditor(field);
+                                inputs.Children.Add(editor);
+                                argumentReaders.Add(field.Key, readArgument);
+                            }
+                            break;
+                        }
                 }
             }
         }
         Func<PluginValue?> read = () => null;
         var argument = owner.Controls!.Actions.First(action => action.Id == contribution.ActionId)
             .Arguments.FirstOrDefault(value => value.Key == contribution.ArgumentKey);
-        if (contribution.Kind == PluginUiKind.Toggle)
+        switch (contribution.Kind)
         {
-            var editor = new ToggleSwitch { IsChecked = argument!.Default.Boolean, OnContent = "On", OffContent = "Off" };
-            inputs.Children.Add(editor);
-            read = () => new PluginValue(Boolean: editor.IsChecked == true);
-        }
-        else if (contribution.Kind == PluginUiKind.Slider)
-        {
-            var editor = new Slider
-            {
-                MinWidth = 240,
-                Minimum = argument!.Minimum!.Value,
-                Maximum = argument.Maximum!.Value,
-                Value = argument.Default.Number!.Value
-            };
-            inputs.Children.Add(editor);
-            read = () => new PluginValue(Number: editor.Value);
+            case PluginUiKind.Toggle:
+                {
+                    var editor = new ToggleSwitch { IsChecked = argument!.Default.Boolean, OnContent = "On", OffContent = "Off" };
+                    inputs.Children.Add(editor);
+                    read = () => new PluginValue(Boolean: editor.IsChecked == true);
+                    break;
+                }
+            case PluginUiKind.Slider:
+                {
+                    var editor = new Slider
+                    {
+                        MinWidth = 240,
+                        Minimum = argument!.Minimum!.Value,
+                        Maximum = argument.Maximum!.Value,
+                        Value = argument.Default.Number!.Value
+                    };
+                    inputs.Children.Add(editor);
+                    read = () => new PluginValue(Number: editor.Value);
+                    break;
+                }
+            case PluginUiKind.Status:
+            case PluginUiKind.Action:
+            default:
+                break;
         }
         // The draft is intentionally separate from readback. Refresh cannot invoke the write path.
         var apply = new CardButton
@@ -290,7 +309,7 @@ internal sealed class CommonPluginPanel : StackPanel
             apply.IsEnabled = false;
             Dictionary<string, PluginValue> arguments = [];
             foreach (var field in argumentReaders) { arguments.Add(field.Key, field.Value()); }
-            if (read() is { } value) { arguments.Add(contribution.ArgumentKey!, value); }
+            if (read() is { } draft) { arguments.Add(contribution.ArgumentKey!, draft); }
             result.Text = "Requested…";
             try
             {
@@ -303,7 +322,7 @@ internal sealed class CommonPluginPanel : StackPanel
         };
     }
 
-    internal static Geometry? WidgetIcon(string? key) => key switch
+    private static Geometry? WidgetIcon(string? key) => key switch
     {
         "power" => Icons.Power,
         "fan" => Icons.Snowflake,

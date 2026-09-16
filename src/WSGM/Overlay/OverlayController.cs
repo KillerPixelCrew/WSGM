@@ -215,7 +215,7 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Applies changed gesture settings without replacing the monitor.</summary>
     /// <param name="gestures">The new edge-swipe configuration.</param>
-    public void ApplyGestures(GestureConfig gestures)
+    private void ApplyGestures(GestureConfig gestures)
     {
         // The monitor stays alive even with both edges disabled: tap-outside
         // dismissal of the overlay rides on the same raw-input observer.
@@ -274,6 +274,7 @@ public sealed class OverlayController : IDisposable
             case SwipeAction.SteamQuickAccess:
                 Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess);
                 break;
+            case SwipeAction.None:
             default:
                 Log.Info("Bottom swipe ignored in desktop mode (explorer's taskbar owns the edge).");
                 break;
@@ -290,19 +291,13 @@ public sealed class OverlayController : IDisposable
     /// <returns>What the swipe opens, if anything.</returns>
     public static SwipeAction DecideSwipe(ScreenEdge edge, bool explorerRunning)
     {
-        if (edge == ScreenEdge.Left)
+        return edge switch
         {
-            return SwipeAction.SteamMenu;
-        }
-        if (edge == ScreenEdge.Right)
-        {
-            return SwipeAction.SteamQuickAccess;
-        }
-        if (edge == ScreenEdge.Top)
-        {
-            return SwipeAction.QuickAccess;
-        }
-        return explorerRunning ? SwipeAction.None : SwipeAction.QuickAccessApps;
+            ScreenEdge.Left => SwipeAction.SteamMenu,
+            ScreenEdge.Right => SwipeAction.SteamQuickAccess,
+            ScreenEdge.Top => SwipeAction.QuickAccess,
+            _ => explorerRunning ? SwipeAction.None : SwipeAction.QuickAccessApps
+        };
     }
 
     /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
@@ -310,10 +305,7 @@ public sealed class OverlayController : IDisposable
     public void SetWarning(string warning)
     {
         _pendingWarning = warning;
-        if (_overlayViewModel is not null)
-        {
-            _overlayViewModel.WarningText = warning;
-        }
+        _overlayViewModel?.WarningText = warning;
     }
 
     private SdFormatManager? _formatManager;
@@ -327,11 +319,12 @@ public sealed class OverlayController : IDisposable
     {
         get
         {
-            if (_formatManager is null)
+            if (_formatManager is not null)
             {
-                _formatManager = new SdFormatManager();
-                _formatManager.Finished += OnFormatFinished;
+                return _formatManager;
             }
+            _formatManager = new SdFormatManager();
+            _formatManager.Finished += OnFormatFinished;
             return _formatManager;
         }
     }
@@ -343,11 +336,12 @@ public sealed class OverlayController : IDisposable
             // While the overlay is open the sub-view already shows the outcome.
             // If it was closed mid-format (the run outlives the window), reopen
             // it to surface the result through the warning bar.
-            if (_overlay is null && !_disposed)
+            if (_overlay is not null || _disposed)
             {
-                SetWarning(message);
-                ShowOverlay();
+                return;
             }
+            SetWarning(message);
+            ShowOverlay();
         });
     }
 
@@ -379,13 +373,14 @@ public sealed class OverlayController : IDisposable
         _hotkey.Apply(config.Hotkey);
         _chordWatcher.ApplyConfig(config.GamepadChord);
         var chordActive = config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
-        if (chordActive && !_gamepad.IsRunning)
+        switch (chordActive)
         {
-            _gamepad.Start();
-        }
-        else if (!chordActive && _overlay is null && _gamepad.IsRunning)
-        {
-            _gamepad.Stop();
+            case true when !_gamepad.IsRunning:
+                _gamepad.Start();
+                break;
+            case false when _overlay is null && _gamepad.IsRunning:
+                _gamepad.Stop();
+                break;
         }
         ApplyGestures(config.Gestures);
         if (_overlayViewModel is not null)
@@ -423,6 +418,7 @@ public sealed class OverlayController : IDisposable
                 Log.Info("Steam exited — auto-relaunching in 10 s.");
                 RunOnUiThreadAfter(TimeSpan.FromMilliseconds(10_000), RelaunchSteamAfterExit);
                 return;
+            case SteamExitReaction.Ignore:
             default:
                 Log.Info("Steam exited — leaving it closed.");
                 return;
@@ -445,6 +441,8 @@ public sealed class OverlayController : IDisposable
             case SteamExitReaction.RelaunchDesktop:
                 _modes.EnsureSteamDesktop();
                 return;
+            case SteamExitReaction.Ignore:
+            case SteamExitReaction.ShowOverlay:
             default:
                 Log.Info("Auto-relaunch skipped: the session no longer wants Steam started.");
                 return;
@@ -478,10 +476,10 @@ public sealed class OverlayController : IDisposable
     /// <param name="config">The configuration to read the gates from.</param>
     private static void ApplyCefVisibility(OverlayViewModel vm, AppConfig config)
     {
-        vm.ShowLibraryTabs = config.Cef.Enabled && config.Cef.LibraryTabs;
-        vm.ShowCardManager = config.Cef.Enabled && config.Cef.CardManager;
-        vm.ShowArtwork = config.Cef.Enabled && config.Cef.Artwork;
-        vm.ShowSdCard = config.Cef.Enabled && config.Cef.SdFormat;
+        vm.ShowLibraryTabs = config.Cef is { Enabled: true, LibraryTabs: true };
+        vm.ShowCardManager = config.Cef is { Enabled: true, CardManager: true };
+        vm.ShowArtwork = config.Cef is { Enabled: true, Artwork: true };
+        vm.ShowSdCard = config.Cef is { Enabled: true, SdFormat: true };
         vm.ConfigureLaunchOptionsLive = config.Cef.Enabled;
         vm.InputLeaseUsesShim = config.SteamInputManagementEnabled;
     }
@@ -491,14 +489,16 @@ public sealed class OverlayController : IDisposable
     /// screensaver holds a display timeout up.</summary>
     private void RefreshPowerTimeouts(OverlayViewModel vm)
     {
-        static string Format(int? seconds)
-            => seconds is null ? "—" : PowerTimeouts.Describe(seconds.Value);
         vm.DisplayDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayDc));
         vm.DisplayAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayAc));
         vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
         vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
         vm.SleepDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepDc));
         vm.SleepAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepAc));
+        return;
+
+        static string Format(int? seconds)
+            => seconds is null ? "—" : PowerTimeouts.Describe(seconds.Value);
     }
 
     /// <summary>Mirrors keep-awake hold changes (poll loop or toggle, any thread)
@@ -527,7 +527,7 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>The display row's description: the plain one, or the bound Steam's screensaver sets.</summary>
     private string DisplayTimeoutDescription(PowerTimeoutKind kind)
-        => _displayTimeouts?.Minimum(kind) is int minimum
+        => _displayTimeouts?.Minimum(kind) is { } minimum
             ? $"Idle time before the display turns off; at least {PowerTimeouts.Describe(minimum)} for Steam's screensaver"
             : OverlayViewModel.DisplayTimeoutDescription;
 
@@ -724,7 +724,6 @@ public sealed class OverlayController : IDisposable
         CancellationTokenSource cancellation)
     {
         TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnClosed(object? sender, EventArgs args) => closed.TrySetResult();
         window.Closed += OnClosed;
         try
         {
@@ -750,6 +749,9 @@ public sealed class OverlayController : IDisposable
             if (ReferenceEquals(_windowReturnCancellation, cancellation)) { _windowReturnCancellation = null; }
             cancellation.Dispose();
         }
+        return;
+
+        void OnClosed(object? sender, EventArgs args) => closed.TrySetResult();
     }
 
     private static void StartTaskManager()
@@ -921,7 +923,7 @@ public sealed class OverlayController : IDisposable
         }
         powerSchemes.Changed += () =>
         {
-            if (!powerSchemes.Busy && powerSchemes.ActiveId is not null && ReferenceEquals(_overlayViewModel, vm))
+            if (powerSchemes is { Busy: false, ActiveId: not null } && ReferenceEquals(_overlayViewModel, vm))
             {
                 RefreshPowerTimeouts(vm);
             }
@@ -982,10 +984,7 @@ public sealed class OverlayController : IDisposable
         RefreshWakeLockIndicator();
         StartWakeLockRefresh();
         StartSwitcherRefresh();
-        if (_touchSwipes is not null)
-        {
-            _touchSwipes.WatchTaps = true;
-        }
+        _touchSwipes?.WatchTaps = true;
     }
 
     /// <summary>Brings the open sheet back to the front, cancelling a deferred close in progress.</summary>
@@ -1000,10 +999,7 @@ public sealed class OverlayController : IDisposable
             _keyboardWindow = null;
             overlay.KeyboardOwnsFocus = false;
         }
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
-        }
+        _navigation?.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
         if (_closePending)
         {
             // Re-summoned inside the 150 ms deferred close: cancel the pending
@@ -1042,10 +1038,7 @@ public sealed class OverlayController : IDisposable
             ClaimUiSurface(QuickAccessSurface);
         }
         overlay.Activate();
-        if (_touchSwipes is not null)
-        {
-            _touchSwipes.WatchTaps = true;
-        }
+        _touchSwipes?.WatchTaps = true;
     }
 
     /// <summary>Connects the sheet's requests to the session actions they start.</summary>
@@ -1105,9 +1098,9 @@ public sealed class OverlayController : IDisposable
             {
                 // The session's owner skips display presets Steam's screensaver forbids and tells
                 // Steam's Screensaver settings about the change.
-                if (_displayTimeouts is { } timeouts)
+                if (_displayTimeouts is not null)
                 {
-                    timeouts.Cycle(kind);
+                    _displayTimeouts.Cycle(kind);
                     return;
                 }
                 lock (PowerSchemes.MutationGate)
@@ -1132,10 +1125,7 @@ public sealed class OverlayController : IDisposable
             // its deferred close, and once Settings is up a tap on it must NOT read
             // as a tap outside the overlay and dismiss it — that dismissal refocuses
             // Steam and drops Settings behind Big Picture (device-reported).
-            if (_touchSwipes is not null)
-            {
-                _touchSwipes.WatchTaps = false;
-            }
+            _touchSwipes?.WatchTaps = false;
             // Hand the lease to Settings instead of releasing it: the close below
             // keeps Steam's controller blocked continuously, so Settings inherits a
             // live lease with no release/re-inject churn.
@@ -1176,16 +1166,10 @@ public sealed class OverlayController : IDisposable
                 _dialogPriorWatchTaps = _touchSwipes?.WatchTaps ?? false;
                 _dialogPriorNavigation = _navigation?.IsEnabled ?? false;
             }
-            if (_touchSwipes is not null)
-            {
-                // Restore what was armed rather than assuming it: the bar is not
-                // the only surface that owns tap watching.
-                _touchSwipes.WatchTaps = !active && _dialogPriorWatchTaps && _overlay is not null;
-            }
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = !active && _dialogPriorNavigation;
-            }
+            // Restore what was armed rather than assuming it: the bar is not
+            // the only surface that owns tap watching.
+            _touchSwipes?.WatchTaps = !active && _dialogPriorWatchTaps && _overlay is not null;
+            _navigation?.IsEnabled = !active && _dialogPriorNavigation;
         };
         // Dismiss never refocuses anything: Windows hands the foreground back to
         // the previous window on close. An explicit refocus-on-dismiss once yanked
@@ -1260,12 +1244,9 @@ public sealed class OverlayController : IDisposable
             WindowFinder.BringToForeground(_restoreFocusTo);
         }
         _restoreFocusTo = 0;
-        if (_touchSwipes is not null)
-        {
-            // TappedAt consumers are gone with the sheet; stop the per-tap
-            // dispatches until the next ShowOverlay.
-            _touchSwipes.WatchTaps = false;
-        }
+        // TappedAt consumers are gone with the sheet; stop the per-tap
+        // dispatches until the next ShowOverlay.
+        _touchSwipes?.WatchTaps = false;
         ShowTouchEdges();
         if (reopenForWarning)
         {
@@ -1454,38 +1435,42 @@ public sealed class OverlayController : IDisposable
         // touch can't tear down both surfaces at once.
         if (_radioPanel is not null)
         {
-            if (!HitsWindow(_radioPanel, x, y))
+            if (HitsWindow(_radioPanel, x, y))
             {
-                Log.Info($"Pointer at {x},{y} outside radio panel {WindowRect(_radioPanel)} — dismissing.");
-                CloseRadioPanel();
+                return;
             }
+            Log.Info($"Pointer at {x},{y} outside radio panel {WindowRect(_radioPanel)} — dismissing.");
+            CloseRadioPanel();
             return;
         }
         if (_audioPanel is not null)
         {
-            if (!HitsWindow(_audioPanel, x, y))
+            if (HitsWindow(_audioPanel, x, y))
             {
-                Log.Info($"Pointer at {x},{y} outside audio panel {WindowRect(_audioPanel)} — dismissing.");
-                CloseAudioPanel();
+                return;
             }
+            Log.Info($"Pointer at {x},{y} outside audio panel {WindowRect(_audioPanel)} — dismissing.");
+            CloseAudioPanel();
             return;
         }
         if (_ejectPanel is not null)
         {
-            if (!HitsWindow(_ejectPanel, x, y))
+            if (HitsWindow(_ejectPanel, x, y))
             {
-                Log.Info($"Pointer at {x},{y} outside eject panel {WindowRect(_ejectPanel)} — dismissing.");
-                CloseEjectPanel();
+                return;
             }
+            Log.Info($"Pointer at {x},{y} outside eject panel {WindowRect(_ejectPanel)} — dismissing.");
+            CloseEjectPanel();
             return;
         }
-        if (_overlay is not null
-            && !HitsWindow(_overlay, x, y)
-            && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
+        if (_overlay is null
+            || HitsWindow(_overlay, x, y)
+            || (_keyboardWindow is not null && HitsWindow(_keyboardWindow, x, y)))
         {
-            Log.Info($"Pointer at {x},{y} outside quick access {WindowRect(_overlay)} — dismissing.");
-            CloseOverlay();
+            return;
         }
+        Log.Info($"Pointer at {x},{y} outside quick access {WindowRect(_overlay)} — dismissing.");
+        CloseOverlay();
     }
 
     private static bool HitsWindow(Window window, int x, int y)
@@ -1529,11 +1514,8 @@ public sealed class OverlayController : IDisposable
     /// </remarks>
     private void SyncSheetMouseActivation()
     {
-        if (_overlay is not null)
-        {
-            _overlay.SuppressMouseActivation =
-                _radioPanel is not null || _audioPanel is not null || _ejectPanel is not null;
-        }
+        _overlay?.SuppressMouseActivation =
+            _radioPanel is not null || _audioPanel is not null || _ejectPanel is not null;
     }
 
     private RadioWindow? _radioPanel;
@@ -1563,7 +1545,7 @@ public sealed class OverlayController : IDisposable
         // reads the HWND DPI to restore desktop-sized touch targets; without this
         // seed position a secondary-monitor keyboard used the primary DPI.
         window.Position = overlay.Position;
-        window.Accepted += text => onAccept(text);
+        window.Accepted += onAccept;
         // The window's own Opened handler (subscribed first) applies the UI-scale
         // LayoutTransform, which only changes Bounds on the NEXT layout pass — so the
         // positioning below must force that pass, and re-run when SizeToContent grows
@@ -1572,23 +1554,17 @@ public sealed class OverlayController : IDisposable
         window.SizeChanged += (_, _) => PositionKeyboardOverSheet(window, overlay);
         window.Show();
 
-        _keyboardNavigation = new GamepadNavigation(_uiInput, window, () => window.Close(),
+        _keyboardNavigation = new GamepadNavigation(_uiInput, window, window.Close,
             isNintendoLayout: IsNintendoLayout,
             onEdge: OnKeyboardEdge);
         // Focus is in the keyboard now; the sidebar's nav stands down until we cross back.
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = false;
-        }
+        _navigation?.IsEnabled = false;
         window.Closed += (_, _) =>
         {
             _keyboardNavigation?.Dispose();
             _keyboardNavigation = null;
             _keyboardWindow = null;
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = true;
-            }
+            _navigation?.IsEnabled = true;
             overlay.Activate();
             overlay.DefaultFocusTarget.Focus(NavigationMethod.Directional);
             // Keep the activation reset suppressed through the handoff itself.
@@ -1651,19 +1627,17 @@ public sealed class OverlayController : IDisposable
         {
             return;
         }
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = false;
-        }
+        _navigation?.IsEnabled = false;
         var keyboard = _keyboardWindow;
         Dispatcher.UIThread.Post(() =>
         {
-            if (_keyboardNavigation is not null && _keyboardWindow == keyboard)
+            if (_keyboardNavigation is null || _keyboardWindow != keyboard)
             {
-                _keyboardNavigation.IsEnabled = true;
-                keyboard.Activate();
-                keyboard.FocusDefault();
+                return;
             }
+            _keyboardNavigation.IsEnabled = true;
+            keyboard.Activate();
+            keyboard.FocusDefault();
         });
     }
 
@@ -1673,14 +1647,8 @@ public sealed class OverlayController : IDisposable
         {
             return;
         }
-        if (_keyboardNavigation is not null)
-        {
-            _keyboardNavigation.IsEnabled = false;
-        }
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = true;
-        }
+        _keyboardNavigation?.IsEnabled = false;
+        _navigation?.IsEnabled = true;
         _overlay.Activate();
         _overlay.DefaultFocusTarget.Focus(NavigationMethod.Directional);
     }
@@ -1691,10 +1659,7 @@ public sealed class OverlayController : IDisposable
         _keyboardNavigation = null;
         _keyboardWindow?.Close();
         _keyboardWindow = null;
-        if (_overlay is not null)
-        {
-            _overlay.KeyboardOwnsFocus = false;
-        }
+        _overlay?.KeyboardOwnsFocus = false;
     }
 
     /// <summary>Closes the radio panel through the same deferred path as the
@@ -1731,13 +1696,10 @@ public sealed class OverlayController : IDisposable
         Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
         var panel = new RadioWindow(_systemStatus.Radios, bluetooth, UiScale());
         _radioPanel = panel;
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = false;
-        }
+        _navigation?.IsEnabled = false;
         // Its own navigation instance: the panel holds focus while it is open,
         // and B must close the panel rather than the sheet behind it.
-        _radioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
+        _radioNavigation = new GamepadNavigation(_uiInput, panel, panel.Close,
             isNintendoLayout: IsNintendoLayout,
             tabPrevious: panel.SelectPreviousTab,
             tabNext: panel.SelectNextTab);
@@ -1790,11 +1752,8 @@ public sealed class OverlayController : IDisposable
         Log.Info("Audio panel opened.");
         var panel = new AudioWindow(_systemStatus.Audio, UiScale());
         _audioPanel = panel;
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = false;
-        }
-        _audioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
+        _navigation?.IsEnabled = false;
+        _audioNavigation = new GamepadNavigation(_uiInput, panel, panel.Close,
             isNintendoLayout: IsNintendoLayout,
             preferredFocus: () => panel.DefaultFocusTarget);
         panel.Closed += (_, _) =>
@@ -1844,11 +1803,8 @@ public sealed class OverlayController : IDisposable
         Log.Info("Eject panel opened.");
         var panel = new EjectWindow(_systemStatus.Drives, UiScale());
         _ejectPanel = panel;
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = false;
-        }
-        _ejectNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
+        _navigation?.IsEnabled = false;
+        _ejectNavigation = new GamepadNavigation(_uiInput, panel, panel.Close,
             isNintendoLayout: IsNintendoLayout);
         panel.Closed += (_, _) =>
         {
@@ -1885,14 +1841,8 @@ public sealed class OverlayController : IDisposable
     /// <summary>Brings an open status panel back to the front with navigation.</summary>
     private void ReactivateStatusPanel(Window panel, GamepadNavigation? navigation)
     {
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = false;
-        }
-        if (navigation is not null)
-        {
-            navigation.IsEnabled = true;
-        }
+        _navigation?.IsEnabled = false;
+        navigation?.IsEnabled = true;
         panel.Activate();
     }
 
@@ -1900,10 +1850,7 @@ public sealed class OverlayController : IDisposable
     /// closed.</summary>
     private void ReturnToSheet()
     {
-        if (_navigation is not null)
-        {
-            _navigation.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
-        }
+        _navigation?.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
         SyncSheetMouseActivation();
         _overlay?.Activate();
     }
@@ -1916,7 +1863,7 @@ public sealed class OverlayController : IDisposable
     {
         private IDisposable? _timer;
 
-        internal bool Pending { get; private set; }
+        private bool Pending { get; set; }
 
         internal void Start(Func<TimeSpan, Action, IDisposable?> after, Action close)
         {
@@ -1955,11 +1902,12 @@ public sealed class OverlayController : IDisposable
             Log.Info("Quick access closed with the audio panel open — closing the panel.");
             _audioPanel.Close();
         }
-        if (_ejectPanel is not null)
+        if (_ejectPanel is null)
         {
-            Log.Info("Quick access closed with the eject panel open — closing the panel.");
-            _ejectPanel.Close();
+            return;
         }
+        Log.Info("Quick access closed with the eject panel open — closing the panel.");
+        _ejectPanel.Close();
     }
 
     /// <summary>The desktop-DPI factor for WSGM surfaces. The boost exists ONLY
@@ -2074,7 +2022,7 @@ public sealed class OverlayController : IDisposable
 
     private AppSwitcherEntry CreateSwitcherEntry(
         WindowFinder.AppWindow window,
-        IReadOnlySet<uint> steamPids)
+        HashSet<uint> steamPids)
     {
         // Cached icons are handed over synchronously; a miss resolves off the UI thread
         // (cross-process WM_GETICON probes plus a possible exe read) and lands in place.
@@ -2109,11 +2057,12 @@ public sealed class OverlayController : IDisposable
             }
             foreach (var entry in _switcherViewModel.Entries)
             {
-                if (entry.Hwnd == hwnd)
+                if (entry.Hwnd != hwnd)
                 {
-                    entry.Icon = icon;
-                    return;
+                    continue;
                 }
+                entry.Icon = icon;
+                return;
             }
         });
     }
@@ -2154,10 +2103,7 @@ public sealed class OverlayController : IDisposable
                 _pendingTopmostRestore = RunOnUiThreadAfter(TimeSpan.FromSeconds(10), () =>
                 {
                     _pendingTopmostRestore = null;
-                    if (_overlay is not null)
-                    {
-                        _overlay.Topmost = true;
-                    }
+                    _overlay?.Topmost = true;
                 });
             }
         }
@@ -2299,12 +2245,13 @@ public sealed class OverlayController : IDisposable
 
     private void DisposeTouchEdges()
     {
-        if (_touchSwipes is not null)
+        if (_touchSwipes is null)
         {
-            _touchSwipes.Triggered -= OnSwipeTriggered;
-            _touchSwipes.TappedAt -= OnTappedAt;
-            _touchSwipes.Dispose();
-            _touchSwipes = null;
+            return;
         }
+        _touchSwipes.Triggered -= OnSwipeTriggered;
+        _touchSwipes.TappedAt -= OnTappedAt;
+        _touchSwipes.Dispose();
+        _touchSwipes = null;
     }
 }

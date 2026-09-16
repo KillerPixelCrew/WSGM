@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -27,7 +28,7 @@ public partial class KeyboardWindow : Window
 
     /// <summary>Design-time constructor for the XAML loader.</summary>
     public KeyboardWindow()
-        : this("Enter text", "", 256, 1.0)
+        : this("Enter text", "", 256)
     {
     }
 
@@ -69,7 +70,9 @@ public partial class KeyboardWindow : Window
 
     private void OnCancel(object? sender, RoutedEventArgs e) => DeferredClose();
 
-    private async void OnPasteRequested(object? sender, EventArgs e)
+    private void OnPasteRequested(object? sender, EventArgs e) => _ = PasteAsync();
+
+    private async Task PasteAsync()
     {
         var clipboard = GetTopLevel(this)?.Clipboard;
         if (_closePending || clipboard is null)
