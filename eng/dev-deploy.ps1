@@ -71,6 +71,17 @@ if (-not $SkipBuild) {
     $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
     npm run steam-assets:check
     if ($LASTEXITCODE -ne 0) { throw 'Steam UI asset drift check failed' }
+    # The publish copies whatever eng\build-viiper.ps1 last staged. A library built from another
+    # VIIPER commit than the one checked out would otherwise be deployed without a word.
+    $viiperStamp = Join-Path $root 'src\WSGM\Native\Viiper\libviiper.revision'
+    $viiperHead = (git -C (Join-Path $root 'external\viiper') rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the external\viiper revision.' }
+    $stagedViiper = if (Test-Path -LiteralPath $viiperStamp) {
+        (Get-Content -LiteralPath $viiperStamp -TotalCount 1).Trim()
+    } else { '' }
+    if ($stagedViiper -ne $viiperHead.Trim()) {
+        throw "The staged VIIPER library was built from '$stagedViiper', but external\viiper is at $($viiperHead.Trim()). Run eng\build-viiper.ps1 first."
+    }
     dotnet publish (Join-Path $root 'src\WSGM\WSGM.csproj') -c Release -r win-x64 `
         -o $appPublish -m:1
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }

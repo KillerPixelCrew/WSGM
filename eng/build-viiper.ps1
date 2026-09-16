@@ -122,6 +122,8 @@ try {
     if (-not $image.Contains($revision)) {
         throw "libviiper does not carry its source revision"
     }
+    # Read by eng\dev-deploy.ps1 to refuse a staged library that no longer matches the checkout.
+    Set-Content -LiteralPath (Join-Path $staging "libviiper.revision") -Value @($revision, "modified=$modified")
 
     # The tracked header is what WSGM binds against. It replaces the generated one, but only
     # after checking both export the same functions, so an export change cannot ship a header

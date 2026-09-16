@@ -80,8 +80,10 @@
          no driver of its own and needs no kernel code per controller type. Its
          flat C ABI keeps the virtual-device implementation native.
          Staged by eng\build-viiper.ps1 from the external\viiper submodule. Compile-only
-         workflows may omit it; build.ps1 requires it before producing an installer. -->
+         workflows may omit it; build.ps1 requires it before producing an installer, and
+         dev-deploy refuses a staged library whose recorded revision is not the checkout's. -->
     <None Include="Native\Viiper\*"
+          Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
