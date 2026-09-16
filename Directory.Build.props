@@ -9,5 +9,8 @@
     <!-- Avalonia's compiled-XAML loader advisory is a deliberate runtime loading
          pattern; XML documentation warnings remain enabled for every public API. -->
     <NoWarn>$(NoWarn);AVLN3001</NoWarn>
+    <!-- The projects target Windows only. Let Rider and the SDK on Linux or macOS restore and
+         analyze them; the Windows build is unchanged. -->
+    <EnableWindowsTargeting Condition="'$(OS)' != 'Windows_NT'">true</EnableWindowsTargeting>
   </PropertyGroup>
 </Project>
