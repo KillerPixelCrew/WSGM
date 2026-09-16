@@ -49,12 +49,29 @@ internal sealed partial class MainForm
         }
 
         HidHideState hidHide = HidHideAccess.Read(log);
-        if (hidHide is { Available: true, Active: true } && !HidHideAccess.Contains(hidHide.Applications, Environment.ProcessPath ?? ""))
+        bool listed = HidHideAccess.Contains(hidHide.Applications, Environment.ProcessPath ?? "");
+        if (hidHide is { Available: true, Active: true, Inverse: true })
         {
-            string inverse = hidHide.Inverse ? "\n\nHidHide is in inverse mode on this machine, so its list means the opposite of usual. Nothing is changed unless you agree." : "";
+            // In inverse mode the list names the applications that are denied, so adding this tool
+            // would hide the controller from it. The lab does not edit an inverse list.
+            if (listed)
+            {
+                string answer = await Ask("HidHide blocks this tool",
+                    "HidHide is in inverse mode and lists this tool, so hidden controllers are invisible here."
+                    + "\n\nThis tool does not change an inverse-mode list. Remove its entry in the HidHide Configuration Client if the capture should see them.",
+                    ("continue", "Continue anyway"), ("stop", "Stop and save"));
+                if (answer == "stop")
+                {
+                    _stopping = true;
+                    CheckStop();
+                }
+            }
+        }
+        else if (hidHide is { Available: true, Active: true } && !listed)
+        {
             string answer = await Ask("HidHide is hiding controllers",
                 "HidHide is active and this tool is not on its allowed list, so the controller may be invisible here or replaced by a virtual one."
-                + "\n\nMay this tool add itself for the session? Its entry is removed again when the session ends; other entries are left alone." + inverse,
+                + "\n\nMay this tool add itself for the session? Its entry is removed again when the session ends; other entries are left alone.",
                 ("allow", "Add this tool, then undo it later"), ("skip", "Leave HidHide alone"), ("stop", "Stop and save"));
             if (answer == "stop")
             {

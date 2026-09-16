@@ -66,11 +66,13 @@ internal static class HidHideAccess
         ArgumentNullException.ThrowIfNull(log);
         string self = Environment.ProcessPath ?? throw new InvalidOperationException("This tool has no image path.");
         HidHideState state = Read(log);
-        if (!state.Available || !string.IsNullOrEmpty(state.Detail) || Contains(state.Applications, self))
+        if (!state.Available || !string.IsNullOrEmpty(state.Detail) || state.Inverse || Contains(state.Applications, self))
         {
             log.Add("hidhide-allow-skipped", new
             {
-                Reason = !state.Available || !string.IsNullOrEmpty(state.Detail) ? "control device unavailable" : "already allowed",
+                Reason = !state.Available || !string.IsNullOrEmpty(state.Detail) ? "control device unavailable"
+                    : state.Inverse ? "inverse mode: the list denies, so adding this tool would hide devices from it"
+                    : "already allowed",
             });
             return null;
         }

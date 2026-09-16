@@ -23,7 +23,8 @@ records its hash. It is an unsigned experimental build; no hardware pass is clai
    Winhanced and similar managers, says what each does to the evidence, and offers to close them for
    you; services are listed but never stopped. If HidHide is active and this tool is not on its
    allowed list, it asks whether to add itself for the session and removes its own entry again at
-   the end, leaving any other entry alone.
+   the end, leaving any other entry alone. In HidHide's inverse mode the list denies instead, so the
+   tool changes nothing and tells you when it is listed.
 2. Follow the single screen. In the input part there is nothing to confirm: it names one control,
    you press it, and the next one appears by itself. Each control is asked for once. If a control
    does nothing, press **Nothing happened**; **Do it again** repeats a step and **Skip the rest**
