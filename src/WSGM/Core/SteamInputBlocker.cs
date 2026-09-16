@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using SteamInterop;
 
 namespace WSGM.Core;
@@ -23,8 +24,15 @@ public static class SteamInputBlocker
     // controller away from another that is still on screen; see docs\steam-input.md.
     private static readonly HashSet<string> Owners = new(StringComparer.Ordinal);
 
+    // Bounds how long shutdown waits for a surface release that is still running natively, so its
+    // controller recovery can finish before the process exits.
+    private static readonly TimeSpan PendingReleaseWait = TimeSpan.FromSeconds(15);
+
     private static SteamInputClient? _client;
     private static SteamInputBlockLease? _lease;
+
+    // Surface releases run here, one after another, outside Sync. Guarded by Sync.
+    private static Task _nativeRelease = Task.CompletedTask;
 
     /// <summary>Raised when the authoritative dynamic Steam recovery probe or
     /// its guarded controller-rescan operation fails.</summary>
@@ -150,7 +158,7 @@ public static class SteamInputBlocker
                     return;
                 }
             }
-            ReleaseCore(reason, clearOwners: false);
+            DetachLease(reason, inBackground: true);
         }
     }
 
@@ -159,45 +167,83 @@ public static class SteamInputBlocker
     /// Unconditional: this is the recovery/shutdown form, so it drops every
     /// recorded owner claim as well. Surface owners use <see cref="ReleaseFor"/>.</summary>
     /// <param name="reason">Why the lease is released; logged for device diagnosis.</param>
-    public static void ReleaseBestEffort(string reason) => ReleaseCore(reason, clearOwners: true);
-
-    // A surface can claim while native release runs. Preserve that claim: its queued acquire
-    // confirms the lease after release completes. Only unconditional shutdown clears all owners.
-    private static void ReleaseCore(string reason, bool clearOwners)
+    public static void ReleaseBestEffort(string reason)
     {
+        Task pending;
         lock (Sync)
         {
-            if (clearOwners) { lock (OwnersSync) { Owners.Clear(); } }
+            lock (OwnersSync) { Owners.Clear(); }
+            DetachLease(reason, inBackground: false);
+            pending = _nativeRelease;
+        }
+        // A surface release may still be recovering Steam's controllers. Letting the process
+        // exit first would close its pipe without that recovery.
+        try
+        {
+            if (!pending.Wait(PendingReleaseWait))
+            {
+                Log.Warn($"Steam Input surface release still running at {reason}; exiting without waiting further.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam Input surface release failed before {reason}: {ex.Message}");
+        }
+    }
+
+    // The owner decision and the detach happen under Sync, so a surface that reopens (its
+    // acquire is chained after this release) sees the lease gone and acquires a fresh one at
+    // once. The native release can take several seconds when the payload lacks internal
+    // recovery, because the host then rescans Steam; holding Sync across that made the next
+    // surface open wait for it. A second lease acquired meanwhile keeps Steam blocked, since the
+    // gate counts leases, so releasing the old one late is safe.
+    private static void DetachLease(string reason, bool inBackground)
+    {
+        SteamInputBlockLease lease;
+        lock (Sync)
+        {
             if (_lease is null)
             {
                 return;
             }
 
-            var lease = _lease;
+            lease = _lease;
             _lease = null;
-            try
+            if (inBackground)
             {
-                // Release already performs recovery; repeating it here costs a
-                // second multi-second scan of Steam's address space that the next
-                // overlay open then waits on.
-                var outcome = lease.Release();
-                Log.Info($"Steam Input lease released ({reason}; {outcome.Status.LeaseCount} active " +
-                         $"leases remain; recovery {DescribeRecovery(outcome)}).");
-                if (!outcome.RecoveryRequested)
-                {
-                    // Blocking is lifted — Steam keeps working, it just has not
-                    // been told to look for controllers again, so a pad can stay
-                    // missing in Steam until it notices by itself.
-                    Log.Warn($"Steam Input controller recovery did not run ({reason}): {outcome.RecoveryMessage}");
-                    RaiseRecoveryWarning();
-                }
+                _nativeRelease = _nativeRelease.ContinueWith(
+                    _ => ReleaseNative(lease, reason),
+                    TaskScheduler.Default);
+                return;
             }
-            catch (Exception ex)
+        }
+        ReleaseNative(lease, reason);
+    }
+
+    private static void ReleaseNative(SteamInputBlockLease lease, string reason)
+    {
+        try
+        {
+            // Release already performs recovery; repeating it here costs a
+            // second multi-second scan of Steam's address space that the next
+            // overlay open then waits on.
+            var outcome = lease.Release();
+            Log.Info($"Steam Input lease released ({reason}; {outcome.Status.LeaseCount} active " +
+                     $"leases remain; recovery {DescribeRecovery(outcome)}).");
+            if (!outcome.RecoveryRequested)
             {
-                // The SafeHandle/pipe lifetime makes a failed handshake crash-safe.
-                lease.Dispose();
-                Log.Error($"Steam Input lease release failed ({reason}).", ex);
+                // Blocking is lifted — Steam keeps working, it just has not
+                // been told to look for controllers again, so a pad can stay
+                // missing in Steam until it notices by itself.
+                Log.Warn($"Steam Input controller recovery did not run ({reason}): {outcome.RecoveryMessage}");
+                RaiseRecoveryWarning();
             }
+        }
+        catch (Exception ex)
+        {
+            // The SafeHandle/pipe lifetime makes a failed handshake crash-safe.
+            lease.Dispose();
+            Log.Error($"Steam Input lease release failed ({reason}).", ex);
         }
     }
 

@@ -173,6 +173,11 @@ Several surfaces can need the one process-wide lease at once, so each focused su
 named owner claim in `SteamInputBlocker` and the lease is released when the last owner lets go.
 `AcquireFor` registers the owner before it attempts the native acquire. Every deactivate and close
 path must therefore call `ReleaseFor`, even when Steam was unavailable and `IsApplied` stayed false.
+`ReleaseFor` decides and detaches the lease under the blocker's lock, then runs the native release
+on a serialized background task. That release can take several seconds when the payload lacks
+internal recovery and the host rescans Steam, and a reopening surface must not wait for it; a lease
+acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown releases
+synchronously and waits up to 15 seconds for a surface release that is still running.
 
 Settings follows this focused-surface rule in Desktop mode too, including the `--settings` shortcut,
 so Steam's desktop profile cannot swallow controller navigation or chord capture. Minimizing, losing
