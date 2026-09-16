@@ -46,13 +46,22 @@ internal static class Motors
             }
         }
 
-        for (int index = 0; index < Gamepad.Gamepads.Count; index++)
+        // A position in Gamepad.Gamepads shifts when an earlier pad disconnects, so the route names
+        // the pad by its device id instead. XInput slots do not renumber on disconnect.
+        IReadOnlyList<Gamepad> gamepads = Gamepad.Gamepads;
+        for (int index = 0; index < gamepads.Count; index++)
         {
-            routes.Add(new("wgi:" + index, "windows-gaming-input", $"Windows.Gaming.Input gamepad {index}"));
+            if (DeviceId(gamepads[index]) is { } id)
+            {
+                routes.Add(new("wgi:" + id, "windows-gaming-input", $"Windows.Gaming.Input gamepad {index}"));
+            }
         }
 
         return routes;
     }
+
+    private static string? DeviceId(Gamepad gamepad) =>
+        RawGameController.FromGameController(gamepad)?.NonRoamableId is { Length: > 0 } id ? id : null;
 
     /// <summary>Opens one route for writing.</summary>
     /// <param name="route">The route id from <see cref="Discover"/>.</param>
@@ -80,9 +89,12 @@ internal static class Motors
             return new XInputMotors(slot, log);
         }
 
-        if (route.StartsWith("wgi:", StringComparison.Ordinal) && int.TryParse(route[4..], out int index) && index < Gamepad.Gamepads.Count)
+        if (route.StartsWith("wgi:", StringComparison.Ordinal) && route.Length > 4)
         {
-            return new GameControllerMotors(Gamepad.Gamepads[index], index, log);
+            Gamepad[] matches = [.. Gamepad.Gamepads.Where(pad => DeviceId(pad) == route[4..])];
+            return matches.Length == 1
+                ? new GameControllerMotors(matches[0], route, log)
+                : throw new InvalidOperationException("That Windows.Gaming.Input gamepad is no longer connected.");
         }
 
         throw new InvalidOperationException("Unknown motor route.");
@@ -138,9 +150,9 @@ internal static class Motors
         [DllImport("xinput1_4.dll")] private static extern uint XInputSetState(uint index, ref Vibration vibration);
     }
 
-    private sealed class GameControllerMotors(Gamepad gamepad, int index, SessionLog log) : IMotorOutput
+    private sealed class GameControllerMotors(Gamepad gamepad, string route, SessionLog log) : IMotorOutput
     {
-        public string Route => "wgi:" + index;
+        public string Route => route;
 
         public void Set(int leftPercent, int rightPercent)
         {

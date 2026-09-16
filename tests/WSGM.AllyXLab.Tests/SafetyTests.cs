@@ -142,6 +142,7 @@ public sealed class SafetyTests
         SessionLog log = new();
         Assert.Throws<InvalidOperationException>(() => Motors.Open("bluetooth:0", [], log));
         Assert.Throws<InvalidOperationException>(() => Motors.Open("xinput:9", [], log));
+        Assert.Throws<InvalidOperationException>(() => Motors.Open("xinput:-1", [], log));
         Assert.Throws<InvalidOperationException>(() => Motors.Open("hid:missing", [], log));
     }
 
