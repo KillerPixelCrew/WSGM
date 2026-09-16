@@ -383,7 +383,7 @@ internal static class AttendedPluginActionRunner
                     pulseSent = true;
                     await Task.Delay(HapticPulseDuration, cancellationToken).ConfigureAwait(false);
                 }
-                : null,
+        : null,
             cancellationToken).ConfigureAwait(false);
 
         bool actionPassed = run.ManagementEnabled && run.AvailabilityObserved;

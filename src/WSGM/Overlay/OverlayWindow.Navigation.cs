@@ -491,12 +491,12 @@ public partial class OverlayWindow
             Control panel = DestinationPanel();
             if (state.SemanticKey is not null
                 && FocusSearch.First<Control>(panel, control => control is
-                    {
-                        Tag: string key,
-                        Focusable: true,
-                        IsEffectivelyEnabled: true,
-                        IsEffectivelyVisible: true,
-                    } && string.Equals(key, state.SemanticKey, StringComparison.Ordinal)) is { } target)
+                {
+                    Tag: string key,
+                    Focusable: true,
+                    IsEffectivelyEnabled: true,
+                    IsEffectivelyVisible: true,
+                } && string.Equals(key, state.SemanticKey, StringComparison.Ordinal)) is { } target)
             {
                 target.Focus(NavigationMethod.Directional);
                 return;
