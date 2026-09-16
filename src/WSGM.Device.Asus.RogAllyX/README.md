@@ -7,6 +7,11 @@ start and resume calls remain passive, commands are rejected, and haptic frames 
 scaffold publishes no capabilities, settings, controller samples, physical devices, or OEM controls.
 It opens no hardware handles and changes no machine state.
 
+The project also holds unfinished building blocks that nothing calls yet: reference-derived HID
+report encoders in `AllyXProtocol.cs` and a read-only ATKACPI status reader in
+`AsusReadProtocol.cs`, `AsusReadings.cs` and `WindowsAsusReader.cs`. They carry no claim of live
+support and stay unwired until the bring-up work below validates each transport.
+
 ## Build
 
 From the repository root:
