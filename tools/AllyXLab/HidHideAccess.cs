@@ -127,42 +127,59 @@ internal static class HidHideAccess
     /// <param name="entries">Entries as HidHide returned them.</param>
     /// <param name="value">The application path to look for.</param>
     /// <returns>Whether it is present.</returns>
-    internal static bool Contains(IEnumerable<string> entries, string value)
+    internal static bool Contains(IEnumerable<string> entries, string value) => Contains(entries, value, DeviceForDrive);
+
+    /// <inheritdoc cref="Contains(IEnumerable{string}, string)"/>
+    /// <param name="entries">Entries as HidHide returned them.</param>
+    /// <param name="value">The application path to look for.</param>
+    /// <param name="deviceForDrive">Maps a drive such as <c>C:</c> to its NT device, or null.</param>
+    internal static bool Contains(IEnumerable<string> entries, string value, Func<string, string?> deviceForDrive)
     {
         ArgumentNullException.ThrowIfNull(entries);
-        string normalized = NormalizePath(value);
+        string normalized = NormalizePath(value, deviceForDrive);
         return entries.Any(entry => string.Equals(entry, value, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(NormalizePath(entry), normalized, StringComparison.OrdinalIgnoreCase));
+            || (normalized.Length > 0 && string.Equals(NormalizePath(entry, deviceForDrive), normalized, StringComparison.OrdinalIgnoreCase)));
     }
 
     // Only the exact string this tool wrote is its own; a matching entry in the other notation was
     // put there by someone else.
     private static bool IsEntry(string entry, string added) => string.Equals(entry, added, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Reduces a path to the form both notations agree on.</summary>
+    /// <summary>Writes a path in NT device notation, which HidHide uses, keeping the volume.</summary>
     /// <param name="value">A drive-letter path or an NT device path.</param>
-    /// <returns>The comparable form.</returns>
-    internal static string NormalizePath(string value)
+    /// <param name="deviceForDrive">Maps a drive such as <c>C:</c> to its NT device, or null.</param>
+    /// <returns>The comparable form. A drive that does not map stays in drive notation, so it
+    /// never matches a device path and the tester is asked instead of skipped.</returns>
+    internal static string NormalizePath(string value, Func<string, string?> deviceForDrive)
     {
+        ArgumentNullException.ThrowIfNull(deviceForDrive);
         if (string.IsNullOrWhiteSpace(value))
         {
             return string.Empty;
         }
 
         string path = value.Trim().Replace('/', '\\');
-        const string devicePrefix = @"\device\harddiskvolume";
-        if (path.StartsWith(devicePrefix, StringComparison.OrdinalIgnoreCase))
+        if (path.Length > 2 && path[1] == ':' && path[2] == '\\' && char.IsAsciiLetter(path[0])
+            && deviceForDrive(path[..2]) is { Length: > 0 } device)
         {
-            int separator = path.IndexOf('\\', devicePrefix.Length);
-            return separator < 0 ? string.Empty : path[separator..];
-        }
-
-        if (path.Length >= 2 && path[1] == ':' && char.IsLetter(path[0]))
-        {
-            return path.Length == 2 ? string.Empty : path[2..];
+            return device.TrimEnd('\\') + path[2..];
         }
 
         return path;
+    }
+
+    private static string? DeviceForDrive(string drive)
+    {
+        char[] buffer = new char[1024];
+        uint length = QueryDosDevice(drive, buffer, (uint)buffer.Length);
+        if (length == 0)
+        {
+            return null;
+        }
+
+        // SUBST and network drives map to \??\ or redirector targets; only a plain volume is compared.
+        string target = new string(buffer, 0, (int)length).Split('\0')[0];
+        return target.StartsWith(@"\Device\", StringComparison.OrdinalIgnoreCase) ? target : null;
     }
 
     private static void Write(IReadOnlyList<string> entries, SessionLog log)
@@ -244,6 +261,9 @@ internal static class HidHideAccess
 
         return Encoding.Unicode.GetBytes(builder.ToString());
     }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern uint QueryDosDevice(string device, [Out] char[] target, uint targetLength);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

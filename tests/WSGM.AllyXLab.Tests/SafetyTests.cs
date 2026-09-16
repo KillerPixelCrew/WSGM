@@ -119,12 +119,31 @@ public sealed class SafetyTests
     [Fact]
     public void HidHideEntriesMatchAcrossBothPathNotations()
     {
+        static string? Volumes(string drive) => drive.ToUpperInvariant() switch
+        {
+            "C:" => @"\Device\HarddiskVolume3",
+            "D:" => @"\Device\HarddiskVolume4",
+            _ => null,
+        };
         string[] stored = [@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"];
-        Assert.True(HidHideAccess.Contains(stored, @"C:\Tools\AllyXLab.exe"));
-        Assert.False(HidHideAccess.Contains(stored, @"C:\Tools\Other.exe"));
-        Assert.Equal(@"\Tools\AllyXLab.exe", HidHideAccess.NormalizePath(@"C:\Tools\AllyXLab.exe"));
-        Assert.Equal(@"\Tools\AllyXLab.exe", HidHideAccess.NormalizePath(@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"));
-        Assert.Equal(string.Empty, HidHideAccess.NormalizePath("   "));
+        Assert.True(HidHideAccess.Contains(stored, @"C:\Tools\AllyXLab.exe", Volumes));
+        Assert.False(HidHideAccess.Contains(stored, @"C:\Tools\Other.exe", Volumes));
+        Assert.Equal(@"\Device\HarddiskVolume3\Tools\AllyXLab.exe", HidHideAccess.NormalizePath(@"c:/Tools/AllyXLab.exe", Volumes));
+        Assert.Equal(string.Empty, HidHideAccess.NormalizePath("   ", Volumes));
+    }
+
+    [Fact]
+    public void HidHideEntriesOnAnotherVolumeDoNotMatch()
+    {
+        static string? Volumes(string drive) => drive.ToUpperInvariant() switch
+        {
+            "C:" => @"\Device\HarddiskVolume3",
+            "D:" => @"\Device\HarddiskVolume4",
+            _ => null,
+        };
+        Assert.False(HidHideAccess.Contains([@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"], @"D:\Tools\AllyXLab.exe", Volumes));
+        Assert.False(HidHideAccess.Contains([@"C:\Tools\AllyXLab.exe"], @"D:\Tools\AllyXLab.exe", Volumes));
+        Assert.False(HidHideAccess.Contains([@"\Device\HarddiskVolume3\Tools\AllyXLab.exe"], @"E:\Tools\AllyXLab.exe", Volumes));
     }
 
     [Fact]
