@@ -86,11 +86,13 @@ public sealed class SteamGlyphCssTests
             diagram + " {\n  background-image: var(--wsgm-controller-full-image);",
             css,
             StringComparison.Ordinal);
-        Assert.Contains("--wsgm-controller-full-image: url(\"data:image/svg+xml;base64,", css, StringComparison.Ordinal);
+        Assert.Contains("--wsgm-controller-full-image: url(\"data:image/svg+xml;base64,", css,
+            StringComparison.Ordinal);
 
         // No full-controller artwork, no override: the Deck stays rather than turning into nothing.
         SteamInputGlyphPresentation bare = new("device", 1, [], [], [], []);
-        Assert.DoesNotContain(SteamGlyphCss.DeckDiagramViewBox, SteamGlyphCss.Build(bare, true), StringComparison.Ordinal);
+        Assert.DoesNotContain(SteamGlyphCss.DeckDiagramViewBox, SteamGlyphCss.Build(bare, true),
+            StringComparison.Ordinal);
     }
 
     [Fact]
