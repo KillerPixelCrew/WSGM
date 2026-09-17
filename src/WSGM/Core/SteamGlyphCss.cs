@@ -132,6 +132,17 @@ internal static class SteamGlyphCss
     /// </remarks>
     internal const string DialogCheckboxClass = "DialogCheckbox_Container";
 
+    /// <summary>The view box of Valve's inline Steam Deck silhouette.</summary>
+    /// <remarks>
+    ///     The controller-diagram pickers draw the Deck as an inline <c>&lt;svg&gt;</c> of some fifty
+    ///     paths rather than an <c>&lt;img&gt;</c>, so like the Steam logo it is out of reach of a
+    ///     <c>content:</c> override, and its class is a generated hash. The view box is the identity of
+    ///     that artwork the way the logo's path data is, and it survives a CSS-module rebuild. Read off
+    ///     the gyro picker on the reference Claw, where the silhouette sat at 323x95 with the Deck's
+    ///     trackpads and paddles drawn into it while every glyph around it had already been replaced.
+    /// </remarks>
+    internal const string DeckDiagramViewBox = "0 0 1053 351";
+
     /// <summary>
     ///     Valve glyph resources that identify a control's row for hiding.
     /// </summary>
@@ -201,6 +212,7 @@ internal static class SteamGlyphCss
         var rules = AppendImageOverrides(css, presentation);
         rules += AppendInlineLogoOverride(css, presentation);
         rules += AppendControllerImages(css, presentation);
+        rules += AppendControllerDiagramOverride(css, presentation);
         if (hideAbsentControls)
         {
             rules += AppendAbsentControlHiding(css, presentation);
@@ -296,6 +308,30 @@ internal static class SteamGlyphCss
 
         css.Append("}\n");
         return presentation.ControllerImages.Count;
+    }
+
+    private static int AppendControllerDiagramOverride(
+        StringBuilder css,
+        SteamInputGlyphPresentation presentation)
+    {
+        if (!presentation.ControllerImages.Any(image => image.Slot == "full"))
+        {
+            return 0;
+        }
+
+        // The same shape as the inline logo override: hide what Valve drew and paint the device's
+        // artwork on the box that is left. Here the box is the outer svg itself, which keeps its
+        // 323x95 size from the layout rather than from its children, so the paths can go invisible
+        // without the diagram collapsing and the background has the full area to paint into. The
+        // artwork comes from the custom property AppendControllerImages publishes, which until now
+        // had no consumer in WSGM at all.
+        var diagram = $"svg[viewBox=\"{Attribute(DeckDiagramViewBox)}\"]";
+        css.Append(diagram)
+            .Append(" > * {\n  visibility: hidden;\n}\n")
+            .Append(diagram)
+            .Append(" {\n  background: var(--wsgm-controller-full-image) center no-repeat;\n")
+            .Append("  background-size: contain;\n}\n");
+        return 1;
     }
 
     private static int AppendAbsentControlHiding(

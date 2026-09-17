@@ -69,6 +69,31 @@ public sealed class SteamGlyphCssTests
     }
 
     [Fact]
+    public void TheInlineDeckSilhouetteIsPaintedOverWithTheFullControllerArtwork()
+    {
+        // The controller-diagram pickers draw the Deck as an inline svg of fifty-odd paths, so a
+        // content: override cannot reach it and its class is a generated hash. It is identified by
+        // its view box, hidden path by path, and the device's full-controller image painted on the
+        // box that is left, through the custom property the controller images already publish.
+        var presentation = SteamInputGlyphPresentation.Create(ImportProfile());
+        Assert.NotNull(presentation);
+
+        var css = SteamGlyphCss.Build(presentation, false);
+
+        var diagram = $"svg[viewBox=\"{SteamGlyphCss.DeckDiagramViewBox}\"]";
+        Assert.Contains(diagram + " > * {\n  visibility: hidden;", css, StringComparison.Ordinal);
+        Assert.Contains(
+            diagram + " {\n  background: var(--wsgm-controller-full-image) center no-repeat;",
+            css,
+            StringComparison.Ordinal);
+        Assert.Contains("--wsgm-controller-full-image: url(\"data:image/svg+xml;base64,", css, StringComparison.Ordinal);
+
+        // No full-controller artwork, no override: the Deck stays rather than turning into nothing.
+        SteamInputGlyphPresentation bare = new("device", 1, [], [], []);
+        Assert.DoesNotContain(SteamGlyphCss.DeckDiagramViewBox, SteamGlyphCss.Build(bare, true), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ImportedProfileProducesOnlyCatalogOwnedExactMappings()
     {
         var profile = ImportProfile();

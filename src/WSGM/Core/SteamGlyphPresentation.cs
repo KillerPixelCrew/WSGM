@@ -100,6 +100,12 @@ internal sealed record SteamInputGlyphPresentation(
         ("/steaminputglyphs/sd_l2.svg", GlyphControlId.LeftTrigger),
         ("/steaminputglyphs/sd_r2.svg", GlyphControlId.RightTrigger),
 
+        // The soft-pull variants, which the gyro picker offers as "L2/R2-Trigger (Druck)". The
+        // profile has one trigger glyph per side, so both pulls draw it; they were the last two
+        // Valve glyphs left standing on that dialog on the reference Claw.
+        ("/steaminputglyphs/sd_l2_half.svg", GlyphControlId.LeftTrigger),
+        ("/steaminputglyphs/sd_r2_half.svg", GlyphControlId.RightTrigger),
+
         // The Deck's rear pairs. M1 is the LEFT paddle and M2 the RIGHT one — measured on the
         // reference unit and recorded in the plugin's own notes, which explicitly correct
         // Handheld Companion for having them inverted. The second pair (l5/r5) has no counterpart
