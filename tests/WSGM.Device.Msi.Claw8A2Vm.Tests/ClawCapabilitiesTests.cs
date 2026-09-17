@@ -32,6 +32,60 @@ public sealed class ClawCapabilitiesTests
     }
 
     [Fact]
+    public async Task BoostBelowTheSustainedLimitCarriesThatLimitDownInsteadOfRefusing()
+    {
+        FakeWmiTransport wmi = new();
+        wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 37);
+        wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 37);
+        wmi.AfterSetter = (_, _) => Assert.True(
+            wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress) <= wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+        ClawA2VmPowerCapability power = new(wmi);
+        var command = Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(31));
+
+        var result = await power.ApplyBoostAsync(command, 31, CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(31, result.ReadbackValue?.IntegerValue);
+        Assert.Equal(31, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
+        Assert.Equal(31, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+    }
+
+    [Fact]
+    public async Task SustainedAboveTheBoostLimitCarriesThatLimitUpInsteadOfRefusing()
+    {
+        FakeWmiTransport wmi = new();
+        wmi.SetData(ClawHardwareFacts.PowerSustainedAddress, 12);
+        wmi.SetData(ClawHardwareFacts.PowerBoostAddress, 20);
+        wmi.AfterSetter = (_, _) => Assert.True(
+            wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress) <= wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+        ClawA2VmPowerCapability power = new(wmi);
+        var command = Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(30));
+
+        var result = await power.ApplySustainedAsync(command, 30, CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(30, result.ReadbackValue?.IntegerValue);
+        Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
+        Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+    }
+
+    [Theory]
+    [InlineData(7)]
+    [InlineData(38)]
+    public async Task BoostOutsideTheAcceptedRangeIsStillRefused(int watts)
+    {
+        FakeWmiTransport wmi = new();
+        ClawA2VmPowerCapability power = new(wmi);
+        var command = Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(watts));
+
+        var result = await power.ApplyBoostAsync(command, watts, CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+        Assert.Equal(CapabilityReasonCode.ValueOutOfRange, result.Reason?.Code);
+        Assert.Empty(wmi.Writes);
+    }
+
+    [Fact]
     public async Task PairCommandFailedReadbackRestoresBothOriginalLimits()
     {
         FakeWmiTransport wmi = new();

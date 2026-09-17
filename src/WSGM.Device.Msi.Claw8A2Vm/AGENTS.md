@@ -63,7 +63,10 @@ established timeout. Preserve unknown bytes and flags in stateful read-modify-wr
 payloads; power and charge deliberately use zero-filled command envelopes.
 
 - Power: keep PL1/PL2 within 8-37 W and PL1 <= PL2. Use ordered writes, exact readback, and rollback of the original
-  pair.
+  pair. PL1 <= PL2 is a firmware invariant rather than a user preference, so a single-limit write that would break it
+  carries the other limit with it: a boost ceiling below the current sustained limit pulls PL1 down, and a sustained
+  limit above the current boost limit pushes PL2 up. The requested number is always applied as asked. Only a value
+  outside 8-37 W is rejected.
 - Scenarios: presets map Super Battery/Balanced/Extreme Performance to Eco/Green/Sport on AC and Comfort on battery,
   following HC's local ClawA1M handler inherited by ClawA2VM. Journal the exact original scenario byte with the watt
   pair. Select or restore the scenario before the pair, since firmware can reset power limits. Publish the resulting

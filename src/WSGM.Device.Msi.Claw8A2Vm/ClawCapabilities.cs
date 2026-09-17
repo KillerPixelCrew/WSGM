@@ -58,13 +58,17 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         // ApplyPairCoreAsync reads the pair back and only reports success when the hardware took
         // the value, so a ceiling the EC actually refuses surfaces as a failed command rather than
         // a silent lie.
-        if (watts is < 8 or > 37 || before.BoostWatts < watts || before.BoostWatts > 37)
+        if (watts is < 8 or > 37)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
-                "PL1 must be 8-37 W and cannot exceed the current PL2 value.");
+                "PL1 must be 8-37 W.");
         }
 
-        return await ApplyPairCoreAsync(command, before, watts, before.BoostWatts, cancellationToken)
+        // The mirror of ApplyBoostAsync: raising the sustained limit past the current boost limit
+        // carries PL2 up with it. The upper clamp also covers a readback that reports a boost value
+        // outside the accepted range, which must not be written back verbatim.
+        var boost = Math.Min(Math.Max(before.BoostWatts, watts), 37);
+        return await ApplyPairCoreAsync(command, before, watts, boost, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -74,13 +78,19 @@ internal sealed class ClawA2VmPowerCapability(IMsiWmiTransport transport)
         CancellationToken cancellationToken)
     {
         var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (watts is < 8 or > 37 || watts < before.SustainedWatts)
+        if (watts is < 8 or > 37)
         {
             return ClawResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
-                "PL2 must be 8-37 W and cannot be below the current PL1 value.");
+                "PL2 must be 8-37 W.");
         }
 
-        return await ApplyPairCoreAsync(command, before, before.SustainedWatts, watts, cancellationToken)
+        // PL1 <= PL2 is a firmware invariant, not a user preference, and the two limits are written
+        // as one pair anyway. A caller asking for a boost ceiling below the current sustained limit
+        // means "cap this app here", so PL1 comes down with it instead of the request being refused.
+        // Refusing left the pair at whatever the previous profile set, which is the opposite of what
+        // a lower ceiling asks for.
+        var sustained = Math.Min(before.SustainedWatts, watts);
+        return await ApplyPairCoreAsync(command, before, sustained, watts, cancellationToken)
             .ConfigureAwait(false);
     }
 
