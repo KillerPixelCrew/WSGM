@@ -21,10 +21,10 @@ internal enum GlyphAssetImportCode
 }
 
 /// <summary>One deterministic asset-import failure.</summary>
-/// <param name="Sha256">Declared asset hash.</param>
+/// <param name="AssetId">Declared asset identifier.</param>
 /// <param name="Code">Stable failure reason.</param>
 /// <param name="Message">Sanitized human-readable detail.</param>
-internal sealed record GlyphAssetImportError(string Sha256, GlyphAssetImportCode Code, string Message);
+internal sealed record GlyphAssetImportError(string AssetId, GlyphAssetImportCode Code, string Message);
 
 internal sealed record AssetImportResult(ImportedGlyphAsset? Asset, GlyphAssetImportError? Error)
 {
@@ -34,11 +34,11 @@ internal sealed record AssetImportResult(ImportedGlyphAsset? Asset, GlyphAssetIm
     }
 
     internal static AssetImportResult Failure(
-        string sha256,
+        string assetId,
         GlyphAssetImportCode code,
         string message)
     {
-        return new AssetImportResult(null, new GlyphAssetImportError(sha256, code, message));
+        return new AssetImportResult(null, new GlyphAssetImportError(assetId, code, message));
     }
 }
 
@@ -53,7 +53,7 @@ internal sealed record AssetImportResult(ImportedGlyphAsset? Asset, GlyphAssetIm
 /// </remarks>
 internal static class GlyphSvgNormalizer
 {
-    internal static AssetImportResult Normalize(GlyphAssetLockEntry asset, ReadOnlySpan<byte> bytes)
+    internal static AssetImportResult Normalize(GlyphAssetEntry asset, ReadOnlySpan<byte> bytes)
     {
         string source;
         try
@@ -104,7 +104,7 @@ internal static class GlyphSvgNormalizer
         if (asset.ViewBox is { } declaredViewBox && declaredViewBox != viewBox.Value)
         {
             return AssetImportResult.Failure(
-                asset.Sha256,
+                asset.AssetId,
                 GlyphAssetImportCode.DimensionMismatch,
                 $"Declared viewBox {declaredViewBox} does not match SVG viewBox {viewBox.Value}.");
         }
@@ -118,7 +118,7 @@ internal static class GlyphSvgNormalizer
 
         return AssetImportResult.Success(new ImportedGlyphAsset
         {
-            Lock = asset,
+            Entry = asset,
             Vector = new NormalizedGlyphSvg
             {
                 ViewBox = viewBox.Value,
@@ -302,9 +302,9 @@ internal static class GlyphSvgNormalizer
                && Math.Abs(parsed) <= GlyphProfileLimits.MaxDimension;
     }
 
-    private static AssetImportResult Failure(GlyphAssetLockEntry asset, string message)
+    private static AssetImportResult Failure(GlyphAssetEntry asset, string message)
     {
-        return AssetImportResult.Failure(asset.Sha256, GlyphAssetImportCode.MalformedAsset, message);
+        return AssetImportResult.Failure(asset.AssetId, GlyphAssetImportCode.MalformedAsset, message);
     }
 
     /// <summary>Presentation that applies to a path, resolved through its enclosing groups.</summary>
@@ -321,7 +321,7 @@ internal static class GlyphPngInspector
 {
     private static ReadOnlySpan<byte> Signature => [137, 80, 78, 71, 13, 10, 26, 10];
 
-    internal static AssetImportResult Inspect(GlyphAssetLockEntry asset, byte[] bytes)
+    internal static AssetImportResult Inspect(GlyphAssetEntry asset, byte[] bytes)
     {
         ReadOnlySpan<byte> span = bytes;
         if (span.Length < 33 || !span[..8].SequenceEqual(Signature))
@@ -446,7 +446,7 @@ internal static class GlyphPngInspector
         if (asset.PixelWidth != width || asset.PixelHeight != height)
         {
             return AssetImportResult.Failure(
-                asset.Sha256,
+                asset.AssetId,
                 GlyphAssetImportCode.DimensionMismatch,
                 "PNG dimensions do not match its declared dimensions.");
         }
@@ -463,14 +463,14 @@ internal static class GlyphPngInspector
 
         return AssetImportResult.Success(new ImportedGlyphAsset
         {
-            Lock = asset,
+            Entry = asset,
             RasterPng = bytes.ToArray()
         });
     }
 
-    private static AssetImportResult Failure(GlyphAssetLockEntry asset, string message)
+    private static AssetImportResult Failure(GlyphAssetEntry asset, string message)
     {
-        return AssetImportResult.Failure(asset.Sha256, GlyphAssetImportCode.MalformedAsset, message);
+        return AssetImportResult.Failure(asset.AssetId, GlyphAssetImportCode.MalformedAsset, message);
     }
 
     private static bool ValidColorEncoding(byte bitDepth, byte colorType)

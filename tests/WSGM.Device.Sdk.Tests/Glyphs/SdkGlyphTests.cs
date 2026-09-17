@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
@@ -127,7 +126,7 @@ public sealed class SdkGlyphTests
         byte[] svg,
         GlyphViewBox? declaredViewBox = null)
     {
-        var hash = Convert.ToHexString(SHA256.HashData(svg)).ToLowerInvariant();
+        const string assetId = "face-south";
         GlyphProfileManifest manifest = new()
         {
             SchemaVersion = GlyphProfileLimits.CurrentSchemaVersion,
@@ -139,11 +138,10 @@ public sealed class SdkGlyphTests
             NoticePath = "THIRD_PARTY_NOTICES.md",
             Assets =
             [
-                new GlyphAssetLockEntry
+                new GlyphAssetEntry
                 {
-                    Sha256 = hash,
+                    AssetId = assetId,
                     Format = GlyphAssetFormat.Svg,
-                    ByteCount = svg.Length,
                     Role = GlyphAssetRole.Control,
                     ViewBox = declaredViewBox ?? new GlyphViewBox(0, 0, 64, 64)
                 }
@@ -154,7 +152,7 @@ public sealed class SdkGlyphTests
                 {
                     Control = GlyphControlId.FaceSouth,
                     Presence = GlyphControlPresence.Present,
-                    AssetSha256 = hash
+                    AssetId = assetId
                 }
             ]
         };
@@ -164,7 +162,7 @@ public sealed class SdkGlyphTests
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
-            [GlyphPackageLayout.Asset(hash, GlyphAssetFormat.Svg)] = svg,
+            [GlyphPackageLayout.Asset(assetId, GlyphAssetFormat.Svg)] = svg,
             [manifest.NoticePath] = [.. "Synthetic test artwork.\n"u8]
         };
         return new DictionaryGlyphSource(manifest.ProfileId, files);

@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using WSGM.Controls;
@@ -229,12 +228,11 @@ public sealed class PhysicalGlyphServiceTests
         bool includeArtwork = true)
     {
         var artwork = OnePixelPng();
-        var hash = Convert.ToHexString(SHA256.HashData(artwork)).ToLowerInvariant();
-        GlyphAssetLockEntry asset = new()
+        const string assetId = "face-south";
+        GlyphAssetEntry asset = new()
         {
-            Sha256 = hash,
+            AssetId = assetId,
             Format = GlyphAssetFormat.Png,
-            ByteCount = artwork.Length,
             Role = GlyphAssetRole.Control,
             PixelWidth = 1,
             PixelHeight = 1
@@ -255,7 +253,7 @@ public sealed class PhysicalGlyphServiceTests
                 {
                     Control = GlyphControlId.FaceSouth,
                     Presence = GlyphControlPresence.Present,
-                    AssetSha256 = includeArtwork ? hash : null
+                    AssetId = includeArtwork ? assetId : null
                 }
             ]
         };
@@ -269,7 +267,7 @@ public sealed class PhysicalGlyphServiceTests
         };
         if (includeArtwork)
         {
-            files[GlyphPackageLayout.Asset(hash, GlyphAssetFormat.Png)] = artwork;
+            files[GlyphPackageLayout.Asset(assetId, GlyphAssetFormat.Png)] = artwork;
         }
 
         var result = GlyphPackageImporter.Import(

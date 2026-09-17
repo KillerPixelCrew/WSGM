@@ -651,11 +651,11 @@ unchanged; it is an ownership boundary, not a sandbox.
 | Path                                   | Content                                                           |
 | -------------------------------------- | ----------------------------------------------------------------- |
 | `glyphs/profiles/<profileId>.json`     | One `GlyphProfileManifest`; the file name must equal `profileId`. |
-| `glyphs/assets/<sha256>.svg` or `.png` | One asset, addressed only by its lowercase SHA-256.               |
+| `glyphs/assets/<assetId>.svg` or `.png` | One asset, addressed only by its `assetId`.                      |
 | notice path named by the manifest      | The licence or attribution notice (`.md` or `.txt`).              |
 
-`ProfileManifest(profileId)` and `Asset(sha256, format)` build these paths and throw on an
-identifier or hash of the wrong shape.
+`ProfileManifest(profileId)` and `Asset(assetId, format)` build these paths and throw on an
+identifier of the wrong shape.
 
 ### `GlyphProfileManifest`
 
@@ -670,18 +670,18 @@ Schema version 1, camelCase JSON, unknown members rejected, depth ≤ 12.
 | `exactDeviceIds`   | ≤ 32 unique identifiers naming the device definitions the profile applies to.                                                                            |
 | `sourceRevision`   | Identifier ≤ 128, kept for attribution and reproducibility.                                                                                              |
 | `noticePath`       | Relative, forward slashes, ≤ 256, no leading `/`, no `\` or `:`, no `.` or `..` segment, only identifier characters per segment, ending `.md` or `.txt`. |
-| `assets`           | ≤ 128 `GlyphAssetLockEntry`, unique by hash, aggregate `byteCount` ≤ 4 MiB.                                                                              |
-| `controllerImages` | Optional `fullSha256`, `leftSha256`, `rightSha256`, each resolving to an asset of the matching role.                                                     |
+| `assets`           | ≤ 128 `GlyphAssetEntry`, unique by `assetId`; the supplied bytes total ≤ 4 MiB.                                                                          |
+| `controllerImages` | Optional `fullAssetId`, `leftAssetId`, `rightAssetId`, each resolving to an asset of the matching role.                                                  |
 | `controls`         | ≤ 64 `GlyphControlMapping`, unique by control.                                                                                                           |
 | `aliases`          | ≤ 64 `GlyphControlAlias`, unique by logical control.                                                                                                     |
 
-`GlyphAssetLockEntry`: `sha256` (64 lowercase hex), `format` (`Svg` or `Png`), `byteCount` (1 …
-524,288), `role` (`Control`, `FullController`, `LeftController`, `RightController`), and exactly one
-of `viewBox` for SVG (positive width and height, every extent within ±4096) or
+`GlyphAssetEntry`: `assetId` (identifier ≤ 128, naming the file under `glyphs/assets`), `format`
+(`Svg` or `Png`), `role` (`Control`, `FullController`, `LeftController`, `RightController`), and
+exactly one of `viewBox` for SVG (positive width and height, every extent within ±4096) or
 `pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤ 4,194,304).
 
 `GlyphControlMapping`: `control` (`GlyphControlId`), `presence` (`Present` or `Absent`), `side`
-(`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetSha256` (must resolve to a
+(`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a
 `Control` asset; forbidden when `Absent`; null means the generic fallback).
 
 `GlyphControlAlias(logicalControl, physicalControl)` presents one logical control with another's
@@ -703,10 +703,10 @@ artwork. The target must be a distinct, present, mapped control and must not its
 3. Load the profile: read the manifest under 256 KiB (`ProfileManifestMissing`), deserialize
    (`ProfileManifestInvalid`), validate every field rule above, check the file-name identity
    (`ProfileIdentityMismatch`). Any error stops the profile.
-4. Order the manifest deterministically: device ids, assets by hash, controls by id, aliases by
+4. Order the manifest deterministically: device ids, assets by `assetId`, controls by id, aliases by
    logical then physical control.
-5. For each asset: read under 512 KiB (`AssetMissing`), compare byte count and SHA-256
-   (`AssetRejected`), then normalize SVG or inspect PNG.
+5. For each asset: read under 512 KiB (`AssetMissing`), charge the bytes against the 4 MiB profile
+   budget (`AssetRejected`), then normalize SVG or inspect PNG.
 6. Validate the notice: present, non-empty, ≤ 256 KiB, strict UTF-8, only `\r`, `\n`, `\t` as
    control characters (`NoticeRejected`).
 7. A profile joins `Profiles` only with no error; otherwise all of its errors join `Errors`. Both

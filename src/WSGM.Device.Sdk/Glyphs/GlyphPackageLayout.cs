@@ -3,7 +3,7 @@ using System.Buffers;
 
 namespace WSGM.Device.Sdk.Glyphs;
 
-/// <summary>WSGM-owned fixed package layout for profile manifests and hash-addressed artwork.</summary>
+/// <summary>WSGM-owned fixed package layout for profile manifests and identified artwork.</summary>
 /// <remarks>
 ///     Callers must constrain the returned relative path below the already selected immutable package
 ///     directory. Display names, labels, source revisions, and notice paths never enter artwork
@@ -13,8 +13,6 @@ public static class GlyphPackageLayout
 {
     private static readonly SearchValues<char> IdentifierCharacters =
         SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-");
-
-    private static readonly SearchValues<char> LowercaseHexCharacters = SearchValues.Create("0123456789abcdef");
 
     /// <summary>Returns the fixed profile-manifest path for one stable profile identifier.</summary>
     /// <param name="profileId">Validated package-scoped profile identifier.</param>
@@ -32,30 +30,26 @@ public static class GlyphPackageLayout
         return $"glyphs/profiles/{profileId}.json";
     }
 
-    /// <summary>Returns the fixed source-asset path for a locked asset.</summary>
-    /// <param name="sha256">Canonical lowercase SHA-256.</param>
+    /// <summary>Returns the fixed source-asset path for one declared asset.</summary>
+    /// <param name="assetId">Validated package-scoped asset identifier.</param>
     /// <param name="format">Validated media type controlling the fixed extension.</param>
     /// <returns>Forward-slash relative package path.</returns>
-    public static string Asset(string sha256, GlyphAssetFormat format)
+    public static string Asset(string assetId, GlyphAssetFormat format)
     {
-        ValidateHash(sha256);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetId);
+        if (assetId.Length > GlyphProfileLimits.MaxIdentifierLength
+            || assetId.AsSpan().IndexOfAnyExcept(IdentifierCharacters) >= 0)
+        {
+            throw new ArgumentException("Asset identifiers contain only ASCII letters, digits, '.', '_', and '-'.",
+                nameof(assetId));
+        }
+
         var extension = format switch
         {
             GlyphAssetFormat.Svg => "svg",
             GlyphAssetFormat.Png => "png",
             _ => throw new ArgumentOutOfRangeException(nameof(format))
         };
-        return $"glyphs/assets/{sha256}.{extension}";
-    }
-
-    private static void ValidateHash(string sha256)
-    {
-        ArgumentNullException.ThrowIfNull(sha256);
-        if (sha256.Length != 64 || sha256.AsSpan().IndexOfAnyExcept(LowercaseHexCharacters) >= 0)
-        {
-            throw new ArgumentException(
-                "Content hash must be exactly 64 lowercase hexadecimal characters.",
-                nameof(sha256));
-        }
+        return $"glyphs/assets/{assetId}.{extension}";
     }
 }

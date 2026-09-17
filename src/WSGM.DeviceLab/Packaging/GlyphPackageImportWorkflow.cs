@@ -22,7 +22,7 @@ internal sealed record ImportedGlyphProfileSummary
     /// <summary>Confined package-relative attribution notice.</summary>
     public required string NoticePath { get; init; }
 
-    /// <summary>Number of hash-addressed artwork files imported.</summary>
+    /// <summary>Number of artwork files imported.</summary>
     public required int AssetCount { get; init; }
 
     /// <summary>Number of explicit physical-control mappings.</summary>

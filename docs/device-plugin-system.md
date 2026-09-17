@@ -67,7 +67,7 @@ A package is one directory whose name equals the manifest `id`:
   *.dll                                package-local dependencies (host-first rule, §7)
   LICENSE.txt, THIRD_PARTY_NOTICES.md, PROVENANCE.md   as the package's licences require
   glyphs\profiles\<profileId>.json     glyph profiles (optional)
-  glyphs\assets\<sha256>.svg|png       hash-addressed artwork (optional)
+  glyphs\assets\<assetId>.svg|png      artwork named by its manifest id (optional)
 ```
 
 Budgets applied everywhere a package is validated, staged or packed (`Core\DevicePackagePolicy.cs`,

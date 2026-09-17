@@ -188,8 +188,8 @@ internal sealed class PhysicalGlyphService : IDisposable
                 physicalControl);
         }
 
-        if (mapping.AssetSha256 is not { } hash
-            || !profile.Assets.TryGetValue(hash, out var asset))
+        if (mapping.AssetId is not { } assetId
+            || !profile.Assets.TryGetValue(assetId, out var asset))
         {
             return FallbackPlan(
                 PhysicalGlyphFallbackReason.ArtworkMissing,
@@ -254,8 +254,8 @@ internal sealed class PhysicalGlyphService : IDisposable
         }
 
         var mapping = profile.Manifest.Controls.FirstOrDefault(item => item.Control == control);
-        return mapping?.AssetSha256 is { } hash
-               && profile.Assets.TryGetValue(hash, out var asset)
+        return mapping?.AssetId is { } assetId
+               && profile.Assets.TryGetValue(assetId, out var asset)
             ? Math.Max(64, asset.RetainedBytes)
             : 64;
     }

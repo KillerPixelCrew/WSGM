@@ -365,7 +365,7 @@ internal static class PluginPackageWorkflow
             expected.Add(GlyphPackageLayout.ProfileManifest(profile.Manifest.ProfileId));
             foreach (var asset in profile.Manifest.Assets)
             {
-                expected.Add(GlyphPackageLayout.Asset(asset.Sha256, asset.Format));
+                expected.Add(GlyphPackageLayout.Asset(asset.AssetId, asset.Format));
             }
 
             expected.Add(profile.Manifest.NoticePath);

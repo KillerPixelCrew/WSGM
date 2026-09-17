@@ -70,7 +70,7 @@ public static class GlyphProfileLimits
 
 /// <summary>A plugin-owned, schema-versioned physical-controller presentation profile.</summary>
 /// <remarks>
-///     Artwork is addressed only by lowercase SHA-256 content hash. The sole package-relative path is
+///     Artwork is addressed by package-authored asset identifier. The sole package-relative path is
 ///     the attribution notice; the loader confines and validates it before it reaches a package source.
 /// </remarks>
 public sealed record GlyphProfileManifest
@@ -96,8 +96,8 @@ public sealed record GlyphProfileManifest
     /// <summary>Confined package-relative path to the required license or attribution notice.</summary>
     public required string NoticePath { get; init; }
 
-    /// <summary>Hash-pinned inventory of every source asset used by the profile.</summary>
-    public IReadOnlyList<GlyphAssetLockEntry> Assets { get; init; } = [];
+    /// <summary>Inventory of every source asset used by the profile.</summary>
+    public IReadOnlyList<GlyphAssetEntry> Assets { get; init; } = [];
 
     /// <summary>Optional full, left, and right physical-controller images.</summary>
     public GlyphControllerImages ControllerImages { get; init; } = new();
@@ -109,17 +109,14 @@ public sealed record GlyphProfileManifest
     public IReadOnlyList<GlyphControlAlias> Aliases { get; init; } = [];
 }
 
-/// <summary>One immutable source asset and the dimensions the loader must verify.</summary>
-public sealed record GlyphAssetLockEntry
+/// <summary>One source asset and the dimensions the loader must verify.</summary>
+public sealed record GlyphAssetEntry
 {
-    /// <summary>SHA-256 of the exact source bytes, and the sole runtime asset address.</summary>
-    public required string Sha256 { get; init; }
+    /// <summary>Package-scoped asset identifier, and the sole runtime asset address.</summary>
+    public required string AssetId { get; init; }
 
     /// <summary>Accepted source media type.</summary>
     public required GlyphAssetFormat Format { get; init; }
-
-    /// <summary>Exact source byte count.</summary>
-    public required int ByteCount { get; init; }
 
     /// <summary>Semantic role of the asset.</summary>
     public required GlyphAssetRole Role { get; init; }
@@ -169,17 +166,17 @@ public enum GlyphAssetRole
 /// <param name="Height">Positive coordinate height.</param>
 public readonly record struct GlyphViewBox(decimal X, decimal Y, decimal Width, decimal Height);
 
-/// <summary>Optional controller-level imagery addressed by source hash.</summary>
+/// <summary>Optional controller-level imagery addressed by asset identifier.</summary>
 public sealed record GlyphControllerImages
 {
-    /// <summary>Full-controller image hash.</summary>
-    public string? FullSha256 { get; init; }
+    /// <summary>Full-controller image identifier.</summary>
+    public string? FullAssetId { get; init; }
 
-    /// <summary>Left-controller image hash.</summary>
-    public string? LeftSha256 { get; init; }
+    /// <summary>Left-controller image identifier.</summary>
+    public string? LeftAssetId { get; init; }
 
-    /// <summary>Right-controller image hash.</summary>
-    public string? RightSha256 { get; init; }
+    /// <summary>Right-controller image identifier.</summary>
+    public string? RightAssetId { get; init; }
 }
 
 /// <summary>Canonical physical controls, independent of virtual targets and Steam selectors.</summary>
@@ -314,8 +311,8 @@ public sealed record GlyphControlMapping
     /// <summary>Bounded plain-text label printed on the device.</summary>
     public string? PhysicalLabel { get; init; }
 
-    /// <summary>Hash of control artwork, or null for the generic fallback.</summary>
-    public string? AssetSha256 { get; init; }
+    /// <summary>Identifier of control artwork, or null for the generic fallback.</summary>
+    public string? AssetId { get; init; }
 }
 
 /// <summary>One logical control presented with another physical control's artwork.</summary>
@@ -371,11 +368,11 @@ public sealed record NormalizedGlyphSvg
     public IReadOnlyList<NormalizedGlyphPath> Paths { get; init; } = [];
 }
 
-/// <summary>One imported, hash-linked asset safe for first-party consumers.</summary>
+/// <summary>One imported asset safe for first-party consumers.</summary>
 public sealed record ImportedGlyphAsset
 {
     /// <summary>Validated source asset declaration.</summary>
-    public required GlyphAssetLockEntry Lock { get; init; }
+    public required GlyphAssetEntry Entry { get; init; }
 
     /// <summary>Normalized vector output for SVG.</summary>
     public NormalizedGlyphSvg? Vector { get; init; }
@@ -387,12 +384,12 @@ public sealed record ImportedGlyphAsset
     public int RetainedBytes => Vector?.SvgUtf8.Length ?? RasterPng.Length;
 }
 
-/// <summary>Validated profile plus every imported hash-addressed asset.</summary>
+/// <summary>Validated profile plus every imported asset.</summary>
 public sealed record ImportedGlyphProfile
 {
     /// <summary>Validated, deterministically ordered profile metadata.</summary>
     public required GlyphProfileManifest Manifest { get; init; }
 
-    /// <summary>Assets keyed only by lowercase SHA-256.</summary>
+    /// <summary>Assets keyed only by package-scoped asset identifier.</summary>
     public required IReadOnlyDictionary<string, ImportedGlyphAsset> Assets { get; init; }
 }

@@ -110,9 +110,9 @@ payloads; power and charge deliberately use zero-filled command envelopes.
 
 ## Glyphs, tests, and evidence
 
-The glyph profile is a byte-locked evidence manifest. When artwork changes, update the corresponding SHA-256, byte
-length, source revision, and notice; do not silently normalize or replace authored bytes. Keep all manifest assets
-packaged.
+The glyph profile names each asset by `assetId`, which is also its file name under `glyphs/assets`. When artwork
+changes, update the declared `viewBox` or pixel dimensions, the source revision, and the notice; keep the authored
+artwork as upstream drew it rather than reformatting it. Keep all manifest assets packaged.
 
 CI is software-only. Any claim about WMI, HID, Sensor API, controller re-enumeration, fan/lighting payloads, power
 behavior, or display behavior requires an explicit attended Device Lab run on the reference unit and a provenance

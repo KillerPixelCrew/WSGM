@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using WSGM.Core;
@@ -199,22 +198,19 @@ public sealed class SteamGlyphCssTests
         var controllerSvg = Encoding.UTF8.GetBytes(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 128 64\">"
             + "<path d=\"M 0 0 L 128 64 Z\"/></svg>");
-        var controlHash = Hash(controlSvg);
-        var guideHash = Hash(guideSvg);
-        var controllerHash = Hash(controllerSvg);
+        const string controlId = "face-south";
+        const string guideId = "guide";
+        const string controllerId = "controller-full";
         var controlAsset = Asset(
-            controlHash,
-            controlSvg.Length,
+            controlId,
             GlyphAssetRole.Control,
             new GlyphViewBox(0, 0, 64, 64));
         var guideAsset = Asset(
-            guideHash,
-            guideSvg.Length,
+            guideId,
             GlyphAssetRole.Control,
             new GlyphViewBox(0, 0, 64, 64));
         var controllerAsset = Asset(
-            controllerHash,
-            controllerSvg.Length,
+            controllerId,
             GlyphAssetRole.FullController,
             new GlyphViewBox(0, 0, 128, 64));
         List<GlyphControlMapping> controls =
@@ -223,7 +219,7 @@ public sealed class SteamGlyphCssTests
             {
                 Control = GlyphControlId.FaceSouth,
                 Presence = GlyphControlPresence.Present,
-                AssetSha256 = controlHash
+                AssetId = controlId
             },
             new()
             {
@@ -237,7 +233,7 @@ public sealed class SteamGlyphCssTests
             {
                 Control = GlyphControlId.Guide,
                 Presence = GlyphControlPresence.Present,
-                AssetSha256 = guideHash
+                AssetId = guideId
             });
         }
 
@@ -253,7 +249,7 @@ public sealed class SteamGlyphCssTests
             Assets = guide
                 ? [controlAsset, guideAsset, controllerAsset]
                 : [controlAsset, controllerAsset],
-            ControllerImages = new GlyphControllerImages { FullSha256 = controllerHash },
+            ControllerImages = new GlyphControllerImages { FullAssetId = controllerId },
             Controls = controls,
             Aliases = aliasEastToSouth
                 ?
@@ -273,9 +269,9 @@ public sealed class SteamGlyphCssTests
                     manifest,
                     DeviceJsonContext.Default.GlyphProfileManifest),
             [manifest.NoticePath] = [.. "Example glyph notice\n"u8],
-            [GlyphPackageLayout.Asset(controlHash, GlyphAssetFormat.Svg)] = controlSvg,
-            [GlyphPackageLayout.Asset(guideHash, GlyphAssetFormat.Svg)] = guideSvg,
-            [GlyphPackageLayout.Asset(controllerHash, GlyphAssetFormat.Svg)] = controllerSvg
+            [GlyphPackageLayout.Asset(controlId, GlyphAssetFormat.Svg)] = controlSvg,
+            [GlyphPackageLayout.Asset(guideId, GlyphAssetFormat.Svg)] = guideSvg,
+            [GlyphPackageLayout.Asset(controllerId, GlyphAssetFormat.Svg)] = controllerSvg
         };
         var result = GlyphPackageImporter.Import(
             new GlyphTestPackageSource(manifest.ProfileId, files));
@@ -283,24 +279,17 @@ public sealed class SteamGlyphCssTests
         return Assert.Single(result.Profiles);
     }
 
-    private static GlyphAssetLockEntry Asset(
-        string hash,
-        int byteCount,
+    private static GlyphAssetEntry Asset(
+        string assetId,
         GlyphAssetRole role,
         GlyphViewBox viewBox)
     {
-        return new GlyphAssetLockEntry
+        return new GlyphAssetEntry
         {
-            Sha256 = hash,
+            AssetId = assetId,
             Format = GlyphAssetFormat.Svg,
-            ByteCount = byteCount,
             Role = role,
             ViewBox = viewBox
         };
-    }
-
-    private static string Hash(byte[] bytes)
-    {
-        return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     }
 }

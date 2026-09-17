@@ -146,11 +146,11 @@ internal sealed record SteamInputGlyphPresentation(
             var physicalControl = aliases.GetValueOrDefault(logicalControl, logicalControl);
             if (!controls.TryGetValue(physicalControl, out var mapping)
                 || mapping.Presence is not GlyphControlPresence.Present
-                || mapping.AssetSha256 is not { Length: > 0 } assetHash
+                || mapping.AssetId is not { Length: > 0 } assetId
                 || !TryGetAsset(
                     profile,
                     assetReferences,
-                    assetHash,
+                    assetId,
                     out var asset))
             {
                 continue;
@@ -165,19 +165,19 @@ internal sealed record SteamInputGlyphPresentation(
             assetReferences,
             images,
             "full",
-            profile.Manifest.ControllerImages.FullSha256);
+            profile.Manifest.ControllerImages.FullAssetId);
         AddControllerImage(
             profile,
             assetReferences,
             images,
             "left",
-            profile.Manifest.ControllerImages.LeftSha256);
+            profile.Manifest.ControllerImages.LeftAssetId);
         AddControllerImage(
             profile,
             assetReferences,
             images,
             "right",
-            profile.Manifest.ControllerImages.RightSha256);
+            profile.Manifest.ControllerImages.RightAssetId);
 
         // Absence is the default. The plugin declares the controls its device HAS, and everything
         // it does not name is hidden — so a handheld with no trackpads gets no trackpad sections
@@ -215,13 +215,13 @@ internal sealed record SteamInputGlyphPresentation(
         IDictionary<string, SteamInputGlyphAssetReference> assetReferences,
         List<SteamInputGlyphControllerImageMapping> images,
         string slot,
-        string? assetHash)
+        string? assetId)
     {
-        if (assetHash is { Length: > 0 }
+        if (assetId is { Length: > 0 }
             && TryGetAsset(
                 profile,
                 assetReferences,
-                assetHash,
+                assetId,
                 out var asset))
         {
             images.Add(new SteamInputGlyphControllerImageMapping(slot, asset));
@@ -231,27 +231,26 @@ internal sealed record SteamInputGlyphPresentation(
     private static bool TryGetAsset(
         ImportedGlyphProfile profile,
         IDictionary<string, SteamInputGlyphAssetReference> assetReferences,
-        string assetHash,
+        string assetId,
         out SteamInputGlyphAssetReference reference)
     {
         reference = null!;
         if (assetReferences.TryGetValue(
-                assetHash,
+                assetId,
                 out var existing))
         {
             reference = existing;
             return true;
         }
 
-        if (!profile.Assets.TryGetValue(assetHash, out var asset)
-            || !string.Equals(asset.Lock.Sha256, assetHash, StringComparison.Ordinal))
+        if (!profile.Assets.TryGetValue(assetId, out var asset))
         {
             return false;
         }
 
         string mediaType;
         ReadOnlySpan<byte> bytes;
-        switch (asset.Lock.Format)
+        switch (asset.Entry.Format)
         {
             case GlyphAssetFormat.Svg when asset.Vector is not null:
                 mediaType = "image/svg+xml";
@@ -267,7 +266,7 @@ internal sealed record SteamInputGlyphPresentation(
 
         reference = new SteamInputGlyphAssetReference(
             $"data:{mediaType};base64,{Convert.ToBase64String(bytes)}");
-        assetReferences.Add(assetHash, reference);
+        assetReferences.Add(assetId, reference);
         return true;
     }
 }

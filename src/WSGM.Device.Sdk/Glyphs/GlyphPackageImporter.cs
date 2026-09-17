@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using WSGM.Device.Sdk.Serialization;
@@ -12,8 +11,8 @@ namespace WSGM.Device.Sdk.Glyphs;
 /// <summary>Supplies immutable files from one already selected plugin package.</summary>
 /// <remarks>
 ///     Implementations own package-root confinement, reparse-point rejection, and stable bounded reads.
-///     The loader derives artwork paths from validated hashes and validates the sole manifest-provided
-///     notice path before asking the source to read it.
+///     The loader derives artwork paths from validated asset identifiers and validates the sole
+///     manifest-provided notice path before asking the source to read it.
 /// </remarks>
 public interface IGlyphPackageSource
 {
@@ -47,10 +46,10 @@ public enum GlyphPackageImportCode
     /// <summary>The package profile directory could not be inspected.</summary>
     ProfileEnumerationFailed,
 
-    /// <summary>A hash-addressed artwork file was absent or exceeded its byte budget.</summary>
+    /// <summary>An identified artwork file was absent or exceeded its byte budget.</summary>
     AssetMissing,
 
-    /// <summary>An artwork file failed its hash, size, format, dimension, or safety checks.</summary>
+    /// <summary>An artwork file failed its size, format, dimension, or safety checks.</summary>
     AssetRejected,
 
     /// <summary>The required license or attribution notice was unsafe or unavailable.</summary>
@@ -230,9 +229,10 @@ public static class GlyphPackageImporter
 
         var ordered = OrderManifest(manifest);
         Dictionary<string, ImportedGlyphAsset> importedAssets = new(StringComparer.Ordinal);
+        long totalBytes = 0;
         foreach (var asset in ordered.Assets)
         {
-            var assetPath = GlyphPackageLayout.Asset(asset.Sha256, asset.Format);
+            var assetPath = GlyphPackageLayout.Asset(asset.AssetId, asset.Format);
             if (!source.TryRead(assetPath, GlyphProfileLimits.MaxAssetBytes, out var suppliedBytes)
                 || suppliedBytes is not { Length: > 0 }
                 || suppliedBytes.Length > GlyphProfileLimits.MaxAssetBytes)
@@ -241,30 +241,24 @@ public static class GlyphPackageImporter
                     profileId,
                     assetPath,
                     GlyphPackageImportCode.AssetMissing,
-                    "The hash-addressed artwork is absent or exceeds its byte budget."));
+                    "The identified artwork is absent or exceeds its byte budget."));
                 continue;
             }
 
             var bytes = suppliedBytes.ToArray();
-            if (bytes.Length != asset.ByteCount)
-            {
-                profileErrors.Add(new GlyphPackageImportError(
-                    profileId,
-                    assetPath,
-                    GlyphPackageImportCode.AssetRejected,
-                    $"Declared byte count is {asset.ByteCount}; the package supplied {bytes.Length}."));
-                continue;
-            }
 
-            var actualHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-            if (!string.Equals(actualHash, asset.Sha256, StringComparison.Ordinal))
+            // The aggregate budget is measured against what the package actually supplied. Every read
+            // is already capped at MaxAssetBytes and the manifest is capped at MaxAssets, so the worst
+            // case before this trips stays bounded.
+            totalBytes += bytes.Length;
+            if (totalBytes > GlyphProfileLimits.MaxProfileBytes)
             {
                 profileErrors.Add(new GlyphPackageImportError(
                     profileId,
                     assetPath,
                     GlyphPackageImportCode.AssetRejected,
-                    "The artwork bytes do not match the declared SHA-256."));
-                continue;
+                    $"Aggregate artwork exceeds {GlyphProfileLimits.MaxProfileBytes} bytes."));
+                break;
             }
 
             var result = asset.Format switch
@@ -272,13 +266,13 @@ public static class GlyphPackageImporter
                 GlyphAssetFormat.Svg => GlyphSvgNormalizer.Normalize(asset, bytes),
                 GlyphAssetFormat.Png => GlyphPngInspector.Inspect(asset, bytes),
                 _ => AssetImportResult.Failure(
-                    asset.Sha256,
+                    asset.AssetId,
                     GlyphAssetImportCode.MalformedAsset,
                     "The artwork format is unsupported.")
             };
             if (result.Asset is not null)
             {
-                importedAssets.Add(asset.Sha256, result.Asset);
+                importedAssets.Add(asset.AssetId, result.Asset);
             }
             else
             {
@@ -369,8 +363,7 @@ public static class GlyphPackageImporter
             Invalid("assets", $"At most {GlyphProfileLimits.MaxAssets} entries are accepted.");
         }
 
-        Dictionary<string, GlyphAssetLockEntry> assetsByHash = new(StringComparer.Ordinal);
-        long totalBytes = 0;
+        Dictionary<string, GlyphAssetEntry> assetsById = new(StringComparer.Ordinal);
         for (var index = 0; index < assets.Count; index++)
         {
             var asset = assets[index];
@@ -381,13 +374,13 @@ public static class GlyphPackageImporter
                 continue;
             }
 
-            if (!IsHash(asset.Sha256))
+            if (!IsIdentifier(asset.AssetId))
             {
-                Invalid($"{path}.sha256", "SHA-256 must be 64 lowercase hexadecimal characters.");
+                Invalid($"{path}.assetId", "A bounded identifier is required.");
             }
-            else if (!assetsByHash.TryAdd(asset.Sha256, asset))
+            else if (!assetsById.TryAdd(asset.AssetId, asset))
             {
-                Invalid($"{path}.sha256", "The asset hash is declared more than once.");
+                Invalid($"{path}.assetId", "The asset identifier is declared more than once.");
             }
 
             if (!Enum.IsDefined(asset.Format) || !Enum.IsDefined(asset.Role))
@@ -395,42 +388,27 @@ public static class GlyphPackageImporter
                 Invalid(path, "The artwork format or role is undefined.");
             }
 
-            if (asset.ByteCount is <= 0 or > GlyphProfileLimits.MaxAssetBytes)
-            {
-                Invalid($"{path}.byteCount",
-                    $"The byte count must be between 1 and {GlyphProfileLimits.MaxAssetBytes}.");
-            }
-            else
-            {
-                totalBytes += asset.ByteCount;
-            }
-
             ValidateAssetShape(asset, path, Invalid);
-        }
-
-        if (totalBytes > GlyphProfileLimits.MaxProfileBytes)
-        {
-            Invalid("assets", $"Aggregate artwork exceeds {GlyphProfileLimits.MaxProfileBytes} bytes.");
         }
 
         var images = manifest.ControllerImages ?? new GlyphControllerImages();
         ValidateImageReference(
-            images.FullSha256,
+            images.FullAssetId,
             GlyphAssetRole.FullController,
-            "controllerImages.fullSha256",
-            assetsByHash,
+            "controllerImages.fullAssetId",
+            assetsById,
             Invalid);
         ValidateImageReference(
-            images.LeftSha256,
+            images.LeftAssetId,
             GlyphAssetRole.LeftController,
-            "controllerImages.leftSha256",
-            assetsByHash,
+            "controllerImages.leftAssetId",
+            assetsById,
             Invalid);
         ValidateImageReference(
-            images.RightSha256,
+            images.RightAssetId,
             GlyphAssetRole.RightController,
-            "controllerImages.rightSha256",
-            assetsByHash,
+            "controllerImages.rightAssetId",
+            assetsById,
             Invalid);
 
         var controls = manifest.Controls ?? [];
@@ -468,17 +446,17 @@ public static class GlyphPackageImporter
                 Invalid($"{path}.physicalLabel", "The physical label is not bounded plain text.");
             }
 
-            if (control.Presence is GlyphControlPresence.Absent && control.AssetSha256 is not null)
+            if (control.Presence is GlyphControlPresence.Absent && control.AssetId is not null)
             {
-                Invalid($"{path}.assetSha256", "A physically absent control cannot declare artwork.");
+                Invalid($"{path}.assetId", "A physically absent control cannot declare artwork.");
             }
 
-            if (control.AssetSha256 is { } hash
-                && (!IsHash(hash)
-                    || !assetsByHash.TryGetValue(hash, out var asset)
+            if (control.AssetId is { } assetId
+                && (!IsIdentifier(assetId)
+                    || !assetsById.TryGetValue(assetId, out var asset)
                     || asset.Role is not GlyphAssetRole.Control))
             {
-                Invalid($"{path}.assetSha256", "Control artwork must resolve to a Control asset.");
+                Invalid($"{path}.assetId", "Control artwork must resolve to a Control asset.");
             }
         }
 
@@ -538,7 +516,7 @@ public static class GlyphPackageImporter
     }
 
     private static void ValidateAssetShape(
-        GlyphAssetLockEntry asset,
+        GlyphAssetEntry asset,
         string path,
         Action<string, string> invalid)
     {
@@ -593,19 +571,19 @@ public static class GlyphPackageImporter
     }
 
     private static void ValidateImageReference(
-        string? hash,
+        string? assetId,
         GlyphAssetRole expectedRole,
         string path,
-        Dictionary<string, GlyphAssetLockEntry> assets,
+        Dictionary<string, GlyphAssetEntry> assets,
         Action<string, string> invalid)
     {
-        if (hash is null)
+        if (assetId is null)
         {
             return;
         }
 
-        if (!IsHash(hash)
-            || !assets.TryGetValue(hash, out var asset)
+        if (!IsIdentifier(assetId)
+            || !assets.TryGetValue(assetId, out var asset)
             || asset.Role != expectedRole)
         {
             invalid(path, $"The image must resolve to a {expectedRole} asset.");
@@ -636,7 +614,7 @@ public static class GlyphPackageImporter
         return manifest with
         {
             ExactDeviceIds = [.. (manifest.ExactDeviceIds ?? []).Order(StringComparer.Ordinal)],
-            Assets = [.. (manifest.Assets ?? []).OrderBy(asset => asset.Sha256, StringComparer.Ordinal)],
+            Assets = [.. (manifest.Assets ?? []).OrderBy(asset => asset.AssetId, StringComparer.Ordinal)],
             Controls = [.. (manifest.Controls ?? []).OrderBy(control => control.Control)],
             Aliases =
             [
@@ -664,12 +642,6 @@ public static class GlyphPackageImporter
         return !string.IsNullOrWhiteSpace(value)
                && value.Length <= maximumLength
                && value.All(character => !char.IsControl(character));
-    }
-
-    private static bool IsHash(string? value)
-    {
-        return value is { Length: 64 }
-               && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
     }
 
     private static bool IsNoticePath(string? value)

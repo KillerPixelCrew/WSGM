@@ -8,9 +8,8 @@
   "noticePath": "THIRD_PARTY_NOTICES.md",
   "assets": [
     {
-      "sha256": "0e60bdd5b4b29701e00d692a2d76edefa5d286ff29ad8db30a6d537fe129516f",
+      "assetId": "face-south",
       "format": "Svg",
-      "byteCount": 469,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -20,9 +19,8 @@
       }
     },
     {
-      "sha256": "195063664427c6562a4c5e62eaa3755e5a675bb3e6a9245ab12bae83b4aa2e41",
+      "assetId": "face-east",
       "format": "Svg",
-      "byteCount": 1027,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -32,9 +30,8 @@
       }
     },
     {
-      "sha256": "1048f2b14b2a2f65631912f7050b3a4ca89631c3b887efe2ba473b250383bb89",
+      "assetId": "face-west",
       "format": "Svg",
-      "byteCount": 478,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -44,9 +41,8 @@
       }
     },
     {
-      "sha256": "9fbf9c5c462a04b35fe7caa071173ea2910c20cededa64d30ebb07a734ef30b5",
+      "assetId": "face-north",
       "format": "Svg",
-      "byteCount": 431,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -56,9 +52,8 @@
       }
     },
     {
-      "sha256": "a9ff4d709b1793cd6a21db4a939656ea5b9bb8a1a021a2e72584d152d2190083",
+      "assetId": "dpad-up",
       "format": "Svg",
-      "byteCount": 391,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -68,9 +63,8 @@
       }
     },
     {
-      "sha256": "1248e2ceef068f49ebebfc4a628d227aa0e12e6e359a2888f41bd3476edf18ee",
+      "assetId": "dpad-down",
       "format": "Svg",
-      "byteCount": 393,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -80,9 +74,8 @@
       }
     },
     {
-      "sha256": "d143165e53de95aff1aba2d2e88b0cc269cfa7eb691e9cbcf94785bf0cf9df4f",
+      "assetId": "dpad-left",
       "format": "Svg",
-      "byteCount": 389,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -92,9 +85,8 @@
       }
     },
     {
-      "sha256": "ab1bcf0a20f0daf1e6c6f6cda296b4cfb7ebc31a440c4668bc14b5a31ec6111e",
+      "assetId": "dpad-right",
       "format": "Svg",
-      "byteCount": 391,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -104,9 +96,8 @@
       }
     },
     {
-      "sha256": "8d33976e369ddbb99dbe620b5c0dae284188a65d93355b4919629a457d8abe6f",
+      "assetId": "left-stick",
       "format": "Svg",
-      "byteCount": 436,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -116,9 +107,8 @@
       }
     },
     {
-      "sha256": "d7e8e94169f8991954f20d40e6b46ff15a4035e81ea76c02edd99edc921692ae",
+      "assetId": "right-stick",
       "format": "Svg",
-      "byteCount": 865,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -128,9 +118,8 @@
       }
     },
     {
-      "sha256": "c89971401cffae48f6d8f7330308c99186d119f53b5b29b2127b084883342f70",
+      "assetId": "left-shoulder",
       "format": "Svg",
-      "byteCount": 1063,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -140,9 +129,8 @@
       }
     },
     {
-      "sha256": "e1f9577878668a4cc3153e8aa5644cc932188ddf55daa216688ece11e9475ff5",
+      "assetId": "right-shoulder",
       "format": "Svg",
-      "byteCount": 1455,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -152,9 +140,8 @@
       }
     },
     {
-      "sha256": "f67d32745045fcb6978178441f32edf89c51cf184004939621fb353e3f8b688e",
+      "assetId": "left-trigger",
       "format": "Svg",
-      "byteCount": 337,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -164,9 +151,8 @@
       }
     },
     {
-      "sha256": "b49e780435ddf1809146034742d8e6c1fec02688d3ad30a9a872c9e79b9870ba",
+      "assetId": "right-trigger",
       "format": "Svg",
-      "byteCount": 714,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -176,9 +162,8 @@
       }
     },
     {
-      "sha256": "c0e4b17a764bd15060a744cd1bbcfa38819c82bad0193669862e1ee333dbebfa",
+      "assetId": "guide",
       "format": "Svg",
-      "byteCount": 2968,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -188,9 +173,8 @@
       }
     },
     {
-      "sha256": "2cf8ea543f4289bc2f0339d05f62540742713801ca887ac5a8d508811f39112d",
+      "assetId": "view",
       "format": "Svg",
-      "byteCount": 464,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -200,9 +184,8 @@
       }
     },
     {
-      "sha256": "50b5592927dcedffe4a331f32729ef6ceb25e1a6168ed159374c015cf0de25ab",
+      "assetId": "menu",
       "format": "Svg",
-      "byteCount": 2978,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -212,9 +195,8 @@
       }
     },
     {
-      "sha256": "91a77174e9f796979e23465f1bf450c717b1b06b919fc707a50f9a9da6a0113c",
+      "assetId": "quick-access",
       "format": "Svg",
-      "byteCount": 826,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -224,9 +206,8 @@
       }
     },
     {
-      "sha256": "900da473c57f2a93e13abf052c1e28c750f1bd24eb36a927d49c602620bc59c3",
+      "assetId": "rear-m1",
       "format": "Svg",
-      "byteCount": 697,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -236,9 +217,8 @@
       }
     },
     {
-      "sha256": "a2cffecd5586a3a68c656ca75cf287f8128519458cff9bd5ad94e3fb9f5f0b7b",
+      "assetId": "rear-m2",
       "format": "Svg",
-      "byteCount": 1230,
       "role": "Control",
       "viewBox": {
         "x": 0,
@@ -248,9 +228,8 @@
       }
     },
     {
-      "sha256": "3bb5d9b37975a2f0f2fa843be30f6c91b3b95281146759e16957d11e28bae750",
+      "assetId": "controller-full",
       "format": "Svg",
-      "byteCount": 90675,
       "role": "FullController",
       "viewBox": {
         "x": 0,
@@ -260,146 +239,144 @@
       }
     },
     {
-      "sha256": "bf6beea734d908a12def1c19c85470db3f3516c224ac691f663f672f7f63cfc9",
+      "assetId": "controller-left",
       "format": "Png",
-      "byteCount": 100650,
       "role": "LeftController",
       "pixelWidth": 643,
       "pixelHeight": 464
     },
     {
-      "sha256": "472c2b759570013bd74d3ee5fef1cb421fa39361b82f0f2a2fe88d95cb1b23ad",
+      "assetId": "controller-right",
       "format": "Png",
-      "byteCount": 127627,
       "role": "RightController",
       "pixelWidth": 643,
       "pixelHeight": 464
     }
   ],
   "controllerImages": {
-    "fullSha256": "3bb5d9b37975a2f0f2fa843be30f6c91b3b95281146759e16957d11e28bae750",
-    "leftSha256": "bf6beea734d908a12def1c19c85470db3f3516c224ac691f663f672f7f63cfc9",
-    "rightSha256": "472c2b759570013bd74d3ee5fef1cb421fa39361b82f0f2a2fe88d95cb1b23ad"
+    "fullAssetId": "controller-full",
+    "leftAssetId": "controller-left",
+    "rightAssetId": "controller-right"
   },
   "controls": [
     {
       "control": "FaceSouth",
       "presence": "Present",
       "physicalLabel": "A",
-      "assetSha256": "0e60bdd5b4b29701e00d692a2d76edefa5d286ff29ad8db30a6d537fe129516f"
+      "assetId": "face-south"
     },
     {
       "control": "FaceEast",
       "presence": "Present",
       "physicalLabel": "B",
-      "assetSha256": "195063664427c6562a4c5e62eaa3755e5a675bb3e6a9245ab12bae83b4aa2e41"
+      "assetId": "face-east"
     },
     {
       "control": "FaceWest",
       "presence": "Present",
       "physicalLabel": "X",
-      "assetSha256": "1048f2b14b2a2f65631912f7050b3a4ca89631c3b887efe2ba473b250383bb89"
+      "assetId": "face-west"
     },
     {
       "control": "FaceNorth",
       "presence": "Present",
       "physicalLabel": "Y",
-      "assetSha256": "9fbf9c5c462a04b35fe7caa071173ea2910c20cededa64d30ebb07a734ef30b5"
+      "assetId": "face-north"
     },
     {
       "control": "DpadUp",
       "presence": "Present",
-      "assetSha256": "a9ff4d709b1793cd6a21db4a939656ea5b9bb8a1a021a2e72584d152d2190083"
+      "assetId": "dpad-up"
     },
     {
       "control": "DpadDown",
       "presence": "Present",
-      "assetSha256": "1248e2ceef068f49ebebfc4a628d227aa0e12e6e359a2888f41bd3476edf18ee"
+      "assetId": "dpad-down"
     },
     {
       "control": "DpadLeft",
       "presence": "Present",
-      "assetSha256": "d143165e53de95aff1aba2d2e88b0cc269cfa7eb691e9cbcf94785bf0cf9df4f"
+      "assetId": "dpad-left"
     },
     {
       "control": "DpadRight",
       "presence": "Present",
-      "assetSha256": "ab1bcf0a20f0daf1e6c6f6cda296b4cfb7ebc31a440c4668bc14b5a31ec6111e"
+      "assetId": "dpad-right"
     },
     {
       "control": "LeftStick",
       "presence": "Present",
       "side": "Left",
-      "assetSha256": "8d33976e369ddbb99dbe620b5c0dae284188a65d93355b4919629a457d8abe6f"
+      "assetId": "left-stick"
     },
     {
       "control": "RightStick",
       "presence": "Present",
       "side": "Right",
-      "assetSha256": "d7e8e94169f8991954f20d40e6b46ff15a4035e81ea76c02edd99edc921692ae"
+      "assetId": "right-stick"
     },
     {
       "control": "LeftShoulder",
       "presence": "Present",
       "side": "Left",
       "physicalLabel": "LB",
-      "assetSha256": "c89971401cffae48f6d8f7330308c99186d119f53b5b29b2127b084883342f70"
+      "assetId": "left-shoulder"
     },
     {
       "control": "RightShoulder",
       "presence": "Present",
       "side": "Right",
       "physicalLabel": "RB",
-      "assetSha256": "e1f9577878668a4cc3153e8aa5644cc932188ddf55daa216688ece11e9475ff5"
+      "assetId": "right-shoulder"
     },
     {
       "control": "LeftTrigger",
       "presence": "Present",
       "side": "Left",
       "physicalLabel": "LT",
-      "assetSha256": "f67d32745045fcb6978178441f32edf89c51cf184004939621fb353e3f8b688e"
+      "assetId": "left-trigger"
     },
     {
       "control": "RightTrigger",
       "presence": "Present",
       "side": "Right",
       "physicalLabel": "RT",
-      "assetSha256": "b49e780435ddf1809146034742d8e6c1fec02688d3ad30a9a872c9e79b9870ba"
+      "assetId": "right-trigger"
     },
     {
       "control": "Guide",
       "presence": "Present",
       "physicalLabel": "MSI",
-      "assetSha256": "c0e4b17a764bd15060a744cd1bbcfa38819c82bad0193669862e1ee333dbebfa"
+      "assetId": "guide"
     },
     {
       "control": "View",
       "presence": "Present",
-      "assetSha256": "2cf8ea543f4289bc2f0339d05f62540742713801ca887ac5a8d508811f39112d"
+      "assetId": "view"
     },
     {
       "control": "Menu",
       "presence": "Present",
-      "assetSha256": "50b5592927dcedffe4a331f32729ef6ceb25e1a6168ed159374c015cf0de25ab"
+      "assetId": "menu"
     },
     {
       "control": "QuickAccess",
       "presence": "Present",
-      "assetSha256": "91a77174e9f796979e23465f1bf450c717b1b06b919fc707a50f9a9da6a0113c"
+      "assetId": "quick-access"
     },
     {
       "control": "RearM1",
       "presence": "Present",
       "side": "Left",
       "physicalLabel": "M1",
-      "assetSha256": "900da473c57f2a93e13abf052c1e28c750f1bd24eb36a927d49c602620bc59c3"
+      "assetId": "rear-m1"
     },
     {
       "control": "RearM2",
       "presence": "Present",
       "side": "Right",
       "physicalLabel": "M2",
-      "assetSha256": "a2cffecd5586a3a68c656ca75cf287f8128519458cff9bd5ad94e3fb9f5f0b7b"
+      "assetId": "rear-m2"
     }
   ],
   "aliases": []
