@@ -40,6 +40,35 @@ public sealed class SteamGlyphCssTests
     }
 
     [Fact]
+    public void AbsentControlsAreHiddenInTheControllerDiagramPickersToo()
+    {
+        // The gyro "select gyro button(s)" picker is a grid of icon checkboxes rather than binding
+        // rows, so none of the row or section anchors reach it. A Claw was still offered both
+        // trackpads, L5/R5 and both stick-touch controls there.
+        SteamInputGlyphPresentation presentation = new("device", 1, [], [],
+            [GlyphControlId.LeftStickTouch, GlyphControlId.RearLeft2, GlyphControlId.LeftTrackpad]);
+
+        var css = SteamGlyphCss.Build(presentation, true);
+
+        Assert.Contains(
+            $".{SteamGlyphCss.DialogCheckboxClass}:has(img[src=\"/steaminputglyphs/shared_lstick_touch.svg\"])",
+            css,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $".{SteamGlyphCss.DialogCheckboxClass}:has(img[src=\"/steaminputglyphs/sd_l5.svg\"])",
+            css,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $".{SteamGlyphCss.DialogCheckboxClass}:has(img[src=\"/steaminputglyphs/sd_ltrackpad_click.svg\"])",
+            css,
+            StringComparison.Ordinal);
+
+        // A control the device has keeps its checkbox.
+        Assert.DoesNotContain("shared_rstick_touch.svg", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("sd_r5.svg", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ImportedProfileProducesOnlyCatalogOwnedExactMappings()
     {
         var profile = ImportProfile();

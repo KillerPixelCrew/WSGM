@@ -120,6 +120,18 @@ internal static class SteamGlyphCss
     /// </remarks>
     internal const string DialogSectionClass = "DialogControlsSection";
 
+    /// <summary>Steam's readable class for one icon checkbox in a controller-diagram picker.</summary>
+    /// <remarks>
+    ///     The gyro "select gyro button(s)" picker is not built from binding rows at all: it is a grid
+    ///     of 32x32 icon checkboxes, each one a glyph image with its name only in <c>aria-label</c>.
+    ///     None of the row, section or <c>EControllerModeInput</c> anchors appear in it, which is why a
+    ///     Claw kept offering both trackpads, L5/R5 and both stick-touch controls there while the
+    ///     configurator itself hid them. Measured on the reference Claw: each absent glyph resolves to
+    ///     exactly one of these containers, and the flex wrapper above it collapses once emptied.
+    ///     Not generated, so like <see cref="DialogSectionClass" /> a CSS-module rebuild cannot rename it.
+    /// </remarks>
+    internal const string DialogCheckboxClass = "DialogCheckbox_Container";
+
     /// <summary>
     ///     Valve glyph resources that identify a control's row for hiding.
     /// </summary>
@@ -157,7 +169,13 @@ internal static class SteamGlyphCss
         (GlyphControlId.RearM1, "/steaminputglyphs/sd_l4.svg"),
         (GlyphControlId.RearM2, "/steaminputglyphs/sd_r4.svg"),
         (GlyphControlId.RearLeft2, "/steaminputglyphs/sd_l5.svg"),
-        (GlyphControlId.RearRight2, "/steaminputglyphs/sd_r5.svg")
+        (GlyphControlId.RearRight2, "/steaminputglyphs/sd_r5.svg"),
+
+        // Stick touch. The configurator never draws these, so the table did without them until the
+        // gyro picker turned up offering "Linker/Rechter Stick (Berührung)" on a Claw, whose sticks
+        // have no touch sensor. Read off that dialog on the reference unit.
+        (GlyphControlId.LeftStickTouch, "/steaminputglyphs/shared_lstick_touch.svg"),
+        (GlyphControlId.RightStickTouch, "/steaminputglyphs/shared_rstick_touch.svg")
     ];
 
     private static readonly SearchValues<char> UnsafeUrlCharacters = SearchValues.Create("\"'()\\\r\n");
@@ -313,7 +331,13 @@ internal static class SteamGlyphCss
                 // cannot rename.
                 row.Control is GlyphControlId.LeftTrackpad or GlyphControlId.RightTrackpad
                     ? $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])"
-                    : ""
+                    : "",
+
+                // And the controller-diagram pickers, which are neither rows nor sections: one icon
+                // checkbox per control, named only by aria-label. Emitted for every absent control
+                // rather than the trackpads alone, because this is where L5/R5 and stick touch also
+                // show up on a device that has none of them.
+                $".{DialogCheckboxClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])"
             })
             .Where(selector => selector.Length > 0)
             .Distinct(StringComparer.Ordinal)
