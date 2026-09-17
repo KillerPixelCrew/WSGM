@@ -326,12 +326,90 @@ internal static class SteamGlyphCss
         // artwork comes from the custom property AppendControllerImages publishes, which until now
         // had no consumer in WSGM at all.
         var diagram = $"svg[viewBox=\"{Attribute(DeckDiagramViewBox)}\"]";
-        css.Append(diagram)
-            .Append(" > * {\n  visibility: hidden;\n}\n")
-            .Append(diagram)
-            .Append(" {\n  background: var(--wsgm-controller-full-image) center no-repeat;\n")
+        css.Append(diagram).Append(" > * {\n  visibility: hidden;\n}\n");
+
+        // Selection. Valve lights a control by filling its hit region, one of the transparent paths
+        // in that svg, and the region has no name: it is identified only by its position among the
+        // children. That position is a build dependency of the same kind as the glyph file names.
+        // Each lit region publishes one custom property per control the profile has a highlight
+        // for, and the base rule below stacks every such property over the full-controller image,
+        // so several selections light several overlays at once without a rule per combination.
+        Dictionary<GlyphControlId, SteamInputGlyphAssetReference> highlights = presentation.Highlights
+            .GroupBy(highlight => highlight.Control)
+            .ToDictionary(group => group.Key, group => group.First().Asset);
+        List<string> layers = [];
+        foreach (var (index, controls) in DeckDiagramRegions)
+        {
+            var lit = controls.Where(highlights.ContainsKey).ToArray();
+            if (lit.Length == 0)
+            {
+                continue;
+            }
+
+            css.Append(diagram)
+                .Append(":has(> :nth-child(")
+                .Append((index + 1).ToString(CultureInfo.InvariantCulture))
+                .Append("):not([fill=\"transparent\"])) {\n");
+            foreach (var control in lit)
+            {
+                var layer = HighlightLayer(control);
+                layers.Add(layer);
+                css.Append("  ")
+                    .Append(layer)
+                    .Append(": url(\"")
+                    .Append(Url(highlights[control].DataUri))
+                    .Append("\");\n");
+            }
+
+            css.Append("}\n");
+        }
+
+        css.Append(diagram).Append(" {\n  background-image: ");
+        foreach (var layer in layers.Distinct(StringComparer.Ordinal))
+        {
+            css.Append("var(").Append(layer).Append(", none), ");
+        }
+
+        css.Append("var(--wsgm-controller-full-image);\n")
+            .Append("  background-position: center;\n")
+            .Append("  background-repeat: no-repeat;\n")
             .Append("  background-size: contain;\n}\n");
         return 1;
+    }
+
+    /// <summary>Valve's Steam Deck silhouette: which child of the svg is the hit region for which control.</summary>
+    /// <remarks>
+    ///     Zero-based child index, mapped by geometry on the reference Claw: the four 30x21 regions at the
+    ///     far right are the face diamond, the single 73x54 region at the far left is the whole d-pad,
+    ///     the two thin strips at y 76 are View and Menu, the two at y 276 are Steam and QAM, and the
+    ///     two stacked pairs near the grips are the rear buttons drawn on the front. Sticks and trackpads
+    ///     have no region even on the Deck. The bumper/trigger split and the L4/L5 order are inferred
+    ///     from position and not yet confirmed by selecting them.
+    /// </remarks>
+    private static readonly (int Index, GlyphControlId[] Controls)[] DeckDiagramRegions =
+    [
+        (40, [GlyphControlId.LeftTrigger]),
+        (41, [GlyphControlId.LeftShoulder]),
+        (38, [GlyphControlId.RightTrigger]),
+        (39, [GlyphControlId.RightShoulder]),
+        (46, [GlyphControlId.DpadUp, GlyphControlId.DpadDown, GlyphControlId.DpadLeft, GlyphControlId.DpadRight]),
+        (36, [GlyphControlId.FaceNorth]),
+        (37, [GlyphControlId.FaceWest]),
+        (34, [GlyphControlId.FaceEast]),
+        (35, [GlyphControlId.FaceSouth]),
+        (30, [GlyphControlId.View]),
+        (31, [GlyphControlId.Menu]),
+        (32, [GlyphControlId.Guide]),
+        (33, [GlyphControlId.QuickAccess]),
+        (0, [GlyphControlId.RearM1]),
+        (1, [GlyphControlId.RearLeft2]),
+        (2, [GlyphControlId.RearM2]),
+        (3, [GlyphControlId.RearRight2])
+    ];
+
+    private static string HighlightLayer(GlyphControlId control)
+    {
+        return "--wsgm-diagram-" + Identifier(control.ToString().ToLowerInvariant());
     }
 
     private static int AppendAbsentControlHiding(

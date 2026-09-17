@@ -44,12 +44,20 @@ internal sealed record SteamInputGlyphControllerImageMapping(
     string Slot,
     SteamInputGlyphAssetReference Asset);
 
+/// <summary>The overlay lit on the controller diagram while one physical control is selected.</summary>
+/// <param name="Control">The physical control.</param>
+/// <param name="Asset">Its highlight artwork, in the full-controller image's coordinate space.</param>
+internal sealed record SteamInputGlyphHighlightMapping(
+    GlyphControlId Control,
+    SteamInputGlyphAssetReference Asset);
+
 internal sealed record SteamInputGlyphPresentation(
     string ProfileId,
     int Revision,
     IReadOnlyList<SteamInputGlyphResourceMapping> StableResources,
     IReadOnlyList<SteamInputGlyphControllerImageMapping> ControllerImages,
-    IReadOnlyList<GlyphControlId> AbsentControls)
+    IReadOnlyList<GlyphControlId> AbsentControls,
+    IReadOnlyList<SteamInputGlyphHighlightMapping> Highlights)
 {
     /// <summary>
     ///     Valve's glyph resource names, mapped to the physical control each one depicts.
@@ -185,6 +193,19 @@ internal sealed record SteamInputGlyphPresentation(
             "right",
             profile.Manifest.ControllerImages.RightAssetId);
 
+        // Highlights are keyed by the physical control, because the diagram's regions are physical
+        // positions: an alias changes which artwork a logical control borrows, not where it sits.
+        List<SteamInputGlyphHighlightMapping> highlights = [];
+        foreach (var mapping in profile.Manifest.Controls)
+        {
+            if (mapping.Presence is GlyphControlPresence.Present
+                && mapping.HighlightAssetId is { Length: > 0 } highlightId
+                && TryGetAsset(profile, assetReferences, highlightId, out var highlight))
+            {
+                highlights.Add(new SteamInputGlyphHighlightMapping(mapping.Control, highlight));
+            }
+        }
+
         // Absence is the default. The plugin declares the controls its device HAS, and everything
         // it does not name is hidden — so a handheld with no trackpads gets no trackpad sections
         // without having to say so, and a profile cannot leave a section behind by forgetting to
@@ -213,7 +234,8 @@ internal sealed record SteamInputGlyphPresentation(
             profile.Manifest.Revision,
             resources,
             images,
-            absent);
+            absent,
+            highlights);
     }
 
     private static void AddControllerImage(

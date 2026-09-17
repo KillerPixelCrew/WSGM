@@ -458,6 +458,19 @@ public static class GlyphPackageImporter
             {
                 Invalid($"{path}.assetId", "Control artwork must resolve to a Control asset.");
             }
+
+            if (control.Presence is GlyphControlPresence.Absent && control.HighlightAssetId is not null)
+            {
+                Invalid($"{path}.highlightAssetId", "A physically absent control cannot declare a highlight.");
+            }
+
+            if (control.HighlightAssetId is { } highlightId
+                && (!IsIdentifier(highlightId)
+                    || !assetsById.TryGetValue(highlightId, out var highlight)
+                    || highlight.Role is not GlyphAssetRole.ControlHighlight))
+            {
+                Invalid($"{path}.highlightAssetId", "A control highlight must resolve to a ControlHighlight asset.");
+            }
         }
 
         var aliases = manifest.Aliases ?? [];

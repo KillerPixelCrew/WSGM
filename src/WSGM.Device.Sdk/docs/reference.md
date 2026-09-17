@@ -676,13 +676,16 @@ Schema version 1, camelCase JSON, unknown members rejected, depth ≤ 12.
 | `aliases`          | ≤ 64 `GlyphControlAlias`, unique by logical control.                                                                                                     |
 
 `GlyphAssetEntry`: `assetId` (identifier ≤ 128, naming the file under `glyphs/assets`), `format`
-(`Svg` or `Png`), `role` (`Control`, `FullController`, `LeftController`, `RightController`), and
+(`Svg` or `Png`), `role` (`Control`, `FullController`, `LeftController`, `RightController`,
+`ControlHighlight`), and
 exactly one of `viewBox` for SVG (positive width and height, every extent within ±4096) or
 `pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤ 4,194,304).
 
 `GlyphControlMapping`: `control` (`GlyphControlId`), `presence` (`Present` or `Absent`), `side`
 (`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a `Control`
-asset; forbidden when `Absent`; null means the generic fallback).
+asset; forbidden when `Absent`; null means the generic fallback), `highlightAssetId` (must resolve
+to a `ControlHighlight` asset; forbidden when `Absent`; null means selecting the control lights
+nothing on the controller diagram).
 
 `GlyphControlAlias(logicalControl, physicalControl)` presents one logical control with another's
 artwork. The target must be a distinct, present, mapped control and must not itself be aliased.

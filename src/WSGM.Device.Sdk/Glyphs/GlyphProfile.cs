@@ -156,7 +156,10 @@ public enum GlyphAssetRole
     LeftController,
 
     /// <summary>Right-side physical-controller image.</summary>
-    RightController
+    RightController,
+
+    /// <summary>Highlight for one control, drawn over the full-controller image when it is selected.</summary>
+    ControlHighlight
 }
 
 /// <summary>SVG coordinate bounds represented without culture-sensitive text.</summary>
@@ -313,6 +316,12 @@ public sealed record GlyphControlMapping
 
     /// <summary>Identifier of control artwork, or null for the generic fallback.</summary>
     public string? AssetId { get; init; }
+
+    /// <summary>
+    ///     Identifier of a <see cref="GlyphAssetRole.ControlHighlight" /> overlay for this control, or
+    ///     null when selecting it should not light anything on the controller diagram.
+    /// </summary>
+    public string? HighlightAssetId { get; init; }
 }
 
 /// <summary>One logical control presented with another physical control's artwork.</summary>

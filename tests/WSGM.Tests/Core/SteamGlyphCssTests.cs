@@ -29,7 +29,7 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void AbsentRearButtonsHideIndividualRowsWithoutHidingSharedSections()
     {
-        SteamInputGlyphPresentation presentation = new("device", 1, [], [], [GlyphControlId.RearLeft2]);
+        SteamInputGlyphPresentation presentation = new("device", 1, [], [], [GlyphControlId.RearLeft2], []);
         var css = SteamGlyphCss.Build(presentation, true);
         Assert.Contains($".{SteamGlyphCss.ControlRowClass}:has(img[src=\"/steaminputglyphs/sd_l5.svg\"])", css,
             StringComparison.Ordinal);
@@ -46,7 +46,7 @@ public sealed class SteamGlyphCssTests
         // rows, so none of the row or section anchors reach it. A Claw was still offered both
         // trackpads, L5/R5 and both stick-touch controls there.
         SteamInputGlyphPresentation presentation = new("device", 1, [], [],
-            [GlyphControlId.LeftStickTouch, GlyphControlId.RearLeft2, GlyphControlId.LeftTrackpad]);
+            [GlyphControlId.LeftStickTouch, GlyphControlId.RearLeft2, GlyphControlId.LeftTrackpad], []);
 
         var css = SteamGlyphCss.Build(presentation, true);
 
@@ -83,14 +83,57 @@ public sealed class SteamGlyphCssTests
         var diagram = $"svg[viewBox=\"{SteamGlyphCss.DeckDiagramViewBox}\"]";
         Assert.Contains(diagram + " > * {\n  visibility: hidden;", css, StringComparison.Ordinal);
         Assert.Contains(
-            diagram + " {\n  background: var(--wsgm-controller-full-image) center no-repeat;",
+            diagram + " {\n  background-image: var(--wsgm-controller-full-image);",
             css,
             StringComparison.Ordinal);
         Assert.Contains("--wsgm-controller-full-image: url(\"data:image/svg+xml;base64,", css, StringComparison.Ordinal);
 
         // No full-controller artwork, no override: the Deck stays rather than turning into nothing.
-        SteamInputGlyphPresentation bare = new("device", 1, [], [], []);
+        SteamInputGlyphPresentation bare = new("device", 1, [], [], [], []);
         Assert.DoesNotContain(SteamGlyphCss.DeckDiagramViewBox, SteamGlyphCss.Build(bare, true), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ASelectedControlLightsItsHighlightOverTheControllerDiagram()
+    {
+        // Valve lights a control by filling its hit region, one of the transparent paths in the
+        // silhouette, and the region has no name: it is identified by its position among the
+        // children. Each lit region publishes one custom property per highlighted control and the
+        // base rule stacks every such property over the full-controller image, so several
+        // selections light several overlays without a rule per combination.
+        SteamInputGlyphAssetReference artwork = new("data:image/svg+xml;base64,QQ==");
+        SteamInputGlyphPresentation presentation = new(
+            "device",
+            1,
+            [],
+            [new SteamInputGlyphControllerImageMapping("full", artwork)],
+            [],
+            [
+                new SteamInputGlyphHighlightMapping(GlyphControlId.FaceSouth, artwork),
+                new SteamInputGlyphHighlightMapping(GlyphControlId.DpadUp, artwork),
+                new SteamInputGlyphHighlightMapping(GlyphControlId.DpadLeft, artwork)
+            ]);
+
+        var css = SteamGlyphCss.Build(presentation, false);
+
+        var diagram = $"svg[viewBox=\"{SteamGlyphCss.DeckDiagramViewBox}\"]";
+
+        // A is the 36th child; the whole d-pad is the 47th and lights every direction it has art for.
+        Assert.Contains(
+            diagram + ":has(> :nth-child(36):not([fill=\"transparent\"])) {\n  --wsgm-diagram-facesouth: url(",
+            css,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagram + ":has(> :nth-child(47):not([fill=\"transparent\"])) {\n  --wsgm-diagram-dpadup: url(",
+            css,
+            StringComparison.Ordinal);
+        Assert.Contains("--wsgm-diagram-dpadleft: url(", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("--wsgm-diagram-dpaddown", css, StringComparison.Ordinal);
+        Assert.Contains(
+            "background-image: var(--wsgm-diagram-dpadup, none), var(--wsgm-diagram-dpadleft, none), "
+            + "var(--wsgm-diagram-facesouth, none), var(--wsgm-controller-full-image);",
+            css,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -208,7 +251,7 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void AProfileWithNothingToDrawProducesNoStylesheetAtAll()
     {
-        SteamInputGlyphPresentation empty = new("example.handheld", 1, [], [], []);
+        SteamInputGlyphPresentation empty = new("example.handheld", 1, [], [], [], []);
 
         Assert.Equal(string.Empty, SteamGlyphCss.Build(empty, true));
     }
