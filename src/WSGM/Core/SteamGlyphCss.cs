@@ -338,10 +338,10 @@ internal static class SteamGlyphCss
             .GroupBy(highlight => highlight.Control)
             .ToDictionary(group => group.Key, group => group.First().Asset);
         List<string> layers = [];
-        foreach (var (index, controls) in DeckDiagramRegions)
+        foreach (var (index, lit, controls) in DeckDiagramRegions)
         {
-            var lit = controls.Where(highlights.ContainsKey).ToArray();
-            if (lit.Length == 0)
+            var highlighted = controls.Where(highlights.ContainsKey).ToArray();
+            if (highlighted.Length == 0)
             {
                 continue;
             }
@@ -349,8 +349,10 @@ internal static class SteamGlyphCss
             css.Append(diagram)
                 .Append(":has(> :nth-child(")
                 .Append((index + 1).ToString(CultureInfo.InvariantCulture))
-                .Append("):not([fill=\"transparent\"])) {\n");
-            foreach (var control in lit)
+                .Append(')')
+                .Append(lit)
+                .Append(") {\n");
+            foreach (var control in highlighted)
             {
                 var layer = HighlightLayer(control);
                 layers.Add(layer);
@@ -377,34 +379,48 @@ internal static class SteamGlyphCss
         return 1;
     }
 
-    /// <summary>Valve's Steam Deck silhouette: which child of the svg is the hit region for which control.</summary>
+    /// <summary>A hit region that Valve has filled: its fill leaves <c>transparent</c> while selected.</summary>
+    private const string LitRegion = ":not([fill=\"transparent\"])";
+
+    /// <summary>A stick cap that Valve has pressed: its group is scaled down while selected.</summary>
+    /// <remarks>
+    ///     Sticks have no hit region. Read off the picker on the reference Claw with the right stick
+    ///     selected: its group carried <c>scale( 0.9 )</c> while the unselected left stick kept
+    ///     <c>scale( 1 )</c>. The spacing inside the parentheses is Valve's own.
+    /// </remarks>
+    private const string LitStick = "[transform*=\"scale( 0.9 )\"]";
+
+    /// <summary>Valve's Steam Deck silhouette: which child of the svg lights for which control, and how.</summary>
     /// <remarks>
     ///     Zero-based child index, mapped by geometry on the reference Claw: the four 30x21 regions at the
     ///     far right are the face diamond, the single 73x54 region at the far left is the whole d-pad,
     ///     the two thin strips at y 76 are View and Menu, the two at y 276 are Steam and QAM, and the
-    ///     two stacked pairs near the grips are the rear buttons drawn on the front. Sticks and trackpads
-    ///     have no region even on the Deck. The bumper/trigger split and the L4/L5 order are inferred
-    ///     from position and not yet confirmed by selecting them.
+    ///     two stacked pairs near the grips are the rear buttons drawn on the front. The two stick groups
+    ///     sit at x 899 and x 154. Trackpads light nothing even on the Deck. The bumper/trigger split
+    ///     and the L4/L5 order are inferred from position and not yet confirmed by selecting them.
     /// </remarks>
-    private static readonly (int Index, GlyphControlId[] Controls)[] DeckDiagramRegions =
+    private static readonly (int Index, string Lit, GlyphControlId[] Controls)[] DeckDiagramRegions =
     [
-        (40, [GlyphControlId.LeftTrigger]),
-        (41, [GlyphControlId.LeftShoulder]),
-        (38, [GlyphControlId.RightTrigger]),
-        (39, [GlyphControlId.RightShoulder]),
-        (46, [GlyphControlId.DpadUp, GlyphControlId.DpadDown, GlyphControlId.DpadLeft, GlyphControlId.DpadRight]),
-        (36, [GlyphControlId.FaceNorth]),
-        (37, [GlyphControlId.FaceWest]),
-        (34, [GlyphControlId.FaceEast]),
-        (35, [GlyphControlId.FaceSouth]),
-        (30, [GlyphControlId.View]),
-        (31, [GlyphControlId.Menu]),
-        (32, [GlyphControlId.Guide]),
-        (33, [GlyphControlId.QuickAccess]),
-        (0, [GlyphControlId.RearM1]),
-        (1, [GlyphControlId.RearLeft2]),
-        (2, [GlyphControlId.RearM2]),
-        (3, [GlyphControlId.RearRight2])
+        (40, LitRegion, [GlyphControlId.LeftTrigger]),
+        (41, LitRegion, [GlyphControlId.LeftShoulder]),
+        (38, LitRegion, [GlyphControlId.RightTrigger]),
+        (39, LitRegion, [GlyphControlId.RightShoulder]),
+        (46, LitRegion,
+            [GlyphControlId.DpadUp, GlyphControlId.DpadDown, GlyphControlId.DpadLeft, GlyphControlId.DpadRight]),
+        (36, LitRegion, [GlyphControlId.FaceNorth]),
+        (37, LitRegion, [GlyphControlId.FaceWest]),
+        (34, LitRegion, [GlyphControlId.FaceEast]),
+        (35, LitRegion, [GlyphControlId.FaceSouth]),
+        (30, LitRegion, [GlyphControlId.View]),
+        (31, LitRegion, [GlyphControlId.Menu]),
+        (32, LitRegion, [GlyphControlId.Guide]),
+        (33, LitRegion, [GlyphControlId.QuickAccess]),
+        (0, LitRegion, [GlyphControlId.RearM1]),
+        (1, LitRegion, [GlyphControlId.RearLeft2]),
+        (2, LitRegion, [GlyphControlId.RearM2]),
+        (3, LitRegion, [GlyphControlId.RearRight2]),
+        (42, LitStick, [GlyphControlId.RightStick]),
+        (43, LitStick, [GlyphControlId.LeftStick])
     ];
 
     private static string HighlightLayer(GlyphControlId control)

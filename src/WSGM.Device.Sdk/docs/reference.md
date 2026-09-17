@@ -685,7 +685,8 @@ exactly one of `viewBox` for SVG (positive width and height, every extent within
 (`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a `Control`
 asset; forbidden when `Absent`; null means the generic fallback), `highlightAssetId` (must resolve
 to a `ControlHighlight` asset; forbidden when `Absent`; null means selecting the control lights
-nothing on the controller diagram).
+nothing on the controller diagram), `softPullAssetId` (must resolve to a `Control` asset; forbidden
+when `Absent`; null draws `assetId` for a partial pull too; meaningful for triggers).
 
 `GlyphControlAlias(logicalControl, physicalControl)` presents one logical control with another's
 artwork. The target must be a distinct, present, mapped control and must not itself be aliased.

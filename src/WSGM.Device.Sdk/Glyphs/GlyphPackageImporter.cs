@@ -471,6 +471,19 @@ public static class GlyphPackageImporter
             {
                 Invalid($"{path}.highlightAssetId", "A control highlight must resolve to a ControlHighlight asset.");
             }
+
+            if (control.Presence is GlyphControlPresence.Absent && control.SoftPullAssetId is not null)
+            {
+                Invalid($"{path}.softPullAssetId", "A physically absent control cannot declare soft-pull artwork.");
+            }
+
+            if (control.SoftPullAssetId is { } softPullId
+                && (!IsIdentifier(softPullId)
+                    || !assetsById.TryGetValue(softPullId, out var softPull)
+                    || softPull.Role is not GlyphAssetRole.Control))
+            {
+                Invalid($"{path}.softPullAssetId", "Soft-pull artwork must resolve to a Control asset.");
+            }
         }
 
         var aliases = manifest.Aliases ?? [];

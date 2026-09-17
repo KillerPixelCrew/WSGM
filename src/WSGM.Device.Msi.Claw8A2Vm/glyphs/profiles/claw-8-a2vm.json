@@ -449,6 +449,50 @@
         "width": 61.175,
         "height": 26.491
       }
+    },
+    {
+      "assetId": "left-stick-highlight",
+      "format": "Svg",
+      "role": "ControlHighlight",
+      "viewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 61.175,
+        "height": 26.491
+      }
+    },
+    {
+      "assetId": "right-stick-highlight",
+      "format": "Svg",
+      "role": "ControlHighlight",
+      "viewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 61.175,
+        "height": 26.491
+      }
+    },
+    {
+      "assetId": "left-trigger-soft",
+      "format": "Svg",
+      "role": "Control",
+      "viewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      }
+    },
+    {
+      "assetId": "right-trigger-soft",
+      "format": "Svg",
+      "role": "Control",
+      "viewBox": {
+        "x": 0,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      }
     }
   ],
   "controllerImages": {
@@ -513,13 +557,15 @@
       "control": "LeftStick",
       "presence": "Present",
       "side": "Left",
-      "assetId": "left-stick"
+      "assetId": "left-stick",
+      "highlightAssetId": "left-stick-highlight"
     },
     {
       "control": "RightStick",
       "presence": "Present",
       "side": "Right",
-      "assetId": "right-stick"
+      "assetId": "right-stick",
+      "highlightAssetId": "right-stick-highlight"
     },
     {
       "control": "LeftShoulder",
@@ -543,6 +589,7 @@
       "side": "Left",
       "physicalLabel": "LT",
       "assetId": "left-trigger",
+      "softPullAssetId": "left-trigger-soft",
       "highlightAssetId": "left-trigger-highlight"
     },
     {
@@ -551,6 +598,7 @@
       "side": "Right",
       "physicalLabel": "RT",
       "assetId": "right-trigger",
+      "softPullAssetId": "right-trigger-soft",
       "highlightAssetId": "right-trigger-highlight"
     },
     {

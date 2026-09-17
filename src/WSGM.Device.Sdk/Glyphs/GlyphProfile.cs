@@ -322,6 +322,13 @@ public sealed record GlyphControlMapping
     ///     null when selecting it should not light anything on the controller diagram.
     /// </summary>
     public string? HighlightAssetId { get; init; }
+
+    /// <summary>
+    ///     Identifier of the artwork for a partial pull of this control, or null to draw
+    ///     <see cref="AssetId" /> for that too. Meaningful for triggers, which Steam binds separately at
+    ///     a soft pull and a full pull.
+    /// </summary>
+    public string? SoftPullAssetId { get; init; }
 }
 
 /// <summary>One logical control presented with another physical control's artwork.</summary>

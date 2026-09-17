@@ -67,6 +67,19 @@ internal sealed record SteamInputGlyphPresentation(
     ///     map says which Valve resources that control is drawn with. Several Valve names share a
     ///     control because Steam picks a different resource per controller family for the same button.
     /// </remarks>
+    /// <summary>Valve's soft-pull trigger glyphs, drawn with the control's soft-pull artwork.</summary>
+    /// <remarks>
+    ///     The gyro picker offers each trigger twice, "L2-Trigger (Druck)" for a partial pull and
+    ///     "L2-Trigger" for the full one, and draws them with different glyphs. A profile without
+    ///     soft-pull artwork draws its full-pull glyph for both, which is still its own artwork rather
+    ///     than Valve's.
+    /// </remarks>
+    private static readonly (string Path, GlyphControlId Control)[] SoftPullResourceMap =
+    [
+        ("/steaminputglyphs/sd_l2_half.svg", GlyphControlId.LeftTrigger),
+        ("/steaminputglyphs/sd_r2_half.svg", GlyphControlId.RightTrigger)
+    ];
+
     private static readonly (string Path, GlyphControlId Control)[] StableResourceMap =
     [
         ("/steaminputglyphs/shared_color_button_a.svg", GlyphControlId.FaceSouth),
@@ -107,12 +120,6 @@ internal sealed record SteamInputGlyphPresentation(
         ("/steaminputglyphs/sd_r1.svg", GlyphControlId.RightShoulder),
         ("/steaminputglyphs/sd_l2.svg", GlyphControlId.LeftTrigger),
         ("/steaminputglyphs/sd_r2.svg", GlyphControlId.RightTrigger),
-
-        // The soft-pull variants, which the gyro picker offers as "L2/R2-Trigger (Druck)". The
-        // profile has one trigger glyph per side, so both pulls draw it; they were the last two
-        // Valve glyphs left standing on that dialog on the reference Claw.
-        ("/steaminputglyphs/sd_l2_half.svg", GlyphControlId.LeftTrigger),
-        ("/steaminputglyphs/sd_r2_half.svg", GlyphControlId.RightTrigger),
 
         // The Deck's rear pairs. M1 is the LEFT paddle and M2 the RIGHT one — measured on the
         // reference unit and recorded in the plugin's own notes, which explicitly correct
@@ -161,6 +168,24 @@ internal sealed record SteamInputGlyphPresentation(
             if (!controls.TryGetValue(physicalControl, out var mapping)
                 || mapping.Presence is not GlyphControlPresence.Present
                 || mapping.AssetId is not { Length: > 0 } assetId
+                || !TryGetAsset(
+                    profile,
+                    assetReferences,
+                    assetId,
+                    out var asset))
+            {
+                continue;
+            }
+
+            resources.Add(new SteamInputGlyphResourceMapping(path, logicalControl, asset));
+        }
+
+        foreach (var (path, logicalControl) in SoftPullResourceMap)
+        {
+            var physicalControl = aliases.GetValueOrDefault(logicalControl, logicalControl);
+            if (!controls.TryGetValue(physicalControl, out var mapping)
+                || mapping.Presence is not GlyphControlPresence.Present
+                || (mapping.SoftPullAssetId ?? mapping.AssetId) is not { Length: > 0 } assetId
                 || !TryGetAsset(
                     profile,
                     assetReferences,
