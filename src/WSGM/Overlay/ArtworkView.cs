@@ -19,7 +19,7 @@ namespace WSGM.Overlay;
 /// <summary>
 ///     The gamepad-driven SteamGridDB artwork changer, hosted as a Tools sub-view
 ///     of the overlay (like <see cref="LibraryTabsView" />). Flow: target the game the user
-///     is viewing (<see cref="SteamPageBridge.GetCurrentAppIdAsync" />) or pick one from the
+///     is viewing (<see cref="SteamCurrentPage.GetAsync" />) or pick one from the
 ///     library → choose an artwork slot → browse SteamGridDB thumbnails → apply. Applying
 ///     grid/hero/logo/wide is a robust Steam API call (<see cref="SteamArtwork" />); the
 ///     image bytes are fetched and base64-encoded in C#. Self-drawing (no XAML), every
@@ -62,7 +62,7 @@ public sealed class ArtworkView : OverlaySubView
     // The whole configuration, because provider credentials are no longer one key: each provider
     // decides its own readiness from it, and the picker must not learn what any of them needs.
     private AppConfig _config = new();
-    private IReadOnlyList<SteamCollections.AppInfo>? _games;
+    private IReadOnlyList<SteamLibraryApp>? _games;
 
     // The match the user picked, tagged with the provider that issued it. A bare id is not enough
     // once there is more than one source: the same number means different games to each of them.
@@ -115,7 +115,7 @@ public sealed class ArtworkView : OverlaySubView
         generation = _navigationGeneration;
         try
         {
-            _appId = await SteamPageBridge.GetCurrentAppIdAsync();
+            _appId = (await SteamCurrentPage.GetAsync()).AppId;
             if (generation != _navigationGeneration)
             {
                 return;

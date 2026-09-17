@@ -201,7 +201,7 @@ public sealed class CardManagerView : OverlaySubView
     {
         Navigate(() => RenderLoading(card.Name));
         var generation = _navigationGeneration;
-        var loaded = await SteamCollections.GetGamesAsync();
+        var loaded = await SteamLibraryData.ListGamesAsync();
         if (generation != _navigationGeneration)
         {
             return;

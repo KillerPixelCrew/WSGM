@@ -35,9 +35,11 @@ Related:
                                              brightness, resolution — each feeds one toolkit surface
  Core\SteamLibraryTabs.cs                       legacy resident script: library tabs
  Shell\LibraryBadges.cs, HomeCarousel.cs        card readings behind the library badge and Home carousel
- Core\SteamPageBridge.cs                        current-game detection in the visible window
- Core\SteamCdp.cs, SteamLaunchConfig.cs, SteamArtwork.cs, SteamCollections.cs, SteamDownloads.cs
-                                                one-shot evaluations through the session transport
+ toolkit Client\                                one-shot client calls through the session transport:
+                                                app details and launch writes, artwork, install
+                                                folders, downloads, library data, current game page,
+                                                running apps
+ Core\SteamCdp.cs, SteamLaunchConfig.cs, SteamArtwork.cs  WSGM's policy over those calls
  tools\WsgmLibTest\                             live probes and the QAM harness
 ```
 
@@ -46,7 +48,10 @@ every revived Valve surface: the gates, the Quick Access rows, the library badge
 carousel, the module ids and localization tokens they name, and the wire shape of each state and
 command. WSGM owns the data behind them (its managers, RTSS, the device plugin, the card model)
 adapted onto the toolkit's `ISteam*Backend` interfaces, and the policy about which patches are on
-when. Its own features (library tabs, download sorting, glyph delivery) stay WSGM's. A plugin owns
+when. Its own features (library tabs, download sorting, glyph delivery) stay WSGM's. Reading and driving
+the client itself (app details and launch writes, artwork, install folders, the download overview,
+library data, the current game page, the running-app observer) is the toolkit's `Client` layer, with
+WSGM keeping the policy on top: which slot, which wrapper, which card's library. A plugin owns
 nothing here; device state reaches the QAM only through WSGM's backend services.
 
 ## 2. Finding and driving Steam
@@ -530,12 +535,12 @@ The findings behind each of these are in `docs\steam-cef.md`.
 | Library tabs         | `Core\SteamLibraryTabs.cs`, `Shell\LibraryTabManager.cs`                  | legacy resident in SharedJSContext; wraps `useMemo` through React's dispatcher slot to append fake in-memory collections; inputs `window.__wsgm.tabs`, `tabOrder`, `hiddenTabs`; kill switches `suspendTabs`, `disableTabs`; `PushOrderAsync` debounced 600 ms | `Cef.LibraryTabs`                                             |
 | Library badge        | `Shell\LibraryBadges.cs`, toolkit `SteamLibraryBadgeSurface`              | patch lifecycle; claims the library tile memo and draws the library name beside Valve's Steam Input badge, green installed and grey not; fed from the card reading; reports Big Art Mode as `steam.home.layout`                                                | `Cef.CardManager`                                             |
 | Home carousel        | `Shell\HomeCarousel.cs`, toolkit `SteamHomeCarouselSurface`               | patch lifecycle; claims Home's memo, replaces the carousel's `games` array with the attached libraries' games and clears its whole-list overscan; excludes games on disconnected cards; reports its counts as `steam.home.carousel`                            | `Cef.ConnectedLibraryCarousel`, `Cef.CarouselShowUninstalled` |
-| Current game         | `Core\SteamPageBridge.cs`                                                 | one-shot read in the visible window: signal `focus`, else `hero image`, else the library route                                                                                                                                                                 | —                                                             |
-| Collections          | `Core\SteamCollections.cs`                                                | read-only: lists collections, batches filter predicates into one evaluation, counts store tags; one-time cleanup of ids older builds created                                                                                                                   | —                                                             |
-| Downloads            | `Core\SteamDownloads.cs`, `Core\SteamDownloadSort.cs`                     | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms   | `Cef.DownloadQueueSort`                                       |
-| Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`           | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                                                             |
-| Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                    | `Cef.Artwork`                                                 |
-| Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`                            | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`                                                |
+| Current game         | toolkit `SteamCurrentPage`                                                | one-shot read in the visible window: signal `focus`, else `hero image`, else the library route                                                                                                                                                                 | —                                                             |
+| Library data         | toolkit `SteamLibraryData`, `Core\LibraryFilter.cs`                       | read-only: lists collections, games and store tags; WSGM's compiled filter predicates are batched into one evaluation by `LibraryFilter.EvaluateAsync`                                                                                                        | —                                                             |
+| Downloads            | toolkit `SteamDownloadActivity`, `Core\SteamDownloadSort.cs`              | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms   | `Cef.DownloadQueueSort`                                       |
+| Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`, toolkit `SteamApps` | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                | —                                                             |
+| Artwork              | `Core\SteamArtwork.cs`, `Core\ArtworkProviders.cs`, `Core\SteamGridDb.cs`, toolkit `SteamApps` | providers searched in parallel behind `ArtworkSearch`; SteamGridDB and Screenscraper.fr over HTTPS, 20 s timeout, bounded downloads; clear, 500 ms, `SetCustomArtworkForApp`; icons refused                                                                    | `Cef.Artwork`                                                 |
+| Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders` | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                                   | `Cef.SdFormat`                                                |
 
 The library badge's surface also puts the library on a game's own page, as a stat after Last Played
 and Play Time, drawn from the same card reading. That row is built inside mobx observer classes that

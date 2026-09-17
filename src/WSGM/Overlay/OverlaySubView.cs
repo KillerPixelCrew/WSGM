@@ -111,11 +111,11 @@ public abstract class OverlaySubView : UserControl
     ///     Lists the Steam library, degrading to an empty list so a picker renders
     ///     "no games" instead of failing the whole sub-view when Steam cannot answer.
     /// </summary>
-    private protected async Task<IReadOnlyList<SteamCollections.AppInfo>> SafeGamesAsync()
+    private protected async Task<IReadOnlyList<SteamLibraryApp>> SafeGamesAsync()
     {
         try
         {
-            return await SteamCollections.GetGamesAsync();
+            return await SteamLibraryData.ListGamesAsync();
         }
         catch (Exception ex)
         {

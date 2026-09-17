@@ -18,7 +18,7 @@ namespace WSGM.Overlay;
 /// <summary>
 ///     The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
 ///     overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView" />).
-///     All Steam contact goes through <see cref="SteamCollections" /> /
+///     All Steam contact goes through <see cref="SteamLibraryData" /> /
 ///     <see cref="LibraryTabManager" />; a tab is injected into Steam's own tab strip
 ///     by <see cref="SteamLibraryTabs" /> and its membership is a fake in-memory
 ///     collection — no Steam collection is ever created, and user/SRM ones are never
@@ -56,7 +56,7 @@ public sealed class LibraryTabsView : OverlaySubView
     private CustomTabConfig? _editingOriginal;
 
     // Lazily-loaded, cached Steam data for the pickers.
-    private IReadOnlyList<SteamCollections.AppInfo>? _games;
+    private IReadOnlyList<SteamLibraryApp>? _games;
     private HashSet<string> _openedTabIds = new(StringComparer.Ordinal);
 
     // ---- Level: tab order & native tabs ----
@@ -66,7 +66,7 @@ public sealed class LibraryTabsView : OverlaySubView
     private CancellationTokenSource? _orderPushDebounce;
 
     private FilterNode? _replacingFilter;
-    private IReadOnlyList<SteamCollections.TagInfo>? _tags;
+    private IReadOnlyList<SteamStoreTag>? _tags;
 
     /// <inheritdoc />
     protected override string LogScope => "Library tabs";
@@ -791,7 +791,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Tags"));
         var generation = _navigationGeneration;
-        var loaded = await SteamCollections.GetLibraryTagsAsync();
+        var loaded = await SteamLibraryData.ListStoreTagsAsync();
         if (generation != _navigationGeneration)
         {
             return;
@@ -816,7 +816,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Games"));
         var generation = _navigationGeneration;
-        var loaded = await SteamCollections.GetGamesAsync();
+        var loaded = await SteamLibraryData.ListGamesAsync();
         if (generation != _navigationGeneration)
         {
             return;
@@ -840,7 +840,7 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Collections"));
         var generation = _navigationGeneration;
-        var loaded = await SteamCollections.ListAsync();
+        var loaded = await SteamLibraryData.ListCollectionsAsync();
         if (generation != _navigationGeneration)
         {
             return;

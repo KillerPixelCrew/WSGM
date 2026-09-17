@@ -282,10 +282,32 @@ public sealed class KeepAwakeService : IDisposable
         }
     }
 
+    /// <summary>
+    ///     Updates the last known download activity without turning a transient CEF failure into a
+    ///     false completion. A confirmed dead Steam process is idle; a live but temporarily
+    ///     unreachable client leaves the prior answer intact.
+    /// </summary>
+    /// <param name="currentActive">The last usable activity answer.</param>
+    /// <param name="steamAlive">Whether the shared lifecycle monitor sees Steam.</param>
+    /// <param name="overview">The latest usable snapshot, or null when unavailable.</param>
+    /// <returns>The activity state consumers should publish.</returns>
+    internal static bool ResolveActivity(
+        bool currentActive,
+        bool steamAlive,
+        SteamDownloadOverview? overview)
+    {
+        if (!steamAlive)
+        {
+            return false;
+        }
+
+        return overview?.Active ?? currentActive;
+    }
+
     private async Task PollOnceAsync(CancellationToken token)
     {
         var steamAlive = _monitor is null || _monitor.IsAlive;
-        DownloadOverview? overview = null;
+        SteamDownloadOverview? overview = null;
         var detail = "Steam not running";
         if (steamAlive)
         {
@@ -309,7 +331,7 @@ public sealed class KeepAwakeService : IDisposable
                 Log.Info("Steam downloads: Big Picture is ready; starting CEF polling.");
             }
 
-            overview = await SteamDownloads.QueryAsync(token).ConfigureAwait(false);
+            overview = await SteamDownloadActivity.QueryAsync(token).ConfigureAwait(false);
             if (overview is { } o)
             {
                 detail = o.Active
@@ -335,7 +357,7 @@ public sealed class KeepAwakeService : IDisposable
         lock (_downloadGate)
         {
             var activity = _monitorDownloads
-                           && SteamDownloads.ResolveActivity(_downloadActive, steamAlive, overview);
+                           && ResolveActivity(_downloadActive, steamAlive, overview);
             if (activity != _downloadActive)
             {
                 _downloadActive = activity;

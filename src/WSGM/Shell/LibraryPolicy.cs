@@ -286,7 +286,7 @@ internal sealed class LibraryPolicy
     {
         if (transition == LibraryTransition.Purge)
         {
-            var removal = await SteamCdp.RemoveLibrariesAtPathAsync(libraryPath, cancellationToken)
+            var removal = await SteamInstallFolders.RemoveAllAtPathAsync(libraryPath, cancellationToken)
                 .ConfigureAwait(false);
             // Steam's answer goes in the log by name. "Removing the library" was logged before the
             // call and nothing after, so a purge that Steam answered with "absent" -- it does not
@@ -305,7 +305,7 @@ internal sealed class LibraryPolicy
         // Replace and Add both end in an add. `replaceExisting` makes the add drop
         // whatever is registered at the path first, which is exactly Replace; for Add
         // there is nothing there to drop, so one call covers both.
-        var add = await SteamCdp.AddLibraryAsync(
+        var add = await SteamInstallFolders.AddAsync(
             libraryPath,
             string.IsNullOrWhiteSpace(cardLabel) ? null : cardLabel,
             transition == LibraryTransition.Replace,

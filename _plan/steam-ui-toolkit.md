@@ -221,13 +221,13 @@ documented anywhere:
 
 | Feature | What it does |
 | --- | --- |
-| `SteamPageBridge.GetCurrentAppIdAsync` | which game page is open — focused React fiber walk, with a largest-visible-hero fallback for mouse/touch |
+| `SteamCurrentPage.GetAsync` (moved 2026-09-17) | which game page is open — focused React fiber walk, with a largest-visible-hero fallback for mouse/touch |
 | `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface` | library badges on Steam's tiles and Home's carousel fed from the attached libraries; both moved into the toolkit (2026-09-11) |
 | `SteamLibraryTabs` | sync and reorder library tabs |
-| `SteamCollections` | read and delete collections |
-| `SteamArtwork`, `SteamGridDb` | apply and clear custom artwork |
-| `SteamLaunchConfig` | read, apply and restore per-game launch configuration on the *running* client |
-| `SteamDownloads.QueryAsync`, `SteamDownloadSort` | read and reorder the download queue |
+| `SteamLibraryData` (moved 2026-09-17) | collections, games and store tags |
+| `SteamApps` (moved 2026-09-17), `SteamGridDb` | apply and clear custom artwork; WSGM keeps the slot policy |
+| `SteamApps` (moved 2026-09-17) | read and write launch configuration on the *running* client; WSGM keeps the wrapper policy in `SteamLaunchConfig` |
+| `SteamDownloadActivity` (moved 2026-09-17), `SteamDownloadSort` | read and reorder the download queue |
 | `SteamGlyphCss`, `SteamInputGlyphStylePatch` | physical controller glyphs as CSS, coexisting with CSSLoader |
 
 The glyph work carries its own lesson worth keeping in the framework: **probe the parsed stylesheets,
@@ -305,6 +305,15 @@ changed against the plan rather than restating it.
   register themselves now, and the prelude build fails if that returns. Wiring WSGM back on also
   moved six types from `internal` to `public` — including the four transport seams a consumer needs
   to test against a fake wire — each of which the documentation gate caught as CS1591 first.
+
+- **9. The client layer moved (2026-09-17).** Everything WSGM had built directly on the transport to
+  read and drive the client now lives in the toolkit's `Client` folder: app details and launch
+  writes, custom artwork, install folders, the download overview, collections, games and tags, the
+  game page in view, and the running-app observer. WSGM keeps the policy above each one, and the two
+  copies of the `RegisterForAppDetails` read became one. `SteamAppLifetimeMonitor` is new work rather
+  than a move: the in-page observer now keeps a numbered log of the last 64 lifetime notifications,
+  so a consumer gets `AppStarted` and `AppStopped` in order instead of polling a set and missing a
+  game that started and stopped between two reads.
 
 - **8. The surfaces moved (2026-09-03).** Every revived Valve surface now lives in the toolkit as
   a `Steam*Surface` or `Steam*Row`: the six gates and the row host as injected fragments, the

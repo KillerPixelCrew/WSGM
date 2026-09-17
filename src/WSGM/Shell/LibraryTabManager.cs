@@ -244,7 +244,7 @@ public static class LibraryTabManager
             tab.FilterTree, tab.Categories == 0
                 ? LibraryFilter.Categories.Games
                 : (LibraryFilter.Categories)tab.Categories, resolver)).ToList();
-        var evaluations = await SteamCollections.EvaluateFiltersAsync(expressions, cancellationToken)
+        var evaluations = await LibraryFilter.EvaluateAsync(expressions, cancellationToken)
             .ConfigureAwait(false);
         for (var i = 0; i < customTabs.Count; i++)
         {

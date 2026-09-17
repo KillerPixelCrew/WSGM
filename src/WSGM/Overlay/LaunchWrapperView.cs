@@ -25,10 +25,10 @@ public sealed class LaunchWrapperView : OverlaySubView
     // a 1000+ title account in one pass stalls the overlay's UI thread.
     private const int PageSize = 200;
     private string _customArguments = "";
-    private SteamCollections.AppInfo? _customGame;
+    private SteamLibraryApp? _customGame;
 
     private string? _customPath;
-    private IReadOnlyList<SteamCollections.AppInfo> _games = [];
+    private IReadOnlyList<SteamLibraryApp> _games = [];
 
     /// <inheritdoc />
     protected override string LogScope => "Launch wrappers";
@@ -37,10 +37,10 @@ public sealed class LaunchWrapperView : OverlaySubView
     ///     Raised when the user chooses a game. The overlay then applies the
     ///     pending action and leaves this sub-view.
     /// </summary>
-    public event Action<SteamCollections.AppInfo>? Picked;
+    public event Action<SteamLibraryApp>? Picked;
 
     /// <summary>Raised with the selected file, arguments, and game for a custom action.</summary>
-    public event Action<string, string, SteamCollections.AppInfo>? CustomPicked;
+    public event Action<string, string, SteamLibraryApp>? CustomPicked;
 
     /// <summary>Loads the library and shows the picker.</summary>
     /// <param name="heading">What the caller is about to do, as a title.</param>
@@ -59,7 +59,7 @@ public sealed class LaunchWrapperView : OverlaySubView
     ///     The game whose Steam page is on screen, or <c>null</c> to
     ///     ask which game the action applies to.
     /// </param>
-    public void OpenCustom(string path, SteamCollections.AppInfo? game = null)
+    public void OpenCustom(string path, SteamLibraryApp? game = null)
     {
         _customPath = path;
         _customArguments = "";

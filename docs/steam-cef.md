@@ -239,7 +239,7 @@ Two more measured facts. When a registration at the path is mounted, a second ad
 means "already registered" here. A registration stays `bIsMounted:true` with `nCapacity:0` when its
 folder is deleted while the volume is present, so mounted does not prove a registration is current.
 
-The rules in `Core\SteamCdp.cs` follow from this:
+The rules in the toolkit's `SteamInstallFolders`, driven by `Core\SteamCdp.cs`, follow from this:
 
 - The add expression purges same-path registrations before adding. `replaceExisting: true` from the
   format flow purges even a mounted one, because a just-formatted card makes every prior
@@ -249,8 +249,8 @@ The rules in `Core\SteamCdp.cs` follow from this:
   relabel it.
 - The closed-Steam path calls `SteamLibraryVdf.TryRemovePath` before splicing, because dedup there
   is by content id and cannot see a registration the previous card left under its own id.
-- `SteamLibraryVdf.NormalizePath` and `SteamCdp.NormalizePathJs` stay equivalent; a mismatch
-  silently skips the purge.
+- `SteamInstallFolders.NormalizePath` and the script's own normalizer stay equivalent, and
+  `SteamLibraryVdf.NormalizePath` calls the first of them; a mismatch silently skips the purge.
 
 ### nFolderIndex is a stable id, not an array position
 
@@ -300,8 +300,8 @@ fails open with a retryable warning; it never replaces the last successfully inj
 ### Custom tabs are injected into the tab strip, not collections
 
 Collections render under the "Collections" tab and never as top-strip tabs; that model was wrong and
-is removed. `SteamCollections` survives only as the read/filter bridge and a one-time cleanup for
-collection ids created by older builds. New tabs never create collections.
+is removed. Reading the library is the toolkit's `SteamLibraryData`, and WSGM's compiled filters are
+evaluated by `LibraryFilter.EvaluateAsync`. New tabs never create collections.
 
 `Core\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext` that replicates
 TabMaster without Decky. It pushes a chunk to `window.webpackChunksteamui` to capture the toolkit's
@@ -417,7 +417,7 @@ The carousel reports what it holds once per change, and `HomeCarouselBackend` lo
 ### Current-game detection stays in the visible window
 
 `SharedJSContext` is headless: empty DOM, no images, only stores and React. The artwork and launch
-pages need the game the user is looking at, and `Core\SteamPageBridge.cs` reads it from the visible
+pages need the game the user is looking at, and the toolkit's `SteamCurrentPage` reads it from the visible
 Big Picture window through `EvaluateOnVisibleWindowAsync`. The window is selected by shape, not
 localized title: a `page` whose URL has `createflags` and lacks `openerid` and `browserviewpopup`.
 
@@ -462,7 +462,8 @@ never clears `document.head`, and never disables the debug flag or port.
 
 ### Launch options are written through Steam's own API, verbatim
 
-The Steam tab's Per-game launch fixes (`Core\SteamLaunchConfig.cs`) configure the running client
+The Steam tab's Per-game launch fixes (`Core\SteamLaunchConfig.cs` over the toolkit's `SteamApps`)
+configure the running client
 over `SharedJSContext` instead of handing the user a command to paste; with `Cef.Enabled` off they
 fall back to the clipboard. A real title takes `SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a
 non-Steam shortcut takes `SetShortcutExe` plus `SetShortcutLaunchOptions`, because a shortcut

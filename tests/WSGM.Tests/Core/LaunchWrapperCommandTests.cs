@@ -107,7 +107,7 @@ public sealed class LaunchWrapperCommandTests
     {
         var wrapped = LaunchWrapperCommand.SteamLaunchOptions(
             Helper, LaunchWrapperMode.Both, "-dx11");
-        var details = new SteamLaunchDetails(wrapped, "", "", "");
+        var details = new SteamAppDetails(wrapped, "", "", "", "");
 
         var originals = SteamLaunchConfig.OriginalsFrom(false, details);
 
@@ -117,12 +117,13 @@ public sealed class LaunchWrapperCommandTests
     [Fact]
     public void OriginalsFromUnwrapAWrappedShortcutBackToItsRealProgram()
     {
-        var details = new SteamLaunchDetails(
+        var details = new SteamAppDetails(
             "",
             LaunchWrapperCommand.ShortcutTarget(Helper),
             LaunchWrapperCommand.ShortcutArguments(
                 LaunchWrapperMode.Deelevate, "\"D:\\Games\\game.exe\"", "-windowed"),
-            "D:\\Games");
+            "D:\\Games",
+            "");
 
         var originals = SteamLaunchConfig.OriginalsFrom(true, details);
 
@@ -134,7 +135,7 @@ public sealed class LaunchWrapperCommandTests
     [Fact]
     public void OriginalsFromLeaveAnUnwrappedGameUntouched()
     {
-        var details = new SteamLaunchDetails("-dx11", "\"D:\\g\\game.exe\"", "-mod", "D:\\g");
+        var details = new SteamAppDetails("-dx11", "\"D:\\g\\game.exe\"", "-mod", "D:\\g", "");
 
         var originals = SteamLaunchConfig.OriginalsFrom(false, details);
 

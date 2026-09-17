@@ -24,8 +24,8 @@ the host; they do not attach their own CDP clients.
 | Owner                | Responsibilities                                                                                                                                     | Primary locations                                                                           |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | WSGM shell           | Readiness, feature policy, module registration, state publication, command routing, WSGM backends                                                    | `src/WSGM/Shell/SteamUi*`, `src/WSGM/Shell/NativeQam*`                                      |
-| WSGM core            | WSGM-only library tabs, card badge, downloads and sort, artwork, libraries, launch options, glyph delivery                                           | `src/WSGM/Core/Steam*.cs`, `src/WSGM/Core/Library*.cs`, `src/WSGM/Core/SteamUiAssets`       |
-| SteamUiToolkit       | CDP discovery/transport, generations, bridge, patch lifecycle, ownership primitives, Steam module contracts, reusable Valve-backed surfaces and rows | `external/steam-ui-toolkit/src`, `external/steam-ui-toolkit/tests`                          |
+| WSGM core            | WSGM-only policy on top of those calls: library tabs, card badge, download sort, which artwork slot, which launch wrapper, which card's library, glyph delivery | `src/WSGM/Core/Steam*.cs`, `src/WSGM/Core/Library*.cs`, `src/WSGM/Core/SteamUiAssets`       |
+| SteamUiToolkit       | CDP discovery/transport, generations, bridge, patch lifecycle, ownership primitives, Steam module contracts, reusable Valve-backed surfaces and rows, and the client layer that reads and drives Steam itself | `external/steam-ui-toolkit/src`, `external/steam-ui-toolkit/tests`                          |
 | WindowsDeviceControl | Reusable Windows audio, radio, brightness, and related OS device primitives below WSGM policy                                                        | `external/windows-device-control/src`, `external/windows-device-control/tests`              |
 | Generated boundary   | One composed runtime asset and its SHA-256 catalog entry                                                                                             | `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`, `src/WSGM/Core/SteamUiAssetCatalog.cs` |
 
@@ -129,3 +129,16 @@ catalog SHA-256. The generated file is evidence of the current composition, not 
 
 The browser-extension host under the toolkit is a separate host and test surface. Its presence does
 not mean WSGM mounts that extension or shares its lifecycle.
+
+## The client layer
+
+`external/steam-ui-toolkit/src/SteamUiToolkit/Client` owns one-shot calls into the running client:
+app details and launch writes, custom artwork, install folders, the download overview, library data,
+the game page in view, and the running-app observer behind `SteamAppLifetimeMonitor`. These are not
+patches; nothing is installed in the page except that one observer, which its lease removes.
+
+A new call against `SteamClient.*` or a Steam store belongs there, not in WSGM. WSGM keeps the
+policy above it: `Core\SteamCdp.cs` resolves a card's content id to one library path and refuses an
+ambiguous one, `Core\SteamLaunchConfig.cs` owns the launch wrapper, `Core\SteamArtwork.cs` owns
+slot rules and local art lookup, `Shell\KeepAwakeService.cs` owns what a download sample means for
+the wake lock, and `Shell\RunningApplicationTarget.cs` owns RTSS pairing and the projection.

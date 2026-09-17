@@ -131,10 +131,10 @@ public partial class OverlayWindow
     ///     Steam that reported no current app — the caller then asks which game, exactly
     ///     as <see cref="ApplyLaunchFixAsync" /> does for the wrapper buttons.
     /// </summary>
-    private async Task<SteamCollections.AppInfo?> ResolveCurrentGameAsync(CardButton button)
+    private async Task<SteamLibraryApp?> ResolveCurrentGameAsync(CardButton button)
     {
         button.Title = "Asking Steam…";
-        var appId = await SteamPageBridge.GetCurrentAppIdAsync();
+        var appId = (await SteamCurrentPage.GetAsync()).AppId;
         if (_closed || appId <= 0)
         {
             return null;
@@ -143,18 +143,18 @@ public partial class OverlayWindow
         var match = (await SafeGameLookupAsync()).FirstOrDefault(g => g.AppId == appId);
         // A game Steam knows about but the collection store did not list still
         // resolves: the id came from the page, and the shortcut flag from its range.
-        return match ?? new SteamCollections.AppInfo(
+        return match ?? new SteamLibraryApp(
             appId, appId.ToString(CultureInfo.InvariantCulture), appId >= 0x80000000L);
     }
 
     private void OnCustomLaunchGamePicked(
-        string path, string arguments, SteamCollections.AppInfo game)
+        string path, string arguments, SteamLibraryApp game)
     {
         _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
     }
 
     private async Task ApplyCustomLaunchToAsync(
-        string path, string arguments, SteamCollections.AppInfo game, CardButton button)
+        string path, string arguments, SteamLibraryApp game, CardButton button)
     {
         try
         {
@@ -173,8 +173,8 @@ public partial class OverlayWindow
 
             var existing = await LibraryTabManager.FindLaunchWrapperAsync(game.AppId);
             var originals = existing is null
-                ? (current.ShortcutTarget,
-                    game.Shortcut ? current.ShortcutArguments : current.LaunchOptions,
+                ? (current.ShortcutExe,
+                    game.Shortcut ? current.ShortcutLaunchOptions : current.LaunchOptions,
                     current.ShortcutStartDir)
                 : (existing.OriginalTarget, existing.OriginalLaunchOptions, existing.OriginalStartDir);
             var snapshot = existing ?? new LaunchWrapperConfig
@@ -300,7 +300,7 @@ public partial class OverlayWindow
         LaunchWrapperMode mode, CardButton button)
     {
         button.Title = "Asking Steam…";
-        var appId = await SteamPageBridge.GetCurrentAppIdAsync();
+        var appId = (await SteamCurrentPage.GetAsync()).AppId;
         if (appId <= 0)
         {
             // Nothing on screen identifies a game (the library root, or a Steam that
@@ -412,12 +412,12 @@ public partial class OverlayWindow
         }
     }
 
-    private static async Task<IReadOnlyList<SteamCollections.AppInfo>>
+    private static async Task<IReadOnlyList<SteamLibraryApp>>
         SafeGameLookupAsync()
     {
         try
         {
-            return await SteamCollections.GetGamesAsync();
+            return await SteamLibraryData.ListGamesAsync();
         }
         catch (Exception ex)
         {
@@ -426,7 +426,7 @@ public partial class OverlayWindow
         }
     }
 
-    private void OnLaunchFixGamePicked(SteamCollections.AppInfo game)
+    private void OnLaunchFixGamePicked(SteamLibraryApp game)
     {
         if (_pendingLaunchFix is not { } pending)
         {

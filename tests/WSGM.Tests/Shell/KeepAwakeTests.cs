@@ -70,94 +70,20 @@ public sealed class KeepAwakeTests
         Assert.Equal(0, state.InactiveStreak);
     }
 
-    // ---- SteamDownloads.Parse: CEF payloads ----
-
-    [Fact]
-    public void ParseReadsAnActiveDownload()
-    {
-        var overview = SteamDownloads.Parse(
-            """{"state":"Downloading","paused":false,"appid":3280350,"bps":24162405}""");
-
-        Assert.NotNull(overview);
-        Assert.True(overview.Value.Active);
-        Assert.Equal("Downloading", overview.Value.State);
-        Assert.Equal(3280350, overview.Value.AppId);
-        Assert.Equal(24162405, overview.Value.NetworkBytesPerSecond);
-    }
-
-    [Fact]
-    public void ParseTreatsStateNoneAsInactive()
-    {
-        var overview = SteamDownloads.Parse(
-            """{"state":"None","paused":false,"appid":0,"bps":0}""");
-
-        Assert.NotNull(overview);
-        Assert.False(overview.Value.Active);
-    }
-
-    [Fact]
-    public void ParseTreatsAPausedQueueAsInactive()
-    {
-        var overview = SteamDownloads.Parse(
-            """{"state":"Downloading","paused":true,"appid":42,"bps":0}""");
-
-        Assert.NotNull(overview);
-        Assert.False(overview.Value.Active);
-        Assert.True(overview.Value.Paused);
-    }
-
-    [Fact]
-    public void ParseReturnsNullForErrorPayloads()
-    {
-        Assert.Null(SteamDownloads.Parse("""{"err":"timeout"}"""));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("not json")]
-    [InlineData("[1,2,3]")]
-    public void ParseReturnsNullForUnusablePayloads(string? json)
-    {
-        Assert.Null(SteamDownloads.Parse(json));
-    }
-
-    [Fact]
-    public void ParseDefaultsMissingFieldsToInactive()
-    {
-        var overview = SteamDownloads.Parse("{}");
-
-        Assert.NotNull(overview);
-        Assert.False(overview.Value.Active);
-        Assert.Equal("", overview.Value.State);
-        Assert.Equal(0, overview.Value.AppId);
-    }
-
-    [Theory]
-    [InlineData("Downloading", false, true)]
-    [InlineData("Starting", false, true)]
-    [InlineData("Stopping", false, true)]
-    [InlineData("Downloading", true, false)]
-    [InlineData("None", false, false)]
-    [InlineData("", false, false)]
-    public void IsActiveRequiresARealUnpausedState(string state, bool paused, bool expected)
-    {
-        Assert.Equal(expected, SteamDownloads.IsActive(state, paused));
-    }
+    // ---- Download activity: what a sample means for the wake lock ----
 
     [Fact]
     public void ResolveActivity_ReachableIdleSnapshot_EndsKnownActivity()
     {
-        var overview = new DownloadOverview(false, "None", false, 0, 0);
+        var overview = new SteamDownloadOverview(false, "None", false, 0, 0);
 
-        Assert.False(SteamDownloads.ResolveActivity(true, true, overview));
+        Assert.False(KeepAwakeService.ResolveActivity(true, true, overview));
     }
 
     [Fact]
     public void ResolveActivity_UnreachableLiveClient_DoesNotInventDownloadCompletion()
     {
-        Assert.True(SteamDownloads.ResolveActivity(
+        Assert.True(KeepAwakeService.ResolveActivity(
             true,
             true,
             null));
@@ -166,7 +92,7 @@ public sealed class KeepAwakeTests
     [Fact]
     public void ResolveActivity_DeadSteamClient_EndsKnownActivity()
     {
-        Assert.False(SteamDownloads.ResolveActivity(
+        Assert.False(KeepAwakeService.ResolveActivity(
             true,
             false,
             null));

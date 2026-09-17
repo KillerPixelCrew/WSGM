@@ -545,9 +545,9 @@ public static class SteamLibraryVdf
     /// <returns>The comparable form, or an empty string for an empty input.</returns>
     public static string NormalizePath(string? path)
     {
-        return string.IsNullOrWhiteSpace(path)
-            ? string.Empty
-            : path.Replace('/', '\\').TrimEnd('\\').ToLowerInvariant();
+        // The toolkit's normalizer is the one its injected scripts use, and the removal and relabel
+        // paths compare against those scripts' idea of the same folder.
+        return SteamInstallFolders.NormalizePath(path);
     }
 
     /// <summary>The volume root a path sits on, for example <c>D:\</c>.</summary>

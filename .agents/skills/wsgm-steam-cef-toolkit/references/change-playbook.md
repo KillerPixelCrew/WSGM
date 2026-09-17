@@ -8,11 +8,13 @@ Ask these questions in order:
    surface? Change `external/steam-ui-toolkit`.
 2. Is this WSGM readiness, feature policy, module wiring, state projection, command routing, or a
    service adapter? Change `src/WSGM/Shell`.
-3. Is this a WSGM-only tab, badge, artwork, download, library, launch-option, or glyph feature?
-   Change `src/WSGM/Core`.
-4. Is this a reusable Windows audio, radio, brightness, or device primitive below product policy?
+3. Is this a read or write against `SteamClient.*` or a Steam store, with no WSGM policy in it?
+   Change the toolkit's `Client` layer.
+4. Is this a WSGM-only tab, badge, artwork, download, library, launch-option, or glyph feature, or
+   the policy on top of a client call? Change `src/WSGM/Core`.
+5. Is this a reusable Windows audio, radio, brightness, or device primitive below product policy?
    Change `external/windows-device-control` and adapt it in WSGM.
-5. Is the proposed edit inside `NativeQamBootstrap.js`? Stop and edit its source fragment instead.
+6. Is the proposed edit inside `NativeQamBootstrap.js`? Stop and edit its source fragment instead.
 
 Do not introduce a WSGM-local substitute for a missing toolkit primitive. Do not push WSGM policy
 down into the toolkit.

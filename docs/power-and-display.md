@@ -386,7 +386,7 @@ switches. It cycles Off → Standby lock → Standby+Display lock → Off; the t
 separate `DisplayRequired` request. Each step acquires before it releases, so there is never a lock
 gap.
 
-The automatic download hold (`Shell\KeepAwakeService.cs`, `Core\SteamDownloads.cs`) polls
+The automatic download hold (`Shell\KeepAwakeService.cs`, toolkit `SteamDownloadActivity`) polls
 `SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s as a one-shot
 subscribe/unsubscribe; it fires immediately with a snapshot (live Steam client). Active means
 `update_state != "None" && !paused`; the Windows client's active string is `Downloading`, not the

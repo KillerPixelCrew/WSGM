@@ -46,13 +46,6 @@ internal sealed record RunningApplicationTargetSnapshot(
     }
 }
 
-/// <summary>Bounded raw running-AppID observation from Steam.</summary>
-internal sealed record SteamRunningAppObservation(
-    bool Reachable,
-    IReadOnlyList<uint> AppIds,
-    long SourceGeneration,
-    string? Diagnostic);
-
 /// <summary>Optional executable/profile resolution for one known Steam AppID.</summary>
 /// <param name="ExecutablePath">The shortcut target, when Steam exposes one.</param>
 /// <param name="RtssProfileName">The executable file name RTSS keys its profile on.</param>
@@ -125,7 +118,7 @@ internal static class RunningApplicationTargetProjection
     /// </param>
     internal static RunningApplicationTargetSnapshot Apply(
         RunningApplicationTargetSnapshot current,
-        SteamRunningAppObservation observation,
+        SteamRunningAppsObservation observation,
         SteamRunningAppProfile? profile,
         ForegroundApplicationObservation? foreground = null,
         IReadOnlyList<RtssFrametimeSample>? rendering = null)
@@ -224,7 +217,7 @@ internal static class RunningApplicationTargetProjection
         // no folder to check and its target resolution already names the executable, so its
         // rare unresolved case keeps the name-based fill.
         if (steam.SteamAppId is not { } appId
-            || SteamRunningApplicationProbe.IsShortcutAppId(appId))
+            || SteamApps.IsShortcutAppId(appId))
         {
             return steam with
             {
@@ -346,7 +339,7 @@ internal static class RunningApplicationTargetProjection
     }
 
     private static RunningApplicationTargetSnapshot Project(
-        SteamRunningAppObservation observation,
+        SteamRunningAppsObservation observation,
         SteamRunningAppProfile? profile)
     {
         if (!observation.Reachable)
@@ -426,180 +419,33 @@ internal static class RunningApplicationTargetProjection
 }
 
 /// <summary>
-///     Uses Steam's AppLifetime notification to retain a running-AppID set inside SharedJSContext.
-///     The managed side only reads the bounded set and never infers application changes from focus.
+///     Turns what Steam reports about one running AppID into RTSS pairing evidence.
 /// </summary>
-internal sealed class SteamRunningApplicationProbe
+/// <remarks>
+///     One details read serves both kinds of entry: a shortcut names its target executable, and a
+///     store title names only its install folder, because Steam never exposes a store title's
+///     executable. The folder is what the foreground pairing is validated against.
+/// </remarks>
+internal static class SteamRunningAppPairing
 {
-    private const uint ShortcutAppIdFloor = 0x80000000;
-
-    // Steam's live UI store uses display_status 4 for the initial running set. AppLifetime
-    // notifications own every transition after that seed; focused-window stores are not consulted.
-    private const string ObserveExpression =
-        "(()=>{try{" +
-        "window.__wsgm=window.__wsgm||{};const W=window.__wsgm;" +
-        "if(!W.runningAppsV1){" +
-        "const ids=new Set((window.appStore&&appStore.allApps||[])" +
-        ".filter(a=>Number(a.display_status)===4).map(a=>Number(a.appid))" +
-        ".filter(a=>Number.isInteger(a)&&a>0&&a<=4294967295));" +
-        "const R={ids:ids,gen:1,dispose:()=>{}};W.runningAppsV1=R;" +
-        "const h=SteamClient.GameSessions.RegisterForAppLifetimeNotifications(e=>{" +
-        "const id=Number(e&&e.unAppID);if(!Number.isInteger(id)||id<=0||id>4294967295)return;" +
-        "const before=ids.size;if(e.bRunning)ids.add(id);else ids.delete(id);" +
-        "if(ids.size!==before)R.gen++;});" +
-        "R.dispose=()=>{try{h.unregister();}catch(_){}};}" +
-        "const R=W.runningAppsV1;return JSON.stringify({ok:true,ids:[...R.ids].slice(0,3)," +
-        "ambiguous:R.ids.size>1,generation:R.gen});" +
-        "}catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-
-    private const string RemoveExpression =
-        "(()=>{try{const W=window.__wsgm;if(W&&W.runningAppsV1){" +
-        "W.runningAppsV1.dispose();delete W.runningAppsV1;}" +
-        "return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()";
-
-    private static readonly TimeSpan EvaluationBudget = TimeSpan.FromSeconds(4);
-
-    private readonly ISteamUiTransport _transport;
-
-    internal SteamRunningApplicationProbe(ISteamUiTransport transport)
-    {
-        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
-    }
-
-    /// <summary>Whether Steam models the AppID as a non-Steam shortcut.</summary>
-    internal static bool IsShortcutAppId(uint appId)
-    {
-        return appId >= ShortcutAppIdFloor;
-    }
-
-    public async ValueTask<IAsyncDisposable> SubscribeAsync(CancellationToken cancellationToken)
-    {
-        var transportLease = await _transport.SubscribeAsync(
-            SteamUiTargetRole.SharedJsContext,
-            cancellationToken).ConfigureAwait(false);
-        return new ProbeLease(_transport, transportLease);
-    }
-
-    public async Task<SteamRunningAppObservation> ObserveAsync(
-        CancellationToken cancellationToken)
-    {
-        var result = await _transport.EvaluateAsync(
-            SteamUiTargetRole.SharedJsContext,
-            ObserveExpression,
-            EvaluationBudget,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            // The CEF master switch disables only Steam-backed identity. Foreground observation is
-            // independent and must keep driving per-application policy for non-Steam games, so a
-            // deliberate disable projects as "Steam names no app" rather than as a transport
-            // failure that suppresses the foreground fallback.
-            if (string.Equals(
-                    result.Error,
-                    "Steam CEF integration disabled in settings.",
-                    StringComparison.Ordinal))
-            {
-                return new SteamRunningAppObservation(true, [], 0, null);
-            }
-
-            return new SteamRunningAppObservation(
-                false,
-                [],
-                0,
-                result.Error ?? "Steam SharedJSContext is unavailable.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("ok", out var ok)
-                || ok.ValueKind != JsonValueKind.True)
-            {
-                var error = root.TryGetProperty("err", out var value)
-                            && value.ValueKind == JsonValueKind.String
-                    ? value.GetString()
-                    : "Steam rejected the running-app observer.";
-                return new SteamRunningAppObservation(false, [], 0, error);
-            }
-
-            List<uint> appIds = [];
-            if (root.TryGetProperty("ids", out var ids)
-                && ids.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var id in ids.EnumerateArray().Take(3))
-                {
-                    if (id.TryGetUInt32(out var appId) && appId > 0)
-                    {
-                        appIds.Add(appId);
-                    }
-                }
-            }
-
-            var sourceGeneration = root.TryGetProperty("generation", out var generation)
-                                   && generation.TryGetInt64(out var parsedGeneration)
-                ? parsedGeneration
-                : 0;
-            return new SteamRunningAppObservation(true, appIds, sourceGeneration, null);
-        }
-        catch (Exception ex)
-        {
-            return new SteamRunningAppObservation(
-                false,
-                [],
-                0,
-                $"Steam running-app payload was invalid: {ex.Message}");
-        }
-    }
-
-    public async Task<SteamRunningAppProfile> ResolveProfileAsync(
+    /// <summary>Reads and normalizes one running AppID's pairing evidence.</summary>
+    /// <param name="probe">The toolkit's running-app probe, which owns the transport.</param>
+    /// <param name="steamAppId">The AppID Steam named.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    internal static async Task<SteamRunningAppProfile> ResolveAsync(
+        SteamRunningAppsProbe probe,
         uint steamAppId,
         CancellationToken cancellationToken)
     {
-        // One details read serves both kinds of entry: a shortcut names its target executable, and
-        // a store title names only its install folder — Steam never exposes a store title's
-        // executable, so the folder is what foreground pairing is validated against.
-        var expression =
-            "(async()=>{try{const d=await new Promise(res=>{let t;try{" +
-            "const h=SteamClient.Apps.RegisterForAppDetails(" + steamAppId + ",d=>{" +
-            "clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
-            "t=setTimeout(()=>{try{h.unregister();}catch(_){}res(null);},3000);" +
-            "}catch(_){res(null);}});return JSON.stringify({ok:!!d,exe:d&&d.strShortcutExe||''," +
-            "dir:d&&d.strInstallFolder||''});" +
-            "}catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-        var result = await _transport.EvaluateAsync(
-            SteamUiTargetRole.SharedJsContext,
-            expression,
-            EvaluationBudget,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
+        var result = await probe.ReadDetailsAsync(steamAppId, cancellationToken).ConfigureAwait(false);
+        if (result.Details is not { } details)
         {
             return new SteamRunningAppProfile(null, null, result.Error);
         }
 
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            var target = root.TryGetProperty("exe", out var executable)
-                         && executable.ValueKind == JsonValueKind.String
-                ? executable.GetString() ?? string.Empty
-                : string.Empty;
-            var folder = root.TryGetProperty("dir", out var installFolder)
-                         && installFolder.ValueKind == JsonValueKind.String
-                ? installFolder.GetString() ?? string.Empty
-                : string.Empty;
-            return IsShortcutAppId(steamAppId)
-                ? NormalizeShortcutTarget(target)
-                : NormalizeInstallFolder(folder);
-        }
-        catch (Exception ex)
-        {
-            return new SteamRunningAppProfile(
-                null,
-                null,
-                $"Steam app details were invalid: {ex.Message}");
-        }
+        return SteamApps.IsShortcutAppId(steamAppId)
+            ? NormalizeShortcutTarget(details.ShortcutExe)
+            : NormalizeInstallFolder(details.InstallFolder);
     }
 
     /// <summary>Turns a store title's reported install folder into pairing evidence.</summary>
@@ -705,38 +551,6 @@ internal sealed class SteamRunningApplicationProbe
 
         return new SteamRunningAppProfile(normalizedPath, profileName, null);
     }
-
-    private sealed class ProbeLease(
-        ISteamUiTransport transport,
-        IAsyncDisposable transportLease) : IAsyncDisposable
-    {
-        private int _disposed;
-
-        public async ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            {
-                return;
-            }
-
-            try
-            {
-                await transport.EvaluateAsync(
-                    SteamUiTargetRole.SharedJsContext,
-                    RemoveExpression,
-                    EvaluationBudget,
-                    CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Steam running-app observer cleanup failed: {ex.Message}");
-            }
-            finally
-            {
-                await transportLease.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-    }
 }
 
 /// <summary>
@@ -757,14 +571,14 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
     private readonly Task _loop;
     private readonly ObservationGate _observers = new();
-    private readonly SteamRunningApplicationProbe _probe;
+    private readonly SteamRunningAppsProbe _probe;
     private readonly Func<IReadOnlyList<RtssFrametimeSample>> _rendering;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Lock _stateGate = new();
     private RunningApplicationTargetSnapshot _current;
     private bool _disposed;
     private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
-    private SteamRunningAppObservation? _lastObservation;
+    private SteamRunningAppsObservation? _lastObservation;
     private DateTimeOffset _nextProfileRetry;
     private SteamRunningAppProfile? _profile;
     private uint? _profileAppId;
@@ -778,7 +592,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     ///     second proof a foreground process is the game; null leaves only Steam's install folder.
     /// </param>
     internal RunningApplicationMonitor(
-        SteamRunningApplicationProbe probe,
+        SteamRunningAppsProbe probe,
         bool steamEnabled,
         Func<IReadOnlyList<RtssFrametimeSample>>? rendering = null)
     {
@@ -846,7 +660,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         string? executablePath = null,
         uint processId = 0)
     {
-        SteamRunningAppObservation? observation;
+        SteamRunningAppsObservation? observation;
         lock (_stateGate)
         {
             if (_disposed)
@@ -900,7 +714,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         {
             // An intentional CEF disable means Steam contributes no identity; the foreground
             // source remains authoritative for non-Steam and desktop applications.
-            Publish(new SteamRunningAppObservation(true, [], 0, null), null);
+            Publish(new SteamRunningAppsObservation(true, [], 0, null), null);
         }
 
         _observers.Signal();
@@ -931,7 +745,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
                 _profileAppId = null;
                 _profile = null;
                 _nextProfileRetry = default;
-                Publish(new SteamRunningAppObservation(false, [], 0, ex.Message), null);
+                Publish(new SteamRunningAppsObservation(false, [], 0, ex.Message), null);
                 await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -957,10 +771,10 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             return;
         }
 
-        SteamRunningAppObservation observation;
+        SteamRunningAppsObservation observation;
         try
         {
-            observation = await _probe.ObserveAsync(cancellationToken).ConfigureAwait(false);
+            observation = await _probe.ObserveAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -968,7 +782,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         }
         catch (Exception ex)
         {
-            observation = new SteamRunningAppObservation(false, [], 0, ex.Message);
+            observation = new SteamRunningAppsObservation(false, [], 0, ex.Message);
         }
 
         if (!_steamEnabled || enabledGeneration != Interlocked.Read(ref _steamEnableGeneration))
@@ -1043,7 +857,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     /// </remarks>
     private static bool ProfileUnresolved(uint appId, SteamRunningAppProfile? profile)
     {
-        return SteamRunningApplicationProbe.IsShortcutAppId(appId)
+        return SteamApps.IsShortcutAppId(appId)
             ? string.IsNullOrWhiteSpace(profile?.RtssProfileName)
             : string.IsNullOrWhiteSpace(profile?.InstallFolder);
     }
@@ -1070,7 +884,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     }
 
     private void Publish(
-        SteamRunningAppObservation observation,
+        SteamRunningAppsObservation observation,
         SteamRunningAppProfile? profile)
     {
         RunningApplicationTargetSnapshot next;
@@ -1170,7 +984,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     {
         try
         {
-            return await _probe.ResolveProfileAsync(appId, cancellationToken).ConfigureAwait(false);
+            return await SteamRunningAppPairing.ResolveAsync(_probe, appId, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

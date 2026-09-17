@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
@@ -254,7 +257,7 @@ public interface ISdCardResolver
 ///     (collection sets, compiled regexes, id sets). The shape mirrors TabMaster's
 ///     <c>filterFunctions</c> evaluation (per-group <c>every</c>/<c>some</c>, per-node
 ///     <c>inverted ? !r : r</c>). Pure and unit-testable — no Steam contact here; the
-///     resulting JS is run by <see cref="SteamCollections.EvaluateFiltersAsync" />.
+///     resulting JS is run by <see cref="EvaluateAsync" />.
 /// </summary>
 public static partial class LibraryFilter
 {
@@ -727,4 +730,72 @@ public static partial class LibraryFilter
             return name;
         }
     }
+
+    /// <summary>Evaluates multiple compiled filters in one CEF exchange.</summary>
+    /// <param name="filterExpressions">Self-contained filter IIFEs.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    public static async Task<IReadOnlyList<FilterEvalResult>> EvaluateAsync(
+        IReadOnlyList<string> filterExpressions, CancellationToken cancellationToken = default)
+    {
+        // Every filter in one exchange, so a tab sync is one round trip rather than one per tab.
+        var budget = TimeSpan.FromSeconds(12);
+        if (filterExpressions.Count == 0)
+        {
+            return [];
+        }
+
+        var expression = "(()=>JSON.stringify({values:[" + string.Join(",", filterExpressions
+            .Select(static value => "JSON.parse((" + value + "))")) + "]}))()";
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, budget, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.Reachable || result.Value is null)
+        {
+            return [.. Enumerable.Repeat(new FilterEvalResult(false, false, []), filterExpressions.Count)];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            var values = document.RootElement.GetProperty("values");
+            var output = new List<FilterEvalResult>();
+            foreach (var value in values.EnumerateArray())
+            {
+                if (!value.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
+                                                            || !value.TryGetProperty("appids", out var appids))
+                {
+                    output.Add(new FilterEvalResult(true, false, []));
+                    continue;
+                }
+
+                var ids = new List<long>();
+                foreach (var appid in appids.EnumerateArray())
+                {
+                    if (appid.TryGetInt64(out var id))
+                    {
+                        ids.Add(id);
+                    }
+                }
+
+                output.Add(new FilterEvalResult(true, true, ids));
+            }
+
+            while (output.Count < filterExpressions.Count)
+            {
+                output.Add(new FilterEvalResult(true, false, []));
+            }
+
+            return output;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Batched filter evaluation parse failed: {ex.Message}");
+            return [.. Enumerable.Repeat(new FilterEvalResult(true, false, []), filterExpressions.Count)];
+        }
+    }
+
+    /// <summary>Outcome of evaluating a compiled filter over the library.</summary>
+    /// <param name="Reachable">Whether Steam's debug port answered.</param>
+    /// <param name="Ok">Whether Steam evaluated and returned a valid result.</param>
+    /// <param name="AppIds">The matching app ids (empty is a valid successful result).</param>
+    public readonly record struct FilterEvalResult(bool Reachable, bool Ok, IReadOnlyList<long> AppIds);
 }

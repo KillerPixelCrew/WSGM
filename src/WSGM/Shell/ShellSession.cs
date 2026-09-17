@@ -850,7 +850,7 @@ public sealed class ShellSession : IAsyncDisposable
         // so a second view of it costs a handle and nothing else.
         _pairingFrametimes = new RtssFrametimeReader();
         _runningApplications = new RunningApplicationMonitor(
-            new SteamRunningApplicationProbe(_steamUiTransport),
+            new SteamRunningAppsProbe(_steamUiTransport),
             _config.Cef.Enabled,
             _pairingFrametimes.ReadLive);
 

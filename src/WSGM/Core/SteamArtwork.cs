@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,24 +14,17 @@ namespace WSGM.Core;
 public readonly record struct ArtworkResult(string Detail);
 
 /// <summary>
-///     Applies and clears custom game artwork. Grid/Hero/Logo/Wide go through
-///     Steam's own robust JS API over the CEF leg (<see cref="SteamCef" />) —
-///     <c>SteamClient.Apps.ClearCustomArtworkForApp</c> then
-///     <c>SetCustomArtworkForApp(appid, base64, ext, assetType)</c> — so Steam persists and
-///     renders them live with no restart. Icons are the exception and are NOT supported yet
-///     for either kind of entry: Steam has no client API for them, a real game's icon lives
-///     in a versioned per-app cache and a non-Steam shortcut's needs a <c>shortcuts.vdf</c>
-///     edit plus a Steam restart, so both apply and reset report not-yet-supported and write
-///     nothing. The image bytes are fetched by <see cref="SteamGridDb" /> and base64-encoded
+///     WSGM's artwork changer. Grid/Hero/Logo/Wide go to the live client through
+///     <see cref="SteamApps" />, so Steam persists and renders them with no restart. Icons are the
+///     exception and are NOT supported yet for either kind of entry: Steam has no client API for
+///     them, a real game's icon lives in a versioned per-app cache and a non-Steam shortcut's needs
+///     a <c>shortcuts.vdf</c> edit plus a Steam restart, so both apply and reset report
+///     not-yet-supported and write nothing. The image bytes are fetched by
+///     <see cref="SteamGridDb" />; finding what is currently applied is local file work and stays
 ///     here.
 /// </summary>
 public static class SteamArtwork
 {
-    // Steam resolves ClearCustomArtworkForApp's promise before the clear finishes, so a
-    // set issued immediately can race it (observed in decky-steamgriddb). Wait between.
-    private const int ClearSettleMs = 500;
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
-
     // Steam persists SetCustomArtworkForApp into userdata\<account>\config\grid using
     // the unsigned app id plus a per-slot suffix. Filenames per slot:
     //   Grid (portrait)  <id>p.<ext>      Hero  <id>_hero.<ext>
@@ -63,20 +55,12 @@ public static class SteamArtwork
                 "Steam icons use a versioned per-app cache and cannot be changed safely here yet.");
         }
 
-        var b64 = await Task.Run(() => Convert.ToBase64String(imageBytes), cancellationToken)
-            .ConfigureAwait(false);
-        var extLiteral = SteamCef.JsString(ext is "jpg" or "jpeg" ? "jpg" : "png");
-        var app = ToUnsigned(appId);
-        var type = ((int)asset).ToString(CultureInfo.InvariantCulture);
-        var expression =
-            "(async()=>{try{const app=" + app + ",type=" + type + ";" +
-            "await SteamClient.Apps.ClearCustomArtworkForApp(app,type);" +
-            "await new Promise(r=>setTimeout(r," + ClearSettleMs + "));" +
-            "await SteamClient.Apps.SetCustomArtworkForApp(app,\"" + b64 + "\"," + extLiteral + ",type);" +
-            "return JSON.stringify({ok:true});}" +
-            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamApps.SetCustomArtworkAsync(
+                SteamApps.NormalizeAppId(appId),
+                SlotFor(asset),
+                imageBytes,
+                ext is "jpg" or "jpeg" ? SteamArtworkFormat.Jpeg : SteamArtworkFormat.Png,
+                cancellationToken)
             .ConfigureAwait(false);
         return Interpret(result, "Artwork applied.");
     }
@@ -93,22 +77,23 @@ public static class SteamArtwork
             return new ArtworkResult("Icons can't be reset from here yet.");
         }
 
-        var app = ToUnsigned(appId);
-        var type = ((int)asset).ToString(CultureInfo.InvariantCulture);
-        var expression =
-            "(async()=>{try{await SteamClient.Apps.ClearCustomArtworkForApp(" + app + "," + type + ");" +
-            "return JSON.stringify({ok:true});}" +
-            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamApps.ClearCustomArtworkAsync(
+                SteamApps.NormalizeAppId(appId), SlotFor(asset), cancellationToken)
             .ConfigureAwait(false);
         return Interpret(result, "Reset to official art.");
     }
 
-    // appStore uses the unsigned 32-bit app id; a shortcut id stored in a signed int
-    // reads back negative, so normalize to the unsigned value the client expects.
-    private static string ToUnsigned(long appId)
+    /// <summary>Maps WSGM's slot to the toolkit's. Icon never reaches here.</summary>
+    private static SteamArtworkSlot SlotFor(ArtworkAsset asset)
     {
-        return (appId < 0 ? unchecked((uint)appId) : appId).ToString(CultureInfo.InvariantCulture);
+        return asset switch
+        {
+            ArtworkAsset.Grid => SteamArtworkSlot.Grid,
+            ArtworkAsset.Hero => SteamArtworkSlot.Hero,
+            ArtworkAsset.Logo => SteamArtworkSlot.Logo,
+            ArtworkAsset.Wide => SteamArtworkSlot.Wide,
+            _ => throw new ArgumentOutOfRangeException(nameof(asset), asset, "Unsupported artwork slot.")
+        };
     }
 
     /// <summary>
@@ -134,7 +119,7 @@ public static class SteamArtwork
                 return null;
             }
 
-            var id = ToUnsigned(appId);
+            var id = SteamApps.NormalizeAppId(appId).ToString(CultureInfo.InvariantCulture);
             var stem = asset switch
             {
                 ArtworkAsset.Grid => id + "p",
@@ -181,34 +166,19 @@ public static class SteamArtwork
         }
     }
 
-    private static ArtworkResult Interpret(CefEvalResult result, string okMessage)
+    private static ArtworkResult Interpret(SteamClientWriteResult result, string okMessage)
     {
         if (!result.Reachable)
         {
             return new ArtworkResult("Steam isn't reachable — is it running?");
         }
 
-        if (result.Value is null)
+        if (result.Accepted)
         {
-            return new ArtworkResult("No response from Steam.");
+            return new ArtworkResult(okMessage);
         }
 
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
-            {
-                return new ArtworkResult(okMessage);
-            }
-
-            var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
-            Log.Warn($"Artwork change failed: {err}.");
-            return new ArtworkResult(err ?? "Steam rejected the change.");
-        }
-        catch (Exception ex)
-        {
-            return new ArtworkResult(ex.Message);
-        }
+        Log.Warn($"Artwork change failed: {result.Error}.");
+        return new ArtworkResult(result.Error ?? "Steam rejected the change.");
     }
 }
