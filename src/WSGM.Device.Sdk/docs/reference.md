@@ -648,11 +648,11 @@ unchanged; it is an ownership boundary, not a sandbox.
 
 ### Layout (`GlyphPackageLayout`)
 
-| Path                                   | Content                                                           |
-| -------------------------------------- | ----------------------------------------------------------------- |
-| `glyphs/profiles/<profileId>.json`     | One `GlyphProfileManifest`; the file name must equal `profileId`. |
-| `glyphs/assets/<assetId>.svg` or `.png` | One asset, addressed only by its `assetId`.                      |
-| notice path named by the manifest      | The licence or attribution notice (`.md` or `.txt`).              |
+| Path                                    | Content                                                           |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `glyphs/profiles/<profileId>.json`      | One `GlyphProfileManifest`; the file name must equal `profileId`. |
+| `glyphs/assets/<assetId>.svg` or `.png` | One asset, addressed only by its `assetId`.                       |
+| notice path named by the manifest       | The licence or attribution notice (`.md` or `.txt`).              |
 
 `ProfileManifest(profileId)` and `Asset(assetId, format)` build these paths and throw on an
 identifier of the wrong shape.
@@ -681,8 +681,8 @@ exactly one of `viewBox` for SVG (positive width and height, every extent within
 `pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤ 4,194,304).
 
 `GlyphControlMapping`: `control` (`GlyphControlId`), `presence` (`Present` or `Absent`), `side`
-(`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a
-`Control` asset; forbidden when `Absent`; null means the generic fallback).
+(`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a `Control`
+asset; forbidden when `Absent`; null means the generic fallback).
 
 `GlyphControlAlias(logicalControl, physicalControl)` presents one logical control with another's
 artwork. The target must be a distinct, present, mapped control and must not itself be aliased.
