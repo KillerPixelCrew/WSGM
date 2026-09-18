@@ -298,20 +298,16 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
             throw new InvalidOperationException("The charge-limit response was truncated.");
         }
 
-        // Only the low seven bits are the percentage. Handheld Companion's Claw implementation
-        // (ClawA1M.SetBatteryChargeLimit) masks the register the same way and carries bit 7 through
-        // its writes unchanged, and after BIOS E1T52IMS.114 the reference unit's read failed the
-        // plain 60-100 range check at every start (2026-09-18), which a set bit 7 explains. The
-        // raw byte is kept for rollback so an unknown flag is never cleared by a restore.
+        // Only the low seven bits are the percentage; bit 7 is MSI's "Battery Master" enable flag,
+        // which Handheld Companion's Claw implementation (ClawA1M.SetBatteryMaster and
+        // SetBatteryChargeLimit) sets and carries through its writes unchanged. After BIOS
+        // E1T52IMS.114 the reference unit read 0x80 at every start (2026-09-18): flag set, percent
+        // zero, which is a firmware reset rather than a transport fault. The read therefore
+        // reports whatever percentage the register holds, in range or not, so the capability stays
+        // available and the user's configured limit can be written over it. The raw byte is kept for
+        // rollback so the flag is never cleared by a restore.
         var rawValue = response[1];
-        var percent = rawValue & PercentMask;
-        if (percent is < MinimumPercent or > MaximumPercent)
-        {
-            throw new InvalidOperationException(
-                $"The charge-limit value {percent}% (raw 0x{rawValue:X2}) is outside the supported range.");
-        }
-
-        return new ChargeLimitState(percent, rawValue);
+        return new ChargeLimitState(rawValue & PercentMask, rawValue);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyAsync(

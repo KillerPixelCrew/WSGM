@@ -2084,7 +2084,16 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             }
             case CapabilityIds.ChargeLimit:
             {
-                return _chargeLimit!.LastObserved is { } value ? CapabilityValue.Integer(value.Percent) : null;
+                // A percentage outside the declared 60-100 bounds (0 after a BIOS reset on the
+                // reference unit) is published as unknown rather than as a value the slider cannot
+                // show; the capability stays available so the configured limit is written over it.
+                return _chargeLimit!.LastObserved is
+                {
+                    Percent: >= ClawA2VmChargeLimitCapability.MinimumPercent
+                    and <= ClawA2VmChargeLimitCapability.MaximumPercent
+                } value
+                    ? CapabilityValue.Integer(value.Percent)
+                    : null;
             }
             case CapabilityIds.FanMode:
             {

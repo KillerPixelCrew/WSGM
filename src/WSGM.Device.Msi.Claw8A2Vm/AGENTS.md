@@ -74,8 +74,10 @@ payloads; power and charge deliberately use zero-filled command envelopes.
   pair. Select or restore the scenario before the pair, since firmware can reset power limits. Publish the resulting
   pair before reporting scenario success; inactive SHIFT must not be reported as an active preset. This mapping is
   source evidence, not an attended verification of its firmware effects.
-- Charge: 60-100 percent is a persistent user setting. Verify it and roll back failed/cancelled changes; do not restore
-  a successful choice on normal stop.
+- Charge: 60-100 percent is a persistent user setting held in the low seven bits of register `0xD7`; bit 7 is MSI's
+  Battery Master flag and is carried through every write. A read outside 60-100 (a BIOS update resets it to 0) is
+  published as unknown with the capability still writable, never as a fault. Verify writes and roll back
+  failed/cancelled changes; do not restore a successful choice on normal stop.
 - Fans: one six-point semantic curve applies atomically to both channels under one snapshot. Verify both readbacks and
   restore both originals on failure.
 - Lighting: treat the 32-byte MCU profile as persistent state. Preserve unknown bytes, replicate the three logical zones

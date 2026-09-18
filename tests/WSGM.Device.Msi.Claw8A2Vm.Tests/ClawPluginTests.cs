@@ -484,6 +484,30 @@ public sealed class ClawPluginTests
         Assert.Equal(60, wmi.ReadData(ClawHardwareFacts.ChargeLimitAddress));
     }
 
+    // After BIOS E1T52IMS.114 the reference unit's charge-limit register read 0x80: Battery Master
+    // flag set, percentage zero. That is a reset, not a fault: the capability must stay available
+    // with an unknown observed value so the configured limit can be written back over it.
+    [Fact]
+    public async Task StartAsync_ChargeLimitResetByFirmware_StaysWritable()
+    {
+        using TemporaryDirectory state = new();
+        FakeWmiTransport wmi = new();
+        wmi.SetData(ClawHardwareFacts.ChargeLimitAddress, 0x80);
+        await using Claw8A2VmPlugin plugin = new(CreateServices(wmi));
+        TestPluginHostAdapter host = new(CycleGeneration);
+
+        var start = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+        var result = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(80)),
+            CancellationToken.None);
+
+        Assert.Equal(PluginOperationalState.Active, start.State);
+        Assert.Contains(host.CapabilityStates, capability =>
+            capability is { CapabilityId: CapabilityIds.ChargeLimit, Available: true, ObservedValue: null });
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(0x80 | 80, wmi.ReadData(ClawHardwareFacts.ChargeLimitAddress));
+    }
+
     [Fact]
     public async Task StopAsync_RestoresStateCapturedImmediatelyBeforeFirstMutation()
     {

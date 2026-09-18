@@ -13,10 +13,14 @@ answered on `0230` with the reviewed 32-byte shape (`00 01 09 03 64 ...`), so li
 that shape at acquire instead of a revision. The DirectInput pad report on `0230` still carries
 only the first ten bytes at rest and the MCU vendor collection emits nothing unsolicited, so the
 controller firmware still exposes no IMU over HID; motion stays on the Sensor API path below.
-The charge-limit service faulted at every start on BIOS `114` with its plain 60-100 range check;
-the raw `0xD7` byte was not captured. Handheld Companion masks that register to its low seven
-bits and carries bit 7 through writes, and the plugin now does the same. **That fix is
-source-derived and awaits the maintainer's confirmation on the unit.**
+The charge-limit service faulted at every start on BIOS `114` with its plain 60-100 range check:
+register `0xD7` read `0x80`, logged by the deployed build that day. Handheld Companion treats bit 7
+as the "Battery Master" enable flag and the low seven bits as the percentage, so this is the flag
+set with the percentage reset to zero by the BIOS update. The plugin now masks the read, carries
+the flag through writes, publishes an out-of-range percentage as unknown, and leaves the
+capability writable so the configured limit is applied over the reset. **The write of
+`0x80 | percent` and its readback are source-derived and await the maintainer's confirmation on
+the unit.**
 
 On 2026-09-08, the existing ordered power-pair transport was connected to the SDK's optional
 coordinated command. AutoTDP uses equal PL1/PL2 targets within the existing 8-37 W bounds. New
