@@ -235,6 +235,29 @@ public sealed class ClawCapabilitiesTests
         Assert.Equal(percent, wmi.ReadData(ClawHardwareFacts.ChargeLimitAddress));
     }
 
+    // Bit 7 of the register is a firmware flag, not part of the percentage. Handheld Companion
+    // carries it through its writes, and after BIOS E1T52IMS.114 the plain range check on the
+    // whole byte faulted the charge-limit service at every start.
+    [Fact]
+    public async Task ChargeLimit_MasksTheFlagBitOnReadAndCarriesItThroughWrites()
+    {
+        FakeWmiTransport wmi = new();
+        wmi.SetData(ClawHardwareFacts.ChargeLimitAddress, 0x80 | 100);
+        ClawA2VmChargeLimitCapability chargeLimit = new(wmi);
+
+        var observed = await chargeLimit.ReadAsync(CancellationToken.None);
+        var result = await chargeLimit.ApplyAsync(
+            Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(80)),
+            80,
+            CancellationToken.None);
+
+        Assert.Equal(100, observed.Percent);
+        Assert.Equal(0x80 | 100, observed.RawValue);
+        Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
+        Assert.Equal(80, result.ReadbackValue?.IntegerValue);
+        Assert.Equal(0x80 | 80, wmi.ReadData(ClawHardwareFacts.ChargeLimitAddress));
+    }
+
     [Fact]
     public async Task ApplyCurveAsync_UsesMeasuredSixOffsetsAndPreservesUnknownBytes()
     {

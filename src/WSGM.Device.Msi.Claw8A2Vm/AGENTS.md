@@ -35,8 +35,10 @@ pull request.
 Match the machine only by the measured SMBIOS identity in `ClawHardwareFacts`: manufacturer
 `MICRO-STAR INTERNATIONAL CO., LTD.`, board `MS-1T52`, and SKU `1T52.1`. Package ID
 `wsgm.device.msi.claw-8-a2vm` and definition ID `ms-1t52` identify software records, not the machine. Treat EC firmware
-prefix `1T52EMS1.109`, MCU revision `0229`, and MSI USB VID `0DB0` with the supported PIDs as separate
-service/capability gates.
+prefix `1T52EMS1.109` and MSI USB VID `0DB0` with the supported PIDs as separate service/capability gates. Never gate
+on the MCU revision (USB `bcdDevice`): MSI ships controller firmware through Windows Update and the updater, and the
+0229 gate refused controller ownership and lighting on every unit that moved to 0230. Record the revision for
+diagnostics; verify MCU register layouts by reading the block back and checking its shape instead.
 
 Detection must remain side-effect free. `StartAsync` and every mutation must revalidate live identity, firmware, service
 availability, generation, deadline, range, and current state before access. Install `PluginTrace` before the first
@@ -83,8 +85,9 @@ payloads; power and charge deliberately use zero-filled command envelopes.
   the same physical device through `DEVPKEY_Device_LocationPaths`. Restore and verify the original mode during cleanup.
   Never report an unverified device as restored.
 - Power, fans, and controller mode are temporary. Capture the first original value in
-  `temporary-state.v1.json` before mutation, publish the bounded journal atomically, restore only on the same supported
-  firmware, retain failed entries for retry, and block unsafe mismatches.
+  `temporary-state.v1.json` before mutation, publish the bounded journal atomically, restore power and fans only on
+  the same EC firmware, restore controller mode on any MCU revision, retain failed entries for retry, and block unsafe
+  mismatches.
 - Optional VRR/display support remains capability-probed and cycle-scoped. Load the user's Intel control library
   dynamically; do not ship Intel binaries. Preserve tested IGCL ABI sizes, capture the original profile on acquire, and
   restore that exact profile during make-safe.

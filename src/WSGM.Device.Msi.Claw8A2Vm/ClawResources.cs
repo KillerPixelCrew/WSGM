@@ -486,11 +486,11 @@ internal sealed class LightingService(
         CancellationToken cancellationToken)
     {
         var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (!identity.ExactMachineMatch || !identity.McuFirmwareVerified)
+        if (!identity.ExactMachineMatch)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
-                CapabilityReasonCode.FirmwareNotVerified,
-                "Lighting writes are gated to controller firmware 0x0229 and profile base 0x024A."));
+                CapabilityReasonCode.GenerationChanged,
+                "Exact device identity no longer matches the Claw implementation."));
         }
 
         if (!await _transport.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
@@ -500,7 +500,27 @@ internal sealed class LightingService(
                 "The reviewed MCU HID collection was unavailable."));
         }
 
-        LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        // The profile base 0x024A was verified on MCU firmware 0229 and read back with the same
+        // shape on 0230. Rather than gating on a revision list that every controller firmware
+        // update would invalidate, the committed profile is read here and must carry the reviewed
+        // header before any write is offered; a firmware that moves or reshapes the block leaves
+        // lighting passive instead of faulted, with no write attempted.
+        try
+        {
+            LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException exception)
+        {
+            PluginTrace.Warn(
+                "lighting",
+                $"The committed profile at 0x{ClawHardwareFacts.LightingProfileAddress:X4} is not the "
+                + $"reviewed shape on MCU firmware {identity.Snapshot.McuFirmwareVersion ?? "<unknown>"}: "
+                + exception.Message);
+            return Set(ClawServiceState.Passive, new CapabilityReason(
+                CapabilityReasonCode.FirmwareNotVerified,
+                "The committed lighting profile does not have the reviewed A2VM shape on this controller firmware."));
+        }
+
         return Set(ClawServiceState.Owned);
     }
 
@@ -811,18 +831,19 @@ internal sealed class ControllerService(
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
         }
 
+        // Exact machine identity is the only gate. The MCU revision is deliberately not one: the
+        // mode switch and the hide list are not addressed writes, and gating them on the revision
+        // took the controller away from every unit MSI updated to 0230.
         var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (!identity.ExactMachineMatch || !identity.McuFirmwareVerified)
+        if (!identity.ExactMachineMatch)
         {
             _host.Trace(
                 DeviceTraceLevel.Warn,
                 "controller",
-                "acquire refused at the identity gate: "
-                + $"exactMachine={identity.ExactMachineMatch}, "
-                + $"mcuVerified={identity.McuFirmwareVerified}.");
+                "acquire refused at the identity gate: the exact MS-1T52 identity no longer matches.");
             return Set(ClawServiceState.Passive, new CapabilityReason(
-                CapabilityReasonCode.FirmwareNotVerified,
-                "Controller ownership is gated to exact MS-1T52 firmware 0x0229."));
+                CapabilityReasonCode.GenerationChanged,
+                "Exact device identity no longer matches the Claw implementation."));
         }
 
         var observed = await _source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
@@ -1569,5 +1590,15 @@ internal static class ServiceIds
 internal static class ClawFirmwareIdentities
 {
     public const string Wmi = "ec:1T52EMS1.109;msi-acpi:8.0";
-    public const string Mcu = "mcu:0229";
+
+    /// <summary>
+    ///     Deliberately carries no revision. A controller journal entry only records the mode to put
+    ///     back, and that write is valid on any MCU firmware the exact machine ships with; a
+    ///     revision here would strand the entry, and with it the controller, after every firmware
+    ///     update. Journals written before 2026-09-18 carry <see cref="LegacyMcu" /> instead.
+    /// </summary>
+    public const string Mcu = "mcu";
+
+    /// <summary>The revision-bound identity older journals recorded; read as <see cref="Mcu" />.</summary>
+    public const string LegacyMcu = "mcu:0229";
 }

@@ -85,7 +85,6 @@ public sealed class ClawPluginTests
 
         Assert.False(result.ExactMachineMatch);
         Assert.False(result.WmiFirmwareVerified);
-        Assert.False(result.McuFirmwareVerified);
         Assert.False(result.OnAcPower);
         Assert.Equal(0, wmi.ProviderAvailabilityChecks);
         Assert.False(controllerInventoryCalled);
@@ -620,6 +619,31 @@ public sealed class ClawPluginTests
         Assert.Equal(new PowerPair(30, 37, 0xC1), retained);
     }
 
+    // Journals written before 2026-09-18 bound the controller entry to MCU revision 0229. The mode
+    // restore is valid on any revision, so the entry must load as the current identity and stay
+    // restorable instead of blocking the controller behind an identity nothing can match again.
+    [Fact]
+    public async Task OpenAsync_LegacyRevisionBoundControllerEntry_LoadsAsRestorable()
+    {
+        using TemporaryDirectory state = new();
+        await File.WriteAllTextAsync(
+            Path.Combine(state.Root, "temporary-state.v1.json"),
+            """
+            {"version":1,"entries":[{"serviceId":"physical-controller","capabilityId":"controller.source","firmwareIdentity":"mcu:0229","originalState":{"kind":"ControllerMode","sustainedWatts":null,"boostWatts":null,"scenario":null,"leftDuty":"","leftTemperature":"","rightDuty":"","rightTemperature":"","customFlag":null,"fullSpeedFlag":null,"controllerMode":1},"status":"Pending"}]}
+            """);
+
+        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+
+        Assert.Null(journal.FailureReason);
+        var entry = Assert.Single(journal.OutstandingEntries);
+        Assert.Equal(ClawFirmwareIdentities.Mcu, entry.FirmwareIdentity);
+        Assert.Equal(
+            ClawReconciliationAction.Restore,
+            ClawRecoveryJournal.Decide(entry, ClawFirmwareIdentities.Mcu));
+        Assert.True(ClawRecoveryValues.TryControllerMode(entry.OriginalState, out var mode));
+        Assert.Equal(ClawControllerMode.XInput, mode);
+    }
+
     [Fact]
     public async Task StartAsync_OutstandingCompactPowerEntry_RestoresBeforeNewOwnership()
     {
@@ -765,7 +789,7 @@ public sealed class ClawPluginTests
                 {
                     VendorId = ClawHardwareFacts.UsbVendorId,
                     ProductId = ClawHardwareFacts.XInputProductId,
-                    DeviceRelease = ClawHardwareFacts.McuFirmware
+                    DeviceRelease = "0229"
                 }
             ]
         };

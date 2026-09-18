@@ -995,11 +995,14 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            // The message is what says which check failed. Without it the charge-limit fault after
+            // BIOS E1T52IMS.114 read only "InvalidOperationException" in the log, and the raw value
+            // that caused it had to be guessed.
             return new ClawServiceResult(
                 ClawServiceState.Faulted,
                 new CapabilityReason(
                     CapabilityReasonCode.TransportFaulted,
-                    $"Service '{service.ServiceId}' operation failed: {ex.GetType().Name}."));
+                    $"Service '{service.ServiceId}' operation failed: {ex.GetType().Name}: {ex.Message}"));
         }
     }
 
@@ -1709,8 +1712,11 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         return capabilityId switch
         {
+            // MCU-backed capabilities carry no revision gate. The controller mode switch is not an
+            // addressed write, and lighting verifies the committed profile's shape when its
+            // service is acquired, which is the check a revision list only approximated.
             CapabilityIds.LightingBrightness or CapabilityIds.LightingColor
-                or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.Mcu,
+                or CapabilityIds.Controller or CapabilityIds.Rumble => FirmwareKind.None,
             // Driven by the GPU driver, not by MSI firmware, so there is no firmware revision to gate
             // it on and gating it on the WMI one would refuse it whenever that path is degraded.
             CapabilityIds.Motion
@@ -1919,12 +1925,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private static bool FirmwareVerified(ClawIdentityState identity, FirmwareKind kind)
     {
-        return kind switch
-        {
-            FirmwareKind.Wmi => identity.WmiFirmwareVerified,
-            FirmwareKind.Mcu => identity.McuFirmwareVerified,
-            _ => true
-        };
+        return kind is not FirmwareKind.Wmi || identity.WmiFirmwareVerified;
     }
 
     private static CapabilityCommandResult NormalizeCommandResult(
@@ -2452,7 +2453,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             {
                 ServiceIds.Power or ServiceIds.Fans when identity.WmiFirmwareVerified =>
                     ClawFirmwareIdentities.Wmi,
-                ServiceIds.Controller when identity.McuFirmwareVerified =>
+                ServiceIds.Controller when identity.ExactMachineMatch =>
                     ClawFirmwareIdentities.Mcu,
                 _ => null
             };
@@ -2926,7 +2927,6 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private enum FirmwareKind
     {
         None,
-        Wmi,
-        Mcu
+        Wmi
     }
 }

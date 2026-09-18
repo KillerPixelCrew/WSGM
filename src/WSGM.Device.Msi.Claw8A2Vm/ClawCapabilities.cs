@@ -282,6 +282,9 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
     internal const int MinimumPercent = 60;
     internal const int MaximumPercent = 100;
 
+    /// <summary>The bits of the 0xD7 register that hold the percentage; bit 7 is a firmware flag.</summary>
+    internal const byte PercentMask = 0x7F;
+
     private readonly IMsiWmiTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
 
     public async ValueTask<ChargeLimitState> ReadAsync(CancellationToken cancellationToken)
@@ -295,14 +298,20 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
             throw new InvalidOperationException("The charge-limit response was truncated.");
         }
 
+        // Only the low seven bits are the percentage. Handheld Companion's Claw implementation
+        // (ClawA1M.SetBatteryChargeLimit) masks the register the same way and carries bit 7 through
+        // its writes unchanged, and after BIOS E1T52IMS.114 the reference unit's read failed the
+        // plain 60-100 range check at every start (2026-09-18), which a set bit 7 explains. The
+        // raw byte is kept for rollback so an unknown flag is never cleared by a restore.
         var rawValue = response[1];
-        if (rawValue is < MinimumPercent or > MaximumPercent)
+        var percent = rawValue & PercentMask;
+        if (percent is < MinimumPercent or > MaximumPercent)
         {
             throw new InvalidOperationException(
-                $"The charge-limit value {rawValue}% is outside the supported range.");
+                $"The charge-limit value {percent}% (raw 0x{rawValue:X2}) is outside the supported range.");
         }
 
-        return new ChargeLimitState(rawValue, rawValue);
+        return new ChargeLimitState(percent, rawValue);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplyAsync(
@@ -319,7 +328,7 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
         }
 
         var before = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        var wanted = Encode(percent);
+        var wanted = Encode(before.RawValue, percent);
         try
         {
             await WriteRawAsync(wanted, cancellationToken).ConfigureAwait(false);
@@ -345,9 +354,10 @@ internal sealed class ClawA2VmChargeLimitCapability(IMsiWmiTransport transport)
             rollback);
     }
 
-    private static byte Encode(int percent)
+    /// <summary>Puts the percentage into the register while carrying the flag bit through unchanged.</summary>
+    internal static byte Encode(byte currentRawValue, int percent)
     {
-        return checked((byte)percent);
+        return (byte)((currentRawValue & ~PercentMask) | checked((byte)percent));
     }
 
     private async ValueTask<RollbackResult> TryRestoreAsync(

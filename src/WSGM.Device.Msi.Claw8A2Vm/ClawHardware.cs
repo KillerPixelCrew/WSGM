@@ -15,7 +15,6 @@ internal static class ClawHardwareFacts
     public const string BoardProduct = "MS-1T52";
     public const string SystemSku = "1T52.1";
     public const string EcFirmware = "1T52EMS1.109";
-    public const string McuFirmware = "0229";
     public const string UsbVendorId = "0DB0";
     public const string XInputProductId = "1901";
     public const string DirectInputProductId = "1902";
@@ -47,8 +46,6 @@ internal sealed record ClawIdentityState
     public required bool ExactMachineMatch { get; init; }
 
     public required bool WmiFirmwareVerified { get; init; }
-
-    public required bool McuFirmwareVerified { get; init; }
 
     public required bool OnAcPower { get; init; }
 }

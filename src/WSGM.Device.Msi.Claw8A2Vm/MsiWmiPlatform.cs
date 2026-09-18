@@ -256,7 +256,6 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
                 Snapshot = snapshot,
                 ExactMachineMatch = false,
                 WmiFirmwareVerified = false,
-                McuFirmwareVerified = false,
                 OnAcPower = false
             };
         }
@@ -316,19 +315,27 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
             providerAvailable = false;
         }
 
+        // The MCU revision (USB bcdDevice) is recorded for diagnostics and never gated on. It was
+        // gated to exactly 0229 until MSI shipped 0230 through the controller firmware updater on
+        // 2026-09-18, which refused controller ownership and lighting on every updated unit even
+        // though nothing the plugin sends had changed: the mode switch is not an addressed write,
+        // and the RGB profile at 0x024A still read back with the reviewed shape on 0230. Lighting
+        // verifies that shape on every acquire instead, which is the check the revision stood in for.
+        var mcuFirmware = snapshot.UsbEndpoints
+            .Where(endpoint =>
+                string.Equals(endpoint.VendorId, ClawHardwareFacts.UsbVendorId, StringComparison.OrdinalIgnoreCase)
+                && IsControllerProduct(endpoint.ProductId))
+            .Select(endpoint => endpoint.DeviceRelease)
+            .FirstOrDefault(release => release is not null);
+
         snapshot = snapshot with
         {
             EcFirmwareVersion = ecFirmware,
+            McuFirmwareVersion = mcuFirmware,
             WmiProviderSignatures = providerAvailable
                 ? ["root\\WMI:MSI_ACPI", "root\\WMI:MSI_ACPI.Get_WMI:8.0"]
                 : []
         };
-
-        var mcuFirmwareVerified = snapshot.UsbEndpoints.Any(endpoint =>
-            string.Equals(endpoint.VendorId, ClawHardwareFacts.UsbVendorId, StringComparison.OrdinalIgnoreCase)
-            && IsControllerProduct(endpoint.ProductId)
-            && string.Equals(endpoint.DeviceRelease, ClawHardwareFacts.McuFirmware,
-                StringComparison.OrdinalIgnoreCase));
 
         bool onAcPower;
         try
@@ -349,7 +356,6 @@ internal sealed class WindowsClawIdentityReader : IClawIdentityReader
             Snapshot = snapshot,
             ExactMachineMatch = true,
             WmiFirmwareVerified = wmiFirmwareVerified,
-            McuFirmwareVerified = mcuFirmwareVerified,
             OnAcPower = onAcPower
         };
     }

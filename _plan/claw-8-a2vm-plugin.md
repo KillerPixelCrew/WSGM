@@ -65,7 +65,7 @@ Plugin. If another plugin package is present, normal WSGM startup refuses before
 | Controller VID | `0x0DB0` | Controller family |
 | Controller PID | `0x1901` XInput, `0x1902` DirectInput | Supported modes |
 | Additional PIDs | `0x1903`, `0x1904` | Diagnostic only until understood |
-| Controller `bcdDevice` | `0x0229` | MCU/RGB firmware descriptor |
+| Controller `bcdDevice` | `0x0229` on the reference unit, `0x0230` after the 2026-08 updater | Diagnostics only, never a gate |
 | MSI WMI namespace | `root\WMI` | Provider discovery |
 | MSI provider interface | 8.0 | Diagnostics/compatibility |
 
@@ -453,8 +453,10 @@ Future BIOS versions that produce a chord outside these explicit rules fail open
 
 ## RGB lighting
 
-Firmware `0x0229` uses the verified live RGB base `0x024A`. The older populated `0x01FA` block is
-inert.
+The verified live RGB base is `0x024A`; it read back with the reviewed shape on firmware `0x0229`
+and `0x0230`. The older populated `0x01FA` block is inert. The lighting service does not gate on
+the revision: it reads the committed profile at acquire and stays passive when the header is not
+the reviewed one.
 
 Write frame:
 
@@ -501,7 +503,8 @@ remain visible only after their exact generated frame sequences are validated.
 
 - Unknown board, firmware, provider response, endpoint, mode, or prerequisite means no guessed
   write.
-- Never choose firmware addresses by proximity; `0x0229` maps explicitly to RGB base `0x024A`.
+- Never choose firmware addresses by proximity; RGB base `0x024A` is confirmed by reading the
+  block's header back, not by the MCU revision. Never gate a service on the revision.
 - No WMI/MCU write if the exact initial read/snapshot failed.
 - One serializer per vendor transport; bounded timeout, cancellation, and contextual failure.
 - Read-modify-write complete firmware buffers and preserve unidentified bytes.

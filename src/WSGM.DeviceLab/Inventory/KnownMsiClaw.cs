@@ -29,7 +29,7 @@ internal sealed record KnownDeviceFingerprint
     /// <summary>Allowed exact USB product identifiers.</summary>
     public IReadOnlyList<string> UsbProductIds { get; init; } = [];
 
-    /// <summary>Required USB device release.</summary>
+    /// <summary>USB device release of the reference unit; reported alongside the observed one, not required.</summary>
     public required string UsbDeviceRelease { get; init; }
 
     /// <summary>Required WMI namespace.</summary>
@@ -103,13 +103,17 @@ internal static class KnownDeviceMatcher
             fingerprint.SystemSku,
             explanations);
 
-        var usb = inventory.UsbInterfaces.Any(endpoint =>
+        // The release (bcdDevice) is the controller firmware revision, which MSI updates in the
+        // field; it is reported for the record and compared against the reference, never required.
+        var controller = inventory.UsbInterfaces.FirstOrDefault(endpoint =>
             string.Equals(endpoint.VendorId, fingerprint.UsbVendorId, StringComparison.OrdinalIgnoreCase)
-            && fingerprint.UsbProductIds.Contains(endpoint.ProductId ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-            && string.Equals(endpoint.DeviceRelease, fingerprint.UsbDeviceRelease, StringComparison.OrdinalIgnoreCase));
+            && fingerprint.UsbProductIds.Contains(endpoint.ProductId ?? string.Empty,
+                StringComparer.OrdinalIgnoreCase));
+        var usb = controller is not null;
         explanations.Add(usb
-            ? $"USB endpoint matched {fingerprint.UsbVendorId}:[{string.Join(", ", fingerprint.UsbProductIds)}] release {fingerprint.UsbDeviceRelease}."
-            : $"USB endpoint mismatch: expected {fingerprint.UsbVendorId}:[{string.Join(", ", fingerprint.UsbProductIds)}] release {fingerprint.UsbDeviceRelease}.");
+            ? $"USB endpoint matched {fingerprint.UsbVendorId}:[{string.Join(", ", fingerprint.UsbProductIds)}], "
+              + $"release {controller!.DeviceRelease ?? "<missing>"} (reference {fingerprint.UsbDeviceRelease})."
+            : $"USB endpoint mismatch: expected {fingerprint.UsbVendorId}:[{string.Join(", ", fingerprint.UsbProductIds)}].");
         exact &= usb;
 
         var wmi = inventory.WmiClasses.Any(provider =>

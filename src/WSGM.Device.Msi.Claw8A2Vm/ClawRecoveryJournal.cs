@@ -282,6 +282,23 @@ internal sealed class ClawRecoveryJournal : IAsyncDisposable
                                ClawRecoveryJsonContext.Default.ClawRecoveryDocument,
                                cancellationToken).ConfigureAwait(false)
                            ?? throw new InvalidDataException("The Claw recovery record was empty.");
+            // Controller entries written before 2026-09-18 carry the MCU revision the plugin was
+            // gated to at the time. The mode restore they describe is valid on any revision, so
+            // they are read as the current revision-free identity instead of being refused, which
+            // would have left the controller blocked behind an entry nothing could ever reconcile.
+            document = document with
+            {
+                Entries =
+                [
+                    .. document.Entries.Select(entry =>
+                        entry is
+                        {
+                            ServiceId: ServiceIds.Controller, FirmwareIdentity: ClawFirmwareIdentities.LegacyMcu
+                        }
+                            ? entry with { FirmwareIdentity = ClawFirmwareIdentities.Mcu }
+                            : entry)
+                ]
+            };
             ValidateDocument(document);
             _entries = [.. document.Entries];
         }

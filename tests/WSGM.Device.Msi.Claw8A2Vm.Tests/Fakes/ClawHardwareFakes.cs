@@ -17,19 +17,21 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
                 BaseboardProduct = ClawHardwareFacts.BoardProduct,
                 SystemSku = ClawHardwareFacts.SystemSku,
                 EcFirmwareVersion = ClawHardwareFacts.EcFirmware,
+                // A revision the plugin was never reviewed against, on purpose: controller and
+                // lighting ownership must not depend on it.
+                McuFirmwareVersion = "0230",
                 UsbEndpoints =
                 [
                     new UsbEndpointObservation
                     {
                         VendorId = ClawHardwareFacts.UsbVendorId,
                         ProductId = ClawHardwareFacts.XInputProductId,
-                        DeviceRelease = ClawHardwareFacts.McuFirmware
+                        DeviceRelease = "0230"
                     }
                 ]
             },
             ExactMachineMatch = true,
             WmiFirmwareVerified = true,
-            McuFirmwareVerified = true,
             OnAcPower = true
         });
     }
