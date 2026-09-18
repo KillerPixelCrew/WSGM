@@ -35,9 +35,10 @@ codes, and safe to rerun.
   `WSGM_QODANA_USE_STAGED_NATIVE` and `WSGM_QODANA_COVERAGE_FROM` so it reuses the libraries and
   coverage from the `verify` and `viiper` jobs instead. It is a CI step, not a local gate.
 - .qodana/dotnet-baseline.sarif.json is the Qodana for .NET baseline the `qodana-dotnet` job passes
-  with `--baseline`. It holds the reviewed findings that stay on purpose, each with its reason in
-  _plan/qodana-review-2.0.md; only findings new against it fail the check. Regenerate it from a scan
-  of the current tree when a reviewed finding is deliberately added, never to hide a new one.
+  with `--baseline`. It holds the reviewed findings that stay on purpose; only findings new against
+  it fail the check. Rules kept for a whole scope are severity-scoped in .editorconfig instead, with
+  the reason on each block. Regenerate the baseline from a scan of the current tree when a reviewed
+  finding is deliberately added, never to hide a new one.
 - eng/build-viiper.ps1 builds the external/viiper submodule as checked out. build.ps1 passes
   `-RequirePinned`, which refuses a dirty submodule or one that is not at the gitlink HEAD records,
   so a release library always matches a pinned commit. Move the VIIPER pin by pushing to the fork's

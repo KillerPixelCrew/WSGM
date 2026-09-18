@@ -28,8 +28,9 @@ indent_size = 2
 [*.{json,yml,yaml}]
 indent_size = 2
 
-# Reviewed Qodana findings kept on purpose (see _plan/qodana-review-2.0.md). Scoped so the same
-# rule still reports elsewhere. Rider, jb inspectcode and Qodana read these severities.
+# Reviewed Qodana findings kept on purpose. Each block below records why in its own comment, and
+# is scoped so the same rule still reports elsewhere. Rider, jb inspectcode and Qodana read these
+# severities.
 
 # Public MIT contract for external device packages: members and null guards on plugin input stay even when no in-repo consumer uses them.
 [src/WSGM.Device.Sdk/**.cs]

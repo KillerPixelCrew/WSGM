@@ -199,8 +199,7 @@ jobs:
       - name: Qodana scan
         uses: JetBrains/qodana-action@10be11607eb323a180e2b76b26c9c5cdceac3e77 # v2026.2.1
         with:
-          # The baseline holds the reviewed findings that stay (see _plan/qodana-review-2.0.md);
-          # only findings new against it count.
+          # The baseline holds the reviewed findings that stay; only findings new against it count.
           args:
             --linter qodana-dotnet --within-docker false --baseline
             .qodana/dotnet-baseline.sarif.json
