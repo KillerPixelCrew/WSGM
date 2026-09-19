@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Interop;
 
 namespace WSGM.DeviceLab.Packaging;
 
@@ -17,11 +16,11 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
     private readonly HashSet<string> _canonicalPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DeviceLabPackageFile> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly ICollection<PluginPackageValidationIssue> _issues;
-    private readonly NoFollowPackageSource _source;
+    private readonly NativePackageSource _source;
     private bool _disposed;
 
     private DeviceLabPackageSnapshot(
-        NoFollowPackageSource source,
+        NativePackageSource source,
         ICollection<PluginPackageValidationIssue> issues)
     {
         _source = source;
@@ -61,7 +60,9 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(issues);
-        var source = NoFollowPackageSource.Open(root);
+        var source = NativePackageSource.TryOpen(root)
+                     ?? throw new DirectoryNotFoundException(
+                         $"Package source directory does not exist: '{root}'.");
         DeviceLabPackageSnapshot snapshot = new(source, issues);
         try
         {
@@ -234,307 +235,5 @@ internal sealed class DeviceLabPackageFile : IDisposable
         _stream.ReadExactly(owned);
         bytes = owned;
         return true;
-    }
-}
-
-/// <summary>Locks source ancestors and opens each enumerated entry without following its final link.</summary>
-internal sealed partial class NoFollowPackageSource : IDisposable
-{
-    private const uint GenericRead = 0x80000000;
-    private const uint FileReadAttributes = 0x00000080;
-    private const uint FileShareRead = 0x00000001;
-    private const uint FileShareWrite = 0x00000002;
-    private const uint OpenExisting = 3;
-    private const uint FileAttributeDirectory = 0x00000010;
-    private const uint FileAttributeReparsePoint = 0x00000400;
-    private const uint FileFlagSequentialScan = 0x08000000;
-    private const uint FileFlagBackupSemantics = 0x02000000;
-    private const uint FileFlagOpenReparsePoint = 0x00200000;
-    private readonly List<SafeFileHandle> _directoryHandles = [];
-    private bool _disposed;
-
-    private NoFollowPackageSource(string rootPath)
-    {
-        RootPath = rootPath;
-    }
-
-    /// <summary>Canonical source root held against rename and deletion.</summary>
-    internal string RootPath { get; }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        for (var index = _directoryHandles.Count - 1; index >= 0; index--)
-        {
-            _directoryHandles[index].Dispose();
-        }
-
-        _directoryHandles.Clear();
-    }
-
-    /// <summary>Opens and pins every existing source ancestor through the package root.</summary>
-    internal static NoFollowPackageSource Open(string path)
-    {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-        Stack<string> ancestors = [];
-        DirectoryInfo? current = new(root);
-        while (current is not null)
-        {
-            ancestors.Push(current.FullName);
-            current = current.Parent;
-        }
-
-        NoFollowPackageSource source = new(root);
-        try
-        {
-            while (ancestors.Count > 0)
-            {
-                var ancestor = ancestors.Pop();
-                using var entry = OpenEntryCore(ancestor);
-                if (entry.IsReparsePoint)
-                {
-                    throw new InvalidDataException("Package source may not traverse a link or reparse point.");
-                }
-
-                if (!entry.IsDirectory)
-                {
-                    throw new InvalidDataException("Package source root and ancestors must be directories.");
-                }
-
-                source._directoryHandles.Add(entry.TakeHandle());
-            }
-
-            return source;
-        }
-        catch
-        {
-            source.Dispose();
-            throw;
-        }
-    }
-
-    /// <summary>Opens one enumerated entry without following a final reparse point.</summary>
-    internal NoFollowPackageSourceEntry OpenEntry(string path)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return OpenEntryCore(path);
-    }
-
-    /// <summary>Keeps one opened ordinary directory stable through traversal and packing.</summary>
-    internal void RetainDirectory(NoFollowPackageSourceEntry entry)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(entry);
-        if (!entry.IsDirectory || entry.IsReparsePoint)
-        {
-            throw new InvalidDataException("Only ordinary package directories may be retained.");
-        }
-
-        _directoryHandles.Add(entry.TakeHandle());
-    }
-
-    private static NoFollowPackageSourceEntry OpenEntryCore(string path)
-    {
-        var probe = OpenPath(
-            path,
-            FileReadAttributes,
-            FileShareRead | FileShareWrite,
-            FileFlagBackupSemantics | FileFlagOpenReparsePoint);
-        if (probe.IsInvalid)
-        {
-            var error = Marshal.GetLastPInvokeError();
-            probe.Dispose();
-            throw NativeIoException("open", path, error);
-        }
-
-        try
-        {
-            var probeInformation = ReadInformation(probe, path);
-            var isDirectory = (probeInformation.Attributes & FileAttributeDirectory) != 0;
-            var isReparsePoint = (probeInformation.Attributes & FileAttributeReparsePoint) != 0;
-            if (isDirectory || isReparsePoint)
-            {
-                NoFollowPackageSourceEntry result = new(
-                    probe,
-                    isDirectory,
-                    isReparsePoint,
-                    0);
-                probe = null;
-                return result;
-            }
-
-            var readHandle = OpenPath(
-                path,
-                GenericRead,
-                FileShareRead,
-                FileFlagBackupSemantics | FileFlagOpenReparsePoint | FileFlagSequentialScan);
-            try
-            {
-                if (readHandle.IsInvalid)
-                {
-                    throw NativeIoException("open for reading", path, Marshal.GetLastPInvokeError());
-                }
-
-                var readInformation = ReadInformation(readHandle, path);
-                if (readInformation.Identity != probeInformation.Identity
-                    || (readInformation.Attributes & (FileAttributeDirectory | FileAttributeReparsePoint)) != 0)
-                {
-                    throw new InvalidDataException(
-                        $"Package source entry changed while it was being secured: '{path}'.");
-                }
-
-                NoFollowPackageSourceEntry result = new(
-                    readHandle,
-                    false,
-                    false,
-                    readInformation.Length);
-                readHandle = null;
-                return result;
-            }
-            finally
-            {
-                readHandle?.Dispose();
-            }
-        }
-        finally
-        {
-            probe?.Dispose();
-        }
-    }
-
-    private static NativeEntryInformation ReadInformation(SafeFileHandle handle, string path)
-    {
-        if (!GetFileInformationByHandle(handle, out var information))
-        {
-            throw NativeIoException("inspect", path, Marshal.GetLastPInvokeError());
-        }
-
-        var length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
-        if (length > long.MaxValue)
-        {
-            throw new InvalidDataException($"Package source entry is too large: '{path}'.");
-        }
-
-        return new NativeEntryInformation(
-            information.FileAttributes,
-            new PackagePathIdentity(
-                information.VolumeSerialNumber,
-                ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow),
-            (long)length);
-    }
-
-    private static Exception NativeIoException(string operation, string path, int error)
-    {
-        var message = $"Could not {operation} package source path '{path}'.";
-        return error switch
-        {
-            2 or 3 => new DirectoryNotFoundException(message),
-            5 => new UnauthorizedAccessException(message, new Win32Exception(error)),
-            _ => new IOException(message, new Win32Exception(error))
-        };
-    }
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf16)]
-    private static partial SafeFileHandle CreateFileW(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetFileInformationByHandle(
-        SafeFileHandle file,
-        out ByHandleFileInformation information);
-
-    private static SafeFileHandle OpenPath(
-        string path,
-        uint desiredAccess,
-        uint shareMode,
-        uint flags)
-    {
-        return CreateFileW(path, desiredAccess, shareMode, 0, OpenExisting, flags, 0);
-    }
-
-    private readonly record struct NativeEntryInformation(
-        uint Attributes,
-        PackagePathIdentity Identity,
-        long Length);
-
-    private readonly record struct PackagePathIdentity(uint VolumeSerialNumber, ulong FileIndex);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeFileTime
-    {
-        public uint LowDateTime;
-        public uint HighDateTime;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ByHandleFileInformation
-    {
-        public uint FileAttributes;
-        public NativeFileTime CreationTime;
-        public NativeFileTime LastAccessTime;
-        public NativeFileTime LastWriteTime;
-        public uint VolumeSerialNumber;
-        public uint FileSizeHigh;
-        public uint FileSizeLow;
-        public uint NumberOfLinks;
-        public uint FileIndexHigh;
-        public uint FileIndexLow;
-    }
-}
-
-/// <summary>One no-follow source entry with a stable native identity.</summary>
-internal sealed class NoFollowPackageSourceEntry : IDisposable
-{
-    private SafeFileHandle? _handle;
-
-    internal NoFollowPackageSourceEntry(
-        SafeFileHandle handle,
-        bool isDirectory,
-        bool isReparsePoint,
-        long length)
-    {
-        _handle = handle;
-        IsDirectory = isDirectory;
-        IsReparsePoint = isReparsePoint;
-        Length = length;
-    }
-
-    /// <summary>Whether the opened entry is a directory.</summary>
-    internal bool IsDirectory { get; }
-
-    /// <summary>Whether the opened entry is a reparse point.</summary>
-    internal bool IsReparsePoint { get; }
-
-    /// <summary>Stable file length from the retained native handle.</summary>
-    internal long Length { get; }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _handle?.Dispose();
-        _handle = null;
-    }
-
-    /// <summary>Transfers the retained native handle.</summary>
-    internal SafeFileHandle TakeHandle()
-    {
-        var handle = _handle
-                     ?? throw new ObjectDisposedException(nameof(NoFollowPackageSourceEntry));
-        _handle = null;
-        return handle;
     }
 }
