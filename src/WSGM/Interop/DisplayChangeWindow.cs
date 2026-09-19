@@ -63,24 +63,7 @@ public sealed unsafe class DisplayChangeWindow : IDisposable
 
         const string className = "WSGM.DisplayChangeWindow";
         var hInstance = NativeMethods.GetModuleHandleW(0);
-        const string terminated = className + "\0";
-        fixed (char* pClassName = terminated)
-        {
-            NativeMethods.WndClassW wc = new()
-            {
-                lpfnWndProc = &WndProc,
-                hInstance = hInstance,
-                lpszClassName = (nint)pClassName
-            };
-            if (NativeMethods.RegisterClassW(&wc) == 0)
-            {
-                var error = Marshal.GetLastWin32Error();
-                if (error != 1410)
-                {
-                    Log.Warn($"RegisterClassW({className}) failed (error {error}).");
-                }
-            }
-        }
+        _ = MessageWindow.RegisterWindowClass(className, &WndProc);
 
         var hwnd = NativeMethods.CreateWindowExW(
             NativeMethods.WsExToolWindow | NativeMethods.WsExNoActivate,

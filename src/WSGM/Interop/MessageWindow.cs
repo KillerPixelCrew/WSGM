@@ -392,8 +392,8 @@ public sealed unsafe class MessageWindow : IDisposable
     }
 
     /// <summary>
-    ///     Shared class-registration + window-creation path for the process's
-    ///     message-only (HWND_MESSAGE) windows. Class registration is idempotent:
+    ///     Shared window-creation path for the process's message-only
+    ///     (HWND_MESSAGE) windows. Class registration is idempotent:
     ///     ERROR_CLASS_ALREADY_EXISTS (1410) is benign — a re-create after a destroy
     ///     reuses the still-registered class. Any other registration failure is only
     ///     logged, because CreateWindowExW then fails on the unknown class and throws
@@ -405,6 +405,24 @@ public sealed unsafe class MessageWindow : IDisposable
         string failureMessage)
     {
         var hInstance = NativeMethods.GetModuleHandleW(0);
+        _ = RegisterWindowClass(className, wndProc);
+
+        var hwnd = NativeMethods.CreateWindowExW(
+            0, className, null, 0,
+            0, 0, 0, 0,
+            NativeMethods.HwndMessage, 0, hInstance, 0);
+        return hwnd != 0 ? hwnd : throw new InvalidOperationException(failureMessage);
+    }
+
+    /// <summary>
+    ///     Registers a native window class for this process. Re-registering an existing class is successful.
+    /// </summary>
+    /// <returns><see langword="true" /> when the class is available; otherwise, <see langword="false" />.</returns>
+    internal static bool RegisterWindowClass(
+        string className,
+        delegate* unmanaged<nint, uint, nint, nint, nint> wndProc)
+    {
+        var hInstance = NativeMethods.GetModuleHandleW(0);
         var terminatedClassName = className + "\0";
         fixed (char* pClassName = terminatedClassName)
         {
@@ -414,21 +432,20 @@ public sealed unsafe class MessageWindow : IDisposable
                 hInstance = hInstance,
                 lpszClassName = (nint)pClassName
             };
-            if (NativeMethods.RegisterClassW(&wc) == 0)
+            if (NativeMethods.RegisterClassW(&wc) != 0)
             {
-                var error = Marshal.GetLastWin32Error();
-                if (error != 1410)
-                {
-                    Log.Warn($"RegisterClassW({className}) failed (error {error}).");
-                }
+                return true;
             }
-        }
 
-        var hwnd = NativeMethods.CreateWindowExW(
-            0, className, null, 0,
-            0, 0, 0, 0,
-            NativeMethods.HwndMessage, 0, hInstance, 0);
-        return hwnd != 0 ? hwnd : throw new InvalidOperationException(failureMessage);
+            var error = Marshal.GetLastWin32Error();
+            if (error == 1410)
+            {
+                return true;
+            }
+
+            Log.Warn($"RegisterClassW({className}) failed (error {error}).");
+            return false;
+        }
     }
 
     [UnmanagedCallersOnly]
