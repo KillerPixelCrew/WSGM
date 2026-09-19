@@ -73,6 +73,11 @@ when the guidance conflicts.
 - Do not create tags, releases, or compatibility layers unless the maintainer asks for them.
 - Write documentation, command examples, issues, commit messages, and pull requests in natural,
   concise language. Avoid canned AI phrasing, filler, and em dashes.
+- Run `npm run format` before committing whenever the change touches a file Prettier owns, which
+  includes every Markdown, JSON, YAML, CSS and JavaScript file. Editing a paragraph usually leaves
+  the surrounding lines rewrapped, and `prettier --check` is the first thing eng/verify.ps1 runs, so
+  an unformatted Markdown edit fails CI before the build or tests start. This applies to
+  documentation-only changes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
 - Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
