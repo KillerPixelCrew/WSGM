@@ -26,6 +26,12 @@ public sealed class ManifestTests
             name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void DisplayNamesRejectBidirectionalFormatting()
+    {
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Name = "Remote‮name" }));
+    }
+
     [Theory]
     [InlineData("../Remote.dll")]
     [InlineData("C:\\Remote.dll")]

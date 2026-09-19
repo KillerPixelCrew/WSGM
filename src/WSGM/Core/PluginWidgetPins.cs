@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
 
@@ -78,7 +79,6 @@ internal static class PluginWidgetPins
 
     private static bool Valid(string? value)
     {
-        return !string.IsNullOrWhiteSpace(value) && value.Length <= 128
-                                                 && value.All(character => !char.IsControl(character));
+        return PluginText.TryValidate(value, 128, "widget identity", out _);
     }
 }

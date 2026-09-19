@@ -109,8 +109,7 @@ public static class PluginConfigurationRules
         foreach (var setting in settings)
         {
             if (setting is null || !ValidKey(setting.Key) || !keys.Add(setting.Key) || !Enum.IsDefined(setting.Kind)
-                || string.IsNullOrWhiteSpace(setting.Label) || setting.Label.Length > 128 ||
-                setting.Label.Any(char.IsControl)
+                || !PluginText.TryValidate(setting.Label, 128, "setting label", out _)
                 || (setting.Minimum is { } minimum && !double.IsFinite(minimum))
                 || (setting.Maximum is { } maximum && !double.IsFinite(maximum)) || setting.Minimum > setting.Maximum
                 || (setting.Kind != PluginSettingKind.Number && (setting.Minimum.HasValue || setting.Maximum.HasValue))

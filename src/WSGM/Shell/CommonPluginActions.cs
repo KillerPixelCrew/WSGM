@@ -176,6 +176,6 @@ internal sealed class CommonPluginActions
 
     private static bool Label(string? label)
     {
-        return !string.IsNullOrWhiteSpace(label) && label.Length <= 128 && !label.Any(char.IsControl);
+        return PluginText.TryValidate(label, 128, "label", out _);
     }
 }

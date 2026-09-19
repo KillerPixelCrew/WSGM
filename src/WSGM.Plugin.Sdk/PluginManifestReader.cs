@@ -66,7 +66,7 @@ public static class PluginManifestReader
             errors.Add("Invalid category identity.");
         }
 
-        if (string.IsNullOrWhiteSpace(manifest.Name) || manifest.Name.Length > 128 || manifest.Name.Any(char.IsControl))
+        if (!PluginText.TryValidate(manifest.Name, 128, "display name", out _))
         {
             errors.Add("Invalid display name.");
         }

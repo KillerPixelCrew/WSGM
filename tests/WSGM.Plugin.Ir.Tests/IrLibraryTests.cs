@@ -140,6 +140,15 @@ public sealed class IrLibraryTests
     }
 
     [Fact]
+    public void LibraryNamesRejectBidirectionalFormatting()
+    {
+        IrLibrary library = new(1,
+            [new IrCommand("power", "TV‮device", "Power", new IrPayload(38000, [9000, 4500]))], []);
+
+        Assert.Throws<InvalidDataException>(library.Validate);
+    }
+
+    [Fact]
     public async Task LibrarySurvivesReloadAndInvalidReplacementPreservesPreviousFile()
     {
         using TemporaryDirectory temporary = new();

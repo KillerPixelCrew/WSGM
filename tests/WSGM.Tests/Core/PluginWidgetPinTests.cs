@@ -31,6 +31,7 @@ public sealed class PluginWidgetPinTests
         var pins = PluginWidgetPins.Normalize([first, second, first, new PluginWidgetPin("", "default", "status")]);
         PluginWidgetPins.ResetOrder(pins);
         Assert.Equal([second, first], pins);
+        Assert.Empty(PluginWidgetPins.Normalize([new PluginWidgetPin("a‮b", "default", "status")]));
         PluginWidgetPins.Move(pins, second, -1);
         Assert.Equal([second, first], pins);
     }
