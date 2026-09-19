@@ -1,3 +1,4 @@
+using WSGM.Device.Sdk.Input;
 using WSGM.Device.Tests;
 
 namespace WSGM.Device.Sdk.Tests.Boundaries;
@@ -22,7 +23,14 @@ public sealed class ContractBoundaryTests
     {
         // PluginManifestValidator requires exact equality, so every raise invalidates every
         // published package. Version 2 added sections and categories; version 3 added the
-        // suppressed trace level and TraceChange.
-        Assert.Equal(3, DeviceApi.Version);
+        // suppressed trace level and TraceChange; version 4 made high-rate samples value types.
+        Assert.Equal(4, DeviceApi.Version);
+    }
+
+    [Fact]
+    public void HighRateInputSamplesAreValueTypes()
+    {
+        Assert.True(typeof(CanonicalControllerSample).IsValueType);
+        Assert.True(typeof(MotionSample).IsValueType);
     }
 }

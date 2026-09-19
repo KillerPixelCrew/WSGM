@@ -813,7 +813,7 @@ file. Levels and key style are in `docs\logging.md`.
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above was
-tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 3, entry
+tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 4, entry
 `WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin`. It targets `net10.0-windows10.0.19041.0`, references
 only the SDK and `System.Management`, ships its licence and notices beside the assembly, declares no
 settings manifest, and keeps every vendor address inside the package.
