@@ -103,7 +103,7 @@ public partial class SettingsWindow : Window
     {
     }
 
-    private SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface)
+    internal SettingsWindow(SettingsViewModel viewModel, bool gameModeSurface = false)
         : this(viewModel, SettingsWindowServices.Create(viewModel), gameModeSurface)
     {
     }

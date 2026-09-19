@@ -95,9 +95,11 @@ public static class Program
             // a read-modify-write and goes through the strict mutation path, which
             // aborts rather than replacing the registry recovery snapshots with
             // defaults.
+            AppConfig? recoveryConfig = null;
             try
             {
-                BootManifestWriter.WriteSignInDisabled(ConfigStore.Load());
+                recoveryConfig = ConfigStore.Load();
+                BootManifestWriter.WriteSignInDisabled(recoveryConfig);
             }
             catch (Exception)
             {
@@ -106,7 +108,7 @@ public static class Program
 
             try
             {
-                ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+                recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
             }
             catch (Exception)
             {
@@ -124,7 +126,7 @@ public static class Program
             // A lease is pipe-backed, so a crashed shell releases it when Windows
             // closes its handles. A live shell can still be releasing normally.
             SteamInputBlocker.ReleaseBestEffort("restore-shell");
-            RestoreDisplayScalesBestEffort();
+            RestoreDisplayScalesBestEffort(recoveryConfig);
             return 0;
         }
 
@@ -146,10 +148,11 @@ public static class Program
         }
 
         Log.Init();
+        var startupConfig = ConfigStore.Load();
         // Before anything else reads configuration, so a startup problem is captured at the
         // verbosity the device is actually set to. The flag wins over the stored choice for this
         // run, which is how a one-off reproduction is captured without persisting a setting.
-        ApplyLogVerbosity(args);
+        ApplyLogVerbosity(args, startupConfig);
         // The Steam UI machinery writes through its own sink so it carries no dependency on this
         // application's logger. Installed here, right after Log.Init, because remote diagnosis of
         // the CEF surface is a pasted wsgm.log and a missed install would silently empty it.
@@ -343,7 +346,7 @@ public static class Program
             // trigger a UAC prompt or relaunch elevated.
             // Must run before the shell mutex: the elevated copy takes the mutex,
             // this process only lingers as Winlogon's watched shell process.
-            var handedOver = SelfElevation.EnsureElevatedIfConfigured(args);
+            var handedOver = SelfElevation.EnsureElevatedIfConfigured(args, startupConfig);
             if (handedOver is not null)
             {
                 return handedOver.Value;
@@ -371,13 +374,14 @@ public static class Program
             CrashLoopBreaker.RecordStart();
             if (CrashLoopBreaker.IsLooping())
             {
+                var recoveryConfig = startupConfig;
                 Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
                           "the sign-in start is DISABLED (re-enable in WSGM settings).");
                 // Disarm the sign-in start: the manifest write works even when
                 // config.json cannot be saved, so the next sign-in stays a desktop.
                 try
                 {
-                    BootManifestWriter.WriteSignInDisabled(ConfigStore.Load());
+                    BootManifestWriter.WriteSignInDisabled(recoveryConfig);
                 }
                 catch (Exception ex)
                 {
@@ -390,7 +394,7 @@ public static class Program
                     // config.json aborts here instead of overwriting the registry
                     // recovery snapshots with defaults. boot.json above already
                     // disarmed the next sign-in either way.
-                    ConfigStore.Mutate(static c => c.StartAtSignIn = false);
+                    recoveryConfig = ConfigStore.Mutate(static c => c.StartAtSignIn = false);
                 }
                 catch (Exception ex)
                 {
@@ -408,7 +412,7 @@ public static class Program
                 // Lease release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
                 SteamInputBlocker.ReleaseBestEffort("crash-loop");
-                RestoreDisplayScalesBestEffort();
+                RestoreDisplayScalesBestEffort(recoveryConfig);
                 // Clear the marker so the next manual start isn't instantly disarmed.
                 CrashLoopBreaker.Reset();
                 return 1;
@@ -430,7 +434,7 @@ public static class Program
 
         try
         {
-            var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            var exitCode = BuildAvaloniaApp(startupConfig).StartWithClassicDesktopLifetime(args);
             // Normal shutdown. Settings-only processes skip release unless they
             // acquired a lease themselves (overlay test).
             if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
@@ -698,11 +702,12 @@ public static class Program
 
     /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
     /// <param name="args">Process arguments.</param>
+    /// <param name="config">The configuration loaded for this process startup.</param>
     /// <remarks>
     ///     Configuration is read defensively: a damaged config.json must not decide whether the log
     ///     that would explain the damage exists. Any failure keeps the default.
     /// </remarks>
-    private static void ApplyLogVerbosity(string[] args)
+    private static void ApplyLogVerbosity(string[] args, AppConfig config)
     {
         var verbosity = LogVerbosity.Normal;
         if (HasVerboseFlag(args))
@@ -713,7 +718,7 @@ public static class Program
         {
             try
             {
-                verbosity = ConfigStore.Load().LogVerbosity;
+                verbosity = config.LogVerbosity;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                            or InvalidDataException or JsonException)
@@ -898,11 +903,11 @@ public static class Program
     ///     Game mode forces 100% scaling and that persists in the registry —
     ///     every way out of shell mode must put the captured values back.
     /// </summary>
-    private static void RestoreDisplayScalesBestEffort()
+    private static void RestoreDisplayScalesBestEffort(AppConfig? config = null)
     {
         try
         {
-            DisplayScale.RestoreSaved(ConfigStore.Load());
+            DisplayScale.RestoreSaved(config ?? ConfigStore.Load());
         }
         catch
         {
@@ -911,11 +916,13 @@ public static class Program
     }
 
     /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
+    /// <param name="config">The configuration loaded for this process startup.</param>
     /// <returns>The configured Avalonia application builder.</returns>
     // ReSharper disable once MemberCanBePrivate.Global
-    public static AppBuilder BuildAvaloniaApp()
+    public static AppBuilder BuildAvaloniaApp(AppConfig config)
     {
-        return AppBuilder.Configure<App>()
+        ArgumentNullException.ThrowIfNull(config);
+        return AppBuilder.Configure(() => new App(config))
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();

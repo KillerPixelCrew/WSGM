@@ -80,6 +80,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
     }
 
+    /// <summary>Builds the production settings model over configuration already loaded at startup.</summary>
+    internal static SettingsViewModel FromLoadedConfig(AppConfig config)
+    {
+        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true);
+        viewModel.LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
+        return viewModel;
+    }
+
     internal SettingsViewModel(
         AppConfig config,
         string? installedPluginId,

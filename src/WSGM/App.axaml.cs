@@ -15,12 +15,21 @@ namespace WSGM;
 /// <summary>Configures Avalonia application lifetime and creates the selected WSGM session.</summary>
 public class App : Application
 {
+    private readonly AppConfig _startupConfig;
+
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
     private bool _sessionStopped;
     private bool _shutdownInProgress;
     private ApplicationShutdownOutcome? _shutdownOutcome;
+
+    /// <summary>Creates the application over the configuration loaded during process startup.</summary>
+    /// <param name="startupConfig">The configuration loaded by the process entry point.</param>
+    public App(AppConfig startupConfig)
+    {
+        _startupConfig = startupConfig ?? throw new ArgumentNullException(nameof(startupConfig));
+    }
 
     /// <inheritdoc />
     public override void Initialize()
@@ -33,7 +42,7 @@ public class App : Application
     {
         // Accent first, before any window exists — every mode (shell, overlay
         // test, settings, welcome) shows the configured accent from first paint.
-        var config = ConfigStore.Load();
+        var config = _startupConfig;
         AccentPalette.Apply(this, AccentPalette.Parse(config.AccentColor));
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -61,7 +70,7 @@ public class App : Application
                     // Inno is the only installer, so there is no portable run to offer
                     // an install for. First-run onboarding is Quick Setup, which the
                     // Settings window raises over itself.
-                    desktop.MainWindow = new SettingsWindow();
+                    desktop.MainWindow = new SettingsWindow(SettingsViewModel.FromLoadedConfig(config));
                     break;
             }
         }
