@@ -44,7 +44,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
             .. descriptor.Choices
                 .Select(static choice => new PluginSettingChoiceViewModel(
                     choice.Value,
-                    DisplayLabel(choice.Display, choice.Value)))
+                    CapabilityDisplayLabels.For(choice.Display, choice.Value)))
         ];
         Adopt(value);
     }
@@ -57,7 +57,7 @@ public sealed class PluginSettingRowViewModel : ObservableObject
     ///     Rendered as text and never as markup. <see cref="CapabilityDisplay" /> already bounds and
     ///     validates it; this only chooses between the localized key and the custom string.
     /// </remarks>
-    public string Label => DisplayLabel(_descriptor.Display, _descriptor.SettingId);
+    public string Label => CapabilityDisplayLabels.For(_descriptor.Display, _descriptor.SettingId);
 
     // CapabilityDisplay carries one label and no description. A setting that needs explanation
     // needs a clearer label rather than a second text field in the SDK.
@@ -255,36 +255,6 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         Raise(nameof(ColorHex));
         Raise(nameof(TextValue));
         Raise(nameof(SelectedChoice));
-    }
-
-    private static string DisplayLabel(CapabilityDisplay display, string fallback)
-    {
-        return display.Key switch
-        {
-            DisplayKey.Custom => display.CustomLabel ?? fallback,
-            DisplayKey.Tdp => "TDP",
-            DisplayKey.SustainedPowerLimit => "Sustained power limit",
-            DisplayKey.BoostPowerLimit => "Boost power limit",
-            DisplayKey.PerformanceProfile => "Performance profile",
-            DisplayKey.FanMode => "Fan mode",
-            DisplayKey.FanSpeed => "Fan speed",
-            DisplayKey.FanCurve => "Fan curve",
-            DisplayKey.FanLeft => "Left fan",
-            DisplayKey.FanRight => "Right fan",
-            DisplayKey.ChargeLimit => "Charge limit",
-            DisplayKey.BypassCharging => "Bypass charging",
-            DisplayKey.Lighting => "Lighting",
-            DisplayKey.Brightness => "Brightness",
-            DisplayKey.LightingEffect => "Lighting effect",
-            DisplayKey.LightingEffectSpeed => "Effect speed",
-            DisplayKey.CpuTemperature => "CPU temperature",
-            DisplayKey.Battery => "Battery",
-            DisplayKey.Controller => "Controller",
-            DisplayKey.Motion => "Motion",
-            DisplayKey.Rumble => "Rumble",
-            DisplayKey.VariableRefreshRate => "Variable refresh rate",
-            _ => fallback
-        };
     }
 
     private void Publish(CapabilityValue value)
