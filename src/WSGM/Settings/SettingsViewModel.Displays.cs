@@ -33,16 +33,14 @@ public sealed partial class SettingsViewModel
         get;
         set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(EditingDesktopLayout)))
             {
                 return;
             }
 
-            field = value;
             foreach (var name in new[]
                      {
-                         nameof(EditingDesktopLayout), nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor),
-                         nameof(DisplayPolicySummary)
+                         nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor), nameof(DisplayPolicySummary)
                      })
             {
                 Raise(name);
