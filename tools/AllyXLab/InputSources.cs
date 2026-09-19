@@ -91,7 +91,7 @@ internal sealed partial class InputSources : NativeWindow, IDisposable
         {
             switch (message.Msg)
             {
-                case 0x00FF: ReadRawInput(message.LParam); break;
+                case 0x00FF: ReadRawInput(message.LParam, ReadRawInputBody); break;
                 case 0x00FE: LogDeviceChange(message.WParam.ToInt32(), message.LParam); break;
                 default: HandleSystemMessage(ref message); break;
             }
@@ -147,7 +147,7 @@ internal sealed partial class InputSources : NativeWindow, IDisposable
         Report("device-change", $"{info.Kind} {info.Vid:X4}:{info.Pid:X4} {(change == 1 ? "arrived" : "removed")}");
     }
 
-    private void ReadRawInput(IntPtr raw)
+    internal static void ReadRawInput(IntPtr raw, Action<Header, IntPtr, int> readBody)
     {
         uint size = 0, headerSize = (uint)Marshal.SizeOf<Header>();
         if (GetRawInputData(raw, 0x10000003, IntPtr.Zero, ref size, headerSize) == uint.MaxValue || size < headerSize || size > 65536)
@@ -164,26 +164,31 @@ internal sealed partial class InputSources : NativeWindow, IDisposable
             }
 
             Header header = Marshal.PtrToStructure<Header>(memory);
-            DeviceInfo device = Describe(header.Device);
             IntPtr body = memory + (int)headerSize;
             int length = (int)(size - headerSize);
-            if (header.Type == 1 && length >= 16)
-            {
-                ushort scan = (ushort)Marshal.ReadInt16(body), flags = (ushort)Marshal.ReadInt16(body, 2), key = (ushort)Marshal.ReadInt16(body, 6);
-                uint msg = (uint)Marshal.ReadInt32(body, 8);
-                _log.Add("raw-keyboard", new { Device = device.Token, device.Vid, device.Pid, device.Virtual, ScanCode = scan, Flags = flags, VirtualKey = key, Message = msg });
-                Report("raw-keyboard", $"key 0x{key:X2} {(msg == 0x100 || msg == 0x104 ? "down" : "up")} from {Name(device)}");
-            }
-            else if (header.Type == 0 && length >= 24)
-            {
-                ReadRawMouse(device, body);
-            }
-            else if (header.Type == 2 && length >= 8)
-            {
-                ReadRawHid(device, body, length);
-            }
+            readBody(header, body, length);
         }
         finally { Marshal.FreeHGlobal(memory); }
+    }
+
+    private void ReadRawInputBody(Header header, IntPtr body, int length)
+    {
+        DeviceInfo device = Describe(header.Device);
+        if (header.Type == 1 && length >= 16)
+        {
+            ushort scan = (ushort)Marshal.ReadInt16(body), flags = (ushort)Marshal.ReadInt16(body, 2), key = (ushort)Marshal.ReadInt16(body, 6);
+            uint msg = (uint)Marshal.ReadInt32(body, 8);
+            _log.Add("raw-keyboard", new { Device = device.Token, device.Vid, device.Pid, device.Virtual, ScanCode = scan, Flags = flags, VirtualKey = key, Message = msg });
+            Report("raw-keyboard", $"key 0x{key:X2} {(msg == 0x100 || msg == 0x104 ? "down" : "up")} from {Name(device)}");
+        }
+        else if (header.Type == 0 && length >= 24)
+        {
+            ReadRawMouse(device, body);
+        }
+        else if (header.Type == 2 && length >= 8)
+        {
+            ReadRawHid(body, length, report => ProcessRawHid(device, report));
+        }
     }
 
     private static string Name(DeviceInfo device) => device.Virtual ? $"virtual {device.Kind}" : $"{device.Kind} {device.Vid:X4}:{device.Pid:X4}";
@@ -220,7 +225,7 @@ internal sealed partial class InputSources : NativeWindow, IDisposable
         _mouseMotion[device.Token] = motion;
     }
 
-    private void ReadRawHid(DeviceInfo device, IntPtr body, int length)
+    internal static void ReadRawHid(IntPtr body, int length, Action<byte[]> readReport)
     {
         int bytes = Marshal.ReadInt32(body), count = Marshal.ReadInt32(body, 4);
         if (bytes <= 0 || bytes > 4096 || count < 0 || count > (length - 8) / bytes)
@@ -232,37 +237,42 @@ internal sealed partial class InputSources : NativeWindow, IDisposable
         {
             byte[] report = new byte[bytes];
             Marshal.Copy(body + 8 + i * bytes, report, 0, bytes);
-            string key = $"{device.Token}/{device.Page:X4}:{device.Usage:X4}/{report[0]}";
-            byte[]? last = _lastReports.GetValueOrDefault(key);
-            if (last is not null && report.AsSpan().SequenceEqual(last))
-            {
-                continue;
-            }
+            readReport(report);
+        }
+    }
 
-            _lastReports[key] = report;
-            int[] changed = last is null ? [] : Enumerable.Range(0, Math.Min(last.Length, report.Length)).Where(j => last[j] != report[j]).ToArray();
-            HashSet<int> noise = _noise.TryGetValue(key, out var known) ? known : _noise[key] = [];
-            if (_baseline)
-            {
-                noise.UnionWith(changed);
-            }
+    private void ProcessRawHid(DeviceInfo device, byte[] report)
+    {
+        string key = $"{device.Token}/{device.Page:X4}:{device.Usage:X4}/{report[0]}";
+        byte[]? last = _lastReports.GetValueOrDefault(key);
+        if (last is not null && report.AsSpan().SequenceEqual(last))
+        {
+            return;
+        }
 
-            int logged = _reportCounts.GetValueOrDefault(key);
-            if (logged < ReportLogCap)
-            {
-                _reportCounts[key] = logged + 1;
-                _log.Add("raw-hid", new { Device = device.Token, device.Vid, device.Pid, device.Page, device.Usage, device.Virtual, ReportId = report[0], Hex = Convert.ToHexString(report), ChangedBytes = changed, Baseline = _baseline });
-            }
-            else if (logged == ReportLogCap)
-            {
-                _reportCounts[key] = logged + 1;
-                _log.Add("raw-hid-capped", new { Device = device.Token, device.Page, device.Usage, ReportId = report[0], Cap = ReportLogCap });
-            }
+        _lastReports[key] = report;
+        int[] changed = last is null ? [] : Enumerable.Range(0, Math.Min(last.Length, report.Length)).Where(j => last[j] != report[j]).ToArray();
+        HashSet<int> noise = _noise.TryGetValue(key, out var known) ? known : _noise[key] = [];
+        if (_baseline)
+        {
+            noise.UnionWith(changed);
+        }
 
-            if (last is null || changed.Any(j => !noise.Contains(j)))
-            {
-                Report("raw-hid", $"HID {device.Vid:X4}:{device.Pid:X4} {device.Page:X4}:{device.Usage:X4} report 0x{report[0]:X2}");
-            }
+        int logged = _reportCounts.GetValueOrDefault(key);
+        if (logged < ReportLogCap)
+        {
+            _reportCounts[key] = logged + 1;
+            _log.Add("raw-hid", new { Device = device.Token, device.Vid, device.Pid, device.Page, device.Usage, device.Virtual, ReportId = report[0], Hex = Convert.ToHexString(report), ChangedBytes = changed, Baseline = _baseline });
+        }
+        else if (logged == ReportLogCap)
+        {
+            _reportCounts[key] = logged + 1;
+            _log.Add("raw-hid-capped", new { Device = device.Token, device.Page, device.Usage, ReportId = report[0], Cap = ReportLogCap });
+        }
+
+        if (last is null || changed.Any(j => !noise.Contains(j)))
+        {
+            Report("raw-hid", $"HID {device.Vid:X4}:{device.Pid:X4} {device.Page:X4}:{device.Usage:X4} report 0x{report[0]:X2}");
         }
     }
 
@@ -307,16 +317,16 @@ internal sealed partial class InputSources : NativeWindow, IDisposable
     }
 
     private const uint InputSink = 0x100, PageOnly = 0x20, DeviceNotify = 0x2000;
-    private delegate IntPtr HookCallback(int code, IntPtr message, IntPtr data);
-    [StructLayout(LayoutKind.Sequential)] private struct Registration { internal ushort Page, Usage; internal uint Flags; internal IntPtr Window; }
-    [StructLayout(LayoutKind.Sequential)] private struct Header { internal uint Type, Size; internal IntPtr Device, WParam; }
+    internal delegate IntPtr HookCallback(int code, IntPtr message, IntPtr data);
+    [StructLayout(LayoutKind.Sequential)] internal struct Registration { internal ushort Page, Usage; internal uint Flags; internal IntPtr Window; }
+    [StructLayout(LayoutKind.Sequential)] internal struct Header { internal uint Type, Size; internal IntPtr Device, WParam; }
     [StructLayout(LayoutKind.Sequential)] private struct RawDeviceInfo { internal uint Size, Type, Vendor, Product, Version; internal ushort UsagePage, Usage; internal uint Padding; }
-    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int type, HookCallback callback, IntPtr module, uint thread);
-    [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
-    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnhookWindowsHookEx(IntPtr hook);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? module);
-    [DllImport("user32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] private static extern bool RegisterRawInputDevices(Registration[] devices, uint count, uint size);
+    [DllImport("user32.dll", SetLastError = true)] internal static extern IntPtr SetWindowsHookEx(int type, HookCallback callback, IntPtr module, uint thread);
+    [DllImport("user32.dll")] internal static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
+    [DllImport("user32.dll")][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] internal static extern IntPtr GetModuleHandle(string? module);
+    [DllImport("user32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool RegisterRawInputDevices(Registration[] devices, uint count, uint size);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint GetRawInputData(IntPtr raw, uint command, IntPtr data, ref uint size, uint headerSize);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, StringBuilder? data, ref uint size);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, StringBuilder? data, ref uint size);
     [DllImport("user32.dll")] private static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, ref RawDeviceInfo data, ref uint size);
 }
