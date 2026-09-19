@@ -25,6 +25,14 @@
       Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\WSGM\Interop\Kernel32.cs"
+             Link="Shared\Kernel32.cs"/>
+    <Compile Include="..\WSGM\Interop\NativePackageSource.cs"
+             Link="Shared\NativePackageSource.cs"/>
+    <Compile Include="..\WSGM\Interop\NativePathIdentity.cs"
+             Link="Shared\NativePathIdentity.cs"/>
+  </ItemGroup>
+  <ItemGroup>
     <!-- The scaffold's LICENSE.txt is a checked-in template, not WSGM's own licence file. A
          generated plugin links only the MIT SDK, so stamping it with the application's GPL-3 (and
          with this project's copyright holder) claimed something untrue about someone else's work. -->
