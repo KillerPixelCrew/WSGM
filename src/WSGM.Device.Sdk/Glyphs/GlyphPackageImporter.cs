@@ -662,14 +662,7 @@ public static class GlyphPackageImporter
 
     private static bool IsIdentifier(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value)
-            || value.Length > GlyphProfileLimits.MaxIdentifierLength)
-        {
-            return false;
-        }
-
-        return value.All(character => char.IsAsciiLetterOrDigit(character)
-                                      || character is '.' or '-' or '_');
+        return PlainText.IsIdentifier(value, GlyphProfileLimits.MaxIdentifierLength);
     }
 
     private static bool IsNoticePath(string? value)
@@ -686,10 +679,8 @@ public static class GlyphPackageImporter
         }
 
         var segments = value.Split('/');
-        return segments.All(segment => segment.Length > 0
-                                       && segment is not "." and not ".."
-                                       && segment.All(character => char.IsAsciiLetterOrDigit(character)
-                                                                   || character is '.' or '-' or '_'));
+        return segments.All(segment => segment is not "." and not ".."
+                                       && PlainText.IsIdentifier(segment, MaxNoticePathLength));
     }
 
     private static bool IsPlainUtf8(ReadOnlySpan<byte> bytes)

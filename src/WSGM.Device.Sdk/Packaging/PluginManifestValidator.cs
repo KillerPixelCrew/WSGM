@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Device.Sdk.Packaging;
 
@@ -45,8 +46,7 @@ internal static class PluginManifestValidator
             Add(errors, path, ManifestValidationCode.LimitExceeded, "The package identifier is too long.");
         }
 
-        if (!value.All(character => char.IsAsciiLetterOrDigit(character)
-                                    || character is '.' or '-' or '_'))
+        if (!PlainText.IsIdentifier(value, int.MaxValue))
         {
             Add(errors, path, ManifestValidationCode.InvalidIdentifier,
                 "Package identifiers may contain only ASCII letters, digits, '.', '-', and '_'.");

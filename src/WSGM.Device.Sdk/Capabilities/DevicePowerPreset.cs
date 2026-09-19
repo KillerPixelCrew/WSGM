@@ -76,10 +76,9 @@ public sealed record DevicePowerPreset(
 
             HashSet<string> ids = new(StringComparer.Ordinal);
             if (descriptor.PowerPresets.Any(preset =>
-                    preset is null || string.IsNullOrEmpty(preset.Id) || preset.Id.Length > 64
+                    preset is null || !PlainText.IsIdentifier(preset.Id, 64)
                     || preset.Id == "custom" ||
-                    !preset.Id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')
-                    || !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, 120, "preset name", out _)
+                    !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, 120, "preset name", out _)
                     || !Enum.IsDefined(preset.WindowsMode) || preset.SustainedWatts > preset.SlowWatts
                     || !Fits(preset.SustainedWatts, descriptor) || !Fits(preset.SlowWatts, slow[0])
                     || !ValidScenario(preset, descriptors)))
