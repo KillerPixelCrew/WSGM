@@ -81,16 +81,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     public bool HasDrives
     {
         get;
-        private set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(HasDrives));
-        }
+        private set => SetFieldIfChanged(ref field, value, nameof(HasDrives));
     }
 
     /// <summary>
@@ -103,13 +94,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(StatusText)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(StatusText));
             Raise(nameof(HasStatus));
         }
     } = "";

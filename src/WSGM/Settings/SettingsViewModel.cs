@@ -223,16 +223,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool IsSaving
     {
         get;
-        private set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(IsSaving));
-        }
+        private set => SetFieldIfChanged(ref field, value, nameof(IsSaving));
     }
 
     /// <summary>Installed common integrations and configured instances, independent of Device integration.</summary>

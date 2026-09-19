@@ -382,13 +382,10 @@ public sealed class DisplayLayoutEditor : ObservableObject
         get;
         set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Selected)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Selected));
             Raise(nameof(HasSelection));
             Raise(nameof(SelectedNeedsRebind));
         }
@@ -418,13 +415,10 @@ public sealed class DisplayLayoutEditor : ObservableObject
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(ValidationText)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(ValidationText));
             Raise(nameof(HasValidationError));
         }
     } = "";

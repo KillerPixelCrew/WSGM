@@ -34,13 +34,10 @@ public sealed class WifiNetworkEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Security)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Security));
             Raise(nameof(NeedsPassword));
             Raise(nameof(Secured));
             Raise(nameof(StatusLine));
@@ -54,13 +51,10 @@ public sealed class WifiNetworkEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Saved)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Saved));
             Raise(nameof(NeedsPassword));
             Raise(nameof(StatusLine));
         }
@@ -77,13 +71,10 @@ public sealed class WifiNetworkEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Connectable)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Connectable));
             Raise(nameof(ActionEnabled));
             Raise(nameof(StatusLine));
         }
@@ -110,13 +101,10 @@ public sealed class WifiNetworkEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Connected)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Connected));
             Raise(nameof(IconState));
             Raise(nameof(StatusLine));
             Raise(nameof(ActionText));
@@ -204,16 +192,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
     public string Name
     {
         get => field.Length == 0 ? "Unnamed device" : field;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(Name));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(Name));
     } = "";
 
     /// <summary>Gets whether the device is paired.</summary>
@@ -222,13 +201,10 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Paired)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Paired));
             Raise(nameof(ActionText));
             Raise(nameof(IconState));
             Raise(nameof(StatusLine));
@@ -243,13 +219,10 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(CanPair)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(CanPair));
             Raise(nameof(StatusLine));
             // A device that enters pairing mode later must reveal its Pair
             // button without the row being rebuilt.
@@ -267,13 +240,10 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Connected)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Connected));
             Raise(nameof(IconState));
             Raise(nameof(StatusLine));
             Raise(nameof(ActionText));
@@ -287,16 +257,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
     public string ContainerId
     {
         get;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(ContainerId));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(ContainerId));
     } = "";
 
     /// <summary>
@@ -311,13 +272,10 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(AudioConnectable)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(AudioConnectable));
             Raise(nameof(ActionText));
             Raise(nameof(PrimaryActionVisible));
         }
@@ -336,13 +294,10 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(AudioActive)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(AudioActive));
             Raise(nameof(ActionText));
         }
     }
@@ -353,13 +308,10 @@ public sealed class BluetoothDeviceEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Busy)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Busy));
             Raise(nameof(ActionText));
             Raise(nameof(StatusLine));
         }

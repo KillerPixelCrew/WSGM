@@ -84,16 +84,7 @@ public sealed class AppSwitcherEntry : ObservableObject
     public bool IsMinimized
     {
         get;
-        set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(IsMinimized));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(IsMinimized));
     }
 
     /// <summary>
@@ -103,16 +94,7 @@ public sealed class AppSwitcherEntry : ObservableObject
     public bool IsActive
     {
         get;
-        set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(IsActive));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(IsActive));
     }
 }
 
@@ -182,16 +164,7 @@ public sealed class AppSwitcherViewModel : ObservableObject
     public bool HasEntries
     {
         get;
-        set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(HasEntries));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(HasEntries));
     }
 
     /// <summary>Tray-icon tiles (registration order, hidden icons filtered out).</summary>
@@ -201,16 +174,7 @@ public sealed class AppSwitcherViewModel : ObservableObject
     public bool HasTrayIcons
     {
         get;
-        set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(HasTrayIcons));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(HasTrayIcons));
     }
 
     /// <summary>

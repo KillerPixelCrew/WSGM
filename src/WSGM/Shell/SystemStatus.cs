@@ -83,16 +83,7 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     public int BatteryPercent
     {
         get;
-        private set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(BatteryPercent));
-        }
+        private set => SetFieldIfChanged(ref field, value, nameof(BatteryPercent));
     }
 
     /// <summary>Gets the battery charge as display text, e.g. "87%" (empty without a battery).</summary>
