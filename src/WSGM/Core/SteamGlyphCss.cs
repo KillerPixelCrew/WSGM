@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -34,6 +35,9 @@ namespace WSGM.Core;
 /// </remarks>
 internal static class SteamGlyphCss
 {
+    private static readonly ConcurrentDictionary<(string ProfileId, int Revision, bool HideAbsentControls), string>
+        Stylesheets = new();
+
     /// <summary>Class marking every style element WSGM owns in a Steam document.</summary>
     /// <remarks>
     ///     WSGM removes only nodes carrying this class. CSSLoader marks its own with
@@ -202,6 +206,15 @@ internal static class SteamGlyphCss
         bool hideAbsentControls)
     {
         ArgumentNullException.ThrowIfNull(presentation);
+        return Stylesheets.GetOrAdd(
+            (presentation.ProfileId, presentation.Revision, hideAbsentControls),
+            _ => BuildCore(presentation, hideAbsentControls));
+    }
+
+    private static string BuildCore(
+        SteamInputGlyphPresentation presentation,
+        bool hideAbsentControls)
+    {
         StringBuilder css = new();
         css.Append("/* WSGM handheld glyphs: profile ")
             .Append(Comment(presentation.ProfileId))

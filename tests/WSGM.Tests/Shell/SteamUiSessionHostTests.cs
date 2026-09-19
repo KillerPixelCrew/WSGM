@@ -171,6 +171,11 @@ public sealed class SteamUiSessionHostTests
         await transport.FirstGlyphInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot is { Id: SteamInputGlyphStylePatch.PatchId, State: SteamUiPatchState.Verified }));
+        Assert.Contains("style.dataset.wsgmRevision=revision", transport.GlyphInstallationExpression,
+            StringComparison.Ordinal);
+        Assert.Contains("style.dataset.wsgmRevision!==expectedRevision", transport.GlyphVerificationExpression,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("data:image", transport.GlyphVerificationExpression, StringComparison.Ordinal);
 
         transport.AdvanceGeneration(SteamUiTargetRole.MainWindow);
 
@@ -461,6 +466,8 @@ public sealed class SteamUiSessionHostTests
         };
 
         private string? _bridgeConfiguration;
+        private string? _glyphInstallationExpression;
+        private string? _glyphVerificationExpression;
         private int _downloadInstallations;
         private int _glyphInstallations;
 
@@ -482,6 +489,10 @@ public sealed class SteamUiSessionHostTests
         internal string? BridgeConfiguration => Volatile.Read(ref _bridgeConfiguration);
 
         internal int DownloadInstallations => Volatile.Read(ref _downloadInstallations);
+
+        internal string GlyphInstallationExpression => Volatile.Read(ref _glyphInstallationExpression)!;
+
+        internal string GlyphVerificationExpression => Volatile.Read(ref _glyphVerificationExpression)!;
 
         public event EventHandler<SteamUiNotification>? NotificationReceived;
 
@@ -550,6 +561,7 @@ public sealed class SteamUiSessionHostTests
             }
             else if (expression.Contains("document.head.append(style)", StringComparison.Ordinal))
             {
+                Volatile.Write(ref _glyphInstallationExpression, expression);
                 var count = Interlocked.Increment(ref _glyphInstallations);
                 (count == 1 ? FirstGlyphInstall : SecondGlyphInstall).TrySetResult();
                 value = "{\"ok\":true}";
@@ -557,6 +569,11 @@ public sealed class SteamUiSessionHostTests
             else if (expression.Contains("ruleCount", StringComparison.Ordinal)
                      || expression.Contains("style.'+owned", StringComparison.Ordinal))
             {
+                if (expression.Contains("ruleCount", StringComparison.Ordinal))
+                {
+                    Volatile.Write(ref _glyphVerificationExpression, expression);
+                }
+
                 value = "{\"ok\":true}";
             }
             else
