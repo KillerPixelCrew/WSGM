@@ -137,6 +137,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private ClawA2VmChargeLimitCapability? _chargeLimitCapability;
     private ControllerService? _controller;
     private long _cycleGeneration;
+    private ClawIdentityState? _cycleIdentity;
     private IReadOnlyList<ClawCycleService> _cycleServices = [];
     private CapabilityDescriptorSet? _descriptorSet;
     private bool _disposed;
@@ -233,6 +234,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
         _host = context.Host;
         _cycleGeneration = context.CycleGeneration;
+        _cycleIdentity = identity;
         _quiescing = false;
 
         try
@@ -248,11 +250,11 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             _journal = await ClawRecoveryJournal.OpenAsync(context.StateDirectory, cancellationToken)
                 .ConfigureAwait(false);
             _oem = new OemEventService(_services.OemEvents, context.Host, _services.OemButtons);
-            _power = new PowerService(_services.Identity, powerCapability, _journal);
-            _chargeLimit = new ChargeLimitService(_services.Identity, chargeLimitCapability);
-            _fans = new FanService(_services.Identity, fanCapability, _journal);
-            _telemetry = new TelemetryService(_services.Identity, fanCapability);
-            _lighting = new LightingService(_services.Identity, _services.Mcu, lightingCapability);
+            _power = new PowerService(powerCapability, _journal);
+            _chargeLimit = new ChargeLimitService(chargeLimitCapability);
+            _fans = new FanService(fanCapability, _journal);
+            _telemetry = new TelemetryService(fanCapability);
+            _lighting = new LightingService(_services.Mcu, lightingCapability);
             _motion = new MotionService(_services.Motion);
 
             // Opened before descriptors are built, because whether the variable-refresh row exists at
@@ -260,7 +262,6 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             _arcSync = new DisplayService();
             _ = _arcSync.TryAcquire();
             _controller = new ControllerService(
-                _services.Identity,
                 _services.Mcu,
                 _services.Controller,
                 _motion,
@@ -317,7 +318,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             await StartServicesAsync(
                 new ClawCycleContext(
                     context.CycleGeneration,
-                    DateTimeOffset.UtcNow.AddSeconds(15)),
+                    DateTimeOffset.UtcNow.AddSeconds(15),
+                    identity),
                 cancellationToken).ConfigureAwait(false);
             _active = true;
             await PublishCapabilityStatesAsync(cancellationToken).ConfigureAwait(false);
@@ -444,6 +446,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
         try
         {
             _cycleGeneration = context.CycleGeneration;
+            _cycleIdentity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
             if (_journal is not null
                 && await _journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false)
                     is { } journalFailure)
@@ -560,6 +563,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
             if (context.Enabled)
             {
+                _cycleIdentity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
                 var result = await _controller.AcquireAsync(
                     OperationContext(context.Deadline),
                     cancellationToken).ConfigureAwait(false);
@@ -723,7 +727,8 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                 await StopServicesAsync(
                     new ClawCycleContext(
                         _cycleGeneration,
-                        DateTimeOffset.UtcNow.AddSeconds(12)),
+                        DateTimeOffset.UtcNow.AddSeconds(12),
+                        _cycleIdentity ?? throw new InvalidOperationException("No cycle identity is available.")),
                     CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -2583,7 +2588,10 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private ClawCycleContext OperationContext(DateTimeOffset deadline)
     {
-        return new ClawCycleContext(_cycleGeneration, deadline);
+        return new ClawCycleContext(
+            _cycleGeneration,
+            deadline,
+            _cycleIdentity ?? throw new InvalidOperationException("No cycle identity is available."));
     }
 
     private PluginStartResult CurrentStartResult()
