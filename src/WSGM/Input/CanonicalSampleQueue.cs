@@ -18,18 +18,18 @@ internal sealed class CanonicalSampleQueue
     private readonly Action _drain;
     private readonly Lock _gate = new();
     private readonly Action _sourceLost;
-    private readonly Action<CanonicalControllerSample> _submit;
+    private readonly Action<CanonicalControllerSample, GamepadButtons> _submit;
     private GamepadButtons _lastQueuedHeld;
 
     // Null entries are lost-source signals. Two lists swap between queueing and draining, so the
     // steady state allocates nothing.
-    private List<CanonicalControllerSample?> _pending = [];
-    private List<CanonicalControllerSample?>? _spare = [];
+    private List<QueuedSample?> _pending = [];
+    private List<QueuedSample?>? _spare = [];
 
     /// <summary>Creates a queue that delivers on the UI thread.</summary>
     /// <param name="submit">Receives each delivered sample.</param>
     /// <param name="sourceLost">Receives each lost-source signal.</param>
-    internal CanonicalSampleQueue(Action<CanonicalControllerSample> submit, Action sourceLost)
+    internal CanonicalSampleQueue(Action<CanonicalControllerSample, GamepadButtons> submit, Action sourceLost)
     {
         ArgumentNullException.ThrowIfNull(submit);
         ArgumentNullException.ThrowIfNull(sourceLost);
@@ -53,7 +53,7 @@ internal sealed class CanonicalSampleQueue
 
             _lastQueuedHeld = held;
             post = _pending.Count == 0;
-            _pending.Add(sample);
+            _pending.Add(new QueuedSample(sample, held));
         }
 
         if (post)
@@ -80,7 +80,7 @@ internal sealed class CanonicalSampleQueue
 
     private void Drain()
     {
-        List<CanonicalControllerSample?> batch;
+        List<QueuedSample?> batch;
         lock (_gate)
         {
             batch = _pending;
@@ -90,15 +90,15 @@ internal sealed class CanonicalSampleQueue
 
         try
         {
-            foreach (var sample in batch)
+            foreach (var queued in batch)
             {
-                if (sample is null)
+                if (queued is null)
                 {
                     _sourceLost();
                 }
                 else
                 {
-                    _submit(sample);
+                    _submit(queued.Value.Sample, queued.Value.Held);
                 }
             }
         }
@@ -111,4 +111,6 @@ internal sealed class CanonicalSampleQueue
             }
         }
     }
+
+    private readonly record struct QueuedSample(CanonicalControllerSample Sample, GamepadButtons Held);
 }

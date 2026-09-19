@@ -153,7 +153,7 @@ internal static unsafe class SdlGamepads
     ///     left stick folded into the D-pad flags and triggers as buttons. The returned
     ///     list is reused across calls — consume it before the next Update().
     /// </summary>
-    public static IReadOnlyList<PadSnapshot> Update()
+    public static List<PadSnapshot> Update()
     {
         Snapshot.Clear();
         if (!_initialized || _steamOwnsInput)

@@ -808,14 +808,15 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Feeds one canonical sample from the plugin into WSGM's own navigation.</summary>
     /// <param name="sample">The sample, already filtered for UI consumption by the manager.</param>
+    /// <param name="held">The sample translated into WSGM's UI button vocabulary.</param>
     /// <remarks>
     ///     The manager decides what the UI may see and what still belongs to the game; this only routes
     ///     what it was given. The first sample is what makes the managed source healthy and completes
     ///     the switch away from SDL.
     /// </remarks>
-    public void SubmitCanonicalSample(CanonicalControllerSample sample)
+    public void SubmitCanonicalSample(CanonicalControllerSample sample, GamepadButtons held)
     {
-        _uiInput.Submit(sample);
+        _uiInput.Submit(sample, held);
     }
 
     /// <summary>Reports that controller management stopped delivering.</summary>
