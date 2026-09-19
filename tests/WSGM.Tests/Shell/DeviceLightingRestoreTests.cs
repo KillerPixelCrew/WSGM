@@ -40,6 +40,21 @@ public sealed class DeviceLightingRestoreTests
     }
 
     [Theory]
+    [InlineData(HardwareStateQuality.Unknown)]
+    [InlineData(HardwareStateQuality.Stale)]
+    [InlineData(HardwareStateQuality.Faulted)]
+    public void LightingRestoreRequiresFreshHardwareEvidence(HardwareStateQuality quality)
+    {
+        DeviceLightingRestore restore = new();
+        var view = View();
+
+        Assert.False(restore.TryBegin(view with
+        {
+            Projection = view.Projection with { State = view.Projection.State with { Quality = quality } }
+        }));
+    }
+
+    [Theory]
     [InlineData(CommandOutcome.Indeterminate)]
     [InlineData(CommandOutcome.TimedOut)]
     public void AnUncertainManualWriteCannotTriggerAnAutomaticRestore(CommandOutcome outcome)

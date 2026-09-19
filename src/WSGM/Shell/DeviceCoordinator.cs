@@ -2680,37 +2680,42 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     continue;
                 }
 
-                if (!view.Descriptor.SupportsWrite
-                    || view.Projection.DesiredValue is not { } desired
-                    || view.Projection.DesiredSource is DeviceDesiredValueSource.None)
-                {
-                    continue;
-                }
-
-                if (!view.Projection.State.Available || view.Projection.DesiredValueOutOfRange)
-                {
-                    skipped++;
-                    Log.Warn(
-                        $"Desired value not applied for {view.Descriptor.CapabilityId}"
-                        + $"{Instance(view.Descriptor.InstanceId)} ({reason}): available="
-                        + $"{view.Projection.State.Available}, outOfRange="
-                        + $"{view.Projection.DesiredValueOutOfRange}.");
-                    continue;
-                }
-
-                if (view.Projection.State.ObservedValue is { } observed && SameValue(observed, desired))
+                var admission = DeviceDesiredWriteAdmission.TryAdmit(view);
+                if (admission.SkipReason is DeviceDesiredWriteSkipReason.AlreadyApplied)
                 {
                     unchanged++;
                     continue;
                 }
 
-                if (view.Projection.PendingValue is not null
-                    || view.LastResult?.Outcome is CommandOutcome.Indeterminate or CommandOutcome.TimedOut
-                    || (DeviceLightingRestore.IsLighting(view.Descriptor.Role) && !_lightingRestore.TryBegin(view)))
+                if (!admission.Admitted)
+                {
+                    if (admission.SkipReason is DeviceDesiredWriteSkipReason.Unavailable
+                        or DeviceDesiredWriteSkipReason.DesiredValueOutOfRange)
+                    {
+                        skipped++;
+                        Log.Warn(
+                            $"Desired value not applied for {view.Descriptor.CapabilityId}"
+                            + $"{Instance(view.Descriptor.InstanceId)} ({reason}): available="
+                            + $"{view.Projection.State.Available}, outOfRange="
+                            + $"{view.Projection.DesiredValueOutOfRange}.");
+                    }
+                    else if (admission.SkipReason is not (DeviceDesiredWriteSkipReason.Unsupported
+                                 or DeviceDesiredWriteSkipReason.MissingDesiredValue
+                                 or DeviceDesiredWriteSkipReason.MissingDesiredSource))
+                    {
+                        skipped++;
+                    }
+
+                    continue;
+                }
+
+                if (DeviceLightingRestore.IsLighting(view.Descriptor.Role) && !_lightingRestore.TryBegin(view))
                 {
                     skipped++;
                     continue;
                 }
+
+                var desired = admission.DesiredValue!;
 
                 var result = await ExecuteCapabilityAsync(
                     view.Descriptor.CapabilityId,

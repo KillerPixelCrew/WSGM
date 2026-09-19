@@ -56,19 +56,13 @@ internal sealed class DeviceLightingRestore
             _attempts.Remove(key);
         }
 
-        if (!IsLighting(view.Descriptor.Role) || !view.Descriptor.SupportsWrite
-                                              || !projection.State.Available || projection.DesiredValueOutOfRange
-                                              || projection.State.Quality is not (HardwareStateQuality.Observed
-                                                  or HardwareStateQuality.Verified)
-                                              || projection.PendingValue is not null
-                                              || view.LastResult?.Outcome is CommandOutcome.Indeterminate
-                                                  or CommandOutcome.TimedOut
-                                              || projection.DesiredValue is not { } desired
-                                              || (projection.State.ObservedValue is { } observed &&
-                                                  DeviceCoordinator.SameValue(observed, desired)))
+        var admission = DeviceDesiredWriteAdmission.TryAdmit(view);
+        if (!IsLighting(view.Descriptor.Role) || !admission.Admitted)
         {
             return false;
         }
+
+        var desired = admission.DesiredValue!;
 
         return !_attempts.TryGetValue(new DeviceCapabilityKey(view.Descriptor.CapabilityId, view.Descriptor.InstanceId),
                    out var previous)
