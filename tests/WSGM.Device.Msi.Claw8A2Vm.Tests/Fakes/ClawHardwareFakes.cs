@@ -6,10 +6,11 @@ namespace WSGM.Device.Msi.Claw8A2Vm.Tests.Fakes;
 
 internal sealed class FakeIdentityReader : IClawIdentityReader
 {
-    public ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
+    public int ReadCount { get; private set; }
+
+    public static ClawIdentityState CreateState()
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new ClawIdentityState
+        return new ClawIdentityState
         {
             Snapshot = new DeviceIdentitySnapshot
             {
@@ -33,7 +34,14 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
             ExactMachineMatch = true,
             WmiFirmwareVerified = true,
             OnAcPower = true
-        });
+        };
+    }
+
+    public ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ReadCount++;
+        return ValueTask.FromResult(CreateState());
     }
 }
 

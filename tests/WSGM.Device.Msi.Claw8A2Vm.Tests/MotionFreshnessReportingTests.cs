@@ -113,7 +113,7 @@ public sealed class MotionFreshnessReportingTests : IDisposable
         FakeMotionSource source = new();
         MotionService motion = new(source);
         await motion.AcquireAsync(
-            new ClawCycleContext(1, DateTimeOffset.MaxValue),
+            new ClawCycleContext(1, DateTimeOffset.MaxValue, FakeIdentityReader.CreateState()),
             CancellationToken.None);
         return (motion, host, source.Publish!);
     }

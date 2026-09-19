@@ -42,7 +42,8 @@ internal enum ClawServiceState
 
 internal readonly record struct ClawCycleContext(
     long CycleGeneration,
-    DateTimeOffset Deadline);
+    DateTimeOffset Deadline,
+    ClawIdentityState Identity);
 
 internal sealed record ClawServiceResult(
     ClawServiceState State,
@@ -184,14 +185,12 @@ internal sealed class OemEventService(
 }
 
 internal sealed class PowerService(
-    IClawIdentityReader identity,
     ClawA2VmPowerCapability capability,
     ClawRecoveryJournal journal) : ClawCycleService(ServiceIds.Power)
 {
     private readonly ClawA2VmPowerCapability _capability =
         capability ?? throw new ArgumentNullException(nameof(capability));
 
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     public PowerPair? LastObserved { get; private set; }
 
@@ -204,7 +203,7 @@ internal sealed class PowerService(
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = context.Identity;
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, FirmwareReason(identity));
@@ -281,13 +280,10 @@ internal sealed class PowerService(
 }
 
 internal sealed class ChargeLimitService(
-    IClawIdentityReader identity,
     ClawA2VmChargeLimitCapability capability) : ClawCycleService(ServiceIds.ChargeLimit)
 {
     private readonly ClawA2VmChargeLimitCapability _capability = capability
                                                                  ?? throw new ArgumentNullException(nameof(capability));
-
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
 
     public ChargeLimitState? LastObserved { get; private set; }
 
@@ -295,7 +291,7 @@ internal sealed class ChargeLimitService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = context.Identity;
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, FirmwareReason(identity));
@@ -332,14 +328,12 @@ internal sealed class ChargeLimitService(
 }
 
 internal sealed class FanService(
-    IClawIdentityReader identity,
     ClawA2VmFanCapability capability,
     ClawRecoveryJournal journal) : ClawCycleService(ServiceIds.Fans)
 {
     private readonly ClawA2VmFanCapability _capability =
         capability ?? throw new ArgumentNullException(nameof(capability));
 
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     public FanSnapshot? LastObserved { get; private set; }
 
@@ -352,7 +346,7 @@ internal sealed class FanService(
             return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = context.Identity;
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -422,13 +416,10 @@ internal sealed class FanService(
 }
 
 internal sealed class TelemetryService(
-    IClawIdentityReader identity,
     ClawA2VmFanCapability capability) : ClawCycleService(ServiceIds.Telemetry)
 {
     private readonly ClawA2VmFanCapability _capability =
         capability ?? throw new ArgumentNullException(nameof(capability));
-
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
 
     public FanTelemetry? LastTelemetry { get; private set; }
 
@@ -441,7 +432,7 @@ internal sealed class TelemetryService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = context.Identity;
         if (!identity.ExactMachineMatch || !identity.WmiFirmwareVerified)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -464,14 +455,12 @@ internal sealed class TelemetryService(
 }
 
 internal sealed class LightingService(
-    IClawIdentityReader identity,
     IClawMcuTransport transport,
     ClawA2VmLightingCapability capability) : ClawCycleService(ServiceIds.Lighting)
 {
     private readonly ClawA2VmLightingCapability _capability =
         capability ?? throw new ArgumentNullException(nameof(capability));
 
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly IClawMcuTransport _transport = transport ?? throw new ArgumentNullException(nameof(transport));
 
     public LightingState? LastObserved { get; private set; }
@@ -485,7 +474,7 @@ internal sealed class LightingService(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = context.Identity;
         if (!identity.ExactMachineMatch)
         {
             return Set(ClawServiceState.Passive, new CapabilityReason(
@@ -761,7 +750,6 @@ internal sealed class GyroFrameResampler
 }
 
 internal sealed class ControllerService(
-    IClawIdentityReader identity,
     IClawMcuTransport mcu,
     IClawControllerSource source,
     MotionService motion,
@@ -795,7 +783,6 @@ internal sealed class ControllerService(
 
     private readonly Lock _hapticGate = new();
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
-    private readonly IClawIdentityReader _identity = identity ?? throw new ArgumentNullException(nameof(identity));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
     private readonly MotionService _motion = motion ?? throw new ArgumentNullException(nameof(motion));
@@ -834,7 +821,7 @@ internal sealed class ControllerService(
         // Exact machine identity is the only gate. The MCU revision is deliberately not one: the
         // mode switch and the hide list are not addressed writes, and gating them on the revision
         // took the controller away from every unit MSI updated to 0230.
-        var identity = await _identity.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var identity = context.Identity;
         if (!identity.ExactMachineMatch)
         {
             _host.Trace(

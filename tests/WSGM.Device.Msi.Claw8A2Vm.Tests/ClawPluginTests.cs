@@ -112,6 +112,19 @@ public sealed class ClawPluginTests
             });
     }
 
+    [Fact]
+    public async Task StartAsync_ReadsIdentityOnceForEveryServiceInTheCycle()
+    {
+        using TemporaryDirectory state = new();
+        FakeIdentityReader identity = new();
+        await using Claw8A2VmPlugin plugin = new(CreateServices(identity: identity));
+        TestPluginHostAdapter host = new(CycleGeneration);
+
+        _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+
+        Assert.Equal(1, identity.ReadCount);
+    }
+
     // The lifecycle order is safety-relevant: stop releases the controller and motion before the
     // power, fan and charge state is restored, and chord suppression needs the OEM source first.
     // Reordering either array must be a deliberate change to this test.
@@ -265,7 +278,6 @@ public sealed class ClawPluginTests
             state.Root,
             CancellationToken.None);
         ControllerService controller = new(
-            new FakeIdentityReader(),
             new FakeMcuTransport(),
             source,
             new MotionService(new FakeMotionSource()),
@@ -275,7 +287,10 @@ public sealed class ClawPluginTests
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new ClawCycleContext(
+                CycleGeneration,
+                DateTimeOffset.UtcNow.AddSeconds(10),
+                FakeIdentityReader.CreateState()),
             CancellationToken.None);
         var publication = source.EmitAsync(new CanonicalControllerSample
         {
@@ -302,12 +317,18 @@ public sealed class ClawPluginTests
         ControllablePluginHostAdapter host = new(CycleGeneration);
         OemEventService oem = new(oemSource, host, new ClawOemButtonLatch());
         _ = await oem.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new ClawCycleContext(
+                CycleGeneration,
+                DateTimeOffset.UtcNow.AddSeconds(10),
+                FakeIdentityReader.CreateState()),
             CancellationToken.None);
         FakeChordSuppressor hook = new();
         ChordSuppressorService suppressor = new(hook, oem, host);
         _ = await suppressor.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new ClawCycleContext(
+                CycleGeneration,
+                DateTimeOffset.UtcNow.AddSeconds(10),
+                FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
         hook.TriggerFault(new IOException(new string('x', 1500) + "\nsecond line"));
@@ -548,7 +569,6 @@ public sealed class ClawPluginTests
             state.Root,
             CancellationToken.None);
         ControllerService controller = new(
-            new FakeIdentityReader(),
             new FakeMcuTransport(),
             source,
             new MotionService(new FakeMotionSource()),
@@ -558,7 +578,10 @@ public sealed class ClawPluginTests
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new ClawCycleContext(
+                CycleGeneration,
+                DateTimeOffset.UtcNow.AddSeconds(10),
+                FakeIdentityReader.CreateState()),
             CancellationToken.None);
         HapticOutputFrame frame = new()
         {
@@ -585,7 +608,6 @@ public sealed class ClawPluginTests
             state.Root,
             CancellationToken.None);
         ControllerService controller = new(
-            new FakeIdentityReader(),
             new FakeMcuTransport(),
             source,
             new MotionService(new FakeMotionSource()),
@@ -595,7 +617,10 @@ public sealed class ClawPluginTests
             Enabled = true
         };
         _ = await controller.AcquireAsync(
-            new ClawCycleContext(CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            new ClawCycleContext(
+                CycleGeneration,
+                DateTimeOffset.UtcNow.AddSeconds(10),
+                FakeIdentityReader.CreateState()),
             CancellationToken.None);
 
         var result = await controller.ReleaseControllerAsync(
@@ -787,10 +812,11 @@ public sealed class ClawPluginTests
         FakeMcuTransport? mcu = null,
         FakeControllerSource? controller = null,
         FakeMotionSource? motion = null,
-        FakeChordSuppressor? chordSuppressor = null)
+        FakeChordSuppressor? chordSuppressor = null,
+        FakeIdentityReader? identity = null)
     {
         return new ClawHardwareServices(
-            new FakeIdentityReader(),
+            identity ?? new FakeIdentityReader(),
             wmi ?? new FakeWmiTransport(),
             oemEvents ?? new FakeOemEventSource(),
             mcu ?? new FakeMcuTransport(),
