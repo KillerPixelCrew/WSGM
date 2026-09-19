@@ -77,6 +77,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     private readonly SemaphoreSlim _routeGate = new(1, 1);
 
     private readonly ManagedControllerRouter _router;
+    private readonly SemaphoreSlim _sampleAvailable = new(0);
+    private readonly Task _sampleDrain;
     private readonly Lock _sampleGate = new();
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _transition = new(1, 1);
@@ -88,11 +90,10 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
-    private CanonicalControllerSample? _pendingSample;
+    private List<CanonicalControllerSample> _pendingSamples = [];
+    private List<CanonicalControllerSample>? _spareSamples = [];
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
-    private Task _sampleDrain = Task.CompletedTask;
-    private bool _sampleDrainRunning;
 
     private ControllerSelection _selection = new(
         false,
@@ -123,6 +124,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         _controllerReaderApplication = controllerReaderApplication;
         _router = new ManagedControllerRouter(backend, hapticSink, timeProvider);
         _router.TargetFaulted += OnRouterTargetFaulted;
+        _sampleDrain = DrainSamplesAsync();
     }
 
     /// <summary>Current state of controller management.</summary>
@@ -180,20 +182,15 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
 
         _router.TargetFaulted -= OnRouterTargetFaulted;
-        Task sampleDrain;
-        lock (_sampleGate)
-        {
-            _pendingSample = null;
-            sampleDrain = _sampleDrain;
-        }
-
-        await sampleDrain.ConfigureAwait(false);
+        _sampleAvailable.Release();
+        await _sampleDrain.ConfigureAwait(false);
         // Order matters here exactly as it does in the make-safe sequence: the router removes the
         // virtual target first, and only then are WSGM's HidHide entries dropped.
         await _router.DisposeAsync().ConfigureAwait(false);
         await CleanupHidHideUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
         _transition.Dispose();
         _routeGate.Dispose();
+        _sampleAvailable.Dispose();
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>
@@ -446,7 +443,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     internal void Submit(CanonicalControllerSample sample)
     {
         ArgumentNullException.ThrowIfNull(sample);
-        TaskCompletionSource? completion = null;
+        bool signal;
         lock (_sampleGate)
         {
             if (_disposed)
@@ -466,40 +463,41 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return;
             }
 
-            _pendingSample = sample;
-            if (!_sampleDrainRunning)
-            {
-                _sampleDrainRunning = true;
-                completion = new TaskCompletionSource(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                _sampleDrain = completion.Task;
-            }
+            signal = _pendingSamples.Count == 0;
+            _pendingSamples.Add(sample);
         }
 
-        if (completion is not null)
+        if (signal)
         {
-            _ = DrainSamplesAsync(completion);
+            _sampleAvailable.Release();
         }
     }
 
-    private async Task DrainSamplesAsync(TaskCompletionSource completion)
+    private async Task DrainSamplesAsync()
     {
-        try
+        while (true)
         {
-            while (true)
+            await _sampleAvailable.WaitAsync().ConfigureAwait(false);
+            List<CanonicalControllerSample> batch;
+            lock (_sampleGate)
             {
-                CanonicalControllerSample? sample;
-                lock (_sampleGate)
+                if (_pendingSamples.Count == 0)
                 {
-                    sample = _pendingSample;
-                    _pendingSample = null;
-                    if (sample is null)
+                    if (_disposed)
                     {
-                        _sampleDrainRunning = false;
                         return;
                     }
+
+                    continue;
                 }
 
+                batch = _pendingSamples;
+                _pendingSamples = _spareSamples ?? [];
+                _spareSamples = null;
+            }
+
+            foreach (var sample in batch)
+            {
                 try
                 {
                     await RouteAsync(sample, CancellationToken.None).ConfigureAwait(false);
@@ -511,10 +509,12 @@ internal sealed class ControllerManager : IAsyncDisposable
                         $"Controller sample route recovered after {ex.GetType().Name}: {ex.Message}");
                 }
             }
-        }
-        finally
-        {
-            completion.TrySetResult();
+
+            batch.Clear();
+            lock (_sampleGate)
+            {
+                _spareSamples ??= batch;
+            }
         }
     }
 
