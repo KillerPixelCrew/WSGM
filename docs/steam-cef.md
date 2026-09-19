@@ -417,9 +417,10 @@ The carousel reports what it holds once per change, and `HomeCarouselBackend` lo
 ### Current-game detection stays in the visible window
 
 `SharedJSContext` is headless: empty DOM, no images, only stores and React. The artwork and launch
-pages need the game the user is looking at, and the toolkit's `SteamCurrentPage` reads it from the visible
-Big Picture window through `EvaluateOnVisibleWindowAsync`. The window is selected by shape, not
-localized title: a `page` whose URL has `createflags` and lacks `openerid` and `browserviewpopup`.
+pages need the game the user is looking at, and the toolkit's `SteamCurrentPage` reads it from the
+visible Big Picture window through `EvaluateOnVisibleWindowAsync`. The window is selected by shape,
+not localized title: a `page` whose URL has `createflags` and lacks `openerid` and
+`browserviewpopup`.
 
 The current game is the focused element's React fiber first, then the appid of the largest wide
 visible `assets/<appid>/...` image, the hero banner, matched by `width>=600 && width>height`. That
@@ -463,11 +464,11 @@ never clears `document.head`, and never disables the debug flag or port.
 ### Launch options are written through Steam's own API, verbatim
 
 The Steam tab's Per-game launch fixes (`Core\SteamLaunchConfig.cs` over the toolkit's `SteamApps`)
-configure the running client
-over `SharedJSContext` instead of handing the user a command to paste; with `Cef.Enabled` off they
-fall back to the clipboard. A real title takes `SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a
-non-Steam shortcut takes `SetShortcutExe` plus `SetShortcutLaunchOptions`, because a shortcut
-ignores an exe-replacement launch option (see `docs\elevation.md`).
+configure the running client over `SharedJSContext` instead of handing the user a command to paste;
+with `Cef.Enabled` off they fall back to the clipboard. A real title takes
+`SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a non-Steam shortcut takes `SetShortcutExe` plus
+`SetShortcutLaunchOptions`, because a shortcut ignores an exe-replacement launch option (see
+`docs\elevation.md`).
 
 Steam stores every value verbatim: no quotes added or stripped, backslashes untouched. Its own
 shortcut `Exe` is stored quoted with single backslashes (`"C:\Games\…\game.exe"`), so WSGM supplies

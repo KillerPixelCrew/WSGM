@@ -820,11 +820,11 @@ settings manifest, and keeps every vendor address inside the package.
 
 Identity: `DetectAsync` matches SMBIOS manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.`, baseboard
 `MS-1T52` and SKU `1T52.1` and returns definition id `ms-1t52`. Start re-reads identity and gates
-the WMI-backed services on the EC firmware (`Get_EC` prefix `1T52EMS1.109`); a mismatch leaves
-those services unavailable with `FirmwareNotVerified`. The MCU revision (USB `bcdDevice`) is
-recorded in the identity snapshot but never gated on: controller ownership needs only the exact
-machine, and lighting verifies the committed RGB profile's shape at `0x024A` on every acquire and
-goes passive, not faulted, when a controller firmware changes it.
+the WMI-backed services on the EC firmware (`Get_EC` prefix `1T52EMS1.109`); a mismatch leaves those
+services unavailable with `FirmwareNotVerified`. The MCU revision (USB `bcdDevice`) is recorded in
+the identity snapshot but never gated on: controller ownership needs only the exact machine, and
+lighting verifies the committed RGB profile's shape at `0x024A` on every acquire and goes passive,
+not faulted, when a controller firmware changes it.
 
 Transports: `MSI_ACPI` over WMI with 32-byte packages, a 3 s per-operation timeout and a required
 status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendor collection for the
