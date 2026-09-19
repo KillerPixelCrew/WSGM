@@ -533,6 +533,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
     /// </remarks>
     internal static readonly TimeSpan StaleReportDelay = TimeSpan.FromMilliseconds(500);
 
+    private readonly Lock _latestGate = new();
     private readonly GyroFrameResampler _resampler = new();
     private readonly IClawMotionSource _source = source ?? throw new ArgumentNullException(nameof(source));
     private MotionSample? _latest;
@@ -552,9 +553,15 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
     /// </remarks>
     public MotionSample? Current(DateTimeOffset now)
     {
-        if (Volatile.Read(ref _latest) is not { } sample)
+        MotionSample sample;
+        lock (_latestGate)
         {
-            return null;
+            if (_latest is not { } latest)
+            {
+                return null;
+            }
+
+            sample = latest;
         }
 
         // A source that supplies no timestamp cannot be aged; it is passed through as before.
@@ -591,13 +598,19 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        Volatile.Write(ref _latest, null);
+        lock (_latestGate)
+        {
+            _latest = null;
+        }
         Interlocked.Exchange(ref _staleReported, 0);
         _resampler.Reset();
         var started = await _source.StartAsync(
             sample =>
             {
-                Volatile.Write(ref _latest, sample);
+                lock (_latestGate)
+                {
+                    _latest = sample;
+                }
                 if (sample.SensorTimestamp is { } stamp)
                 {
                     _resampler.OnReading(
@@ -635,7 +648,10 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
         CancellationToken cancellationToken)
     {
         await _source.StopAsync(cancellationToken).ConfigureAwait(false);
-        Volatile.Write(ref _latest, null);
+        lock (_latestGate)
+        {
+            _latest = null;
+        }
         _resampler.Reset();
         return Set(ClawServiceState.Idle);
     }

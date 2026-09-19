@@ -475,6 +475,8 @@ breaking rebuild for every plugin.
 
 Full state, not deltas: a dropped delta leaves a control stuck, a dropped full state is corrected by
 the next one. The plugin normalizes axes, since it alone knows raw ranges, centres and inversions.
+`CanonicalControllerSample` and its optional `MotionSample` are readonly record structs so creating,
+copying, and publishing each high-rate frame does not allocate contract objects.
 
 | Field                               | Range                                                                                                                                                          |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -613,7 +615,7 @@ data, never by the manifest.
   "id": "wsgm.device.msi.claw-8-a2vm",
   "name": "MSI Claw 8 AI+ A2VM",
   "version": "1.2.0",
-  "apiVersion": 3,
+  "apiVersion": 4,
   "entryAssembly": "WSGM.Device.Msi.Claw8A2Vm.dll",
   "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin"
 }

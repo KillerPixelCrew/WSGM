@@ -13,6 +13,10 @@ public static class DeviceApi
     ///         <c>IPluginHostAdapter.TraceChange</c>. The interface member has a default implementation, so
     ///         a host or test double written against version 2 still compiles and behaves as it did.
     ///     </para>
+    ///     <para>
+    ///         Version 4 changed <c>CanonicalControllerSample</c> and <c>MotionSample</c> to readonly
+    ///         record structs so publishing each controller frame does not allocate contract objects.
+    ///     </para>
     /// </remarks>
-    public const int Version = 3;
+    public const int Version = 4;
 }

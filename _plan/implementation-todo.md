@@ -65,7 +65,7 @@ with Windows targeting; Windows UI and hardware acceptance are still pending.
 
 ## ROG Ally X scaffold (2026-09-15)
 
-`src/WSGM.Device.Asus.RogAllyX` now contains a Device API 3 entry type, package manifest and MIT
+`src/WSGM.Device.Asus.RogAllyX` now contains a Device API 4 entry type, package manifest and MIT
 license, and is included in `WSGM.slnx`. It always declines detection, stays passive and rejects
 commands. Exact identity, transports, capabilities and hardware validation remain unimplemented.
 The maintainer has no local Ally X, but has arranged a remote tester. HHD is the primary implementation reference, especially

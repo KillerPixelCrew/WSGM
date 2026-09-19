@@ -154,7 +154,7 @@ public enum SampleQuality
 ///         it can represent, dropping the rest rather than remapping it. Neither side invents a control.
 ///     </para>
 /// </remarks>
-public sealed record CanonicalControllerSample
+public readonly record struct CanonicalControllerSample
 {
     /// <summary>Monotonic sequence number within one device generation.</summary>
     public required long Sequence { get; init; }
@@ -257,7 +257,7 @@ public sealed record CanonicalControllerSample
 ///     other, or its operating-system sensor stack may project only one of them. Synthesizing a missing
 ///     sensor would invent data.
 /// </remarks>
-public sealed record MotionSample
+public readonly record struct MotionSample
 {
     /// <summary>Angular velocity around X, in degrees per second.</summary>
     public float GyroX { get; init; }

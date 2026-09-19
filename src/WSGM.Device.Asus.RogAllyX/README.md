@@ -1,6 +1,6 @@
 # ASUS ROG Ally X device plugin
 
-This is an MIT-licensed Device API 3 scaffold, not working hardware support. The public entry type
+This is an MIT-licensed Device API 4 scaffold, not working hardware support. The public entry type
 implements `IDevicePlugin` and references the shared Device SDK. Detection always returns no match
 with an explicit reason until an exact identity predicate can be backed by device evidence. Direct
 start and resume calls remain passive, commands are rejected, and haptic frames are dropped. The
