@@ -1,4 +1,4 @@
-using WSGM.Plugin.Sdk;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;

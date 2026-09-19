@@ -225,7 +225,45 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
-    public async Task SubmittedSamplesDrainInOrderBeforeDisposalCompletes()
+    public async Task QueuedSamplesReachTheUiInSubmissionOrder()
+    {
+        Harness harness = new();
+        var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        await manager.ClaimUiAsync("overlay", CancellationToken.None);
+        List<long> received = [];
+        using ManualResetEventSlim firstSampleEntered = new();
+        using ManualResetEventSlim releaseFirstSample = new();
+        TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        manager.UiSampleReceived += sample =>
+        {
+            received.Add(sample.Sequence);
+            if (sample.Sequence == 1)
+            {
+                firstSampleEntered.Set();
+                releaseFirstSample.Wait();
+            }
+
+            if (sample.Sequence == 3)
+            {
+                drained.TrySetResult();
+            }
+        };
+
+        // Submitted while the first sample is still inside the handler, so both land in the pending
+        // batch rather than being routed as they arrive.
+        manager.Submit(Sample(1, CanonicalButtons.A));
+        Assert.True(firstSampleEntered.Wait(TimeSpan.FromSeconds(5)));
+        manager.Submit(Sample(2, CanonicalButtons.B));
+        manager.Submit(Sample(3, CanonicalButtons.X));
+        releaseFirstSample.Set();
+
+        await drained.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal([1, 2, 3], received);
+    }
+
+    [Fact]
+    public async Task DisposalWaitsForTheSampleInFlightAndRefusesTheQueueBehindIt()
     {
         Harness harness = new();
         var manager = harness.Manager;
@@ -254,7 +292,10 @@ public sealed class ControllerManagerTests
         releaseFirstSample.Set();
         await dispose;
 
-        Assert.Equal([1, 2, 3], received);
+        // Disposal does not complete until the sample inside the handler returns, and it refuses
+        // everything still queued behind it: routing is closed as soon as disposal begins, so the
+        // make-safe sequence that follows is the last thing to reach the target.
+        Assert.Equal([1], received);
     }
 
     [Fact]

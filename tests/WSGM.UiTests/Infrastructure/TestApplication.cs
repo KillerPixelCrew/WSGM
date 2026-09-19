@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Styling;
+using WSGM.Core;
 using WSGM.Themes;
 using WSGM.UiTests.Infrastructure;
 
@@ -12,6 +13,15 @@ namespace WSGM.UiTests.Infrastructure;
 
 public sealed class TestApplication : App
 {
+    // AppBuilder.Configure<T> constructs the application itself, so the headless harness needs a
+    // parameterless entry point. Default configuration is the right one to hand it: these tests
+    // exercise views, and OnFrameworkInitializationCompleted below never starts the live services
+    // that would read it.
+    public TestApplication()
+        : base(new AppConfig())
+    {
+    }
+
     public static AppBuilder BuildAvaloniaApp()
     {
         return AppBuilder.Configure<TestApplication>()

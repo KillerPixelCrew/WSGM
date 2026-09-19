@@ -35,7 +35,7 @@ public sealed class PowerSchemeSelectionTests
         Assert.True(state!.Available);
         Assert.Equal(First.ToString("D"), state.Current);
         Assert.Equal(2, state.Options.Count);
-        Assert.All(state.Options, option => Assert.Contains("Duplicate localized name (", option.Name));
+        Assert.All(state.Options, option => Assert.Contains("Duplicate localized name (", option.Label));
         await qam.SetPowerProfileAsync("not-a-guid", CancellationToken.None);
         await qam.SetPowerProfileAsync(Guid.NewGuid().ToString("D"), CancellationToken.None);
         Assert.Equal(0, api.Writes);

@@ -398,7 +398,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         CanonicalControllerSample initialNeutralState,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(initialNeutralState);
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
@@ -458,7 +457,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
@@ -482,7 +480,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         CanonicalControllerSample neutralState,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(neutralState);
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {

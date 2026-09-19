@@ -111,9 +111,12 @@ internal sealed class UiFixture : IDisposable
                 }
 
                 var fresh = ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig);
-                SettingsViewModel.ApplyCapturedValues(fresh, request, request.Splash);
-                Saved = fresh;
-                return new SettingsViewModel.SaveResult(fresh, [], null);
+                // The merge returns the configuration to persist rather than mutating the fresh
+                // load, so the result is what gets saved. Keeping `fresh` here stored the on-disk
+                // state back over itself and dropped every edit the test had just made.
+                var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, request.Splash);
+                Saved = merged;
+                return new SettingsViewModel.SaveResult(merged, [], null);
             },
             _ =>
             {
