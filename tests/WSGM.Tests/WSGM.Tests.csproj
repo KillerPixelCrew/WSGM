@@ -35,6 +35,7 @@
          WinExe project would drag its publish plumbing into the test build. -->
     <Compile Include="../../src/WSGM.LogonService/LogonDecision.cs" Link="Linked/LogonDecision.cs"/>
     <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs"/>
+    <Compile Include="../Shared/SplashConfigBuilder.cs" Link="Shared/SplashConfigBuilder.cs"/>
     <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs"/>
   </ItemGroup>
 </Project>

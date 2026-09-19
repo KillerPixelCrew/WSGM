@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WSGM.Core;
+using WSGM.Device.Tests;
 
 namespace WSGM.Tests.Core;
 
@@ -53,25 +54,20 @@ public sealed class BootManifestTests
     [Fact]
     public void SaveAndTryLoadRoundTripOnDisk()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"wsgm-boot-test-{Environment.ProcessId}.json");
-        try
-        {
-            BootManifestStore.Save(path, new BootManifest
-            {
-                GameModeBoot = false,
-                Elevate = true,
-                ExePath = @"C:\x\WSGM.exe"
-            });
-            var loaded = BootManifestStore.TryLoad(path);
+        using var temp = new TemporaryDirectory();
+        var path = temp.GetPath("manifest.json");
 
-            Assert.NotNull(loaded);
-            Assert.False(loaded.GameModeBoot);
-            Assert.True(loaded.Elevate);
-        }
-        finally
+        BootManifestStore.Save(path, new BootManifest
         {
-            File.Delete(path);
-        }
+            GameModeBoot = false,
+            Elevate = true,
+            ExePath = @"C:\x\WSGM.exe"
+        });
+        var loaded = BootManifestStore.TryLoad(path);
+
+        Assert.NotNull(loaded);
+        Assert.False(loaded.GameModeBoot);
+        Assert.True(loaded.Elevate);
     }
 
     [Theory]
@@ -126,15 +122,9 @@ public sealed class BootManifestTests
     [Fact]
     public void OversizedFileLoadsAsNull()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"wsgm-boot-test-big-{Environment.ProcessId}.json");
-        try
-        {
-            File.WriteAllText(path, new string(' ', 65 * 1024) + "{}");
-            Assert.Null(BootManifestStore.TryLoad(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        using var temp = new TemporaryDirectory();
+        var path = temp.GetPath("oversized.json");
+        File.WriteAllText(path, new string(' ', 65 * 1024) + "{}");
+        Assert.Null(BootManifestStore.TryLoad(path));
     }
 }

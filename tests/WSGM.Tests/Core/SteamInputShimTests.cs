@@ -1,5 +1,6 @@
 using System.Text;
 using WSGM.Core;
+using WSGM.Device.Tests;
 
 namespace WSGM.Tests.Core;
 
@@ -22,13 +23,12 @@ public sealed class SteamInputShimTests : IDisposable
     private readonly string _sourceDir;
 
     private readonly string _steamDir;
+    private readonly TemporaryDirectory _temporary = new();
 
     public SteamInputShimTests()
     {
-        var root = Path.Combine(
-            Path.GetTempPath(), "wsgm-shim-tests", Guid.NewGuid().ToString("N"));
-        _steamDir = Path.Combine(root, "Steam");
-        _sourceDir = Path.Combine(root, "app");
+        _steamDir = _temporary.GetPath("Steam");
+        _sourceDir = _temporary.GetPath("app");
         Directory.CreateDirectory(_steamDir);
         Directory.CreateDirectory(_sourceDir);
         _payload = Path.Combine(_sourceDir, "steam_input_gate.dll");
@@ -37,14 +37,7 @@ public sealed class SteamInputShimTests : IDisposable
 
     public void Dispose()
     {
-        try
-        {
-            Directory.Delete(Path.GetDirectoryName(_steamDir)!, true);
-        }
-        catch
-        {
-            // A locked temp file must never fail the suite.
-        }
+        _temporary.Dispose();
     }
 
     private static void WritePayload(string path, string body)

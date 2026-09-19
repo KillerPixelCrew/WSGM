@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using WSGM.Core;
+using WSGM.Device.Tests;
 
 namespace WSGM.Tests.Core;
 
@@ -10,71 +11,22 @@ namespace WSGM.Tests.Core;
 /// </summary>
 public sealed class SplashThemeTests : IDisposable
 {
+    private readonly TemporaryDirectory _temporary = new();
     private readonly string _root;
     private readonly string _sourceDir;
     private readonly string _targetDir;
 
     public SplashThemeTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "wsgm-splash-theme-tests", Guid.NewGuid().ToString("N"));
-        _sourceDir = Path.Combine(_root, "source");
-        _targetDir = Path.Combine(_root, "target");
+        _root = _temporary.Root;
+        _sourceDir = _temporary.GetPath("source");
+        _targetDir = _temporary.GetPath("target");
         Directory.CreateDirectory(_sourceDir);
     }
 
     public void Dispose()
     {
-        try
-        {
-            Directory.Delete(_root, true);
-        }
-        catch
-        {
-            // Temp cleanup is best effort.
-        }
-    }
-
-    private static SplashConfig FullyCustomized(string logoPath, string backgroundPath)
-    {
-        return new SplashConfig
-        {
-            Text = "WSGM",
-            TextEnabled = false,
-            TextColor = "#FF9D3D",
-            TitleFontSize = 48,
-            Caption = "STARTING STEAM",
-            CaptionColor = "#AAAAAA",
-            CaptionFontSize = 14,
-            SpinnerStyle = SplashSpinnerStyle.SweepLine,
-            SpinnerColor = "#00FF00",
-            SpinnerSize = 72,
-            SweepEdge = SweepEdge.Top,
-            BackgroundColor = "#101010",
-            VignetteEnabled = true,
-            BackgroundImagePath = backgroundPath,
-            LogoImagePath = logoPath,
-            LogoMaxSize = 320,
-            TextPlacement = new SplashElementPlacement
-            {
-                Mode = SplashPlacementMode.Anchor,
-                Anchor = SplashPlacementAnchor.BottomLeft,
-                PaddingX = 48,
-                PaddingY = 160
-            },
-            SpinnerPlacement = new SplashElementPlacement
-            {
-                Mode = SplashPlacementMode.Absolute,
-                X = 640,
-                Y = 360
-            },
-            LogoPlacement = new SplashElementPlacement
-            {
-                Mode = SplashPlacementMode.Anchor,
-                Anchor = SplashPlacementAnchor.TopCenter,
-                PaddingX = 0,
-                PaddingY = 96
-            }
-        };
+        _temporary.Dispose();
     }
 
     private static void AssertNonImageFieldsEqual(SplashConfig expected, SplashConfig actual)
@@ -117,7 +69,7 @@ public sealed class SplashThemeTests : IDisposable
         var backgroundPath = Path.Combine(_sourceDir, "wallpaper.jpg");
         File.WriteAllBytes(logoPath, logoBytes);
         File.WriteAllBytes(backgroundPath, backgroundBytes);
-        var original = FullyCustomized(logoPath, backgroundPath);
+        var original = SplashConfigBuilder.FullyCustomized(logoPath, backgroundPath);
         var themePath = Path.Combine(_root, "custom.wsgmsplash");
 
         Assert.True(SplashTheme.Export(original, themePath));
@@ -158,7 +110,7 @@ public sealed class SplashThemeTests : IDisposable
     [Fact]
     public void ConfigOnlyThemeRoundTripsWithoutImages()
     {
-        var original = FullyCustomized("", "");
+        var original = SplashConfigBuilder.FullyCustomized("", "");
         var themePath = Path.Combine(_root, "plain.wsgmsplash");
 
         Assert.True(SplashTheme.Export(original, themePath));
@@ -982,7 +934,7 @@ public sealed class SplashThemeTests : IDisposable
     public void ImportKeepsInRangeValuesFromASharedThemeExactly()
     {
         var themePath = Path.Combine(_root, "in-range.wsgmsplash");
-        var original = FullyCustomized("", "");
+        var original = SplashConfigBuilder.FullyCustomized("", "");
 
         Assert.True(SplashTheme.Export(original, themePath));
         var imported = SplashTheme.Import(themePath, _targetDir);
