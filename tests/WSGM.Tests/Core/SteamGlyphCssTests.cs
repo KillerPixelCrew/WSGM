@@ -10,19 +10,6 @@ namespace WSGM.Tests.Core;
 public sealed class SteamGlyphCssTests
 {
     [Fact]
-    public void StylesheetIsMemoizedByProfileRevisionAndHidingPolicy()
-    {
-        var presentation = Presentation();
-
-        var first = SteamGlyphCss.Build(presentation, true);
-        var second = SteamGlyphCss.Build(presentation, true);
-        var shown = SteamGlyphCss.Build(presentation, false);
-
-        Assert.Same(first, second);
-        Assert.NotSame(first, shown);
-    }
-
-    [Fact]
     public void NativeArtworkStillHidesAbsentControlsAndRestoresArtworkWhenSelected()
     {
         SteamInputGlyphDeliveryState state = new();
