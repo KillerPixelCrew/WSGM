@@ -361,6 +361,7 @@ internal sealed class FirmwareChordStateMachine
 internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
 {
     private const uint Marker = 0x5753474D;
+    private static readonly int InputSize = Marshal.SizeOf<NativeKeyboard.Input>();
     private readonly NativeKeyboard.Input[] _batch = new NativeKeyboard.Input[4];
     private readonly NativeKeyboard.Input[] _cleanup = new NativeKeyboard.Input[1];
     private readonly Lock _gate = new();
@@ -518,14 +519,14 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         }
     }
 
-    private nint HookCallback(int code, nuint message, nint data)
+    private unsafe nint HookCallback(int code, nuint message, nint data)
     {
         if (code < 0)
         {
             return NativeKeyboard.CallNextHookEx(_hook, code, message, data);
         }
 
-        var keyboard = Marshal.PtrToStructure<NativeKeyboard.KeyboardHookData>(data);
+        var keyboard = *(NativeKeyboard.KeyboardHookData*)data;
         var keyDown = message is NativeKeyboard.WM_KEYDOWN or NativeKeyboard.WM_SYSKEYDOWN;
         var keyUp = message is NativeKeyboard.WM_KEYUP or NativeKeyboard.WM_SYSKEYUP;
         if (!keyDown && !keyUp)
@@ -572,11 +573,11 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             _batch[count++] = NativeKeyboard.KeyInput(NativeKeyboard.VK_RWIN, true, Marker);
         }
 
-        var sent = NativeKeyboard.SendInput(checked((uint)count), _batch, Marshal.SizeOf<NativeKeyboard.Input>());
+        var sent = NativeKeyboard.SendInput(checked((uint)count), _batch, InputSize);
         if (sent == 1)
         {
             _cleanup[0] = NativeKeyboard.KeyInput(NativeKeyboard.VK_DUMMY, true, Marker);
-            _ = NativeKeyboard.SendInput(1, _cleanup, Marshal.SizeOf<NativeKeyboard.Input>());
+            _ = NativeKeyboard.SendInput(1, _cleanup, InputSize);
         }
 
         var leftReleased = leftIndex >= 0 && sent > leftIndex;
