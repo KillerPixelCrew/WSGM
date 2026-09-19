@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WSGM.Plugin.Sdk;
 
 namespace WSGM.Plugin.Ir;
 

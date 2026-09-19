@@ -1042,7 +1042,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CancellationToken cancellationToken)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            ArgumentNullException.ThrowIfNull(sample);
             cancellationToken.ThrowIfCancellationRequested();
             if (sample.CycleGeneration != CycleGeneration)
             {

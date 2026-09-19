@@ -115,7 +115,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
         CanonicalControllerSample initialNeutralState,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(initialNeutralState);
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!SupportedTargets.Contains(kind))
         {
@@ -201,7 +200,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
-        ArgumentNullException.ThrowIfNull(sample);
         if (_disposed || _target?.Generation != target.Generation)
         {
             return false;

@@ -91,7 +91,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
     private List<CanonicalControllerSample> _pendingSamples = [];
-    private List<CanonicalControllerSample>? _spareSamples = [];
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
 
@@ -102,6 +101,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         "Controller management has not started.");
 
     private long _sourceGeneration;
+    private List<CanonicalControllerSample>? _spareSamples = [];
     private bool _steamCapture;
     private bool _steamOwnershipPaused;
     private CanonicalButtons _syntheticButtons;
@@ -271,7 +271,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             Interlocked.Exchange(ref _sourceGeneration, sourceGeneration);
             lock (_sampleGate)
             {
-                _pendingSample = null;
+                _pendingSamples.Clear();
             }
 
             if (_steamOwnershipPaused)
@@ -442,7 +442,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         bool signal;
         lock (_sampleGate)
         {
@@ -526,7 +525,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         // Stale generations are refused at admission (Submit) and re-checked by the router's sample
         // validator, which covers the generation changes ActivateSource can make mid-flight.
 
@@ -857,7 +855,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            CanonicalControllerSample? sample;
+            CanonicalControllerSample sample;
             lock (_stateGate)
             {
                 if (!enabled)
@@ -873,8 +871,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                     return false;
                 }
 
-                sample = _lastSample;
-                if (sample is null)
+                if (_lastSample is not { } last)
                 {
                     Log.Warn(
                         $"Virtual rear-button {(enabled ? "press" : "release")} refused: "
@@ -887,7 +884,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                     _syntheticButtons |= button;
                 }
 
-                sample = sample with { Buttons = sample.Buttons | _syntheticButtons };
+                sample = last with { Buttons = last.Buttons | _syntheticButtons };
             }
 
             return await _router.RouteAsync(sample, cancellationToken).ConfigureAwait(false);
@@ -938,7 +935,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         lock (_sampleGate)
         {
-            _pendingSample = null;
+            _pendingSamples.Clear();
         }
 
         // Admission closes before the target is quietened, not after: a sample arriving once the

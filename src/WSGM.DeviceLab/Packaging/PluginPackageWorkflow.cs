@@ -10,6 +10,7 @@ using System.Threading;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Packaging;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
 

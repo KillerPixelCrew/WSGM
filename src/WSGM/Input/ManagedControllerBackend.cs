@@ -82,7 +82,6 @@ internal static class ManagedControllerSampleValidator
         DateTimeOffset now,
         out string reason)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         if (sample.CycleGeneration != sourceGeneration)
         {
             reason = "stale-source-generation";
@@ -146,14 +145,18 @@ internal static class ManagedControllerSampleValidator
 
     private static bool Motion(MotionSample? motion)
     {
-        return motion is null
-               || ((!motion.HasGyro
-                    || (float.IsFinite(motion.GyroX)
-                        && float.IsFinite(motion.GyroY)
-                        && float.IsFinite(motion.GyroZ)))
-                   && (!motion.HasAccelerometer
-                       || (float.IsFinite(motion.AccelX)
-                           && float.IsFinite(motion.AccelY)
-                           && float.IsFinite(motion.AccelZ))));
+        if (motion is not { } sample)
+        {
+            return true;
+        }
+
+        return (!sample.HasGyro
+                || (float.IsFinite(sample.GyroX)
+                    && float.IsFinite(sample.GyroY)
+                    && float.IsFinite(sample.GyroZ)))
+               && (!sample.HasAccelerometer
+                   || (float.IsFinite(sample.AccelX)
+                       && float.IsFinite(sample.AccelY)
+                       && float.IsFinite(sample.AccelZ)));
     }
 }

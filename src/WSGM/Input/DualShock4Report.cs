@@ -37,7 +37,6 @@ internal static class DualShock4Report
     /// <summary>Writes one canonical sample into a DualShock 4 input state.</summary>
     internal static void Write(CanonicalControllerSample sample, Span<byte> destination)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         if (destination.Length != Length)
         {
             throw new ArgumentException(
@@ -92,27 +91,32 @@ internal static class DualShock4Report
 
     private static void WriteMotion(MotionSample? motion, Span<byte> destination)
     {
-        if (motion?.HasGyro == true)
+        if (motion is not { } sample)
         {
-            BinaryPrimitives.WriteInt16LittleEndian(destination[19..21],
-                ScaledMotion(motion.GyroX, GyroCountsPerDegreePerSecond));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[21..23],
-                ScaledMotion(motion.GyroY, GyroCountsPerDegreePerSecond));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[23..25],
-                ScaledMotion(motion.GyroZ, GyroCountsPerDegreePerSecond));
+            return;
         }
 
-        if (motion?.HasAccelerometer != true)
+        if (sample.HasGyro)
+        {
+            BinaryPrimitives.WriteInt16LittleEndian(destination[19..21],
+                ScaledMotion(sample.GyroX, GyroCountsPerDegreePerSecond));
+            BinaryPrimitives.WriteInt16LittleEndian(destination[21..23],
+                ScaledMotion(sample.GyroY, GyroCountsPerDegreePerSecond));
+            BinaryPrimitives.WriteInt16LittleEndian(destination[23..25],
+                ScaledMotion(sample.GyroZ, GyroCountsPerDegreePerSecond));
+        }
+
+        if (!sample.HasAccelerometer)
         {
             return;
         }
 
         BinaryPrimitives.WriteInt16LittleEndian(destination[25..27],
-            ScaledMotion(motion.AccelX, AccelCountsPerG));
+            ScaledMotion(sample.AccelX, AccelCountsPerG));
         BinaryPrimitives.WriteInt16LittleEndian(destination[27..29],
-            ScaledMotion(motion.AccelY, AccelCountsPerG));
+            ScaledMotion(sample.AccelY, AccelCountsPerG));
         BinaryPrimitives.WriteInt16LittleEndian(destination[29..31],
-            ScaledMotion(motion.AccelZ, AccelCountsPerG));
+            ScaledMotion(sample.AccelZ, AccelCountsPerG));
     }
 
     private static ushort Mask(CanonicalButtons buttons, CanonicalButtons flag, ushort bit)

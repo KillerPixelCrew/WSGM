@@ -221,7 +221,12 @@ public readonly record struct CanonicalControllerSample
     public MotionSample? Motion { get; init; }
 
     /// <summary>How much this sample can be trusted.</summary>
-    public SampleQuality Quality { get; init; } = SampleQuality.Good;
+    /// <remarks>
+    ///     Deliberately uninitialized: a struct cannot carry a field initializer without an explicitly
+    ///     declared constructor, and <see cref="SampleQuality.Good" /> is the zero value, so an
+    ///     unset sample already reads as Good.
+    /// </remarks>
+    public SampleQuality Quality { get; init; }
 
     /// <summary>
     ///     The neutral sample: nothing held, every axis centred.

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using WSGM.Core;
 
 namespace WSGM.Launch;
 

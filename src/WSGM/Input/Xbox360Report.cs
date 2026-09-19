@@ -29,7 +29,6 @@ internal static class Xbox360Report
     /// <summary>Writes one canonical sample into an Xbox 360 input state.</summary>
     internal static void Write(CanonicalControllerSample sample, Span<byte> destination)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         if (destination.Length != Length)
         {
             throw new ArgumentException(

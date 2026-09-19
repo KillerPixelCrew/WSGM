@@ -118,14 +118,12 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         Submit(sample, Translate(sample));
     }
 
     /// <summary>Feeds one canonical sample whose UI button state has already been translated.</summary>
     internal void Submit(CanonicalControllerSample sample, GamepadButtons held)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         if (_disposed)
         {
             return;

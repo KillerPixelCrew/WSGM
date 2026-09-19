@@ -71,7 +71,6 @@ internal static class SteamDeckNeptuneReport
     /// <exception cref="ArgumentException">The destination is the wrong length.</exception>
     internal static void Write(CanonicalControllerSample sample, Span<byte> destination)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         if (destination.Length != Length)
         {
             throw new ArgumentException(
@@ -152,41 +151,41 @@ internal static class SteamDeckNeptuneReport
 
     private static void WriteMotion(MotionSample? motion, Span<byte> destination)
     {
-        if (motion is null)
+        if (motion is not { } sample)
         {
             return;
         }
 
-        if (motion.HasAccelerometer)
+        if (sample.HasAccelerometer)
         {
             BinaryPrimitives.WriteInt16LittleEndian(
                 destination[24..26],
-                ScaledMotion(motion.AccelX, AccelCountsPerG));
+                ScaledMotion(sample.AccelX, AccelCountsPerG));
             BinaryPrimitives.WriteInt16LittleEndian(
                 destination[26..28],
-                ScaledMotion(-motion.AccelZ, AccelCountsPerG));
+                ScaledMotion(-sample.AccelZ, AccelCountsPerG));
             BinaryPrimitives.WriteInt16LittleEndian(
                 destination[28..30],
-                ScaledMotion(motion.AccelY, AccelCountsPerG));
+                ScaledMotion(sample.AccelY, AccelCountsPerG));
         }
 
         // The orientation quaternion at bytes 36..44 stays zero on purpose. WSGM publishes raw
         // angular velocity and never computes an orientation, and a frozen identity quaternion
         // makes Steam ignore the raw gyro and collapse gyro-to-stick to centre.
-        if (!motion.HasGyro)
+        if (!sample.HasGyro)
         {
             return;
         }
 
         BinaryPrimitives.WriteInt16LittleEndian(
             destination[30..32],
-            ScaledMotion(motion.GyroX, GyroCountsPerDegreePerSecond));
+            ScaledMotion(sample.GyroX, GyroCountsPerDegreePerSecond));
         BinaryPrimitives.WriteInt16LittleEndian(
             destination[32..34],
-            ScaledMotion(-motion.GyroZ, GyroCountsPerDegreePerSecond));
+            ScaledMotion(-sample.GyroZ, GyroCountsPerDegreePerSecond));
         BinaryPrimitives.WriteInt16LittleEndian(
             destination[34..36],
-            ScaledMotion(motion.GyroY, GyroCountsPerDegreePerSecond));
+            ScaledMotion(sample.GyroY, GyroCountsPerDegreePerSecond));
     }
 
     private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit)

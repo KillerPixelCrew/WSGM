@@ -590,7 +590,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(sample);
         var target = Target;
         if (target is null || State is not ManagedTargetState.Active)
         {
