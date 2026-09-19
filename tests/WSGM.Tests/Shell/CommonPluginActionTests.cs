@@ -122,6 +122,12 @@ public sealed class CommonPluginActionTests
             Ui = [new PluginUiContribution("quick", "Quick", "remote", PluginUiKind.Toggle, "value", "send", "value")]
         };
         Assert.Throws<ArgumentException>(() => new CommonPluginActions(wrongType));
+
+        var unsafeLabel = new Provider
+        {
+            Ui = [new PluginUiContribution("quick", "Quick‮label", "remote", PluginUiKind.Action, ActionId: "send")]
+        };
+        Assert.Throws<ArgumentException>(() => new CommonPluginActions(unsafeLabel));
     }
 
     [Fact]

@@ -103,8 +103,7 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
 
     private static bool ValidName(string? value)
     {
-        return !string.IsNullOrWhiteSpace(value)
-               && value.Length <= 128 && !value.Any(char.IsControl);
+        return PluginText.TryValidate(value, 128, "name", out _);
     }
 
     internal static async Task<IrLibrary> LoadAsync(string path, CancellationToken token)

@@ -14,6 +14,7 @@ public sealed class PluginValueTests
         Assert.False(PluginConfigurationRules.IsValid([setting with { Default = new PluginValue(Number: 101) }]));
         Assert.False(PluginConfigurationRules.IsValid([setting with { Choices = ["one"] }]));
         Assert.False(PluginConfigurationRules.IsValid([setting with { Kind = PluginSettingKind.Boolean }]));
+        Assert.False(PluginConfigurationRules.IsValid([setting with { Label = "Level‮label" }]));
     }
 
     [Fact]
