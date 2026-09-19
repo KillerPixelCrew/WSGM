@@ -5,6 +5,16 @@ namespace WSGM.Device.Msi.Claw8A2Vm.Tests;
 [Collection("plugin-trace")]
 public sealed class WindowsHidTransportsTests
 {
+    [Theory]
+    [InlineData(@"\\?\hid#vid_0db0&pid_1901&mi_03#example", true)]
+    [InlineData(@"\\?\HID#VID_0DB0&PID_1902&MI_03#example", true)]
+    [InlineData(@"\\?\hid#vid_0db0&pid_1903&mi_03#example", false)]
+    [InlineData(@"\\?\hid#vid_045e&pid_1901&mi_03#example", false)]
+    public void SupportedDevicePathRequiresTheMeasuredVendorAndProduct(string path, bool expected)
+    {
+        Assert.Equal(expected, HidEndpointEnumerator.IsSupportedDevicePath(path));
+    }
+
     [Fact]
     public async Task DisposalLetsTheCurrentOwnerReleaseAndWaitersRejectWithoutOpeningHardware()
     {
