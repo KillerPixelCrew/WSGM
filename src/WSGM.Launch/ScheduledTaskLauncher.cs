@@ -1,8 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Security;
-using System.Security.Principal;
 using System.Text;
 
 namespace WSGM.Launch;
@@ -20,7 +18,10 @@ internal static class ScheduledTaskLauncher
         try
         {
             Directory.CreateDirectory(directory);
-            File.WriteAllText(xmlPath, BuildTaskXml(executablePath, pipeName), Encoding.Unicode);
+            File.WriteAllText(
+                xmlPath,
+                BuildTaskXml(executablePath, pipeName),
+                Encoding.Unicode);
             if (!RunSchtasks(["/Create", "/TN", taskName, "/XML", xmlPath, "/F"]) ||
                 !RunSchtasks(["/Run", "/TN", taskName]))
             {
@@ -59,34 +60,7 @@ internal static class ScheduledTaskLauncher
 
     internal static string BuildTaskXml(string executablePath, string pipeName)
     {
-        using var identity = WindowsIdentity.GetCurrent();
-        var user = identity.Name;
-        var command = SecurityElement.Escape(executablePath);
-        var arguments = SecurityElement.Escape($"--medium-child {pipeName}");
-        return $"""
-                <?xml version="1.0" encoding="UTF-16"?>
-                <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-                  <Principals>
-                    <Principal id="Author">
-                      <UserId>{SecurityElement.Escape(user)}</UserId>
-                      <LogonType>InteractiveToken</LogonType>
-                    </Principal>
-                  </Principals>
-                  <Settings>
-                    <AllowStartOnDemand>true</AllowStartOnDemand>
-                    <Enabled>true</Enabled>
-                    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-                    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-                    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-                  </Settings>
-                  <Actions Context="Author">
-                    <Exec>
-                      <Command>{command}</Command>
-                      <Arguments>{arguments}</Arguments>
-                    </Exec>
-                  </Actions>
-                </Task>
-                """;
+        return ScheduledTaskXml.Build(executablePath, $"--medium-child {pipeName}");
     }
 
     private static bool RunSchtasks(string[] arguments, bool logFailure = true)
