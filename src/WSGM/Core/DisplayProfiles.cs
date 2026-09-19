@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Security;
 using Microsoft.Win32;
 using WindowsDeviceControl;
-using static WSGM.Interop.NativeDisplay;
 
 namespace WSGM.Core;
 
@@ -18,7 +18,7 @@ namespace WSGM.Core;
 ///     overlay's per-target mode changes, so the two paths can never interleave a read and a
 ///     write.
 /// </summary>
-public static unsafe class DisplayProfiles
+public static class DisplayProfiles
 {
     /// <summary>Smallest resolution worth offering. Below this is legacy driver noise.</summary>
     private const int MinimumUsableWidth = 800;
@@ -294,27 +294,15 @@ public static unsafe class DisplayProfiles
     /// </remarks>
     private static string? ReadPrimaryMonitorInstanceId()
     {
-        for (uint i = 0;; i++)
+        try
         {
-            var device = new DisplayDevice { Size = (uint)sizeof(DisplayDevice) };
-            if (!EnumDisplayDevices(null, i, ref device, 0))
-            {
-                return null;
-            }
-
-            if ((device.StateFlags & DisplayDevicePrimary) == 0)
-            {
-                continue;
-            }
-
-            var monitor = new DisplayDevice { Size = (uint)sizeof(DisplayDevice) };
-            if (!EnumDisplayDevices(device.DeviceName, 0, ref monitor, GetDeviceInterfaceName))
-            {
-                return null;
-            }
-
             // \\?\DISPLAY#CSW0801#4&8f346&1&UID8388688#{guid} -> DISPLAY\CSW0801\4&8f346&1&UID8388688
-            var id = FixedString(monitor.DeviceId, 128);
+            var id = DisplayTopology.CaptureActive().Paths.FirstOrDefault()?.Target.DevicePath;
+            if (string.IsNullOrEmpty(id))
+            {
+                return null;
+            }
+
             var start = id.IndexOf("DISPLAY#", StringComparison.OrdinalIgnoreCase);
             if (start < 0)
             {
@@ -330,13 +318,10 @@ public static unsafe class DisplayProfiles
 
             return trimmed.Replace('#', '\\');
         }
-    }
-
-    private static string FixedString(char* value, int length)
-    {
-        var span = new ReadOnlySpan<char>(value, length);
-        var end = span.IndexOf('\0');
-        return new string(end < 0 ? span : span[..end]);
+        catch (Win32Exception)
+        {
+            return null;
+        }
     }
 
     /// <summary>A full candidate mode, so one test path serves both discovery axes.</summary>
