@@ -151,18 +151,18 @@ public sealed unsafe class TrayHost : IDisposable
     private bool CreateWindows()
     {
         var hInstance = NativeMethods.GetModuleHandleW(0);
-        // RegisterClass logs specifics; ERROR_CLASS_ALREADY_EXISTS is benign
+        // RegisterWindowClass logs specifics; ERROR_CLASS_ALREADY_EXISTS is benign
         // (recreate after a previous destroy) and reported as success. Without the
         // protocol class there is no tray at all, so give up on the real error
         // instead of letting CreateWindowExW report a misleading 1407 later.
-        if (!RegisterClass(TrayClassName, hInstance))
+        if (!MessageWindow.RegisterWindowClass(TrayClassName, &WndProc))
         {
             return false;
         }
 
         // The legacy TrayNotifyWnd child is optional (its creation failure below is
         // only warned about), so a failed registration must not sink the host.
-        _ = RegisterClass(NotifyClassName, hInstance);
+        _ = MessageWindow.RegisterWindowClass(NotifyClassName, &WndProc);
 
         // ManagedShell's shape: an invisible full-width popup pinned to the top of
         // the Z-order region shell32 scans. Never shown — WSGM's own taskbar UI
@@ -199,33 +199,6 @@ public sealed unsafe class TrayHost : IDisposable
         Log.Info($"Tray host created (hwnd 0x{_trayHwnd:X}, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
                  $"WM_COPYDATA filter {(allowed ? "allowed" : $"FAILED error {Marshal.GetLastWin32Error()}")}).");
         return true;
-    }
-
-    private static bool RegisterClass(string className, nint hInstance)
-    {
-        var terminated = className + "\0";
-        fixed (char* pClassName = terminated)
-        {
-            var wc = new NativeMethods.WndClassW
-            {
-                lpfnWndProc = &WndProc,
-                hInstance = hInstance,
-                lpszClassName = (nint)pClassName
-            };
-            if (NativeMethods.RegisterClassW(&wc) != 0)
-            {
-                return true;
-            }
-
-            var error = Marshal.GetLastWin32Error();
-            if (error == 1410)
-            {
-                return true;
-            }
-
-            Log.Warn($"RegisterClassW({className}) failed (error {error}).");
-            return false;
-        }
     }
 
     private static void BroadcastTaskbarCreated()
