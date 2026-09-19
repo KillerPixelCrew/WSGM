@@ -22,7 +22,9 @@ internal sealed class PinnedPluginWidgets : StackPanel
     internal PinnedPluginWidgets(ICommonPluginOverlaySource source, Action<PluginWidgetPin, string> navigate,
         PluginWidgetPreferences? preferences = null)
     {
-        preferences ??= PluginWidgetPreferences.Default;
+        preferences ??= source is CommonPluginOverlaySource commonPlugins
+            ? commonPlugins.WidgetPreferences
+            : throw new ArgumentException("Widget preferences are required for this source.", nameof(preferences));
         Spacing = 8;
         Width = 600;
         HorizontalAlignment = HorizontalAlignment.Left;

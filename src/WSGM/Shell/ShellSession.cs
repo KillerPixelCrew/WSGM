@@ -979,7 +979,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _performanceOverlay,
                 _pluginOverlaySource = _commonPlugins is null && _deviceCoordinator is null
                     ? null
-                    : new CommonPluginOverlaySource(_commonPlugins, _pluginHost,
+                    : new CommonPluginOverlaySource(_commonPlugins, _pluginHost, _config.PluginWidgetPins,
                         _deviceCoordinator is not null && _deviceOverlay is not null
                             ? new DeviceWidgetSource(_deviceCoordinator, _deviceOverlay)
                             : null),

@@ -192,7 +192,9 @@ ConfigStore path.
 The plugin source panel exposes one pin toggle for each validated widget declaration, initialized
 from the saved preference. These edit preferences only on an explicit click and report persistence
 failures. The Device page exposes the same pin controls in its Quick Access widgets expander,
-without duplicating capability editors.
+without duplicating capability editors. The session's plugin overlay source caches one pin snapshot
+for all of these readers, refreshes it after pin mutations, and replaces it when the existing config
+watcher applies a save from Settings or another process.
 
 Pinned common widgets now render below the front-page quick-access cards. The existing contribution
 renderer supplies live state and named actions; widget predicates disable unavailable controls.
