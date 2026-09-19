@@ -19,10 +19,7 @@ public static class DeviceIdentifier
     /// <returns><see langword="true" /> when the identifier is safe to store, log, and use as a key.</returns>
     public static bool IsValid(string value, int maximumLength)
     {
-        return !string.IsNullOrWhiteSpace(value)
-               && value.Length <= maximumLength
-               && value.All(character => char.IsAsciiLetterOrDigit(character)
-                                         || character is '.' or '-' or '_');
+        return PlainText.IsIdentifier(value, maximumLength);
     }
 }
 
