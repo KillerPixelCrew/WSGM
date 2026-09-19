@@ -13,6 +13,9 @@ in-window status and keyboard surfaces, and a power menu. It is outside the prod
 does not change the shipped behavior described below. Controller, hardware and live-game acceptance
 remain pending.
 
+The prototype's Device root contains section tiles only. Its controls live in nested pages, with
+Back/B returning one level and LT/RT retaining horizontal destination navigation.
+
 ## Shared UI
 
 All styling lives in `Themes\` (`Palette.axaml`, `Typography.axaml`, `Shared.axaml` and the control

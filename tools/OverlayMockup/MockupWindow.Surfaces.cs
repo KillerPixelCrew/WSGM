@@ -74,7 +74,7 @@ internal sealed partial class MockupWindow
                 Row("Bluetooth", Toggle("bluetooth", "Bluetooth", true)),
                 Text("Headphones connected · sample connection", muted: true))
         };
-        ShowDetail(title, content);
+        ShowDetail(title, content, false);
     }
 
     private void ShowKeyboard()

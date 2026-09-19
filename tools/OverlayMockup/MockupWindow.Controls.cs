@@ -165,7 +165,7 @@ internal sealed partial class MockupWindow
         readout.Children.Add(number);
         readout.Children.Add(Text(unit, 14, true));
         var top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        top.Children.Add(Text(title, 14, weight: FontWeight.Medium));
+        top.Children.Add(Text(title, weight: FontWeight.Medium));
         Grid.SetColumn(readout, 1);
         top.Children.Add(readout);
         return Stack(top, slider, 2);
@@ -213,8 +213,14 @@ internal sealed partial class MockupWindow
         };
     }
 
-    private void ShowDetail(string title, Control content)
+    private void ShowDetail(string title, Control content, bool allowDeviceSubpage = true)
     {
+        if (allowDeviceSubpage && _destination == "Device" && !_surface.IsVisible)
+        {
+            ShowDeviceSubpage(title, content);
+            return;
+        }
+
         var back = ActionButton("← Back", DismissSurface);
         var pane = Card(new ScrollViewer
         {

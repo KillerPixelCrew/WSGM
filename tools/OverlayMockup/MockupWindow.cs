@@ -243,7 +243,7 @@ internal sealed partial class MockupWindow : Window
         ShowDetail("Preview options", Stack(integration, glass,
             Text(
                 "MSI Claw 8 AI+ · Sample device\nF11: fullscreen / windowed\nPage Up / Page Down: previous / next destination",
-                13, true)));
+                13, true)), false);
     }
 
     private Control BuildDock()
@@ -262,6 +262,7 @@ internal sealed partial class MockupWindow : Window
 
     private void Navigate(string destination)
     {
+        _deviceHistory.Clear();
         _destination = destination;
         foreach (var (name, button) in _navigation)
         {
@@ -346,6 +347,10 @@ internal sealed partial class MockupWindow : Window
             else if (_surface.IsVisible)
             {
                 DismissSurface();
+            }
+            else if (_deviceHistory.Count > 0)
+            {
+                BackFromDeviceSubpage();
             }
             else if (_destination != "Quick access")
             {

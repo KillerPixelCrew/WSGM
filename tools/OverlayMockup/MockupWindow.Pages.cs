@@ -43,22 +43,47 @@ internal sealed partial class MockupWindow
 
     private Control DevicePage()
     {
-        var windows = Card(Stack(
+        Control[] common =
+        [
+            Tile("Windows power", "Energy plan and keep-awake controls.",
+                () => ShowDetail("Windows power", WindowsPowerCard())),
+            Tile("Display", "Brightness, refresh rate and variable refresh.",
+                () => ShowDetail("Display", DisplayCard())),
+            Tile("Performance", "Frame limits and the on-screen display.", ShowPerformance),
+            Tile("Controller", "Output and button labels.", ShowController)
+        ];
+        if (!_integration)
+        {
+            return Stack(
+                Banner("Device integration is off", "Windows controls and independent tools are still available."),
+                Flow(340, common));
+        }
+
+        return Flow(340, [
+            Tile("Power limits", "Hardware profiles, AutoTDP and power limits.",
+                () => ShowDetail("Power limits", PowerLimitsCard())),
+            Tile("Fans & thermals", "Fan mode, curve and temperature readings.",
+                () => ShowDetail("Fans & thermals", FansCard())),
+            Tile("Battery & charging", "Charge limit and AC / battery profiles.",
+                () => ShowDetail("Battery & charging", ChargingCard())),
+            .. common,
+            Tile("Lighting", "Colour, brightness and zones.", ShowLighting, count: 3),
+            Tile("Device info", "MSI Claw 8 AI+ A2VM", ShowDeviceInfo)
+        ]);
+    }
+
+    private Control WindowsPowerCard()
+    {
+        return Card(Stack(
             SectionTitle("Windows power", "Available with or without a device plugin."),
             Row("Energy plan",
                 Picker("windows-plan", "Windows energy plan", "Balanced", "Balanced", "Power saver",
                     "High performance")),
             Row("Keep awake", Toggle("keep-awake", "Keep awake"))));
-        if (!_integration)
-        {
-            return Stack(
-                Banner("Device integration is off", "Windows controls and independent tools are still available."),
-                Flow(340, windows, DisplayCard()),
-                Flow(250,
-                    Tile("Performance", "Frame limits and the on-screen display.", ShowPerformance),
-                    Tile("Button glyphs", "Choose the labels shown in the interface.", ShowController)));
-        }
+    }
 
+    private Control PowerLimitsCard()
+    {
         var performance = new FASettingsExpander
         {
             Header = "Automatic power",
@@ -70,7 +95,7 @@ internal sealed partial class MockupWindow
             Picker("target-fps", "Target frame rate", "60 fps", "30 fps", "40 fps", "60 fps", "90 fps")));
         performance.Items.Add(Row("Strategy",
             Picker("auto-strategy", "AutoTDP strategy", "Balanced", "Quiet", "Balanced", "Responsive")));
-        var power = Card(Stack(
+        return Card(Stack(
             SectionTitle("Power & performance", "Limits and automatic control"),
             Row("Hardware profile",
                 Picker("hardware-profile", "Hardware profile", "Balanced", "Super Battery", "Balanced", "Performance",
@@ -81,12 +106,20 @@ internal sealed partial class MockupWindow
             Row("Frame limit",
                 Picker("frame-limit", "Frame limit", "60 fps", "Off", "30 fps", "40 fps", "60 fps", "90 fps",
                     "120 fps"))));
-        var fans = Card(Stack(
+    }
+
+    private Control FansCard()
+    {
+        return Card(Stack(
             SectionTitle("Fans & thermals", "Cooling and current readings"),
             Flow(100, Stat("62 °C", "CPU temperature"), Stat("2,140", "Fan 1 · rpm"), Stat("2,080", "Fan 2 · rpm")),
             Row("Fan mode", Picker("fan-mode", "Fan mode", "Automatic", "Automatic", "Custom", "Full speed")),
             ActionButton("Edit fan curve  ↗", ShowFanCurve)));
-        var charging = Card(Stack(
+    }
+
+    private Control ChargingCard()
+    {
+        return Card(Stack(
             SectionTitle("Battery & charging", "Charge limits and source profiles"),
             Range("charge-limit", "Charge limit", 80, 60, 100, "%"),
             Row("On battery",
@@ -95,13 +128,6 @@ internal sealed partial class MockupWindow
             Row("Plugged in",
                 Picker("ac-profile", "Plugged-in profile", "Performance", "Super Battery", "Balanced", "Performance",
                     "Custom"))));
-        // A deliberate composition of primary and supporting groups. Telemetry never rebuilds it.
-        return Stack(
-            Flow(340, power, Stack(fans, charging), Stack(windows, DisplayCard())),
-            Flow(220,
-                Tile("Lighting", "Colour, brightness and zones.", ShowLighting, count: 3),
-                Tile("Controller", "Output and button labels.", ShowController),
-                Tile("Device info", "MSI Claw 8 AI+ A2VM", ShowDeviceInfo)));
     }
 
     private Control DisplayCard()
@@ -221,7 +247,7 @@ internal sealed partial class MockupWindow
             ActionButton("Use custom curve", () =>
             {
                 State("fan-mode", "Automatic").Value = "Custom";
-                DismissSurface();
+                DismissDetail();
                 Notice("Custom fan curve selected · preview only");
             }, true)));
     }

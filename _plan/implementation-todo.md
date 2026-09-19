@@ -15,6 +15,10 @@ overlay or complete any of issue 114's live input, hardware or lifecycle work. R
 and visual exports passed; maintainer design review and manual testing are pending. Automated
 suites and the production gate are deferred until manual testing.
 
+The Device root is now a navigation-only grid of section tiles. Power, fans, charging, display and
+the remaining groups open nested pages; Back/B restores the parent page and tile focus. This is a
+mockup-only follow-up; production Device behavior is unchanged.
+
 ## ROG Ally X portable tester (2026-09-15)
 
 The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides

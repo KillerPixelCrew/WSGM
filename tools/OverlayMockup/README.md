@@ -28,10 +28,12 @@ Battery-saver behavior needs an attended hardware check.
 ## Explore
 
 - **Quick access:** a session card, brightness, volume, night light and compact sample readings.
-- **Device:** real sliders, selectors, an AutoTDP expander above power limits, cooling, charging,
-  Windows power plans, display, lighting and controller details. The preview options' integration
-  switch demonstrates the device-independent Windows controls. Claw power and charging ranges follow
-  the existing `tests/WSGM.UiTests/Fixtures/claw-ui-publication.json` inventory.
+- **Device:** icon tiles only on the root. Power limits, fans, charging, Windows power, display,
+  performance, controller, lighting and device info each open an in-page submenu. Back / B / Esc
+  returns one level and restores focus to the originating tile; LT / RT still changes destinations.
+  Sliders, selectors and AutoTDP live inside those submenus. The preview options' integration switch
+  demonstrates the device-independent Windows controls. Claw power and charging ranges follow the
+  existing `tests/WSGM.UiTests/Fixtures/claw-ui-publication.json` inventory.
 - **Steam and Tools:** library, launch settings, performance, display, storage and independent
   plugin content from the current overlay, in a new composition.
 - **Power:** wake/idle options and a centred menu with safe initial focus on **Keep playing**.

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
@@ -10,7 +11,54 @@ namespace WSGM.OverlayMockup;
 
 internal sealed partial class MockupWindow
 {
+    private readonly Stack<(Control Content, string? Heading, string? Subtitle, InputElement? Focus)> _deviceHistory =
+        new();
+
     private PreviewGamepad? _gamepad;
+
+    private void ShowDeviceSubpage(string title, Control content)
+    {
+        if (_page.Content is not Control previous)
+        {
+            return;
+        }
+
+        _deviceHistory.Push(
+            (previous, _heading.Text, _subtitle.Text, FocusManager?.GetFocusedElement() as InputElement));
+        var back = ActionButton("← Back", BackFromDeviceSubpage);
+        var page = Stack(back, content);
+        page.MaxWidth = 880;
+        page.HorizontalAlignment = HorizontalAlignment.Left;
+        _page.Content = page;
+        _heading.Text = "Device / " + title;
+        _subtitle.Text = "Preview controls · Changes stay in memory";
+        Dispatcher.UIThread.Post(() => back.Focus(NavigationMethod.Directional));
+    }
+
+    private void BackFromDeviceSubpage()
+    {
+        if (!_deviceHistory.TryPop(out var previous))
+        {
+            return;
+        }
+
+        _page.Content = previous.Content;
+        _heading.Text = previous.Heading;
+        _subtitle.Text = previous.Subtitle;
+        Dispatcher.UIThread.Post(() => previous.Focus?.Focus(NavigationMethod.Directional));
+    }
+
+    private void DismissDetail()
+    {
+        if (_surface.IsVisible)
+        {
+            DismissSurface();
+        }
+        else
+        {
+            BackFromDeviceSubpage();
+        }
+    }
 
     private void CycleDestination(int direction)
     {
