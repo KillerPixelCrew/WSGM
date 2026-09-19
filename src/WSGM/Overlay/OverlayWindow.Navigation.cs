@@ -182,8 +182,8 @@ public partial class OverlayWindow
         }
 
         var previous = _navigation.Destination;
-        var deviceAvailable = showDevice || _powerSchemeSelection is not null;
         var visibilityChanged = _navigation.SetDeviceVisible(showDevice, _powerSchemeSelection is not null);
+        var deviceAvailable = _navigation.IsVisible(OverlayDestination.Device);
         if (!visibilityChanged && Tabs.Tabs is not null)
         {
             return;

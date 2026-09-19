@@ -25,10 +25,10 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    /// <summary>Moves focus to Device when integration is enabled; otherwise leaves the current tab.</summary>
+    /// <summary>Moves focus to Device when the destination is available; otherwise leaves the current tab.</summary>
     internal void SelectDeviceDestination()
     {
-        if (_deviceBridge?.Snapshot().Visible is true)
+        if (_navigation.IsVisible(OverlayDestination.Device))
         {
             SelectDestination(OverlayDestination.Device);
         }
