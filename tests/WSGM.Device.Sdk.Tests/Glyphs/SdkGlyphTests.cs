@@ -122,16 +122,44 @@ public sealed class SdkGlyphTests
             StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Import_DisplayNameWithBidirectionalFormatting_IsRejected()
+    {
+        var result = GlyphPackageImporter.Import(Source(
+            Svg("<path d=\"M 0 0 L 64 64\"/>"),
+            displayName: "Synthetic \u202eDock"));
+
+        Assert.Empty(result.Profiles);
+        Assert.Contains(result.Errors, error => error.Message.StartsWith(
+            "displayName:",
+            StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Import_PhysicalLabelWithBidirectionalFormatting_IsRejected()
+    {
+        var result = GlyphPackageImporter.Import(Source(
+            Svg("<path d=\"M 0 0 L 64 64\"/>"),
+            physicalLabel: "A\u2066"));
+
+        Assert.Empty(result.Profiles);
+        Assert.Contains(result.Errors, error => error.Message.StartsWith(
+            "controls[0].physicalLabel:",
+            StringComparison.Ordinal));
+    }
+
     private static DictionaryGlyphSource Source(
         byte[] svg,
-        GlyphViewBox? declaredViewBox = null)
+        GlyphViewBox? declaredViewBox = null,
+        string displayName = "Synthetic Dock X1",
+        string? physicalLabel = null)
     {
         const string assetId = "face-south";
         GlyphProfileManifest manifest = new()
         {
             SchemaVersion = GlyphProfileLimits.CurrentSchemaVersion,
             ProfileId = "synthetic-dock",
-            DisplayName = "Synthetic Dock X1",
+            DisplayName = displayName,
             Revision = 1,
             ExactDeviceIds = ["synthetic.dock-x1"],
             SourceRevision = "synthetic-revision-1",
@@ -152,7 +180,8 @@ public sealed class SdkGlyphTests
                 {
                     Control = GlyphControlId.FaceSouth,
                     Presence = GlyphControlPresence.Present,
-                    AssetId = assetId
+                    AssetId = assetId,
+                    PhysicalLabel = physicalLabel
                 }
             ]
         };

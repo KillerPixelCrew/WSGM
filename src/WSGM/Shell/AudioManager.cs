@@ -168,13 +168,10 @@ public sealed class AudioManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Muted)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Muted));
             Raise(nameof(VolumeText));
         }
     }
@@ -199,13 +196,10 @@ public sealed class AudioManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(ErrorText)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(ErrorText));
             Raise(nameof(HasError));
         }
     } = "";

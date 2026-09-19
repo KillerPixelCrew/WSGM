@@ -117,13 +117,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(WifiPower)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(WifiPower));
             Raise(nameof(WifiOn));
             Raise(nameof(WifiStateText));
             Raise(nameof(WifiUnavailableText));
@@ -137,13 +134,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(BluetoothPower)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(BluetoothPower));
             Raise(nameof(BluetoothOn));
             Raise(nameof(BluetoothStateText));
             Raise(nameof(BluetoothUnavailableText));
@@ -201,13 +195,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(BluetoothConnectedCount)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(BluetoothConnectedCount));
             Raise(nameof(BluetoothIconState));
         }
     }
@@ -221,13 +212,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(WifiConnected)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(WifiConnected));
             Raise(nameof(WifiIconState));
         }
     }
@@ -239,16 +227,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     public int WifiSignal
     {
         get;
-        private set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(WifiSignal));
-        }
+        private set => SetFieldIfChanged(ref field, value, nameof(WifiSignal));
     }
 
     /// <summary>Gets the joined network's name, or an empty string.</summary>
@@ -285,13 +264,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
             // branch re-claims it, so a connect or pairing result is never
             // cleared by an unrelated successful scan.
             _statusIsScanFailure = false;
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(StatusText)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(StatusText));
             Raise(nameof(HasStatus));
         }
     } = "";

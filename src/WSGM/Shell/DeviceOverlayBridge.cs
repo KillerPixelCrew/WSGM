@@ -724,6 +724,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return null;
         }
 
+        var display = profiles[0].CapabilityId switch
+        {
+            DeviceAuthoredProfileCapabilities.FanCurve => new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            DeviceAuthoredProfileCapabilities.Lighting => new CapabilityDisplay { Key = DisplayKey.Lighting },
+            _ => new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device profile" }
+        };
+        var label = CapabilityDisplayLabels.For(display, "Device profile");
+
         var selected = selectedProfileId is { Length: > 0 }
             ? profiles.FirstOrDefault(profile => string.Equals(
                 profile.ProfileId,
@@ -737,7 +745,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // shown as "none", because none is a state the user chose and this is not.
             return new DescriptorRow(
                 "device.authored-profile",
-                "Fan profile",
+                label,
                 // Cyclable on purpose: pressing it moves to a profile that does exist, which is the
                 // fastest way out of the state for a user who is mid-game.
                 "The selected profile was deleted · press to choose another",
@@ -754,7 +762,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         return new DescriptorRow(
             "device.authored-profile",
-            "Fan profile",
+            label,
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
             true,
@@ -1042,7 +1050,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             descriptor.InstanceId,
             SectionFor(descriptor.Role),
             StatusFor(projection),
-            DisplayLabel(descriptor.Display),
+            CapabilityDisplayLabels.For(descriptor.Display, "Device control"),
             description,
             descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor.Unit),
             canInvoke,
@@ -1300,39 +1308,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             current,
             StringComparison.Ordinal));
         return descriptor.Choices[(index + 1) % descriptor.Choices.Count].Value;
-    }
-
-    private static string DisplayLabel(CapabilityDisplay display)
-    {
-        return display.Key switch
-        {
-            DisplayKey.Custom => display.CustomLabel ?? "Device control",
-            DisplayKey.Tdp => "TDP",
-            DisplayKey.SustainedPowerLimit => "Sustained power limit",
-            DisplayKey.BoostPowerLimit => "Boost power limit",
-            DisplayKey.PerformanceProfile => "Performance profile",
-            DisplayKey.FanMode => "Fan mode",
-            DisplayKey.FanSpeed => "Fan speed",
-            DisplayKey.FanCurve => "Fan curve",
-            DisplayKey.FanLeft => "Left fan",
-            DisplayKey.FanRight => "Right fan",
-            DisplayKey.ChargeLimit => "Charge limit",
-            DisplayKey.BypassCharging => "Bypass charging",
-            DisplayKey.Lighting => "Lighting",
-            DisplayKey.Brightness => "Brightness",
-            DisplayKey.LightingEffect => "Lighting effect",
-            DisplayKey.LightingEffectSpeed => "Effect speed",
-            DisplayKey.CpuTemperature => "CPU temperature",
-            DisplayKey.Battery => "Battery",
-            DisplayKey.Controller => "Controller",
-            DisplayKey.Motion => "Motion",
-            DisplayKey.Rumble => "Rumble",
-            DisplayKey.VariableRefreshRate => "Variable refresh rate",
-            // Reached only by a key this build does not know, which means a plugin compiled against a
-            // newer SDK. A missing arm here is invisible in the worst way — the row renders, with a
-            // label that describes nothing — so every key the SDK declares belongs above.
-            _ => "Device control"
-        };
     }
 
     private static string FormatValue(CapabilityValue? value, CapabilityUnit unit)

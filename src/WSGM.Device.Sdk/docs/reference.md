@@ -677,9 +677,8 @@ Schema version 1, camelCase JSON, unknown members rejected, depth ≤ 12.
 
 `GlyphAssetEntry`: `assetId` (identifier ≤ 128, naming the file under `glyphs/assets`), `format`
 (`Svg` or `Png`), `role` (`Control`, `FullController`, `LeftController`, `RightController`,
-`ControlHighlight`), and
-exactly one of `viewBox` for SVG (positive width and height, every extent within ±4096) or
-`pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤ 4,194,304).
+`ControlHighlight`), and exactly one of `viewBox` for SVG (positive width and height, every extent
+within ±4096) or `pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤ 4,194,304).
 
 `GlyphControlMapping`: `control` (`GlyphControlId`), `presence` (`Present` or `Absent`), `side`
 (`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a `Control`

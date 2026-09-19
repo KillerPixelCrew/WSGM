@@ -28,6 +28,8 @@ public sealed class UnelevatedLauncherTests
         Assert.StartsWith("<?xml version=\"1.0\" encoding=\"UTF-16\"?>", xml);
         Assert.Contains("<LogonType>InteractiveToken</LogonType>", xml);
         Assert.DoesNotContain("<RunLevel>", xml);
+        Assert.DoesNotContain("<Arguments>", xml);
+        Assert.DoesNotContain("<WorkingDirectory>", xml);
     }
 
     [Fact]

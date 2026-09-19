@@ -259,19 +259,9 @@ internal static class DevicePackageStager
         string installedRoot,
         Func<string, FileAttributes?>? attributeReader = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        var recoveryRoot = ReplacementRecoveryRoot(destination);
-        var readAttributes = attributeReader
-                             ?? DevicePackagePolicy.ReadPathAttributes;
-        var destinationExists = ValidateDirectoryPath(
-            destination,
-            "Installed package root",
-            readAttributes);
-        var recoveryExists = ValidateDirectoryPath(
-            recoveryRoot,
-            "Device package replacement recovery",
-            readAttributes);
+        var (destination, recoveryRoot, readAttributes, destinationExists, recoveryExists) = ResolveSlot(
+            installedRoot,
+            attributeReader);
 
         CleanupStagingRoot(destination, readAttributes);
         if (destinationExists)
@@ -289,21 +279,13 @@ internal static class DevicePackageStager
     /// <summary>Returns the stable, undiscoverable sibling used to recover an interrupted swap.</summary>
     internal static string ReplacementRecoveryRoot(string installedRoot)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        var parent = Directory.GetParent(destination)?.FullName
-                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
-        return Path.Combine(parent, RecoveryDirectoryName);
+        return ProtectedSibling(installedRoot, RecoveryDirectoryName);
     }
 
     /// <summary>Returns the fixed, undiscoverable sibling used to validate a replacement.</summary>
     internal static string ReplacementStagingRoot(string installedRoot)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        var parent = Directory.GetParent(destination)?.FullName
-                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
-        return Path.Combine(parent, StagingDirectoryName);
+        return ProtectedSibling(installedRoot, StagingDirectoryName);
     }
 
     /// <summary>
@@ -315,19 +297,9 @@ internal static class DevicePackageStager
         string installedRoot,
         Func<string, FileAttributes?>? attributeReader = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
-        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
-        var recoveryRoot = ReplacementRecoveryRoot(destination);
-        var readAttributes = attributeReader
-                             ?? DevicePackagePolicy.ReadPathAttributes;
-        var destinationExists = ValidateDirectoryPath(
-            destination,
-            "Installed package root",
-            readAttributes);
-        var recoveryExists = ValidateDirectoryPath(
-            recoveryRoot,
-            "Device package replacement recovery",
-            readAttributes);
+        var (destination, recoveryRoot, readAttributes, destinationExists, recoveryExists) = ResolveSlot(
+            installedRoot,
+            attributeReader);
 
         if (destinationExists)
         {
@@ -344,6 +316,25 @@ internal static class DevicePackageStager
         Action<string>? beforeDirectoryDelete = null,
         Func<string, FileAttributes?>? attributeReader = null)
     {
+        var (destination, recoveryRoot, readAttributes, destinationExists, recoveryExists) = ResolveSlot(
+            installedRoot,
+            attributeReader);
+        CleanupStagingRoot(destination, readAttributes);
+        DeleteDirectoryIfPresent(recoveryRoot, recoveryExists, beforeDirectoryDelete);
+        // Delete the live slot last. If any recovery cleanup fails, a failed removal leaves the
+        // current package active instead of allowing a surviving backup to resurrect later.
+        DeleteDirectoryIfPresent(destination, destinationExists, beforeDirectoryDelete);
+    }
+
+    private static (
+        string Destination,
+        string RecoveryRoot,
+        Func<string, FileAttributes?> ReadAttributes,
+        bool DestinationExists,
+        bool RecoveryExists) ResolveSlot(
+        string installedRoot,
+        Func<string, FileAttributes?>? attributeReader)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
         var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
         var recoveryRoot = ReplacementRecoveryRoot(destination);
@@ -357,11 +348,16 @@ internal static class DevicePackageStager
             recoveryRoot,
             "Device package replacement recovery",
             readAttributes);
-        CleanupStagingRoot(destination, readAttributes);
-        DeleteDirectoryIfPresent(recoveryRoot, recoveryExists, beforeDirectoryDelete);
-        // Delete the live slot last. If any recovery cleanup fails, a failed removal leaves the
-        // current package active instead of allowing a surviving backup to resurrect later.
-        DeleteDirectoryIfPresent(destination, destinationExists, beforeDirectoryDelete);
+        return (destination, recoveryRoot, readAttributes, destinationExists, recoveryExists);
+    }
+
+    private static string ProtectedSibling(string installedRoot, string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
+        var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);
+        var parent = Directory.GetParent(destination)?.FullName
+                     ?? throw new InvalidDataException("The installed package root needs a parent directory.");
+        return Path.Combine(parent, name);
     }
 
     private static async Task CopyPackageAsync(

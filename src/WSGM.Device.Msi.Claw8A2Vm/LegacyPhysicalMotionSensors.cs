@@ -213,14 +213,6 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
                 return PhysicalMotionReadResult.Failed;
             }
 
-            // The Intel accelerometer's synchronous GetData can wait for its next changed report
-            // while the device is still. Read it first so that the gyrometer report and timestamp
-            // are acquired last, immediately before this combined sample is published.
-            if (!TryReadVector(accelerometer, out var acceleration, out error))
-            {
-                return PhysicalMotionReadResult.Failed;
-            }
-
             var result = TryReadGyrometer(
                 gyrometer,
                 out var angularVelocity,
@@ -230,6 +222,14 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             if (result != PhysicalMotionReadResult.Fresh)
             {
                 return result;
+            }
+
+            // Polling runs faster than the gyrometer report interval. Qualify that report before
+            // paying for the accelerometer's synchronous GetData, which can also wait for a changed
+            // report while the device is still.
+            if (!TryReadVector(accelerometer, out var acceleration, out error))
+            {
+                return PhysicalMotionReadResult.Failed;
             }
 
             _lastCounter = counter;

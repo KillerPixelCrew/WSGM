@@ -85,16 +85,7 @@ public sealed class SdFormatManager : ObservableObject
     public bool HasTargets
     {
         get;
-        private set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(HasTargets));
-        }
+        private set => SetFieldIfChanged(ref field, value, nameof(HasTargets));
     }
 
     /// <summary>
@@ -106,13 +97,10 @@ public sealed class SdFormatManager : ObservableObject
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Busy)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Busy));
             Raise(nameof(NotBusy));
         }
     }
@@ -126,13 +114,10 @@ public sealed class SdFormatManager : ObservableObject
         get;
         private set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(StatusText)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(StatusText));
             Raise(nameof(HasStatus));
         }
     } = "";

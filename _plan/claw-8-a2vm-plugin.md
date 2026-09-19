@@ -373,7 +373,7 @@ Solution `VID_8087&PID_0AC2`:
   `b14c764f-07cf-41e8-9d82-ebe3d0776a6f`. Gyroscope values are degrees/second; acceleration values
   are g and form a vector of about 1 g while the stationary device is tilted.
 - Gyrometer field 34 is an opaque `VT_UI4` hardware-report counter. It advances even at rest, so the
-  plugin polls every 2 ms but publishes only when this counter changes.
+  plugin polls every 2 ms but reads the accelerometer and publishes only when this counter changes.
 - The gyrometer advertises a 10 ms minimum report interval (100 Hz maximum), while the
   accelerometer advertises 2 ms. Each cycle requests the collection's own minimum and records the
   prior current interval; release restores it only if no other client changed the value meanwhile.

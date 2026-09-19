@@ -66,16 +66,7 @@ public sealed class RemovableDriveEntry : ObservableObject
     public string Name
     {
         get => field.Length == 0 ? "Removable drive" : field;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(Name));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(Name));
     } = "";
 
     /// <summary>Gets the drive letter(s), e.g. "E:" or "E:, F:".</summary>
@@ -84,13 +75,10 @@ public sealed class RemovableDriveEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Letters)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Letters));
             Raise(nameof(StatusLine));
         }
     } = "";
@@ -107,16 +95,7 @@ public sealed class RemovableDriveEntry : ObservableObject
     public string SizeText
     {
         get;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(StatusLine));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(StatusLine));
     } = "";
 
     /// <summary>Gets whether an eject is in flight for this row.</summary>
@@ -125,13 +104,10 @@ public sealed class RemovableDriveEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Busy)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Busy));
             Raise(nameof(StatusLine));
             Raise(nameof(ActionEnabled));
         }
@@ -147,13 +123,10 @@ public sealed class RemovableDriveEntry : ObservableObject
         get;
         internal set
         {
-            if (field == value)
+            if (!SetFieldIfChanged(ref field, value, nameof(Ejected)))
             {
                 return;
             }
-
-            field = value;
-            Raise(nameof(Ejected));
             Raise(nameof(StatusLine));
             Raise(nameof(ActionEnabled));
         }
@@ -167,16 +140,7 @@ public sealed class RemovableDriveEntry : ObservableObject
     public string ResultText
     {
         get;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(StatusLine));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(StatusLine));
     } = "";
 
     /// <summary>
@@ -187,16 +151,7 @@ public sealed class RemovableDriveEntry : ObservableObject
     public bool Expanded
     {
         get;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(Expanded));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(Expanded));
     }
 
     /// <summary>Gets whether the Eject button may be pressed.</summary>

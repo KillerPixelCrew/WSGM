@@ -10,6 +10,19 @@ namespace WSGM.Tests.Core;
 public sealed class SteamGlyphCssTests
 {
     [Fact]
+    public void StylesheetIsMemoizedByProfileRevisionAndHidingPolicy()
+    {
+        var presentation = Presentation();
+
+        var first = SteamGlyphCss.Build(presentation, true);
+        var second = SteamGlyphCss.Build(presentation, true);
+        var shown = SteamGlyphCss.Build(presentation, false);
+
+        Assert.Same(first, second);
+        Assert.NotSame(first, shown);
+    }
+
+    [Fact]
     public void NativeArtworkStillHidesAbsentControlsAndRestoresArtworkWhenSelected()
     {
         SteamInputGlyphDeliveryState state = new();
@@ -29,7 +42,7 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void AbsentRearButtonsHideIndividualRowsWithoutHidingSharedSections()
     {
-        SteamInputGlyphPresentation presentation = new("device", 1, [], [], [GlyphControlId.RearLeft2], []);
+        SteamInputGlyphPresentation presentation = new("absent-rear", 1, [], [], [GlyphControlId.RearLeft2], []);
         var css = SteamGlyphCss.Build(presentation, true);
         Assert.Contains($".{SteamGlyphCss.ControlRowClass}:has(img[src=\"/steaminputglyphs/sd_l5.svg\"])", css,
             StringComparison.Ordinal);
@@ -45,7 +58,7 @@ public sealed class SteamGlyphCssTests
         // The gyro "select gyro button(s)" picker is a grid of icon checkboxes rather than binding
         // rows, so none of the row or section anchors reach it. A Claw was still offered both
         // trackpads, L5/R5 and both stick-touch controls there.
-        SteamInputGlyphPresentation presentation = new("device", 1, [], [],
+        SteamInputGlyphPresentation presentation = new("absent-picker-controls", 1, [], [],
             [GlyphControlId.LeftStickTouch, GlyphControlId.RearLeft2, GlyphControlId.LeftTrackpad], []);
 
         var css = SteamGlyphCss.Build(presentation, true);
@@ -90,7 +103,7 @@ public sealed class SteamGlyphCssTests
             StringComparison.Ordinal);
 
         // No full-controller artwork, no override: the Deck stays rather than turning into nothing.
-        SteamInputGlyphPresentation bare = new("device", 1, [], [], [], []);
+        SteamInputGlyphPresentation bare = new("bare-controller", 1, [], [], [], []);
         Assert.DoesNotContain(SteamGlyphCss.DeckDiagramViewBox, SteamGlyphCss.Build(bare, true),
             StringComparison.Ordinal);
     }
@@ -105,7 +118,7 @@ public sealed class SteamGlyphCssTests
         // selections light several overlays without a rule per combination.
         SteamInputGlyphAssetReference artwork = new("data:image/svg+xml;base64,QQ==");
         SteamInputGlyphPresentation presentation = new(
-            "device",
+            "highlighted-controller",
             1,
             [],
             [new SteamInputGlyphControllerImageMapping("full", artwork)],
@@ -253,7 +266,7 @@ public sealed class SteamGlyphCssTests
     [Fact]
     public void AProfileWithNothingToDrawProducesNoStylesheetAtAll()
     {
-        SteamInputGlyphPresentation empty = new("example.handheld", 1, [], [], [], []);
+        SteamInputGlyphPresentation empty = new("empty", 1, [], [], [], []);
 
         Assert.Equal(string.Empty, SteamGlyphCss.Build(empty, true));
     }

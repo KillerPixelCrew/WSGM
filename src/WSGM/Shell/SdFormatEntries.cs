@@ -55,16 +55,7 @@ public sealed class FormatTargetEntry : ObservableObject
     public string Name
     {
         get => field.Length == 0 ? "Removable drive" : field;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(Name));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(Name));
     } = "";
 
     /// <summary>
@@ -74,15 +65,6 @@ public sealed class FormatTargetEntry : ObservableObject
     public string Detail
     {
         get;
-        internal set
-        {
-            if (field == value)
-            {
-                return;
-            }
-
-            field = value;
-            Raise(nameof(Detail));
-        }
+        internal set => SetFieldIfChanged(ref field, value, nameof(Detail));
     } = "";
 }

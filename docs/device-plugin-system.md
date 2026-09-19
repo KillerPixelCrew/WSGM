@@ -820,11 +820,11 @@ settings manifest, and keeps every vendor address inside the package.
 
 Identity: `DetectAsync` matches SMBIOS manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.`, baseboard
 `MS-1T52` and SKU `1T52.1` and returns definition id `ms-1t52`. Start re-reads identity and gates
-the WMI-backed services on the EC firmware (`Get_EC` prefix `1T52EMS1.109`); a mismatch leaves
-those services unavailable with `FirmwareNotVerified`. The MCU revision (USB `bcdDevice`) is
-recorded in the identity snapshot but never gated on: controller ownership needs only the exact
-machine, and lighting verifies the committed RGB profile's shape at `0x024A` on every acquire and
-goes passive, not faulted, when a controller firmware changes it.
+the WMI-backed services on the EC firmware (`Get_EC` prefix `1T52EMS1.109`); a mismatch leaves those
+services unavailable with `FirmwareNotVerified`. The MCU revision (USB `bcdDevice`) is recorded in
+the identity snapshot but never gated on: controller ownership needs only the exact machine, and
+lighting verifies the committed RGB profile's shape at `0x024A` on every acquire and goes passive,
+not faulted, when a controller firmware changes it.
 
 Transports: `MSI_ACPI` over WMI with 32-byte packages, a 3 s per-operation timeout and a required
 status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendor collection for the
@@ -886,15 +886,16 @@ reading; sticks are `(v − 128) / 127` with Y negated. Front-button WMI events 
 `sensorsapi`: `Physical Gyrometer` in degrees/second and `Physical Accelerometer` in g, both from
 custom fields 7/8/9 and both mapped from raw `(X, Y, Z)` to application `(X, Z, -Y)`. The gyro's
 opaque `VT_UI4` field 34 distinguishes fresh hardware reports from repeated polling results. The
-cycle requests the gyro's 10 ms and accelerometer's 2 ms driver minima, polls every 2 ms, and
-restores the prior intervals on release when still owned. This part's gyro carries a real zero-rate
-offset that Intel ISS does not remove and no controller target corrects, so
-`StationaryGyroBiasCalibrator` measures it from 200-report rest windows — gated on rate span,
-acceleration span and gravity magnitude — and subtracts it. Subtraction only: a deadband or a
-zero-hold would replace the drift with a dead zone around rest. Readings older than 50 ms stop
-contributing angular velocity and the frame average preserves their area. Motion writes no
-per-report file and emits no per-sample line into `wsgm.log`; only the measured offset and read
-failure transitions are logged. No acceleration or orientation is synthesized.
+cycle requests the gyro's 10 ms and accelerometer's 2 ms driver minima, polls every 2 ms, and checks
+the gyro counter before reading the accelerometer, then restores the prior intervals on release when
+still owned. This part's gyro carries a real zero-rate offset that Intel ISS does not remove and no
+controller target corrects, so `StationaryGyroBiasCalibrator` measures it from 200-report rest
+windows — gated on rate span, acceleration span and gravity magnitude — and subtracts it.
+Subtraction only: a deadband or a zero-hold would replace the drift with a dead zone around rest.
+Readings older than 50 ms stop contributing angular velocity and the frame average preserves their
+area. Motion writes no per-report file and emits no per-sample line into `wsgm.log`; only the
+measured offset and read failure transitions are logged. No acceleration or orientation is
+synthesized.
 
 Haptics: low and high frequency native, triggers unsupported, 250 frames per second,
 `MinimumStartIntensity = 56/255` and `MinimumPulse = 10 ms` (Claw sweep, 2026-09-02). Output report

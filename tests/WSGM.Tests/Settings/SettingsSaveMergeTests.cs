@@ -17,6 +17,7 @@ public sealed class SettingsSaveMergeTests
             StartupApps = [new StartupAppConfig { Path = "new.exe" }]
         });
         values.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        values.SteamStorageFormatEnabled = false;
         values.DeviceIntegration.AutoTdpEnabled = false;
         values.DeviceIntegration.ControllerTarget = ManagedControllerTarget.Xbox360;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
@@ -31,6 +32,10 @@ public sealed class SettingsSaveMergeTests
             new DisplayLayoutOutput(new DisplayTargetIdentity(@"\\?\a", null, null, "A", 0, 0, 1), 0, 0, 1920, 1080,
                 DisplayRefresh.FromHertz(60))
         ]);
+        fresh.LibraryTabOrder = ["fresh-tab"];
+        fresh.QuickAccessPins = ["fresh-pin"];
+        fresh.PreviousShellSnapshotCaptured = true;
+        fresh.PreviousShellValue = "explorer.exe";
         fresh.DeviceIntegration.AutoTdpEnabled = true;
         fresh.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
         fresh.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
@@ -48,19 +53,24 @@ public sealed class SettingsSaveMergeTests
             false);
 
         var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
-        SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
-        Assert.Equal(savedPowerScheme, fresh.LastSelectedPowerSchemeId);
+        var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+        Assert.Equal(savedPowerScheme, merged.LastSelectedPowerSchemeId);
 
-        Assert.True(fresh.SteamAutoRelaunch);
-        Assert.Equal("#123456", fresh.AccentColor);
-        Assert.Equal("new.exe", Assert.Single(fresh.StartupApps).Path);
-        Assert.Equal(GameModeLaunchKind.Custom, fresh.GameModeLaunch.Kind);
-        Assert.NotNull(fresh.GameModeLaunchRecovery.PendingReturnLayout);
-        Assert.True(fresh.DeviceIntegration.AutoTdpEnabled);
-        Assert.Equal(ManagedControllerTarget.DualShock4, fresh.DeviceIntegration.ControllerTarget);
+        Assert.True(merged.SteamAutoRelaunch);
+        Assert.Equal("#123456", merged.AccentColor);
+        Assert.Equal("new.exe", Assert.Single(merged.StartupApps).Path);
+        Assert.Equal(GameModeLaunchKind.Custom, merged.GameModeLaunch.Kind);
+        Assert.NotNull(merged.GameModeLaunchRecovery.PendingReturnLayout);
+        Assert.False(merged.SteamStorageFormatEnabled);
+        Assert.Equal("fresh-tab", Assert.Single(merged.LibraryTabOrder));
+        Assert.Equal("fresh-pin", Assert.Single(merged.QuickAccessPins));
+        Assert.True(merged.PreviousShellSnapshotCaptured);
+        Assert.Equal("explorer.exe", merged.PreviousShellValue);
+        Assert.True(merged.DeviceIntegration.AutoTdpEnabled);
+        Assert.Equal(ManagedControllerTarget.DualShock4, merged.DeviceIntegration.ControllerTarget);
         Assert.Equal(
             DeviceGlyphSelection.ManualReviewedProfile,
-            fresh.DeviceIntegration.GlyphSelection);
+            merged.DeviceIntegration.GlyphSelection);
     }
 
     [Fact]
@@ -108,18 +118,18 @@ public sealed class SettingsSaveMergeTests
             true,
             false);
 
-        SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+        var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
 
-        var scope = Assert.Single(fresh.DeviceIntegration.PluginSettings);
+        var scope = Assert.Single(merged.DeviceIntegration.PluginSettings);
         Assert.Equal("keep", scope.Values.Single(value => value.SettingId == "runtime-only").Text);
         var edited = scope.Values.Single(value => value.SettingId == "edited");
         Assert.Equal(0xAABBCC, edited.Color);
         Assert.Null(edited.Integer);
         Assert.Equal("new", Assert.Single(scope.Profiles).ProfileId);
-        Assert.True(fresh.DeviceIntegration.AutoTdpEnabled);
-        Assert.Equal(ManagedControllerTarget.DualShock4, fresh.DeviceIntegration.ControllerTarget);
+        Assert.True(merged.DeviceIntegration.AutoTdpEnabled);
+        Assert.Equal(ManagedControllerTarget.DualShock4, merged.DeviceIntegration.ControllerTarget);
         Assert.Equal(
             DeviceGlyphSelection.ManualReviewedProfile,
-            fresh.DeviceIntegration.GlyphSelection);
+            merged.DeviceIntegration.GlyphSelection);
     }
 }
