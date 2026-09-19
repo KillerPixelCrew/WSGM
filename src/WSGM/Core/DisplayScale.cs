@@ -1,17 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
-using static WSGM.Interop.Kernel32;
-using static WSGM.Interop.NativeDisplay;
+using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
 /// <summary>
-///     Owns the display state WSGM changes through DisplayConfig packets: per-monitor
-///     scaling (the 100%/125%/150% setting) via the undocumented-but-ABI-stable DPI packets — the
-///     same mechanism the Settings app uses, applying INSTANTLY with no logoff (live-verified) and
-///     PERSISTING in the registry — and Windows HDR (advanced color) per active display. Scaling
+///     Owns WSGM's per-monitor scaling policy (the 100%/125%/150% setting), using
+///     <see cref="DisplayScaling" /> for the Windows CCD reads and writes. Changes apply INSTANTLY
+///     with no logoff (live-verified) and PERSIST in the registry. Scaling
 ///     persistence is why the pre-game values are stored in WSGM's config and restored on desktop
 ///     mode, clean exit, panic, and recovery. Game mode runs at 100% so DPI-unaware games render
 ///     1:1 on the panel. HDR is queried and set on the path TARGET, never the GDI source; see
@@ -20,11 +17,8 @@ namespace WSGM.Core;
 ///     this class remains the scaling posture Default entry applies and the snapshot recovery
 ///     restores.
 /// </summary>
-public static unsafe class DisplayScale
+public static class DisplayScale
 {
-    // Index 0 = 100%. Recommended = DpiVals[abs(MinScaleRel)].
-    private static readonly uint[] DpiVals = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
-
     /// <summary>
     ///     Game mode: capture ALL current per-display scalings into the config
     ///     (unless a crashed session already left captured values there), persist them,
@@ -43,15 +37,15 @@ public static unsafe class DisplayScale
 
         var freshCapture = config.SavedDisplayScaleEntries.Count == 0;
         var captured = new List<DisplayScaleEntry>();
-        var toLower = new List<((Luid Adapter, uint SourceId) Source, uint Current)>();
+        var toLower = new List<(ActiveDisplayPath Display, int Current)>();
         foreach (var source in sources)
         {
-            if (!TryGetScale(source, out var current, out _, out _) || current == 100)
+            if (!DisplayScaling.TryRead(source.Target, out var current) || current == 100)
             {
                 continue;
             }
 
-            var name = GetSourceDeviceName(source.Adapter, source.SourceId);
+            var name = source.SourceName;
             if (name.Length == 0)
             {
                 // A ""-named entry can never be matched by name on restore, so it
@@ -92,7 +86,7 @@ public static unsafe class DisplayScale
 
         foreach (var (source, current) in toLower)
         {
-            if (TrySetScale(source, 100))
+            if (TrySetScale(source.Target, 100))
             {
                 Log.Info($"Display scale -> 100% (was {current}%).");
             }
@@ -130,7 +124,7 @@ public static unsafe class DisplayScale
         }
 
         var named = sources
-            .Select(source => (Source: source, Name: GetSourceDeviceName(source.Adapter, source.SourceId)))
+            .Select(source => (Source: source, Name: source.SourceName))
             .ToList();
 
         var remaining = new List<DisplayScaleEntry>();
@@ -149,7 +143,7 @@ public static unsafe class DisplayScale
                 // and never re-save it, or it would block in the config forever,
                 // warned about on every restore.
                 if (positional < named.Count &&
-                    TrySetScale(named[positional].Source, (uint)entry.Percent))
+                    TrySetScale(named[positional].Source.Target, entry.Percent))
                 {
                     Log.Info(
                         $"Display scale restored to {entry.Percent}% (unnamed legacy entry, positional -> '{named[positional].Name}').");
@@ -172,7 +166,7 @@ public static unsafe class DisplayScale
                 continue;
             }
 
-            if (TrySetScale(named[idx].Source, (uint)entry.Percent))
+            if (TrySetScale(named[idx].Source.Target, entry.Percent))
             {
                 Log.Info($"Display scale restored to {entry.Percent}% ({entry.DeviceName}).");
             }
@@ -224,7 +218,7 @@ public static unsafe class DisplayScale
         {
             var sources = GetActiveSources();
             foreach (var saved in sources
-                         .Select(source => GetSourceDeviceName(source.Adapter, source.SourceId))
+                         .Select(source => source.SourceName)
                          .Select(name => config.SavedDisplayScaleEntries.Find(e =>
                              string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase))))
             {
@@ -234,9 +228,10 @@ public static unsafe class DisplayScale
                 }
             }
 
-            if (sources.Count > 0 && TryGetScale(sources[0], out var current, out var recommended, out _))
+            if (sources.Count > 0 &&
+                DisplayScaling.TryReadRange(sources[0].Target, out var current, out var recommended, out _))
             {
-                return PickUiScalePercent(null, current, recommended);
+                return PickUiScalePercent(null, (uint)current, (uint)recommended);
             }
         }
         catch (Exception ex)
@@ -282,161 +277,32 @@ public static unsafe class DisplayScale
 
     internal static int NormalizeConfiguredPercent(int percent)
     {
-        return (int)DpiVals.MinBy(candidate => Math.Abs((int)candidate - percent));
+        return DisplayScaling.Snap(percent);
     }
 
-    private static bool TryGetScale((Luid Adapter, uint SourceId) source, out uint currentPct, out uint recommendedPct,
-        out uint maxPct)
+    private static bool TrySetScale(DisplayTargetIdentity target, int percent)
     {
-        currentPct = recommendedPct = maxPct = 0;
-        var get = new DpiScaleGet
-        {
-            Header =
-            {
-                Type = GetDpiScaleType,
-                Size = (uint)Marshal.SizeOf<DpiScaleGet>(),
-                AdapterId = source.Adapter,
-                Id = source.SourceId
-            }
-        };
-        if (DisplayConfigGetDeviceInfo(ref get) != 0)
-        {
-            return false;
-        }
-
-        var cur = Math.Clamp(get.CurScaleRel, get.MinScaleRel, get.MaxScaleRel);
-        var rec = Math.Abs(get.MinScaleRel);
-        if (rec + get.MaxScaleRel + 1 > DpiVals.Length)
-        {
-            return false;
-        }
-
-        currentPct = DpiVals[rec + cur];
-        recommendedPct = DpiVals[rec];
-        maxPct = DpiVals[rec + get.MaxScaleRel];
-        return true;
-    }
-
-    private static bool TrySetScale((Luid Adapter, uint SourceId) source, uint percent)
-    {
-        if (!TryGetScale(source, out var current, out var recommended, out var max))
-        {
-            return false;
-        }
-
-        if (percent == current)
-        {
-            return true;
-        }
-
-        percent = Math.Clamp(percent, 100u, max);
-        var idx = Array.IndexOf(DpiVals, percent);
-        var recIdx = Array.IndexOf(DpiVals, recommended);
-        if (idx < 0 || recIdx < 0)
-        {
-            return false;
-        }
-
-        var set = new DpiScaleSet
-        {
-            Header =
-            {
-                Type = SetDpiScaleType,
-                Size = (uint)Marshal.SizeOf<DpiScaleSet>(),
-                AdapterId = source.Adapter,
-                Id = source.SourceId
-            },
-            ScaleRel = idx - recIdx
-        };
-        var ok = DisplayConfigSetDeviceInfo(ref set) == 0;
+        var ok = DisplayScaling.TrySet(target, percent, out var detail);
         if (!ok)
         {
-            Log.Warn($"Display scale: set {percent}% failed.");
+            Log.Warn($"Display scale: set {percent}% failed: {detail}.");
         }
 
         return ok;
     }
 
-    private static List<(Luid Adapter, uint SourceId)> GetActiveSources()
+    private static List<ActiveDisplayPath> GetActiveSources()
     {
-        var result = new List<(Luid, uint)>();
         try
         {
-            var paths = QueryActivePaths("Display scale", out var numPaths);
-            if (paths is null)
-            {
-                return result;
-            }
-
-            for (var i = 0; i < numPaths; i++)
-            {
-                var key = (paths[i].SourceInfo.AdapterId, paths[i].SourceInfo.Id);
-                if (!result.Exists(x => x.Item2 == key.Id
-                                        && x.Item1.LowPart == key.AdapterId.LowPart &&
-                                        x.Item1.HighPart == key.AdapterId.HighPart))
-                {
-                    result.Add(key);
-                }
-            }
+            return DisplayTopology.CaptureActive().Paths
+                .DistinctBy(path => path.SourceName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
         catch (Exception ex)
         {
             Log.Warn($"Display scale: enumeration failed: {ex.Message}");
+            return [];
         }
-
-        return result;
-    }
-
-    // ---- shared DisplayConfig plumbing ------------------------------------------------------
-
-    private static PathInfo[]? QueryActivePaths(string context, out uint numPaths)
-    {
-        // The path set can grow between the sizing call and the query (dock/
-        // undock is exactly when this code tends to run), so retry on
-        // ERROR_INSUFFICIENT_BUFFER — the documented pattern for this API.
-        int status;
-        PathInfo[] paths;
-        var attempts = 0;
-        do
-        {
-            if (GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out numPaths, out var numModes) != 0)
-            {
-                return null;
-            }
-
-            paths = new PathInfo[numPaths];
-            var modes = new ModeInfo[numModes];
-            status = QueryDisplayConfig(QdcOnlyActivePaths, ref numPaths, paths, ref numModes, modes, 0);
-        } while (status == ErrorInsufficientBuffer && ++attempts < 5);
-
-        if (status == 0)
-        {
-            return paths;
-        }
-
-        Log.Warn($"{context}: QueryDisplayConfig failed with {status}.");
-        return null;
-    }
-
-    private static string GetSourceDeviceName(Luid adapterId, uint sourceId)
-    {
-        var packet = new SourceDeviceName
-        {
-            Header =
-            {
-                Type = GetSourceNameType,
-                Size = (uint)sizeof(SourceDeviceName),
-                AdapterId = adapterId,
-                Id = sourceId
-            }
-        };
-        if (DisplayConfigGetDeviceInfo(ref packet) != 0)
-        {
-            return "";
-        }
-
-        var name = new ReadOnlySpan<char>(packet.ViewGdiDeviceName, 32);
-        var len = name.IndexOf('\0');
-        return new string(len >= 0 ? name[..len] : name);
     }
 }
