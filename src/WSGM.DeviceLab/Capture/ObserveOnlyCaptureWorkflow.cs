@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -514,7 +513,7 @@ internal static class ObserveOnlyCaptureWorkflow
             .. streams.Select((stream, index) => new CaptureStreamDescriptor
             {
                 SourceId = stream.SourceId,
-                Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
+                Path = $"streams/{index:D3}-{DeviceLabPaths.SafeName(stream.SourceId, allowDot: false)}.ndjson",
                 EventCount = stream.Events.Count
             })
         ];
@@ -561,7 +560,7 @@ internal static class ObserveOnlyCaptureWorkflow
             .. streams.Select((stream, index) => new CaptureStreamDescriptor
             {
                 SourceId = stream.SourceId,
-                Path = $"streams/{index:D3}-{SafeName(stream.SourceId)}.ndjson",
+                Path = $"streams/{index:D3}-{DeviceLabPaths.SafeName(stream.SourceId, allowDot: false)}.ndjson",
                 EventCount = stream.Events.Count
             })
         ];
@@ -637,17 +636,6 @@ internal static class ObserveOnlyCaptureWorkflow
                 stream.WriteByte((byte)'\n');
             }
         });
-    }
-
-    private static string SafeName(string sourceId)
-    {
-        StringBuilder name = new();
-        foreach (var character in sourceId.ToLowerInvariant())
-        {
-            name.Append(char.IsAsciiLetterOrDigit(character) || character is '-' or '_' ? character : '-');
-        }
-
-        return name.Length == 0 ? "source" : name.ToString();
     }
 
     private static string? TryDelete(string path)

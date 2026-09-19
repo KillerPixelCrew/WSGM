@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using WSGM.DeviceLab.Application;
@@ -65,7 +63,7 @@ internal static class FixtureExtractionWorkflow
         foreach (var stream in bundle.Streams.OrderBy(stream => stream.SourceId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            inputs[$"input/streams/{SafeName(stream.SourceId)}.ndjson"] = Ndjson(
+            inputs[$"input/streams/{DeviceLabPaths.SafeName(stream.SourceId, allowDot: true)}.ndjson"] = Ndjson(
                 stream.Events,
                 captureEvent => JsonSerializer.SerializeToUtf8Bytes(
                     captureEvent,
@@ -77,7 +75,7 @@ internal static class FixtureExtractionWorkflow
         foreach (var analysis in bundle.Analysis.OrderBy(item => item.AnalyzerId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            expected[$"expected/analysis/{SafeName(analysis.AnalyzerId)}.ndjson"] = Ndjson(
+            expected[$"expected/analysis/{DeviceLabPaths.SafeName(analysis.AnalyzerId, allowDot: true)}.ndjson"] = Ndjson(
                 analysis.Results,
                 result => JsonSerializer.SerializeToUtf8Bytes(
                     result,
@@ -185,29 +183,6 @@ internal static class FixtureExtractionWorkflow
                 offset += length;
             }
         });
-    }
-
-    /// <summary>Turns one source or analyzer identifier into a distinct filesystem-safe name.</summary>
-    /// <param name="value">The identifier as the capture recorded it.</param>
-    /// <returns>A sanitized name that is unique to that exact identifier.</returns>
-    /// <remarks>
-    ///     The hash suffix is what makes it injective. Sanitizing alone maps distinct identifiers such
-    ///     as <c>pad/a</c> and <c>pad?a</c> onto the same name, and the dictionary assignment then
-    ///     silently replaced the first stream: the fixture still validated while omitting source data
-    ///     and expected results, so replay no longer represented the capture it came from.
-    /// </remarks>
-    private static string SafeName(string value)
-    {
-        var sanitized = string.Concat(value.Select(character =>
-            char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' ? character : '-'));
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            sanitized = "unknown";
-        }
-
-        var digest = Convert.ToHexStringLower(
-            SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..8];
-        return $"{sanitized}-{digest}";
     }
 
     private static byte[] WithNewline(byte[] bytes)

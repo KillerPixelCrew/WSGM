@@ -202,7 +202,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
 
         var sessionDirectory = Path.Combine(
             Path.GetFullPath(outputDirectory),
-            $"probe-{SafeFileName(probe.Id)}-{Guid.NewGuid():N}");
+            $"probe-{DeviceLabPaths.SafeName(probe.Id, allowDot: false)}-{Guid.NewGuid():N}");
         var run = await ReadProbeWorkerSupervisor.RunAsync(
             probe,
             preflight,
@@ -591,12 +591,6 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
                     .Order(StringComparer.Ordinal)
             ]
         };
-    }
-
-    private static string SafeFileName(string value)
-    {
-        return string.Concat(value.Select(character =>
-            char.IsAsciiLetterOrDigit(character) || character is '-' or '_' ? character : '-'));
     }
 
     private static bool ProbeFamilyMatches(string familyId, string targetDeviceId)
