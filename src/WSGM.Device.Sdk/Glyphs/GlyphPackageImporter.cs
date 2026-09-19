@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Serialization;
 
 namespace WSGM.Device.Sdk.Glyphs;
@@ -317,7 +318,11 @@ public static class GlyphPackageImporter
             Invalid("profileId", "A bounded identifier is required.");
         }
 
-        if (!IsDisplayText(manifest.DisplayName, GlyphProfileLimits.MaxDisplayNameLength))
+        if (!PlainText.TryValidate(
+                manifest.DisplayName,
+                GlyphProfileLimits.MaxDisplayNameLength,
+                "displayName",
+                out _))
         {
             Invalid("displayName", "A bounded plain display name is required.");
         }
@@ -441,7 +446,11 @@ public static class GlyphPackageImporter
             }
 
             if (control.PhysicalLabel is { } label
-                && !IsDisplayText(label, GlyphProfileLimits.MaxPhysicalLabelLength))
+                && !PlainText.TryValidate(
+                    label,
+                    GlyphProfileLimits.MaxPhysicalLabelLength,
+                    "physicalLabel",
+                    out _))
             {
                 Invalid($"{path}.physicalLabel", "The physical label is not bounded plain text.");
             }
@@ -661,13 +670,6 @@ public static class GlyphPackageImporter
 
         return value.All(character => char.IsAsciiLetterOrDigit(character)
                                       || character is '.' or '-' or '_');
-    }
-
-    private static bool IsDisplayText(string? value, int maximumLength)
-    {
-        return !string.IsNullOrWhiteSpace(value)
-               && value.Length <= maximumLength
-               && value.All(character => !char.IsControl(character));
     }
 
     private static bool IsNoticePath(string? value)
