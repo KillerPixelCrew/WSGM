@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -253,46 +252,22 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 
     public SteamUiPatchBounds Bounds => SteamUiPatchBounds.Default;
 
-    public async Task<SteamUiPatchProbeResult> ProbeAsync(
+    public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        var result = await context.EvaluateAsync(
+        return SteamUiPatchEvaluation.EvaluateProbeAsync(
+            context,
             TargetRole,
             "(()=>{try{const W=window.__wsgm;return JSON.stringify({ok:true,"
             + "runtime:!!window.webpackChunksteamui,"
             + "owned:!!(W&&W.dlSortPatched)});"
             + "}catch(e){return JSON.stringify({ok:false,error:String(e)});}})()",
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchProbeResult(
-                false,
-                false,
-                false,
-                null,
-                result.Error ?? "SharedJSContext is unavailable.");
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            var compatible = root.TryGetProperty("ok", out var ok)
-                             && ok.ValueKind == JsonValueKind.True
-                             && root.TryGetProperty("runtime", out var runtime)
-                             && runtime.ValueKind == JsonValueKind.True;
-            return new SteamUiPatchProbeResult(
-                true,
-                compatible,
-                compatible,
-                compatible ? "download-sort-v1:jsx-runtime+focusable+queue-header" : null,
-                compatible ? null : result.Value);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamUiPatchProbeResult(true, false, false, null, ex.Message);
-        }
+            root => SteamUiPatchEvaluation.Flag(root, "ok")
+                    && SteamUiPatchEvaluation.Flag(root, "runtime"),
+            "download-sort-v1:jsx-runtime+focusable+queue-header",
+            "SharedJSContext is unavailable.",
+            cancellationToken);
     }
 
     public Task<SteamUiPatchOperationResult> ApplyAsync(

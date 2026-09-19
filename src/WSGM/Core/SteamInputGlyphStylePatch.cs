@@ -59,22 +59,23 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
     ///     generated Steam class names used for individual containers. Class observations are diagnostic:
     ///     lazy editor styles or an unrelated logo must not disable stable binding-row hiding.
     /// </remarks>
-    public async Task<SteamUiPatchProbeResult> ProbeAsync(
+    public Task<SteamUiPatchProbeResult> ProbeAsync(
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (state.Current is null)
         {
-            return new SteamUiPatchProbeResult(
+            return Task.FromResult(new SteamUiPatchProbeResult(
                 true,
                 false,
                 false,
                 null,
-                "No reviewed handheld glyph profile is selected.");
+                "No reviewed handheld glyph profile is selected."));
         }
 
-        var result = await context.EvaluateAsync(
+        return SteamUiPatchEvaluation.EvaluateProbeAsync(
+            context,
             TargetRole,
             $$"""
               (()=>{try{
@@ -98,25 +99,11 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 return JSON.stringify({ok:!!document.head,styleSheets:styles,rowClass:rowSeen,logoClass:logoSeen});
               }catch(error){return JSON.stringify({ok:false,error:String(error)}); } })()
               """,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchProbeResult(
-                false,
-                false,
-                false,
-                null,
-                result.Error ?? "Steam MainWindow is unavailable.");
-        }
-
-        // Individual selector drift must not suppress every independent rule in the sheet.
-        var compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value);
-        return new SteamUiPatchProbeResult(
-            true,
-            compatible,
-            compatible,
-            compatible ? $"wsgm-glyph-style-v1:{state.Current.ProfileId}:{state.Current.Revision}" : null,
-            compatible ? null : SteamUiPatchEvaluation.Bounded(result.Value));
+            // Individual selector drift must not suppress every independent rule in the sheet.
+            root => SteamUiPatchEvaluation.Flag(root, "ok"),
+            $"wsgm-glyph-style-v1:{state.Current.ProfileId}:{state.Current.Revision}",
+            "Steam MainWindow is unavailable.",
+            cancellationToken);
     }
 
     /// <inheritdoc />
