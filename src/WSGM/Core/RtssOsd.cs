@@ -542,9 +542,6 @@ internal sealed class LhmSensorReader : IDisposable
 
     private const string MutexName = "Global\\Access_LHMDPSharedMemory";
 
-    // Kept across samples: a fresh multi-megabyte array each second landed on the large object heap,
-    // and reopening the named mutex every read cost a kernel round trip for the same object.
-    private byte[] _buffer = [];
     private bool _disposed;
     private Mutex? _gate;
 
@@ -560,7 +557,7 @@ internal sealed class LhmSensorReader : IDisposable
 
     /// <summary>Reads the current sensor XML, or null while the provider is not publishing.</summary>
     /// <returns>The XML fragment stream (multiple root elements), or null.</returns>
-    internal string? TryReadXml()
+    internal unsafe string? TryReadXml()
     {
         if (_disposed || !TryOpen())
         {
@@ -586,14 +583,23 @@ internal sealed class LhmSensorReader : IDisposable
                 }
 
                 var size = (int)Math.Min(_view!.Capacity, 4 * 1024 * 1024);
-                if (_buffer.Length != size)
+                byte* pointer = null;
+                var pointerAcquired = false;
+                try
                 {
-                    _buffer = new byte[size];
+                    _view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
+                    pointerAcquired = true;
+                    pointer += _view.PointerOffset;
+                    var length = new ReadOnlySpan<byte>(pointer, size).IndexOf((byte)0);
+                    return length <= 0 ? null : Encoding.UTF8.GetString(pointer, length);
                 }
-
-                _view.ReadArray(0, _buffer, 0, size);
-                var length = Array.IndexOf(_buffer, (byte)0);
-                return length <= 0 ? null : Encoding.UTF8.GetString(_buffer, 0, length);
+                finally
+                {
+                    if (pointerAcquired)
+                    {
+                        _view.SafeMemoryMappedViewHandle.ReleasePointer();
+                    }
+                }
             }
             finally
             {
