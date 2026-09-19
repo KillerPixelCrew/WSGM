@@ -423,13 +423,16 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Null(DeviceOverlayBridge.NextProfile([], "anything"));
     }
 
-    private static DeviceAuthoredProfile Profile(string id, string name)
+    private static DeviceAuthoredProfile Profile(
+        string id,
+        string name,
+        string capabilityId = DeviceAuthoredProfileCapabilities.FanCurve)
     {
         return new DeviceAuthoredProfile
         {
             ProfileId = id,
             Name = name,
-            CapabilityId = "thermal.fan-curve"
+            CapabilityId = capabilityId
         };
     }
 
@@ -452,6 +455,20 @@ public sealed class DeviceOverlayBridgeTests
 
         Assert.Equal("QUIET", row?.TrailingText);
         Assert.Contains("everything", row?.Description);
+    }
+
+    [Theory]
+    [InlineData(DeviceAuthoredProfileCapabilities.FanCurve, "Fan curve")]
+    [InlineData(DeviceAuthoredProfileCapabilities.Lighting, "Lighting")]
+    [InlineData("future.profile", "Device profile")]
+    public void AnAuthoredProfileUsesItsCapabilityKindAsTheLabel(string capabilityId, string expected)
+    {
+        var row = DeviceOverlayBridge.AuthoredProfileView(
+            [Profile("profile", "Profile", capabilityId)],
+            "profile",
+            false);
+
+        Assert.Equal(expected, row?.Title);
     }
 
     [Fact]
@@ -491,6 +508,17 @@ public sealed class DeviceOverlayBridgeTests
 
         Assert.Equal("MISSING", row?.TrailingText);
         Assert.Equal(DescriptorStatus.Warning, row?.Status);
+    }
+
+    [Fact]
+    public void ADeletedSelectionStillUsesTheAuthoredCapabilityKindAsTheLabel()
+    {
+        var row = DeviceOverlayBridge.AuthoredProfileView(
+            [Profile("colour", "Colour", DeviceAuthoredProfileCapabilities.Lighting)],
+            "deleted",
+            true);
+
+        Assert.Equal("Lighting", row?.Title);
     }
 
     [Fact]

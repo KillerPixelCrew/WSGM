@@ -724,6 +724,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return null;
         }
 
+        var display = profiles[0].CapabilityId switch
+        {
+            DeviceAuthoredProfileCapabilities.FanCurve => new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            DeviceAuthoredProfileCapabilities.Lighting => new CapabilityDisplay { Key = DisplayKey.Lighting },
+            _ => new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device profile" }
+        };
+        var label = DisplayLabel(display);
+
         var selected = selectedProfileId is { Length: > 0 }
             ? profiles.FirstOrDefault(profile => string.Equals(
                 profile.ProfileId,
@@ -737,7 +745,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // shown as "none", because none is a state the user chose and this is not.
             return new DescriptorRow(
                 "device.authored-profile",
-                "Fan profile",
+                label,
                 // Cyclable on purpose: pressing it moves to a profile that does exist, which is the
                 // fastest way out of the state for a user who is mid-game.
                 "The selected profile was deleted · press to choose another",
@@ -754,7 +762,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         return new DescriptorRow(
             "device.authored-profile",
-            "Fan profile",
+            label,
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
             true,
