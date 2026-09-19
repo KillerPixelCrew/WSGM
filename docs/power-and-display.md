@@ -144,9 +144,12 @@ itself; this Windows control belongs in the overlay and Steam QAM.
 
 Steam QAM → Performance offers a Windows power profile dropdown, built on Valve's dropdown field.
 Selecting an entry applies it immediately through the same Core backend and saves the verified GUID.
-Each publication reads Windows; the backend rejects unknown or removed GUIDs and requires a fresh
-read after an uncertain write. The row shows failures and disables input while its request is
-pending. The toolkit owns row placement and command validation; WSGM owns Windows access.
+Each publication reads the active GUID. The installed scheme list is cached for one minute and
+invalidated after a selection, so schemes created or renamed outside WSGM appear on the bounded
+refresh while routine publications avoid repeating the native enumeration. The backend rejects
+unknown or removed GUIDs and requires a fresh read after an uncertain write. The row shows failures
+and disables input while its request is pending. The toolkit owns row placement and command
+validation; WSGM owns Windows access.
 
 ## Device power presets
 
