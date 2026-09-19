@@ -13,20 +13,23 @@ public sealed class NativeQamBrightnessServiceTests
             () => brightness, _ => throw new InvalidOperationException("Readback must not write."),
             Timeout.InfiniteTimeSpan);
         service.Changed += () => changes++;
-        await service.ReadAsync();
+        var initial = await service.ReadAsync();
         Assert.Equal(42, service.Current!.Percent);
-        await service.ReadAsync();
+        var unchanged = await service.ReadAsync();
+        Assert.Equal(initial!.Revision, unchanged!.Revision);
         Assert.Equal(1, changes);
         brightness = 73;
-        await service.ReadAsync();
+        var changed = await service.ReadAsync();
         Assert.Equal(73, service.Current!.Percent);
+        Assert.True(changed!.Revision > unchanged.Revision);
         brightness = null;
         await service.ReadAsync();
         Assert.Null(service.Current);
         Assert.Equal(3, changes);
         brightness = 21;
-        await service.ReadAsync();
+        var restored = await service.ReadAsync();
         Assert.Equal(21, service.Current!.Percent);
+        Assert.True(restored!.Revision > changed.Revision);
         Assert.Equal(4, changes);
     }
 

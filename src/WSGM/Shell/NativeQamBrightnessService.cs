@@ -121,10 +121,11 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
     private SteamBrightnessState? ReadUnderGate()
     {
-        var next = _read() is { } percent and >= 0 and <= 100
-            ? new SteamBrightnessState(percent, ++_revision)
+        var percent = _read() is { } value and >= 0 and <= 100 ? value : (int?)null;
+        var changed = percent != _current?.Percent;
+        var next = percent is { } validPercent
+            ? new SteamBrightnessState(validPercent, changed ? ++_revision : _current!.Revision)
             : null;
-        var changed = next?.Percent != _current?.Percent;
         _current = next;
         if (changed)
         {
