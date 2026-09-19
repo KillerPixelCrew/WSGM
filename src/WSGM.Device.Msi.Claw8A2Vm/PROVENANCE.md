@@ -127,8 +127,8 @@ Claw 8 AI+ A2VM, not from vendor documentation. Two consequences:
   counter: it advances for stationary samples too. The gyrometer advertises a 10 ms minimum report
   interval (100 Hz); the accelerometer advertises 2 ms, but its synchronous `GetData` can still wait
   about 200 ms for a changed report at rest. Combined reads therefore acquire and qualify the
-  gyrometer first, so duplicate polls do not incur an accelerometer read; a delayed accelerometer can
-  make the paired gyro report and timestamp older by at most that wait. The application-axis
-  transform for both die-aligned sensors is `(raw X, raw Z, -raw Y)`;
-  the Steam Deck encoder reverses that once when filling the controller's raw IMU slots. WinRT does
-  not project the accelerometer and its gyrometer event path suppresses unchanged reports.
+  gyrometer first, so duplicate polls do not incur an accelerometer read; a delayed accelerometer
+  can make the paired gyro report and timestamp older by at most that wait. The application-axis
+  transform for both die-aligned sensors is `(raw X, raw Z, -raw Y)`; the Steam Deck encoder
+  reverses that once when filling the controller's raw IMU slots. WinRT does not project the
+  accelerometer and its gyrometer event path suppresses unchanged reports.
