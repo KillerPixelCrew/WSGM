@@ -17,21 +17,23 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 {
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(3);
     private readonly SemaphoreSlim _serializer = new(1, 1);
+    private ManagementObject? _instance;
+    private ManagementClass? _packageClass;
     private bool _disposed;
 
     public ValueTask<bool> IsProviderAvailableAsync(CancellationToken cancellationToken)
     {
         return RunSerializedAsync(
-            static () =>
+            () =>
             {
+                InvalidateProvider();
                 using ManagementClass definition = new("root\\WMI", "MSI_ACPI", null);
                 if (definition.Methods.Cast<MethodData>().All(method => method.Name != "Get_WMI"))
                 {
                     return false;
                 }
 
-                using var instance = FindActiveInstance();
-                return instance is not null;
+                return AcquireProvider();
             },
             cancellationToken);
     }
@@ -86,6 +88,12 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
     public ValueTask DisposeAsync()
     {
         _disposed = true;
+        if (_serializer.Wait(0))
+        {
+            InvalidateProvider();
+            _serializer.Release();
+        }
+
         return ValueTask.CompletedTask;
     }
 
@@ -98,15 +106,26 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         Task<T>? operationTask = null;
         try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             operationTask = Task.Run(operation, CancellationToken.None);
             return await operationTask
                 .WaitAsync(deadline.Token)
                 .ConfigureAwait(false);
         }
+        catch when (operationTask?.IsFaulted == true)
+        {
+            InvalidateProvider();
+            throw;
+        }
         finally
         {
             if (operationTask is null || operationTask.IsCompleted)
             {
+                if (_disposed)
+                {
+                    InvalidateProvider();
+                }
+
                 _serializer.Release();
             }
             else
@@ -126,17 +145,28 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         {
             // The caller already received the bounded timeout. Observing the late transport failure
             // here prevents an unobserved exception while retaining serialization until WMI exits.
+            InvalidateProvider();
         }
         finally
         {
+            if (_disposed)
+            {
+                InvalidateProvider();
+            }
+
             _serializer.Release();
         }
     }
 
-    private static byte[] InvokeCore(string methodName, byte[] request)
+    private byte[] InvokeCore(string methodName, byte[] request)
     {
-        using var instance = FindActiveInstance()
-                             ?? throw new FileNotFoundException("The reviewed MSI_ACPI instance was not present.");
+        if (!AcquireProvider())
+        {
+            throw new FileNotFoundException("The reviewed MSI_ACPI instance was not present.");
+        }
+
+        var instance = _instance!;
+        var packageClass = _packageClass!;
 
         // Null means the method takes no in-parameters, which is not an error and not a missing
         // instance: on the A2VM's firmware `Get_WMI`, `Get_EC`, `Get_EC2` and `GetPackage` are all
@@ -146,7 +176,6 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         // Device-verified on the reference Claw 2026-08-29: with a null input, `Get_WMI` returns its
         // 32-byte package with status 0x01.
         using var input = instance.GetMethodParameters(methodName);
-        using ManagementClass packageClass = new("root\\WMI", "Package_32", null);
         using var package = input is null ? null : packageClass.CreateInstance();
         if (input is not null)
         {
@@ -181,6 +210,43 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 
             return response;
         }
+    }
+
+    private bool AcquireProvider()
+    {
+        if (_instance is not null && _packageClass is not null)
+        {
+            return true;
+        }
+
+        var instance = FindActiveInstance();
+        if (instance is null)
+        {
+            return false;
+        }
+
+        ManagementClass? packageClass = null;
+        try
+        {
+            packageClass = new ManagementClass("root\\WMI", "Package_32", null);
+            _instance = instance;
+            _packageClass = packageClass;
+            return true;
+        }
+        catch
+        {
+            packageClass?.Dispose();
+            instance.Dispose();
+            throw;
+        }
+    }
+
+    private void InvalidateProvider()
+    {
+        _packageClass?.Dispose();
+        _packageClass = null;
+        _instance?.Dispose();
+        _instance = null;
     }
 
     private static ManagementObject? FindActiveInstance()
