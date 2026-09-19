@@ -26,6 +26,8 @@
   <!-- The wrapper and WSGM compile the same canonical binding sources from the submodule.
        The native DLLs already ship beside both executables in the app directory. -->
   <ItemGroup>
+    <!-- The resident app and wrapper must submit the same de-elevation task document. -->
+    <Compile Include="..\WSGM\Core\ScheduledTaskXml.cs" Link="Shared\ScheduledTaskXml.cs"/>
     <!-- PlatformSupport.cs is the binding project's own assembly attribute, not binding code. -->
     <Compile Include="..\..\external\steam-input-lease\bindings\SteamInterop.Net\*.cs"
              Exclude="..\..\external\steam-input-lease\bindings\SteamInterop.Net\PlatformSupport.cs"
