@@ -372,7 +372,7 @@ internal sealed partial class MainForm : Form
         int connected = 0; ushort buttons = 0;
         for (uint i = 0; i < 4; i++)
         {
-            if (InputCapture.XInputGetState(i, out var state) == 0) { connected++; buttons = state.Gamepad.Buttons; }
+            if (InputSources.XInputGetState(i, out var state) == 0) { connected++; buttons = state.Gamepad.Buttons; }
         }
 
         if (connected != 1) { _controllerReleased = false; return; }
