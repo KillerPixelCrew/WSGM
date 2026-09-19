@@ -24,16 +24,10 @@ internal sealed record PluginOverlayInstance(
 
 internal sealed record PluginWidgetPreferences(
     Func<Task<PluginWidgetPin[]>> Read,
+    Func<PluginWidgetPin, bool, Task> Set,
     Func<PluginWidgetPin, int, Task> Move,
     Func<PluginWidgetPin, Task> Remove,
-    Func<Task> Reset)
-{
-    internal static PluginWidgetPreferences Default { get; } = new(
-        () => Task.Run(() => ConfigStore.Load().PluginWidgetPins.ToArray()),
-        CommonPluginOverlaySource.MovePinAsync,
-        pin => CommonPluginOverlaySource.SetPinnedAsync(pin, false),
-        CommonPluginOverlaySource.ResetPinOrderAsync);
-}
+    Func<Task> Reset);
 
 /// <summary>Read-only widget observations and explicit action routing, independent of package lifecycle.</summary>
 internal interface ICommonPluginOverlaySource
@@ -46,18 +40,34 @@ internal interface ICommonPluginOverlaySource
 }
 
 /// <summary>Routes overlay intent to the resident common host without giving views lifecycle ownership.</summary>
-internal sealed class CommonPluginOverlaySource(
-    CommonPluginManager? manager,
-    PluginHost host,
-    ICommonPluginOverlaySource? device = null) : ICommonPluginOverlaySource
+internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
 {
-    internal ICommonPluginOverlaySource? Device => device;
+    private readonly ICommonPluginOverlaySource? _device;
+    private readonly PluginHost _host;
+    private readonly CommonPluginManager? _manager;
+    private readonly object _pinsGate = new();
+    private PluginWidgetPin[] _pins;
+
+    internal CommonPluginOverlaySource(CommonPluginManager? manager, PluginHost host,
+        IReadOnlyList<PluginWidgetPin> pins, ICommonPluginOverlaySource? device = null)
+    {
+        _manager = manager;
+        _host = host;
+        _device = device;
+        _pins = pins.ToArray();
+        WidgetPreferences = new PluginWidgetPreferences(ReadPinsAsync, SetPinnedAsync, MovePinAsync,
+            pin => SetPinnedAsync(pin, false), ResetPinOrderAsync);
+    }
+
+    internal ICommonPluginOverlaySource? Device => _device;
+
+    internal PluginWidgetPreferences WidgetPreferences { get; }
 
     public PluginOverlayInstance[] Snapshot()
     {
         return
         [
-            .. (manager?.Snapshot() ?? []).Select(instance =>
+            .. (_manager?.Snapshot() ?? []).Select(instance =>
             {
                 var owner = instance.Registration;
                 var actions = owner?.Actions;
@@ -69,41 +79,61 @@ internal sealed class CommonPluginOverlaySource(
                     owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
                     owner is { IsStopping: false, Quarantined: false }, instance.Error);
             }),
-            .. device?.Snapshot() ?? []
+            .. _device?.Snapshot() ?? []
         ];
     }
 
     public PluginStatePublication[] State(PluginInstanceIdentity identity)
     {
-        return device?.Snapshot().Any(instance => instance.Identity == identity) == true
-            ? device.State(identity)
-            : host.StateSnapshot(identity);
+        return _device?.Snapshot().Any(instance => instance.Identity == identity) == true
+            ? _device.State(identity)
+            : _host.StateSnapshot(identity);
     }
 
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {
-        return device?.Snapshot().Any(instance => instance.Identity == identity) == true
-            ? device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
-            : host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
+        return _device?.Snapshot().Any(instance => instance.Identity == identity) == true
+            ? _device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
+            : _host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
                 DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken);
     }
 
-    internal static Task SetPinnedAsync(PluginWidgetPin pin, bool pinned)
+    internal void ApplyPins(IReadOnlyList<PluginWidgetPin> pins)
     {
-        return Task.Run(() =>
-            ConfigStore.Mutate(config => PluginWidgetPins.Set(config.PluginWidgetPins, pin, pinned)));
+        lock (_pinsGate)
+        {
+            _pins = pins.ToArray();
+        }
     }
 
-    internal static Task MovePinAsync(PluginWidgetPin pin, int offset)
+    private Task<PluginWidgetPin[]> ReadPinsAsync()
     {
-        return Task.Run(() =>
-            ConfigStore.Mutate(config => PluginWidgetPins.Move(config.PluginWidgetPins, pin, offset)));
+        lock (_pinsGate)
+        {
+            return Task.FromResult(_pins);
+        }
     }
 
-    internal static Task ResetPinOrderAsync()
+    private Task SetPinnedAsync(PluginWidgetPin pin, bool pinned)
     {
-        return Task.Run(() =>
-            ConfigStore.Mutate(config => PluginWidgetPins.ResetOrder(config.PluginWidgetPins)));
+        return MutatePinsAsync(pins => PluginWidgetPins.Set(pins, pin, pinned));
+    }
+
+    private Task MovePinAsync(PluginWidgetPin pin, int offset)
+    {
+        return MutatePinsAsync(pins => PluginWidgetPins.Move(pins, pin, offset));
+    }
+
+    private Task ResetPinOrderAsync()
+    {
+        return MutatePinsAsync(PluginWidgetPins.ResetOrder);
+    }
+
+    private async Task MutatePinsAsync(Action<List<PluginWidgetPin>> mutate)
+    {
+        var pins = await Task.Run(() =>
+            ConfigStore.Mutate(config => mutate(config.PluginWidgetPins)).PluginWidgetPins.ToArray());
+        ApplyPins(pins);
     }
 }

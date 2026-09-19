@@ -532,6 +532,7 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+        _sources.CommonPlugins?.ApplyPins(config.PluginWidgetPins);
         // The master CEF switch is owned by ShellSession, which retracts injected UI
         // before closing it — setting it here as well would cut that retraction off.
         // UI-thread only: this writes view-model state, control titles and the

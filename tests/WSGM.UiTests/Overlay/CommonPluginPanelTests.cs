@@ -26,8 +26,10 @@ public sealed class CommonPluginPanelTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var host = UiFixture.Named<StackPanel>(window, "CommonPluginRows");
-        host.Children.Add(new CommonPluginPanel(new MutableProvider(),
-            readPins: () => Task.FromResult(Array.Empty<PluginWidgetPin>())));
+        PluginWidgetPreferences preferences = new(() => Task.FromResult(Array.Empty<PluginWidgetPin>()),
+            (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, _ => Task.CompletedTask,
+            () => Task.CompletedTask);
+        host.Children.Add(new CommonPluginPanel(new MutableProvider(), preferences: preferences));
         var tile = UiFixture.Named<CardButton>(window, "SystemPluginsTile");
         tile.IsVisible = true;
         UiFixture.Click(window, UiFixture.Tab(window, 2));
@@ -43,7 +45,8 @@ public sealed class CommonPluginPanelTests
         var window = fixture.Overlay();
         PluginWidgetPin pin = new("test", "default", "power");
         PluginWidgetPreferences preferences = new(() => Task.FromResult(new[] { pin }),
-            (_, _) => Task.CompletedTask, _ => Task.CompletedTask, () => Task.CompletedTask);
+            (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, _ => Task.CompletedTask,
+            () => Task.CompletedTask);
         PinnedPluginWidgets panel = new(new MutableProvider(), (_, _) => { }, preferences);
         UiFixture.Named<StackPanel>(window, "PinnedPluginWidgetsHost").Children.Add(panel);
         Dispatcher.UIThread.RunJobs();
@@ -61,6 +64,11 @@ public sealed class CommonPluginPanelTests
         PluginWidgetPin second = new("missing", "default", "second");
         List<PluginWidgetPin> pins = [first, second];
         PluginWidgetPreferences preferences = new(() => Task.FromResult(pins.ToArray()),
+            (pin, pinned) =>
+            {
+                PluginWidgetPins.Set(pins, pin, pinned);
+                return Task.CompletedTask;
+            },
             (pin, offset) =>
             {
                 PluginWidgetPins.Move(pins, pin, offset);

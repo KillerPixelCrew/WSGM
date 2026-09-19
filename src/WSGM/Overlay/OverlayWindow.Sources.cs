@@ -228,12 +228,13 @@ public partial class OverlayWindow
             return;
         }
 
-        CommonPluginPanel panel = new(source, readPins: PluginWidgetPreferences.Default.Read);
+        var preferences = source.WidgetPreferences;
+        CommonPluginPanel panel = new(source, preferences: preferences);
         CommonPluginRows.Children.Add(panel);
         if (source.Device is { } device)
         {
             DeviceWidgetPinsHost.Children.Add(new CommonPluginPanel(device, pinsOnly: true,
-                readPins: PluginWidgetPreferences.Default.Read));
+                preferences: preferences));
         }
 
         PinnedPluginWidgetsHost.Children.Add(new PinnedPluginWidgets(source, (pin, category) =>
@@ -243,7 +244,7 @@ public partial class OverlayWindow
             SelectDestination(OverlayDestination.System);
             EnterSubView(OverlayPage.SystemPlugins);
             Dispatcher.UIThread.Post(() => panel.FocusCategory(pin, category));
-        }));
+        }, preferences));
     }
 
     /// <summary>Supplies the reader behind the Device page's missing-prerequisites banner.</summary>

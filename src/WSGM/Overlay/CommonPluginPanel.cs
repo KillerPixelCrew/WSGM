@@ -26,6 +26,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly CancellationTokenSource _closed = new();
     private readonly Action<PluginWidgetPin, string>? _navigate;
     private readonly bool _pinsOnly;
+    private readonly PluginWidgetPreferences? _preferences;
     private readonly Func<Task<PluginWidgetPin[]>>? _readPins;
     private readonly List<Action> _refresh = [];
     private readonly ICommonPluginOverlaySource _source;
@@ -36,12 +37,13 @@ internal sealed class CommonPluginPanel : StackPanel
 
     internal CommonPluginPanel(ICommonPluginOverlaySource source, PluginWidgetPin? widget = null,
         Action<PluginWidgetPin, string>? navigate = null, bool pinsOnly = false,
-        Func<Task<PluginWidgetPin[]>>? readPins = null)
+        PluginWidgetPreferences? preferences = null)
     {
         _source = source;
         _widget = widget;
         _pinsOnly = pinsOnly;
-        _readPins = readPins;
+        _preferences = preferences;
+        _readPins = preferences?.Read;
         _navigate = navigate;
         Spacing = 8;
         // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
@@ -225,7 +227,7 @@ internal sealed class CommonPluginPanel : StackPanel
         {
             PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);
             Children.Add(new PluginWidgetPinControls(widget.Label,
-                isPinned => CommonPluginOverlaySource.SetPinnedAsync(pin, isPinned),
+                isPinned => _preferences?.Set(pin, isPinned) ?? Task.CompletedTask,
                 _readPins is null ? null : async () => (await _readPins()).Contains(pin)));
         }
 
