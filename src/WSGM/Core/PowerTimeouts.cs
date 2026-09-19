@@ -55,6 +55,28 @@ public static class PowerTimeouts
             return null;
         }
 
+        return Read(scheme, kind);
+    }
+
+    /// <summary>
+    ///     Reads all four timeout values after resolving the active power scheme once.
+    /// </summary>
+    internal static (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) ReadAll()
+    {
+        if (!TryGetActiveScheme(out var scheme))
+        {
+            return (null, null, null, null);
+        }
+
+        return (
+            Read(scheme, PowerTimeoutKind.DisplayDc),
+            Read(scheme, PowerTimeoutKind.DisplayAc),
+            Read(scheme, PowerTimeoutKind.SleepDc),
+            Read(scheme, PowerTimeoutKind.SleepAc));
+    }
+
+    private static int? Read(Guid scheme, PowerTimeoutKind kind)
+    {
         var (subgroup, setting, dc) = Locate(kind);
         try
         {

@@ -674,12 +674,13 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     private void RefreshPowerTimeouts(OverlayViewModel vm)
     {
-        vm.DisplayDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayDc));
-        vm.DisplayAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayAc));
+        var timeouts = PowerTimeouts.ReadAll();
+        vm.DisplayDcTimeout = Format(timeouts.DisplayDc);
+        vm.DisplayAcTimeout = Format(timeouts.DisplayAc);
         vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
         vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
-        vm.SleepDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepDc));
-        vm.SleepAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepAc));
+        vm.SleepDcTimeout = Format(timeouts.SleepDc);
+        vm.SleepAcTimeout = Format(timeouts.SleepAc);
         return;
 
         static string Format(int? seconds)
