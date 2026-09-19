@@ -887,7 +887,8 @@ reading; sticks are `(v − 128) / 127` with Y negated. Front-button WMI events 
 custom fields 7/8/9 and both mapped from raw `(X, Y, Z)` to application `(X, Z, -Y)`. The gyro's
 opaque `VT_UI4` field 34 distinguishes fresh hardware reports from repeated polling results. The
 cycle requests the gyro's 10 ms and accelerometer's 2 ms driver minima, polls every 2 ms, and
-restores the prior intervals on release when still owned. This part's gyro carries a real zero-rate
+checks the gyro counter before reading the accelerometer, then restores the prior intervals on
+release when still owned. This part's gyro carries a real zero-rate
 offset that Intel ISS does not remove and no controller target corrects, so
 `StationaryGyroBiasCalibrator` measures it from 200-report rest windows — gated on rate span,
 acceleration span and gravity magnitude — and subtracts it. Subtraction only: a deadband or a

@@ -109,8 +109,8 @@ payloads; power and charge deliberately use zero-filled command envelopes.
   shortcut-preservation regression tests.
 - Synthetic left/right Win events must carry `KEYEVENTF_EXTENDEDKEY`; dummy-key events must not. Source comparison and
   layout tests do not establish that desktop Game Bar suppression works.
-- Bind only the measured legacy Sensor API accelerometer/gyrometer identities and fields. Read accelerometer before
-  gyrometer, reject duplicate counters, and keep the bounded drop-oldest channel.
+- Bind only the measured legacy Sensor API accelerometer/gyrometer identities and fields. Reject duplicate gyrometer
+  counters before reading the accelerometer, and keep the bounded drop-oldest channel.
 - Apply the axis transform `(raw X, raw Z, -raw Y)` exactly once.
 - Preserve the measurement-derived stationary gyro bias behavior: approximately 200-report windows, subtraction without
   deadband, rest gates, and agreement across three separated windows before distant-bias reacquisition. Preserve
