@@ -225,6 +225,39 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
+    public async Task SubmittedSamplesDrainInOrderBeforeDisposalCompletes()
+    {
+        Harness harness = new();
+        var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        await manager.ClaimUiAsync("overlay", CancellationToken.None);
+        List<long> received = [];
+        using ManualResetEventSlim firstSampleEntered = new();
+        using ManualResetEventSlim releaseFirstSample = new();
+        manager.UiSampleReceived += sample =>
+        {
+            received.Add(sample.Sequence);
+            if (sample.Sequence == 1)
+            {
+                firstSampleEntered.Set();
+                releaseFirstSample.Wait();
+            }
+        };
+
+        manager.Submit(Sample(1, CanonicalButtons.A));
+        Assert.True(firstSampleEntered.Wait(TimeSpan.FromSeconds(5)));
+        manager.Submit(Sample(2, CanonicalButtons.B));
+        manager.Submit(Sample(3, CanonicalButtons.X));
+
+        var dispose = manager.DisposeAsync().AsTask();
+        Assert.False(dispose.IsCompleted);
+        releaseFirstSample.Set();
+        await dispose;
+
+        Assert.Equal([1, 2, 3], received);
+    }
+
+    [Fact]
     public async Task CapturedSamplesReachTheUiAndLeaveTheTargetNeutral()
     {
         Harness harness = new();
