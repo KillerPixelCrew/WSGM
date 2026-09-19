@@ -257,7 +257,7 @@ internal static class PluginPackageWorkflow
         }
         catch
         {
-            TryDelete(temporary);
+            _ = DurableFile.TryDeleteFile(temporary);
             throw;
         }
     }
@@ -589,25 +589,6 @@ internal static class PluginPackageWorkflow
             PackageVersion = version,
             Issues = issues
         };
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (IOException)
-        {
-            // Preserve the original packing failure.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Preserve the original packing failure.
-        }
     }
 }
 
