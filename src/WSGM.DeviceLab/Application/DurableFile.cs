@@ -13,6 +13,15 @@ internal static class DurableFile
 {
     private static readonly UTF8Encoding Utf8WithoutMark = new(false);
 
+    /// <summary>Creates a hidden, unique staging path beside a target.</summary>
+    /// <param name="targetPath">The final file or directory path.</param>
+    /// <returns>A staging path in the target's directory.</returns>
+    internal static string StagingPath(string targetPath)
+    {
+        var directory = Path.GetDirectoryName(targetPath);
+        return Path.Combine(directory ?? string.Empty, $".{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.tmp");
+    }
+
     /// <summary>Creates a new file, lets <paramref name="write" /> fill it, and flushes it to disk.</summary>
     /// <param name="path">File that must not exist yet.</param>
     /// <param name="write">Writes the content.</param>

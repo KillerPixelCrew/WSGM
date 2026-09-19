@@ -162,7 +162,7 @@ public sealed class DeviceLabPackagingTests
             cancellation.Token));
 
         Assert.False(File.Exists(output));
-        Assert.Empty(Directory.EnumerateFiles(temporary.Root, "cancelled.wsgmpkg.*.tmp"));
+        Assert.Empty(Directory.EnumerateFiles(temporary.Root, ".cancelled.wsgmpkg.*.tmp"));
     }
 
     [Fact]

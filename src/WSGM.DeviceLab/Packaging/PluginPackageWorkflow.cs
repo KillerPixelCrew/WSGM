@@ -199,7 +199,7 @@ internal static class PluginPackageWorkflow
             };
         }
 
-        var temporary = $"{decision.FullPath}.{Guid.NewGuid():N}.tmp";
+        var temporary = DurableFile.StagingPath(decision.FullPath);
         Directory.CreateDirectory(Path.GetDirectoryName(decision.FullPath)!);
         cancellationToken.ThrowIfCancellationRequested();
         var recheck = DeviceLabOutputPathPolicy.Evaluate(
