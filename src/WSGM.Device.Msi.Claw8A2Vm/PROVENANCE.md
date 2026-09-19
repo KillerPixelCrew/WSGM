@@ -2,25 +2,24 @@
 
 Source revision: `HW-2026-09-03`
 
-On 2026-09-18 the reference unit carried BIOS `E1T52IMS.114` (released 2026-09-17, still shipping
-EC `1T52EMS1.109`) and MCU firmware `0230` from MSI's controller updater `2608_3101`, which lists no
-changes. The plugin had refused controller ownership and lighting on `0230` through the exact
-`0229` gate, and its stale controller journal entry, bound to `mcu:0229`, then blocked the
-controller behind an identity nothing could match. Both gates and the journal binding were
-removed; the revision is recorded in the identity snapshot only. Read on the unit that day,
-unelevated, through the same `ReadProfile` request the plugin sends: the RGB profile at `0x024A`
-answered on `0230` with the reviewed 32-byte shape (`00 01 09 03 64 ...`), so lighting now verifies
-that shape at acquire instead of a revision. The DirectInput pad report on `0230` still carries
-only the first ten bytes at rest and the MCU vendor collection emits nothing unsolicited, so the
-controller firmware still exposes no IMU over HID; motion stays on the Sensor API path below.
-The charge-limit service faulted at every start on BIOS `114` with its plain 60-100 range check:
-register `0xD7` read `0x80`, logged by the deployed build that day. Handheld Companion treats bit 7
-as the "Battery Master" enable flag and the low seven bits as the percentage, so this is the flag
-set with the percentage reset to zero by the BIOS update. The plugin now masks the read, carries
-the flag through writes, publishes an out-of-range percentage as unknown, and leaves the
-capability writable so the configured limit is applied over the reset. **The write of
-`0x80 | percent` and its readback are source-derived and await the maintainer's confirmation on
-the unit.**
+On 2026-09-18 the reference unit carried BIOS `E1T52IMS.114` (released 2026-09-17, still shipping EC
+`1T52EMS1.109`) and MCU firmware `0230` from MSI's controller updater `2608_3101`, which lists no
+changes. The plugin had refused controller ownership and lighting on `0230` through the exact `0229`
+gate, and its stale controller journal entry, bound to `mcu:0229`, then blocked the controller
+behind an identity nothing could match. Both gates and the journal binding were removed; the
+revision is recorded in the identity snapshot only. Read on the unit that day, unelevated, through
+the same `ReadProfile` request the plugin sends: the RGB profile at `0x024A` answered on `0230` with
+the reviewed 32-byte shape (`00 01 09 03 64 ...`), so lighting now verifies that shape at acquire
+instead of a revision. The DirectInput pad report on `0230` still carries only the first ten bytes
+at rest and the MCU vendor collection emits nothing unsolicited, so the controller firmware still
+exposes no IMU over HID; motion stays on the Sensor API path below. The charge-limit service faulted
+at every start on BIOS `114` with its plain 60-100 range check: register `0xD7` read `0x80`, logged
+by the deployed build that day. Handheld Companion treats bit 7 as the "Battery Master" enable flag
+and the low seven bits as the percentage, so this is the flag set with the percentage reset to zero
+by the BIOS update. The plugin now masks the read, carries the flag through writes, publishes an
+out-of-range percentage as unknown, and leaves the capability writable so the configured limit is
+applied over the reset. **The write of `0x80 | percent` and its readback are source-derived and
+await the maintainer's confirmation on the unit.**
 
 On 2026-09-08, the existing ordered power-pair transport was connected to the SDK's optional
 coordinated command. AutoTDP uses equal PL1/PL2 targets within the existing 8-37 W bounds. New
