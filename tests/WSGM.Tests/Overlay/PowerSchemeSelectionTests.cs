@@ -4,6 +4,7 @@ using WSGM.Core;
 using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Overlay;
 
@@ -34,6 +35,7 @@ public sealed class PowerSchemeSelectionTests
         Assert.True(state!.Available);
         Assert.Equal(First.ToString("D"), state.Current);
         Assert.Equal(2, state.Options.Count);
+        Assert.All(state.Options, option => Assert.Contains("Duplicate localized name (", option.Name));
         await qam.SetPowerProfileAsync("not-a-guid", CancellationToken.None);
         await qam.SetPowerProfileAsync(Guid.NewGuid().ToString("D"), CancellationToken.None);
         Assert.Equal(0, api.Writes);
@@ -46,6 +48,29 @@ public sealed class PowerSchemeSelectionTests
         Assert.Equal(2, api.Writes);
         Assert.Equal(Second, saved);
         Assert.Contains("not confirmed", (await qam.ReadAsync())!.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SteamDropdownCachesSchemesUntilASelectionOrBoundedRefresh()
+    {
+        FakeApi api = new();
+        ManualTimeProvider time = new(DateTimeOffset.UnixEpoch);
+        var qam = new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }, time);
+
+        await qam.ReadAsync();
+        await qam.ReadAsync();
+        Assert.Equal(1, api.Enumerations);
+        Assert.Equal(2, api.ActiveReads);
+
+        await qam.SetPowerProfileAsync(Second.ToString("D"), CancellationToken.None);
+        await qam.ReadAsync();
+        Assert.Equal(2, api.Enumerations);
+
+        await qam.ReadAsync();
+        time.Advance(TimeSpan.FromMinutes(1));
+        await qam.ReadAsync();
+        Assert.Equal(3, api.Enumerations);
+        Assert.Equal(6, api.ActiveReads);
     }
 
     [Fact]
@@ -172,6 +197,8 @@ public sealed class PowerSchemeSelectionTests
     private sealed class FakeApi : IPowerSchemeApi
     {
         internal Guid Active { get; set; } = First;
+        internal int ActiveReads { get; private set; }
+        internal int Enumerations { get; private set; }
         internal int Writes { get; private set; }
         internal bool Reject { get; set; }
         internal bool Empty { get; set; }
@@ -180,6 +207,11 @@ public sealed class PowerSchemeSelectionTests
 
         public Guid? Enumerate(uint index)
         {
+            if (index == 0)
+            {
+                Enumerations++;
+            }
+
             return Empty ? null : index switch { 0 => First, 1 => Second, _ => null };
         }
 
@@ -190,6 +222,7 @@ public sealed class PowerSchemeSelectionTests
 
         public Guid ReadActive()
         {
+            ActiveReads++;
             BeforeRead?.Invoke();
             return ReadFailure ? throw new Win32Exception(5) : Active;
         }
