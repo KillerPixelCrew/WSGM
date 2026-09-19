@@ -79,6 +79,7 @@ public sealed class RemovableDriveEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(StatusLine));
         }
     } = "";
@@ -108,6 +109,7 @@ public sealed class RemovableDriveEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(StatusLine));
             Raise(nameof(ActionEnabled));
         }
@@ -127,6 +129,7 @@ public sealed class RemovableDriveEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(StatusLine));
             Raise(nameof(ActionEnabled));
         }

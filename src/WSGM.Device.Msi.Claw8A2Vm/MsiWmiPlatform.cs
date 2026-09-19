@@ -17,9 +17,9 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
 {
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(3);
     private readonly SemaphoreSlim _serializer = new(1, 1);
+    private bool _disposed;
     private ManagementObject? _instance;
     private ManagementClass? _packageClass;
-    private bool _disposed;
 
     public ValueTask<bool> IsProviderAvailableAsync(CancellationToken cancellationToken)
     {

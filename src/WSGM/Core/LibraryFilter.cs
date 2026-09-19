@@ -687,50 +687,6 @@ public static partial class LibraryFilter
         return v.ToString("0.############", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>
-    ///     Accumulates hoisted prologue declarations (sets/arrays/regexes are
-    ///     declared once and referenced from the per-app predicate, so nothing is rebuilt
-    ///     per candidate).
-    /// </summary>
-    private sealed class Emitter(ISdCardResolver cards)
-    {
-        private readonly StringBuilder _prologue = new();
-        private int _n;
-
-        public ISdCardResolver Cards { get; } = cards;
-
-        public string Prologue => _prologue.ToString();
-
-        public string IntSet(IEnumerable<long> ids)
-        {
-            var name = "_s" + _n++;
-            _prologue.Append("const ").Append(name).Append("=new Set([")
-                .Append(string.Join(",", ids.Select(i => i.ToString(CultureInfo.InvariantCulture))))
-                .Append("]);");
-            return name;
-        }
-
-        public string IntArray(IEnumerable<int> ids)
-        {
-            var name = "_a" + _n++;
-            _prologue.Append("const ").Append(name).Append("=[")
-                .Append(string.Join(",", ids.Select(i => i.ToString(CultureInfo.InvariantCulture))))
-                .Append("];");
-            return name;
-        }
-
-        public string Regex(string pattern)
-        {
-            var name = "_r" + _n++;
-            // Compiled once, case-insensitive; a bad pattern yields null (predicate
-            // then treats it as no match) rather than throwing per app.
-            _prologue.Append("let ").Append(name).Append(";try{").Append(name)
-                .Append("=new RegExp(").Append(SteamCef.JsString(pattern))
-                .Append(",'i');}catch(e){").Append(name).Append("=null;}");
-            return name;
-        }
-    }
-
     /// <summary>Evaluates multiple compiled filters in one CEF exchange.</summary>
     /// <param name="filterExpressions">Self-contained filter IIFEs.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
@@ -790,6 +746,50 @@ public static partial class LibraryFilter
         {
             Log.Warn($"Batched filter evaluation parse failed: {ex.Message}");
             return [.. Enumerable.Repeat(new FilterEvalResult(true, false, []), filterExpressions.Count)];
+        }
+    }
+
+    /// <summary>
+    ///     Accumulates hoisted prologue declarations (sets/arrays/regexes are
+    ///     declared once and referenced from the per-app predicate, so nothing is rebuilt
+    ///     per candidate).
+    /// </summary>
+    private sealed class Emitter(ISdCardResolver cards)
+    {
+        private readonly StringBuilder _prologue = new();
+        private int _n;
+
+        public ISdCardResolver Cards { get; } = cards;
+
+        public string Prologue => _prologue.ToString();
+
+        public string IntSet(IEnumerable<long> ids)
+        {
+            var name = "_s" + _n++;
+            _prologue.Append("const ").Append(name).Append("=new Set([")
+                .Append(string.Join(",", ids.Select(i => i.ToString(CultureInfo.InvariantCulture))))
+                .Append("]);");
+            return name;
+        }
+
+        public string IntArray(IEnumerable<int> ids)
+        {
+            var name = "_a" + _n++;
+            _prologue.Append("const ").Append(name).Append("=[")
+                .Append(string.Join(",", ids.Select(i => i.ToString(CultureInfo.InvariantCulture))))
+                .Append("];");
+            return name;
+        }
+
+        public string Regex(string pattern)
+        {
+            var name = "_r" + _n++;
+            // Compiled once, case-insensitive; a bad pattern yields null (predicate
+            // then treats it as no match) rather than throwing per app.
+            _prologue.Append("let ").Append(name).Append(";try{").Append(name)
+                .Append("=new RegExp(").Append(SteamCef.JsString(pattern))
+                .Append(",'i');}catch(e){").Append(name).Append("=null;}");
+            return name;
         }
     }
 

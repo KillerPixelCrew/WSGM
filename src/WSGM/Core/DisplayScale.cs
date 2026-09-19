@@ -57,7 +57,7 @@ public static class DisplayScale
                 continue;
             }
 
-            captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = (int)current });
+            captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = current });
             // A surviving snapshot means the previous game-mode session did not
             // finish restoring every display.  A dock/undock can expose a different
             // active source before recovery runs; never force that new display to

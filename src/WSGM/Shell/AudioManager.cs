@@ -172,6 +172,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(VolumeText));
         }
     }
@@ -200,6 +201,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(HasError));
         }
     } = "";

@@ -38,6 +38,7 @@ public sealed class WifiNetworkEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(NeedsPassword));
             Raise(nameof(Secured));
             Raise(nameof(StatusLine));
@@ -55,6 +56,7 @@ public sealed class WifiNetworkEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(NeedsPassword));
             Raise(nameof(StatusLine));
         }
@@ -75,6 +77,7 @@ public sealed class WifiNetworkEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ActionEnabled));
             Raise(nameof(StatusLine));
         }
@@ -105,6 +108,7 @@ public sealed class WifiNetworkEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(IconState));
             Raise(nameof(StatusLine));
             Raise(nameof(ActionText));
@@ -205,6 +209,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ActionText));
             Raise(nameof(IconState));
             Raise(nameof(StatusLine));
@@ -223,6 +228,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(StatusLine));
             // A device that enters pairing mode later must reveal its Pair
             // button without the row being rebuilt.
@@ -244,6 +250,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(IconState));
             Raise(nameof(StatusLine));
             Raise(nameof(ActionText));
@@ -276,6 +283,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ActionText));
             Raise(nameof(PrimaryActionVisible));
         }
@@ -298,6 +306,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ActionText));
         }
     }
@@ -312,6 +321,7 @@ public sealed class BluetoothDeviceEntry : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(ActionText));
             Raise(nameof(StatusLine));
         }

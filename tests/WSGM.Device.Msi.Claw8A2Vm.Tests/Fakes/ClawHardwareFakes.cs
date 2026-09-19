@@ -8,6 +8,13 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
 {
     public int ReadCount { get; private set; }
 
+    public ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ReadCount++;
+        return ValueTask.FromResult(CreateState());
+    }
+
     public static ClawIdentityState CreateState()
     {
         return new ClawIdentityState
@@ -35,13 +42,6 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
             WmiFirmwareVerified = true,
             OnAcPower = true
         };
-    }
-
-    public ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        ReadCount++;
-        return ValueTask.FromResult(CreateState());
     }
 }
 

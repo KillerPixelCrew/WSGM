@@ -332,8 +332,8 @@ internal static class DevicePackageStager
         Func<string, FileAttributes?> ReadAttributes,
         bool DestinationExists,
         bool RecoveryExists) ResolveSlot(
-        string installedRoot,
-        Func<string, FileAttributes?>? attributeReader)
+            string installedRoot,
+            Func<string, FileAttributes?>? attributeReader)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(installedRoot);
         var destination = DevicePackagePolicy.NormalizeDirectoryPath(installedRoot);

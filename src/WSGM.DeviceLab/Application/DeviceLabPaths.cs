@@ -22,7 +22,7 @@ internal static class DeviceLabPaths
         var sanitized = string.Concat(value.Select(character =>
             char.IsAsciiLetterOrDigit(character)
             || character is '-' or '_'
-            || allowDot && character == '.'
+            || (allowDot && character == '.')
                 ? character
                 : '-'));
         if (string.IsNullOrWhiteSpace(sanitized))

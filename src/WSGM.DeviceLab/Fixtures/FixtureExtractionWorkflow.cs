@@ -63,7 +63,7 @@ internal static class FixtureExtractionWorkflow
         foreach (var stream in bundle.Streams.OrderBy(stream => stream.SourceId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            inputs[$"input/streams/{DeviceLabPaths.SafeName(stream.SourceId, allowDot: true)}.ndjson"] = Ndjson(
+            inputs[$"input/streams/{DeviceLabPaths.SafeName(stream.SourceId, true)}.ndjson"] = Ndjson(
                 stream.Events,
                 captureEvent => JsonSerializer.SerializeToUtf8Bytes(
                     captureEvent,
@@ -75,7 +75,7 @@ internal static class FixtureExtractionWorkflow
         foreach (var analysis in bundle.Analysis.OrderBy(item => item.AnalyzerId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            expected[$"expected/analysis/{DeviceLabPaths.SafeName(analysis.AnalyzerId, allowDot: true)}.ndjson"] = Ndjson(
+            expected[$"expected/analysis/{DeviceLabPaths.SafeName(analysis.AnalyzerId, true)}.ndjson"] = Ndjson(
                 analysis.Results,
                 result => JsonSerializer.SerializeToUtf8Bytes(
                     result,

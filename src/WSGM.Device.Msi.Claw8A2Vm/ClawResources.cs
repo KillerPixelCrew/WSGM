@@ -282,9 +282,9 @@ internal sealed class PowerService(
             _journal,
             state => ClawRecoveryValues.TryPower(state, out var snapshot) ? snapshot : null,
             _capability.RestoreAsync,
-            recoveryNoun: "power",
-            budgetLabel: "journalled power restoration",
-            unverifiedMessage: "The captured power pair or scenario could not be verified after restoration.",
+            "power",
+            "journalled power restoration",
+            "The captured power pair or scenario could not be verified after restoration.",
             cancellationToken);
     }
 
@@ -395,9 +395,9 @@ internal sealed class FanService(
             _journal,
             state => ClawRecoveryValues.TryFans(state, out var snapshot) ? snapshot : null,
             _capability.RestoreAsync,
-            recoveryNoun: "fan",
-            budgetLabel: "journalled fan restoration",
-            unverifiedMessage: "The captured left/right fan tables or flags could not be verified after restoration.",
+            "fan",
+            "journalled fan restoration",
+            "The captured left/right fan tables or flags could not be verified after restoration.",
             cancellationToken);
     }
 }
@@ -602,6 +602,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
         {
             _latest = null;
         }
+
         Interlocked.Exchange(ref _staleReported, 0);
         _resampler.Reset();
         var started = await _source.StartAsync(
@@ -611,6 +612,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
                 {
                     _latest = sample;
                 }
+
                 if (sample.SensorTimestamp is { } stamp)
                 {
                     _resampler.OnReading(
@@ -652,6 +654,7 @@ internal sealed class MotionService(IClawMotionSource source) : ClawSuspendableS
         {
             _latest = null;
         }
+
         _resampler.Reset();
         return Set(ClawServiceState.Idle);
     }

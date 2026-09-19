@@ -16,8 +16,8 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 internal sealed class WindowsClawMcuTransport : IClawMcuTransport
 {
     private readonly SemaphoreSlim _serializer = new(1, 1);
-    private string? _mcuPath;
     private volatile bool _disposed;
+    private string? _mcuPath;
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
     {
@@ -711,8 +711,8 @@ internal static class HidEndpointEnumerator
 
                     var path = Marshal.PtrToStringUni(IntPtr.Add(detail, 4));
                     if (path is null
-                        || requiredPath is not null
-                        && !string.Equals(path, requiredPath, StringComparison.OrdinalIgnoreCase)
+                        || (requiredPath is not null
+                            && !string.Equals(path, requiredPath, StringComparison.OrdinalIgnoreCase))
                         || !TryDescribe(path, set, info, out var endpoint))
                     {
                         continue;

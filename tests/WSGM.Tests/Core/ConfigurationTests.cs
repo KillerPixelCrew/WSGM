@@ -2,8 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Device.Tests;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Tests;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 

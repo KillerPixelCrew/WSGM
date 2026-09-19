@@ -466,10 +466,10 @@ public sealed class SteamUiSessionHostTests
         };
 
         private string? _bridgeConfiguration;
-        private string? _glyphInstallationExpression;
-        private string? _glyphVerificationExpression;
         private int _downloadInstallations;
+        private string? _glyphInstallationExpression;
         private int _glyphInstallations;
+        private string? _glyphVerificationExpression;
 
         internal TaskCompletionSource BridgeInstalled { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);

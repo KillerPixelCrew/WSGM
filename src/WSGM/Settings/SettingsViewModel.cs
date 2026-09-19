@@ -80,14 +80,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
     }
 
-    /// <summary>Builds the production settings model over configuration already loaded at startup.</summary>
-    internal static SettingsViewModel FromLoadedConfig(AppConfig config)
-    {
-        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true);
-        viewModel.LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
-        return viewModel;
-    }
-
     internal SettingsViewModel(
         AppConfig config,
         string? installedPluginId,
@@ -1175,6 +1167,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         (!ShowCustomLaunch || GameLayout is { HasActiveDisplays: true, HasValidationError: false })
         && (!ShowDesktopLayout || DesktopLayout is { HasActiveDisplays: true, HasValidationError: false })
         && !ActionLists.Any(list => list.HasValidationError);
+
+    /// <summary>Builds the production settings model over configuration already loaded at startup.</summary>
+    internal static SettingsViewModel FromLoadedConfig(AppConfig config)
+    {
+        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true);
+        viewModel.LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
+        return viewModel;
+    }
 
     private void LoadCommonPlugins(CommonPluginCatalog catalog)
     {

@@ -11,10 +11,10 @@ namespace WSGM.Tests.Core;
 /// </summary>
 public sealed class SplashThemeTests : IDisposable
 {
-    private readonly TemporaryDirectory _temporary = new();
     private readonly string _root;
     private readonly string _sourceDir;
     private readonly string _targetDir;
+    private readonly TemporaryDirectory _temporary = new();
 
     public SplashThemeTests()
     {

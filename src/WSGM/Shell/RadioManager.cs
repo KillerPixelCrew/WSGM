@@ -121,6 +121,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(WifiOn));
             Raise(nameof(WifiStateText));
             Raise(nameof(WifiUnavailableText));
@@ -138,6 +139,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(BluetoothOn));
             Raise(nameof(BluetoothStateText));
             Raise(nameof(BluetoothUnavailableText));
@@ -199,6 +201,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(BluetoothIconState));
         }
     }
@@ -216,6 +219,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(WifiIconState));
         }
     }
@@ -268,6 +272,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(HasStatus));
         }
     } = "";

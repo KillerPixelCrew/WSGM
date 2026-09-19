@@ -98,6 +98,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             {
                 return;
             }
+
             Raise(nameof(HasStatus));
         }
     } = "";

@@ -2700,8 +2700,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                             + $"{view.Projection.DesiredValueOutOfRange}.");
                     }
                     else if (admission.SkipReason is not (DeviceDesiredWriteSkipReason.Unsupported
-                                 or DeviceDesiredWriteSkipReason.MissingDesiredValue
-                                 or DeviceDesiredWriteSkipReason.MissingDesiredSource))
+                             or DeviceDesiredWriteSkipReason.MissingDesiredValue
+                             or DeviceDesiredWriteSkipReason.MissingDesiredSource))
                     {
                         skipped++;
                     }

@@ -42,7 +42,6 @@ internal interface ICommonPluginOverlaySource
 /// <summary>Routes overlay intent to the resident common host without giving views lifecycle ownership.</summary>
 internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
 {
-    private readonly ICommonPluginOverlaySource? _device;
     private readonly PluginHost _host;
     private readonly CommonPluginManager? _manager;
     private readonly object _pinsGate = new();
@@ -53,13 +52,13 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     {
         _manager = manager;
         _host = host;
-        _device = device;
+        Device = device;
         _pins = pins.ToArray();
         WidgetPreferences = new PluginWidgetPreferences(ReadPinsAsync, SetPinnedAsync, MovePinAsync,
             pin => SetPinnedAsync(pin, false), ResetPinOrderAsync);
     }
 
-    internal ICommonPluginOverlaySource? Device => _device;
+    internal ICommonPluginOverlaySource? Device { get; }
 
     internal PluginWidgetPreferences WidgetPreferences { get; }
 
@@ -79,22 +78,22 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                     owner is null ? "Starting" : $"{owner.Health.Health}: {owner.Health.Detail}",
                     owner is { IsStopping: false, Quarantined: false }, instance.Error);
             }),
-            .. _device?.Snapshot() ?? []
+            .. Device?.Snapshot() ?? []
         ];
     }
 
     public PluginStatePublication[] State(PluginInstanceIdentity identity)
     {
-        return _device?.Snapshot().Any(instance => instance.Identity == identity) == true
-            ? _device.State(identity)
+        return Device?.Snapshot().Any(instance => instance.Identity == identity) == true
+            ? Device.State(identity)
             : _host.StateSnapshot(identity);
     }
 
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {
-        return _device?.Snapshot().Any(instance => instance.Identity == identity) == true
-            ? _device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
+        return Device?.Snapshot().Any(instance => instance.Identity == identity) == true
+            ? Device.InvokeAsync(identity, generation, action, arguments, cancellationToken)
             : _host.InvokeActionAsync(identity, generation, action, arguments, PluginActionOrigin.User,
                 DateTimeOffset.UtcNow.AddSeconds(10), cancellationToken);
     }

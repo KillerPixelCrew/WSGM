@@ -386,6 +386,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(HasSelection));
             Raise(nameof(SelectedNeedsRebind));
         }
@@ -419,6 +420,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(HasValidationError));
         }
     } = "";

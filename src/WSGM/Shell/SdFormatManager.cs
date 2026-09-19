@@ -101,6 +101,7 @@ public sealed class SdFormatManager : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(NotBusy));
         }
     }
@@ -118,6 +119,7 @@ public sealed class SdFormatManager : ObservableObject
             {
                 return;
             }
+
             Raise(nameof(HasStatus));
         }
     } = "";

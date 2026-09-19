@@ -443,7 +443,8 @@ internal static class ObserveOnlyCaptureWorkflow
                 return new CaptureExportResult
                 {
                     Exported = false,
-                    Error = $"Export cancelled. Temporary export cleanup failed for '{temporaryPath}': {cleanupError.Message}"
+                    Error =
+                        $"Export cancelled. Temporary export cleanup failed for '{temporaryPath}': {cleanupError.Message}"
                 };
             }
 
@@ -519,7 +520,7 @@ internal static class ObserveOnlyCaptureWorkflow
             .. streams.Select((stream, index) => new CaptureStreamDescriptor
             {
                 SourceId = stream.SourceId,
-                Path = $"streams/{index:D3}-{DeviceLabPaths.SafeName(stream.SourceId, allowDot: false)}.ndjson",
+                Path = $"streams/{index:D3}-{DeviceLabPaths.SafeName(stream.SourceId, false)}.ndjson",
                 EventCount = stream.Events.Count
             })
         ];
@@ -566,7 +567,7 @@ internal static class ObserveOnlyCaptureWorkflow
             .. streams.Select((stream, index) => new CaptureStreamDescriptor
             {
                 SourceId = stream.SourceId,
-                Path = $"streams/{index:D3}-{DeviceLabPaths.SafeName(stream.SourceId, allowDot: false)}.ndjson",
+                Path = $"streams/{index:D3}-{DeviceLabPaths.SafeName(stream.SourceId, false)}.ndjson",
                 EventCount = stream.Events.Count
             })
         ];

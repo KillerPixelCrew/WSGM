@@ -202,7 +202,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
 
         var sessionDirectory = Path.Combine(
             Path.GetFullPath(outputDirectory),
-            $"probe-{DeviceLabPaths.SafeName(probe.Id, allowDot: false)}-{Guid.NewGuid():N}");
+            $"probe-{DeviceLabPaths.SafeName(probe.Id, false)}-{Guid.NewGuid():N}");
         var run = await ReadProbeWorkerSupervisor.RunAsync(
             probe,
             preflight,

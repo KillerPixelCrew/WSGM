@@ -7,8 +7,8 @@ public sealed class DeviceLabPathsTests
     [Fact]
     public void SafeName_DistinguishesIdentifiersThatSanitizeToSameText()
     {
-        var slash = DeviceLabPaths.SafeName("pad/a", allowDot: false);
-        var question = DeviceLabPaths.SafeName("pad?a", allowDot: false);
+        var slash = DeviceLabPaths.SafeName("pad/a", false);
+        var question = DeviceLabPaths.SafeName("pad?a", false);
 
         Assert.StartsWith("pad-a-", slash, StringComparison.Ordinal);
         Assert.StartsWith("pad-a-", question, StringComparison.Ordinal);
@@ -20,17 +20,17 @@ public sealed class DeviceLabPathsTests
     {
         Assert.StartsWith(
             "pad.axis-",
-            DeviceLabPaths.SafeName("pad.axis", allowDot: true),
+            DeviceLabPaths.SafeName("pad.axis", true),
             StringComparison.Ordinal);
         Assert.StartsWith(
             "pad-axis-",
-            DeviceLabPaths.SafeName("pad.axis", allowDot: false),
+            DeviceLabPaths.SafeName("pad.axis", false),
             StringComparison.Ordinal);
     }
 
     [Fact]
     public void SafeName_UsesFallbackAndStableSuffixForEmptyIdentifier()
     {
-        Assert.Equal("unknown-e3b0c442", DeviceLabPaths.SafeName(string.Empty, allowDot: false));
+        Assert.Equal("unknown-e3b0c442", DeviceLabPaths.SafeName(string.Empty, false));
     }
 }
