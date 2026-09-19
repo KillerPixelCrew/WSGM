@@ -2283,13 +2283,55 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Applies an immutable UI-thread snapshot onto a fresh on-disk load.</summary>
-    internal static void ApplyCapturedValues(
-        AppConfig config,
+    /// <summary>Applies an immutable UI-thread snapshot while retaining runtime-owned state.</summary>
+    internal static AppConfig ApplyCapturedValues(
+        AppConfig fresh,
         SaveRequest request,
         SplashConfig preparedSplash)
     {
-        var values = request.Values;
+        var config = request.Values;
+
+        // CaptureSaveRequest applies every Settings-owned value once, on the UI thread. Start with
+        // that complete snapshot here, then restore the state that other runtime surfaces may have
+        // changed while the window was open.
+        config.PluginConfigurations = fresh.PluginConfigurations;
+        config.PluginInstances = fresh.PluginInstances;
+        config.KeepEjectedCardTabs = fresh.KeepEjectedCardTabs;
+        config.CardLibraries = fresh.CardLibraries;
+        config.ForgottenInsertedCardIds = fresh.ForgottenInsertedCardIds;
+        config.CustomTabs = fresh.CustomTabs;
+        config.LibraryTabOrder = fresh.LibraryTabOrder;
+        config.HiddenNativeTabs = fresh.HiddenNativeTabs;
+        config.KnownNativeTabs = fresh.KnownNativeTabs;
+        config.SgdbLinks = fresh.SgdbLinks;
+        config.LaunchWrappers = fresh.LaunchWrappers;
+        config.SteamDelayMs = fresh.SteamDelayMs;
+        config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;
+        config.ExplorerLogonSettleMs = fresh.ExplorerLogonSettleMs;
+        config.QuickSetupRevision = fresh.QuickSetupRevision;
+        config.QuickAccessPins = fresh.QuickAccessPins;
+        config.PluginWidgetPins = fresh.PluginWidgetPins;
+        config.LastSelectedPowerSchemeId = fresh.LastSelectedPowerSchemeId;
+        config.SavedDisplayScaleEntries = fresh.SavedDisplayScaleEntries;
+        config.GameModeLaunchRecovery = fresh.GameModeLaunchRecovery;
+        config.PreviousShellValue = fresh.PreviousShellValue;
+        config.PreviousShellSnapshotCaptured = fresh.PreviousShellSnapshotCaptured;
+        config.PreviousShellValueExists = fresh.PreviousShellValueExists;
+        config.PreviousShellValueKind = fresh.PreviousShellValueKind;
+        config.PreviousStartupToGamingHomeValue = fresh.PreviousStartupToGamingHomeValue;
+        config.PreviousStartupToGamingHomeSnapshotCaptured = fresh.PreviousStartupToGamingHomeSnapshotCaptured;
+        config.PreviousStartupToGamingHomeValueExists = fresh.PreviousStartupToGamingHomeValueExists;
+        config.PreviousStartupToGamingHomeValueKind = fresh.PreviousStartupToGamingHomeValueKind;
+        config.PreviousUacSnapshotCaptured = fresh.PreviousUacSnapshotCaptured;
+        config.PreviousUacConsentPrompt = fresh.PreviousUacConsentPrompt;
+        config.PreviousUacSecureDesktop = fresh.PreviousUacSecureDesktop;
+        config.PreviousLockOnWakeSnapshotCaptured = fresh.PreviousLockOnWakeSnapshotCaptured;
+        config.PreviousNoLockScreen = fresh.PreviousNoLockScreen;
+        config.PreviousConsoleLockSchemeValues = fresh.PreviousConsoleLockSchemeValues;
+        config.PreviousConsoleLockPolicyKeyExisted = fresh.PreviousConsoleLockPolicyKeyExisted;
+        config.PreviousConsoleLockPolicyAc = fresh.PreviousConsoleLockPolicyAc;
+        config.PreviousConsoleLockPolicyDc = fresh.PreviousConsoleLockPolicyDc;
+
         foreach (var edit in request.CommonPluginEdits)
         {
             config.PluginInstances.RemoveAll(entry =>
@@ -2298,23 +2340,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 { PluginId = edit.PluginId, InstanceId = edit.InstanceId, Enabled = edit.Enabled });
         }
 
-        config.SteamAutoRelaunch = values.SteamAutoRelaunch;
-        config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
-        config.SteamGridDbApiKey = values.SteamGridDbApiKey;
-        config.ScreenscraperEnabled = values.ScreenscraperEnabled;
-        config.ScreenscraperUser = values.ScreenscraperUser;
-        config.ScreenscraperUserPassword = values.ScreenscraperUserPassword;
-        config.StartupDelayMs = values.StartupDelayMs;
-        config.StaggerDelayMs = values.StaggerDelayMs;
-        config.BootSplashEnabled = values.BootSplashEnabled;
-        config.StartAtSignIn = values.StartAtSignIn;
-        config.StartMode = values.StartMode;
-        config.SteamAutostartTakeoverAccepted = values.SteamAutostartTakeoverAccepted;
-
-        // Everything except the runtime's own recovery record, which Settings must never write:
-        // a window left open across a crash would otherwise discard the layout a recovery start
-        // has to put back.
-        foreach (var discovered in config.GameModeLaunch.KnownDisplays)
+        // Preserve display facts discovered since the editor opened without resurrecting displays
+        // the user explicitly forgot.
+        foreach (var discovered in fresh.GameModeLaunch.KnownDisplays)
         {
             if (discovered.Target is not { } identity ||
                 request.ForgottenDisplays.Any(target => target.Matches(identity)))
@@ -2322,12 +2350,11 @@ public sealed partial class SettingsViewModel : ObservableObject
                 continue;
             }
 
-            var edited =
-                values.GameModeLaunch.KnownDisplays.FirstOrDefault(display =>
-                    display.Target?.Matches(identity) is true);
+            var edited = config.GameModeLaunch.KnownDisplays.FirstOrDefault(display =>
+                display.Target?.Matches(identity) is true);
             if (edited is null)
             {
-                values.GameModeLaunch.KnownDisplays.Add(discovered);
+                config.GameModeLaunch.KnownDisplays.Add(discovered);
             }
             else
             {
@@ -2337,36 +2364,30 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
         }
 
-        config.GameModeLaunch = values.GameModeLaunch;
-
-        config.SteamInputLeaseEnabled = values.SteamInputLeaseEnabled;
-        config.SteamInputManagementEnabled = values.SteamInputManagementEnabled;
-        config.DeviceIntegration.Enabled = values.DeviceIntegration.Enabled;
-        config.DeviceIntegration.ControllerManagementEnabled =
-            values.DeviceIntegration.ControllerManagementEnabled;
+        var editedDevice = config.DeviceIntegration;
+        config.DeviceIntegration = fresh.DeviceIntegration;
+        config.DeviceIntegration.Enabled = editedDevice.Enabled;
+        config.DeviceIntegration.ControllerManagementEnabled = editedDevice.ControllerManagementEnabled;
         if (request.AutoTdpEdited)
         {
-            config.DeviceIntegration.AutoTdpEnabled = values.DeviceIntegration.AutoTdpEnabled;
+            config.DeviceIntegration.AutoTdpEnabled = editedDevice.AutoTdpEnabled;
         }
 
         if (request.ControllerTargetEdited)
         {
-            config.DeviceIntegration.ControllerTarget = values.DeviceIntegration.ControllerTarget;
+            config.DeviceIntegration.ControllerTarget = editedDevice.ControllerTarget;
         }
 
         if (request.GlyphSelectionEdited)
         {
-            config.DeviceIntegration.GlyphSelection = values.DeviceIntegration.GlyphSelection;
+            config.DeviceIntegration.GlyphSelection = editedDevice.GlyphSelection;
         }
 
         if ((request.PluginEdits.Count > 0 || request.DeviceProfiles is not null)
             && request.PluginDevice.Length > 0
             && request.PluginId.Length > 0)
         {
-            var scope = FindOrAddSaveScope(
-                config,
-                request.PluginDevice,
-                request.PluginId);
+            var scope = FindOrAddSaveScope(config, request.PluginDevice, request.PluginId);
             foreach (var (settingId, value) in request.PluginEdits)
             {
                 var entry = scope.Values.FirstOrDefault(candidate =>
@@ -2390,45 +2411,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
         }
 
-        config.Performance.Enabled = values.Performance.Enabled;
-        config.Performance.FrameLimitStrategy = values.Performance.FrameLimitStrategy;
-        config.Performance.OsdCustomOrder = values.Performance.OsdCustomOrder;
-        config.Performance.OsdCustomTime = values.Performance.OsdCustomTime;
-        config.Performance.OsdCustomFps = values.Performance.OsdCustomFps;
-        config.Performance.OsdCustomCpu = values.Performance.OsdCustomCpu;
-        config.Performance.OsdCustomRam = values.Performance.OsdCustomRam;
-        config.Performance.OsdCustomGpu = values.Performance.OsdCustomGpu;
-        config.Performance.OsdCustomVram = values.Performance.OsdCustomVram;
-        config.Performance.OsdCustomBattery = values.Performance.OsdCustomBattery;
         if (request.QuickSetupWasAnswered)
         {
             QuickSetup.MarkCompleted(config);
         }
 
-        config.Cef.Enabled = values.Cef.Enabled;
-        config.Cef.LibraryTabs = values.Cef.LibraryTabs;
-        config.Cef.CardManager = values.Cef.CardManager;
-        config.Cef.SdFormat = values.Cef.SdFormat;
-        config.Cef.Artwork = values.Cef.Artwork;
-        config.Cef.WifiIndicator = values.Cef.WifiIndicator;
-        config.Cef.NativeQuickAccess = values.Cef.NativeQuickAccess;
-        config.Cef.DownloadKeepAwake = values.Cef.DownloadKeepAwake;
-        config.Cef.DownloadQueueSort = values.Cef.DownloadQueueSort;
-        config.Cef.ConnectedLibraryCarousel = values.Cef.ConnectedLibraryCarousel;
-        config.Cef.CarouselShowUninstalled = values.Cef.CarouselShowUninstalled;
-        config.MuteWhileDisplayOff = values.MuteWhileDisplayOff;
-        config.ResuspendUnexplainedWakes = values.ResuspendUnexplainedWakes;
-        config.LogVerbosity = values.LogVerbosity;
-        config.Hotkey = values.Hotkey;
-        config.GamepadChord = values.GamepadChord;
-        config.Gestures.BottomEdge = values.Gestures.BottomEdge;
-        config.Gestures.TopEdge = values.Gestures.TopEdge;
-        config.Gestures.LeftEdgeSteamMenu = values.Gestures.LeftEdgeSteamMenu;
-        config.Gestures.RightEdgeSteamQuickAccess = values.Gestures.RightEdgeSteamQuickAccess;
-        config.GlyphStyle = values.GlyphStyle;
-        config.AccentColor = values.AccentColor;
         config.Splash = preparedSplash;
-        config.StartupApps = [.. values.StartupApps];
+        return config;
     }
 
     private static PluginSettingsScope FindOrAddSaveScope(
@@ -2489,9 +2478,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         //       live images agreeing (the round-3 invariant);
         //   (c) boot.json is a projection of the config we just persisted, so it is
         //       written before another saver can change config.json underneath it.
-        // Mutate re-acquires the same named mutex inside this scope; a Win32 mutex
-        // is owned per thread with a recursion count, so those nested acquisitions
-        // balance their own releases and the outer hold survives (see AcquireLock).
+        // LoadForMutation and Save re-acquire the same named mutex inside this scope. The
+        // thread-local lock depth balances those nested acquisitions while the outer hold survives.
         using (ConfigStore.AcquireLock())
         {
             // Captured BEFORE ApplyTo overwrites them: if a staged copy cannot be
@@ -2501,12 +2489,11 @@ public sealed partial class SettingsViewModel : ObservableObject
             var previousBackgroundPath = "";
             // Any throw from here to Commit leaves the transaction uncommitted, and the
             // enclosing `using` rolls it back: the live splash assets stay untouched.
-            config = ConfigStore.Mutate(fresh =>
-            {
-                previousLogoPath = fresh.Splash.LogoImagePath;
-                previousBackgroundPath = fresh.Splash.BackgroundImagePath;
-                ApplyCapturedValues(fresh, request, splash);
-            });
+            var fresh = ConfigStore.LoadForMutation();
+            previousLogoPath = fresh.Splash.LogoImagePath;
+            previousBackgroundPath = fresh.Splash.BackgroundImagePath;
+            config = ApplyCapturedValues(fresh, request, splash);
+            ConfigStore.Save(config);
             failedSlots = splashAssets.Commit();
             // A slot that could not be promoted (locked file, AV hold, permissions)
             // leaves the just-persisted path pointing at an image that was never
