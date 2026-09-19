@@ -25,22 +25,15 @@ public static class SelfElevation
     ///     Returns the exit code to propagate when this process handed over to an
     ///     elevated copy of itself, or null to continue running normally.
     /// </summary>
-    public static int? EnsureElevatedIfConfigured(string[] args)
+    /// <param name="args">The process arguments to forward to an elevated copy.</param>
+    /// <param name="config">The configuration loaded for this process startup.</param>
+    public static int? EnsureElevatedIfConfigured(string[] args, AppConfig config)
     {
+        ArgumentNullException.ThrowIfNull(config);
         if (args.Contains(RelaunchMarker, StringComparer.OrdinalIgnoreCase))
         {
             // Already the relaunched copy — never loop, even if elevation was denied
             // in some unexpected way.
-            return null;
-        }
-
-        AppConfig config;
-        try
-        {
-            config = ConfigStore.Load();
-        }
-        catch
-        {
             return null;
         }
 
