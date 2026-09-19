@@ -92,6 +92,61 @@ internal abstract class ClawCycleService(string serviceId) : ClawServiceStatus(s
     public abstract ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken);
+
+    protected async ValueTask<ClawServiceResult> RestoreJournalledAsync<TSnapshot>(
+        ClawCycleContext context,
+        ClawRecoveryJournal journal,
+        Func<ClawRecoveryState?, TSnapshot?> readSnapshot,
+        Func<TSnapshot, CancellationToken, ValueTask<bool>> restoreAsync,
+        string recoveryNoun,
+        string budgetLabel,
+        string unverifiedMessage,
+        CancellationToken cancellationToken)
+        where TSnapshot : class
+    {
+        if (ReconciliationBlockReason is not null)
+        {
+            return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
+        }
+
+        if (State is not ClawServiceState.Owned || !journal.HasUnrestoredMutation(ServiceId))
+        {
+            return Set(ClawServiceState.Idle);
+        }
+
+        var restoreSnapshot = readSnapshot(journal.OriginalStateFor(ServiceId));
+        if (restoreSnapshot is null)
+        {
+            return Set(ClawServiceState.Faulted, new CapabilityReason(
+                CapabilityReasonCode.TransportFaulted,
+                $"The {recoveryNoun} recovery record did not contain its pre-mutation snapshot."));
+        }
+
+        ClawWriteBudget.Require(context.Deadline, budgetLabel);
+        bool restored;
+        try
+        {
+            restored = await restoreAsync(restoreSnapshot, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await journal.CompleteServiceRestorationAsync(
+                ServiceId,
+                ClawRecoveryStatus.RestoreFailed,
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
+        await journal.CompleteServiceRestorationAsync(
+            ServiceId,
+            restored ? ClawRecoveryStatus.RestoredVerified : ClawRecoveryStatus.RestoredUnverified,
+            cancellationToken).ConfigureAwait(false);
+        return restored
+            ? Set(ClawServiceState.Idle)
+            : Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
+                CapabilityReasonCode.TransportFaulted,
+                unverifiedMessage));
+    }
 }
 
 /// <summary>A cycle service with a live source that stops for a suspend and is reacquired on resume.</summary>
@@ -219,53 +274,19 @@ internal sealed class PowerService(
         LastObserved = await _capability.ReadAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public override async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        if (ReconciliationBlockReason is not null)
-        {
-            return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
-        }
-
-        if (State is not ClawServiceState.Owned || !_journal.HasUnrestoredMutation(ServiceId))
-        {
-            return Set(ClawServiceState.Idle);
-        }
-
-        if (!ClawRecoveryValues.TryPower(_journal.OriginalStateFor(ServiceId), out var restoreSnapshot)
-            || restoreSnapshot is null)
-        {
-            return Set(ClawServiceState.Faulted, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "The power recovery record did not contain its pre-mutation snapshot."));
-        }
-
-        ClawWriteBudget.Require(context.Deadline, "journalled power restoration");
-        bool restored;
-        try
-        {
-            restored = await _capability.RestoreAsync(restoreSnapshot, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-            await _journal.CompleteServiceRestorationAsync(
-                ServiceId,
-                ClawRecoveryStatus.RestoreFailed,
-                CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
-
-        await _journal.CompleteServiceRestorationAsync(
-            ServiceId,
-            restored ? ClawRecoveryStatus.RestoredVerified : ClawRecoveryStatus.RestoredUnverified,
-            cancellationToken).ConfigureAwait(false);
-        return restored
-            ? Set(ClawServiceState.Idle)
-            : Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "The captured power pair or scenario could not be verified after restoration."));
+        return RestoreJournalledAsync(
+            context,
+            _journal,
+            state => ClawRecoveryValues.TryPower(state, out var snapshot) ? snapshot : null,
+            _capability.RestoreAsync,
+            recoveryNoun: "power",
+            budgetLabel: "journalled power restoration",
+            unverifiedMessage: "The captured power pair or scenario could not be verified after restoration.",
+            cancellationToken);
     }
 
     private static CapabilityReason FirmwareReason(ClawIdentityState identity)
@@ -371,53 +392,19 @@ internal sealed class FanService(
         LastObserved = await _capability.ReadSnapshotAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public override async ValueTask<ClawServiceResult> ReleaseAsync(
+    public override ValueTask<ClawServiceResult> ReleaseAsync(
         ClawCycleContext context,
         CancellationToken cancellationToken)
     {
-        if (ReconciliationBlockReason is not null)
-        {
-            return Set(ClawServiceState.Faulted, ReconciliationBlockReason);
-        }
-
-        if (State is not ClawServiceState.Owned || !_journal.HasUnrestoredMutation(ServiceId))
-        {
-            return Set(ClawServiceState.Idle);
-        }
-
-        if (!ClawRecoveryValues.TryFans(_journal.OriginalStateFor(ServiceId), out var restoreSnapshot)
-            || restoreSnapshot is null)
-        {
-            return Set(ClawServiceState.Faulted, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "The fan recovery record did not contain its pre-mutation snapshot."));
-        }
-
-        ClawWriteBudget.Require(context.Deadline, "journalled fan restoration");
-        bool restored;
-        try
-        {
-            restored = await _capability.RestoreAsync(restoreSnapshot, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-            await _journal.CompleteServiceRestorationAsync(
-                ServiceId,
-                ClawRecoveryStatus.RestoreFailed,
-                CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
-
-        await _journal.CompleteServiceRestorationAsync(
-            ServiceId,
-            restored ? ClawRecoveryStatus.RestoredVerified : ClawRecoveryStatus.RestoredUnverified,
-            cancellationToken).ConfigureAwait(false);
-        return restored
-            ? Set(ClawServiceState.Idle)
-            : Set(ClawServiceState.ReleasedUnverified, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                "The captured left/right fan tables or flags could not be verified after restoration."));
+        return RestoreJournalledAsync(
+            context,
+            _journal,
+            state => ClawRecoveryValues.TryFans(state, out var snapshot) ? snapshot : null,
+            _capability.RestoreAsync,
+            recoveryNoun: "fan",
+            budgetLabel: "journalled fan restoration",
+            unverifiedMessage: "The captured left/right fan tables or flags could not be verified after restoration.",
+            cancellationToken);
     }
 }
 
