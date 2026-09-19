@@ -4,6 +4,15 @@ The UI mechanisms whose behavior depends on Avalonia layout or on imported asset
 focus, shared controls, layout floors, and the splash engine with its import limits. Overlay
 navigation and input are in `docs\overlay-and-input.md`.
 
+## Overlay design prototype
+
+The standalone [C# overlay mockup](../tools/OverlayMockup/README.md) explores issue 114 with a new
+compact dark glass composition with horizontal LT/RT navigation. It keeps WSGM's palette and content
+inventory, with a new layout and control composition. It includes interactive simulated controls,
+in-window status and keyboard surfaces, and a power menu. It is outside the production solution and
+does not change the shipped behavior described below. Controller, hardware and live-game acceptance
+remain pending.
+
 ## Shared UI
 
 All styling lives in `Themes\` (`Palette.axaml`, `Typography.axaml`, `Shared.axaml` and the control

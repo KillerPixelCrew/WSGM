@@ -4,6 +4,17 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
 submodule changes, without feature branches or pull requests.
 
+## Overlay design mockup (2026-09-20, issue 114)
+
+`tools/OverlayMockup` is a standalone C# / Avalonia design exploration using the current overlay
+only as a content inventory. It introduces a dark fullscreen glass canvas, horizontal LT/RT navigation,
+a fixed time/date/profile bar, section icons, FlexPanel groups, FluentAvalonia footer controls,
+NumberBox editors, compact readings and in-window power, status and keyboard surfaces. Device values
+and system actions are simulated; the top-bar clock is live. It does not replace the production
+overlay or complete any of issue 114's live input, hardware or lifecycle work. Release compilation
+and visual exports passed; maintainer design review and manual testing are pending. Automated
+suites and the production gate are deferred until manual testing.
+
 ## ROG Ally X portable tester (2026-09-15)
 
 The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides
