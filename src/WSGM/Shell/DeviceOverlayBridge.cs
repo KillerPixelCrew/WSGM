@@ -730,7 +730,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             DeviceAuthoredProfileCapabilities.Lighting => new CapabilityDisplay { Key = DisplayKey.Lighting },
             _ => new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device profile" }
         };
-        var label = DisplayLabel(display);
+        var label = CapabilityDisplayLabels.For(display, "Device profile");
 
         var selected = selectedProfileId is { Length: > 0 }
             ? profiles.FirstOrDefault(profile => string.Equals(
