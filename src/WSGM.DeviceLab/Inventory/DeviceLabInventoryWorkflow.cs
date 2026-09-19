@@ -128,9 +128,7 @@ internal static class DeviceLabInventoryWorkflow
 
         cancellationToken.ThrowIfCancellationRequested();
         var json = DeviceLabJson.Serialize(inventory);
-        var tempPath = Path.Combine(
-            directoryDecision.FullPath,
-            $".{InventoryFileName}.{Guid.NewGuid():N}.tmp");
+        var tempPath = DurableFile.StagingPath(outputPath);
 
         try
         {

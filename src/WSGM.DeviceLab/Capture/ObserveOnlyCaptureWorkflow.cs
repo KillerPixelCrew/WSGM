@@ -421,7 +421,7 @@ internal static class ObserveOnlyCaptureWorkflow
         }
 
         var directory = Path.GetDirectoryName(decision.FullPath)!;
-        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(decision.FullPath)}.{Guid.NewGuid():N}.tmp");
+        var temporaryPath = DurableFile.StagingPath(decision.FullPath);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();

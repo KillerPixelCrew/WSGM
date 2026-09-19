@@ -146,9 +146,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
 
         var parent = Path.GetDirectoryName(output.FullPath)
                      ?? throw new IOException("Scaffold output has no parent directory.");
-        var temporary = Path.Combine(
-            parent,
-            $".{Path.GetFileName(output.FullPath)}.{Guid.NewGuid():N}.tmp");
+        var temporary = DurableFile.StagingPath(output.FullPath);
         try
         {
             Directory.CreateDirectory(parent);
