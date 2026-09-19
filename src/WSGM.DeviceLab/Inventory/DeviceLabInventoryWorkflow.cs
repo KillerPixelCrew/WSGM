@@ -128,9 +128,7 @@ internal static class DeviceLabInventoryWorkflow
 
         cancellationToken.ThrowIfCancellationRequested();
         var json = DeviceLabJson.Serialize(inventory);
-        var tempPath = Path.Combine(
-            directoryDecision.FullPath,
-            $".{InventoryFileName}.{Guid.NewGuid():N}.tmp");
+        var tempPath = DurableFile.StagingPath(outputPath);
 
         try
         {
@@ -170,10 +168,10 @@ internal static class DeviceLabInventoryWorkflow
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                                               or NotSupportedException or ArgumentException)
         {
-            var cleanupError = TryDeleteTemporaryFile(tempPath);
+            var cleanupError = DurableFile.TryDeleteFile(tempPath);
             var detail = cleanupError is null
                 ? exception.GetType().Name
-                : $"{exception.GetType().Name}; temporary cleanup failed: {cleanupError}";
+                : $"{exception.GetType().Name}; temporary cleanup failed: {cleanupError.GetType().Name}";
             return Failure(DeviceLabInventoryStatus.WriteFailed, detail);
         }
 
@@ -189,29 +187,11 @@ internal static class DeviceLabInventoryWorkflow
 
     internal static DeviceLabInventoryResult? CleanupCancelledWrite(string tempPath)
     {
-        var cleanupError = TryDeleteTemporaryFile(tempPath);
+        var cleanupError = DurableFile.TryDeleteFile(tempPath);
         return cleanupError is null
             ? null
             : Failure(DeviceLabInventoryStatus.WriteFailed,
-                $"Cancelled; temporary cleanup failed for {tempPath}: {cleanupError}");
-    }
-
-    private static string? TryDeleteTemporaryFile(string path)
-    {
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        try
-        {
-            File.Delete(path);
-            return null;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return exception.GetType().Name;
-        }
+                $"Cancelled; temporary cleanup failed for {tempPath}: {cleanupError.GetType().Name}");
     }
 
     private static DeviceLabInventoryResult Failure(DeviceLabInventoryStatus status, string? error)

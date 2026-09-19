@@ -199,7 +199,7 @@ internal static class PluginPackageWorkflow
             };
         }
 
-        var temporary = $"{decision.FullPath}.{Guid.NewGuid():N}.tmp";
+        var temporary = DurableFile.StagingPath(decision.FullPath);
         Directory.CreateDirectory(Path.GetDirectoryName(decision.FullPath)!);
         cancellationToken.ThrowIfCancellationRequested();
         var recheck = DeviceLabOutputPathPolicy.Evaluate(
@@ -257,7 +257,7 @@ internal static class PluginPackageWorkflow
         }
         catch
         {
-            TryDelete(temporary);
+            _ = DurableFile.TryDeleteFile(temporary);
             throw;
         }
     }
@@ -589,25 +589,6 @@ internal static class PluginPackageWorkflow
             PackageVersion = version,
             Issues = issues
         };
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (IOException)
-        {
-            // Preserve the original packing failure.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Preserve the original packing failure.
-        }
     }
 }
 

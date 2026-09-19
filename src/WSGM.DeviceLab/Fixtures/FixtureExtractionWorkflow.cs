@@ -103,9 +103,7 @@ internal static class FixtureExtractionWorkflow
 
         var parent = Path.GetDirectoryName(decision.FullPath)
                      ?? throw new IOException("Fixture output has no parent directory.");
-        var temporary = Path.Combine(
-            parent,
-            $".{Path.GetFileName(decision.FullPath)}.{Guid.NewGuid():N}.tmp");
+        var temporary = DurableFile.StagingPath(decision.FullPath);
         try
         {
             Directory.CreateDirectory(parent);

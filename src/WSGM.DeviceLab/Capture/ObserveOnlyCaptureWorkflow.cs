@@ -421,7 +421,7 @@ internal static class ObserveOnlyCaptureWorkflow
         }
 
         var directory = Path.GetDirectoryName(decision.FullPath)!;
-        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(decision.FullPath)}.{Guid.NewGuid():N}.tmp");
+        var temporaryPath = DurableFile.StagingPath(decision.FullPath);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -438,10 +438,14 @@ internal static class ObserveOnlyCaptureWorkflow
         }
         catch (OperationCanceledException)
         {
-            var cleanupError = TryDelete(temporaryPath);
+            var cleanupError = DurableFile.TryDeleteFile(temporaryPath);
             if (cleanupError is not null)
             {
-                return new CaptureExportResult { Exported = false, Error = $"Export cancelled. {cleanupError}" };
+                return new CaptureExportResult
+                {
+                    Exported = false,
+                    Error = $"Export cancelled. Temporary export cleanup failed for '{temporaryPath}': {cleanupError.Message}"
+                };
             }
 
             throw;
@@ -449,11 +453,13 @@ internal static class ObserveOnlyCaptureWorkflow
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                                               or NotSupportedException or ArgumentException or InvalidDataException)
         {
-            var cleanupError = TryDelete(temporaryPath);
+            var cleanupError = DurableFile.TryDeleteFile(temporaryPath);
             return new CaptureExportResult
             {
                 Exported = false,
-                Error = cleanupError is null ? exception.Message : $"{exception.Message} {cleanupError}"
+                Error = cleanupError is null
+                    ? exception.Message
+                    : $"{exception.Message} Temporary export cleanup failed for '{temporaryPath}': {cleanupError.Message}"
             };
         }
     }
@@ -648,19 +654,6 @@ internal static class ObserveOnlyCaptureWorkflow
         }
 
         return name.Length == 0 ? "source" : name.ToString();
-    }
-
-    private static string? TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-            return null;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return $"Temporary export cleanup failed for '{path}': {exception.Message}";
-        }
     }
 
     private static ObserveOnlyCaptureResult Failure(ObserveOnlyCaptureStatus status, string? error)

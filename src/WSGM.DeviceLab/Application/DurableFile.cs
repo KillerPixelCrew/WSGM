@@ -43,6 +43,36 @@ internal static class DurableFile
         WriteNew(path, stream => stream.Write(Utf8WithoutMark.GetBytes(content)));
     }
 
+    /// <summary>Builds a unique hidden staging path beside the publication target.</summary>
+    /// <param name="targetPath">Final file or directory path.</param>
+    /// <returns>A sibling path reserved for unpublished content.</returns>
+    internal static string StagingPath(string targetPath)
+    {
+        var directory = Path.GetDirectoryName(targetPath)
+                        ?? throw new ArgumentException("The target path has no parent directory.", nameof(targetPath));
+        return Path.Combine(directory, $".{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.tmp");
+    }
+
+    /// <summary>Removes an unpublished staging file without throwing a cleanup failure.</summary>
+    /// <param name="path">Staging file created by the workflow.</param>
+    /// <returns>The cleanup error, or <see langword="null" /> when cleanup succeeded.</returns>
+    internal static Exception? TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            return null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return exception;
+        }
+    }
+
     /// <summary>Removes an unpublished staging directory without masking the failure that abandoned it.</summary>
     /// <param name="path">Staging directory created by the failed workflow.</param>
     internal static void TryDeleteDirectory(string path)
