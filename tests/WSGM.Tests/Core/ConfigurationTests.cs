@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Device.Tests;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
@@ -520,39 +521,24 @@ public sealed class ConfigurationTests
         // The import path deserializes the same contract from an untrusted archive
         // and runs it through NormalizeSplash — the cap has to apply there too, since
         // that config is bound into the Appearance text boxes immediately.
-        var root = Path.Combine(Path.GetTempPath(), "wsgm-splash-length-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
+        using var temp = new TemporaryDirectory();
+        var themePath = temp.GetPath("huge.wsgmsplash");
+        var oversized = new SplashConfig
         {
-            var themePath = Path.Combine(root, "huge.wsgmsplash");
-            var oversized = new SplashConfig
-            {
-                Text = new string('T', 250_000),
-                Caption = new string('C', 250_000),
-                BackgroundColor = new string('#', 900)
-            };
-            // Export does not normalize, so this writes exactly the archive a
-            // malicious sharer would hand out.
-            Assert.True(SplashTheme.Export(oversized, themePath));
+            Text = new string('T', 250_000),
+            Caption = new string('C', 250_000),
+            BackgroundColor = new string('#', 900)
+        };
+        // Export does not normalize, so this writes exactly the archive a
+        // malicious sharer would hand out.
+        Assert.True(SplashTheme.Export(oversized, themePath));
 
-            var imported = SplashTheme.Import(themePath, Path.Combine(root, "staged"));
+        var imported = SplashTheme.Import(themePath, temp.GetPath("staged"));
 
-            Assert.NotNull(imported);
-            Assert.Equal(200, imported.Text.Length);
-            Assert.Equal(200, imported.Caption.Length);
-            Assert.Equal(32, imported.BackgroundColor.Length);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(root, true);
-            }
-            catch
-            {
-                // Temp cleanup is best effort.
-            }
-        }
+        Assert.NotNull(imported);
+        Assert.Equal(200, imported.Text.Length);
+        Assert.Equal(200, imported.Caption.Length);
+        Assert.Equal(32, imported.BackgroundColor.Length);
     }
 
     [Fact]
@@ -788,43 +774,7 @@ public sealed class ConfigurationTests
     {
         var original = new AppConfig
         {
-            Splash = new SplashConfig
-            {
-                Text = "WSGM",
-                TextEnabled = false,
-                TextColor = "#FF9D3D",
-                TitleFontSize = 48,
-                Caption = "STARTING STEAM",
-                CaptionColor = "#AAAAAA",
-                CaptionFontSize = 14,
-                SpinnerStyle = SplashSpinnerStyle.SweepLine,
-                SpinnerColor = "#00FF00",
-                SpinnerSize = 72,
-                SweepEdge = SweepEdge.Top,
-                BackgroundColor = "#101010",
-                VignetteEnabled = true,
-                BackgroundImagePath = @"C:\Images\bg.png",
-                LogoImagePath = @"C:\Images\logo.png",
-                LogoMaxSize = 320,
-                TextPlacement = new SplashElementPlacement
-                {
-                    Mode = SplashPlacementMode.Anchor,
-                    Anchor = SplashPlacementAnchor.BottomLeft,
-                    PaddingX = 32,
-                    PaddingY = 160
-                },
-                SpinnerPlacement = new SplashElementPlacement
-                {
-                    Mode = SplashPlacementMode.Absolute,
-                    X = 640,
-                    Y = 360
-                },
-                LogoPlacement = new SplashElementPlacement
-                {
-                    Mode = SplashPlacementMode.Anchor,
-                    Anchor = SplashPlacementAnchor.TopRight
-                }
-            }
+            Splash = SplashConfigBuilder.FullyCustomized(@"C:\Images\logo.png", @"C:\Images\bg.png")
         };
 
         var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
@@ -850,13 +800,13 @@ public sealed class ConfigurationTests
         Assert.Equal(@"C:\Images\logo.png", splash.LogoImagePath);
         Assert.Equal(320, splash.LogoMaxSize);
         Assert.Equal(SplashPlacementAnchor.BottomLeft, splash.TextPlacement.Anchor);
-        Assert.Equal(32, splash.TextPlacement.PaddingX);
+        Assert.Equal(48, splash.TextPlacement.PaddingX);
         Assert.Equal(160, splash.TextPlacement.PaddingY);
         Assert.Equal(SplashPlacementMode.Absolute, splash.SpinnerPlacement.Mode);
         Assert.Equal(640, splash.SpinnerPlacement.X);
         Assert.Equal(360, splash.SpinnerPlacement.Y);
         Assert.Equal(SplashPlacementMode.Anchor, splash.LogoPlacement.Mode);
-        Assert.Equal(SplashPlacementAnchor.TopRight, splash.LogoPlacement.Anchor);
+        Assert.Equal(SplashPlacementAnchor.TopCenter, splash.LogoPlacement.Anchor);
     }
 
     [Fact]
