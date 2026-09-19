@@ -15,11 +15,11 @@ overlay or complete any of issue 114's live input, hardware or lifecycle work. R
 and visual exports passed; maintainer design review and manual testing are pending. Automated
 suites and the production gate are deferred until manual testing.
 
-The Device root is now a navigation-only grid of section tiles. Power, fans, charging, display and
-the remaining groups open nested pages; Back/B restores the parent page and tile focus. This is a
-mockup-only follow-up; production Device behavior is unchanged.
-Device, Steam and Tools menu tiles now resize to fill the viewport, with fixed gaps and responsive
-column counts. Small windows retain a readable minimum target size and scroll when necessary.
+Every mockup tab now uses a one-third section sidebar and two-thirds controls pane, with independent
+scrolling, selected-section highlighting and B returning focus to the section list. Distinct glass
+panels and an orange divider clarify the split. Sidebar items use a consistent 48-DIP height and
+4-DIP spacing across tabs. Nested fan curve editing stays in the controls
+pane. Horizontal LT/RT destination navigation remains unchanged. This follow-up changes only the mockup.
 
 ## ROG Ally X portable tester (2026-09-15)
 

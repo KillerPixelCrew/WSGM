@@ -213,11 +213,11 @@ internal sealed partial class MockupWindow
         };
     }
 
-    private void ShowDetail(string title, Control content, bool allowDeviceSubpage = true)
+    private void ShowDetail(string title, Control content, bool allowSectionDetail = true)
     {
-        if (allowDeviceSubpage && _destination == "Device" && !_surface.IsVisible)
+        if (allowSectionDetail && _sectionDetail is not null && (_selectingSection || !_surface.IsVisible))
         {
-            ShowDeviceSubpage(title, content);
+            ShowSectionDetail(title, content);
             return;
         }
 

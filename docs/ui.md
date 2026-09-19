@@ -13,10 +13,12 @@ in-window status and keyboard surfaces, and a power menu. It is outside the prod
 does not change the shipped behavior described below. Controller, hardware and live-game acceptance
 remain pending.
 
-The prototype's Device root contains section tiles only. Its controls live in nested pages, with
-Back/B returning one level and LT/RT retaining horizontal destination navigation. Device, Steam and
-Tools menu tiles fill the current viewport, resizing with the window while retaining narrow fixed
-gaps and readable minimum sizes.
+Every prototype destination uses a one-third vertical section sidebar and a two-thirds controls
+pane, each scrolling independently. Distinct translucent panel backgrounds, borders and an orange
+divider separate navigation from controls. B returns from controls to the selected section; nested
+fan curve editing stays in the right pane. LT/RT retains horizontal destination navigation, and
+selected sections are remembered per tab. All sidebar items use the same 48-DIP height and 4-DIP
+spacing, aligned to the top regardless of the number of sections.
 
 ## Shared UI
 

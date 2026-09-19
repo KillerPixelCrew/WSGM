@@ -25,7 +25,6 @@ internal sealed partial class MockupWindow : Window
     private readonly ScrollViewer _pageViewport = new()
         { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
 
-    private readonly Dictionary<string, Control> _pages = [];
     private readonly Grid _root = new();
     private readonly Grid _shell = new() { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
     private readonly TextBlock _subtitle = Text("A few essentials. Then back to your game.", muted: true);
@@ -187,7 +186,6 @@ internal sealed partial class MockupWindow : Window
         profile.SelectionChanged += (_, _) =>
         {
             _profileScope = profile.SelectedIndex == 0 ? "Global" : "Sample game";
-            _pages.Clear();
             Navigate(_destination);
         };
         brand.Children.Add(profile);
@@ -230,7 +228,6 @@ internal sealed partial class MockupWindow : Window
         integration.IsCheckedChanged += (_, _) =>
         {
             _integration = integration.IsChecked == true;
-            _pages.Remove("Device");
             if (_destination == "Device")
             {
                 Navigate("Device");
@@ -266,7 +263,7 @@ internal sealed partial class MockupWindow : Window
 
     private void Navigate(string destination)
     {
-        _deviceHistory.Clear();
+        _sectionHistory.Clear();
         _destination = destination;
         foreach (var (name, button) in _navigation)
         {
@@ -281,20 +278,14 @@ internal sealed partial class MockupWindow : Window
             "Power" => ("Power & session", "Sleep, wake and session changes."),
             _ => ("Quick access", "Pinned controls and current session.")
         };
-        if (!_pages.TryGetValue(destination, out var page))
+        _page.Content = destination switch
         {
-            page = destination switch
-            {
-                "Device" => DevicePage(),
-                "Steam" => SteamPage(),
-                "Tools" => ToolsPage(),
-                "Power" => PowerPage(),
-                _ => QuickPage()
-            };
-            _pages.Add(destination, page);
-        }
-
-        _page.Content = page;
+            "Device" => DevicePage(),
+            "Steam" => SteamPage(),
+            "Tools" => ToolsPage(),
+            "Power" => PowerPage(),
+            _ => QuickPage()
+        };
     }
 
     private void ApplyGlass()
@@ -337,6 +328,14 @@ internal sealed partial class MockupWindow : Window
             CycleDestination(e.Key == Key.PageUp ? -1 : 1);
             e.Handled = true;
         }
+        else if (!_surface.IsVisible && !_keyboard.IsVisible
+                                     && e.Key is Key.Up or Key.Down or Key.Right
+                                     && FocusManager?.GetFocusedElement() is Button section &&
+                                     _sectionButtons.ContainsValue(section))
+        {
+            ControllerKey(e.Key);
+            e.Handled = true;
+        }
         else if (e.Key == Key.F11)
         {
             WindowState = WindowState == WindowState.FullScreen ? WindowState.Normal : WindowState.FullScreen;
@@ -352,9 +351,13 @@ internal sealed partial class MockupWindow : Window
             {
                 DismissSurface();
             }
-            else if (_deviceHistory.Count > 0)
+            else if (_sectionHistory.Count > 0)
             {
-                BackFromDeviceSubpage();
+                BackFromSectionDetail();
+            }
+            else if (FocusSectionMenu())
+            {
+                // Back from an editor returns to the selected section.
             }
             else if (_destination != "Quick access")
             {

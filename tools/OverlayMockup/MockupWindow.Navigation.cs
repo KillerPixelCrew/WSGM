@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
@@ -11,41 +10,80 @@ namespace WSGM.OverlayMockup;
 
 internal sealed partial class MockupWindow
 {
-    private readonly Stack<(Control Content, string? Heading, string? Subtitle, InputElement? Focus)> _deviceHistory =
-        new();
-
+    private readonly Dictionary<string, Button> _sectionButtons = [];
+    private readonly Stack<(Control Content, InputElement? Focus)> _sectionHistory = new();
+    private readonly Dictionary<string, string> _sectionSelections = [];
     private PreviewGamepad? _gamepad;
+    private ContentControl? _sectionDetail;
+    private string _selectedSection = "";
+    private bool _selectingSection;
 
-    private void ShowDeviceSubpage(string title, Control content)
+    private void SelectSection(string title, Action open)
     {
-        if (_page.Content is not Control previous)
+        _sectionHistory.Clear();
+        _selectedSection = title;
+        _sectionSelections[_destination] = title;
+        foreach (var (name, button) in _sectionButtons)
+        {
+            button.Classes.Set("selected", name == title);
+        }
+
+        _selectingSection = true;
+        try
+        {
+            open();
+        }
+        finally
+        {
+            _selectingSection = false;
+        }
+    }
+
+    private void ShowSectionDetail(string title, Control content)
+    {
+        if (_sectionDetail is null)
         {
             return;
         }
 
-        _deviceHistory.Push(
-            (previous, _heading.Text, _subtitle.Text, FocusManager?.GetFocusedElement() as InputElement));
-        var back = ActionButton("← Back", BackFromDeviceSubpage);
-        var page = Stack(back, content);
-        page.MaxWidth = 880;
-        page.HorizontalAlignment = HorizontalAlignment.Left;
-        _page.Content = page;
-        _heading.Text = "Device / " + title;
-        _subtitle.Text = "Preview controls · Changes stay in memory";
+        if (_selectingSection)
+        {
+            _sectionDetail.Content = Stack(SectionTitle(title, _integration || _destination != "Device"
+                ? "Preview controls · Changes stay in memory"
+                : "Device integration is off · Windows controls remain available"), content);
+            return;
+        }
+
+        if (_sectionDetail.Content is Control previous)
+        {
+            _sectionHistory.Push((previous, FocusManager?.GetFocusedElement() as InputElement));
+        }
+
+        var back = ActionButton("← Back", BackFromSectionDetail);
+        _sectionDetail.Content = Stack(back, content);
         Dispatcher.UIThread.Post(() => back.Focus(NavigationMethod.Directional));
     }
 
-    private void BackFromDeviceSubpage()
+    private void BackFromSectionDetail()
     {
-        if (!_deviceHistory.TryPop(out var previous))
+        if (_sectionHistory.TryPop(out var previous) && _sectionDetail is not null)
         {
-            return;
+            _sectionDetail.Content = previous.Content;
+            Dispatcher.UIThread.Post(() => previous.Focus?.Focus(NavigationMethod.Directional));
+        }
+    }
+
+    private bool FocusSectionMenu()
+    {
+        if (_sectionDetail is null
+            || FocusManager?.GetFocusedElement() is not Control focused
+            || !focused.GetVisualAncestors().Contains(_sectionDetail))
+        {
+            return false;
         }
 
-        _page.Content = previous.Content;
-        _heading.Text = previous.Heading;
-        _subtitle.Text = previous.Subtitle;
-        Dispatcher.UIThread.Post(() => previous.Focus?.Focus(NavigationMethod.Directional));
+        _sectionButtons[_selectedSection].Focus(NavigationMethod.Directional);
+        return true;
     }
 
     private void DismissDetail()
@@ -56,7 +94,7 @@ internal sealed partial class MockupWindow
         }
         else
         {
-            BackFromDeviceSubpage();
+            BackFromSectionDetail();
         }
     }
 
@@ -85,6 +123,32 @@ internal sealed partial class MockupWindow
         }
 
         var focused = FocusManager?.GetFocusedElement() as Control;
+        if (focused is Button section && _sectionButtons.ContainsValue(section))
+        {
+            if (key is Key.Up or Key.Down)
+            {
+                var buttons = _sectionButtons.Values.ToArray();
+                var index = Array.IndexOf(buttons, section);
+                var next = buttons[Math.Clamp(index + (key == Key.Down ? 1 : -1), 0, buttons.Length - 1)];
+                next.Focus(NavigationMethod.Directional);
+                next.BringIntoView();
+                return;
+            }
+
+            if (key == Key.Right)
+            {
+                section.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var first = _sectionDetail?.GetVisualDescendants().OfType<Control>()
+                        .FirstOrDefault(IsNavigationTarget);
+                    first?.Focus(NavigationMethod.Directional);
+                    first?.BringIntoView();
+                }, DispatcherPriority.Loaded);
+                return;
+            }
+        }
+
         if (key == Key.Enter)
         {
             switch (focused)

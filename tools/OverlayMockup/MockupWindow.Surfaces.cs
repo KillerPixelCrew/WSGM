@@ -47,7 +47,7 @@ internal sealed partial class MockupWindow
         _shell.IsVisible = false;
     }
 
-    private void ShowStatus(string title)
+    private void ShowStatus(string title, bool inSection = false)
     {
         Control content = title switch
         {
@@ -74,7 +74,7 @@ internal sealed partial class MockupWindow
                 Row("Bluetooth", Toggle("bluetooth", "Bluetooth", true)),
                 Text("Headphones connected · sample connection", muted: true))
         };
-        ShowDetail(title, content, false);
+        ShowDetail(title, content, inSection);
     }
 
     private void ShowKeyboard()

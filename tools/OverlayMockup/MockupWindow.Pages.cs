@@ -1,5 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Data;
+using Avalonia.Layout;
 using Avalonia.Media;
 using FluentAvalonia.UI.Controls;
 
@@ -11,67 +14,135 @@ internal sealed partial class MockupWindow
 
     private Control QuickPage()
     {
-        var resume = ActionButton("Back to play  ↗", () => Notice("Resume requested · preview only"), true);
-        var hero = Card(Stack(
-            Text("YOUR SESSION", 11, true, FontWeight.SemiBold),
-            Text("Steam Big Picture", 22, weight: FontWeight.SemiBold),
-            Text("Your session, at a glance.", 13, true),
-            Flow(120, Stat("82%", "Battery"), Stat("17 W", "Balanced"), Stat("60 fps", "Frame limit")),
-            resume));
-        hero.Background = new LinearGradientBrush
+        Control SessionCard()
         {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
-            GradientStops = new GradientStops
+            var resume = ActionButton("Back to play  ↗", () => Notice("Resume requested · preview only"), true);
+            var hero = Card(Stack(
+                Text("YOUR SESSION", 11, true, FontWeight.SemiBold),
+                Text("Steam Big Picture", 22, weight: FontWeight.SemiBold),
+                Text("Your session, at a glance.", 13, true),
+                Flow(120, Stat("82%", "Battery"), Stat("17 W", "Balanced"), Stat("60 fps", "Frame limit")),
+                resume));
+            hero.Background = new LinearGradientBrush
             {
-                new GradientStop(Color.Parse("#E6403429"), 0),
-                new GradientStop(Color.Parse("#E62C2C2C"), 1)
-            }
-        };
-        var essentials = Card(Stack(
-            SectionTitle("Comfort first", "Your everyday adjustments, one touch away."),
-            Range("brightness", "Brightness", 68, 0, 100, "%"),
-            Range("volume", "Volume", 42, 0, 100, "%"),
-            Row("Night light", Toggle("night-light", "Night light"))));
-        return Stack(
-            Flow(340, hero, essentials),
-            Flow(250,
-                Tile("Power & cooling", "Find the balance that feels right.", () => Navigate("Device")),
-                Tile("Your library", "Steam shortcuts and launch options.", () => Navigate("Steam")),
-                Tile("Step away", "Sleep, switch modes or end your session.", ShowPowerMenu, "⏻")));
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                GradientStops = new GradientStops
+                {
+                    new GradientStop(Color.Parse("#E6403429"), 0),
+                    new GradientStop(Color.Parse("#E62C2C2C"), 1)
+                }
+            };
+            return hero;
+        }
+
+        Control ComfortCard()
+        {
+            return Card(Stack(
+                SectionTitle("Comfort first", "Your everyday adjustments, one touch away."),
+                Range("brightness", "Brightness", 68, 0, 100, "%"),
+                Range("volume", "Volume", 42, 0, 100, "%"),
+                Row("Night light", Toggle("night-light", "Night light"))));
+        }
+
+        return SplitPage([
+            ("Your session", () => ShowDetail("Your session", SessionCard())),
+            ("Comfort first", () => ShowDetail("Comfort first", ComfortCard())),
+            ("Power & cooling", () => ShowDetail("Power & cooling", Stack(
+                Text("Power, cooling and battery controls."),
+                ActionButton("Open Device", () => Navigate("Device"))))),
+            ("Your library", () => ShowDetail("Your library", Stack(
+                Text("Library and per-game launch options."),
+                ActionButton("Open Steam", () => Navigate("Steam"))))),
+            ("Step away", () => ShowDetail("Step away", Stack(
+                Text("Sleep, switch modes or end your session."),
+                ActionButton("Open power menu", ShowPowerMenu))))
+        ]);
     }
 
     private Control DevicePage()
     {
-        Control[] common =
-        [
-            Tile("Windows power", "Energy plan and keep-awake controls.",
-                () => ShowDetail("Windows power", WindowsPowerCard())),
-            Tile("Display", "Brightness, refresh rate and variable refresh.",
-                () => ShowDetail("Display", DisplayCard())),
-            Tile("Performance", "Frame limits and the on-screen display.", ShowPerformance),
-            Tile("Controller", "Output and button labels.", ShowController)
-        ];
-        if (!_integration)
+        var sections = new List<(string Title, Action Open)>();
+        if (_integration)
         {
-            var banner = Banner("Device integration is off",
-                "Windows controls and independent tools are still available.");
-            return Stack(
-                banner,
-                new MenuTilePanel(_pageViewport, common, banner));
+            sections.Add(("Power limits", () => ShowDetail("Power limits", PowerLimitsCard())));
+            sections.Add(("Fans & thermals", () => ShowDetail("Fans & thermals", FansCard())));
+            sections.Add(("Battery & charging", () => ShowDetail("Battery & charging", ChargingCard())));
         }
 
-        return new MenuTilePanel(_pageViewport, [
-            Tile("Power limits", "Hardware profiles, AutoTDP and power limits.",
-                () => ShowDetail("Power limits", PowerLimitsCard())),
-            Tile("Fans & thermals", "Fan mode, curve and temperature readings.",
-                () => ShowDetail("Fans & thermals", FansCard())),
-            Tile("Battery & charging", "Charge limit and AC / battery profiles.",
-                () => ShowDetail("Battery & charging", ChargingCard())),
-            .. common,
-            Tile("Lighting", "Colour, brightness and zones.", ShowLighting, count: 3),
-            Tile("Device info", "MSI Claw 8 AI+ A2VM", ShowDeviceInfo)
-        ]);
+        sections.Add(("Windows power", () => ShowDetail("Windows power", WindowsPowerCard())));
+        sections.Add(("Display", () => ShowDetail("Display", DisplayCard())));
+        sections.Add(("Performance", ShowPerformance));
+        sections.Add(("Controller", ShowController));
+        if (_integration)
+        {
+            sections.Add(("Lighting", ShowLighting));
+            sections.Add(("Device info", ShowDeviceInfo));
+        }
+
+        return SplitPage(sections);
+    }
+
+    private Control SplitPage(List<(string Title, Action Open)> sections)
+    {
+        _sectionButtons.Clear();
+        _sectionDetail = new ContentControl();
+        _selectedSection = _sectionSelections.GetValueOrDefault(_destination, sections[0].Title);
+        var menu = new StackPanel { Spacing = 4 };
+        foreach (var (title, open) in sections)
+        {
+            var button = ActionButton(title, () => SelectSection(title, open));
+            var label = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            label.Children.Add(IconLabel(title));
+            if (title == "Lighting")
+            {
+                var badge = new FAInfoBadge { Value = 3 };
+                Grid.SetColumn(badge, 1);
+                label.Children.Add(badge);
+            }
+
+            button.Content = label;
+            button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            button.Classes.Add("nav");
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
+            button.Height = 48;
+            _sectionButtons.Add(title, button);
+            menu.Children.Add(button);
+        }
+
+        var split = new Grid { ColumnDefinitions = new ColumnDefinitions("*,20,2*") };
+        split.Bind(HeightProperty, new Binding("Viewport.Height") { Source = _pageViewport });
+        var sidebar = Card(new ScrollViewer
+        {
+            Content = menu,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        });
+        sidebar.Background = Brush("#CC202020");
+        sidebar.BorderBrush = Brush("#665F5F5F");
+        sidebar.Padding = new Thickness(10);
+        split.Children.Add(sidebar);
+        var divider = new Border { Width = 2, Background = Brush("#88FF9D3D"), Margin = new Thickness(0, 8) };
+        Grid.SetColumn(divider, 1);
+        split.Children.Add(divider);
+        var detail = new ScrollViewer
+        {
+            Content = _sectionDetail,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        var controls = Card(detail);
+        controls.Background = Brush("#962C2C2C");
+        controls.BorderBrush = Brush("#665F5F5F");
+        Grid.SetColumn(controls, 2);
+        split.Children.Add(controls);
+        var first = sections.FirstOrDefault(x => x.Title == _selectedSection);
+        if (first.Open is null)
+        {
+            first = sections[0];
+        }
+
+        SelectSection(first.Title, first.Open);
+        return split;
     }
 
     private Control WindowsPowerCard()
@@ -143,64 +214,58 @@ internal sealed partial class MockupWindow
 
     private Control SteamPage()
     {
-        return new MenuTilePanel(_pageViewport, [
-            Tile("Library", "Tabs, artwork and library folders.", () => ShowDetail("Steam library", Stack(
+        return SplitPage([
+            ("Library", () => ShowDetail("Library", Stack(
                 Row("Library tabs", Toggle("library-tabs", "Library tabs", true)),
                 Row("Custom artwork", Toggle("artwork", "Custom artwork", true)),
                 ActionButton("Manage library folders",
                     () => Notice("Library folder manager selected · preview only"))))),
-            Tile("Per-game launch fixes", "Launch actions and input handoff.", () =>
-                ShowDetail("Per-game launch fixes", Stack(
-                    Row("Selected game",
-                        Picker("launch-game", "Selected game", "Sample game", "Sample game", "Another game")),
-                    Row("De-elevated launch", Toggle("de-elevate", "De-elevated launch")),
-                    Row("Input lease", Toggle("lease", "Steam Input lease", true))))),
-            Tile("Card manager", "A place for removable game libraries.", () => ShowStatus("Storage")),
-            Tile("Open Steam", "Return to the library.", () => Notice("Open Steam requested · preview only"))
+            ("Per-game launch fixes", () => ShowDetail("Per-game launch fixes", Stack(
+                Row("Selected game",
+                    Picker("launch-game", "Selected game", "Sample game", "Sample game", "Another game")),
+                Row("De-elevated launch", Toggle("de-elevate", "De-elevated launch")),
+                Row("Input lease", Toggle("lease", "Steam Input lease", true))))),
+            ("Card manager", () => ShowStatus("Storage", true)),
+            ("Open Steam", () => ShowDetail("Open Steam", Stack(
+                Text("Return to your Steam library."),
+                ActionButton("Open Steam", () => Notice("Open Steam requested · preview only")))))
         ]);
     }
 
     private Control ToolsPage()
     {
-        return new MenuTilePanel(_pageViewport, [
-            Tile("Display", "Brightness, refresh rate and variable refresh.",
-                () => ShowDetail("Display", DisplayCard())),
-            Tile("Performance", "Frame limit, on-screen display and monitoring.", ShowPerformance),
-            Tile("Storage", "Removable drives and library space.", () => ShowStatus("Storage")),
-            Tile("System", "Task Manager, keyboard and desktop tools.", () => ShowDetail("System", Stack(
+        return SplitPage([
+            ("Display", () => ShowDetail("Display", DisplayCard())),
+            ("Performance", ShowPerformance),
+            ("Storage", () => ShowStatus("Storage", true)),
+            ("System", () => ShowDetail("System", Stack(
                 ActionButton("Task Manager", () => Notice("Task Manager requested · preview only")),
-                ActionButton("Open keyboard", () =>
-                {
-                    DismissSurface();
-                    ShowKeyboard();
-                })))),
-            Tile("Plugins", "Independent integrations and widgets.", () => ShowDetail("Plugins", Stack(
+                ActionButton("Open keyboard", ShowKeyboard)))),
+            ("Plugins", () => ShowDetail("Plugins", Stack(
                 Banner("Independent by design", "These controls remain available when Device Integration is off."),
                 Row("IR integration", Toggle("ir-plugin", "IR integration")),
                 Row("Sample widget", Toggle("widget", "Sample widget", true))))),
-            Tile("Controller ownership", "See which surface has your input.", ShowController)
+            ("Controller ownership", ShowController)
         ]);
     }
 
     private Control PowerPage()
     {
-        var hero = Card(Stack(
-            Text("ON YOUR TERMS", 11, true),
-            Text("Ready for a pause?", 24, weight: FontWeight.SemiBold),
-            Text("One place for sleep, session changes and a proper goodbye.", 13, true),
-            ActionButton("Open power menu  ↗", ShowPowerMenu, true)));
-        return Stack(hero, Flow(340,
-            Card(Stack(SectionTitle("Wake & idle", "Automatic screen and sleep timing"),
+        return SplitPage([
+            ("Power actions", () => ShowDetail("Power actions", Stack(
+                Text("Ready for a pause?", 24, weight: FontWeight.SemiBold),
+                Text("Sleep, switch sessions or shut down. Actions here are simulated.", muted: true),
+                ActionButton("Open power menu", ShowPowerMenu, true)))),
+            ("Wake & idle", () => ShowDetail("Wake & idle", Stack(
                 Row("Keep awake", Toggle("keep-awake", "Keep awake")),
                 Row("Dim after",
                     Picker("dim", "Dim after", "5 minutes", "Never", "2 minutes", "5 minutes", "10 minutes")),
                 Row("Sleep after",
-                    Picker("sleep", "Sleep after", "30 minutes", "Never", "15 minutes", "30 minutes", "1 hour")))),
-            Card(Stack(SectionTitle("Session", "Screen-off and wake behavior"),
+                    Picker("sleep", "Sleep after", "30 minutes", "Never", "15 minutes", "30 minutes", "1 hour"))))),
+            ("Session", () => ShowDetail("Session", Stack(
                 Row("Mute when screen is off", Toggle("screen-mute", "Mute when screen is off", true)),
-                Row("Restore on wake", Toggle("restore-wake", "Restore on wake", true)),
-                Text("Power actions in this mockup only show a confirmation. Nothing happens to your session.", 13,
-                    true)))));
+                Row("Restore on wake", Toggle("restore-wake", "Restore on wake", true)))))
+        ]);
     }
 
     private void ShowPerformance()

@@ -20,9 +20,10 @@ The supported preview floor is 980 × 640 DIPs. All content scrolls within the f
 session dock. **Tab / Shift+Tab** move focus, **Enter / Space** operate controls, and **Esc** backs
 out of a surface, returns to Quick access, then closes. The top-right **×** closes the sheet.
 
-Device, Steam and Tools menu tiles resize in both dimensions to fill the available page area. Gaps
-stay at 8 DIPs. The layout favours complete rows with up to four columns and keeps a minimum tile
-height of 104 DIPs; smaller viewports scroll instead of shrinking labels and touch targets.
+Every destination uses the same one-third section sidebar and two-thirds controls pane. Separate
+translucent panels and an orange divider make the split clear. Section buttons are consistently 48
+DIPs high with 4-DIP gaps on every tab, align to the top, and scroll independently from the
+controls.
 
 The top-left **◐** preview options' **Glass / solid** button compares live Avalonia AcrylicBlur/Blur
 with the flat fallback. The glass tint is 68% opaque. Windows decides whether native blur is
@@ -32,12 +33,13 @@ Battery-saver behavior needs an attended hardware check.
 ## Explore
 
 - **Quick access:** a session card, brightness, volume, night light and compact sample readings.
-- **Device:** icon tiles only on the root. Power limits, fans, charging, Windows power, display,
-  performance, controller, lighting and device info each open an in-page submenu. Back / B / Esc
-  returns one level and restores focus to the originating tile; LT / RT still changes destinations.
-  Sliders, selectors and AutoTDP live inside those submenus. The preview options' integration switch
-  demonstrates the device-independent Windows controls. Claw power and charging ranges follow the
-  existing `tests/WSGM.UiTests/Fixtures/claw-ui-publication.json` inventory.
+- **Device:** a one-third section sidebar and two-thirds controls pane. Icon buttons select power,
+  fans, charging, Windows power, display, performance, controller, lighting and device info. Each
+  pane scrolls independently. Up/down moves through sections; A selects and right enters its
+  controls. B / Esc returns from controls to the section list. The nested fan curve stays in the
+  controls pane, with Back / B restoring Fans. LT / RT still changes horizontal destinations. The
+  integration switch leaves device-independent Windows controls available. Claw power and charging
+  ranges follow `tests/WSGM.UiTests/Fixtures/claw-ui-publication.json`.
 - **Steam and Tools:** library, launch settings, performance, display, storage and independent
   plugin content from the current overlay, in a new composition.
 - **Power:** wake/idle options and a centred menu with safe initial focus on **Keep playing**.
@@ -48,8 +50,10 @@ Battery-saver behavior needs an attended hardware check.
 
 **LT / RT** change destinations with wrap; **Page Up / Page Down** are the keyboard equivalents. A
 read-only XInput poller handles D-pad movement, A selection and B back while this window is active.
-Held triggers switch once until released. Left/right adjust a focused slider or selector. Physical
-controller acceptance still needs the maintainer's manual test.
+All tabs use up/down for sections, A to select, right to enter controls and B to return to the
+section list. Selected sections are remembered per tab. Held triggers switch once until released.
+Left/right adjust a focused slider or selector. Physical controller acceptance still needs the
+maintainer's manual test.
 
 Controls retain in-memory values across pages. The top-bar selector switches between Global and a
 sample game profile, with separate performance overrides; Windows brightness and audio remain
