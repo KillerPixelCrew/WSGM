@@ -16,13 +16,14 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 internal sealed class WindowsClawMcuTransport : IClawMcuTransport
 {
     private readonly SemaphoreSlim _serializer = new(1, 1);
+    private string? _mcuPath;
     private volatile bool _disposed;
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
-        using var endpoint = HidEndpointEnumerator.FindMcu();
+        using var endpoint = FindMcu();
         return ValueTask.FromResult(endpoint is not null);
     }
 
@@ -41,7 +42,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using var endpoint = HidEndpointEnumerator.FindMcu()
+            using var endpoint = FindMcu()
                                  ?? throw new FileNotFoundException(
                                      "The exact A2VM MCU HID collection was not present.");
             await using var stream = endpoint.OpenReadWrite();
@@ -88,7 +89,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using var endpoint = HidEndpointEnumerator.FindMcu()
+            using var endpoint = FindMcu()
                                  ?? throw new FileNotFoundException(
                                      "The exact A2VM MCU HID collection was not present.");
             await using var stream = endpoint.OpenReadWrite();
@@ -129,7 +130,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            using (var endpoint = HidEndpointEnumerator.FindMcu()
+            using (var endpoint = FindMcu()
                                   ?? throw new FileNotFoundException(
                                       "The exact A2VM MCU HID collection was not present."))
             {
@@ -191,6 +192,13 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         request[3] = 0x3C;
         request[4] = command;
         return request;
+    }
+
+    private HidEndpoint? FindMcu()
+    {
+        var endpoint = HidEndpointEnumerator.FindMcu(_mcuPath);
+        _mcuPath = endpoint?.DevicePath;
+        return endpoint;
     }
 
     private static async ValueTask WriteReportAsync(
@@ -526,16 +534,30 @@ internal static class HidEndpointEnumerator
         PropertyId = 37
     };
 
-    public static HidEndpoint? FindMcu()
+    public static HidEndpoint? FindMcu(string? knownPath = null)
     {
-        return Enumerate().FirstOrDefault(endpoint =>
+        if (!string.IsNullOrWhiteSpace(knownPath))
+        {
+            var knownEndpoint = Enumerate(knownPath).FirstOrDefault(IsMcu);
+            if (knownEndpoint is not null)
+            {
+                return knownEndpoint;
+            }
+        }
+
+        return Enumerate().FirstOrDefault(IsMcu);
+    }
+
+    private static bool IsMcu(HidEndpoint endpoint)
+    {
+        return
             endpoint.ProductId switch
             {
                 ClawHardwareFacts.XInputProductId => endpoint is { UsagePage: 0xFFA0, Usage: 0x0001 },
                 ClawHardwareFacts.DirectInputProductId => endpoint is { UsagePage: 0xFFF0, Usage: 0x0040 },
                 _ => false
             }
-            && endpoint is { InputLength: 64, OutputLength: 64 });
+            && endpoint is { InputLength: 64, OutputLength: 64 };
     }
 
     /// <summary>The DirectInput pad the MCU presents after switching to that mode.</summary>
@@ -624,7 +646,7 @@ internal static class HidEndpointEnumerator
         return string.Equals(CompositeLocation(left), CompositeLocation(right), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<HidEndpoint> Enumerate()
+    private static List<HidEndpoint> Enumerate(string? requiredPath = null)
     {
         NativeHid.HidD_GetHidGuid(out var hidGuid);
         var set = NativeHid.SetupDiGetClassDevs(
@@ -688,7 +710,10 @@ internal static class HidEndpointEnumerator
                     }
 
                     var path = Marshal.PtrToStringUni(IntPtr.Add(detail, 4));
-                    if (path is null || !TryDescribe(path, set, info, out var endpoint))
+                    if (path is null
+                        || requiredPath is not null
+                        && !string.Equals(path, requiredPath, StringComparison.OrdinalIgnoreCase)
+                        || !TryDescribe(path, set, info, out var endpoint))
                     {
                         continue;
                     }
@@ -716,6 +741,11 @@ internal static class HidEndpointEnumerator
         out HidEndpoint? endpoint)
     {
         endpoint = null;
+        if (!IsSupportedDevicePath(path))
+        {
+            return false;
+        }
+
         using var handle = NativeHid.CreateFile(
             path,
             0,
@@ -774,6 +804,12 @@ internal static class HidEndpointEnumerator
         return true;
     }
 
+    internal static bool IsSupportedDevicePath(string path)
+    {
+        return path.Contains("vid_0db0&pid_1901", StringComparison.OrdinalIgnoreCase)
+               || path.Contains("vid_0db0&pid_1902", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ReadInstancePath(nint set, NativeHid.DeviceInfoData info)
     {
         var buffer = new StringBuilder(1024);
@@ -786,9 +822,9 @@ internal static class HidEndpointEnumerator
     {
         var current = deviceInstance;
         var locationPathsKey = LocationPathsKey;
+        var buffer = new byte[4096];
         for (var depth = 0; depth < 6; depth++)
         {
-            var buffer = new byte[4096];
             var length = checked((uint)buffer.Length);
             if (NativeHid.CM_Get_Device_Property(
                     current,
