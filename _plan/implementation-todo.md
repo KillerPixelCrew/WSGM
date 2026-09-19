@@ -18,6 +18,8 @@ suites and the production gate are deferred until manual testing.
 The Device root is now a navigation-only grid of section tiles. Power, fans, charging, display and
 the remaining groups open nested pages; Back/B restores the parent page and tile focus. This is a
 mockup-only follow-up; production Device behavior is unchanged.
+Device, Steam and Tools menu tiles now resize to fill the viewport, with fixed gaps and responsive
+column counts. Small windows retain a readable minimum target size and scroll when necessary.
 
 ## ROG Ally X portable tester (2026-09-15)
 

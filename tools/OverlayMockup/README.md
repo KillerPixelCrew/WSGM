@@ -20,6 +20,10 @@ The supported preview floor is 980 × 640 DIPs. All content scrolls within the f
 session dock. **Tab / Shift+Tab** move focus, **Enter / Space** operate controls, and **Esc** backs
 out of a surface, returns to Quick access, then closes. The top-right **×** closes the sheet.
 
+Device, Steam and Tools menu tiles resize in both dimensions to fill the available page area. Gaps
+stay at 8 DIPs. The layout favours complete rows with up to four columns and keeps a minimum tile
+height of 104 DIPs; smaller viewports scroll instead of shrinking labels and touch targets.
+
 The top-left **◐** preview options' **Glass / solid** button compares live Avalonia AcrylicBlur/Blur
 with the flat fallback. The glass tint is 68% opaque. Windows decides whether native blur is
 available; this tool does not capture the desktop or simulate blur using a frozen image.

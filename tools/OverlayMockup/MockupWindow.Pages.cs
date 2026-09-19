@@ -54,12 +54,14 @@ internal sealed partial class MockupWindow
         ];
         if (!_integration)
         {
+            var banner = Banner("Device integration is off",
+                "Windows controls and independent tools are still available.");
             return Stack(
-                Banner("Device integration is off", "Windows controls and independent tools are still available."),
-                Flow(340, common));
+                banner,
+                new MenuTilePanel(_pageViewport, common, banner));
         }
 
-        return Flow(340, [
+        return new MenuTilePanel(_pageViewport, [
             Tile("Power limits", "Hardware profiles, AutoTDP and power limits.",
                 () => ShowDetail("Power limits", PowerLimitsCard())),
             Tile("Fans & thermals", "Fan mode, curve and temperature readings.",
@@ -141,49 +143,43 @@ internal sealed partial class MockupWindow
 
     private Control SteamPage()
     {
-        return Stack(
-            Card(Stack(
-                Text("YOUR LIBRARY, YOUR WAY", 11, true),
-                Text("Less setup.\nMore next adventure.", 24, weight: FontWeight.SemiBold),
-                Text("Bring your games together and keep each launch predictable.", 13, true))),
-            Flow(300,
-                Tile("Library", "Tabs, artwork and library folders.", () => ShowDetail("Steam library", Stack(
-                    Row("Library tabs", Toggle("library-tabs", "Library tabs", true)),
-                    Row("Custom artwork", Toggle("artwork", "Custom artwork", true)),
-                    ActionButton("Manage library folders",
-                        () => Notice("Library folder manager selected · preview only"))))),
-                Tile("Per-game launch fixes", "Launch actions and input handoff.", () =>
-                    ShowDetail("Per-game launch fixes", Stack(
-                        Row("Selected game",
-                            Picker("launch-game", "Selected game", "Sample game", "Sample game", "Another game")),
-                        Row("De-elevated launch", Toggle("de-elevate", "De-elevated launch")),
-                        Row("Input lease", Toggle("lease", "Steam Input lease", true)))))),
-            Flow(300,
-                Tile("Card manager", "A place for removable game libraries.", () => ShowStatus("Storage")),
-                Tile("Open Steam", "Return to the library.", () => Notice("Open Steam requested · preview only"))));
+        return new MenuTilePanel(_pageViewport, [
+            Tile("Library", "Tabs, artwork and library folders.", () => ShowDetail("Steam library", Stack(
+                Row("Library tabs", Toggle("library-tabs", "Library tabs", true)),
+                Row("Custom artwork", Toggle("artwork", "Custom artwork", true)),
+                ActionButton("Manage library folders",
+                    () => Notice("Library folder manager selected · preview only"))))),
+            Tile("Per-game launch fixes", "Launch actions and input handoff.", () =>
+                ShowDetail("Per-game launch fixes", Stack(
+                    Row("Selected game",
+                        Picker("launch-game", "Selected game", "Sample game", "Sample game", "Another game")),
+                    Row("De-elevated launch", Toggle("de-elevate", "De-elevated launch")),
+                    Row("Input lease", Toggle("lease", "Steam Input lease", true))))),
+            Tile("Card manager", "A place for removable game libraries.", () => ShowStatus("Storage")),
+            Tile("Open Steam", "Return to the library.", () => Notice("Open Steam requested · preview only"))
+        ]);
     }
 
     private Control ToolsPage()
     {
-        return Stack(
-            Flow(280,
-                Tile("Display", "Brightness, refresh rate and variable refresh.",
-                    () => ShowDetail("Display", DisplayCard())),
-                Tile("Performance", "Frame limit, on-screen display and monitoring.", ShowPerformance),
-                Tile("Storage", "Removable drives and library space.", () => ShowStatus("Storage"))),
-            Flow(280,
-                Tile("System", "Task Manager, keyboard and desktop tools.", () => ShowDetail("System", Stack(
-                    ActionButton("Task Manager", () => Notice("Task Manager requested · preview only")),
-                    ActionButton("Open keyboard", () =>
-                    {
-                        DismissSurface();
-                        ShowKeyboard();
-                    })))),
-                Tile("Plugins", "Independent integrations and widgets.", () => ShowDetail("Plugins", Stack(
-                    Banner("Independent by design", "These controls remain available when Device Integration is off."),
-                    Row("IR integration", Toggle("ir-plugin", "IR integration")),
-                    Row("Sample widget", Toggle("widget", "Sample widget", true))))),
-                Tile("Controller ownership", "See which surface has your input.", ShowController)));
+        return new MenuTilePanel(_pageViewport, [
+            Tile("Display", "Brightness, refresh rate and variable refresh.",
+                () => ShowDetail("Display", DisplayCard())),
+            Tile("Performance", "Frame limit, on-screen display and monitoring.", ShowPerformance),
+            Tile("Storage", "Removable drives and library space.", () => ShowStatus("Storage")),
+            Tile("System", "Task Manager, keyboard and desktop tools.", () => ShowDetail("System", Stack(
+                ActionButton("Task Manager", () => Notice("Task Manager requested · preview only")),
+                ActionButton("Open keyboard", () =>
+                {
+                    DismissSurface();
+                    ShowKeyboard();
+                })))),
+            Tile("Plugins", "Independent integrations and widgets.", () => ShowDetail("Plugins", Stack(
+                Banner("Independent by design", "These controls remain available when Device Integration is off."),
+                Row("IR integration", Toggle("ir-plugin", "IR integration")),
+                Row("Sample widget", Toggle("widget", "Sample widget", true))))),
+            Tile("Controller ownership", "See which surface has your input.", ShowController)
+        ]);
     }
 
     private Control PowerPage()

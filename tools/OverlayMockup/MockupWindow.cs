@@ -21,6 +21,10 @@ internal sealed partial class MockupWindow : Window
     private readonly Border _keyboard = new() { IsVisible = false };
     private readonly Dictionary<string, Button> _navigation = [];
     private readonly ContentControl _page = new();
+
+    private readonly ScrollViewer _pageViewport = new()
+        { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+
     private readonly Dictionary<string, Control> _pages = [];
     private readonly Grid _root = new();
     private readonly Grid _shell = new() { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
@@ -120,9 +124,9 @@ internal sealed partial class MockupWindow : Window
         var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         header.Children.Add(Stack(_heading, _subtitle, 4));
         body.Children.Add(header);
-        var scroll = new ScrollViewer { Content = _page, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        Grid.SetRow(scroll, 1);
-        body.Children.Add(scroll);
+        _pageViewport.Content = _page;
+        Grid.SetRow(_pageViewport, 1);
+        body.Children.Add(_pageViewport);
         var dock = BuildDock();
         Grid.SetRow(dock, 2);
         body.Children.Add(dock);

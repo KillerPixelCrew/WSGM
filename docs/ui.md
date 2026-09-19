@@ -14,7 +14,9 @@ does not change the shipped behavior described below. Controller, hardware and l
 remain pending.
 
 The prototype's Device root contains section tiles only. Its controls live in nested pages, with
-Back/B returning one level and LT/RT retaining horizontal destination navigation.
+Back/B returning one level and LT/RT retaining horizontal destination navigation. Device, Steam and
+Tools menu tiles fill the current viewport, resizing with the window while retaining narrow fixed
+gaps and readable minimum sizes.
 
 ## Shared UI
 
