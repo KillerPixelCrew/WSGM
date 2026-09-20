@@ -59,7 +59,9 @@ height-constrained virtualizing control instead.
 
 Device sliders accept readback in place while the page retains focus. Programmatic changes never
 start their user-write timer; active pointer gestures and pending user edits retain their value.
-Losing capability availability cancels a pending slider write.
+Sliders and curves submit a pending edit once when navigation removes their row. Losing capability
+availability cancels the pending edit. Device submissions recheck the current capability and its
+descriptor/cycle generation, so a removed or replaced capability cannot receive an old draft.
 
 Shared controls live under `Controls\`: `TabStrip` (the destination bar), `ActionButton` (commands)
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior

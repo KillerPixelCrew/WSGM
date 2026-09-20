@@ -77,7 +77,7 @@ public sealed record CapabilityDescriptor
     public CapabilityProminence Prominence { get; init; } = CapabilityProminence.Normal;
 
     /// <summary>Optional semantic companion to keep adjacent within this section and category.</summary>
-    /// <remarks>This is presentation metadata only and never authorizes a coordinated hardware write.</remarks>
+    /// <remarks>Requires an explicit shared SectionId. This metadata never authorizes a coordinated hardware write.</remarks>
     public CapabilityLayoutPair? LayoutPair { get; init; }
 
     /// <summary>Whether the current value can be read back from hardware.</summary>

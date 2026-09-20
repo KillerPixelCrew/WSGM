@@ -9,6 +9,31 @@ namespace WSGM.DeviceLab.Tests.Testing;
 
 public sealed class AttendedPluginActionTests
 {
+    [Theory]
+    [InlineData((int)AttendedPluginActionKind.ControllerManagement, CapabilityRole.ControllerSource)]
+    [InlineData((int)AttendedPluginActionKind.HapticPulse, CapabilityRole.HapticSink)]
+    [InlineData((int)AttendedPluginActionKind.HapticSweep, CapabilityRole.HapticSink)]
+    public async Task RoleActionsRejectInvalidLayoutBeforeEnablingHardware(
+        int kind, CapabilityRole role)
+    {
+        var host = await RoleHostAsync(role);
+        var publication = host.DescriptorSets[^1];
+        await host.PublishDescriptorsAsync(publication with
+        {
+            Generation = publication.Generation + 1,
+            Descriptors = [publication.Descriptors[0] with { Prominence = (CapabilityProminence)999 }]
+        }, CancellationToken.None);
+        var plugin = new ActionTestPlugin(host);
+        var report = await AttendedPluginActionRunner.RunAsync(plugin, host,
+            new AttendedPluginActionRequest { Kind = (AttendedPluginActionKind)kind }, CancellationToken.None);
+        Assert.False(report.Passed);
+        Assert.Contains("prominence", report.Error);
+        Assert.Equal(0, plugin.ControllerManagementCalls);
+        Assert.Equal(0, plugin.ControllerReleaseCalls);
+        Assert.Empty(plugin.Commands);
+        Assert.Empty(plugin.HapticFrames);
+    }
+
     [Fact]
     public async Task CapabilityValue_ObservedOriginalIsVerifiedThenAppliedAndRestored()
     {
@@ -534,6 +559,8 @@ public sealed class AttendedPluginActionTests
 
         public int ControllerReleaseCalls { get; private set; }
 
+        public int ControllerManagementCalls { get; private set; }
+
         public PluginControllerRelease ControllerRelease { get; init; } = new()
         {
             Step = ControllerHandoffStep.TopologyVerified,
@@ -624,6 +651,7 @@ public sealed class AttendedPluginActionTests
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            ControllerManagementCalls++;
             var sets = host.DescriptorSets;
             if (sets.Count == 0)
             {

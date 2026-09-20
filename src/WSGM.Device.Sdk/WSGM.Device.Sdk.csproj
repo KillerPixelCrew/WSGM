@@ -24,7 +24,7 @@
     <PackageId>WSGM.Device.Sdk</PackageId>
     <!-- Pre-1.0: the contract is published so plugin authors can pin it, not because it is frozen.
          A breaking change moves the minor version and is called out in the release notes. -->
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Description>The contract a WSGM Device Plugin links against: lifecycle, capability publication and commands, canonical controller input and haptic output, OEM events, glyph packages, plugin settings, diagnostics, packaging validation and a test kit.</Description>
     <PackageTags>wsgm;handheld;device-plugin;steam;gamemode;sdk</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

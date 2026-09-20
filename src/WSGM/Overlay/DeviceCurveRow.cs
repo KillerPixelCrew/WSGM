@@ -104,7 +104,7 @@ internal sealed class DeviceCurveRow : Border
             }
         };
         Classes.Remove("tile");
-        DetachedFromVisualTree += (_, _) => _commit.Stop();
+        DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }
 
     internal void RefreshReadback(IReadOnlyList<CurvePoint> points, int? marker, bool enabled)
@@ -190,7 +190,20 @@ internal sealed class DeviceCurveRow : Border
 
     private void OnCommitTick(object? sender, EventArgs e)
     {
+        CommitPendingChange();
+    }
+
+    private void CommitPendingChange()
+    {
+        if (!_commit.IsEnabled)
+        {
+            return;
+        }
+
         _commit.Stop();
-        _onCommit(_editor.Points);
+        if (_editor.IsEnabled)
+        {
+            _onCommit(_editor.Points);
+        }
     }
 }

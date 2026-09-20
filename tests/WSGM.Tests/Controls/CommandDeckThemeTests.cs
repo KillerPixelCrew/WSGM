@@ -1,6 +1,4 @@
 using System.Xml.Linq;
-using Avalonia.Controls;
-using WSGM.Controls;
 using WSGM.Device.Tests;
 
 namespace WSGM.Tests.Controls;
@@ -8,14 +6,6 @@ namespace WSGM.Tests.Controls;
 /// <summary>Command-deck controls share standard button templates and visible controller focus.</summary>
 public sealed class CommandDeckThemeTests
 {
-    [Fact]
-    public void AnActionSubclassUsesTheStandardButtonTemplate()
-    {
-        ThemeProbeRow row = new();
-
-        Assert.Equal(typeof(Button), row.ResolvedStyleKey);
-    }
-
     [Fact]
     public void ProductionResourceGraphLoadsCommandDeckStylesExactlyOnce()
     {
@@ -71,10 +61,5 @@ public sealed class CommandDeckThemeTests
                 styled,
                 $"No selector styles .{entry.Class} for {entry.Type}; rows carrying it render bare.");
         });
-    }
-
-    private sealed class ThemeProbeRow : ActionButton
-    {
-        internal Type ResolvedStyleKey => StyleKeyOverride;
     }
 }

@@ -17,7 +17,17 @@ public partial class OverlayWindow
             return;
         }
 
-        _ = CommitDeviceValueAsync(bridge, capability with { NextValue = value });
+        var snapshot = bridge.Snapshot();
+        var current = snapshot.Capabilities.FirstOrDefault(candidate =>
+            candidate.CapabilityId == capability.CapabilityId && candidate.InstanceId == capability.InstanceId);
+        if (!snapshot.Visible || current is not { CanInvoke: true }
+                              || current.DescriptorGeneration != capability.DescriptorGeneration
+                              || current.CycleGeneration != capability.CycleGeneration)
+        {
+            return;
+        }
+
+        _ = CommitDeviceValueAsync(bridge, current with { NextValue = value });
     }
 
     private async Task CommitDeviceValueAsync(
