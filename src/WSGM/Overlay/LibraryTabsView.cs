@@ -189,7 +189,7 @@ public sealed class LibraryTabsView : OverlaySubView
             {
                 foreach (var child in stack.Children)
                 {
-                    if (child is not ActionButton { IsEffectivelyEnabled: true } button
+                    if (child is not CardButton { IsEffectivelyEnabled: true } button
                         || button.Title != focusTitle)
                     {
                         continue;
@@ -296,12 +296,22 @@ public sealed class LibraryTabsView : OverlaySubView
         stack.Children.Add(Row("Name", string.IsNullOrWhiteSpace(_editing.Name) ? "(required)" : _editing.Name,
             Icons.CopyDoc, () => EditText("Tab name", _editing.Name, 40, v => { _editing.Name = v.Trim(); })));
 
-        stack.Children.Add(ChoiceRow("Match",
-            [(FilterMode.And, "All filters (AND)"), (FilterMode.Or, "Any filter (OR)")],
-            _editing.FilterTree.Mode, value => _editing.FilterTree.Mode = value));
+        stack.Children.Add(CycleRow("Match", _editing.FilterTree.Mode == FilterMode.And
+            ? "All filters (AND)"
+            : "Any filter (OR)", () =>
+        {
+            _editing.FilterTree.Mode = _editing.FilterTree.Mode == FilterMode.And
+                ? FilterMode.Or
+                : FilterMode.And;
+            Replace(RenderTabEditor);
+        }));
 
-        stack.Children.Add(ChoiceRow("Include", CategoryChoices(_editing.Categories),
-            _editing.Categories, value => _editing.Categories = value));
+        stack.Children.Add(CycleRow("Include", CategoriesLabel((LibraryFilter.Categories)_editing.Categories),
+            () =>
+            {
+                _editing.Categories = NextCategories(_editing.Categories);
+                Replace(RenderTabEditor);
+            }));
 
         stack.Children.Add(SectionLabel("FILTERS"));
         var filters = _editing.FilterTree.Children;
@@ -526,8 +536,11 @@ public sealed class LibraryTabsView : OverlaySubView
 
         if (LibraryFilter.CanInvert(node.Kind))
         {
-            stack.Children.Add(ChoiceRow("Result", [(false, "Normal"), (true, "Inverted (NOT)")],
-                node.Inverted, value => node.Inverted = value));
+            stack.Children.Add(CycleRow("Result", node.Inverted ? "Inverted (NOT)" : "Normal", () =>
+            {
+                node.Inverted = !node.Inverted;
+                Replace(() => RenderFilterEditor(node));
+            }));
         }
 
         stack.Children.Add(SectionLabel(""));
@@ -549,14 +562,24 @@ public sealed class LibraryTabsView : OverlaySubView
         switch (node.Kind)
         {
             case FilterKind.Installed:
-                stack.Children.Add(ChoiceRow("State", [(false, "Not installed"), (true, "Installed")],
-                    node.BoolValue, value => node.BoolValue = value));
+                stack.Children.Add(CycleRow("State", node.BoolValue ? "Installed" : "Not installed",
+                    () =>
+                    {
+                        node.BoolValue = !node.BoolValue;
+                        Replace(() => RenderFilterEditor(node));
+                    }));
                 break;
 
             case FilterKind.Platform:
-                stack.Children.Add(ChoiceRow("Platform",
-                    [(PlatformKind.Steam, "Steam"), (PlatformKind.NonSteam, "Non-Steam")],
-                    node.Platform, value => node.Platform = value));
+                stack.Children.Add(CycleRow("Platform", node.Platform == PlatformKind.Steam
+                    ? "Steam"
+                    : "Non-Steam", () =>
+                {
+                    node.Platform = node.Platform == PlatformKind.Steam
+                        ? PlatformKind.NonSteam
+                        : PlatformKind.Steam;
+                    Replace(() => RenderFilterEditor(node));
+                }));
                 break;
 
             case FilterKind.Regex:
@@ -571,9 +594,13 @@ public sealed class LibraryTabsView : OverlaySubView
                         ? "(choose one or more)"
                         : $"{node.TagIds.Count} selected", Icons.Wrench,
                     () => OpenTagPicker(node)));
-                stack.Children.Add(ChoiceRow("Match",
-                    [(FilterMode.And, "All tags (AND)"), (FilterMode.Or, "Any tag (OR)")],
-                    node.Mode, value => node.Mode = value));
+                stack.Children.Add(CycleRow("Match", node.Mode == FilterMode.And
+                    ? "All tags (AND)"
+                    : "Any tag (OR)", () =>
+                {
+                    node.Mode = node.Mode == FilterMode.And ? FilterMode.Or : FilterMode.And;
+                    Replace(() => RenderFilterEditor(node));
+                }));
                 break;
 
             case FilterKind.Collection:
@@ -592,9 +619,15 @@ public sealed class LibraryTabsView : OverlaySubView
                 break;
 
             case FilterKind.ReviewScore:
-                stack.Children.Add(ChoiceRow("Source",
-                    [(ReviewScoreType.SteamPercent, "Steam %"), (ReviewScoreType.Metacritic, "Metacritic")],
-                    node.ScoreType, value => node.ScoreType = value));
+                stack.Children.Add(CycleRow("Source", node.ScoreType == ReviewScoreType.SteamPercent
+                    ? "Steam %"
+                    : "Metacritic", () =>
+                {
+                    node.ScoreType = node.ScoreType == ReviewScoreType.SteamPercent
+                        ? ReviewScoreType.Metacritic
+                        : ReviewScoreType.SteamPercent;
+                    Replace(() => RenderFilterEditor(node));
+                }));
                 AddCondition(stack, node);
                 AddStepper(stack, "Score", node.Threshold, 0, 100, 5,
                     v =>
@@ -606,9 +639,21 @@ public sealed class LibraryTabsView : OverlaySubView
 
             case FilterKind.TimePlayed:
                 AddCondition(stack, node);
-                stack.Children.Add(ChoiceRow("Units",
-                    [(TimeUnit.Minutes, "Minutes"), (TimeUnit.Hours, "Hours"), (TimeUnit.Days, "Days")],
-                    node.Units, value => node.Units = value));
+                stack.Children.Add(CycleRow("Units", node.Units switch
+                {
+                    TimeUnit.Minutes => "Minutes",
+                    TimeUnit.Days => "Days",
+                    _ => "Hours"
+                }, () =>
+                {
+                    node.Units = node.Units switch
+                    {
+                        TimeUnit.Minutes => TimeUnit.Hours,
+                        TimeUnit.Hours => TimeUnit.Days,
+                        _ => TimeUnit.Minutes
+                    };
+                    Replace(() => RenderFilterEditor(node));
+                }));
                 AddStepper(stack, "Amount", node.Threshold, 0, 1000, 1,
                     v =>
                     {
@@ -641,17 +686,22 @@ public sealed class LibraryTabsView : OverlaySubView
                 break;
 
             case FilterKind.SdCard:
-                stack.Children.Add(ChoiceRow("Card", CardScopeChoices(node),
-                    (node.CardScope, node.CardScope == SdCardScope.Specific ? node.ContentId : ""), value =>
-                    {
-                        node.CardScope = value.Item1;
-                        node.ContentId = value.Item2;
-                    }));
+                stack.Children.Add(CycleRow("Card", node.CardScope switch
+                {
+                    SdCardScope.Inserted => "Currently inserted",
+                    SdCardScope.Any => "Any tracked card",
+                    _ => CardName(node.ContentId)
+                }, () => CycleCardScope(node)));
                 break;
 
             case FilterKind.Merge:
-                stack.Children.Add(ChoiceRow("Match", [(FilterMode.And, "All (AND)"), (FilterMode.Or, "Any (OR)")],
-                    node.Mode, value => node.Mode = value));
+                stack.Children.Add(CycleRow("Match", node.Mode == FilterMode.And
+                    ? "All (AND)"
+                    : "Any (OR)", () =>
+                {
+                    node.Mode = node.Mode == FilterMode.And ? FilterMode.Or : FilterMode.And;
+                    Replace(() => RenderFilterEditor(node));
+                }));
                 stack.Children.Add(SectionLabel("GROUP FILTERS"));
                 foreach (var child in node.Children.ToList())
                 {
@@ -668,9 +718,15 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private void AddCondition(StackPanel stack, FilterNode node)
     {
-        stack.Children.Add(ChoiceRow("Condition",
-            [(ThresholdCondition.Above, "At or above"), (ThresholdCondition.Below, "Below")],
-            node.Condition, value => node.Condition = value));
+        stack.Children.Add(CycleRow("Condition", node.Condition == ThresholdCondition.Above
+            ? "At or above"
+            : "Below", () =>
+        {
+            node.Condition = node.Condition == ThresholdCondition.Above
+                ? ThresholdCondition.Below
+                : ThresholdCondition.Above;
+            Replace(() => RenderFilterEditor(node));
+        }));
     }
 
     // ---- Merge sub-group editing (one nesting level; re-uses the same editor) ----
@@ -707,8 +763,11 @@ public sealed class LibraryTabsView : OverlaySubView
         BuildFilterParams(stack, child);
         if (LibraryFilter.CanInvert(child.Kind))
         {
-            stack.Children.Add(ChoiceRow("Result", [(false, "Normal"), (true, "Inverted (NOT)")],
-                child.Inverted, value => child.Inverted = value));
+            stack.Children.Add(CycleRow("Result", child.Inverted ? "Inverted (NOT)" : "Normal", () =>
+            {
+                child.Inverted = !child.Inverted;
+                Replace(() => RenderChildEditor(group, child));
+            }));
         }
 
         stack.Children.Add(SectionLabel(""));
@@ -881,20 +940,44 @@ public sealed class LibraryTabsView : OverlaySubView
 
     // ---- Value helpers ----
 
-    private List<((SdCardScope Scope, string ContentId) Value, string Label)> CardScopeChoices(FilterNode node)
+    private void CycleCardScope(FilterNode node)
     {
-        var choices = new List<((SdCardScope Scope, string ContentId) Value, string Label)>
+        var cards = _config.CardLibraries;
+        // Inserted → Any → each specific card → Inserted.
+        switch (node.CardScope)
         {
-            ((SdCardScope.Inserted, ""), "Currently inserted"),
-            ((SdCardScope.Any, ""), "Any tracked card")
-        };
-        choices.AddRange(_config.CardLibraries.Select(card => ((SdCardScope.Specific, card.ContentId), card.Name)));
-        if (node.CardScope == SdCardScope.Specific && choices.All(choice => choice.Value.ContentId != node.ContentId))
-        {
-            choices.Add(((SdCardScope.Specific, node.ContentId), "Unavailable card"));
+            case SdCardScope.Inserted:
+                node.CardScope = SdCardScope.Any;
+                break;
+            case SdCardScope.Any:
+                if (cards.Count > 0)
+                {
+                    node.CardScope = SdCardScope.Specific;
+                    node.ContentId = cards[0].ContentId;
+                }
+                else
+                {
+                    node.CardScope = SdCardScope.Inserted;
+                }
+
+                break;
+            case SdCardScope.Specific:
+            default:
+                var idx = cards.FindIndex(c => c.ContentId == node.ContentId);
+                if (idx < 0 || idx + 1 >= cards.Count)
+                {
+                    node.CardScope = SdCardScope.Inserted;
+                    node.ContentId = "";
+                }
+                else
+                {
+                    node.ContentId = cards[idx + 1].ContentId;
+                }
+
+                break;
         }
 
-        return choices;
+        Replace(() => RenderFilterEditor(node));
     }
 
     private static void RemoveNode(FilterNode group, FilterNode node)
@@ -902,23 +985,18 @@ public sealed class LibraryTabsView : OverlaySubView
         group.Children.Remove(node);
     }
 
-    private static IReadOnlyList<(int Value, string Label)> CategoryChoices(int current)
+    private static int NextCategories(int current)
     {
-        var games = (int)LibraryFilter.Categories.Games;
-        var software = games | (int)LibraryFilter.Categories.Software;
-        var hidden = software | (int)LibraryFilter.Categories.Hidden;
-        var choices = new List<(int Value, string Label)>
+        // Cycle a few useful presets rather than exposing the full bitfield.
+        const int g = (int)LibraryFilter.Categories.Games;
+        const int gs = g | (int)LibraryFilter.Categories.Software;
+        const int gsh = gs | (int)LibraryFilter.Categories.Hidden;
+        if (current == g)
         {
-            (games, CategoriesLabel((LibraryFilter.Categories)games)),
-            (software, CategoriesLabel((LibraryFilter.Categories)software)),
-            (hidden, CategoriesLabel((LibraryFilter.Categories)hidden))
-        };
-        if (choices.All(choice => choice.Value != current))
-        {
-            choices.Add((current, CategoriesLabel((LibraryFilter.Categories)current)));
+            return gs;
         }
 
-        return choices;
+        return current == gs ? gsh : g;
     }
 
     private static string CategoriesLabel(LibraryFilter.Categories c)

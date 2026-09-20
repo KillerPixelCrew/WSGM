@@ -172,24 +172,6 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         return written;
     }
 
-    /// <summary>Applies an explicitly selected timeout while respecting Steam's screensaver boundary.</summary>
-    internal bool Select(PowerTimeoutKind kind, int seconds)
-    {
-        bool written;
-        lock (PowerSchemes.MutationGate)
-        {
-            if (_read(kind) is null || !DisplayTimeoutPolicy.Allows(seconds, Minimum(kind)))
-            {
-                return false;
-            }
-
-            written = _write(kind, seconds);
-        }
-
-        OnChanged();
-        return written;
-    }
-
     /// <summary>The rows Steam's Screensaver settings show, read from Windows now.</summary>
     /// <returns>One row per display timeout, with only the choices the screensaver allows.</returns>
     internal SteamScreensaverState ReadState()

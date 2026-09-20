@@ -48,12 +48,6 @@ You publish capabilities, things like a TDP limit, a fan curve or a lighting zon
 them, routes user intent back as a `CapabilityCommand`, and shows whatever you report. It never
 talks to your hardware.
 
-Descriptors may declare `CapabilityProminence` (`Normal`, `Primary`, `Compact`) and an optional
-`LayoutPair` companion in the same section and category. These are presentation hints: WSGM owns
-layout, focus and editor choice. Validate the complete set with `CapabilityLayout.TryValidate` and
-advance descriptor generation when hints change. Pairing for presentation never requests a hardware
-write. See the [reference](docs/reference.md#capabilitydescriptor).
-
 A sustained-power descriptor can declare `PowerPresets`: named shortcuts combining its watt limit,
 the device's slow watt limit, a `DevicePowerMode` and optional AC and battery `ScenarioMode`
 choices. WSGM applies the scenario first and confirms every target. WSGM owns application and

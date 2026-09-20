@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using WindowsDeviceControl;
@@ -25,7 +26,7 @@ namespace WSGM.Overlay;
 ///     also carries what the bottom taskbar used to — the Open apps strip, the tray
 ///     icons and the status pills with their radio/audio/eject panels. One controller
 ///     owns all of it because it shares every piece of invariant-critical state: the
-///     Steam Input lease, the touch-swipe disarm/re-arm cycle,
+///     Steam Input lease, the touch-swipe disarm/re-arm cycle, tap-outside dismissal,
 ///     the gamepad service, and the focus-restore discipline.
 /// </summary>
 public sealed class OverlayController : IDisposable
@@ -52,6 +53,7 @@ public sealed class OverlayController : IDisposable
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
     private static int _nextLeaseOwnerId;
+    private readonly DeferredPanelClose _audioClose = new();
     private readonly GamepadChordWatcher _chordWatcher;
 
     /// <summary>
@@ -60,6 +62,7 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
+    private readonly DeferredPanelClose _ejectClose = new();
     private readonly GamepadService _gamepad = new();
     private readonly HotkeyService _hotkey;
     private readonly KeepAwakeService? _keepAwake;
@@ -78,6 +81,7 @@ public sealed class OverlayController : IDisposable
     private readonly DevicePowerAssignments? _powerAssignments;
     private readonly DevicePowerPresets? _powerPresets;
     private readonly bool _previewOnly;
+    private readonly DeferredPanelClose _radioClose = new();
 
     /// <summary>
     ///     The session's audio manager, shared with the sheet's status pills rather than owned.
@@ -122,15 +126,24 @@ public sealed class OverlayController : IDisposable
     private readonly UiInputRouter _uiInput;
 
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
+    private GamepadNavigation? _audioNavigation;
 
+    private AudioWindow? _audioPanel;
 
     private bool _closePending;
     private AppConfig _config;
     private bool _dialogPriorNavigation;
 
+    /// <summary>
+    ///     What tap watching and gamepad navigation were set to when a modal
+    ///     system dialog took the screen, so closing it restores exactly that.
+    /// </summary>
+    private bool _dialogPriorWatchTaps;
 
     private bool _disposed;
+    private GamepadNavigation? _ejectNavigation;
 
+    private EjectWindow? _ejectPanel;
 
     private SdFormatManager? _formatManager;
 
@@ -142,26 +155,26 @@ public sealed class OverlayController : IDisposable
     private bool _handoffLease;
 
     private WindowIconCache? _iconCache;
-    private CancellationTokenSource? _keyboardRequestCancellation;
+    private GamepadNavigation? _keyboardNavigation;
     private bool _keyboardRequestPending;
 
+    private KeyboardWindow? _keyboardWindow;
     private string? _lastWakeLockError;
     private Task? _leaseAcquireTask;
     private Task? _leaseReleaseTask;
 
-    private bool _leaseReleased = true;
+    private bool _leaseReleased;
     private GamepadNavigation? _navigation;
     private OverlayWindow? _overlay;
-    private bool _overlayRequiresSteamLease;
     private OverlayViewModel? _overlayViewModel;
     private IDisposable? _pendingClose;
 
     private IDisposable? _pendingTopmostRestore;
     private IDisposable? _pendingTrim;
     private string _pendingWarning = "";
-    private bool _powerMenuOnly;
-    private Task _powerTimeoutWrite = Task.CompletedTask;
+    private GamepadNavigation? _radioNavigation;
 
+    private RadioWindow? _radioPanel;
     private bool _reopenOverlayForWarning;
 
     /// <summary>
@@ -298,9 +311,6 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    /// <summary>Whether the power menu currently consumes short power-button requests.</summary>
-    public bool PowerMenuOpen => _overlay?.IsPowerMenuOpen == true;
-
     /// <summary>Releases overlay windows, input activation, and lifecycle subscriptions.</summary>
     public void Dispose()
     {
@@ -310,7 +320,6 @@ public sealed class OverlayController : IDisposable
         }
 
         _disposed = true;
-        _keyboardRequestCancellation?.Cancel();
         _windowReturnCancellation?.Cancel();
         CloseKeyboardNow();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
@@ -375,52 +384,35 @@ public sealed class OverlayController : IDisposable
         }
 
         _keyboardRequestPending = true;
-        using var cancellation = new CancellationTokenSource();
-        _keyboardRequestCancellation = cancellation;
-        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void OnClosed(object? sender, EventArgs args)
-        {
-            closed.TrySetResult();
-        }
-
-        window.Closed += OnClosed;
         try
         {
+            TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            window.Closed += (_, _) => closed.TrySetResult();
             CloseOverlay();
-            await closed.Task.WaitAsync(cancellation.Token);
-            cancellation.Token.ThrowIfCancellationRequested();
+            await closed.Task;
             if (_disposed)
             {
                 return;
             }
 
             var shown = ShowOnScreenKeyboard is { } show
-                        && await show(cancellation.Token);
-            if (!shown && !_disposed && !cancellation.IsCancellationRequested)
+                        && await show(CancellationToken.None);
+            if (!shown && !_disposed)
             {
                 WarnOrReopen("On-screen keyboard unavailable. Check Steam or Windows touch keyboard.");
             }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-        }
         catch (Exception ex)
         {
             Log.Warn($"On-screen keyboard request failed: {ex.Message}");
-            if (!_disposed && !cancellation.IsCancellationRequested)
+            if (!_disposed)
             {
                 WarnOrReopen("On-screen keyboard could not be opened.");
             }
         }
         finally
         {
-            window.Closed -= OnClosed;
-            if (ReferenceEquals(_keyboardRequestCancellation, cancellation))
-            {
-                _keyboardRequestCancellation = null;
-                _keyboardRequestPending = false;
-            }
+            _keyboardRequestPending = false;
         }
     }
 
@@ -428,11 +420,13 @@ public sealed class OverlayController : IDisposable
     /// <param name="gestures">The new edge-swipe configuration.</param>
     private void ApplyGestures(GestureConfig gestures)
     {
-        // Keep one recognizer owner across configuration changes.
+        // The monitor stays alive even with both edges disabled: tap-outside
+        // dismissal of the overlay rides on the same raw-input observer.
         if (_touchSwipes is null)
         {
             _touchSwipes = new TouchSwipeMonitor();
             _touchSwipes.Triggered += OnSwipeTriggered;
+            _touchSwipes.TappedAt += OnTappedAt;
         }
 
         _touchSwipes.Configure(gestures);
@@ -521,7 +515,7 @@ public sealed class OverlayController : IDisposable
     /// <summary>Routes Back/B through dialog, nested-page, destination-root, then close priority.</summary>
     private void OnOverlayBack()
     {
-        if (_overlay?.CloseActiveSurface() == true || _overlay?.TryCancelSubView() == true)
+        if (_overlay?.TryCancelSubView() == true)
         {
             return;
         }
@@ -575,7 +569,7 @@ public sealed class OverlayController : IDisposable
             _overlay?.SetPins(config.QuickAccessPins);
         }
 
-        if (_overlay is not null && _overlayRequiresSteamLease)
+        if (_overlay is not null)
         {
             AcquireSteamInputLease();
         }
@@ -688,15 +682,6 @@ public sealed class OverlayController : IDisposable
         vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
         vm.SleepDcTimeout = Format(timeouts.SleepDc);
         vm.SleepAcTimeout = Format(timeouts.SleepAc);
-        vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
-            kind => _displayTimeouts?.Minimum(kind));
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?>
-        {
-            [PowerTimeoutKind.DisplayDc] = timeouts.DisplayDc,
-            [PowerTimeoutKind.DisplayAc] = timeouts.DisplayAc,
-            [PowerTimeoutKind.SleepDc] = timeouts.SleepDc,
-            [PowerTimeoutKind.SleepAc] = timeouts.SleepAc
-        };
         return;
 
         static string Format(int? seconds)
@@ -1099,19 +1084,12 @@ public sealed class OverlayController : IDisposable
     /// <summary>Shows and activates the overlay unless it has already been disposed.</summary>
     public void ShowOverlay()
     {
-        _powerMenuOnly = false;
-        ShowOverlayCore(true);
-    }
-
-    private void ShowOverlayCore(bool acquireSteamLease)
-    {
         if (_disposed)
         {
             return;
         }
 
         _windowReturnCancellation?.Cancel();
-        _keyboardRequestCancellation?.Cancel();
         OverlayShown?.Invoke();
         // A trim mid-open would just soft-fault everything straight back.
         _pendingTrim?.Dispose();
@@ -1122,12 +1100,7 @@ public sealed class OverlayController : IDisposable
             _suppressFocusRestore = false;
         }
 
-        _overlayRequiresSteamLease |= acquireSteamLease;
-        if (acquireSteamLease)
-        {
-            AcquireSteamInputLease();
-        }
-
+        AcquireSteamInputLease();
         HideTouchEdges();
         if (_overlay is not null)
         {
@@ -1218,54 +1191,18 @@ public sealed class OverlayController : IDisposable
         _overlay.Closed += (_, _) => OnOverlayClosed();
 
         _overlay.AttachFormatManager(FormatManager);
-        _overlay.PowerMenuRequested += TogglePowerMenu;
-        _overlay.SurfaceClosed += () =>
-        {
-            if (_powerMenuOnly && _overlay is { HasActiveSurface: false })
-            {
-                CloseOverlay();
-            }
-        };
+        _overlay.SubViewClosed += CloseKeyboardNow;
 
         var overlay = _overlay;
         _navigation = new GamepadNavigation(_uiInput, _overlay, OnOverlayBack,
             IsNintendoLayout,
             () => overlay.DefaultFocusTarget,
-            focused =>
-            {
-                if (overlay.IsPowerMenuOpen)
-                {
-                    overlay.CloseActiveSurface();
-                }
-                else if (!overlay.HasActiveSurface)
-                {
-                    overlay.RequestSecondaryAction(focused);
-                }
-            },
-            () =>
-            {
-                if (!overlay.NavigateSurfaceTab(false))
-                {
-                    overlay.SelectPreviousTab();
-                }
-            },
-            () =>
-            {
-                if (!overlay.NavigateSurfaceTab(true))
-                {
-                    overlay.SelectNextTab();
-                }
-            },
-            _ =>
-            {
-                if (!overlay.HasActiveSurface)
-                {
-                    overlay.CycleNextApp();
-                }
-            },
-            direction => !overlay.HasActiveSurface && overlay.NavigateWorkspace(direction),
-            true);
-        // Internal text entry shares this window and its single navigation owner.
+            focused => _overlay?.RequestSecondaryAction(focused),
+            () => _overlay?.SelectPreviousTab(),
+            () => _overlay?.SelectNextTab(),
+            OnOverlayEdge,
+            _ => _overlay?.CycleNextApp());
+        // Text entry pops the keyboard window over the sheet's lower edge.
         // Registered while the overlay owns navigation.
         KeyboardService.Handler = OpenKeyboard;
         _gamepad.Start();
@@ -1294,14 +1231,23 @@ public sealed class OverlayController : IDisposable
         RefreshWakeLockIndicator();
         StartWakeLockRefresh();
         StartSwitcherRefresh();
+        _touchSwipes?.WatchTaps = true;
     }
 
     /// <summary>Brings the open sheet back to the front, cancelling a deferred close in progress.</summary>
     /// <param name="overlay">The sheet that is still open.</param>
     private void ReactivateOpenOverlay(OverlayWindow overlay)
     {
-        overlay.IsEnabled = true;
-        _navigation?.IsEnabled = true;
+        if (_keyboardWindow is not null)
+        {
+            _keyboardNavigation?.Dispose();
+            _keyboardNavigation = null;
+            _keyboardWindow.Close();
+            _keyboardWindow = null;
+            overlay.KeyboardOwnsFocus = false;
+        }
+
+        _navigation?.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
         if (_closePending)
         {
             // Re-summoned inside the 150 ms deferred close: cancel the pending
@@ -1343,6 +1289,7 @@ public sealed class OverlayController : IDisposable
         }
 
         overlay.Activate();
+        _touchSwipes?.WatchTaps = true;
     }
 
     /// <summary>Connects the sheet's requests to the session actions they start.</summary>
@@ -1398,27 +1345,24 @@ public sealed class OverlayController : IDisposable
             _modes.CloseSteam();
             vm.HomeAppAlive = false;
         };
-        overlay.KeepAwakeSelected += mode =>
+        overlay.KeepAwakeToggleRequested += () =>
         {
-            _keepAwake?.SetManualMode(mode);
-            // Also reconcile a refused request whose actual mode did not change:
-            // the view model then emits no property notification of its own.
-            vm.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
-            overlay.RefreshPowerEditors(vm);
+            // The service's StateChanged callback (already subscribed) writes the
+            // resulting state back into the view model; the indicator dot follows
+            // on its own poll tick.
+            _keepAwake?.CycleManualMode();
         };
-        overlay.PowerTimeoutSelected += async (kind, seconds) =>
+        overlay.PowerTimeoutCycleRequested += async kind =>
         {
             // Scheme writes share a gate with the profile selector. Waiting for it must not
             // block input; a failed read still refuses to write blind.
-            // Enqueue on the UI thread, before yielding, to preserve explicit choice order
-            // across rapid selections and close/reopen. A failed predecessor is not retried.
-            var write = _powerTimeoutWrite.ContinueWith(_ =>
+            await Task.Run(() =>
             {
                 // The session's owner skips display presets Steam's screensaver forbids and tells
                 // Steam's Screensaver settings about the change.
                 if (_displayTimeouts is not null)
                 {
-                    _displayTimeouts.Select(kind, seconds);
+                    _displayTimeouts.Cycle(kind);
                     return;
                 }
 
@@ -1427,20 +1371,10 @@ public sealed class OverlayController : IDisposable
                     var current = PowerTimeouts.Read(kind);
                     if (current is not null)
                     {
-                        PowerTimeouts.Write(kind, seconds);
+                        PowerTimeouts.Write(kind, PowerTimeouts.NextPreset(current.Value));
                     }
                 }
-            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
-            _powerTimeoutWrite = write;
-            try
-            {
-                await write;
-            }
-            catch (Exception ex)
-            {
-                Log.Error("The selected power timeout could not be applied", ex);
-            }
-
+            });
             if (ReferenceEquals(_overlayViewModel, vm))
             {
                 RefreshPowerTimeouts(vm);
@@ -1455,6 +1389,11 @@ public sealed class OverlayController : IDisposable
         overlay.SettingsRequested += () =>
         {
             _suppressFocusRestore = true;
+            // Stop tap-outside watching immediately: the overlay lingers briefly on
+            // its deferred close, and once Settings is up a tap on it must NOT read
+            // as a tap outside the overlay and dismiss it — that dismissal refocuses
+            // Steam and drops Settings behind Big Picture (device-reported).
+            _touchSwipes?.WatchTaps = false;
             // Hand the lease to Settings instead of releasing it: the close below
             // keeps Steam's controller blocked continuously, so Settings inherits a
             // live lease with no release/re-inject churn.
@@ -1482,19 +1421,23 @@ public sealed class OverlayController : IDisposable
                 }
             });
         };
-        // Native file pickers retain their own navigation while they are visible.
+        // A modal system dialog (the custom launch action's file picker) is its own
+        // window outside the bar's rectangle. Tap-outside dismissal is raw hit
+        // testing, so every touch in that dialog would otherwise close the bar and
+        // cancel the flow; the gamepad would likewise still be driving the bar
+        // hidden behind it. Same suspension the Settings handoff performs, but
+        // reversed when the dialog closes because the bar stays up underneath.
         overlay.SystemDialogActive += active =>
         {
-            if (!ReferenceEquals(_overlay, overlay))
-            {
-                return;
-            }
-
             if (active)
             {
+                _dialogPriorWatchTaps = _touchSwipes?.WatchTaps ?? false;
                 _dialogPriorNavigation = _navigation?.IsEnabled ?? false;
             }
 
+            // Restore what was armed rather than assuming it: the bar is not
+            // the only surface that owns tap watching.
+            _touchSwipes?.WatchTaps = !active && _dialogPriorWatchTaps && _overlay is not null;
             _navigation?.IsEnabled = !active && _dialogPriorNavigation;
         };
         // Dismiss never refocuses anything: Windows hands the foreground back to
@@ -1508,10 +1451,12 @@ public sealed class OverlayController : IDisposable
     {
         ReleaseUiSurface(QuickAccessSurface);
         _closePending = false;
-        _pendingClose?.Dispose();
         _pendingClose = null;
-        // Detach surfaces before disposing the live managers they observe.
-        _overlay?.CloseAllSurfaces();
+        // The status panels are children of the sheet in everything but
+        // parenthood: they bind the SystemStatus disposed below and run their
+        // own gamepad navigation. Closed directly, not deferred: the sheet is
+        // already going.
+        CloseStatusPanelsNow();
         _pendingTopmostRestore?.Dispose();
         _pendingTopmostRestore = null;
         StopSwitcherRefresh();
@@ -1553,7 +1498,7 @@ public sealed class OverlayController : IDisposable
         _navigation = null;
         StopWakeLockRefresh();
         KeyboardService.Handler = null;
-        _powerMenuOnly = false;
+        _keyboardWindow?.Close();
         // Keep polling if the controller chord still needs it.
         if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
         {
@@ -1561,7 +1506,6 @@ public sealed class OverlayController : IDisposable
         }
 
         _overlay = null;
-        _overlayRequiresSteamLease = false;
         _overlayViewModel = null;
         // Game mode only: call back the window that was focused before the
         // panel opened (exclusive-fullscreen games sit minimized by now).
@@ -1572,6 +1516,9 @@ public sealed class OverlayController : IDisposable
         }
 
         _restoreFocusTo = 0;
+        // TappedAt consumers are gone with the sheet; stop the per-tap
+        // dispatches until the next ShowOverlay.
+        _touchSwipes?.WatchTaps = false;
         ShowTouchEdges();
         if (reopenForWarning)
         {
@@ -1763,93 +1710,482 @@ public sealed class OverlayController : IDisposable
 
         ShowOverlay();
         ShowRadioPanel(true);
-        return _overlay?.HasActiveSurface == true;
+        return _radioPanel is not null;
     }
 
+    /// <summary>
+    ///     Tap/click-outside dismissal via the raw-input observer, for whichever
+    ///     surface is open. Deliberately NOT implemented as dismiss-on-deactivate: the
+    ///     window-switching actions hand the foreground to another window while the
+    ///     surface must stay open for further presses.
+    /// </summary>
+    private void OnTappedAt(int x, int y)
+    {
+        // The status panels float over the sheet, outside its own hit test. A tap
+        // in one must not read as tap-outside; a tap anywhere else closes the
+        // panel first and keeps the sheet — one dismissal per tap, so a stray
+        // touch can't tear down both surfaces at once.
+        if (_radioPanel is not null)
+        {
+            if (HitsWindow(_radioPanel, x, y))
+            {
+                return;
+            }
+
+            Log.Info($"Pointer at {x},{y} outside radio panel {WindowRect(_radioPanel)} — dismissing.");
+            CloseRadioPanel();
+            return;
+        }
+
+        if (_audioPanel is not null)
+        {
+            if (HitsWindow(_audioPanel, x, y))
+            {
+                return;
+            }
+
+            Log.Info($"Pointer at {x},{y} outside audio panel {WindowRect(_audioPanel)} — dismissing.");
+            CloseAudioPanel();
+            return;
+        }
+
+        if (_ejectPanel is not null)
+        {
+            if (HitsWindow(_ejectPanel, x, y))
+            {
+                return;
+            }
+
+            Log.Info($"Pointer at {x},{y} outside eject panel {WindowRect(_ejectPanel)} — dismissing.");
+            CloseEjectPanel();
+            return;
+        }
+
+        if (_overlay is null
+            || HitsWindow(_overlay, x, y)
+            || (_keyboardWindow is not null && HitsWindow(_keyboardWindow, x, y)))
+        {
+            return;
+        }
+
+        Log.Info($"Pointer at {x},{y} outside quick access {WindowRect(_overlay)} — dismissing.");
+        CloseOverlay();
+    }
+
+    private static bool HitsWindow(Window window, int x, int y)
+    {
+        if (double.IsNaN(window.Width) || double.IsNaN(window.Height))
+        {
+            // Not measured yet — treat as hit so a tap can't dismiss a window
+            // that is still coming up.
+            return true;
+        }
+
+        return WindowRect(window).Contains(new PixelPoint(x, y));
+    }
+
+    /// <summary>The window's screen rectangle in physical pixels — the space raw touch reports in.</summary>
+    private static PixelRect WindowRect(Window window)
+    {
+        // Window scaling, not the screens cache — the cache reports the
+        // pre-game-mode factor after the runtime display-scale flip, which
+        // inflates the hit box and swallows taps just outside the window.
+        var scaling = StatusPanel.CurrentWindowScale(window);
+        var w = (int)Math.Ceiling(window.Width * scaling);
+        var h = (int)Math.Ceiling(window.Height * scaling);
+        return new PixelRect(window.Position, new PixelSize(w, h));
+    }
+
+    /// <summary>
+    ///     Keeps the sheet from taking activation away from an open status panel on a mouse
+    ///     click — above all the mouse click Windows synthesizes from the tap that opened it.
+    /// </summary>
+    /// <remarks>
+    ///     The sheet and its panels are all topmost, so between them z-order follows activation. A
+    ///     touch tap on a pill activates the sheet at the finger, opens the panel on release, and
+    ///     then Windows' touch-synthesized mouse click arrives at the sheet (the touch-promotion finding in
+    ///     <c>docs\overlay-and-input.md</c>): the hook swallows the click, but its
+    ///     <c>WM_MOUSEACTIVATE</c> had already re-activated the sheet, which raised it over the panel
+    ///     that opened one frame earlier. The mouse sends no second activation, so it worked.
+    ///     Answering <c>MA_NOACTIVATE</c> while a panel is open keeps the click and drops only the
+    ///     activation; a real finger on the sheet still activates it through
+    ///     <c>WM_POINTERACTIVATE</c>, and the tap-outside rule closes the panel on that same tap.
+    ///     Ownership was tried first and cannot be expressed here: Avalonia re-points every
+    ///     <c>ShowInTaskbar=false</c> window's owner slot at its own hidden helper on each property
+    ///     update, so panel and sheet stay siblings (live z-order capture, 2026-09-01).
+    /// </remarks>
+    private void SyncSheetMouseActivation()
+    {
+        _overlay?.SuppressMouseActivation =
+            _radioPanel is not null || _audioPanel is not null || _ejectPanel is not null;
+    }
+
+    /// <summary>
+    ///     Opens the keyboard window over the sheet's lower edge for one text
+    ///     field (<see cref="KeyboardService" />). Gamepad focus moves to it; crossing back
+    ///     to the sheet (D-pad up off its top edge) or accepting/cancelling returns focus.
+    ///     Runs on the UI thread. Returns true (the request is handled).
+    /// </summary>
     private bool OpenKeyboard(string prompt, string initial, int maxLength, Action<string> onAccept)
     {
-        if (_overlay is not { } overlay)
+        _keyboardWindow?.Close();
+
+        var overlay = _overlay;
+        if (overlay is null)
         {
             return false;
         }
 
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
-        keyboard.Accepted += onAccept;
-        overlay.ShowKeyboardSurface(keyboard);
+        var window = new KeyboardWindow(prompt, initial, maxLength, UiScale());
+        _keyboardWindow = window;
+        overlay.KeyboardOwnsFocus = true;
+        // Create the keyboard on the sheet's monitor. Its first Opened handler
+        // reads the HWND DPI to restore desktop-sized touch targets; without this
+        // seed position a secondary-monitor keyboard used the primary DPI.
+        window.Position = overlay.Position;
+        window.Accepted += onAccept;
+        // The window's own Opened handler (subscribed first) applies the UI-scale
+        // LayoutTransform, which only changes Bounds on the NEXT layout pass — so the
+        // positioning below must force that pass, and re-run when SizeToContent grows
+        // the window afterwards, or the keyboard is placed for its unscaled size.
+        window.Opened += (_, _) => PositionKeyboardOverSheet(window, overlay);
+        window.SizeChanged += (_, _) => PositionKeyboardOverSheet(window, overlay);
+        window.Show();
+
+        _keyboardNavigation = new GamepadNavigation(_uiInput, window, window.Close,
+            IsNintendoLayout,
+            onEdge: OnKeyboardEdge);
+        // Focus is in the keyboard now; the sidebar's nav stands down until we cross back.
+        _navigation?.IsEnabled = false;
+        window.Closed += (_, _) =>
+        {
+            _keyboardNavigation?.Dispose();
+            _keyboardNavigation = null;
+            _keyboardWindow = null;
+            _navigation?.IsEnabled = true;
+            overlay.Activate();
+            overlay.DefaultFocusTarget.Focus(NavigationMethod.Directional);
+            // Keep the activation reset suppressed through the handoff itself.
+            Dispatcher.UIThread.Post(() => overlay.KeyboardOwnsFocus = false);
+        };
+        window.Activate();
+        window.FocusDefault();
         return true;
+    }
+
+    private static void PositionKeyboardOverSheet(KeyboardWindow window, OverlayWindow overlay)
+    {
+        // Horizontally centred, hung from the bottom of the screen so it overlaps the
+        // sheet's lower rows (the exposed game strip is far too short to hold it).
+        // Settle any pending layout first: the UI-scale LayoutTransform applied on open
+        // invalidates measure, and Bounds only reflects it after a layout pass.
+        window.UpdateLayout();
+        var scaling = StatusPanel.CurrentWindowScale(window);
+        var widthPx = (int)Math.Ceiling(Math.Max(window.Bounds.Width, 300) * scaling);
+        var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
+        var overlayWidthPx = (int)Math.Ceiling(
+            overlay.Bounds.Width * StatusPanel.CurrentWindowScale(overlay));
+        var x = overlay.Position.X + Math.Max(0, (overlayWidthPx - widthPx) / 2);
+        var screen = overlay.Screens.ScreenFromWindow(overlay);
+        var y = overlay.Position.Y;
+        if (screen is not null)
+        {
+            // Math.Clamp would throw when the window exceeds the work area, so clamp
+            // by hand; losing pixels at the TOP keeps the bottom rows reachable.
+            var minX = screen.WorkingArea.X;
+            var maxX = Math.Max(minX, screen.WorkingArea.Right - widthPx);
+            x = Math.Min(Math.Max(x, minX), maxX);
+            y = Math.Max(screen.WorkingArea.Y, screen.WorkingArea.Bottom - heightPx - (int)Math.Round(8 * scaling));
+        }
+
+        window.Position = new PixelPoint(x, y);
+    }
+
+    // The keyboard hangs below the sheet's rows, so a Down press at the sheet's
+    // bottom edge hands focus over when the keyboard window is open.
+    private void OnOverlayEdge(NavigationDirection direction)
+    {
+        if (direction == NavigationDirection.Down && _keyboardWindow is not null)
+        {
+            CrossToKeyboard();
+        }
+    }
+
+    // Crossing off the keyboard's top edge returns to the sheet.
+    private void OnKeyboardEdge(NavigationDirection direction)
+    {
+        if (direction == NavigationDirection.Up)
+        {
+            CrossToSidebar();
+        }
+    }
+
+    private void CrossToKeyboard()
+    {
+        if (_keyboardWindow is null || _keyboardNavigation is null)
+        {
+            return;
+        }
+
+        _navigation?.IsEnabled = false;
+        var keyboard = _keyboardWindow;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_keyboardNavigation is null || _keyboardWindow != keyboard)
+            {
+                return;
+            }
+
+            _keyboardNavigation.IsEnabled = true;
+            keyboard.Activate();
+            keyboard.FocusDefault();
+        });
+    }
+
+    private void CrossToSidebar()
+    {
+        if (_overlay is null)
+        {
+            return;
+        }
+
+        _keyboardNavigation?.IsEnabled = false;
+        _navigation?.IsEnabled = true;
+        _overlay.Activate();
+        _overlay.DefaultFocusTarget.Focus(NavigationMethod.Directional);
     }
 
     private void CloseKeyboardNow()
     {
-        _overlay?.CloseAllSurfaces();
+        _keyboardNavigation?.Dispose();
+        _keyboardNavigation = null;
+        _keyboardWindow?.Close();
+        _keyboardWindow = null;
+        _overlay?.KeyboardOwnsFocus = false;
     }
 
+    /// <summary>
+    ///     Closes the radio panel through the same deferred path as the
+    ///     sheet: the 150 ms grace lets the window's WndProc hook eat
+    ///     the touch-promotion ghost click; see docs\overlay-and-input.md. Closing immediately from
+    ///     the raw-touch callback destroys the window before the synthesized click
+    ///     arrives, and it then lands on whatever is underneath.
+    /// </summary>
+    private void CloseRadioPanel()
+    {
+        if (_radioPanel is not null)
+        {
+            _radioClose.Start(RunOnUiThreadAfter, () => _radioPanel?.Close());
+        }
+    }
+
+    /// <summary>Opens the Wi-Fi/Bluetooth panel under the sheet's status pills.</summary>
+    /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
     private void ShowRadioPanel(bool bluetooth)
     {
-        if (_systemStatus is not null)
+        CloseOtherStatusPanels(_radioPanel);
+        if (_radioPanel is not null)
         {
-            _overlay?.ShowRadioSurface(new RadioPanel(_systemStatus.Radios, bluetooth));
+            _radioClose.Cancel();
+            // The tile carries which radio was tapped, so an open panel follows
+            // it rather than leaving the user on the tab it opened with.
+            _radioPanel.SelectTab(bluetooth);
+            ReactivateStatusPanel(_radioPanel, _radioNavigation);
+            return;
+        }
+
+        if (_systemStatus is null)
+        {
+            return;
+        }
+
+        Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
+        var panel = new RadioWindow(_systemStatus.Radios, bluetooth, UiScale());
+        _radioPanel = panel;
+        _navigation?.IsEnabled = false;
+        // Its own navigation instance: the panel holds focus while it is open,
+        // and B must close the panel rather than the sheet behind it.
+        _radioNavigation = new GamepadNavigation(_uiInput, panel, panel.Close,
+            IsNintendoLayout,
+            tabPrevious: panel.SelectPreviousTab,
+            tabNext: panel.SelectNextTab);
+        panel.Closed += (_, _) =>
+        {
+            _radioNavigation?.Dispose();
+            _radioNavigation = null;
+            _radioPanel = null;
+            _radioClose.Cancel();
+            Log.Info("Radio panel closed.");
+            ReturnToSheet();
+        };
+        SyncSheetMouseActivation();
+        panel.Show();
+        // The header's real bottom edge, not a height to add: the sheet is a
+        // topmost window rather than a registered appbar, so the screen's working
+        // area does not account for it.
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
+        panel.Activate();
+    }
+
+    /// <summary>Closes the audio panel after the touch-promotion grace window.</summary>
+    private void CloseAudioPanel()
+    {
+        if (_audioPanel is not null)
+        {
+            _audioClose.Start(RunOnUiThreadAfter, () => _audioPanel?.Close());
         }
     }
 
+    /// <summary>Opens the master-volume and default-device panel under the sheet's status pills.</summary>
     private void ShowAudioPanel()
     {
-        if (_systemStatus is not null)
+        CloseOtherStatusPanels(_audioPanel);
+        if (_audioPanel is not null)
         {
-            _overlay?.ShowAudioSurface(new AudioPanel(_systemStatus.Audio));
+            _audioClose.Cancel();
+            ReactivateStatusPanel(_audioPanel, _audioNavigation);
+            return;
+        }
+
+        if (_systemStatus is null)
+        {
+            return;
+        }
+
+        Log.Info("Audio panel opened.");
+        var panel = new AudioWindow(_systemStatus.Audio, UiScale());
+        _audioPanel = panel;
+        _navigation?.IsEnabled = false;
+        _audioNavigation = new GamepadNavigation(_uiInput, panel, panel.Close,
+            IsNintendoLayout,
+            () => panel.DefaultFocusTarget);
+        panel.Closed += (_, _) =>
+        {
+            _audioNavigation?.Dispose();
+            _audioNavigation = null;
+            _audioPanel = null;
+            _audioClose.Cancel();
+            Log.Info("Audio panel closed.");
+            ReturnToSheet();
+        };
+        SyncSheetMouseActivation();
+        panel.Show();
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
+        panel.Activate();
+    }
+
+    /// <summary>
+    ///     Closes the Safe Eject panel after the touch-promotion grace
+    ///     window; see the touch-promotion finding in <c>docs\overlay-and-input.md</c>.
+    /// </summary>
+    private void CloseEjectPanel()
+    {
+        if (_ejectPanel is not null)
+        {
+            _ejectClose.Start(RunOnUiThreadAfter, () => _ejectPanel?.Close());
         }
     }
 
+    /// <summary>Opens the Safe Eject panel under the sheet's status pills.</summary>
     private void ShowEjectPanel()
     {
-        if (_systemStatus is not null)
+        CloseOtherStatusPanels(_ejectPanel);
+        if (_ejectPanel is not null)
         {
-            _overlay?.ShowEjectSurface(new EjectPanel(_systemStatus.Drives));
+            _ejectClose.Cancel();
+            ReactivateStatusPanel(_ejectPanel, _ejectNavigation);
+            return;
         }
-    }
 
-    /// <summary>
-    ///     Opens the power menu on the current overlay, or from the desktop without a Steam lease.
-    ///     Hardware-button capture is owned by the session's input integration.
-    /// </summary>
-    public void ShowPowerMenu()
-    {
-        if (_disposed)
+        if (_systemStatus is null)
         {
             return;
         }
 
-        var standalone = _overlay is null;
-        ShowOverlayCore(!ExplorerControl.IsRunningInSession());
-        _powerMenuOnly |= standalone;
-        _overlay?.ShowPowerMenu();
+        Log.Info("Eject panel opened.");
+        var panel = new EjectWindow(_systemStatus.Drives, UiScale());
+        _ejectPanel = panel;
+        _navigation?.IsEnabled = false;
+        _ejectNavigation = new GamepadNavigation(_uiInput, panel, panel.Close,
+            IsNintendoLayout);
+        panel.Closed += (_, _) =>
+        {
+            _ejectNavigation?.Dispose();
+            _ejectNavigation = null;
+            _ejectPanel = null;
+            _ejectClose.Cancel();
+            Log.Info("Eject panel closed.");
+            ReturnToSheet();
+        };
+        SyncSheetMouseActivation();
+        panel.Show();
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
+        panel.Activate();
     }
 
-    /// <summary>Handles a repeated power-menu request as cancellation.</summary>
-    public void TogglePowerMenu()
+    /// <summary>Closes the status panels other than the one about to show, so only one is open.</summary>
+    private void CloseOtherStatusPanels(Window? keep)
     {
-        if (PowerMenuOpen)
+        if (_radioPanel is not null && !ReferenceEquals(_radioPanel, keep))
         {
-            _overlay?.CloseActiveSurface();
-            return;
+            _radioPanel.Close();
         }
 
-        ShowPowerMenu();
+        if (_audioPanel is not null && !ReferenceEquals(_audioPanel, keep))
+        {
+            _audioPanel.Close();
+        }
+
+        if (_ejectPanel is not null && !ReferenceEquals(_ejectPanel, keep))
+        {
+            _ejectPanel.Close();
+        }
+    }
+
+    /// <summary>Brings an open status panel back to the front with navigation.</summary>
+    private void ReactivateStatusPanel(Window panel, GamepadNavigation? navigation)
+    {
+        _navigation?.IsEnabled = false;
+        navigation?.IsEnabled = true;
+        panel.Activate();
     }
 
     /// <summary>
-    ///     Consumes a short power press while the menu is open. Callers must not perform their
-    ///     normal sleep action when this returns true. This does not install hardware capture.
+    ///     Hands focus back to the sheet, which is still open underneath, after a status panel
+    ///     closed.
     /// </summary>
-    public bool TryConsumePowerPress()
+    private void ReturnToSheet()
     {
-        if (!PowerMenuOpen)
+        _navigation?.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
+        SyncSheetMouseActivation();
+        _overlay?.Activate();
+    }
+
+    /// <summary>
+    ///     Closes whichever status panel is open, immediately — used when
+    ///     the sheet itself is already going, so there is nothing left to defer for.
+    /// </summary>
+    private void CloseStatusPanelsNow()
+    {
+        if (_radioPanel is not null)
         {
-            return false;
+            Log.Info("Quick access closed with the radio panel open — closing the panel.");
+            _radioPanel.Close();
         }
 
-        _overlay?.CloseActiveSurface();
-        return true;
+        if (_audioPanel is not null)
+        {
+            Log.Info("Quick access closed with the audio panel open — closing the panel.");
+            _audioPanel.Close();
+        }
+
+        if (_ejectPanel is null)
+        {
+            return;
+        }
+
+        Log.Info("Quick access closed with the eject panel open — closing the panel.");
+        _ejectPanel.Close();
     }
 
     /// <summary>
@@ -1873,7 +2209,7 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>
     ///     Attaches (or detaches, with null) the game-mode tray host whose
-    ///     icons render in the sheet's bottom rail. ShellSession owns the host's
+    ///     icons render in the sheet's header. ShellSession owns the host's
     ///     lifecycle — created per game-mode span, destroyed before explorer starts.
     /// </summary>
     /// <param name="host">The live tray host, or null when leaving game mode.</param>
@@ -2122,8 +2458,6 @@ public sealed class OverlayController : IDisposable
         // Kept open a beat, the window's own hook eats the synthesized click.
         // ShowOverlay cancels this via _pendingClose when re-summoned in time.
         _closePending = true;
-        _overlay.IsEnabled = false;
-        _navigation?.IsEnabled = false;
         _pendingClose = RunOnUiThreadAfter(TouchInput.CloseGrace, () =>
         {
             _closePending = false;
@@ -2166,7 +2500,44 @@ public sealed class OverlayController : IDisposable
         }
 
         _touchSwipes.Triggered -= OnSwipeTriggered;
+        _touchSwipes.TappedAt -= OnTappedAt;
         _touchSwipes.Dispose();
         _touchSwipes = null;
+    }
+
+    /// <summary>A status panel's close, held for the touch-promotion grace.</summary>
+    /// <remarks>
+    ///     Closing straight from the raw-touch callback destroys the window before the
+    ///     synthesized click arrives, which then lands on whatever is underneath; the grace lets the
+    ///     window's WndProc hook eat it. See docs\overlay-and-input.md.
+    /// </remarks>
+    private sealed class DeferredPanelClose
+    {
+        private IDisposable? _timer;
+
+        private bool Pending { get; set; }
+
+        internal void Start(Func<TimeSpan, Action, IDisposable?> after, Action close)
+        {
+            if (Pending)
+            {
+                return;
+            }
+
+            Pending = true;
+            _timer = after(TouchInput.CloseGrace, () =>
+            {
+                Pending = false;
+                _timer = null;
+                close();
+            });
+        }
+
+        internal void Cancel()
+        {
+            _timer?.Dispose();
+            _timer = null;
+            Pending = false;
+        }
     }
 }

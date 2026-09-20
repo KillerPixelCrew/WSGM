@@ -1,14 +1,25 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="using:WSGM.Controls"
         xmlns:sh="using:WSGM.Shell"
-        x:Class="WSGM.Overlay.EjectPanel"
+        x:Class="WSGM.Overlay.EjectWindow"
         x:DataType="sh:RemovableDriveManager"
-        Background="{StaticResource DeckSurfaceBrush}">
-  <Grid>
-    <Border BorderBrush="{StaticResource DeckDividerBrush}"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="Manual"
+        Width="500"
+        Height="420"
+        Background="{StaticResource HcBackgroundBrush}"
+        Title="Safely remove hardware">
+  <!-- A real top-level window, not a flyout: GamepadNavigation only traverses
+         its window, so a device list inside a popup would not be reachable with
+         a controller at all (same reasoning as the radio and audio panels). -->
+  <LayoutTransformControl x:Name="RootScale">
+    <Border BorderBrush="{StaticResource HcCardBorderBrush}"
             BorderThickness="1"
-            CornerRadius="6"
+            CornerRadius="8"
             Padding="14">
       <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
 
@@ -88,9 +99,9 @@
         </StackPanel>
       </Grid>
     </Border>
-  </Grid>
+  </LayoutTransformControl>
 
-  <UserControl.Styles>
+  <Window.Styles>
     <!-- The radio-row / radio-row-header / radio-row-actions family lives in
              Themes\Shared.axaml so this panel and the radio panel cannot drift
              apart. Only the drive glyph below is local to this window. -->
@@ -98,10 +109,10 @@
              geometries are stroke-style, filling them collapses detail. -->
     <Style Selector="Path.row-icon">
       <Setter Property="Fill" Value="{x:Null}" />
-      <Setter Property="Stroke" Value="{StaticResource DeckSecondaryBrush}" />
+      <Setter Property="Stroke" Value="{StaticResource HcTextMutedBrush}" />
       <Setter Property="StrokeThickness" Value="1.5" />
       <Setter Property="StrokeJoin" Value="Round" />
       <Setter Property="StrokeLineCap" Value="Round" />
     </Style>
-  </UserControl.Styles>
-</UserControl>
+  </Window.Styles>
+</Window>

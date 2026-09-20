@@ -7,14 +7,6 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceCapabilityRouterTests
 {
     [Fact]
-    public void ProductionAdmissionRejectsInvalidLayoutHints()
-    {
-        Assert.False(Validates(Generic() with { Prominence = (CapabilityProminence)999 }, out _));
-        Assert.False(Validates(Generic() with { LayoutPair = new CapabilityLayoutPair("missing") }, out _));
-        Assert.True(Validates(Generic() with { Prominence = CapabilityProminence.Compact }, out _));
-    }
-
-    [Fact]
     public async Task DisconnectedRouterRejectsACommandWithAnActionableReason()
     {
         await using DeviceCapabilityRouter router = new(action => action());

@@ -80,7 +80,7 @@ internal sealed class CurveEditor : Control
     public int? MarkerInput
     {
         get => GetValue(MarkerInputProperty);
-        set => SetValue(MarkerInputProperty, value);
+        init => SetValue(MarkerInputProperty, value);
     }
 
     /// <summary>Whether outputs must not decrease along the curve.</summary>

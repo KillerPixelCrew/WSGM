@@ -102,16 +102,6 @@ public partial class OverlayWindow
     {
         get
         {
-            if (ActiveSurfaceFocusTarget is { } surfaceTarget)
-            {
-                return surfaceTarget;
-            }
-
-            if (_navigation.Depth <= 2 && SelectedSectionButton is { } sectionButton)
-            {
-                return sectionButton;
-            }
-
             // Nested pages retain focus ownership while one is open.
             if (ActiveSubView is { } nested && FocusSearch.First<Button>(nested.Host, IsFocusableButton) is
                     { } nestedButton)
@@ -162,7 +152,7 @@ public partial class OverlayWindow
 
         var returnFocusKey = _navigation.Pop();
         view.OnLeave?.Invoke();
-        // Closes any keyboard surface the page opened; without it the keyboard can outlive its
+        // Closes any peer keyboard the page opened; without it the keyboard can outlive its
         // sub-view and keep writing back to a now-hidden field.
         SubViewClosed?.Invoke();
         view.Host.IsVisible = false;
@@ -170,27 +160,7 @@ public partial class OverlayWindow
         SyncBackAffordance();
         if (view.Parent.IsVisible)
         {
-            if (!ReferenceEquals(view.Parent, DestinationPanel()))
-            {
-                var target = returnFocusKey is null
-                    ? null
-                    : FocusSearch.First<Control>(view.Parent,
-                        control => Equals(control.Tag, returnFocusKey) && control.Focusable
-                                                                       && control.IsEffectivelyEnabled &&
-                                                                       control.IsEffectivelyVisible);
-                if (target is not null)
-                {
-                    target.Focus(NavigationMethod.Directional);
-                }
-                else
-                {
-                    FocusFirstControl(view.Parent);
-                }
-            }
-            else
-            {
-                RestoreRootFocus(returnFocusKey);
-            }
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
@@ -300,7 +270,7 @@ public partial class OverlayWindow
     /// </summary>
     internal void SelectPreviousTab()
     {
-        if (!HasActiveSurface)
+        if (!AnySubView)
         {
             Tabs.SelectPrevious();
         }
@@ -309,7 +279,7 @@ public partial class OverlayWindow
     /// <summary>Selects the next destination (RB). Suppressed while a nested page is open.</summary>
     internal void SelectNextTab()
     {
-        if (!HasActiveSurface)
+        if (!AnySubView)
         {
             Tabs.SelectNext();
         }
@@ -333,7 +303,6 @@ public partial class OverlayWindow
     private void SyncBackAffordance()
     {
         BackButton.IsVisible = _navigation.Depth > 1;
-        SyncSectionSelection();
     }
 
     /// <summary>
@@ -347,28 +316,6 @@ public partial class OverlayWindow
     /// </remarks>
     internal bool TryCancelSubView()
     {
-        if (HasActiveSurface)
-        {
-            return CloseActiveSurface();
-        }
-
-        if (_navigation.Depth <= 2 && !_confirmRestart && !_confirmShutdown && !_confirmCloseLauncher
-            && !_confirmSignOut && SelectedSectionButton is { } selected
-            && GetTopLevel(this)?.FocusManager.GetFocusedElement() is Control focused
-            && !ReferenceEquals(focused, selected))
-        {
-            selected.Focus(NavigationMethod.Directional);
-            return true;
-        }
-
-        if (_navigation.Depth <= 2 && _navigation.Destination != OverlayDestination.QuickAccess
-                                   && ReferenceEquals(GetTopLevel(this)?.FocusManager.GetFocusedElement(),
-                                       SelectedSectionButton))
-        {
-            SelectDestination(OverlayDestination.QuickAccess);
-            return true;
-        }
-
         var handled = CancelOpenPage();
         SyncBackAffordance();
         return handled;
@@ -376,7 +323,7 @@ public partial class OverlayWindow
 
     private bool CancelOpenPage()
     {
-        var confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown || _confirmSignOut;
+        var confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown;
         switch (_navigation.BackAction(false, confirmationOpen))
         {
             case OverlayBackAction.CloseDialog:
@@ -518,8 +465,6 @@ public partial class OverlayWindow
         }
 
         RestoreDestinationState(restoreFocus);
-        RefreshWorkspace();
-        SelectRememberedSection(restoreFocus);
         if (restoreFocus && destination == OverlayDestination.Device && _powerSchemeSelection is { } schemes)
         {
             _ = schemes.RefreshAsync();
@@ -577,14 +522,8 @@ public partial class OverlayWindow
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (_closed || HasActiveSurface || AnySubView)
+            if (_closed || AnySubView)
             {
-                return;
-            }
-
-            if (SelectedSectionButton is { } sectionButton)
-            {
-                sectionButton.Focus(NavigationMethod.Directional);
                 return;
             }
 
@@ -648,7 +587,7 @@ public partial class OverlayWindow
     /// <param name="Parent">The destination panel hidden behind it.</param>
     /// <param name="Destination">The destination that panel belongs to.</param>
     /// <param name="OnLeave">
-    ///     State the page owns, released before the keyboard surface is told
+    ///     State the page owns, released before the peer keyboard is told
     ///     to close so nothing re-reads a value the page has already abandoned.
     /// </param>
     private sealed record SubView(

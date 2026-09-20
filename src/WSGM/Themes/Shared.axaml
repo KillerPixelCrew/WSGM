@@ -119,7 +119,19 @@
     <Setter Property="Spacing" Value="8" />
     <Setter Property="Margin" Value="10,0,10,10" />
   </Style>
-  <!-- Base value-row treatment; the fullscreen overlay supplies its command-deck variant. -->
+  <!-- The card a device VALUE row is drawn on: the slider, toggle, dropdown,
+         textbox and curve rows, which are Borders rather than CardButtons because
+         their interactive control is the focus stop, not the row.
+
+         Every value of the CardButton theme, because they sit line by line with
+         real CardButton rows on the Device pages and the two have to be one card
+         style. Until this existed the class was set on those Borders and matched
+         NOTHING — `c|CardButton.tile` is the unrelated quick-access grid variant —
+         so the sliders and toggles rendered as bare text bleeding to the sheet
+         edges between properly carded rows.
+
+         `:is(Border)` and not `Border`: an Avalonia type selector is exact, and
+         DeviceSliderRow and DeviceCurveRow derive from Border. -->
   <Style Selector=":is(Border).tile">
     <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
     <Setter Property="BorderBrush" Value="Transparent" />
@@ -133,6 +145,13 @@
   <!-- Section headings group the same independent cards used throughout the overlay. -->
   <Style Selector="Border.device-group">
     <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="Border.device-overview-card">
+    <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16" />
   </Style>
   <Style Selector=":is(StackPanel).overlay-control">
     <Setter Property="Margin" Value="0,8" />

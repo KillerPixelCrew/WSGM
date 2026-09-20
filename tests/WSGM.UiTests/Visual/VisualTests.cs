@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.UiTests.Fakes;
@@ -11,29 +13,6 @@ namespace WSGM.UiTests.Visual;
 public sealed class VisualTests
 {
     [AvaloniaTheory]
-    [InlineData("overlay-keyboard-720p", true, 1280, 720, 1.0)]
-    [InlineData("overlay-keyboard-4k-scaled", true, 3840, 2160, 2.0)]
-    [InlineData("overlay-power-menu-720p", false, 1280, 720, 1.0)]
-    [InlineData("overlay-power-menu-4k-scaled", false, 3840, 2160, 2.0)]
-    public void Surface(string name, bool keyboard, int width, int height, double uiScale)
-    {
-        using UiFixture fixture = new();
-        var window = fixture.Overlay(width, height, uiScale);
-        if (keyboard)
-        {
-            window.ShowKeyboardSurface(new KeyboardPanel("Enter text", "Full keyboard", 256));
-        }
-        else
-        {
-            window.ShowPowerMenu();
-        }
-
-        Dispatcher.UIThread.RunJobs();
-        VisualBaseline.Verify(window, name);
-    }
-
-    [AvaloniaTheory]
-    [InlineData("overlay-quick-access-980", "quick-access", 980, 640)]
     [InlineData("overlay-quick-access-1280", "quick-access", 1280, 800)]
     [InlineData("overlay-quick-access-1920", "quick-access", 1920, 1080)]
     [InlineData("overlay-device-core-1280", "core", 1280, 800)]
@@ -43,29 +22,16 @@ public sealed class VisualTests
     [InlineData("overlay-steam-1280", "steam", 1280, 800)]
     [InlineData("overlay-tools-1280", "tools", 1280, 800)]
     [InlineData("overlay-power-1280", "power", 1280, 800)]
-    [InlineData("overlay-steam-980", "steam", 980, 640)]
-    [InlineData("overlay-tools-980", "tools", 980, 640)]
-    [InlineData("overlay-power-980", "power", 980, 640)]
-    [InlineData("overlay-quick-access-720p", "quick-access", 1280, 720)]
-    [InlineData("overlay-quick-access-720p-scaled", "quick-access", 1280, 720, 1.5)]
-    [InlineData("overlay-quick-access-4k", "quick-access", 3840, 2160)]
-    [InlineData("overlay-quick-access-4k-scaled", "quick-access", 3840, 2160, 2.0)]
-    [InlineData("overlay-steam-720p", "steam", 1280, 720)]
-    [InlineData("overlay-steam-4k-scaled", "steam", 3840, 2160, 2.0)]
-    [InlineData("overlay-tools-720p", "tools", 1280, 720)]
-    [InlineData("overlay-tools-4k-scaled", "tools", 3840, 2160, 2.0)]
-    [InlineData("overlay-power-720p", "power", 1280, 720)]
-    [InlineData("overlay-power-4k-scaled", "power", 3840, 2160, 2.0)]
-    public async Task Overlay(string name, string page, int width, int height, double uiScale = 1.0)
+    public async Task Overlay(string name, string page, int width, int height)
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
         using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power write"));
         await schemes.RefreshAsync();
-        var window = fixture.Overlay(width, height, uiScale);
-        // Every destination opens its selected section beside a persistent rail. With no device
-        // source attached, Device is hidden and these are the remaining destination indexes.
+        var window = fixture.Overlay(width, height);
+        // The category menus each destination root now shows. No power schemes and no device
+        // bridge, so the Device tab stays hidden and these are the tab indexes without it.
         if (page is "steam" or "tools" or "power")
         {
             UiFixture.Click(window, UiFixture.Tab(window, page switch
@@ -86,13 +52,14 @@ public sealed class VisualTests
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             if (page == "plugin")
             {
-                UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+                UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+                    .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
             }
         }
 
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(width, window.ClientSize.Width);
-        Assert.Equal(height, window.ClientSize.Height);
+        Assert.Equal(Math.Round(height * OverlayWindow.SheetHeightFraction), window.ClientSize.Height);
         VisualBaseline.Verify(window, name);
     }
 

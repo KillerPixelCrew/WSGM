@@ -950,8 +950,7 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        return CapabilityLayout.TryValidate(set.Descriptors, out error)
-               && DevicePowerPreset.TryValidate(set.Descriptors, out error)
+        return DevicePowerPreset.TryValidate(set.Descriptors, out error)
                && DevicePowerPair.TryValidate(set.Descriptors, out error);
     }
 

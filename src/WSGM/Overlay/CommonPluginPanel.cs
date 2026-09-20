@@ -45,8 +45,7 @@ internal sealed class CommonPluginPanel : StackPanel
         _preferences = preferences;
         _readPins = preferences?.Read;
         _navigate = navigate;
-        Spacing = widget is null ? 20 : 12;
-        HorizontalAlignment = HorizontalAlignment.Stretch;
+        Spacing = 8;
         // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
         _timer.Tick += (_, _) =>
         {
@@ -128,11 +127,7 @@ internal sealed class CommonPluginPanel : StackPanel
     {
         if (_widget is null)
         {
-            Children.Add(new TextBlock
-            {
-                Text = instance.Name, FontSize = 18, FontWeight = FontWeight.SemiBold,
-                TextWrapping = TextWrapping.Wrap
-            });
+            Children.Add(new TextBlock { Text = instance.Name, Classes = { "eyebrow" } });
         }
 
         var health = new TextBlock { Classes = { "caption" }, TextWrapping = TextWrapping.Wrap };
@@ -161,9 +156,7 @@ internal sealed class CommonPluginPanel : StackPanel
             }
 
             var title = new TextBlock
-            {
-                Text = widget.Label, FontSize = 18, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap
-            };
+                { Text = widget.Label, Classes = { "setting-title" }, TextWrapping = TextWrapping.Wrap };
             DockPanel heading = new() { LastChildFill = true };
             if (WidgetIcon(widget.Icon) is { } geometry)
             {
@@ -184,10 +177,9 @@ internal sealed class CommonPluginPanel : StackPanel
 
             heading.Children.Add(title);
             Children.Add(heading);
-            Children.Add(new Border { Classes = { "section-divider" }, Height = 1 });
             if (widget.NavigationCategory is { } category && _navigate is not null)
             {
-                ActionButton open = new() { Title = "Open plugin controls", IconGeometry = Icons.Gear };
+                CardButton open = new() { Title = "Open plugin controls", IconGeometry = Icons.Gear };
                 open.Click += (_, _) => _navigate(pinned, category);
                 Children.Add(open);
             }
@@ -195,7 +187,7 @@ internal sealed class CommonPluginPanel : StackPanel
             var firstControl = Children.Count;
             foreach (var id in widget.ContributionIds)
             {
-                AddContribution(this, instance, owner, actions.Contributions.First(item => item.Id == id));
+                AddContribution(instance, owner, actions.Contributions.First(item => item.Id == id));
             }
 
             var controls = Children.Skip(firstControl).ToArray();
@@ -231,21 +223,12 @@ internal sealed class CommonPluginPanel : StackPanel
             return;
         }
 
-        if (actions.Widgets.Count > 0)
+        foreach (var widget in actions.Widgets)
         {
-            var widgetPins = new StackPanel { Spacing = 12 };
-            widgetPins.Children.Add(new TextBlock
-                { Text = "Widgets", FontSize = 18, FontWeight = FontWeight.SemiBold });
-            widgetPins.Children.Add(new Border { Classes = { "section-divider" }, Height = 1 });
-            foreach (var widget in actions.Widgets)
-            {
-                PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);
-                widgetPins.Children.Add(new PluginWidgetPinControls(widget.Label,
-                    isPinned => _preferences?.Set(pin, isPinned) ?? Task.CompletedTask,
-                    _readPins is null ? null : async () => (await _readPins()).Contains(pin)));
-            }
-
-            Children.Add(new Border { Classes = { "device-group" }, Child = widgetPins });
+            PluginWidgetPin pin = new(instance.Identity.PluginId, instance.Identity.InstanceId, widget.Id);
+            Children.Add(new PluginWidgetPinControls(widget.Label,
+                isPinned => _preferences?.Set(pin, isPinned) ?? Task.CompletedTask,
+                _readPins is null ? null : async () => (await _readPins()).Contains(pin)));
         }
 
         if (_pinsOnly)
@@ -258,21 +241,15 @@ internal sealed class CommonPluginPanel : StackPanel
             TextBlock anchor = new()
             {
                 Text = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(group.Key.Replace('-', ' ').Replace('_', ' ')),
-                FontSize = 18,
-                FontWeight = FontWeight.SemiBold,
-                TextWrapping = TextWrapping.Wrap,
+                Classes = { "eyebrow" },
                 Focusable = true
             };
             _categories[(instance.Identity.PluginId, instance.Identity.InstanceId, group.Key)] = anchor;
-            var content = new StackPanel { Spacing = 12 };
-            content.Children.Add(anchor);
-            content.Children.Add(new Border { Classes = { "section-divider" }, Height = 1 });
+            Children.Add(anchor);
             foreach (var contribution in group)
             {
-                AddContribution(content, instance, owner, contribution);
+                AddContribution(instance, owner, contribution);
             }
-
-            Children.Add(new Border { Classes = { "device-group" }, Child = content });
         }
     }
 
@@ -288,7 +265,7 @@ internal sealed class CommonPluginPanel : StackPanel
         anchor.Focus();
     }
 
-    private void AddContribution(Panel parent, PluginOverlayInstance instance, PluginOverlayInstance owner,
+    private void AddContribution(PluginOverlayInstance instance, PluginOverlayInstance owner,
         PluginUiContribution contribution)
     {
         var generation = owner.Generation;
@@ -304,9 +281,7 @@ internal sealed class CommonPluginPanel : StackPanel
             row.Children.Add(effective);
         }
 
-        parent.Children.Add(contribution.Kind == PluginUiKind.Action
-            ? row
-            : new Border { Classes = { "tile" }, Child = row });
+        Children.Add(contribution.Kind == PluginUiKind.Action ? row : new Border { Classes = { "tile" }, Child = row });
         _refresh.Add(() =>
         {
             var state = _source.State(instance.Identity).FirstOrDefault(value =>
@@ -413,7 +388,7 @@ internal sealed class CommonPluginPanel : StackPanel
         }
 
         // The draft is intentionally separate from readback. Refresh cannot invoke the write path.
-        var apply = new ActionButton
+        var apply = new CardButton
         {
             Title = contribution.Kind == PluginUiKind.Action ? contribution.Label : "Apply",
             IconGeometry = Icons.Play,

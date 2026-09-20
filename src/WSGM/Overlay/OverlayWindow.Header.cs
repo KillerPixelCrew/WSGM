@@ -5,7 +5,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
 
@@ -14,8 +13,11 @@ namespace WSGM.Overlay;
 public partial class OverlayWindow
 {
     /// <summary>
-    ///     Share of the bottom rail's inner width the tray may claim before scrolling,
-    ///     leaving room for open apps and their actions.
+    ///     Share of the header's inner width the tray strip may claim before it
+    ///     starts scrolling. The tray is the only header content whose length WSGM does
+    ///     not control (the Shell_TrayWnd host takes whatever apps register), so it is
+    ///     the part that gets a budget; the wordmark and the status pills after it are
+    ///     fixed-size and always keep their space.
     /// </summary>
     private const double TrayWidthFraction = 0.30;
 
@@ -26,15 +28,23 @@ public partial class OverlayWindow
     private const double TrayMinWidth = 40;
 
     /// <summary>
-    ///     Horizontal padding of the bottom apps and tray rail.
+    ///     Horizontal padding the header adds inside the window (16 left + 16
+    ///     right — keep in sync with Padding="16,0" in the XAML).
     /// </summary>
-    private const double RailHorizontalPadding = 32;
+    private const double HeaderHorizontalPadding = 32;
 
-    private void OnWorkspaceSizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        Classes.Set("compact", e.NewSize.Width < 1150);
-        TrayScroller.MaxWidth = ComputeTrayMaxWidth(e.NewSize.Width, 1);
-    }
+    /// <summary>
+    ///     The header's bottom edge in physical screen pixels, for the radio,
+    ///     audio and eject panels to hang from.
+    /// </summary>
+    internal int HeaderBottomScreenY
+        => Position.Y
+           + (int)Math.Ceiling(
+               Header.Bounds.Height * _contentScale * StatusPanel.CurrentWindowScale(this));
+
+    /// <summary>The sheet's physical right edge, used to keep peer panels on the same display.</summary>
+    internal int RightScreenX
+        => Position.X + (int)Math.Ceiling(Bounds.Width * StatusPanel.CurrentWindowScale(this));
 
     /// <summary>
     ///     Lands controller focus on the first Open apps chip — the bottom-swipe
@@ -120,7 +130,9 @@ public partial class OverlayWindow
 
     private void OnRadioTileClicked(object? sender, RoutedEventArgs e)
     {
-        // The panel stays in this window's focus scope and navigation owner.
+        // A flyout cannot hold a network list, and GamepadNavigation has no popup
+        // awareness, so a list inside one would not be reachable with a controller
+        // at all. The panel is a real window for both reasons.
         RadioPanelRequested?.Invoke((sender as Control)?.Tag as string == "bluetooth");
     }
 
@@ -150,7 +162,7 @@ public partial class OverlayWindow
 
     /// <summary>
     ///     The widest the tray strip may become before it scrolls, so that
-    ///     the open-app actions always fit. Pure: the width budget is unit-tested
+    ///     the fixed status pills always fit. Pure: the width budget is unit-tested
     ///     against this method rather than against a live window.
     /// </summary>
     /// <param name="windowWidth">The sheet window's logical (DIP) width.</param>
@@ -158,7 +170,7 @@ public partial class OverlayWindow
     ///     The factor RootScale applies to the content
     ///     (see <see cref="DockToTopEdge" />); 1.0 when untransformed.
     /// </param>
-    /// <returns>A MaxWidth in the rail's pre-transform layout units.</returns>
+    /// <returns>A MaxWidth in the header's pre-transform layout units.</returns>
     internal static double ComputeTrayMaxWidth(double windowWidth, double contentScale)
     {
         if (!double.IsFinite(windowWidth) || !double.IsFinite(contentScale) || contentScale <= 0)
@@ -166,12 +178,15 @@ public partial class OverlayWindow
             return TrayMinWidth;
         }
 
-        var inner = windowWidth / contentScale - RailHorizontalPadding;
+        var inner = windowWidth / contentScale - HeaderHorizontalPadding;
         return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
     }
 
     /// <summary>
-    ///     Covers the summoning window's display and slides the live glass sheet into place.
+    ///     Spans the sheet across the summoning window's display top edge, sized to
+    ///     <see cref="SheetHeightFraction" /> of its height, and slides it down from
+    ///     above the screen. The window never covers the whole display: the strip left
+    ///     below is the game's, and the tap-outside dismissal.
     /// </summary>
     private void DockToTopEdge()
     {
@@ -202,7 +217,7 @@ public partial class OverlayWindow
         // handheld screens (device-reported). The content lays out in
         // desktop-DIP space (the factor divides the available size), the window
         // takes the scaled-up physical footprint.
-        var factor = ComputeContentScale(_uiScale, scaling, bounds.Width, bounds.Height);
+        var factor = Math.Clamp(_uiScale / scaling, 1.0, 3.0);
         if (Math.Abs(factor - 1.0) >= 0.01)
         {
             Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
@@ -211,7 +226,7 @@ public partial class OverlayWindow
         }
 
         Width = bounds.Width / scaling;
-        Height = Math.Round(bounds.Height / scaling);
+        Height = Math.Round(bounds.Height / scaling * SheetHeightFraction);
         TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
 
         var heightPx = (int)Math.Ceiling(Height * scaling);
@@ -256,32 +271,12 @@ public partial class OverlayWindow
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e is OnScreenKeyboard.EditorKeyEventArgs)
-        {
-            return;
-        }
-
-        if (e.Key is Key.PageUp or Key.PageDown && !HasActiveSurface)
-        {
-            if (e.Key == Key.PageUp)
-            {
-                SelectPreviousTab();
-            }
-            else
-            {
-                SelectNextTab();
-            }
-
-            e.Handled = true;
-            return;
-        }
-
         if (e.Key != Key.Escape)
         {
             return;
         }
 
-        if (!CloseActiveSurface() && !TryCancelSubView())
+        if (!TryCancelSubView())
         {
             Dismissed?.Invoke();
         }
@@ -317,35 +312,5 @@ public partial class OverlayWindow
     private void OnClose(object? sender, RoutedEventArgs e)
     {
         Dismissed?.Invoke();
-    }
-
-    internal static double ComputeContentScale(double uiScale, double renderScale, double width, double height)
-    {
-        if (!double.IsFinite(uiScale) || !double.IsFinite(renderScale) || renderScale <= 0
-            || !double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
-        {
-            return 1;
-        }
-
-        var maximumFit = Math.Min(width / renderScale / 980, height / renderScale / 640);
-        // Game Mode supplies the saved desktop scale while Windows runs at 100%. Desktop mode
-        // supplies one because native DPI already scales the window. Only the viewport fit may
-        // reduce that native factor; it never changes the saved preference.
-        return Math.Min(Math.Clamp(uiScale / renderScale, 1.0, 3.0), maximumFit);
-    }
-
-    private void OnGlassTransparencyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
-    {
-        if (e.Property == ActualTransparencyLevelProperty)
-        {
-            ApplyGlassTransparency();
-        }
-    }
-
-    private void ApplyGlassTransparency()
-    {
-        GlassCanvas.Background = this.FindResource(ActualTransparencyLevel == WindowTransparencyLevel.None
-            ? "DeckCanvasBrush"
-            : "DeckGlassCanvasBrush") as IBrush;
     }
 }

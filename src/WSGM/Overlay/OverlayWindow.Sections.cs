@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Labs.Panels;
 using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Device.Sdk.Capabilities;
@@ -53,21 +52,12 @@ public partial class OverlayWindow
     {
         var panel = new StackPanel
         {
-            Spacing = 8,
+            Spacing = 4,
             Tag = pinned ? PinTagPrefix + id : id,
             VerticalAlignment = VerticalAlignment.Top
         };
         panel.Children.Add(CreateSectionHeader(id, title, pinned));
         return panel;
-    }
-
-    private static Border WrapDeviceSection(StackPanel content)
-    {
-        return new Border
-        {
-            Classes = { "device-group" }, Child = content, Tag = content.Tag,
-            VerticalAlignment = VerticalAlignment.Top
-        };
     }
 
     private DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot)
@@ -134,8 +124,6 @@ public partial class OverlayWindow
                 }
             }
 
-            // Host controls have their own stable pin identity even when the plugin publishes
-            // only categorized rows or no capabilities at all.
             if (owned is { } host)
             {
                 yield return new DevicePinSection(prefix + ".configuration",
@@ -156,89 +144,37 @@ public partial class OverlayWindow
         }
     }
 
-    private Control? AddDeviceSectionRows(DeviceOverlaySnapshot snapshot, DevicePinSection section,
+    private DescriptorStatusRow? AddDeviceSectionRows(DeviceOverlaySnapshot snapshot, DevicePinSection section,
         Panel target, string? focusedKey = null, bool pinned = false)
     {
-        Control? restoreFocus = null;
-        if (section.Owned is { } hostSection)
+        DescriptorStatusRow? restoreFocus = null;
+        foreach (var capability in section.Capabilities)
         {
-            restoreFocus = RenderOwnedDeviceRows(snapshot, hostSection, focusedKey, target, !pinned);
-            if (pinned)
+            var presentation = capability with
             {
-                foreach (var control in target.Children.Where(control => control.Tag is string))
-                {
-                    if (control.Tag is string key && !key.StartsWith(PinTagPrefix, StringComparison.Ordinal))
-                    {
-                        control.Tag = PinTagPrefix + key;
-                        if (control is DeviceSettingRow setting)
-                        {
-                            setting.Editor.Tag = control.Tag;
-                        }
-                    }
-                }
-            }
-        }
-
-        var readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
-        var ordered = OrderDeviceCapabilities(section.Capabilities);
-        foreach (var capability in ordered)
-        {
-            var presentation = PresentDeviceCapability(capability);
+                Title = capability.Role == CapabilityRole.ScenarioMode ? "Firmware power mode" : capability.Title,
+                Description = capability.Status == DescriptorStatus.Available
+                              && (capability.Description.StartsWith("Observed ·", StringComparison.Ordinal)
+                                  || capability.Description.StartsWith("Verified ·", StringComparison.Ordinal))
+                    ? string.Empty
+                    : capability.Description
+            };
             var key = (pinned ? PinTagPrefix : "") + DeviceRowKey(capability);
-            var row = CreateDeviceCapabilityRow(presentation, key);
+            var row = TryCreateDeviceControl(presentation, key) ?? CreateDeviceCapabilityRow(presentation, key);
             ToolTip.SetTip(row, capability.Description);
-            if (!capability.Writable && capability.ValueKind != CapabilityValueKind.None
-                                     && capability.Prominence != CapabilityProminence.Primary)
+            target.Children.Add(row);
+            if (key == focusedKey && row is DescriptorStatusRow button)
             {
-                row.MinWidth = capability.Prominence == CapabilityProminence.Compact ? 112 : 160;
-                Flex.SetGrow(row, 1);
-                readings.Children.Add(row);
-            }
-            else
-            {
-                if (readings.Children.Count > 0)
-                {
-                    target.Children.Add(readings);
-                    readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
-                }
-
-                target.Children.Add(row);
-            }
-
-            if (key == focusedKey)
-            {
-                restoreFocus = row;
+                restoreFocus = button;
             }
         }
 
-        if (readings.Children.Count > 0)
+        if (section.Owned is { } owned)
         {
-            target.Children.Add(readings);
+            restoreFocus = RenderOwnedDeviceRows(snapshot, owned, focusedKey, target, !pinned) ?? restoreFocus;
         }
 
         return restoreFocus;
-    }
-
-    private static IEnumerable<DeviceOverlayCapability> OrderDeviceCapabilities(
-        IReadOnlyList<DeviceOverlayCapability> capabilities)
-    {
-        HashSet<string> emitted = new(StringComparer.Ordinal);
-        foreach (var capability in capabilities.OrderBy(capability => capability.SortOrder))
-        {
-            if (!emitted.Add(DeviceRowKey(capability)))
-            {
-                continue;
-            }
-
-            yield return capability;
-            if (capability.LayoutPair is { } pair && capabilities.FirstOrDefault(candidate =>
-                                                      candidate.CapabilityId == pair.CapabilityId &&
-                                                      candidate.InstanceId == pair.InstanceId) is { } companion
-                                                  && emitted.Add(DeviceRowKey(companion)))
-            {
-                yield return companion;
-            }
-        }
     }
 
     private Control? CreatePinnedSection(string id)
@@ -252,35 +188,28 @@ public partial class OverlayWindow
 
             var panel = CreateSection(id, host.Title, true);
             panel.Children.Add(host.Create());
-            return WrapDeviceSection(panel);
+            return panel;
         }
 
         if (id == "section.performance" && _performanceSource?.Snapshot() is { Visible: true } performance)
         {
-            var group = PinnedSectionsGrid.Children.OfType<Border>()
-                            .FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id))
-                        ?? WrapDeviceSection(CreateSection(id, "Performance", true));
-            ReconcilePerformanceRows((StackPanel)group.Child!, performance.ProfileRows.Concat(performance.Rows), true);
+            var panel = CreateSection(id, "Performance", true);
+            foreach (var descriptor in performance.ProfileRows.Concat(performance.Rows))
+            {
+                var key = PinTagPrefix + "performance." + descriptor.Id;
+                panel.Children.Add(
+                    TryCreatePerformanceControl(descriptor, key) ?? CreatePerformanceRow(descriptor, key));
+            }
 
-            return group;
+            return panel;
         }
 
         if (_deviceBridge?.Snapshot() is { } snapshot &&
             DevicePinSections(snapshot).FirstOrDefault(candidate => candidate.Id == id) is { } section)
         {
-            if (_pinnedLayouts.TryGetValue(id, out var previous) && SameDeviceLayout(previous, snapshot)
-                                                                 && PinnedSectionsGrid.Children.FirstOrDefault(row =>
-                                                                         Equals(row.Tag, PinTagPrefix + id)) is
-                                                                     { } existing)
-            {
-                RefreshDeviceValues(existing, snapshot);
-                return existing;
-            }
-
-            _pinnedLayouts[id] = snapshot;
             var panel = CreateSection(id, section.Title, true);
             AddDeviceSectionRows(snapshot, section, panel, pinned: true);
-            return WrapDeviceSection(panel);
+            return panel;
         }
 
         if (!id.StartsWith("section.", StringComparison.Ordinal))
@@ -294,7 +223,7 @@ public partial class OverlayWindow
             Text = "Its controls will return when the provider is available.", Classes = { "caption" },
             TextWrapping = TextWrapping.Wrap
         });
-        return WrapDeviceSection(unavailable);
+        return unavailable;
     }
 
     private sealed record DevicePinSection(

@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 using System.Linq;
 using Avalonia;
-using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -11,7 +10,6 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using FluentAvalonia.UI.Controls;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
@@ -33,7 +31,6 @@ internal sealed class DeviceSliderRow : Border
 {
     private static readonly TimeSpan CommitDelay = TimeSpan.FromMilliseconds(250);
     private readonly DispatcherTimer _commit;
-    private readonly TextBlock _description;
     private readonly Func<int, string>? _format;
     private readonly Action<int> _onCommit;
 
@@ -84,12 +81,27 @@ internal sealed class DeviceSliderRow : Border
         Classes.Add("tile");
         Tag = key;
 
+        var header = new TextBlock { Text = title };
+        header.Classes.Add("setting-title");
+
         _value = new TextBlock
         {
             Text = Format(clamped),
             HorizontalAlignment = HorizontalAlignment.Right
         };
         _value.Classes.Add("setting-title");
+
+        var titleRow = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto")
+        };
+        Grid.SetColumn(header, 0);
+        Grid.SetColumn(_value, 1);
+        titleRow.Children.Add(header);
+        titleRow.Children.Add(_value);
+
+        var caption = new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap };
+        caption.Classes.Add("caption");
 
         // Matches the color view's channel sliders, which are known to drive from the pad: the
         // SDL path in GamepadNavigation nudges a focused Slider by its TickFrequency, so that is
@@ -128,30 +140,15 @@ internal sealed class DeviceSliderRow : Border
             }
         };
 
-        var titleRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 };
-        titleRow.Children.Add(new TextBlock
-            { Text = title, Classes = { "setting-title" }, TextWrapping = TextWrapping.Wrap });
-        Grid.SetColumn(_value, 1);
-        titleRow.Children.Add(_value);
-        _description = new TextBlock
+        var body = new StackPanel { Spacing = 2 };
+        body.Children.Add(titleRow);
+        if (!string.IsNullOrWhiteSpace(description))
         {
-            Text = description, TextWrapping = TextWrapping.Wrap, Classes = { "caption" },
-            IsVisible = !string.IsNullOrWhiteSpace(description)
-        };
-        var footer = new StackPanel { Spacing = 2, Children = { titleRow, _description, _slider } };
-        var setting = new FASettingsExpanderItem
-        {
-            Footer = footer,
-            IsClickEnabled = false,
-            Focusable = false,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Classes = { "device-setting", "device-setting-primary" }
-        };
-        AutomationProperties.SetName(_slider, title);
-        AutomationProperties.SetHelpText(_slider, description);
-        Child = setting;
-        Classes.Remove("tile");
-        DetachedFromVisualTree += (_, _) => _commit.Stop();
+            body.Children.Add(caption);
+        }
+
+        body.Children.Add(_slider);
+        Child = body;
     }
 
     /// <summary>The slider is the focus target so gamepad focus restore lands on the control.</summary>
@@ -186,13 +183,6 @@ internal sealed class DeviceSliderRow : Border
         {
             _refreshing = false;
         }
-    }
-
-    internal void RefreshDescription(string description)
-    {
-        _description.Text = description;
-        _description.IsVisible = !string.IsNullOrWhiteSpace(description);
-        AutomationProperties.SetHelpText(_slider, description);
     }
 
     private void OnSliderValueChanged(object? sender, RangeBaseValueChangedEventArgs e)

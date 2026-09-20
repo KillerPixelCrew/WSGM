@@ -5,7 +5,6 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Logging;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
@@ -146,31 +145,19 @@ internal sealed class UiFixture : IDisposable
         return window;
     }
 
-    internal OverlayWindow Overlay(int width = 1280, int height = 800, double uiScale = 1.0, double renderScale = 1.0)
+    internal OverlayWindow Overlay(int width = 1280, int height = 800)
     {
         SystemStatus status = new();
         _owned.Add(status);
         OverlayWindow window = new(
-            new OverlayViewModel
-            {
-                HomeAppName = "Steam", HomeAppAlive = true, ExplorerRunning = true, ShowKeepAwake = true,
-                PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?>
-                {
-                    [PowerTimeoutKind.DisplayDc] = 300,
-                    [PowerTimeoutKind.DisplayAc] = 600,
-                    [PowerTimeoutKind.SleepDc] = 900,
-                    [PowerTimeoutKind.SleepAc] = 1800
-                }
-            },
+            new OverlayViewModel { HomeAppName = "Steam", HomeAppAlive = true, ExplorerRunning = true },
             new AppSwitcherViewModel(), status, Session,
             w =>
             {
-                w.Width = width / renderScale;
-                w.Height = height / renderScale;
-                var factor = OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height);
-                Named<LayoutTransformControl>(w, "RootScale").LayoutTransform = new ScaleTransform(factor, factor);
+                w.Width = width;
+                w.Height = Math.Round(height * OverlayWindow.SheetHeightFraction);
             },
-            _ => Calls.Add("tabs-sync"), uiScale);
+            _ => Calls.Add("tabs-sync"));
         window.SetPins(["home.steam", "home.desktop"]);
         Show(window);
         return window;
@@ -195,17 +182,6 @@ internal sealed class UiFixture : IDisposable
     internal static Button Tab(Window window, int index)
     {
         return Named<TabStrip>(window, "Tabs").GetVisualDescendants().OfType<Button>().ElementAt(index);
-    }
-
-    internal static Button Rail(OverlayWindow window, string key)
-    {
-        return Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
-            .Single(button => Equals(button.Tag, "rail." + key));
-    }
-
-    internal static Button Rail(OverlayWindow window, OverlayPage page)
-    {
-        return Rail(window, page.ToString());
     }
 
     internal static void Click(Window window, Control control, MouseButton button = MouseButton.Left)

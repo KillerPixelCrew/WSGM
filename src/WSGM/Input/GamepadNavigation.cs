@@ -34,14 +34,18 @@ public sealed class GamepadNavigation : IDisposable
     private readonly IUiButtonSource _gamepad;
     private readonly Func<bool>? _isNintendoLayout;
 
-    private readonly Func<NavigationDirection, bool>? _navigate;
+    /// <summary>
+    ///     Invoked when a directional move finds no focusable control in that
+    ///     direction (a window edge). Lets the controller hand focus to an adjacent window
+    ///     — e.g. crossing left from the sidebar into the keyboard window beside it.
+    /// </summary>
+    private readonly Action<NavigationDirection>? _onEdge;
 
     private readonly Func<InputElement?>? _preferredFocus;
     private readonly Action<InputElement?>? _secondary;
     private readonly Action? _tabNext;
     private readonly Action? _tabPrevious;
     private readonly Action<InputElement?>? _tertiary;
-    private readonly bool _triggerTabs;
     private readonly Window _window;
 
     /// <summary>
@@ -51,6 +55,14 @@ public sealed class GamepadNavigation : IDisposable
     private InputElement? _lastFocused;
 
     private bool _loggedEdge;
+
+    /// <summary>
+    ///     The direction the peer handoff was last logged for. Directions
+    ///     auto-repeat at 150 ms, so a stick resting against an edge would otherwise
+    ///     write ~7 lines a second into the only remote diagnostic log. Cleared as
+    ///     soon as a directional move lands on a control again.
+    /// </summary>
+    private NavigationDirection? _loggedEdgeHandoff;
 
     private bool _loggedFocusFallback;
     private bool _loggedKeyboardLed;
@@ -62,8 +74,6 @@ public sealed class GamepadNavigation : IDisposable
     private long _suppressConfirmPadUntil;
     private long _suppressKeyboardUntil;
     private long _suppressPadUntil;
-    private long _suppressTabKeyboardUntil;
-    private long _suppressTabPadUntil;
 
     /// <summary>Attaches controller navigation to a window.</summary>
     /// <param name="gamepad">The source of controller button presses.</param>
@@ -93,18 +103,19 @@ public sealed class GamepadNavigation : IDisposable
     ///     fired once per press — switches to the next tab where a tab strip exists.
     ///     Null leaves the button unhandled.
     /// </param>
+    /// <param name="onEdge">
+    ///     Optional callback when a directional move finds no target in
+    ///     that direction (a window edge) — used to cross focus into an adjacent window.
+    /// </param>
     /// <param name="tertiary">
     ///     Optional action for the physical north button (Xbox Y),
     ///     invoked with the currently focused element — the sheet's next-app cycle.
     /// </param>
-    /// <param name="navigate">Optional surface-specific directional move; true means the move was handled.</param>
-    /// <param name="triggerTabs">Whether trigger edges also switch destinations.</param>
     public GamepadNavigation(IUiButtonSource gamepad, Window window, Action back,
         Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
         Action<InputElement?>? secondary = null, Action? tabPrevious = null,
-        Action? tabNext = null,
-        Action<InputElement?>? tertiary = null, Func<NavigationDirection, bool>? navigate = null,
-        bool triggerTabs = false)
+        Action? tabNext = null, Action<NavigationDirection>? onEdge = null,
+        Action<InputElement?>? tertiary = null)
     {
         _gamepad = gamepad;
         _window = window;
@@ -115,8 +126,7 @@ public sealed class GamepadNavigation : IDisposable
         _tertiary = tertiary;
         _tabPrevious = tabPrevious;
         _tabNext = tabNext;
-        _navigate = navigate;
-        _triggerTabs = triggerTabs;
+        _onEdge = onEdge;
         _gamepad.ButtonPressed += OnButtons;
         // Tunnel so the arrows aren't consumed by a ScrollViewer for scrolling first.
         _window.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
@@ -124,8 +134,8 @@ public sealed class GamepadNavigation : IDisposable
 
     /// <summary>
     ///     Whether this instance currently owns controller navigation for
-    ///     its window. Native file pickers temporarily suspend this owner while
-    ///     their separate Windows dialog receives input.
+    ///     its window. Covered windows remain alive during surface handovers, so
+    ///     visibility alone cannot decide which one should receive a press.
     /// </summary>
     internal bool IsEnabled { get; set; } = true;
 
@@ -210,27 +220,15 @@ public sealed class GamepadNavigation : IDisposable
 
         // Shoulder buttons cycle tab strips where the host wired them up.
         // ButtonPressed is edge-triggered, so each physical press fires once.
-        if (_tabPrevious is not null && (buttons.HasFlag(GamepadButtons.LeftShoulder)
-                                         || (_triggerTabs && buttons.HasFlag(GamepadButtons.LeftTrigger))))
+        if (_tabPrevious is not null && buttons.HasFlag(GamepadButtons.LeftShoulder))
         {
-            if (Environment.TickCount64 >= _suppressTabPadUntil)
-            {
-                _suppressTabKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-                _tabPrevious();
-            }
-
+            _tabPrevious();
             return;
         }
 
-        if (_tabNext is not null && (buttons.HasFlag(GamepadButtons.RightShoulder)
-                                     || (_triggerTabs && buttons.HasFlag(GamepadButtons.RightTrigger))))
+        if (_tabNext is not null && buttons.HasFlag(GamepadButtons.RightShoulder))
         {
-            if (Environment.TickCount64 >= _suppressTabPadUntil)
-            {
-                _suppressTabKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-                _tabNext();
-            }
-
+            _tabNext();
             return;
         }
 
@@ -395,32 +393,8 @@ public sealed class GamepadNavigation : IDisposable
     /// </summary>
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e is OnScreenKeyboard.EditorKeyEventArgs)
-        {
-            return;
-        }
-
         if (!IsEnabled || _raisingSynthesizedInput)
         {
-            return;
-        }
-
-        if (_triggerTabs && e.Key is Key.PageUp or Key.PageDown)
-        {
-            e.Handled = true;
-            if (Environment.TickCount64 >= _suppressTabKeyboardUntil)
-            {
-                _suppressTabPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
-                if (e.Key == Key.PageUp)
-                {
-                    _tabPrevious?.Invoke();
-                }
-                else
-                {
-                    _tabNext?.Invoke();
-                }
-            }
-
             return;
         }
 
@@ -461,16 +435,8 @@ public sealed class GamepadNavigation : IDisposable
                 return;
             }
 
-            if (combo.IsDropDownOpen)
-            {
-                // Keyboard arrows move the popup highlight without changing SelectedItem.
-                // Let Avalonia commit that highlight before closing. The suppression above
-                // still prevents the matching SDL edge from reopening the selector.
-                return;
-            }
-
             e.Handled = true;
-            combo.IsDropDownOpen = true;
+            combo.IsDropDownOpen = !combo.IsDropDownOpen;
             return;
         }
 
@@ -552,8 +518,7 @@ public sealed class GamepadNavigation : IDisposable
         }
 
         var focused = GetFocused();
-        if (focused is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } && focused is not Window &&
-            IsInWindow(focused))
+        if (focused is not null && focused is not Window && IsInWindow(focused))
         {
             _lastFocused = focused;
             return focused;
@@ -576,11 +541,6 @@ public sealed class GamepadNavigation : IDisposable
 
     private void MoveFocus(NavigationDirection direction)
     {
-        if (_navigate?.Invoke(direction) == true)
-        {
-            return;
-        }
-
         var current = CurrentTarget();
         if (current is null)
         {
@@ -616,7 +576,27 @@ public sealed class GamepadNavigation : IDisposable
             case InputElement input:
                 input.Focus(NavigationMethod.Directional);
                 _lastFocused = input;
+                // The move landed, so the next edge in any direction is a new event
+                // and gets its own log line.
+                _loggedEdgeHandoff = null;
                 return;
+        }
+
+        // Window edge in this direction: let the controller cross into an adjacent
+        // window (the keyboard beside the sidebar) if one is there.
+        if (_onEdge is not null)
+        {
+            // Log the attempted direction before transferring focus, but only
+            // once per sustained push: a direction held against an edge repeats
+            // every 150 ms and would flood the device log.
+            if (_loggedEdgeHandoff != direction)
+            {
+                _loggedEdgeHandoff = direction;
+                Log.Info($"Gamepad nav: window edge in the {direction} direction; invoking peer handoff.");
+            }
+
+            _onEdge(direction);
+            return;
         }
 
         if (_loggedEdge)

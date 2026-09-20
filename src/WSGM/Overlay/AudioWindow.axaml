@@ -1,13 +1,24 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:sh="using:WSGM.Shell"
-        x:Class="WSGM.Overlay.AudioPanel"
+        x:Class="WSGM.Overlay.AudioWindow"
         x:DataType="sh:AudioManager"
-        Background="{StaticResource DeckSurfaceBrush}">
-  <Grid>
-    <Border BorderBrush="{StaticResource DeckDividerBrush}"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="Manual"
+        Width="500"
+        Height="340"
+        Background="{StaticResource HcBackgroundBrush}"
+        Title="Audio">
+  <!-- This is a real top-level window, not a popup: GamepadNavigation only
+         traverses its window, and the output/input ComboBoxes must remain fully
+         controller reachable while the taskbar stays open underneath. -->
+  <LayoutTransformControl x:Name="RootScale">
+    <Border BorderBrush="{StaticResource HcCardBorderBrush}"
             BorderThickness="1"
-            CornerRadius="6"
+            CornerRadius="8"
             Padding="14">
       <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="12">
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
@@ -91,13 +102,13 @@
         </Border>
       </Grid>
     </Border>
-  </Grid>
+  </LayoutTransformControl>
 
-  <UserControl.Styles>
+  <Window.Styles>
     <!-- Constant border geometry; focus changes only its tokenized colour. -->
     <Style Selector="Border.audio-row">
-      <Setter Property="Background" Value="{StaticResource DeckGroupBrush}" />
-      <Setter Property="BorderBrush" Value="{StaticResource DeckDividerBrush}" />
+      <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="CornerRadius" Value="4" />
       <Setter Property="Padding" Value="10,8" />
@@ -105,5 +116,5 @@
     <Style Selector="Border.slider-row:focus-within">
       <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
     </Style>
-  </UserControl.Styles>
-</UserControl>
+  </Window.Styles>
+</Window>

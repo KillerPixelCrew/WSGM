@@ -21,33 +21,6 @@ panels and an orange divider clarify the split. Sidebar items use a consistent 4
 4-DIP spacing across tabs. Nested fan curve editing stays in the controls
 pane. Horizontal LT/RT destination navigation remains unchanged. This follow-up changes only the mockup.
 
-## Production overlay redesign (2026-09-20, issue 114, in progress)
-
-The production implementation now uses a fullscreen Avalonia glass sheet with an opaque fallback,
-a persistent section rail beside the controls, remembered sections, a unified app/tray rail and
-in-window utility, keyboard and power surfaces. One controller navigation owner handles section
-focus and LT/RT or LB/RB destination switching. Commands use ActionButton; explicit value editors,
-compact readings, descriptor layout hints and in-place value reconciliation replace the old cards.
-The raw HID swipe recognizer now separates a narrow bezel start from early inward motion and total
-travel, with bounded verbose traces and synthetic rejection cases.
-
-The integrated Release solution build passed with zero warnings and errors. All 200 UI tests pass,
-including navigation, saved pins, descriptor refresh, complete PC keyboard editing, utility and
-power surfaces, and viewport/DPI coverage from 720p to 4K. The maintainer authorized this early UI
-run and the 33 reviewed baseline updates. The controls pane now has bordered sections, readable
-headings, dividers, consistent padding and natural pinned-section heights. Game Mode retains the
-desired application scale while Windows is at 100%; desktop DPI is applied once. Rider cleanup,
-Prettier, guidance and diff checks passed. Render-only production previews support visual review
-without live services. Core/device suites and the full gate remain deferred until the maintainer's
-manual test. This is not a completed issue or a hardware acceptance result.
-
-Remaining acceptance includes attended Claw real swipes versus title-bar drags and slow touches,
-native blur and opaque fallback under battery saver, touchscreen promotion, controller navigation,
-utility actions, desktop/game focus and Steam lease release. The swipe thresholds are provisional.
-Power-menu entry points exist; physical power-button capture remains separate work under #21 and
-#116. Run the relevant suites and initial full gate after manual acceptance, then record the actual
-results here.
-
 ## ROG Ally X portable tester (2026-09-15)
 
 The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides

@@ -414,13 +414,12 @@ lesser failure. Prefer a throttled one-shot warning over a narrower catch.
 
 The former bottom taskbar lives inside the quick access sheet. Switchable windows
 (`WindowFinder.ListSwitchableWindows`) form a horizontally scrolling chip strip along the sheet's
-bottom. Tray icons share that bottom rail; `OverlayWindow.ComputeTrayMaxWidth` limits their share to
-keep the app strip usable. Wi-Fi, Bluetooth, audio, brightness, keyboard and eject utilities, plus
-battery and clock from `Shell\SystemStatus`, remain in the fixed header. Utility targets retain
-their size while secondary status labels collapse at narrow logical widths. Chip refreshes reconcile
-in place, because a wholesale rebuild destroys the focused button under the gamepad cursor. The
-radio controls open the in-window `RadioManager` panel and never invoke `ms-settings:`, which the
-immersive shell cannot activate without Explorer in the session.
+bottom. Tray icons, the Wi-Fi/Bluetooth/audio/eject pills, and battery and clock from
+`Shell\SystemStatus` sit in the header. `OverlayWindow.ComputeTrayMaxWidth` budgets the tray so
+icons cannot push the fixed pills off a 1280-wide screen; chips and pills keep fixed sizes at every
+count. Chip refreshes reconcile in place, because a wholesale rebuild destroys the focused button
+under the gamepad cursor. The pills open the `RadioManager` radio panel and never invoke
+`ms-settings:`, which the immersive shell cannot activate without Explorer in the session.
 
 ### The tray host is a window class literally named `Shell_TrayWnd`
 

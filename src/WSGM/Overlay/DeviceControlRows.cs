@@ -4,6 +4,8 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
+using Avalonia.Media;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -22,10 +24,30 @@ internal static class DeviceControlRows
     ///     Builds the shared tile skeleton: heading, optional caption, and a right-aligned
     ///     interactive control on the header line.
     /// </summary>
-    private static DeviceSettingRow Tile(string key, string title, string description, Control control,
-        Action<CapabilityValue?> refresh)
+    private static Border Tile(string key, string title, string description, Control control)
     {
-        return new DeviceSettingRow(key, title, description, control, refresh);
+        control.Tag = key;
+        var header = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
+        header.Classes.Add("setting-title");
+
+        var headerRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        Grid.SetColumn(header, 0);
+        Grid.SetColumn(control, 1);
+        headerRow.Children.Add(header);
+        headerRow.Children.Add(control);
+
+        var body = new StackPanel { Spacing = 2 };
+        body.Children.Add(headerRow);
+        var tile = new Border { Classes = { "tile" }, Tag = key, Child = body };
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return tile;
+        }
+
+        var caption = new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap };
+        caption.Classes.Add("caption");
+        body.Children.Add(caption);
+        return tile;
     }
 
     /// <summary>A boolean capability as a switch.</summary>
@@ -36,7 +58,7 @@ internal static class DeviceControlRows
     /// <param name="enabled">Whether input is accepted.</param>
     /// <param name="onChanged">Invoked with the new state.</param>
     /// <returns>The tile.</returns>
-    internal static DeviceSettingRow Toggle(
+    internal static Border Toggle(
         string key,
         string title,
         string description,
@@ -49,21 +71,13 @@ internal static class DeviceControlRows
         {
             IsChecked = isOn,
             IsEnabled = enabled,
-            Focusable = true,
+            Focusable = enabled,
             HorizontalAlignment = HorizontalAlignment.Right,
             OffContent = null,
             OnContent = null
         };
-        DeviceSettingRow? row = null;
-        toggle.IsCheckedChanged += (_, _) =>
-        {
-            if (row?.Refreshing is false)
-            {
-                onChanged(toggle.IsChecked ?? false);
-            }
-        };
-        row = Tile(key, title, description, toggle, value => toggle.IsChecked = value?.BooleanValue ?? false);
-        return row;
+        toggle.IsCheckedChanged += (_, _) => onChanged(toggle.IsChecked ?? false);
+        return Tile(key, title, description, toggle);
     }
 
     /// <summary>A choice capability as a dropdown.</summary>
@@ -75,7 +89,7 @@ internal static class DeviceControlRows
     /// <param name="enabled">Whether input is accepted.</param>
     /// <param name="onChanged">Invoked with the chosen value.</param>
     /// <returns>The tile.</returns>
-    internal static DeviceSettingRow Choice(
+    internal static Border Choice(
         string key,
         string title,
         string description,
@@ -92,47 +106,23 @@ internal static class DeviceControlRows
         {
             ItemsSource = items,
             DisplayMemberBinding = CompiledBinding.Create((ChoiceItem item) => item.Label),
-            SelectedIndex = items.FindIndex(item =>
-                string.Equals(item.Value, selected, StringComparison.Ordinal)),
+            SelectedIndex = Math.Max(0, items.FindIndex(item =>
+                string.Equals(item.Value, selected, StringComparison.Ordinal))),
             IsEnabled = enabled,
-            Focusable = true,
+            Focusable = enabled,
             MinWidth = 160,
             HorizontalAlignment = HorizontalAlignment.Right
         };
-        DeviceSettingRow? row = null;
-        var committed = selected;
-        var open = false;
-        combo.DropDownOpened += (_, _) => open = true;
-        combo.DropDownClosed += (_, _) =>
-        {
-            open = false;
-            CommitChoice();
-        };
         combo.SelectionChanged += (_, _) =>
         {
-            if (!open && !combo.IsDropDownOpen)
-            {
-                CommitChoice();
-            }
-        };
-        row = Tile(key, title, description, combo, value =>
-        {
-            committed = value?.ChoiceValue;
-            combo.SelectedIndex = items.FindIndex(item => item.Value == committed);
-        });
-        return row;
-
-        void CommitChoice()
-        {
-            if (row?.Refreshing is not false || !combo.IsEnabled || combo.SelectedItem is not ChoiceItem item
-                || string.Equals(item.Value, committed, StringComparison.Ordinal))
+            if (combo.SelectedItem is not ChoiceItem item)
             {
                 return;
             }
 
-            committed = item.Value;
             onChanged(item.Value);
-        }
+        };
+        return Tile(key, title, description, combo);
     }
 
     /// <summary>A text capability edited through the shared controller keyboard.</summary>
@@ -143,7 +133,7 @@ internal static class DeviceControlRows
     /// <param name="enabled">Whether input is accepted.</param>
     /// <param name="onCommit">Invoked with the committed text.</param>
     /// <returns>The tile.</returns>
-    internal static DeviceSettingRow Text(
+    internal static Border Text(
         string key,
         string title,
         string? text,
@@ -153,30 +143,34 @@ internal static class DeviceControlRows
     {
         ArgumentNullException.ThrowIfNull(onCommit);
         var draft = text ?? string.Empty;
-        var editor = new Button { Content = string.IsNullOrEmpty(draft) ? "Edit" : draft, IsEnabled = enabled };
-        var row = Tile(key, title, string.Empty, editor, value =>
+        var editor = new CardButton
         {
-            draft = value?.TextValue ?? string.Empty;
-            editor.Content = string.IsNullOrEmpty(draft) ? "Edit" : draft;
-        });
+            Title = title,
+            Description = draft,
+            Tag = key,
+            IsEnabled = enabled,
+            IconGeometry = Icons.Gear
+        };
         editor.Click += (_, _) =>
         {
             if (!KeyboardService.Request(title, draft, maximumLength ?? 4096, value =>
                 {
                     draft = value;
-                    editor.Content = value;
+                    editor.Description = value;
                     onCommit(value);
                 }))
             {
-                row.Description = "Keyboard unavailable. Reopen the overlay to retry.";
+                editor.Description = "Keyboard unavailable. Reopen the overlay to retry.";
             }
         };
-        return row;
+        return new Border { Tag = key, Child = editor };
     }
 
     private static string LabelFor(CapabilityChoice choice)
     {
-        return CapabilityDisplayLabels.For(choice.Display, choice.Value);
+        return choice.Display.Key == DisplayKey.Custom && !string.IsNullOrWhiteSpace(choice.Display.CustomLabel)
+            ? choice.Display.CustomLabel!
+            : choice.Value;
     }
 
     private sealed record ChoiceItem(string Value, string Label);

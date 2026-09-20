@@ -8,7 +8,7 @@ namespace WSGM.Shell;
 
 /// <summary>
 ///     Session-lifetime keep-awake coordinator ("standby wake lock"): a manual
-///     hold selected from the quick-access Power tab, plus an automatic hold while the
+///     hold toggled from the quick-access Power tab, plus an automatic hold while the
 ///     running Steam client reports an active download (polled over the CEF bridge, so a
 ///     disabled CEF integration simply leaves the automatic side inert). Each hold is its
 ///     own Windows power request, so <c>powercfg /requests</c> attributes them separately
@@ -161,37 +161,42 @@ public sealed class KeepAwakeService : IDisposable
         });
     }
 
-    /// <summary>Applies an explicit manual wake mode and publishes the resulting held state.</summary>
+    /// <summary>Applies a manual wake mode (the quick-access cycle button).</summary>
     /// <param name="mode">The desired mode.</param>
-    internal void SetManualMode(ManualWakeMode mode)
+    private void SetManualMode(ManualWakeMode mode)
     {
         lock (_manualGate)
         {
-            if (mode != _manualMode)
+            if (mode == _manualMode)
             {
-                // Acquire before release. After a refusal, publish the locks actually
-                // held, including partial success; never retry a native write here.
-                if (mode == ManualWakeMode.Off || _manualStandbyLock.Acquire())
-                {
-                    if (mode == ManualWakeMode.StandbyAndDisplay)
-                    {
-                        _manualDisplayLock.Acquire();
-                    }
-                    else
-                    {
-                        _manualDisplayLock.Release();
-                    }
-
-                    if (mode == ManualWakeMode.Off)
-                    {
-                        _manualStandbyLock.Release();
-                    }
-                }
-
-                _manualMode = _manualDisplayLock.IsHeld ? ManualWakeMode.StandbyAndDisplay
-                    : _manualStandbyLock.IsHeld ? ManualWakeMode.Standby : ManualWakeMode.Off;
-                Log.Info($"Keep awake: manual mode {_manualMode} (quick access).");
+                return;
             }
+
+            // Acquire before release so a Standby→Standby+Display step never has a
+            // gap with no lock held. A failed acquire leaves the previous locks in
+            // place and keeps the old mode — the UI stays truthful.
+            if (mode != ManualWakeMode.Off && !_manualStandbyLock.Acquire())
+            {
+                return;
+            }
+
+            if (mode == ManualWakeMode.StandbyAndDisplay && !_manualDisplayLock.Acquire())
+            {
+                return;
+            }
+
+            if (mode != ManualWakeMode.StandbyAndDisplay)
+            {
+                _manualDisplayLock.Release();
+            }
+
+            if (mode == ManualWakeMode.Off)
+            {
+                _manualStandbyLock.Release();
+            }
+
+            _manualMode = mode;
+            Log.Info($"Keep awake: manual mode {mode} (quick access).");
         }
 
         StateChanged?.Invoke();

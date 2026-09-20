@@ -25,8 +25,9 @@ internal sealed class PinnedPluginWidgets : StackPanel
         preferences ??= source is CommonPluginOverlaySource commonPlugins
             ? commonPlugins.WidgetPreferences
             : throw new ArgumentException("Widget preferences are required for this source.", nameof(preferences));
-        Spacing = 20;
-        HorizontalAlignment = HorizontalAlignment.Stretch;
+        Spacing = 8;
+        Width = 600;
+        HorizontalAlignment = HorizontalAlignment.Left;
         Focusable = true;
         (PluginWidgetPin? Pin, string Label, int Index)? pendingFocus = null;
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
@@ -70,14 +71,14 @@ internal sealed class PinnedPluginWidgets : StackPanel
                 }
 
                 _previous = pins;
-                var expanded = Children.OfType<Border>().Select(border => border.Child).OfType<StackPanel>()
+                var expanded = Children.OfType<StackPanel>()
                     .Where(card => card.Children.OfType<Expander>().Any(e => e.IsExpanded))
                     .Select(card => card.Tag).ToHashSet();
                 Children.Clear();
                 Children.Add(error);
                 foreach (var pin in pins)
                 {
-                    StackPanel card = new() { Spacing = 12, Tag = pin };
+                    StackPanel card = new() { Spacing = 4, Tag = pin };
 
                     card.Children.Add(new CommonPluginPanel(source, pin, navigate));
                     StackPanel actions = new() { Spacing = 4 };
@@ -92,12 +93,12 @@ internal sealed class PinnedPluginWidgets : StackPanel
                         HorizontalAlignment = HorizontalAlignment.Stretch,
                         HorizontalContentAlignment = HorizontalAlignment.Stretch
                     });
-                    Children.Add(new Border { Classes = { "device-group" }, Child = card });
+                    Children.Add(card);
                     continue;
 
                     void Add(string label, Func<Task> action)
                     {
-                        ActionButton button = new()
+                        CardButton button = new()
                         {
                             Title = label,
                             Tag = (pin, label),
@@ -136,7 +137,7 @@ internal sealed class PinnedPluginWidgets : StackPanel
 
                 if (pins.Length > 0)
                 {
-                    ActionButton reset = new()
+                    CardButton reset = new()
                         { Title = "Reset widget order", Tag = "reset", IconGeometry = Icons.Restart };
                     reset.Click += async (_, _) =>
                     {

@@ -19,7 +19,7 @@ namespace WSGM.Overlay;
 /// </remarks>
 public sealed class LaunchWrapperView : OverlaySubView
 {
-    // A full Steam library is one ActionButton per title in a non-virtualizing
+    // A full Steam library is one CardButton per title in a non-virtualizing
     // host, so it is paged the way LibraryTabsView's multi-select is: laying out
     // a 1000+ title account in one pass stalls the overlay's UI thread.
     private const int PageSize = 200;

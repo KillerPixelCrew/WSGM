@@ -3,9 +3,13 @@ using System;
 namespace WSGM.Core;
 
 /// <summary>
-///     Requests the overlay's in-window keyboard for an internal text field. The overlay
-///     controller owns its lifetime and returns accepted text to the invoking editor.
-///     External application keyboard requests use the session's keyboard action instead.
+///     Bridge for requesting the shared on-screen keyboard window. In game mode
+///     the slim quick-access sidebar has no room for a keyboard, so text entry pops a
+///     separate keyboard window beside it (see <c>Overlay\KeyboardWindow</c>), which the
+///     <c>OverlayController</c> owns and coordinates for gamepad focus. Any sidebar surface
+///     that needs typing calls <see cref="Request" /> instead of embedding a keyboard.
+///     When no handler is registered (e.g. Settings, which has real keyboard focus), the
+///     request is a no-op and callers should fall back to a plain TextBox.
 /// </summary>
 public static class KeyboardService
 {
@@ -16,8 +20,8 @@ public static class KeyboardService
     public static Func<string, string, int, Action<string>, bool>? Handler { get; set; }
 
     /// <summary>
-    ///     Requests the keyboard surface for a single field. Returns whether a
-    ///     handler took it; a false return means no keyboard surface is available.
+    ///     Requests the keyboard window for a single field. Returns whether a
+    ///     handler took it; a false return means no keyboard window is available.
     /// </summary>
     /// <param name="prompt">The label shown above the field.</param>
     /// <param name="initial">The starting text.</param>

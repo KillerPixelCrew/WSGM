@@ -1,4 +1,8 @@
 using System.Collections.Generic;
+using Avalonia.Automation;
+using Avalonia.Controls;
+using Avalonia.Media;
+using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
@@ -63,3 +67,36 @@ internal readonly record struct DescriptorRange(int Minimum, int Maximum, int St
 /// <param name="Value">The value written when it is chosen.</param>
 /// <param name="Label">What the user reads.</param>
 internal sealed record DescriptorOption(int Value, string Label);
+
+/// <summary>
+///     Renders a closed semantic row descriptor with the shared card appearance and status vocabulary.
+/// </summary>
+internal sealed class DescriptorStatusRow : CardButton
+{
+    internal void Apply(DescriptorRow descriptor)
+    {
+        Tag = descriptor.Id;
+        Title = descriptor.Title;
+        Description = descriptor.Description;
+        TrailingText = descriptor.TrailingText;
+        IsEnabled = descriptor.CanInvoke;
+        IconGeometry = Icons.Gear;
+        StatusBrush = StatusBrushFor(descriptor.Status);
+        AutomationProperties.SetName(this, descriptor.Title);
+        AutomationProperties.SetHelpText(this, descriptor.Description);
+    }
+
+    private IBrush? StatusBrushFor(DescriptorStatus status)
+    {
+        var resource = status switch
+        {
+            DescriptorStatus.Available => "HcSuccessBrush",
+            DescriptorStatus.Warning or DescriptorStatus.Stale => "HcWarningBrush",
+            DescriptorStatus.Faulted => "HcDangerBrush",
+            DescriptorStatus.ExternallyOwned or DescriptorStatus.Unsupported => "HcTextMutedBrush",
+            DescriptorStatus.Progress => "HcWarningBrush",
+            _ => null
+        };
+        return resource is null ? null : this.FindResource(resource) as IBrush;
+    }
+}

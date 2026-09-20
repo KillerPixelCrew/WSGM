@@ -15,7 +15,6 @@ findings describes, check it again on the device before trusting the change.
 | `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrapper                     |
 | `steam-input.md`       | how the overlay takes the controller from Steam and gives it back, and the OEM button handoff   |
 | `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                   |
-| `overlay-surfaces.md`  | in-window utility panels, credentials, keyboard and power-menu ownership                        |
 | `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                       |
 | `logging.md`           | what wsgm.log must and must not contain                                                         |
 | `decisions.md`         | standing product decisions in one page                                                          |

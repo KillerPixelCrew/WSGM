@@ -18,7 +18,7 @@ Related:
 | Assembly / package | `WSGM.Device.Sdk`                                                                 |
 | Target framework   | `net10.0-windows`, matching the host that loads the plugin                        |
 | Dependencies       | none; a plugin inherits nothing from the SDK                                      |
-| API version        | `DeviceApi.Version = 4`; WSGM, Device Lab and every plugin require an exact match |
+| API version        | `DeviceApi.Version = 3`; WSGM, Device Lab and every plugin require an exact match |
 | Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                       |
 | Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                             |
 | Documentation      | every public member is documented; an undocumented member fails the build         |
@@ -303,8 +303,6 @@ promise: WSGM validates against it for UI consistency; the plugin revalidates on
 | `SectionId`                                       | A section declared in the same set, or for a `Generic*` role a settings-manifest section.                               |
 | `CategoryId`                                      | A category of that section, or null for the section's uncategorised lead group. Legal only with a valid `SectionId`.    |
 | `SortOrder`                                       | Placement within section and category; ties on declaration order.                                                       |
-| `Prominence`                                      | Closed host-owned `CapabilityProminence`: Normal (default), Primary or Compact.                                         |
-| `LayoutPair`                                      | Optional exact companion capability and instance in the same section/category; presentation only.                       |
 | `SupportsRead`, `SupportsWrite`, `SupportsAction` | What may be done with it.                                                                                               |
 | `Minimum`, `Maximum`, `Step`                      | Inclusive integer bounds and step.                                                                                      |
 | `Unit`                                            | `CapabilityUnit`, default `None`.                                                                                       |
@@ -320,20 +318,6 @@ Placement rules the host applies to the whole set:
   power limit belongs under Power on every device.
 - A generic role naming an unknown section falls back to a WSGM-owned group; it is not dropped.
 - An unplaced capability keeps the semantic home WSGM derives from its role.
-
-The optional layout hints remain semantic. `Prominence` is the closed `CapabilityProminence`
-vocabulary: `Normal` (the default), `Primary` (full-width principal control), or `Compact`
-(secondary control or reading). Hosts choose final dimensions and preserve accessible editors.
-`LayoutPair` optionally names one `CapabilityId` and `InstanceId` in the same section and category.
-The host keeps the companion adjacent when possible. It is independent of `PairedPowerLimitId` and
-never authorizes another hardware write. `CapabilityLayout.TryValidate` rejects unknown prominence,
-missing or ambiguous companions, self-pairs and cross-group pairs. WSGM validates the complete set;
-Device Lab validates these hints before an attended capability action. Change descriptor generation
-whenever either hint changes. Plugins still cannot publish markup, colours, dimensions or templates.
-
-Overlay observations update existing rows by capability identity within their descriptor and device
-cycle. A new descriptor generation replaces the layout; ordinary state publications update values,
-availability and status in place without committing readback as user intent.
 
 ### `CapabilityRole`
 
@@ -903,4 +887,3 @@ and Windows-policy dimensions remain separate work.
 | 1   | Initial contract: lifecycle, capabilities, canonical input and haptics, OEM controls, settings manifest, glyph packages, manifest validation, test kit.                                                                                                                                                            |
 | 2   | Overlay section vocabulary: `CapabilityDescriptorSet.Sections`, `CapabilitySection`, `CapabilityCategory`, `SectionIcon`, and `CategoryId`/`SortOrder` on `CapabilityDescriptor`. `HapticCapabilities.MinimumStartIntensity` and `MinimumPulse` were added within version 2 as additive fields with zero defaults. |
 | 3   | Suppressed and repeat-aware diagnostics: `DeviceTraceLevel.Debug`, `PluginTrace.Debug`, `PluginTrace.Change`, and `IPluginHostAdapter.TraceChange`. The adapter member has a default implementation so version 2 hosts and test doubles continue to compile.                                                       |
-| 4   | Controller and motion samples use readonly record structs to avoid per-sample contract allocation. Optional `Prominence` and `LayoutPair` descriptor hints were added with normal, unpaired defaults; existing API 4 descriptors retain their prior semantics.                                                     |

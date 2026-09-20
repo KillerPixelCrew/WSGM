@@ -132,12 +132,7 @@
         "MaximumLength": null,
         "AvailableOnAc": true,
         "AvailableOnDc": true,
-        "Persistence": "Volatile",
-        "Prominence": "Primary",
-        "LayoutPair": {
-          "CapabilityId": "power.boost-limit",
-          "InstanceId": null
-        }
+        "Persistence": "Volatile"
       },
       {
         "CapabilityId": "power.boost-limit",
@@ -215,42 +210,42 @@
             "Value": "comfort",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "Comfort"
+              "CustomLabel": "comfort"
             }
           },
           {
             "Value": "green",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "Green"
+              "CustomLabel": "green"
             }
           },
           {
             "Value": "eco",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "Eco"
+              "CustomLabel": "eco"
             }
           },
           {
             "Value": "user",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "User"
+              "CustomLabel": "user"
             }
           },
           {
             "Value": "sport",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "Sport"
+              "CustomLabel": "sport"
             }
           },
           {
             "Value": "inactive",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "Inactive"
+              "CustomLabel": "inactive"
             }
           }
         ],
@@ -284,7 +279,7 @@
             "Value": "automatic",
             "Display": {
               "Key": "Custom",
-              "CustomLabel": "Automatic"
+              "CustomLabel": "automatic"
             }
           },
           {
@@ -584,8 +579,7 @@
         "MaximumLength": null,
         "AvailableOnAc": true,
         "AvailableOnDc": true,
-        "Persistence": "Volatile",
-        "Prominence": "Compact"
+        "Persistence": "Volatile"
       },
       {
         "CapabilityId": "fan.measured-rpm",
@@ -611,8 +605,7 @@
         "MaximumLength": null,
         "AvailableOnAc": true,
         "AvailableOnDc": true,
-        "Persistence": "Volatile",
-        "Prominence": "Compact"
+        "Persistence": "Volatile"
       },
       {
         "CapabilityId": "fan.measured-rpm",
@@ -638,8 +631,7 @@
         "MaximumLength": null,
         "AvailableOnAc": true,
         "AvailableOnDc": true,
-        "Persistence": "Volatile",
-        "Prominence": "Compact"
+        "Persistence": "Volatile"
       },
       {
         "CapabilityId": "display.variable-refresh",

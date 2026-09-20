@@ -17,7 +17,7 @@
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Quick access sheet" Classes="setting-title" />
               <TextBlock
-                Text="Fullscreen controls for pinned items, Steam, device, tools and power, with open programs and tray icons. Use the top-right Close button or press B / Escape to return."
+                Text="Slides down from the top edge over the game: pinned rows, session, Steam, device, tools and power, and your open programs with tray icons. Tap the strip of game left visible below it to close."
                 Classes="caption" />
             </StackPanel>
             <Button Grid.Column="1" Content="Test sheet" Click="OnTestOverlay" VerticalAlignment="Center" />
@@ -74,7 +74,7 @@
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Swipe from the top edge" Classes="setting-title" />
-              <TextBlock Text="Swipe inward from the bezel without pausing to open quick access." Classes="caption" />
+              <TextBlock Text="A short downward swipe opens quick access." Classes="caption" />
             </StackPanel>
             <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureTop}" VerticalAlignment="Center" />
           </Grid>

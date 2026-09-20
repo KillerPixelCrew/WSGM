@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Controls;
@@ -143,8 +142,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     })
                 {
                     Role = CapabilityRole.PowerSustainedLimit,
-                    ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 30,
-                    Unit = CapabilityUnit.Watt, Prominence = CapabilityProminence.Primary,
                     PluginSectionId = "power",
                     CategoryId = "limits"
                 },
@@ -169,8 +166,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     })
                 {
                     Role = CapabilityRole.ChargeLimit,
-                    ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 60, Maximum = 100,
-                    Unit = CapabilityUnit.Percent,
                     PluginSectionId = "power",
                     CategoryId = "charging"
                 },
@@ -195,8 +190,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     })
                 {
                     Role = CapabilityRole.FanMode,
-                    ValueKind = CapabilityValueKind.Choice, Writable = true,
-                    Choices = [Choice("Automatic", "Automatic"), Choice("Sport", "Sport")],
                     PluginSectionId = "cooling",
                     CategoryId = "control"
                 },
@@ -215,7 +208,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         CurveValue = PreviewCurve
                     })
                 {
-                    Role = CapabilityRole.FanCurve, ValueKind = CapabilityValueKind.Curve,
+                    Role = CapabilityRole.FanCurve,
                     PluginSectionId = "cooling",
                     CategoryId = "control",
                     SortOrder = 1
@@ -240,7 +233,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         BooleanValue = !_lighting
                     })
                 {
-                    Role = CapabilityRole.LightingPower, ValueKind = CapabilityValueKind.Boolean, Writable = true,
+                    Role = CapabilityRole.LightingPower,
                     PluginSectionId = DeviceSections.RgbId
                 },
                 new DeviceOverlayCapability(
@@ -263,8 +256,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         IntegerValue = _brightness >= 100 ? 20 : _brightness + 20
                     })
                 {
-                    Role = CapabilityRole.LightingBrightness, ValueKind = CapabilityValueKind.Integer, Writable = true,
-                    Minimum = 0, Maximum = 100, Unit = CapabilityUnit.Percent,
+                    Role = CapabilityRole.LightingBrightness,
                     PluginSectionId = DeviceSections.RgbId,
                     SortOrder = 1
                 },
@@ -283,7 +275,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         ColorValue = _ringColor
                     })
                 {
-                    Role = CapabilityRole.LightingZoneColor, ValueKind = CapabilityValueKind.Color, Writable = true,
+                    Role = CapabilityRole.LightingZoneColor,
                     PluginSectionId = DeviceSections.RgbId,
                     CategoryId = "zones"
                 },
@@ -297,8 +289,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "54 °C",
                     false)
                 {
-                    Role = CapabilityRole.Telemetry, ValueKind = CapabilityValueKind.Integer,
-                    Prominence = CapabilityProminence.Compact,
+                    Role = CapabilityRole.Telemetry,
                     PluginSectionId = "cooling",
                     CategoryId = "readings"
                 },
@@ -314,37 +305,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 {
                     // Deliberately unplaced: the row proves the WSGM fallback home still renders
                     // beside a declared layout.
-                    Role = CapabilityRole.HapticSink, SupportsAction = true
+                    Role = CapabilityRole.HapticSink
                 }
             ])
         {
-            HostSelections = new Dictionary<string, DeviceHostSelection>
-            {
-                ["device.auto-tdp"] = new(_autoTdp ? "on" : "off", [Choice("off", "Off"), Choice("on", "On")]),
-                ["device.controller-target"] = new(_controllerTarget.ToString(), Enum
-                    .GetValues<ManagedControllerTarget>()
-                    .Select(value => Choice(value.ToString(), value.ToString())).ToArray()),
-                ["device.hardware-profile"] = new(_hardwareProfile ?? "", new[] { Choice("", "None") }
-                    .Concat(PreviewProfiles.Select(value => Choice(value, value))).ToArray())
-            },
             GlyphMode = (DeviceGlyphSelection)_glyphSelection,
             PluginSections = PreviewSections
         };
-    }
-
-    public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        switch (rowId)
-        {
-            case "device.auto-tdp": _autoTdp = value == "on"; break;
-            case "device.controller-target" when Enum.TryParse<ManagedControllerTarget>(value, out var target):
-                _controllerTarget = target; break;
-            case "device.hardware-profile": _hardwareProfile = string.IsNullOrEmpty(value) ? null : value; break;
-        }
-
-        Changed?.Invoke();
-        return Task.CompletedTask;
     }
 
     public Task InvokeAsync(
@@ -359,7 +326,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 _tdp = capability.NextValue?.IntegerValue ?? _tdp;
                 break;
             case "preview.fan.mode":
-                _fanMode = capability.NextValue?.ChoiceValue == "Sport" ? 1 : 0;
+                _fanMode = (_fanMode + 1) % 2;
                 break;
             case "preview.lighting":
                 _lighting = capability.NextValue?.BooleanValue ?? _lighting;
@@ -466,12 +433,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 
     public void Dispose()
     {
-    }
-
-    private static CapabilityChoice Choice(string value, string label)
-    {
-        return new CapabilityChoice(value,
-            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label });
     }
 
     private sealed class EmptyLease : IDisposable

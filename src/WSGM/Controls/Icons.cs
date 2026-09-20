@@ -5,24 +5,12 @@ namespace WSGM.Controls;
 /// <summary>
 ///     Application vector icons as cached <see cref="StreamGeometry" /> instances.
 ///     Each geometry is authored on a 24x24 viewbox as stroke-style path data (render with
-///     a ~2 px stroke and no fill, e.g. via <c>Path</c> or <c>ActionButton.IconGeometry</c>)
+///     a ~2 px stroke and no fill, e.g. via <c>Path</c> or <c>CardButton.IconGeometry</c>)
 ///     and parsed exactly once from its path string — plain string parsing with no external
 ///     asset decoder (same approach as <see cref="WSGM.Overlay.GlyphIcon" />).
 /// </summary>
 public static class Icons
 {
-    /// <summary>Arrow leaving a doorway (sign out of the current session).</summary>
-    public static StreamGeometry SignOut { get; } = StreamGeometry.Parse(
-        "M 10,3 L 3,3 L 3,21 L 10,21 M 9,12 L 22,12 M 17,7 L 22,12 L 17,17");
-
-    /// <summary>Brightness control.</summary>
-    public static StreamGeometry Sun { get; } = StreamGeometry.Parse(
-        "M 12,8 A 4,4 0 1 0 12,16 A 4,4 0 1 0 12,8 M 12,1 L 12,4 M 12,20 L 12,23 M 1,12 L 4,12 M 20,12 L 23,12 M 4,4 L 6,6 M 18,18 L 20,20 M 4,20 L 6,18 M 18,6 L 20,4");
-
-    /// <summary>Typing keyboard.</summary>
-    public static StreamGeometry Keyboard { get; } = StreamGeometry.Parse(
-        "M 2,5 L 22,5 L 22,19 L 2,19 Z M 5,9 L 7,9 M 9,9 L 11,9 M 13,9 L 15,9 M 17,9 L 19,9 M 5,12 L 7,12 M 9,12 L 11,12 M 13,12 L 15,12 M 17,12 L 19,12 M 7,16 L 17,16");
-
     /// <summary>Play triangle (start / resume, Big Picture home action).</summary>
     public static StreamGeometry Play { get; } =
         StreamGeometry.Parse("M 8,4.5 L 19.5,12 L 8,19.5 Z");

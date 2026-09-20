@@ -200,12 +200,6 @@ public sealed class ClawPluginTests
             descriptor.CapabilityId == CapabilityIds.PowerSustained);
         var sustained = Assert.Single(descriptors.Descriptors,
             descriptor => descriptor.CapabilityId == CapabilityIds.PowerSustained);
-        Assert.True(CapabilityLayout.TryValidate(descriptors.Descriptors, out var layoutError), layoutError);
-        Assert.Equal(CapabilityProminence.Primary, sustained.Prominence);
-        Assert.Equal(new CapabilityLayoutPair(CapabilityIds.PowerBoost), sustained.LayoutPair);
-        Assert.All(descriptors.Descriptors.Where(descriptor => descriptor.ValueKind == CapabilityValueKind.Integer
-                                                               && !descriptor.SupportsWrite),
-            descriptor => Assert.Equal(CapabilityProminence.Compact, descriptor.Prominence));
         Assert.True(DevicePowerPreset.TryValidate(descriptors.Descriptors, out var presetError), presetError);
         Assert.Equal([
             new DevicePowerPreset("super-battery", "Super Battery", 8, 9, DevicePowerMode.BetterBattery)

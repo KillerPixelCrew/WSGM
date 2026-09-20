@@ -5,7 +5,7 @@ using WSGM.Controls;
 namespace WSGM.Overlay;
 
 /// <summary>A single pin action for a declared widget, with confirmed preference readback.</summary>
-internal sealed class PluginWidgetPinControls : ActionButton
+internal sealed class PluginWidgetPinControls : CardButton
 {
     internal PluginWidgetPinControls(string title, Func<bool, Task> save, Func<Task<bool>>? read = null)
     {

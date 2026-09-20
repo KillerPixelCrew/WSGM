@@ -1,6 +1,5 @@
 using System.Reflection;
 using Avalonia;
-using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -20,130 +19,6 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class OverlayInteractionTests
 {
-    [AvaloniaFact]
-    public void RefusedWakeSelectionRestoresUnchangedReadbackWithoutRetry()
-    {
-        using UiFixture fixture = new();
-        var window = fixture.Overlay();
-        List<ManualWakeMode> requested = [];
-        var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
-        window.KeepAwakeSelected += mode =>
-        {
-            requested.Add(mode);
-            // A refused write leaves the old view-model value unchanged.
-            window.RefreshPowerEditors(vm);
-        };
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
-            .GetVisualDescendants().OfType<ComboBox>().Single();
-        UiFixture.Click(window, editor);
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Enter);
-        Assert.Equal([ManualWakeMode.Standby], requested);
-        Assert.Equal(0, editor.SelectedIndex);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Single(requested);
-    }
-
-    [AvaloniaFact]
-    public void TimeoutPopupKeepsItsDraftAcrossReadbackAndWritesOnlyAfterConfirmation()
-    {
-        using UiFixture fixture = new();
-        var window = fixture.Overlay();
-        List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
-        var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
-        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
-        var editor = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
-            .GetVisualDescendants().OfType<ComboBox>().Single(choice => choice.IsEnabled);
-        UiFixture.Click(window, editor);
-        Assert.True(editor.IsDropDownOpen);
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Down);
-        var draft = editor.SelectedItem;
-        Assert.Empty(requested);
-
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
-        Assert.Equal(draft, editor.SelectedItem);
-        UiFixture.Key(window, Key.Enter);
-        Assert.False(editor.IsDropDownOpen);
-        var request = Assert.Single(requested);
-        Assert.Equal(PowerTimeoutKind.DisplayDc, request.Kind);
-        Assert.Equal(300, request.Seconds);
-    }
-
-    [AvaloniaFact]
-    public void WakePopupDoesNotApplyIntermediateModesWhileBrowsing()
-    {
-        using UiFixture fixture = new();
-        var window = fixture.Overlay();
-        List<ManualWakeMode> requested = [];
-        window.KeepAwakeSelected += requested.Add;
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
-            .GetVisualDescendants().OfType<ComboBox>().Single();
-        UiFixture.Click(window, editor);
-        Assert.True(editor.IsDropDownOpen);
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Down);
-        Assert.Empty(requested);
-        UiFixture.Key(window, Key.Enter);
-        Assert.Equal([ManualWakeMode.StandbyAndDisplay], requested);
-    }
-
-    [AvaloniaFact]
-    public void WakeSelectorReportsOneUserChoiceAndNeverWritesItsReadback()
-    {
-        using UiFixture fixture = new();
-        var window = fixture.Overlay();
-        List<ManualWakeMode> requested = [];
-        window.KeepAwakeSelected += requested.Add;
-        var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
-        vm.KeepAwakeManualMode = ManualWakeMode.Standby;
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
-        var editor = UiFixture.Named<StackPanel>(window, "KeepAwakeHost")
-            .GetVisualDescendants().OfType<ComboBox>().Single();
-        Assert.Equal(1, editor.SelectedIndex);
-        Assert.Empty(requested);
-        UiFixture.Click(window, editor);
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Enter);
-        Assert.Equal([ManualWakeMode.StandbyAndDisplay], requested);
-        vm.KeepAwakeManualMode = ManualWakeMode.Off;
-        Assert.Equal(0, editor.SelectedIndex);
-        Assert.Single(requested);
-    }
-
-    [AvaloniaFact]
-    public void TimeoutSelectorsRespectAvailableReadbackAndSendTheSelectedValue()
-    {
-        using UiFixture fixture = new();
-        var window = fixture.Overlay();
-        List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
-        window.PowerTimeoutSelected += (kind, seconds) => requested.Add((kind, seconds));
-        var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
-        UiFixture.Click(window, UiFixture.Tab(window, 3));
-        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerTimeouts));
-        var editors = UiFixture.Named<StackPanel>(window, "PowerTimeoutEditors")
-            .GetVisualDescendants().OfType<ComboBox>().ToArray();
-        Assert.Equal(4, editors.Length);
-        var editor = Assert.Single(editors, choice => choice.IsEnabled);
-        Assert.Empty(requested);
-        UiFixture.Click(window, editor);
-        UiFixture.Key(window, Key.Down);
-        UiFixture.Key(window, Key.Enter);
-        var selected = Assert.Single(requested);
-        Assert.Equal(PowerTimeoutKind.DisplayDc, selected.Kind);
-        Assert.NotEqual(60, selected.Seconds);
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?>
-            { [PowerTimeoutKind.DisplayDc] = selected.Seconds };
-        Assert.Single(requested);
-        Assert.Equal(PowerTimeouts.Describe(selected.Seconds), editor.SelectedItem?.ToString());
-    }
-
     [AvaloniaTheory]
     [InlineData(true)]
     [InlineData(false)]
@@ -237,8 +112,8 @@ public sealed class OverlayInteractionTests
         window.AttachDeviceBridge(device);
         window.AttachPowerSchemes(schemes);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
-            .Single(button => AutomationProperties.GetName(button) == "Power"));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
         var plans = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower");
         Assert.True(plans.IsVisible);
         device.State = device.State with { Visible = false };
@@ -275,8 +150,8 @@ public sealed class OverlayInteractionTests
         window.AttachDeviceBridge(device);
         window.AttachPowerPresets(model);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
-            .Single(button => AutomationProperties.GetName(button) == "Power"));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
         var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
         Assert.DoesNotContain(dropdowns, control => Equals(control.Tag, "device.power-preset.choice"));
         var battery = dropdowns.Single(control => Equals(control.Tag, "device.power-assignment.battery"));
@@ -347,9 +222,11 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 1));
-        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamLaunchFixes));
-        var last = UiFixture.Named<ActionButton>(window, "RemoveFixesButton");
-        UiFixture.Named<ActionButton>(window, "DeelevateFixButton").Focus();
+        // The Steam root is a menu now; the launch fixes are one level down.
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Per-game launch fixes" }));
+        var last = UiFixture.Named<CardButton>(window, "RemoveFixesButton");
+        UiFixture.Named<CardButton>(window, "DeelevateFixButton").Focus();
         for (var step = 0; step < 12 && !last.IsFocused; step++)
         {
             UiFixture.Key(window, Key.Tab);
@@ -374,7 +251,7 @@ public sealed class OverlayInteractionTests
         window.PinToggleRequested += pins.Add;
         window.HomeAppRequested += () => home++;
         var grid = UiFixture.Named<Panel>(window, "PinnedGrid");
-        var card = Assert.IsType<ActionButton>(grid.Children[0]);
+        var card = Assert.IsType<CardButton>(grid.Children[0]);
         UiFixture.Click(window, card);
         Assert.Equal(1, home);
         UiFixture.Click(window, card, MouseButton.Right);
@@ -383,15 +260,15 @@ public sealed class OverlayInteractionTests
         Assert.Single(grid.Children, control => control.IsEnabled);
         // The source row lives on Power's Session page since the Session tab was absorbed.
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
-        var source = UiFixture.Named<ActionButton>(window, "HomeAppButton");
+        UiFixture.Click(window, VisibleCard(window, "Session"));
+        var source = UiFixture.Named<CardButton>(window, "HomeAppButton");
         source.Focus();
         UiFixture.Key(window, Key.Enter);
         Assert.Equal(2, home);
     }
 
     [AvaloniaFact]
-    public void PrimaryPageBackFocusesTheRailThenReturnsHomeBeforeDismissal()
+    public void NestedBackRestoresFocusBeforeEscapeRequestsDismissal()
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
@@ -401,15 +278,14 @@ public sealed class OverlayInteractionTests
         Dispatcher.UIThread.RunJobs();
         var dismissed = 0;
         window.Dismissed += () => dismissed++;
-        var entry = UiFixture.Rail(window, "device.section.overview");
+        var entry = window.GetVisualDescendants().OfType<CardButton>()
+            .First(card => card is { IsEffectivelyVisible: true, Title: "Overview" });
         UiFixture.Click(window, entry);
-        var heading = window.GetVisualDescendants().OfType<SectionPinHeader>()
-            .Single(header => header.IsEffectivelyVisible).GetVisualDescendants().OfType<Button>().Single();
-        Assert.True(heading.Focus());
+        Assert.True(UiFixture.Named<Control>(window, "BackButton").IsVisible);
         UiFixture.Key(window, Key.Escape);
         Assert.Equal(0, dismissed);
-        Assert.Same(entry, window.FocusManager.GetFocusedElement());
-        Assert.Contains("selected", entry.Classes);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+        Assert.Equal(entry.Tag, (window.FocusManager.GetFocusedElement() as Control)?.Tag);
         UiFixture.Key(window, Key.Escape);
         Assert.True(UiFixture.Named<Control>(window, "PanelQuickAccess").IsVisible);
         UiFixture.Key(window, Key.Escape);
@@ -417,33 +293,30 @@ public sealed class OverlayInteractionTests
     }
 
     [AvaloniaTheory]
-    [InlineData(1, "PanelSteam", "SteamLibrary", "PanelSteamLibrary")]
-    [InlineData(2, "PanelSystem", "SystemDisplay", "PanelSystemDisplay")]
-    [InlineData(3, "PanelPower", "PowerTimeouts", "PanelPowerTimeouts")]
-    [InlineData(3, "PanelPower", "PowerSession", "PanelPowerSession")]
-    public void ASectionRailKeepsTheSelectedPageVisibleWhileFocusMoves(
-        int tab, string root, string section, string page)
+    [InlineData(1, "PanelSteam", "Steam library", "PanelSteamLibrary")]
+    [InlineData(2, "PanelSystem", "Display", "PanelSystemDisplay")]
+    [InlineData(3, "PanelPower", "Idle timeouts", "PanelPowerTimeouts")]
+    [InlineData(3, "PanelPower", "Session", "PanelPowerSession")]
+    public void AGroupedTabOffersItsControlsBehindACategory(
+        int tab, string root, string category, string page)
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, tab));
         Dispatcher.UIThread.RunJobs();
-        var selected = UiFixture.Rail(window, section);
-        UiFixture.Click(window, selected);
+        Assert.True(UiFixture.Named<Control>(window, root).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, page).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+
+        UiFixture.Click(window, VisibleCard(window, category));
         Assert.False(UiFixture.Named<Control>(window, root).IsVisible);
         Assert.True(UiFixture.Named<Control>(window, page).IsVisible);
-        Assert.Contains("selected", selected.Classes);
-        var peer = UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
-            .First(button => !ReferenceEquals(button, selected));
-        Assert.True(peer.Focus());
-        Assert.Contains("selected", selected.Classes);
-        Assert.DoesNotContain("selected", peer.Classes);
-        Assert.True(UiFixture.Named<Control>(window, page).IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "BackButton").IsVisible);
 
-        UiFixture.Click(window, UiFixture.Tab(window, 0));
-        UiFixture.Click(window, UiFixture.Tab(window, tab));
-        Assert.True(UiFixture.Named<Control>(window, page).IsVisible);
-        Assert.Contains("selected", UiFixture.Rail(window, section).Classes);
+        UiFixture.Key(window, Key.Escape);
+        Assert.True(UiFixture.Named<Control>(window, root).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, page).IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
     }
 
     [AvaloniaFact]
@@ -455,7 +328,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerWake));
+        UiFixture.Click(window, VisibleCard(window, "Wake"));
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Dispatcher.UIThread.RunJobs();
         Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
@@ -464,9 +337,11 @@ public sealed class OverlayInteractionTests
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "BackButton").IsVisible);
+
         UiFixture.Key(window, Key.Escape);
-        Assert.True(UiFixture.Rail(window, OverlayPage.PowerWake).IsFocused);
-        Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
     }
 
     [AvaloniaFact]
@@ -475,7 +350,7 @@ public sealed class OverlayInteractionTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         UiFixture.Click(window, UiFixture.Tab(window, 3));
-        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerWake));
+        UiFixture.Click(window, VisibleCard(window, "Wake"));
         UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
         Dispatcher.UIThread.RunJobs();
 
@@ -484,13 +359,13 @@ public sealed class OverlayInteractionTests
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
-        Assert.True(UiFixture.Named<Control>(window, "PanelSteamLibrary").IsVisible);
-        Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.SteamLibrary).Classes);
+        Assert.True(UiFixture.Named<Control>(window, "PanelSteam").IsVisible);
+        Assert.False(UiFixture.Named<Control>(window, "BackButton").IsVisible);
     }
 
-    private static ActionButton VisibleCard(OverlayWindow window, string title)
+    private static CardButton VisibleCard(OverlayWindow window, string title)
     {
-        return window.GetVisualDescendants().OfType<ActionButton>()
+        return window.GetVisualDescendants().OfType<CardButton>()
             .Single(card => card.IsEffectivelyVisible && card.Title == title);
     }
 
@@ -504,21 +379,23 @@ public sealed class OverlayInteractionTests
             var window = fixture.Overlay();
             window.AttachDeviceBridge(device);
             Assert.Equal(1, device.Subscribers);
-            // Section selection survives the window lifetime; device subscriptions do not.
+            // Power, then its Session page: the rows this used to reach on a root tab of their
+            // own. Reopening restores the destination, not a nested page, so the assertion below
+            // is on the Power root and on focus landing inside it.
             UiFixture.Click(window, UiFixture.Tab(window, 4));
-            UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerSession));
-            UiFixture.Named<ActionButton>(window, "DesktopButton").Focus(NavigationMethod.Directional);
+            UiFixture.Click(window, VisibleCard(window, "Session"));
+            UiFixture.Named<CardButton>(window, "DesktopButton").Focus(NavigationMethod.Directional);
             window.Close();
             Assert.Equal(0, device.Subscribers);
             device.Notify();
         }
 
         var reopened = fixture.Overlay();
-        var power = UiFixture.Named<Control>(reopened, "PanelPowerSession");
+        var power = UiFixture.Named<Control>(reopened, "PanelPower");
         Assert.True(power.IsVisible);
         var focused = reopened.FocusManager.GetFocusedElement() as Control;
         Assert.NotNull(focused);
-        Assert.Same(UiFixture.Rail(reopened, OverlayPage.PowerSession), focused);
+        Assert.Contains(power, focused.GetVisualAncestors());
     }
 
     [AvaloniaFact]
@@ -559,9 +436,10 @@ public sealed class OverlayInteractionTests
         Assert.NotNull(PrivateField<Delegate>(schemes, "Changed"));
         Assert.NotNull(PrivateField<Delegate>(presets, "Changed"));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<DeviceSettingRow>()
-            .Single(row => row.IsEffectivelyVisible && Equals(row.Content, "Processor temperature")).Editor);
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
+            .Single(card => card is { IsEffectivelyVisible: true, Title: "Processor temperature" }));
         Assert.True(observed.CanBeCanceled);
         Assert.False(operation.Task.IsCompleted);
 

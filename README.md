@@ -17,11 +17,11 @@ starts the windowed Steam client itself, keeps plugins, overlay, hotkeys and per
 running, and enters Game Mode from the icon or the overlay. This is the mode for gaming PCs and
 Steam Machines. See [Game Mode and Desktop Mode](#game-mode-and-desktop-mode).
 
-**One fullscreen quick access sheet** slides down from the top edge with live glass and an opaque
-fallback. Controller and touch driven, it keeps section navigation beside the controls, with a home
-tab of pinned actions, grouped sections and plugin widgets. Session, Steam, device and power tools
-share the window with radio, audio and text-entry surfaces; open programs and tray icons stay in the
-bottom rail. The left and right edge gestures open Steam's own menus.
+**One quick access sheet** slides down from the top edge and leaves the game visible below it.
+Controller and touch driven, with a home tab of actions, grouped sections and plugin widgets you pin
+yourself, session control, Steam and device tools, power actions, your open programs, tray icons,
+Wi-Fi and Bluetooth state, battery and a clock. The left and right edges stay Steam's own menus,
+exactly like SteamOS.
 
 **Steam's own Quick Access Menu, working.** Steam ships its Performance, audio, Bluetooth and
 network menus on Windows with nothing behind them. WSGM answers them, so TDP sliders, frame limit,

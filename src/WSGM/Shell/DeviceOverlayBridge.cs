@@ -70,18 +70,6 @@ internal sealed record DeviceOverlayCapability(
     CapabilityValue? CurrentValue = null,
     CapabilityValue? NextValue = null)
 {
-    /// <summary>Descriptor identity used to invalidate layout independently of state updates.</summary>
-    public long DescriptorGeneration { get; init; }
-
-    /// <summary>Device cycle that owns this descriptor.</summary>
-    public long CycleGeneration { get; init; }
-
-    /// <summary>Host-owned layout emphasis.</summary>
-    public CapabilityProminence Prominence { get; init; }
-
-    /// <summary>Optional companion identity within the same group.</summary>
-    public CapabilityLayoutPair? LayoutPair { get; init; }
-
     /// <summary>The descriptor's semantic role, for consumers pairing related controls.</summary>
     public CapabilityRole Role { get; init; } = CapabilityRole.GenericReadOnly;
 
@@ -106,9 +94,6 @@ internal sealed record DeviceOverlayCapability(
     ///     its value but renders as a reading, not an adjustable control.
     /// </summary>
     public bool Writable { get; init; }
-
-    /// <summary>Whether the descriptor represents a one-shot action even while unavailable.</summary>
-    public bool SupportsAction { get; init; }
 
     /// <summary>Inclusive lower bound of an integer capability, or null when it has no range.</summary>
     public int? Minimum { get; init; }
@@ -198,10 +183,6 @@ internal sealed record DeviceOverlaySnapshot(
     DeviceOverlayGlyphPreview? GlyphPreview = null,
     DescriptorRow? AuthoredProfile = null)
 {
-    /// <summary>Explicit host-owned choices, keyed by stable row identity.</summary>
-    public IReadOnlyDictionary<string, DeviceHostSelection> HostSelections { get; init; } =
-        new Dictionary<string, DeviceHostSelection>();
-
     /// <summary>The selected physical button presentation policy.</summary>
     public DeviceGlyphSelection GlyphMode { get; init; }
 
@@ -209,9 +190,6 @@ internal sealed record DeviceOverlaySnapshot(
     public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =
         DeviceOverlayBridge.ProjectSections(DeviceSections.All);
 }
-
-/// <summary>Named choices and current selection for one host-owned setting.</summary>
-internal sealed record DeviceHostSelection(string? Value, IReadOnlyList<CapabilityChoice> Choices);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -256,12 +234,6 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new setting is persisted.</returns>
     Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>Applies one explicit host setting selection without cycling through intermediate writes.</summary>
-    Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
-    {
-        return Task.FromException(new NotSupportedException("Explicit host selection is not available."));
-    }
 
     /// <summary>Moves the global default controller target to the next one and persists it.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
@@ -427,21 +399,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     selection.ApplicationScoped)
                 : null)
         {
-            HostSelections = new Dictionary<string, DeviceHostSelection>
-            {
-                ["device.auto-tdp"] = new(_coordinator.AutoTdpEnabled ? "on" : "off",
-                    [HostChoice("off", "Off"), HostChoice("on", "On")]),
-                ["device.controller-target"] = new(controllerStatus.Target?.ToString(),
-                    _coordinator.Controllers.SupportedTargets
-                        .Select(target => HostChoice(target.ToString(), TargetLabel(target))).ToArray()),
-                ["device.hardware-profile"] = new(_coordinator.SelectedHardwareProfileId ?? "",
-                    new[] { HostChoice("", "None") }
-                        .Concat(_coordinator.HardwareProfileIds.Select(id => HostChoice(id, id))).ToArray()),
-                ["device.authored-profile"] = new(authored?.SelectedProfileId ?? "",
-                    new[] { HostChoice("", "None") }
-                        .Concat(authored?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
-                        .ToArray())
-            },
             GlyphMode = _coordinator.PhysicalGlyphSelection,
             PluginSections = ProjectSections(declaredSections)
         };
@@ -457,42 +414,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
-        var current = _coordinator.Capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor.CapabilityId == capability.CapabilityId &&
-            view.Descriptor.InstanceId == capability.InstanceId);
-        if (current is null || current.Projection.State.CycleGeneration != capability.CycleGeneration
-                            || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
-        {
-            // A deferred editor callback belongs to the descriptor the user actually saw.
-            Changed?.Invoke();
-            return;
-        }
-
         await _coordinator.ExecuteCapabilityAsync(
             capability.CapabilityId,
             capability.InstanceId,
             capability.NextValue,
             TimeSpan.FromSeconds(5),
             cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
-
-    public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
-    {
-        return rowId switch
-        {
-            "device.auto-tdp" when value is "on" or "off" => _coordinator.SetAutoTdpEnabledAsync(value == "on",
-                cancellationToken),
-            "device.controller-target" when Enum.TryParse<ManagedControllerTarget>(value, out var target)
-                                            && _coordinator.Controllers.SupportedTargets.Contains(target) =>
-                _coordinator.SetControllerTargetAsync(target, cancellationToken),
-            "device.hardware-profile" when string.IsNullOrEmpty(value) ||
-                                           _coordinator.HardwareProfileIds.Contains(value)
-                => _coordinator.SelectHardwareProfileAsync(string.IsNullOrEmpty(value) ? null : value,
-                    cancellationToken),
-            "device.authored-profile" => _coordinator.SelectAuthoredProfileAsync(
-                string.IsNullOrEmpty(value) ? null : value, cancellationToken),
-            _ => Task.CompletedTask
-        };
     }
 
     public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
@@ -594,12 +521,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // The service subscribed to the catalog's change event, so it has to be released here or it
         // keeps this bridge's geometry cache alive for the rest of the session.
         _glyphs.Dispose();
-    }
-
-    private static CapabilityChoice HostChoice(string value, string label)
-    {
-        return new CapabilityChoice(value,
-            new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label });
     }
 
     internal static DeviceOverlayCapability ProjectManualTdp(DeviceOverlayCapability capability, bool unified)
@@ -1146,13 +1067,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ? descriptor.CategoryId
                 : null,
             SortOrder = descriptor.SortOrder,
-            DescriptorGeneration = state.DescriptorGeneration,
-            CycleGeneration = state.CycleGeneration,
-            Prominence = descriptor.Prominence,
-            LayoutPair = descriptor.LayoutPair,
             ValueKind = descriptor.ValueKind,
             Writable = descriptor.SupportsWrite,
-            SupportsAction = descriptor.SupportsAction,
             Minimum = descriptor.Minimum,
             Maximum = descriptor.Maximum,
             Step = descriptor.Step,

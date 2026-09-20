@@ -20,10 +20,9 @@ while the sheet is open, and that is only acceptable because of the lease: the g
 controller access inside `steam.exe`, so SDL in WSGM reads the pad directly while Steam's active
 layout is left untouched.
 
-The lease is scoped to a focused top-level window: acquired before the overlay or Settings opens,
-released after the last owner lets go. Status panels and the internal text keyboard share the
-overlay window's claim. It is an open named-pipe connection, so Windows drops it after a WSGM crash.
-A normal release asks Steam to rediscover its controllers.
+The lease is scoped to a focused surface: acquired before the overlay or Settings opens, released
+after the last one closes. It is an open named-pipe connection, so Windows drops it after a WSGM
+crash. A normal release asks Steam to rediscover its controllers.
 
 Per-game wrappers must also remove Steam's inherited `SDL_GAMECONTROLLER_IGNORE_DEVICES` from the
 controlled child's environment. On 2026-09-08, Eden launched through the wrapper inherited an
@@ -156,15 +155,11 @@ deferred to field review.
 
 ## Owner claims and the Settings handoff
 
-The overlay header's Keyboard action, Tools' On-screen keyboard action and OEM keyboard assignment
-route by session mode. Game Mode invokes the toolkit's native Keyboard action through the same
-temporary ownership coordinator. The sheet closes before invocation, restoring application focus and
-releasing its own claim. Keyboard visibility joins menu and overlay state in the closure check;
-unavailable state never proves closure. Desktop uses the existing Windows touch-keyboard operation.
-
-Internal text fields and radio credentials instead open the overlay's in-window keyboard. It edits
-the local text field without injecting global input, releasing the overlay claim or opening another
-native window. See [Overlay surfaces](overlay-surfaces.md).
+The Overlay keyboard action and OEM keyboard assignment route by session mode. Game Mode invokes the
+toolkit's native Keyboard action through the same temporary ownership coordinator. The sheet closes
+before invocation, restoring application focus and releasing its own claim. Keyboard visibility
+joins menu and overlay state in the closure check; unavailable state never proves closure. Desktop
+uses the existing Windows touch-keyboard operation.
 
 Overlay > Tools exposes Release to Steam and Reacquire for WSGM with the current ownership state.
 Manual release adopts an active temporary handoff or starts the same release path. It suppresses
@@ -174,15 +169,15 @@ session make-safe; it does not reacquire hardware. Failed transitions allow an e
 request through the same adapter, without automatic retries. These controls do not alter unrelated
 HidHide entries or create a separate device ownership path.
 
-Several top-level windows can need the one process-wide lease at once, so each focused window
-registers a named owner claim in `SteamInputBlocker` and the lease is released when the last owner
-lets go. `AcquireFor` registers the owner before it attempts the native acquire. Every deactivate
-and close path must therefore call `ReleaseFor`, even when Steam was unavailable and `IsApplied`
-stayed false. `ReleaseFor` decides and detaches the lease under the blocker's lock, then runs the
-native release on a serialized background task. That release can take several seconds when the
-payload lacks internal recovery and the host rescans Steam, and a reopening surface must not wait
-for it; a lease acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown
-releases synchronously and waits up to 15 seconds for a surface release that is still running.
+Several surfaces can need the one process-wide lease at once, so each focused surface registers a
+named owner claim in `SteamInputBlocker` and the lease is released when the last owner lets go.
+`AcquireFor` registers the owner before it attempts the native acquire. Every deactivate and close
+path must therefore call `ReleaseFor`, even when Steam was unavailable and `IsApplied` stayed false.
+`ReleaseFor` decides and detaches the lease under the blocker's lock, then runs the native release
+on a serialized background task. That release can take several seconds when the payload lacks
+internal recovery and the host rescans Steam, and a reopening surface must not wait for it; a lease
+acquired meanwhile keeps Steam blocked because the gate counts leases. Shutdown releases
+synchronously and waits up to 15 seconds for a surface release that is still running.
 
 Settings follows this focused-surface rule in Desktop mode too, including the `--settings` shortcut,
 so Steam's desktop profile cannot swallow controller navigation or chord capture. Minimizing, losing
