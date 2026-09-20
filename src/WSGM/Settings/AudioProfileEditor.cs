@@ -1,23 +1,88 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Settings;
 
+/// <summary>
+///     One reading of what the machine currently offers: the endpoints, and the capabilities of the
+///     one endpoint that was asked about.
+/// </summary>
+/// <param name="Outputs">Render endpoints, in enumeration order.</param>
+/// <param name="Inputs">Capture endpoints, in enumeration order.</param>
+/// <param name="EndpointId">The endpoint the capabilities below describe, or null when none was read.</param>
+/// <param name="Formats">The device formats that endpoint reports, or null when the read failed.</param>
+/// <param name="SpatialFormats">The spatial formats that endpoint reports, or null when the read failed.</param>
+internal sealed record AudioDiscovery(
+    IReadOnlyList<AudioEndpointOption> Outputs,
+    IReadOnlyList<AudioEndpointOption> Inputs,
+    string? EndpointId,
+    IReadOnlyList<CoreAudio.AudioDeviceFormat>? Formats,
+    IReadOnlyList<Guid>? SpatialFormats)
+{
+    /// <summary>Nothing observed, which is what a machine without Core Audio offers.</summary>
+    internal static AudioDiscovery Empty { get; } = new([], [], null, null, null);
+
+    /// <summary>Reads Windows' endpoints, and one endpoint's capabilities when one is named.</summary>
+    /// <param name="endpointId">The endpoint whose capabilities to read, or null for none.</param>
+    /// <returns>The observation. Every call here is a blocking Core Audio read.</returns>
+    internal static AudioDiscovery Read(string? endpointId)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Empty;
+        }
+
+        var outputs = Endpoints(CoreAudio.AudioDirection.Render);
+        var inputs = Endpoints(CoreAudio.AudioDirection.Capture);
+        if (endpointId is null)
+        {
+            return new AudioDiscovery(outputs, inputs, null, null, null);
+        }
+
+        var formats = CoreAudio.ListSupportedDeviceFormats(endpointId, out var supported) >= 0
+            ? supported
+            : null;
+        var spatial = CoreAudio.GetSpatialAudio(endpointId, out var state) >= 0
+            ? state.SupportedFormats
+            : null;
+        return new AudioDiscovery(outputs, inputs, endpointId, formats, spatial);
+    }
+
+    private static IReadOnlyList<AudioEndpointOption> Endpoints(CoreAudio.AudioDirection direction)
+    {
+        return CoreAudio.ListEndpoints(direction, out var endpoints) >= 0
+            ? [.. endpoints.Select(static endpoint => new AudioEndpointOption(endpoint.Id, endpoint.Name))]
+            : [];
+    }
+}
+
 /// <summary>Editable saved audio preferences for one display-switch direction.</summary>
 public sealed class AudioProfileEditor : ObservableObject
 {
     private readonly Action _changed;
+    private readonly Func<string?, AudioDiscovery> _read;
     private bool _applyMute;
+
     private bool _applyVolume;
+
+    // The last observation the editor drew from, and the read that produced it. Core Audio can
+    // block on a wedged driver, so nothing here reads it on the dispatcher: the editor opens on
+    // whatever the profile saved and fills in when a worker comes back.
+    private AudioDiscovery _discovered = AudioDiscovery.Empty;
+    private int _discoveryGeneration;
     private AudioFormatOption? _format;
     private AudioEndpointOption? _input;
     private bool _loading;
     private bool _muted;
+
     private AudioEndpointOption? _output;
+
     // What the profile holds, independent of what the machine can currently offer. A saved format
     // or spatial value the selected endpoint does not report right now has no option to select, and
     // clearing it here would delete a valid preference on the next unrelated save.
@@ -26,10 +91,10 @@ public sealed class AudioProfileEditor : ObservableObject
     private SpatialAudioOption? _spatial;
     private int _volumePercent = 50;
 
-    internal AudioProfileEditor(Action changed)
+    internal AudioProfileEditor(Action changed, Func<string?, AudioDiscovery>? read = null)
     {
         _changed = changed;
-        RefreshEndpoints();
+        _read = read ?? AudioDiscovery.Read;
     }
 
     /// <summary>Playback endpoint choices, with a null entry meaning leave unchanged.</summary>
@@ -56,6 +121,8 @@ public sealed class AudioProfileEditor : ObservableObject
             }
 
             RefreshPlaybackCapabilities(false);
+            // The new endpoint's capabilities are not in the last observation, so ask for them.
+            _ = RefreshEndpointsAsync();
             Edited();
         }
     }
@@ -158,27 +225,38 @@ public sealed class AudioProfileEditor : ObservableObject
         }
     }
 
-    /// <summary>Reloads live endpoint and capability choices without writing Windows audio state.</summary>
-    public void RefreshEndpoints()
+    /// <summary>
+    ///     Re-reads the live endpoints, and the selected output's capabilities, on a worker and
+    ///     publishes the result. Writes no Windows audio state.
+    /// </summary>
+    /// <returns>Completion of the read and of the publication that follows it.</returns>
+    public async Task RefreshEndpointsAsync()
     {
+        var generation = ++_discoveryGeneration;
+        var endpointId = _output?.Id;
+        var discovered = await Task.Run(() => _read(endpointId)).ConfigureAwait(true);
+        // A newer read is already on its way, and it was started against a newer selection.
+        if (generation == _discoveryGeneration)
+        {
+            Publish(discovered);
+        }
+    }
+
+    private void Publish(AudioDiscovery discovered)
+    {
+        _discovered = discovered;
         var preferredOutput = _output?.Id;
         var preferredInput = _input?.Id;
         OutputChoices.Clear();
         InputChoices.Clear();
-        if (CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var outputs) >= 0)
+        foreach (var option in discovered.Outputs)
         {
-            foreach (var endpoint in outputs)
-            {
-                OutputChoices.Add(new AudioEndpointOption(endpoint.Id, endpoint.Name));
-            }
+            OutputChoices.Add(option);
         }
 
-        if (CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Capture, out var inputs) >= 0)
+        foreach (var option in discovered.Inputs)
         {
-            foreach (var endpoint in inputs)
-            {
-                InputChoices.Add(new AudioEndpointOption(endpoint.Id, endpoint.Name));
-            }
+            InputChoices.Add(option);
         }
 
         _loading = true;
@@ -293,20 +371,19 @@ public sealed class AudioProfileEditor : ObservableObject
         SpatialChoices.Clear();
         _format = null;
         _spatial = null;
-        if (_output?.Id is { } endpointId)
+        // Only the endpoint the last observation actually read has capabilities to offer. Another
+        // one has none yet, which is a pending read rather than an endpoint without choices.
+        if (_output?.Id is { } endpointId && _discovered.EndpointId == endpointId)
         {
-            if (CoreAudio.ListSupportedDeviceFormats(endpointId, out var formats) >= 0)
+            foreach (var format in _discovered.Formats ?? [])
             {
-                foreach (var format in formats)
-                {
-                    FormatChoices.Add(new AudioFormatOption(format));
-                }
+                FormatChoices.Add(new AudioFormatOption(format));
             }
 
-            if (CoreAudio.GetSpatialAudio(endpointId, out var spatial) >= 0)
+            if (_discovered.SpatialFormats is { } spatial)
             {
                 SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
-                foreach (var format in spatial.SupportedFormats)
+                foreach (var format in spatial)
                 {
                     SpatialChoices.Add(new SpatialAudioOption(format, SpatialName(format)));
                 }
@@ -357,19 +434,28 @@ public sealed class AudioProfileEditor : ObservableObject
 public sealed record AudioEndpointOption(string Id, string Name)
 {
     /// <inheritdoc />
-    public override string ToString() => Name;
+    public override string ToString()
+    {
+        return Name;
+    }
 }
 
 /// <summary>One named default-format choice.</summary>
 public sealed record AudioFormatOption(CoreAudio.AudioDeviceFormat Format)
 {
     /// <inheritdoc />
-    public override string ToString() => $"{Format.Channels} channels · {Format.SampleRate / 1000.0:0.#} kHz · {Format.BitsPerSample}-bit";
+    public override string ToString()
+    {
+        return $"{Format.Channels} channels · {Format.SampleRate / 1000.0:0.#} kHz · {Format.BitsPerSample}-bit";
+    }
 }
 
 /// <summary>One named spatial-audio-format choice.</summary>
 public sealed record SpatialAudioOption(Guid Format, string Name)
 {
     /// <inheritdoc />
-    public override string ToString() => Name;
+    public override string ToString()
+    {
+        return Name;
+    }
 }

@@ -92,8 +92,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
         GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
-        GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary);
-        DesktopAudioProfile = new AudioProfileEditor(RefreshLaunchSummary);
+        GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
+        DesktopAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
         ActionLists =
         [
             new PluginActionListEditor("Entering Game Mode", RefreshLaunchSummary),
@@ -2758,7 +2758,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         Action<string, Exception?> Report,
         Func<ModernStandbyReport> ReadStandby,
         Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
-        Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart)
+        Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart,
+        Func<string?, AudioDiscovery>? ReadAudio = null)
     {
         internal static SettingsServices Windows()
         {
@@ -2787,7 +2788,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // report instead of whatever this machine did last night.
                 ModernStandbyDiagnostics.Read,
                 () => SteamAutostartService.Scan(),
-                sources => SteamAutostartService.Apply(sources, true));
+                sources => SteamAutostartService.Apply(sources, true),
+                // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
+                // rather than whatever this machine has plugged in.
+                AudioDiscovery.Read);
         }
 
         /// <summary>

@@ -16,7 +16,7 @@ public partial class DisplayPage : UserControl
     {
         if (DataContext is SettingsViewModel { CurrentAudioProfile: { } audio })
         {
-            audio.RefreshEndpoints();
+            _ = audio.RefreshEndpointsAsync();
         }
     }
 }

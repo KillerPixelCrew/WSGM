@@ -52,6 +52,9 @@ internal interface IAudioProfileOperations
 /// <summary>Applies and observes Game Mode audio preferences away from the UI thread.</summary>
 internal sealed class AudioProfileService : IAsyncDisposable
 {
+    private const string UnselectedPlayback =
+        "The configured playback endpoint is not the default, so this was left unchanged.";
+
     private static readonly TimeSpan EndpointArrivalTimeout = TimeSpan.FromSeconds(3);
 
     private readonly AudioManager _audio;
@@ -217,9 +220,15 @@ internal sealed class AudioProfileService : IAsyncDisposable
         var deadline = DateTime.UtcNow + EndpointArrivalTimeout;
         var output = ResolveEndpoint(preference.Output, CoreAudio.AudioDirection.Render, deadline, cancellationToken);
         var input = ResolveEndpoint(preference.Input, CoreAudio.AudioDirection.Capture, deadline, cancellationToken);
+        // Volume and mute are written through whatever is default now. When the profile asked for
+        // a particular playback endpoint and that endpoint did not become the default, the write
+        // would land on an unrelated device the same result set has just reported untouched.
+        var playbackSelected = true;
         if (preference.Output is not null)
         {
-            results.Add(SetDefault("playback endpoint", output));
+            var result = SetDefault("playback endpoint", output);
+            playbackSelected = result.Succeeded;
+            results.Add(result);
         }
 
         if (preference.Input is not null)
@@ -229,13 +238,16 @@ internal sealed class AudioProfileService : IAsyncDisposable
 
         if (preference.VolumePercent is { } volume)
         {
-            var result = _operations.SetVolume(CoreAudio.AudioDirection.Render, volume, out _);
-            results.Add(Result("playback volume", result));
+            results.Add(playbackSelected
+                ? Result("playback volume", _operations.SetVolume(CoreAudio.AudioDirection.Render, volume, out _))
+                : new AudioProfileOperationResult("playback volume", false, UnselectedPlayback));
         }
 
         if (preference.Muted is { } muted)
         {
-            results.Add(Result("playback mute", _operations.SetMuted(muted)));
+            results.Add(playbackSelected
+                ? Result("playback mute", _operations.SetMuted(muted))
+                : new AudioProfileOperationResult("playback mute", false, UnselectedPlayback));
         }
 
         if (output is { } endpoint && preference.PlaybackFormat is { } format)
@@ -273,7 +285,8 @@ internal sealed class AudioProfileService : IAsyncDisposable
     private AudioProfileOperationResult SetPlaybackFormat(string endpointId, CoreAudio.AudioDeviceFormat format)
     {
         var capabilities = ReadPlaybackCapabilities();
-        if (capabilities is null || capabilities.EndpointId != endpointId || !capabilities.SupportedFormats.Contains(format))
+        if (capabilities is null || capabilities.EndpointId != endpointId ||
+            !capabilities.SupportedFormats.Contains(format))
         {
             return new AudioProfileOperationResult("playback format", false,
                 "The selected playback format is no longer supported by the default endpoint.");
@@ -329,7 +342,8 @@ internal sealed class AudioProfileService : IAsyncDisposable
             Thread.Sleep(200);
         } while (true);
 
-        Log.Warn($"Audio profile: {direction} endpoint '{preference.Name ?? id}' is unavailable; leaving it unchanged.");
+        Log.Warn(
+            $"Audio profile: {direction} endpoint '{preference.Name ?? id}' is unavailable; leaving it unchanged.");
         return null;
     }
 
@@ -388,34 +402,55 @@ internal sealed class AudioProfileService : IAsyncDisposable
 
     private sealed class CoreAudioProfileOperations : IAudioProfileOperations
     {
-        public int ListEndpoints(CoreAudio.AudioDirection direction, out IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
+        public int ListEndpoints(CoreAudio.AudioDirection direction,
+            out IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
         {
             return CoreAudio.ListEndpoints(direction, out endpoints);
         }
 
-        public int SetDefaultEndpoint(string endpointId) => CoreAudio.SetDefaultEndpoint(endpointId);
+        public int SetDefaultEndpoint(string endpointId)
+        {
+            return CoreAudio.SetDefaultEndpoint(endpointId);
+        }
 
-        public int GetVolume(CoreAudio.AudioDirection direction, out int volume, out int muted) =>
-            CoreAudio.GetVolume(direction, out volume, out muted);
+        public int GetVolume(CoreAudio.AudioDirection direction, out int volume, out int muted)
+        {
+            return CoreAudio.GetVolume(direction, out volume, out muted);
+        }
 
-        public int SetVolume(CoreAudio.AudioDirection direction, int volume, out int muted) =>
-            CoreAudio.SetVolume(direction, volume, out muted);
+        public int SetVolume(CoreAudio.AudioDirection direction, int volume, out int muted)
+        {
+            return CoreAudio.SetVolume(direction, volume, out muted);
+        }
 
-        public int SetMuted(bool muted) => CoreAudio.SetMuted(muted);
+        public int SetMuted(bool muted)
+        {
+            return CoreAudio.SetMuted(muted);
+        }
 
-        public int GetDeviceFormat(string endpointId, out CoreAudio.AudioDeviceFormat format) =>
-            CoreAudio.GetDeviceFormat(endpointId, out format);
+        public int GetDeviceFormat(string endpointId, out CoreAudio.AudioDeviceFormat format)
+        {
+            return CoreAudio.GetDeviceFormat(endpointId, out format);
+        }
 
-        public int ListSupportedDeviceFormats(string endpointId, out IReadOnlyList<CoreAudio.AudioDeviceFormat> formats) =>
-            CoreAudio.ListSupportedDeviceFormats(endpointId, out formats);
+        public int ListSupportedDeviceFormats(string endpointId, out IReadOnlyList<CoreAudio.AudioDeviceFormat> formats)
+        {
+            return CoreAudio.ListSupportedDeviceFormats(endpointId, out formats);
+        }
 
-        public int SetDeviceFormat(string endpointId, CoreAudio.AudioDeviceFormat format) =>
-            CoreAudio.SetDeviceFormat(endpointId, format);
+        public int SetDeviceFormat(string endpointId, CoreAudio.AudioDeviceFormat format)
+        {
+            return CoreAudio.SetDeviceFormat(endpointId, format);
+        }
 
-        public int GetSpatialAudio(string endpointId, out CoreAudio.SpatialAudioState state) =>
-            CoreAudio.GetSpatialAudio(endpointId, out state);
+        public int GetSpatialAudio(string endpointId, out CoreAudio.SpatialAudioState state)
+        {
+            return CoreAudio.GetSpatialAudio(endpointId, out state);
+        }
 
-        public int SetSpatialAudio(string endpointId, Guid format, out CoreAudio.SpatialAudioSetStatus status) =>
-            CoreAudio.SetSpatialAudio(endpointId, format, out status);
+        public int SetSpatialAudio(string endpointId, Guid format, out CoreAudio.SpatialAudioSetStatus status)
+        {
+            return CoreAudio.SetSpatialAudio(endpointId, format, out status);
+        }
     }
 }

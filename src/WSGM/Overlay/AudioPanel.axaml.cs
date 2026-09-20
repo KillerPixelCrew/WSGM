@@ -1,3 +1,4 @@
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -6,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using WindowsDeviceControl;
 using WSGM.Settings;
 using WSGM.Shell;
 
@@ -16,11 +18,14 @@ public partial class AudioPanel : UserControl
 {
     private readonly AudioManager _audio;
     private readonly AudioProfileService? _profiles;
+
     private bool _audioSubscribed;
+
     // The endpoint the controls currently describe, and the read that put them there. A refresh
     // starts when the panel attaches, when Refresh is clicked and whenever the default output
     // changes, so an older read can land after a newer endpoint is already selected.
     private string? _capabilityEndpointId;
+    private int _capabilityGeneration;
     private bool _loadingCapabilities;
     private int _refreshGeneration;
 
@@ -93,12 +98,16 @@ public partial class AudioPanel : UserControl
 
             _loadingCapabilities = true;
             FormatChoice.ItemsSource = capabilities?.SupportedFormats is { Count: > 0 } formats
-                ? new ObservableCollection<AudioFormatOption>(formats.Select(static format => new AudioFormatOption(format)))
+                ? new ObservableCollection<AudioFormatOption>(formats.Select(static format =>
+                    new AudioFormatOption(format)))
                 : null;
             var spatialOptions = capabilities?.SupportedSpatialFormats is { Count: > 0 } spatial
                 ? new ObservableCollection<SpatialAudioOption>(
-                    [new SpatialAudioOption(WindowsDeviceControl.CoreAudio.SpatialAudioFormats.Off, "Off"),
-                        .. spatial.Select(static format => new SpatialAudioOption(format, AudioProfileEditor.SpatialName(format)))] )
+                [
+                    new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"),
+                    .. spatial.Select(static format =>
+                        new SpatialAudioOption(format, AudioProfileEditor.SpatialName(format)))
+                ])
                 : null;
             SpatialChoice.ItemsSource = spatialOptions;
             FormatChoice.SelectedItem = capabilities is null ? null : new AudioFormatOption(capabilities.CurrentFormat);
@@ -107,10 +116,13 @@ public partial class AudioPanel : UserControl
                 : spatialOptions?.FirstOrDefault(option => option.Format == capabilities.CurrentSpatialFormat);
             FormatRow.IsVisible = capabilities?.SupportedFormats.Count > 0;
             SpatialRow.IsVisible = capabilities?.SupportedSpatialFormats.Count > 0;
-            CapabilityStatus.Text = capabilities is null ? "Advanced audio controls are unavailable for the current output." : "";
+            CapabilityStatus.Text = capabilities is null
+                ? "Advanced audio controls are unavailable for the current output."
+                : "";
             _capabilityEndpointId = capabilities?.EndpointId;
+            _capabilityGeneration = generation;
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
             if (generation != _refreshGeneration)
             {
@@ -131,12 +143,15 @@ public partial class AudioPanel : UserControl
         }
     }
 
-    // An option is only offered because one endpoint reported it. Two endpoints can support the
-    // same format, so the service alone cannot tell that a selection was made against the one
-    // before last; the panel has to refuse it here.
+    // An option is only offered because one read of one endpoint reported it. Two endpoints can
+    // support the same format, and the same endpoint can report a different set on the next read,
+    // so neither the service nor the endpoint id alone can tell that a selection was made against
+    // a superseded list. Only the read the controls are currently showing may be acted on.
     private bool Stale(AudioEndpointEntry output)
     {
-        if (_capabilityEndpointId is { } endpointId && endpointId == output.Id)
+        if (_capabilityEndpointId is { } endpointId
+            && endpointId == output.Id
+            && _capabilityGeneration == _refreshGeneration)
         {
             return false;
         }
@@ -149,7 +164,7 @@ public partial class AudioPanel : UserControl
     private async void OnFormatChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loadingCapabilities || FormatChoice.SelectedItem is not AudioFormatOption option
-            || _audio.SelectedOutput is not { } output || Stale(output))
+                                 || _audio.SelectedOutput is not { } output || Stale(output))
         {
             return;
         }
@@ -162,7 +177,7 @@ public partial class AudioPanel : UserControl
     private async void OnSpatialChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loadingCapabilities || SpatialChoice.SelectedItem is not SpatialAudioOption option
-            || _audio.SelectedOutput is not { } output || Stale(output))
+                                 || _audio.SelectedOutput is not { } output || Stale(output))
         {
             return;
         }

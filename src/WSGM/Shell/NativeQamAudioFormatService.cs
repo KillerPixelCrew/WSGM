@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WindowsDeviceControl;
 using WSGM.Settings;
 
 namespace WSGM.Shell;
@@ -13,7 +15,9 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
 {
     private readonly AudioManager _audio;
     private readonly AudioProfileService _profiles;
+
     private bool _disposed;
+
     // Exactly what the last publication offered, and the endpoint that offered it. A command is
     // admitted only against this: two endpoints can support the same format, so parsing the id is
     // not evidence that the row the user touched was describing the output that is default now.
@@ -26,42 +30,16 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         _audio.PropertyChanged += OnAudioChanged;
     }
 
-    /// <summary>Raised when a changed default endpoint requires new options to be published.</summary>
-    internal event Action? StateChanged;
-
-    /// <summary>Reads the current output's bounded capability state.</summary>
-    internal async ValueTask<SteamAudioFormatState?> ReadAsync()
+    /// <inheritdoc />
+    public void Dispose()
     {
-        var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);
-        if (capabilities is null)
+        if (_disposed)
         {
-            _offered = null;
-            return new SteamAudioFormatState(false, [], string.Empty, [], string.Empty,
-                "Advanced audio controls are unavailable for the current output.");
+            return;
         }
 
-        var formats = capabilities.SupportedFormats
-            .Distinct()
-            .Take(64)
-            .Select(static format => new SteamAudioFormatOption(FormatId(format), FormatLabel(format)))
-            .ToArray();
-        var spatial = new[] { WindowsDeviceControl.CoreAudio.SpatialAudioFormats.Off }
-            .Concat(capabilities.SupportedSpatialFormats)
-            .Distinct()
-            .Take(16)
-            .Select(static format => new SteamAudioFormatOption(format.ToString(), AudioProfileEditor.SpatialName(format)))
-            .ToArray();
-        _offered = new Offered(
-            capabilities.EndpointId,
-            [.. formats.Select(static option => option.Id)],
-            [.. spatial.Select(static option => option.Id)]);
-        return new SteamAudioFormatState(
-            formats.Length > 1 || spatial.Length > 1,
-            formats,
-            FormatId(capabilities.CurrentFormat),
-            spatial,
-            capabilities.CurrentSpatialFormat.ToString(),
-            string.Empty);
+        _disposed = true;
+        _audio.PropertyChanged -= OnAudioChanged;
     }
 
     /// <inheritdoc />
@@ -96,30 +74,57 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         return new SteamUiCommandResult(result.Succeeded, result.Detail);
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    /// <summary>Raised when a changed default endpoint requires new options to be published.</summary>
+    internal event Action? StateChanged;
+
+    /// <summary>Reads the current output's bounded capability state.</summary>
+    internal async ValueTask<SteamAudioFormatState?> ReadAsync()
     {
-        if (_disposed)
+        var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);
+        if (capabilities is null)
         {
-            return;
+            _offered = null;
+            return new SteamAudioFormatState(false, [], string.Empty, [], string.Empty,
+                "Advanced audio controls are unavailable for the current output.");
         }
 
-        _disposed = true;
-        _audio.PropertyChanged -= OnAudioChanged;
+        var formats = capabilities.SupportedFormats
+            .Distinct()
+            .Take(64)
+            .Select(static format => new SteamAudioFormatOption(FormatId(format), FormatLabel(format)))
+            .ToArray();
+        var spatial = new[] { CoreAudio.SpatialAudioFormats.Off }
+            .Concat(capabilities.SupportedSpatialFormats)
+            .Distinct()
+            .Take(16)
+            .Select(static format =>
+                new SteamAudioFormatOption(format.ToString(), AudioProfileEditor.SpatialName(format)))
+            .ToArray();
+        _offered = new Offered(
+            capabilities.EndpointId,
+            [.. formats.Select(static option => option.Id)],
+            [.. spatial.Select(static option => option.Id)]);
+        return new SteamAudioFormatState(
+            formats.Length > 1 || spatial.Length > 1,
+            formats,
+            FormatId(capabilities.CurrentFormat),
+            spatial,
+            capabilities.CurrentSpatialFormat.ToString(),
+            string.Empty);
     }
 
-    private static string FormatId(WindowsDeviceControl.CoreAudio.AudioDeviceFormat format)
+    private static string FormatId(CoreAudio.AudioDeviceFormat format)
     {
         return string.Join(':', format.Channels, format.SampleRate, format.BitsPerSample,
             format.ContainerBitsPerSample, format.ChannelMask, format.IsFloat ? 1 : 0);
     }
 
-    private static string FormatLabel(WindowsDeviceControl.CoreAudio.AudioDeviceFormat format)
+    private static string FormatLabel(CoreAudio.AudioDeviceFormat format)
     {
         return new AudioFormatOption(format).ToString();
     }
 
-    private static bool TryParseFormat(string value, out WindowsDeviceControl.CoreAudio.AudioDeviceFormat format)
+    private static bool TryParseFormat(string value, out CoreAudio.AudioDeviceFormat format)
     {
         format = default;
         var fields = value.Split(':');
@@ -134,12 +139,12 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             return false;
         }
 
-        format = new WindowsDeviceControl.CoreAudio.AudioDeviceFormat(channels, sampleRate, bitsPerSample,
+        format = new CoreAudio.AudioDeviceFormat(channels, sampleRate, bitsPerSample,
             containerBitsPerSample, channelMask, floating == 1);
         return floating is 0 or 1;
     }
 
-    private void OnAudioChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    private void OnAudioChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(AudioManager.SelectedOutput))
         {

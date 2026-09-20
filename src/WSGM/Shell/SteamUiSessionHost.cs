@@ -48,6 +48,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
+    private readonly Lock _failedPatchGate = new();
+
+    // Patch ids of modules the runtime quarantined. Written from the publication and request paths,
+    // read wherever patch states are decided.
+    private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
+
     private readonly SteamGameContextMenuBackend? _gameContextMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
@@ -193,7 +199,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _autoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, autoTdp);
         _controllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
-        _audioFormat = audio is null || audioProfiles is null ? null : new NativeQamAudioFormatService(audio, audioProfiles);
+        _audioFormat = audio is null || audioProfiles is null
+            ? null
+            : new NativeQamAudioFormatService(audio, audioProfiles);
         _network = radios is null
             ? null
             : new NativeQamNetworkService(
@@ -939,8 +947,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueStatePublication();
     }
 
+    // The runtime refuses a quarantined module's traffic for the rest of its life, so this side
+    // has to match it. Retracting the patches here alone was not enough: the next Quick Access
+    // enable cycle ran SetPatchStates, which knows only the feature switches, and mounted the
+    // surface again with nothing behind it.
     private void OnModuleFailed(object? sender, SteamUiModuleFailure failure)
     {
+        lock (_failedPatchGate)
+        {
+            foreach (var patch in failure.Module.Patches)
+            {
+                _failedPatchIds.Add(patch.Id);
+            }
+        }
+
         foreach (var patch in failure.Module.Patches)
         {
             _patches.SetPatchEnabled(patch.Id, false);
@@ -948,6 +968,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
         QueueSynchronization();
+    }
+
+    private bool Quarantined(string patchId)
+    {
+        lock (_failedPatchGate)
+        {
+            return _failedPatchIds.Count > 0 && _failedPatchIds.Contains(patchId);
+        }
     }
 
     private void QueueStatePublication()
@@ -980,7 +1008,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _ when _pluginPatchIds.Contains(patch.Id) => _pluginSteamUiEnabled,
                 _ => components
             };
-            _patches.SetPatchEnabled(patch.Id, enabled);
+            _patches.SetPatchEnabled(patch.Id, enabled && !Quarantined(patch.Id));
         }
     }
 

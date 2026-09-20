@@ -3116,7 +3116,8 @@ public sealed class ShellSession : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            RecordShutdownFailure(failures, "Disposing the audio profile service during application shutdown failed", ex);
+            RecordShutdownFailure(failures, "Disposing the audio profile service during application shutdown failed",
+                ex);
         }
         finally
         {
@@ -3937,7 +3938,8 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
                     fresh.GameModeLaunchRecovery.PendingReturnAudio = audio;
-                    fresh.GameModeLaunchRecovery.EnteredAt = layout is null && audio is null ? null : DateTimeOffset.UtcNow;
+                    fresh.GameModeLaunchRecovery.EnteredAt =
+                        layout is null && audio is null ? null : DateTimeOffset.UtcNow;
                 });
             });
         }

@@ -89,6 +89,13 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    /// <summary>Starts the audio endpoint and capability reads for both profiles on a worker.</summary>
+    internal void StartAudioDiscovery()
+    {
+        _ = GameAudioProfile.RefreshEndpointsAsync();
+        _ = DesktopAudioProfile.RefreshEndpointsAsync();
+    }
+
     internal void StopDisplayDiscovery()
     {
         _displayDiscoveryClosed = true;

@@ -309,9 +309,12 @@ changes Windows audio.
 serializes them behind one gate, so the overlay, Steam Quick Access and a mode transition cannot
 interleave writes. Apply order is render endpoint, capture endpoint, volume and mute, device format,
 then spatial format; the format and spatial writes target the endpoint the profile selected, after
-it has been selected. A missing endpoint, an unsupported format, an HRESULT failure or a spatial
-refusal leaves that one value unchanged, reports the reason and does not fail the transition. There
-is no automatic retry write: the next explicit action or mode switch is the retry.
+it has been selected. Volume and mute go through whatever is default at the time, so they are
+skipped and reported when the profile named a playback endpoint that did not become the default: the
+alternative is changing an unrelated device in the same breath as reporting that the configured one
+was left alone. A missing endpoint, an unsupported format, an HRESULT failure or a spatial refusal
+leaves that one value unchanged, reports the reason and does not fail the transition. There is no
+automatic retry write: the next explicit action or mode switch is the retry.
 
 One application waits a short bounded period for a configured endpoint to enumerate, which is what
 lets an HDMI audio endpoint appear as the TV wakes. The budget is for the whole application rather
@@ -325,11 +328,13 @@ Desktop profile carries no audio preference of its own. Crash recovery restores 
 persisted snapshot and clears it only after the return path has finished. The return restores the
 layout before the audio, so an HDMI endpoint is back before anything is asked to select it.
 
-Settings edits the profiles and never probes or writes. A saved endpoint the machine is not
-currently reporting stays in the list under its saved name and stays selected, and a saved format or
-spatial value that the selected endpoint does not report right now is held as latent draft state
-rather than cleared, so an unrelated save cannot silently delete it. Choosing a different endpoint
-does clear both, because a format belongs to the endpoint that reported it.
+Settings edits the profiles and never probes or writes, and never reads Core Audio on the
+dispatcher: the endpoint and capability reads run on a worker behind a generation guard, so a wedged
+audio driver delays the lists filling in rather than the Settings window opening. A saved endpoint
+the machine is not currently reporting stays in the list under its saved name and stays selected,
+and a saved format or spatial value that the selected endpoint does not report right now is held as
+latent draft state rather than cleared, so an unrelated save cannot silently delete it. Choosing a
+different endpoint does clear both, because a format belongs to the endpoint that reported it.
 
 The Overlay Audio panel and the Steam Quick Access row are live controls on the current playback
 endpoint, not profile editors. Each read is tagged with the endpoint it described and with the

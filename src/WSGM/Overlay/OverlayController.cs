@@ -52,6 +52,7 @@ public sealed class OverlayController : IDisposable
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
     private static int _nextLeaseOwnerId;
+    private readonly AudioProfileService? _audioProfiles;
     private readonly GamepadChordWatcher _chordWatcher;
 
     /// <summary>
@@ -179,7 +180,6 @@ public sealed class OverlayController : IDisposable
     private DispatcherTimer? _switcherRefresh;
     private int _switcherRefreshInFlight;
     private AppSwitcherViewModel? _switcherViewModel;
-    private readonly AudioProfileService? _audioProfiles;
     private SystemStatus? _systemStatus;
     private TouchSwipeMonitor? _touchSwipes;
     private TrayHost? _trayHost;

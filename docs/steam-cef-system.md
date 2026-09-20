@@ -462,6 +462,14 @@ event: brightness every 2 s, network first after 2 s then every 10 s with a 400 
 perf delta field equal to the desired value is dropped as an echo
 (`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level ping-pong.
 
+### Quarantined modules
+
+`SteamUiModuleRuntime` raises `ModuleFailed` when a module's publication or command callback throws,
+and refuses that module's traffic from then on. The session host retracts that module's patches and
+records their ids, so the feature switches cannot mount the surface again on the next Quick Access
+enable cycle: the runtime is still refusing to answer for it, and a mounted surface with nothing
+behind it is worse than an absent one. The quarantine lasts as long as the runtime does.
+
 ### Advanced audio
 
 `SteamAudioFormatRow` mounts two dropdowns in Quick Settings: the playback channel layout and
