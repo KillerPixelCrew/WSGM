@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -129,10 +128,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         SteamLaunchUnelevated = _config.SteamLaunchUnelevated;
-        SteamGridDbApiKey = _config.SteamGridDbApiKey;
-        ScreenscraperEnabled = _config.ScreenscraperEnabled;
-        ScreenscraperUser = _config.ScreenscraperUser;
-        ScreenscraperUserPassword = _config.ScreenscraperUserPassword;
         StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
         BootSplashEnabled = _config.BootSplashEnabled;
@@ -168,7 +163,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         CefCardManager = _config.Cef.CardManager;
         CefSdFormat = _config.Cef.SdFormat;
         SteamStorageFormat = _config.SteamStorageFormatEnabled;
-        CefArtwork = _config.Cef.Artwork;
         CefWifiIndicator = _config.Cef.WifiIndicator;
         CefNativeQuickAccess = _config.Cef.NativeQuickAccess;
         CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
@@ -781,13 +775,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         set => SetField(ref field, value, nameof(SteamStorageFormat));
     }
 
-    /// <summary>Gets or sets the shortcut-artwork changer.</summary>
-    public bool CefArtwork
-    {
-        get;
-        set => SetField(ref field, value, nameof(CefArtwork));
-    } = true;
-
     /// <summary>Gets or sets the Big Picture Wi-Fi indicator.</summary>
     public bool CefWifiIndicator
     {
@@ -925,45 +912,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(SteamLaunchUnelevated));
-    }
-
-    /// <summary>
-    ///     Gets or sets the user's SteamGridDB API key (for the Change Artwork
-    ///     feature). Empty disables it; get a free key at <see cref="Core.SteamGridDb.KeyPageUrl" />.
-    /// </summary>
-    [AllowNull]
-    public string SteamGridDbApiKey
-    {
-        get;
-        set => SetField(ref field, value ?? "", nameof(SteamGridDbApiKey));
-    }
-
-    /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
-    /// <remarks>
-    ///     On unless the user turns it off. WSGM ships the developer credentials Screenscraper issues
-    ///     per application, so there is nothing to obtain first, unlike SteamGridDB's personal key. See
-    ///     <see cref="Core.ScreenscraperCredentials" />.
-    /// </remarks>
-    public bool ScreenscraperEnabled
-    {
-        get;
-        set => SetField(ref field, value, nameof(ScreenscraperEnabled));
-    }
-
-    /// <summary>Gets or sets the optional Screenscraper account name, which raises the quota.</summary>
-    [AllowNull]
-    public string ScreenscraperUser
-    {
-        get;
-        set => SetField(ref field, value ?? "", nameof(ScreenscraperUser));
-    }
-
-    /// <summary>Gets or sets the password for <see cref="ScreenscraperUser" />.</summary>
-    [AllowNull]
-    public string ScreenscraperUserPassword
-    {
-        get;
-        set => SetField(ref field, value ?? "", nameof(ScreenscraperUserPassword));
     }
 
     // --- Startup apps ---
@@ -1824,10 +1772,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
         config.SteamLaunchUnelevated = SteamLaunchUnelevated;
-        config.SteamGridDbApiKey = SteamGridDbApiKey.Trim();
-        config.ScreenscraperEnabled = ScreenscraperEnabled;
-        config.ScreenscraperUser = ScreenscraperUser.Trim();
-        config.ScreenscraperUserPassword = ScreenscraperUserPassword.Trim();
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
@@ -1893,7 +1837,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Cef.CardManager = CefCardManager;
         config.Cef.SdFormat = CefSdFormat;
         config.SteamStorageFormatEnabled = SteamStorageFormat;
-        config.Cef.Artwork = CefArtwork;
         config.Cef.WifiIndicator = CefWifiIndicator;
         config.Cef.NativeQuickAccess = CefNativeQuickAccess;
         config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
@@ -2314,7 +2257,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.LibraryTabOrder = fresh.LibraryTabOrder;
         config.HiddenNativeTabs = fresh.HiddenNativeTabs;
         config.KnownNativeTabs = fresh.KnownNativeTabs;
-        config.SgdbLinks = fresh.SgdbLinks;
         config.LaunchWrappers = fresh.LaunchWrappers;
         config.SteamDelayMs = fresh.SteamDelayMs;
         config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;

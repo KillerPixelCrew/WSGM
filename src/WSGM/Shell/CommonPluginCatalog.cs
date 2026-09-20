@@ -7,16 +7,21 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-internal sealed record CommonInstalledPlugin(string PackageRoot, PluginManifest Manifest);
+internal sealed record CommonInstalledPlugin(
+    string PackageRoot,
+    PluginManifest Manifest,
+    Func<IPlugin>? Factory = null);
 
 internal sealed record CommonPluginCatalog(IReadOnlyList<CommonInstalledPlugin> Packages, IReadOnlyList<string> Errors)
 {
     internal static string InstalledRoot => Path.Combine(DeviceInstallationPaths.ProtectedRoot, "Plugins");
 
     /// <summary>Reads protected installed metadata only. Discovery never loads plugin code.</summary>
-    internal static CommonPluginCatalog Discover(string installedRoot)
+    internal static CommonPluginCatalog Discover(
+        string installedRoot,
+        IReadOnlyList<CommonInstalledPlugin>? bundled = null)
     {
-        List<CommonInstalledPlugin> packages = [];
+        List<CommonInstalledPlugin> packages = bundled is null ? [] : [.. bundled];
         List<string> errors = [];
         try
         {
@@ -51,6 +56,11 @@ internal sealed record CommonPluginCatalog(IReadOnlyList<CommonInstalledPlugin> 
                     if (!string.Equals(Path.GetFileName(directory), manifest.Id, StringComparison.Ordinal))
                     {
                         throw new InvalidDataException("The package directory must match the manifest identity.");
+                    }
+
+                    if (packages.Any(package => package.Manifest.Id == manifest.Id))
+                    {
+                        throw new InvalidDataException("The package identity is already supplied by WSGM.");
                     }
 
                     packages.Add(new CommonInstalledPlugin(directory, manifest));

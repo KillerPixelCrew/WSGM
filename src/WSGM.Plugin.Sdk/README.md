@@ -65,6 +65,21 @@ boolean visibility and enabled keys, and owning navigation category are all data
 UI code is loaded. The host combines widget IDs with the plugin instance identity and captures the
 declarations immutably.
 
+`IPluginSteamUi` is the Steam counterpart for an explicitly enabled common package. It can declare
+bounded actions in the shared Quick Access Extensions tab, a command in a selected game's menu, and
+typed `SteamUiModules` built on SteamUiToolkit. The selected-game contribution names one declared
+numeric action argument for the exact Steam app id. A successful action can return `SteamRoute` to
+open a plugin-owned page, and `SteamUiChanged` asks the host to republish module state. WSGM renders
+the generic host surfaces, keeps opaque command IDs and routes requests through the current plugin
+generation. A package never receives Steam's React objects, webpack registry or arbitrary evaluation
+capability; custom presentation is compiled with the package and uses toolkit-owned registration and
+bridge mechanisms.
+
+Every ready configurable package also appears in the Extensions tab. Boolean, number, text, secret
+and ordered-choice settings use the existing revisioned configuration contract. Ordered choices
+store a comma-separated permutation of the declared values and render with native move controls;
+secrets are obscured while editing and are not sent back to Steam as current values.
+
 ## Where the host puts all this
 
 Discovery and explicit per-instance activation are hosted independently of Device Integration.

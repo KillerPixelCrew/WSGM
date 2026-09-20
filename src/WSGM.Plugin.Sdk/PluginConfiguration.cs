@@ -16,7 +16,13 @@ public enum PluginSettingKind
     Number,
 
     /// <summary>A bounded plain-text preference.</summary>
-    Text
+    Text,
+
+    /// <summary>A bounded text preference whose host editor must obscure the entered value.</summary>
+    Secret,
+
+    /// <summary>A comma-separated permutation of the declaration's finite choices.</summary>
+    OrderedChoices
 }
 
 /// <summary>Declarative plugin behavior configuration, separate from external-state actions.</summary>
@@ -113,12 +119,17 @@ public static class PluginConfigurationRules
                 || (setting.Minimum is { } minimum && !double.IsFinite(minimum))
                 || (setting.Maximum is { } maximum && !double.IsFinite(maximum)) || setting.Minimum > setting.Maximum
                 || (setting.Kind != PluginSettingKind.Number && (setting.Minimum.HasValue || setting.Maximum.HasValue))
-                || (setting.Choices is { } choices && (setting.Kind != PluginSettingKind.Text ||
+                || (setting.Choices is { } choices && (setting.Kind is not (PluginSettingKind.Text
+                                                           or PluginSettingKind.OrderedChoices) ||
                                                        choices.Count is 0 or > 64
                                                        || choices.Any(choice =>
-                                                           choice is null || choice.Length > 4096) ||
+                                                           choice is null || choice.Length > 4096
+                                                                          || (setting.Kind ==
+                                                                              PluginSettingKind.OrderedChoices
+                                                                              && choice.Contains(','))) ||
                                                        choices.Distinct(StringComparer.Ordinal).Count() !=
                                                        choices.Count))
+                || (setting.Kind == PluginSettingKind.OrderedChoices && setting.Choices is null)
                 || !Accepts(setting, setting.Default))
             {
                 return false;
@@ -142,8 +153,23 @@ public static class PluginConfigurationRules
             PluginSettingKind.Text => value.Text is not null &&
                                       (setting.Choices is null ||
                                        setting.Choices.Contains(value.Text, StringComparer.Ordinal)),
+            PluginSettingKind.Secret => value.Text is not null && setting.Choices is null,
+            PluginSettingKind.OrderedChoices => AcceptsOrder(setting, value.Text),
             _ => false
         };
+    }
+
+    private static bool AcceptsOrder(PluginSetting setting, string? value)
+    {
+        if (value is null || setting.Choices is not { } choices)
+        {
+            return false;
+        }
+
+        var ordered = value.Split(',');
+        return ordered.Length == choices.Count
+               && ordered.Distinct(StringComparer.Ordinal).Count() == ordered.Length
+               && ordered.All(choice => choices.Contains(choice, StringComparer.Ordinal));
     }
 
     /// <summary>Checks a bounded stable preference identity.</summary>

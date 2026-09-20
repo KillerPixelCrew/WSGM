@@ -107,7 +107,7 @@ public sealed class OverlayNavigationTests
             Assert.True(navigation.Push(OverlayPage.SteamLibraryTabs, $"steam.row.{depth}"));
         }
 
-        Assert.False(navigation.Push(OverlayPage.SteamArtwork, "one.too.many"));
+        Assert.False(navigation.Push(OverlayPage.SteamCardManager, "one.too.many"));
         Assert.Equal(OverlayNavigation.MaximumDepth, navigation.Depth);
     }
 
@@ -116,13 +116,13 @@ public sealed class OverlayNavigationTests
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
-        navigation.Push(OverlayPage.SteamArtwork, "steam.artwork");
+        navigation.Push(OverlayPage.SteamCardManager, "steam.cards");
 
         Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(true, true));
         Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(false, true));
         Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(false, false));
 
-        Assert.Equal("steam.artwork", navigation.Pop());
+        Assert.Equal("steam.cards", navigation.Pop());
         Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
 
         // Every other root behaves the same: Back returns to Quick access from it, and only

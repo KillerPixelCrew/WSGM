@@ -1,0 +1,12 @@
+{
+  "id": "wsgm.artwork",
+  "name": "Steam Artwork",
+  "version": "0.1.0",
+  "category": "wsgm.artwork",
+  "minimumApiVersion": 1,
+  "maximumApiVersion": 1,
+  "entryAssembly": "WSGM.Plugin.Artwork.dll",
+  "entryType": "WSGM.Plugin.Artwork.ArtworkPlugin",
+  "dependencies": [],
+  "permissions": ["network", "steam-ui", "steam-files"]
+}

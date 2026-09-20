@@ -48,6 +48,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
+    private readonly SteamGameContextMenuBackend? _gameContextMenu;
+
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
 
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
@@ -63,12 +65,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly Lock _observationGate = new();
     private readonly Action<PerformanceState> _onPerformanceStateChanged;
+    private readonly Action? _onPluginSteamUiChanged;
     private readonly SteamOverlayActivationPatch _overlayActivation = new();
     private readonly bool _ownsBrightness;
     private readonly SteamUiPatchManager _patches;
     private readonly PerformanceServiceNativeQamAdapter _performance;
 
     private readonly PerformanceService _performanceService;
+    private readonly IReadOnlyList<ISteamUiModule> _pluginModules;
+    private readonly HashSet<string> _pluginPatchIds;
+    private readonly CommonPluginSteamUiSource? _pluginSteamUi;
     private readonly NativeQamPowerPresetService _powerPresets;
 
     private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
@@ -108,6 +114,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _libraryBadgeEnabled;
     private volatile bool _networkIndicatorEnabled;
     private IDisposable? _performanceObservation;
+    private volatile bool _pluginSteamUiEnabled;
     private volatile bool _screensaverEnabled;
     private int _signalPending;
     private volatile bool _surfaceObservationEnabled;
@@ -142,6 +149,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     none. Steam's Screensaver settings get no rows then.
     /// </param>
     /// <param name="audioProfiles">The live advanced-audio service, or null in overlay-test.</param>
+    /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -158,10 +166,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         NativeQamBrightnessService? brightness = null,
         SteamStorageBridge? storage = null,
         DisplayTimeouts? displayTimeouts = null,
-        AudioProfileService? audioProfiles = null)
+        AudioProfileService? audioProfiles = null,
+        CommonPluginSteamUiSource? pluginSteamUi = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
+        _pluginSteamUi = pluginSteamUi;
+        _pluginModules = pluginSteamUi?.ReadModules() ?? [];
+        _pluginPatchIds = [.. _pluginModules.SelectMany(module => module.Patches).Select(patch => patch.Id)];
+        _gameContextMenu = pluginSteamUi is null ? null : new SteamGameContextMenuBackend(pluginSteamUi);
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -218,7 +231,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _bridge,
             modules,
             () =>
-                _enabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled,
+                _enabled || _pluginSteamUiEnabled || _libraryBadgeEnabled || _homeCarouselEnabled
+                || _screensaverEnabled,
             BootstrapWanted);
         _runtime.ModuleFailed += OnModuleFailed;
         _transport.GenerationChanged += OnGenerationChanged;
@@ -234,6 +248,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _onPerformanceStateChanged = _ => QueueStatePublication();
         _performanceService.StateChanged += _onPerformanceStateChanged;
         _controllerTarget.StateChanged += OnSemanticStateChanged;
+        if (_pluginSteamUi is not null)
+        {
+            _onPluginSteamUiChanged = QueueStatePublication;
+            _pluginSteamUi.Changed += _onPluginSteamUiChanged;
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
@@ -287,6 +307,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _performanceService.StateChanged -= _onPerformanceStateChanged;
         _autoTdp.StateChanged -= OnSemanticStateChanged;
         _controllerTarget.StateChanged -= OnSemanticStateChanged;
+        if (_pluginSteamUi is not null && _onPluginSteamUiChanged is not null)
+        {
+            _pluginSteamUi.Changed -= _onPluginSteamUiChanged;
+            _pluginSteamUi.Dispose();
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged -= OnSemanticStateChanged;
@@ -364,6 +390,25 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         QueueSynchronization();
+    }
+
+    /// <summary>Shows host-rendered common-plugin commands in Steam while the CEF master is on.</summary>
+    internal void ApplyPluginSteamUi(bool enabled)
+    {
+        if (_disposed || _pluginSteamUi is null || _pluginSteamUiEnabled == enabled)
+        {
+            return;
+        }
+
+        _pluginSteamUiEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+
+        SetPatchStates(BootstrapWanted(), _enabled);
+        QueueSynchronization();
+        QueueStatePublication();
     }
 
     /// <summary>Feeds Steam's header and Internet page through the registered network gate.</summary>
@@ -507,6 +552,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private bool IndependentSurfacesEnabled()
     {
         return _networkIndicatorEnabled
+               || _pluginSteamUiEnabled
                || _libraryBadgeEnabled
                || _homeCarouselEnabled
                || _screensaverEnabled
@@ -563,6 +609,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _enabled = false;
+        _pluginSteamUiEnabled = false;
         _networkIndicatorEnabled = false;
         _downloadSortEnabled = false;
         _libraryBadgeEnabled = false;
@@ -794,6 +841,23 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _homeCarousel)
         ];
 
+        if (_gameContextMenu is { } gameContextMenu)
+        {
+            modules.Add(SteamGameContextMenuSurface.Module(
+                () => _pluginSteamUiEnabled,
+                () => new ValueTask<SteamGameContextMenuState?>(gameContextMenu.ReadState()),
+                gameContextMenu));
+        }
+
+        if (_pluginSteamUi is { } pluginSteamUi)
+        {
+            modules.Add(SteamExtensionsTabSurface.Module(
+                () => _pluginSteamUiEnabled,
+                () => new ValueTask<SteamExtensionsTabState?>(pluginSteamUi.ReadExtensionsTab()),
+                pluginSteamUi));
+            modules.AddRange(_pluginModules);
+        }
+
         // WSGM's display-off rows in Steam's Screensaver settings, over the same timeouts the overlay
         // edits. Reading goes to Windows each time, so an overlay change reaches Steam on the next
         // publication and a change made in Windows reaches it when the page next opens.
@@ -909,8 +973,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => _libraryBadgeEnabled,
                 SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
                 SteamScreensaverSurface.PatchId => _screensaverEnabled,
+                SteamExtensionsTabSurface.PatchId => _pluginSteamUiEnabled,
+                SteamGameContextMenuSurface.PatchId => _pluginSteamUiEnabled,
                 SteamUiBridgePatch.PatchId => bootstrap,
                 SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
+                _ when _pluginPatchIds.Contains(patch.Id) => _pluginSteamUiEnabled,
                 _ => components
             };
             _patches.SetPatchEnabled(patch.Id, enabled);
@@ -997,5 +1064,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private void CancelAllInflightRequests()
     {
         _runtime.CancelAllInflight();
+    }
+
+    private sealed class SteamGameContextMenuBackend(CommonPluginSteamUiSource pluginSteamUi)
+        : ISteamGameContextMenuBackend
+    {
+        public async Task<SteamUiCommandResult> ActivateAsync(uint appId, string id,
+            CancellationToken cancellationToken)
+        {
+            return await pluginSteamUi.ActivateAsync(appId, id, cancellationToken).ConfigureAwait(false);
+        }
+
+        internal SteamGameContextMenuState ReadState()
+        {
+            return pluginSteamUi.ReadGameContextMenu();
+        }
     }
 }

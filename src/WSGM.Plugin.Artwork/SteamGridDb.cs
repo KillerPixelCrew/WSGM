@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -9,7 +10,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace WSGM.Plugin.Artwork;
 
 /// <summary>
 ///     An artwork slot. The numeric values are Steam's own <c>eAssetType</c>
@@ -41,8 +42,28 @@ public enum ArtworkAsset
 /// <param name="Width">Pixel width.</param>
 /// <param name="Height">Pixel height.</param>
 /// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
+/// <param name="Author">Artwork author.</param>
+/// <param name="Style">SteamGridDB style identifier.</param>
+/// <param name="Notes">SteamGridDB notes.</param>
+/// <param name="Animated">Whether the result is animated.</param>
+/// <param name="Nsfw">Whether the result is adult-tagged.</param>
+/// <param name="Humor">Whether the result is humor-tagged.</param>
+/// <param name="Epilepsy">Whether the result is flashing-content-tagged.</param>
 // ReSharper disable once NotAccessedPositionalProperty.Global
-public sealed record SgdbAsset(int Id, string Url, string Thumb, int Width, int Height, string Extension);
+public sealed record SgdbAsset(
+    int Id,
+    string Url,
+    string Thumb,
+    int Width,
+    int Height,
+    string Extension,
+    string? Author = null,
+    string? Style = null,
+    string? Notes = null,
+    bool Animated = false,
+    bool Nsfw = false,
+    bool Humor = false,
+    bool Epilepsy = false);
 
 /// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
 public sealed class SteamGridDbException : Exception
@@ -57,6 +78,9 @@ public sealed class SteamGridDbException : Exception
 /// <param name="Id">SteamGridDB game id.</param>
 /// <param name="Name">Game name.</param>
 public sealed record SgdbGame(int Id, string Name);
+
+/// <summary>One official Steam store asset described by SteamGridDB platform metadata.</summary>
+public sealed record SgdbOfficialAsset(string Label, string Url, int Width, int Height, string Extension);
 
 /// <summary>
 ///     Read-only client for the SteamGridDB v2 REST API: title search and per-slot
@@ -91,7 +115,7 @@ public static class SteamGridDb
     ///     free key in Settings (see <see cref="KeyPageUrl" />).
     /// </summary>
     /// <param name="config">The loaded configuration.</param>
-    public static string ResolveKey(AppConfig config)
+    public static string ResolveKey(ArtworkConfiguration config)
     {
         return config.SteamGridDbApiKey.Trim();
     }
@@ -145,6 +169,15 @@ public static class SteamGridDb
             cancellationToken);
     }
 
+    /// <summary>Lists a filtered, zero-based page for a Steam app.</summary>
+    public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForSteamAppAsync(
+        ArtworkAsset asset, long steamAppId, string key, ArtworkQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        return GetAssetsAsync(asset, "steam", steamAppId.ToString(CultureInfo.InvariantCulture), key,
+            cancellationToken, query);
+    }
+
     /// <summary>
     ///     Lists artwork candidates for a SteamGridDB game id (used when a Steam
     ///     app has no direct SteamGridDB mapping and the user searched by title).
@@ -160,8 +193,59 @@ public static class SteamGridDb
             cancellationToken);
     }
 
+    /// <summary>Resolves official Steam assets for a SteamGridDB game.</summary>
+    public static async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForGameAsync(
+        ArtworkAsset asset, int sgdbGameId, string key, CancellationToken cancellationToken = default)
+    {
+        var root = await GetAsync(
+                $"{ApiBase}/games/id/{sgdbGameId.ToString(CultureInfo.InvariantCulture)}?platformdata=steam",
+                key,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return root is null ? [] : ParseOfficialAssets(root.Value, asset);
+    }
+
+    /// <summary>Resolves official Steam assets for a Steam application id.</summary>
+    public static async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForSteamAppAsync(
+        ArtworkAsset asset, uint steamAppId, string key, CancellationToken cancellationToken = default)
+    {
+        var game = await GetAsync(
+                $"{ApiBase}/games/steam/{steamAppId.ToString(CultureInfo.InvariantCulture)}",
+                key,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (game is null || !game.Value.TryGetProperty("data", out var data))
+        {
+            return [];
+        }
+
+        if (data.ValueKind == JsonValueKind.Array)
+        {
+            data = data.EnumerateArray().FirstOrDefault();
+        }
+
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("id", out var id)
+                                                   || !id.TryGetInt32(out var sgdbGameId))
+        {
+            return [];
+        }
+
+        return await GetOfficialAssetsForGameAsync(asset, sgdbGameId, key, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Lists a filtered, zero-based page for a SteamGridDB game.</summary>
+    public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForGameAsync(
+        ArtworkAsset asset, int sgdbGameId, string key, ArtworkQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        return GetAssetsAsync(asset, "game", sgdbGameId.ToString(CultureInfo.InvariantCulture), key,
+            cancellationToken, query);
+    }
+
     private static async Task<IReadOnlyList<SgdbAsset>> GetAssetsAsync(
-        ArtworkAsset asset, string idKind, string id, string key, CancellationToken cancellationToken)
+        ArtworkAsset asset, string idKind, string id, string key, CancellationToken cancellationToken,
+        ArtworkQuery? query = null)
     {
         var (segment, dimensions) = asset switch
         {
@@ -172,11 +256,45 @@ public static class SteamGridDb
             ArtworkAsset.Icon => ("icons", null),
             _ => ("grids", null)
         };
-        var url = $"{ApiBase}/{segment}/{idKind}/{id}?types=static";
-        if (dimensions is not null)
+        var parameters = new List<string>();
+        if (query is null)
         {
-            url += $"&dimensions={dimensions}";
+            parameters.Add("types=static");
+            if (dimensions is not null)
+            {
+                parameters.Add($"dimensions={dimensions}");
+            }
         }
+        else
+        {
+            parameters.Add($"page={Math.Max(0, query.Page).ToString(CultureInfo.InvariantCulture)}");
+            parameters.Add("types=" + EncodeCsv(
+            [
+                .. new[] { query.Static ? "static" : null, query.Animated ? "animated" : null }
+                    .Where(value => value is not null).Select(value => value!)
+            ]));
+            AddCsv(parameters, "styles", query.Styles);
+            AddCsv(parameters, "dimensions", query.Dimensions);
+            AddCsv(parameters, "mimes", query.Mimes);
+            parameters.Add("nsfw=" + (query.Adult ? "any" : "false"));
+            parameters.Add("humor=" + (query.Untagged ? query.Humor ? "any" : "false" : "any"));
+            parameters.Add("epilepsy=" + (query.Untagged ? query.Epilepsy ? "any" : "false" : "any"));
+            if (!query.Untagged)
+            {
+                var tags = new[]
+                    {
+                        query.Adult ? "nsfw" : null,
+                        query.Humor ? "humor" : null,
+                        query.Epilepsy ? "epilepsy" : null
+                    }
+                    .Where(value => value is not null)
+                    .Select(value => value!)
+                    .ToArray();
+                AddCsv(parameters, "oneoftag", tags);
+            }
+        }
+
+        var url = $"{ApiBase}/{segment}/{idKind}/{id}?{string.Join('&', parameters)}";
 
         var root = await GetAsync(url, key, cancellationToken).ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("data", out var data)
@@ -201,11 +319,156 @@ public static class SteamGridDb
             var extension = ImageExtension(full);
             if (full.Length > 0 && extension is not null)
             {
-                list.Add(new SgdbAsset(assetId, full, thumb, w, h, extension));
+                var author = item.TryGetProperty("author", out var authorElement)
+                             && authorElement.ValueKind == JsonValueKind.Object
+                             && authorElement.TryGetProperty("name", out var authorName)
+                    ? authorName.GetString()
+                    : null;
+                var style = item.TryGetProperty("style", out var styleElement)
+                    ? styleElement.GetString()
+                    : null;
+                var animated = item.TryGetProperty("type", out var typeElement)
+                               && typeElement.GetString() == "animated";
+                list.Add(new SgdbAsset(
+                    assetId,
+                    full,
+                    thumb,
+                    w,
+                    h,
+                    extension,
+                    author,
+                    style,
+                    item.TryGetProperty("notes", out var notesElement) ? notesElement.GetString() : null,
+                    animated,
+                    ReadBoolean(item, "nsfw"),
+                    ReadBoolean(item, "humor"),
+                    ReadBoolean(item, "epilepsy")));
             }
         }
 
         return list;
+    }
+
+    private static void AddCsv(List<string> parameters, string name, IReadOnlyList<string>? values)
+    {
+        if (values is { Count: > 0 })
+        {
+            parameters.Add(name + "=" + EncodeCsv(values));
+        }
+    }
+
+    private static IReadOnlyList<SgdbOfficialAsset> ParseOfficialAssets(JsonElement root, ArtworkAsset asset)
+    {
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+                                                       || !data.TryGetProperty("external_platform_data",
+                                                           out var platforms)
+                                                       || platforms.ValueKind != JsonValueKind.Object
+                                                       || !platforms.TryGetProperty("steam", out var steamEntries)
+                                                       || steamEntries.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<SgdbOfficialAsset> assets = [];
+        foreach (var steam in steamEntries.EnumerateArray())
+        {
+            if (!steam.TryGetProperty("id", out var idElement) || idElement.ValueKind != JsonValueKind.String
+                                                               || !uint.TryParse(idElement.GetString(),
+                                                                   NumberStyles.None, CultureInfo.InvariantCulture,
+                                                                   out var steamAppId)
+                                                               || !steam.TryGetProperty("metadata", out var metadata)
+                                                               || metadata.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var timestamp = metadata.TryGetProperty("store_asset_mtime", out var mtime)
+                            && mtime.TryGetInt64(out var value)
+                ? "?t=" + value.ToString(CultureInfo.InvariantCulture)
+                : "";
+            if (asset == ArtworkAsset.Icon)
+            {
+                if (metadata.TryGetProperty("clienticon", out var icon)
+                    && icon.GetString() is { Length: > 0 } iconHash)
+                {
+                    assets.Add(new SgdbOfficialAsset(
+                        "Steam icon",
+                        $"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{steamAppId.ToString(CultureInfo.InvariantCulture)}/{Uri.EscapeDataString(iconHash)}.ico",
+                        32,
+                        32,
+                        "ico"));
+                }
+
+                continue;
+            }
+
+            var (property, width, height) = asset switch
+            {
+                ArtworkAsset.Grid => ("library_capsule_full", 600, 900),
+                ArtworkAsset.Wide => ("header_image_full", 920, 430),
+                ArtworkAsset.Hero => ("library_hero_full", 3840, 1240),
+                ArtworkAsset.Logo => ("library_logo_full", 0, 0),
+                _ => ("", 0, 0)
+            };
+            if (property.Length == 0 || !metadata.TryGetProperty(property, out var full)
+                                     || full.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var images = full;
+            if (asset != ArtworkAsset.Wide)
+            {
+                if (!full.TryGetProperty("image2x", out images) || images.ValueKind != JsonValueKind.Object)
+                {
+                    if (!full.TryGetProperty("image", out images) || images.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            foreach (var language in images.EnumerateObject())
+            {
+                if (language.Value.ValueKind != JsonValueKind.String
+                    || language.Value.GetString() is not { Length: > 0 } fileName)
+                {
+                    continue;
+                }
+
+                if (asset == ArtworkAsset.Wide && fileName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
+                {
+                    fileName = fileName[..^4] + "_2x.jpg";
+                }
+
+                var extension = ImageExtension(fileName);
+                if (extension is null)
+                {
+                    continue;
+                }
+
+                assets.Add(new SgdbOfficialAsset(
+                    language.Name,
+                    $"https://shared.steamstatic.com/store_item_assets/steam/apps/{steamAppId.ToString(CultureInfo.InvariantCulture)}/{Uri.EscapeDataString(fileName)}{timestamp}",
+                    width,
+                    height,
+                    extension));
+            }
+        }
+
+        return assets.Take(24).ToArray();
+    }
+
+    private static string EncodeCsv(IEnumerable<string> values)
+    {
+        return Uri.EscapeDataString(string.Join(',', values));
+    }
+
+    private static bool ReadBoolean(JsonElement item, string name)
+    {
+        return item.TryGetProperty(name, out var value)
+               && value.ValueKind is JsonValueKind.True or JsonValueKind.Number
+               && (value.ValueKind == JsonValueKind.True || (value.TryGetInt32(out var number) && number != 0));
     }
 
     /// <summary>
@@ -268,7 +531,7 @@ public static class SteamGridDb
         }
         catch (Exception ex)
         {
-            Log.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
+            ArtworkLog.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
             throw new SteamGridDbException("Could not download the artwork image.");
         }
     }
@@ -284,7 +547,7 @@ public static class SteamGridDb
             using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
+                ArtworkLog.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
                 throw new SteamGridDbException(response.StatusCode switch
                 {
                     HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
@@ -310,7 +573,7 @@ public static class SteamGridDb
         }
         catch (Exception ex)
         {
-            Log.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
+            ArtworkLog.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
             throw new SteamGridDbException("Could not contact SteamGridDB.");
         }
     }
@@ -326,6 +589,8 @@ public static class SteamGridDb
         {
             ".jpg" or ".jpeg" => "jpg",
             ".png" => "png",
+            ".webp" => "webp",
+            ".ico" => "ico",
             _ => null
         };
     }

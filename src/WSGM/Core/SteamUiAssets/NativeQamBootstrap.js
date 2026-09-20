@@ -734,6 +734,147 @@
     const factory = runtime.findUnique(ReactTokens);
     return factory ? runtime(factory[0]) : null;
   };
+  // Steam's Panel joins its navigation graph and maps onActivate to mouse and gamepad OK.
+  // Generic button forwardRefs have identical closure bodies, so their source cannot identify them.
+  const NativeFocusableTokens = ["focusableIfEmpty", "onActivate", '"Panel"'];
+  const resolveNativeFocusable = (runtime) =>
+    runtime.exported([...NativeFocusableTokens], (value) => {
+      if (typeof value !== "function") return false;
+      const source = String(value);
+      return ["onActivate", "onCancel", "focusableIfEmpty", "focusClassName"].every((token) =>
+        source.includes(token),
+      );
+    });
+  // Native Steam controls shared by plugin pages and toolkit-owned surfaces. Component export names
+  // are minified and change between client builds, so every control is selected from a uniquely
+  // fingerprinted provider by its own behavior. Consumers must treat a null optional control as an
+  // unavailable capability rather than replacing it with an imitation.
+  const uniqueSteamExport = (exports, predicate) => {
+    const matches = new Set();
+    for (const name of Object.keys(exports ?? {})) {
+      try {
+        const value = exports[name];
+        if (predicate(value)) matches.add(value);
+      } catch {
+        // An export whose getter or shape test throws is not the requested component.
+      }
+    }
+    return matches.size === 1 ? [...matches][0] : null;
+  };
+  const sourceOfSteamComponent = (value) => {
+    if (typeof value === "function") return String(value);
+    return typeof value?.render === "function" ? String(value.render) : "";
+  };
+  const optionalSteamExport = (runtime, tokens, predicate) => {
+    try {
+      return runtime.exported(tokens, predicate);
+    } catch {
+      return null;
+    }
+  };
+  const resolveSteamFieldComponents = (runtime) => {
+    const react = resolveReact(runtime);
+    const fieldsFactory = runtime.findUnique(FieldTokens);
+    if (!react || !fieldsFactory) return null;
+    const fields = runtime(fieldsFactory[0]);
+    const sliderField = uniqueSteamExport(fields, (value) => {
+      if (typeof value !== "function") return false;
+      const source = String(value);
+      return ["onChangeComplete", "notchCount", "valueSuffix", "explainerTitle"].every((token) =>
+        source.includes(token),
+      );
+    });
+    const dropdown = uniqueSteamExport(fields, (value) => {
+      if (typeof value !== "function") return false;
+      const source = String(value);
+      return DropdownMarkers.every((token) => source.includes(token));
+    });
+    const toggleField = uniqueSteamExport(fields, (value) => {
+      const source = sourceOfSteamComponent(value);
+      return source.includes("OnToggleChange") && source.includes("this.Toggle()");
+    });
+    const dialogButton = uniqueSteamExport(fields, (value) =>
+      sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Secondary"'),
+    );
+    const dialogButtonPrimary = uniqueSteamExport(fields, (value) =>
+      sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Primary"'),
+    );
+    const textField = uniqueSteamExport(
+      fields,
+      (value) =>
+        typeof value?.validateUrl === "function" && typeof value?.validateEmail === "function",
+    );
+    return {
+      react,
+      sliderField,
+      dropdown,
+      toggleField,
+      dialogButton,
+      dialogButtonPrimary,
+      textField,
+    };
+  };
+  const resolveSteamUiComponents = (runtime) => {
+    const fields = resolveSteamFieldComponents(runtime);
+    if (!fields) return null;
+    const focusable = resolveNativeFocusable(runtime);
+    const tabsFactory = runtime.findUnique([".TabRowTabs", "activeTab:"]);
+    const tabs = tabsFactory
+      ? uniqueSteamExport(
+          runtime(tabsFactory[0]),
+          (value) => value?.type && String(value.type).includes("(function()"),
+        )
+      : null;
+    const modalRoot = optionalSteamExport(
+      runtime,
+      ["Either closeModal or onCancel should be passed to GenericDialog. Classes: "],
+      (value) =>
+        typeof value === "function" &&
+        String(value).includes("Either closeModal or onCancel should be passed to GenericDialog"),
+    );
+    const showModalRaw = optionalSteamExport(
+      runtime,
+      ["props.bDisableBackgroundDismiss"],
+      (value) =>
+        typeof value === "function" &&
+        String(value).includes("props.bDisableBackgroundDismiss") &&
+        !value?.prototype?.Cancel,
+    );
+    const showModal = showModalRaw
+      ? (modal, parent = window, props = {}) =>
+          showModalRaw(
+            modal,
+            parent,
+            props.strTitle ?? "",
+            { bHideMainWindowForPopouts: false, ...props },
+            undefined,
+            { bHideActions: props.bHideActionIcons },
+          )
+      : null;
+    return {
+      ...fields,
+      focusable,
+      tabs,
+      modalRoot,
+      showModal,
+    };
+  };
+  // Only a route returned by a successful host command is followed. Publications cannot inject a
+  // target, and the bounds keep this a router operation rather than an open-ended navigation API.
+  const navigateSteamRoute = (route) => {
+    if (
+      typeof route !== "string" ||
+      !route.startsWith("/") ||
+      route === "/" ||
+      route.length > 256
+    ) {
+      return false;
+    }
+    const history = window.tempNavStore?.m_history;
+    if (!history || typeof history.push !== "function") return false;
+    history.push(route);
+    return true;
+  };
   // Valve's localize-with-fallback, chosen by what its source does rather than by parameter names:
   // it passes the token alone to LocalizeString and returns the token when no string exists. The
   // tokens "LocalizeString(e)" and "void 0===r?e" held until the September 2026 beta's minifier
@@ -2026,6 +2167,695 @@
     return { register, unregister, registered };
   }
   registerGate("elements", createElementsGate());
+  // The Quick Access Extensions tab.
+  //
+  // Decky demonstrates that a tab object is data added to the QAM's tab list, but this gate owns the
+  // narrow operation rather than exposing Decky's raw patch helpers to package code. The tab body is
+  // entirely host-rendered from a typed publication, so extensions cannot inject a React tree into a
+  // shared Steam surface.
+  function createExtensionsTab() {
+    const patchId = "steam-ui.extensions-tab";
+    const claimKeys = {
+      marker: "__steamUiExtensionsTabClaimed",
+      original: "__steamUiExtensionsTabOriginal",
+    };
+    const QamToken = "QuickAccessMenuBrowserView";
+    const MaximumItems = 64;
+    const MaximumDescent = 12;
+    let runtime;
+    let react;
+    let focusable;
+    let memo = null;
+    let installed = false;
+    let unsubscribe = null;
+    let desired = { items: [], revision: 0 };
+    let lastOutcome = "never rendered";
+    let lastError = "";
+    const descenderCache = new Map();
+    const validAction = (action) =>
+      action &&
+      typeof action.id === "string" &&
+      action.id.length > 0 &&
+      action.id.length <= 96 &&
+      typeof action.label === "string" &&
+      action.label.length > 0 &&
+      action.label.length <= 160;
+    const validSetting = (setting) =>
+      setting &&
+      typeof setting.key === "string" &&
+      setting.key.length > 0 &&
+      setting.key.length <= 128 &&
+      typeof setting.label === "string" &&
+      setting.label.length > 0 &&
+      setting.label.length <= 128 &&
+      ["boolean", "number", "text", "secret", "order"].includes(setting.kind) &&
+      (setting.choices === undefined ||
+        setting.choices === null ||
+        (Array.isArray(setting.choices) &&
+          setting.choices.length <= 64 &&
+          setting.choices.every((choice) => typeof choice === "string" && choice.length <= 4096)));
+    const validItem = (item) =>
+      item &&
+      typeof item.id === "string" &&
+      item.id.length > 0 &&
+      typeof item.name === "string" &&
+      typeof item.version === "string" &&
+      typeof item.status === "string" &&
+      (item.actions === undefined ||
+        item.actions === null ||
+        (Array.isArray(item.actions) &&
+          item.actions.length <= 64 &&
+          item.actions.every(validAction))) &&
+      (item.settings === undefined ||
+        item.settings === null ||
+        (Array.isArray(item.settings) &&
+          item.settings.length <= 128 &&
+          item.settings.every(validSetting))) &&
+      Number.isSafeInteger(item.configurationRevision ?? 0) &&
+      (item.configurationRevision ?? 0) >= 0 &&
+      (item.detail === undefined || item.detail === null || typeof item.detail === "string");
+    // Steam's QAM tab view is private. This bounded traversal finds the first element whose own
+    // props carry the tab list, matching what the live client renders rather than indexing its tree.
+    const replaceTabs = (element, depth, visible) => {
+      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+      const tabs = element.props?.tabs;
+      if (Array.isArray(tabs)) {
+        const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
+        if (existing.length === 1) {
+          lastOutcome = `tabs=${tabs.length} extensions=present`;
+          return element;
+        }
+        if (existing.length > 1) {
+          lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
+          return element;
+        }
+        const tab = {
+          key: "steam-ui.extensions-tab",
+          title: null,
+          tab: createIconRenderer(react)("plug", 22),
+          steamUiExtensionsTab: true,
+          initialVisibility: !!visible,
+          panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
+        };
+        lastOutcome = `tabs=${tabs.length} extensions=added`;
+        return react.cloneElement(element, { tabs: [...tabs, tab] });
+      }
+      return mapChildren(react, element, (child) => replaceTabs(child, depth + 1, visible));
+    };
+    function ExtensionsTabPanel() {
+      const [, setRevision] = react.useState(0);
+      const [drafts, setDrafts] = react.useState({});
+      react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
+      const items = desired.items;
+      const activate = (id) => {
+        void request(patchId, "activate", { id }, nextActionGeneration(patchId)).catch(() => {
+          // The host's refusal is already logged and the row remains truthful on the next state
+          // publication. A rejected click must not tear down the whole Quick Access panel.
+        });
+      };
+      // A typed draft belongs to the publication it was typed against. Dropping it when the host
+      // answers with a new configuration revision, and when the change is refused, is what stops the
+      // box from showing and resending a value the host has already replaced or rejected.
+      const dropDraft = (draftKey) =>
+        setDrafts((previous) => {
+          if (!(draftKey in previous)) return previous;
+          const next = { ...previous };
+          delete next[draftKey];
+          return next;
+        });
+      const configure = (item, setting, value) => {
+        const draftKey = `${item.id}:${setting.key}`;
+        void request(
+          patchId,
+          "configure",
+          { id: item.id, key: setting.key, value, revision: item.configurationRevision ?? 0 },
+          nextActionGeneration(patchId),
+        ).catch(() => dropDraft(draftKey));
+      };
+      const settingControl = (item, setting) => {
+        const draftKey = `${item.id}:${setting.key}`;
+        if (setting.kind === "boolean") {
+          return react.createElement(
+            focusable,
+            {
+              key: setting.key,
+              focusable: true,
+              navKey: `steam-ui-extension-setting-${draftKey}`,
+              onActivate: () => configure(item, setting, !setting.booleanValue),
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                width: "100%",
+                padding: "10px 12px",
+                margin: "3px 0",
+                color: "inherit",
+                background: "rgba(255,255,255,.05)",
+                border: 0,
+                borderRadius: "3px",
+              },
+            },
+            react.createElement("span", null, setting.label),
+            react.createElement("strong", null, setting.booleanValue ? "On" : "Off"),
+          );
+        }
+        if (setting.kind === "order" && Array.isArray(setting.choices)) {
+          const saved = String(setting.textValue ?? "")
+            .split(",")
+            .filter((choice) => setting.choices.includes(choice));
+          const ordered = [...new Set([...saved, ...setting.choices])];
+          const move = (index, delta) => {
+            const target = index + delta;
+            if (target < 0 || target >= ordered.length) return;
+            const next = [...ordered];
+            [next[index], next[target]] = [next[target], next[index]];
+            configure(item, setting, next.join(","));
+          };
+          return react.createElement(
+            "div",
+            { key: setting.key, style: { display: "grid", gap: "4px", padding: "8px 0" } },
+            react.createElement("div", { style: { opacity: 0.8 } }, setting.label),
+            ...ordered.map((choice, choiceIndex) =>
+              react.createElement(
+                "div",
+                {
+                  key: choice,
+                  style: {
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto auto",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "5px 8px",
+                    background: "rgba(255,255,255,.05)",
+                  },
+                },
+                react.createElement("span", null, choice),
+                react.createElement(
+                  focusable,
+                  {
+                    focusable: true,
+                    navKey: `steam-ui-extension-order-up-${draftKey}-${choiceIndex}`,
+                    onActivate: () => move(choiceIndex, -1),
+                    style: { padding: "7px 10px", color: "inherit", background: "transparent" },
+                  },
+                  "↑",
+                ),
+                react.createElement(
+                  focusable,
+                  {
+                    focusable: true,
+                    navKey: `steam-ui-extension-order-down-${draftKey}-${choiceIndex}`,
+                    onActivate: () => move(choiceIndex, 1),
+                    style: { padding: "7px 10px", color: "inherit", background: "transparent" },
+                  },
+                  "↓",
+                ),
+              ),
+            ),
+          );
+        }
+        if (Array.isArray(setting.choices)) {
+          return react.createElement(
+            "div",
+            {
+              key: setting.key,
+              style: { display: "grid", gap: "4px", padding: "8px 0" },
+            },
+            react.createElement("div", { style: { opacity: 0.8 } }, setting.label),
+            ...setting.choices.map((choice, choiceIndex) =>
+              react.createElement(
+                focusable,
+                {
+                  key: choice,
+                  focusable: true,
+                  navKey: `steam-ui-extension-choice-${draftKey}-${choiceIndex}`,
+                  onActivate: () => configure(item, setting, choice),
+                  style: {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    width: "100%",
+                    padding: "9px 12px",
+                    color: "inherit",
+                    background: "rgba(255,255,255,.05)",
+                    border: 0,
+                    borderRadius: "3px",
+                  },
+                },
+                react.createElement("span", null, choice),
+                react.createElement("strong", null, setting.textValue === choice ? "Selected" : ""),
+              ),
+            ),
+          );
+        }
+        const revision = item.configurationRevision ?? 0;
+        const draft = drafts[draftKey];
+        const current =
+          draft && draft.revision === revision
+            ? draft.value
+            : (setting.textValue ?? setting.numberValue ?? "");
+        return react.createElement(
+          "div",
+          {
+            key: setting.key,
+            style: { display: "grid", gap: "6px", padding: "8px 0" },
+          },
+          react.createElement("label", null, setting.label),
+          react.createElement("input", {
+            type:
+              setting.kind === "secret"
+                ? "password"
+                : setting.kind === "number"
+                  ? "number"
+                  : "text",
+            value: current,
+            min: setting.minimum,
+            max: setting.maximum,
+            onChange: (event) =>
+              setDrafts((previous) => ({
+                ...previous,
+                [draftKey]: { value: event.currentTarget.value, revision },
+              })),
+            style: {
+              padding: "8px 10px",
+              color: "inherit",
+              background: "rgba(0,0,0,.3)",
+              border: "1px solid rgba(255,255,255,.25)",
+            },
+          }),
+          react.createElement(
+            focusable,
+            {
+              focusable: true,
+              navKey: `steam-ui-extension-save-${draftKey}`,
+              onActivate: () =>
+                configure(
+                  item,
+                  setting,
+                  setting.kind === "number" ? Number(current) : String(current),
+                ),
+              style: {
+                padding: "8px 12px",
+                color: "inherit",
+                background: "#1a9fff",
+                border: 0,
+                borderRadius: "3px",
+              },
+            },
+            "Save",
+          ),
+        );
+      };
+      const rows = items.map((item) =>
+        react.createElement(
+          "section",
+          {
+            key: item.id,
+            style: {
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              padding: "12px 16px",
+              margin: "4px 0",
+              color: "inherit",
+              background: "rgba(255,255,255,.06)",
+              border: "0",
+              borderRadius: "3px",
+            },
+          },
+          react.createElement("div", { style: { fontWeight: 700 } }, item.name),
+          react.createElement(
+            "div",
+            { style: { fontSize: "0.8em", opacity: 0.75 } },
+            [item.version, item.status, item.detail].filter((part) => !!part).join(" · "),
+          ),
+          ...(item.actions ?? []).map((action) =>
+            react.createElement(
+              focusable,
+              {
+                key: action.id,
+                focusable: true,
+                navKey: `steam-ui-extension-action-${action.id}`,
+                onActivate: () => activate(action.id),
+                style: {
+                  width: "100%",
+                  marginTop: "8px",
+                  padding: "9px 12px",
+                  color: "inherit",
+                  background: "rgba(255,255,255,.1)",
+                  border: 0,
+                  borderRadius: "3px",
+                  textAlign: "left",
+                },
+              },
+              action.label,
+            ),
+          ),
+          ...(item.settings ?? []).map((setting) => settingControl(item, setting)),
+        ),
+      );
+      return react.createElement(
+        "div",
+        { className: "steam-ui-extensions-tab", style: { padding: "16px" } },
+        react.createElement("h2", null, "Extensions"),
+        rows.length
+          ? rows
+          : react.createElement(
+              "div",
+              { style: { opacity: 0.7 } },
+              "No Steam UI extensions are installed.",
+            ),
+      );
+    }
+    const tabDescender = (type) =>
+      function SteamUiExtensionsTabDescend(props) {
+        return descend(type(props), 0, props?.visible);
+      };
+    const descend = (element, depth, visible) => {
+      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+      const replaced = replaceTabs(element, depth, visible);
+      if (replaced !== element) return replaced;
+      return descendInto(react, element, descenderCache, tabDescender) ?? element;
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("extensions-tab");
+      react = resolveReact(runtime);
+      if (!react) {
+        lastError = "React runtime was not a unique match";
+        return false;
+      }
+      focusable = resolveNativeFocusable(runtime);
+      if (!focusable) {
+        lastError = "Native Steam focusable control was not a unique match";
+        return false;
+      }
+      const qam = runtime.findUnique([QamToken]);
+      if (!qam) {
+        lastError = "Quick Access module was not a unique match";
+        return false;
+      }
+      const exports = runtime(qam[0]);
+      const candidates = Object.keys(exports).filter((name) => {
+        const value = exports[name];
+        const stored =
+          value?.type?.[claimKeys.marker] === true ? value.type[claimKeys.original] : value?.type;
+        const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
+        return (
+          value &&
+          typeof value === "object" &&
+          typeof original === "function" &&
+          String(original).includes(QamToken)
+        );
+      });
+      if (candidates.length !== 1) {
+        lastError = `Quick Access memo was ${candidates.length ? "ambiguous" : "absent"}`;
+        return false;
+      }
+      memo = exports[candidates[0]];
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (
+        !attemptResolution(
+          resolve,
+          (error) => (lastError = "Extensions tab resolution failed: " + String(error)),
+        )
+      ) {
+        return { ok: false, error: lastError };
+      }
+      const claim = claimMember(memo, "type", claimKeys, (original) => {
+        if (typeof original !== "function") return original;
+        return function SteamUiExtensionsTabRoot(props) {
+          return descend(original(props), 0, props?.visible);
+        };
+      });
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        const items = Array.isArray(state?.items)
+          ? state.items.filter(validItem).slice(0, MaximumItems)
+          : [];
+        desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+      });
+      return { ok: true, installed: true, reclaimed: claim.reclaimed };
+    };
+    // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
+    // leaves the claim live while every later remove() answers `absent` and never retries it.
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      const released = releaseMember(memo, "type", claimKeys);
+      if (!released.ok) {
+        lastError = released.error ?? "Extensions tab release failed";
+        return { ok: false, error: lastError };
+      }
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      desired = { items: [], revision: 0 };
+      descenderCache.clear();
+      lastOutcome = "removed";
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!memo,
+      nativeFocusableResolved: !!focusable,
+      claimed: memberClaimed(memo, "type", claimKeys),
+      items: desired.items.length,
+      revision: desired.revision,
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("extensionsTab", createExtensionsTab());
+  // Host-owned per-game commands in Steam's library and gear context menu.
+  //
+  // The component already knows which app opened its menu. This gate only wraps that render method,
+  // reuses the exact item type Steam emitted, and sends a bounded app id plus host command identity.
+  // It never offers package JavaScript or React nodes a handle to Steam's private menu objects.
+  function createGameContextMenu() {
+    const patchId = "steam-ui.game-context-menu";
+    const renderClaimKeys = {
+      marker: "__steamUiGameContextMenuRenderClaimed",
+      original: "__steamUiGameContextMenuRenderOriginal",
+    };
+    const MenuTokens = ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"];
+    const MaximumItems = 32;
+    const MaximumDepth = 10;
+    let runtime;
+    let react;
+    let menuComponent = null;
+    let jsxRuntime;
+    let installed = false;
+    let unsubscribe = null;
+    let desired = { items: [], revision: 0 };
+    let lastOutcome = "never rendered";
+    let lastError = "";
+    const validItem = (item) =>
+      item &&
+      typeof item.id === "string" &&
+      item.id.length > 0 &&
+      item.id.length <= 96 &&
+      typeof item.label === "string" &&
+      item.label.length > 0 &&
+      item.label.length <= 160;
+    const appIdFor = (instance) => {
+      try {
+        const apps = instance?.GetTargetApps?.();
+        const appId = Array.isArray(apps) && apps.length === 1 ? apps[0]?.appid : null;
+        return Number.isSafeInteger(appId) && appId > 0 ? appId : null;
+      } catch (error) {
+        lastError = "Game menu app lookup failed: " + String(error);
+        return null;
+      }
+    };
+    // Item components are module-private. A menu already rendered at least one when it reached this
+    // wrapper, so borrow its actual type rather than resolving unrelated exports by a CSS name.
+    const findItemType = (element, depth = 0) => {
+      if (depth > MaximumDepth || !react.isValidElement(element)) return null;
+      if (typeof element.props?.onSelected === "function" && element.type) return element.type;
+      for (const child of react.Children.toArray(element.props?.children)) {
+        const found = findItemType(child, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    };
+    const containsPropertiesAction = (element, depth = 0) => {
+      if (depth > MaximumDepth || !react.isValidElement(element)) return false;
+      if (
+        typeof element.props?.onSelected === "function" &&
+        String(element.props.onSelected).includes("AppProperties")
+      ) {
+        return true;
+      }
+      return react.Children.toArray(element.props?.children).some((child) =>
+        containsPropertiesAction(child, depth + 1),
+      );
+    };
+    const insertItems = (root, appId) => {
+      if (!react.isValidElement(root) || desired.items.length === 0) return root;
+      const itemType = findItemType(root);
+      if (!itemType) {
+        lastOutcome = "menu item type absent";
+        return root;
+      }
+      const children = react.Children.toArray(root.props?.children);
+      if (children.length === 0) {
+        lastOutcome = "menu root had no children";
+        return root;
+      }
+      const ownItems = desired.items.map((item) =>
+        react.createElement(
+          itemType,
+          {
+            key: `steam-ui-game-context-menu-${item.id}`,
+            onSelected: () => {
+              void request(
+                patchId,
+                "activate",
+                { appId, id: item.id },
+                nextActionGeneration(patchId),
+              ).then(
+                (answer) => {
+                  if (answer?.route) navigateSteamRoute(answer.route);
+                },
+                () => {
+                  // A refusal stays host-authoritative and must not make Steam's menu fail.
+                },
+              );
+            },
+          },
+          item.label,
+        ),
+      );
+      const beforeProperties = children.findIndex((child) => containsPropertiesAction(child));
+      const index = beforeProperties >= 0 ? beforeProperties : children.length;
+      children.splice(index, 0, ...ownItems);
+      lastOutcome = `app=${appId} commands=${ownItems.length} ${beforeProperties >= 0 ? "before-properties" : "appended"}`;
+      return react.cloneElement(root, undefined, children);
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("game-context-menu");
+      react = resolveReact(runtime);
+      if (!react) {
+        lastError = "React runtime was not a unique match";
+        return false;
+      }
+      const menu = runtime.findUnique(MenuTokens);
+      if (!menu) {
+        lastError = "Game context menu module was not a unique match";
+        return false;
+      }
+      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
+      if (!jsxRuntime) {
+        lastError = "JSX runtime was not a unique match";
+        return false;
+      }
+      return true;
+    };
+    const claimMenuRender = (candidate) => {
+      if (
+        !candidate ||
+        !candidate.prototype ||
+        typeof candidate.prototype.render !== "function" ||
+        menuComponent === candidate
+      ) {
+        return;
+      }
+      if (menuComponent) {
+        lastError = "Game context menu component changed while claimed";
+        return;
+      }
+      const claim = claimMember(candidate.prototype, "render", renderClaimKeys, (original) => {
+        if (typeof original !== "function") return original;
+        return function SteamUiGameContextMenuRender(...args) {
+          const root = original.apply(this, args);
+          const appId = appIdFor(this);
+          return appId === null ? root : insertItems(root, appId);
+        };
+      });
+      if (!claim.ok) {
+        lastError = "Game context menu render claim failed: " + claim.error;
+        return;
+      }
+      menuComponent = candidate;
+      lastError = "";
+    };
+    // SharedJSContext owns React but has no visible DOM. Observe the existing shared JSX claim:
+    // the private class passes through it before its first render, so that same opening gets rows.
+    const captureMenu = (_create, candidate) => {
+      if (menuComponent || typeof candidate !== "function") return;
+      const prototype = candidate.prototype;
+      if (
+        prototype &&
+        typeof prototype.render === "function" &&
+        MenuTokens.every((name) => typeof prototype[name] === "function")
+      ) {
+        claimMenuRender(candidate);
+      }
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (
+        !attemptResolution(
+          resolve,
+          (error) => (lastError = "Game context menu resolution failed: " + String(error)),
+        )
+      ) {
+        return { ok: false, error: lastError };
+      }
+      const claim = interceptElements(jsxRuntime, patchId, captureMenu);
+      if (!claim.ok) {
+        lastError = claim.error ?? "Game context menu JSX interception failed";
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        const items = Array.isArray(state?.items)
+          ? state.items.filter(validItem).slice(0, MaximumItems)
+          : [];
+        desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+      });
+      return { ok: true, installed: true, observing: true };
+    };
+    // Both claims go back before the gate forgets it holds them. Clearing `installed` and
+    // `menuComponent` first would answer `absent` on every later remove() while the render claim and
+    // the JSX interception were still live, with nothing left that names what to release.
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      const releasedElements = releaseElements(jsxRuntime, patchId);
+      const releasedRender = releaseMember(menuComponent?.prototype, "render", renderClaimKeys);
+      if (!releasedRender.ok || !releasedElements.ok) {
+        lastError =
+          releasedRender.error ?? releasedElements.error ?? "Game context menu release failed";
+        return { ok: false, error: lastError };
+      }
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      desired = { items: [], revision: 0 };
+      menuComponent = null;
+      lastOutcome = "removed";
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!runtime && !!react,
+      observing: installed && elementsIntercepted(jsxRuntime, patchId),
+      menuClaimed: memberClaimed(menuComponent?.prototype, "render", renderClaimKeys),
+      items: desired.items.length,
+      revision: desired.revision,
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("gameContextMenu", createGameContextMenu());
   // Big Picture Home's carousel, fed from the libraries attached right now.
   //
   // Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
@@ -3600,6 +4430,13 @@
   // never react-router's. That is what gives a custom page native back-navigation: Steam's Route
   // registers the match with the back stack, so B and the back gesture pop the page the way they pop
   // /settings. Using react-router's Route renders the same content and silently loses that.
+  const steamPageRenderers = new Map();
+  const registerSteamPageRenderer = (template, render) => {
+    if (!template || template === "default" || steamPageRenderers.has(template)) {
+      throw new Error(`Steam page renderer '${template}' is invalid or already registered.`);
+    }
+    steamPageRenderers.set(template, render);
+  };
   function createPageHost() {
     const patchId = "steam-ui.pages";
     const claimKeys = {
@@ -3625,6 +4462,9 @@
     let react;
     let RouteComponent = null;
     let memo = null;
+    let routerFiber = null;
+    let routeSwitchFiber = null;
+    let routeSwitchWrapper = null;
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
@@ -3636,8 +4476,10 @@
     // a consumer's React lives in its own process, not in this asset, so what crosses the bridge is
     // data. A page renders its title and asks the host for its body, which is the same shape the
     // Quick Access rows already use.
-    const renderPage = (page) =>
-      react.createElement(
+    const renderPage = (page) => {
+      const renderer = steamPageRenderers.get(page.template);
+      if (renderer) return renderer(react, page);
+      return react.createElement(
         "div",
         {
           className: "steam-ui-page",
@@ -3647,6 +4489,7 @@
         react.createElement("h1", null, page.title),
         react.createElement("div", { id: `steam-ui-page-body-${page.id}` }),
       );
+    };
     const buildRoute = (page) =>
       react.createElement(
         RouteComponent,
@@ -3767,15 +4610,39 @@
         if (!node || seen.has(node)) continue;
         seen.add(node);
         visited++;
+        const current = node.elementType?.type;
+        const stored = current?.[claimKeys.marker] === true ? current[claimKeys.original] : current;
+        const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
         if (
-          typeof node.type === "function" &&
-          String(node.type).includes(RouterTokens[0]) &&
+          typeof original === "function" &&
+          String(original).includes(RouterTokens[0]) &&
           node.elementType &&
-          typeof node.elementType === "object" &&
-          node.elementType.type === node.type
+          typeof node.elementType === "object"
         ) {
+          routerFiber = node;
           return node.elementType;
         }
+        queue.push(node.child, node.sibling);
+      }
+      return null;
+    };
+    const findRouteSwitchFiber = () => {
+      const host = document.getElementById("root");
+      const key = host
+        ? Object.keys(host).find((name) => name.startsWith("__reactContainer$"))
+        : null;
+      const queue = key ? [host[key]] : [];
+      for (
+        let head = 0, visited = 0;
+        head < queue.length && visited <= MaximumNodesVisited;
+        head++, visited++
+      ) {
+        const node = queue[head];
+        if (!node) continue;
+        const current = node.type;
+        const original = current?.__steamUiPageSwitchOriginal ?? current;
+        const source = typeof original === "function" ? String(original) : "";
+        if (source.includes("computedMatch") && source.includes("TopLevelTransition")) return node;
         queue.push(node.child, node.sibling);
       }
       return null;
@@ -3795,6 +4662,42 @@
       if (!claim.ok) {
         lastError = claim.error;
         return { ok: false, error: lastError };
+      }
+      routeSwitchFiber = findRouteSwitchFiber();
+      if (!routeSwitchFiber) {
+        const rolledBack = releaseMember(memo, "type", claimKeys);
+        lastError = rolledBack.ok
+          ? "Steam's mounted route switch was not found"
+          : "Steam's mounted route switch was not found, and the router claim could not be released: " +
+            (rolledBack.error ?? "unknown");
+        return { ok: false, error: lastError };
+      }
+      const currentSwitch = routeSwitchFiber.type;
+      const originalSwitch = currentSwitch?.__steamUiPageSwitchOriginal ?? currentSwitch;
+      routeSwitchWrapper = function SteamUiPageSwitch(props) {
+        const children = react.Children.toArray(props?.children);
+        return originalSwitch({
+          ...props,
+          children: isRouteList(children) ? applyPages(children) : children,
+        });
+      };
+      Object.defineProperty(routeSwitchWrapper, "__steamUiPageSwitchOriginal", {
+        value: originalSwitch,
+      });
+      routeSwitchFiber.type = routeSwitchWrapper;
+      if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
+      // The memo object is now patched globally, but an already mounted fiber keeps its resolved
+      // function in `type`. Swap that live instance too, then ask the nearest class owner to
+      // reconcile. Without this late-install step, a bridge installed after Steam boot reports a
+      // successful claim while the router continues running the old function until a full reload.
+      routerFiber.type = memo.type;
+      if (routerFiber.alternate) routerFiber.alternate.type = memo.type;
+      let owner = routerFiber.return;
+      for (let depth = 0; owner && depth < 200; depth++, owner = owner.return) {
+        if (typeof owner.stateNode?.forceUpdate === "function") {
+          owner.stateNode.forceUpdate();
+          break;
+        }
       }
       installed = true;
       lastError = "";
@@ -3816,17 +4719,33 @@
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
+    // Every owned mutation goes back before the gate forgets it owns anything. Clearing `installed`
+    // ahead of the fallible release left both wrappers running while each later remove() answered
+    // `absent`, so a failed cleanup could never be retried.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      pages = [];
-      descendCache.clear();
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "page host release failed";
         return { ok: false, error: lastError };
       }
+      if (routerFiber) {
+        routerFiber.type = memo.type;
+        if (routerFiber.alternate) routerFiber.alternate.type = memo.type;
+      }
+      if (routeSwitchFiber && routeSwitchWrapper) {
+        const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
+        if (routeSwitchFiber.type === routeSwitchWrapper) routeSwitchFiber.type = originalSwitch;
+        if (routeSwitchFiber.alternate?.type === routeSwitchWrapper) {
+          routeSwitchFiber.alternate.type = originalSwitch;
+        }
+      }
+      routeSwitchFiber = null;
+      routeSwitchWrapper = null;
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      pages = [];
+      descendCache.clear();
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -4921,27 +5840,20 @@
       return matches.length === 1 ? matches[0] : null;
     };
     const createControlRuntime = () => {
-      const reactFactory = runtime.findUnique(ReactTokens);
-      const fieldsFactory = runtime.findUnique(FieldTokens);
+      const controls = resolveSteamFieldComponents(runtime);
       const layoutFactory = runtime.findUnique(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
       const localizationFactory = runtime.findUnique(LocalizationTokens);
-      if (!reactFactory || !fieldsFactory || !layoutFactory || !localizationFactory) return null;
-      const react = runtime(reactFactory[0]);
-      const fields = runtime(fieldsFactory[0]);
+      if (!controls || !layoutFactory || !localizationFactory) return null;
+      const react = controls.react;
       const layout = runtime(layoutFactory[0]);
       const localization = runtime(localizationFactory[0]);
-      const slider = uniqueFunction(fields, [
-        "onChangeComplete",
-        "notchCount",
-        "valueSuffix",
-        "explainerTitle",
-      ]);
-      const dropdown = uniqueFunction(fields, DropdownMarkers);
+      const slider = controls.sliderField;
+      const dropdown = controls.dropdown;
       // Steam's own ToggleField, from the same module as the slider and dropdown above. Selected by
       // the two markers of its class body rather than by its export name, which is minified and
       // changes with every client build. Live-verified 2026-08-29: exactly one export matches, and
       // the provider that names the module's fields lists that same class as ToggleField.
-      const toggle = uniqueFunction(fields, ["OnToggleChange", "this.Toggle()"]);
+      const toggle = controls.toggleField;
       // Valve's read-only label/value row, from the Field module rather than the fields module: it
       // is what a figure the panel only reports — the profile actually in effect — is supposed to
       // look like. Without it that line was a bare div with none of Steam's type, spacing or
@@ -6912,6 +7824,732 @@
     return { install, remove, status, dispose: disposeHostResources };
   }
   registerGate("nativeComponents", createNativeComponentHost());
+  // SteamGridDB-compatible artwork browser owned by the WSGM artwork plugin.
+  //
+  // The page deliberately renders with Steam's own component exports. The plugin owns artwork data
+  // and behavior; steam-ui-toolkit owns only the reusable, fail-closed component discovery used here.
+  const ArtworkBrowserPatchId = "steam-ui.artwork-browser";
+  let artworkUi = null;
+  let artworkDesired = null;
+  const artworkListeners = new Set();
+  const TransparentPixel =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVQYV2NgYAAAAAMAAWgmWQ0AAAAASUVORK5CYII=";
+  const artworkFilterOptions = (tab) => ({
+    styles:
+      tab === "logo"
+        ? ["official", "white", "black", "custom"]
+        : tab === "icon"
+          ? ["official", "custom"]
+          : tab === "hero"
+            ? ["alternate", "blurred", "material"]
+            : ["alternate", "white_logo", "no_logo", "blurred", "material"],
+    dimensions:
+      tab === "grid"
+        ? ["600x900", "342x482", "660x930", "512x512", "1024x1024"]
+        : tab === "wide"
+          ? ["460x215", "920x430", "512x512", "1024x1024"]
+          : tab === "hero"
+            ? ["1920x620", "3840x1240", "1600x650"]
+            : tab === "icon"
+              ? ["1024", "512", "310", "256", "192", "128", "96", "64", "48", "32", "16"]
+              : [],
+    mimes:
+      tab === "logo"
+        ? ["image/png", "image/webp"]
+        : tab === "icon"
+          ? ["image/png", "image/vnd.microsoft.icon"]
+          : ["image/png", "image/jpeg", "image/webp"],
+  });
+  const readableFilter = (value) =>
+    value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
+  const sendArtworkCommand = (command, payload = {}) =>
+    request(ArtworkBrowserPatchId, command, payload, nextActionGeneration(ArtworkBrowserPatchId));
+  const chooseLocalArtwork = (tab, failed) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = tab === "icon" ? ".png,.jpg,.jpeg,.webp,.ico" : ".png,.jpg,.jpeg,.webp";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 16 * 1024 * 1024) {
+        failed("The selected image must be smaller than 16 MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => failed("The selected image could not be read.");
+      reader.onload = () => {
+        const value = typeof reader.result === "string" ? reader.result : "";
+        const comma = value.indexOf(",");
+        if (comma < 0) {
+          failed("The selected image could not be read.");
+          return;
+        }
+        void sendArtworkCommand("applyLocal", {
+          tab,
+          name: file.name,
+          base64: value.slice(comma + 1),
+        }).catch((error) => failed(String(error?.message || error)));
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+  const showArtworkModal = (component, props = {}) => {
+    if (!artworkUi?.showModal) return null;
+    const react = artworkUi.react;
+    return artworkUi.showModal(react.createElement(component, props), window, {
+      strTitle: "SteamGridDB",
+    });
+  };
+  function ArtworkDetailsModal({ asset, label, closeModal }) {
+    const h = artworkUi.react.createElement;
+    const PrimaryButton = artworkUi.dialogButtonPrimary;
+    const Focusable = artworkUi.focusable;
+    return h(
+      artworkUi.modalRoot,
+      {
+        className: "sgdb-modal sgdb-modal-details",
+        closeModal,
+        bDisableBackgroundDismiss: false,
+        bHideCloseIcon: false,
+      },
+      h(
+        "div",
+        { className: `sgdb-modal-details-wrapper${asset.width > asset.height ? " wide" : ""}` },
+        h(
+          Focusable,
+          {
+            className: "image-wrap modal-image",
+            onActivate: () => {
+              void sendArtworkCommand("apply", { id: asset.id });
+              closeModal?.();
+            },
+            onOKActionDescription: `Apply ${label}`,
+          },
+          h("img", { src: asset.imageUrl, alt: "" }),
+        ),
+        h(
+          "div",
+          { className: "info" },
+          h(
+            PrimaryButton,
+            {
+              onClick: () => {
+                void sendArtworkCommand("apply", { id: asset.id });
+                closeModal?.();
+              },
+              onOKActionDescription: `Apply ${label}`,
+            },
+            `Apply ${label}`,
+          ),
+          h(
+            "span",
+            { className: "meta" },
+            [asset.format, asset.style, asset.width > 0 ? `${asset.width}×${asset.height}` : null]
+              .filter(Boolean)
+              .join(" • "),
+          ),
+          asset.author
+            ? h(Focusable, { className: "author" }, h("span", null, asset.author))
+            : null,
+          asset.notes ? h("p", { className: "notes" }, asset.notes) : null,
+        ),
+      ),
+    );
+  }
+  function ArtworkOfficialModal({ assets, label, closeModal }) {
+    const h = artworkUi.react.createElement;
+    const PrimaryButton = artworkUi.dialogButtonPrimary;
+    return h(
+      artworkUi.modalRoot,
+      { className: "sgdb-modal sgdb-modal-official-assets", closeModal },
+      h("h2", null, `Official ${label}`),
+      ...assets.map((asset) =>
+        h(
+          "div",
+          { className: "official-steam-asset", key: asset.id },
+          h("img", { src: asset.imageUrl, alt: asset.label || `Official ${label}` }),
+          h(
+            "div",
+            { className: "official-steam-asset-action" },
+            h("span", null, asset.label),
+            h(
+              PrimaryButton,
+              {
+                onClick: () => {
+                  void sendArtworkCommand("applyOfficial", { id: asset.id });
+                  closeModal?.();
+                },
+              },
+              `Apply ${label}`,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  function ArtworkFilterModal({ tab, label, initialFilter, closeModal }) {
+    const react = artworkUi.react;
+    const h = react.createElement;
+    const Button = artworkUi.dialogButton;
+    const PrimaryButton = artworkUi.dialogButtonPrimary;
+    const ToggleField = artworkUi.toggleField;
+    const TextField = artworkUi.textField;
+    const Focusable = artworkUi.focusable;
+    const options = artworkFilterOptions(tab);
+    const [filter, setFilter] = react.useState({ ...initialFilter });
+    const [searchTerm, setSearchTerm] = react.useState(artworkDesired?.selectedGame || "");
+    const [matches, setMatches] = react.useState(artworkDesired?.gameMatches || []);
+    react.useEffect(() => {
+      const listener = (state) =>
+        setMatches(Array.isArray(state?.gameMatches) ? state.gameMatches : []);
+      artworkListeners.add(listener);
+      return () => artworkListeners.delete(listener);
+    }, []);
+    const multiSelect = (title, name, values) =>
+      h(
+        "div",
+        { className: "sgdb-filter-field" },
+        h("label", null, title),
+        h(
+          Focusable,
+          { className: "sgdb-filter-options", "flow-children": "row" },
+          ...values.map((value) => {
+            const selected = (filter[name] || []).includes(value);
+            return h(
+              Button,
+              {
+                key: value,
+                className: selected ? "sgdb-filter-selected" : "",
+                onClick: () =>
+                  setFilter({
+                    ...filter,
+                    [name]: selected
+                      ? filter[name].filter((item) => item !== value)
+                      : [...(filter[name] || []), value],
+                  }),
+              },
+              `${selected ? "✓ " : ""}${readableFilter(value)}`,
+            );
+          }),
+        ),
+      );
+    const toggle = (name, labelText) =>
+      h(ToggleField, {
+        key: name,
+        label: labelText,
+        checked: !!filter[name],
+        onChange: (checked) => {
+          const next = { ...filter, [name]: checked };
+          if ((name === "static" || name === "animated") && !next.static && !next.animated) {
+            next[name === "static" ? "animated" : "static"] = true;
+          }
+          setFilter(next);
+        },
+      });
+    return h(
+      artworkUi.modalRoot,
+      { className: "sgdb-modal sgdb-modal-filters", closeModal },
+      h("h2", null, `${label} Filter`),
+      h(
+        "div",
+        { className: "sgdb-filter-game" },
+        TextField
+          ? h(TextField, {
+              label: "Game",
+              value: searchTerm,
+              placeholder: artworkDesired?.appName || "Search for a game",
+              onChange: (event) => setSearchTerm(event.currentTarget.value),
+            })
+          : null,
+        h(
+          Button,
+          {
+            onClick: () =>
+              void sendArtworkCommand("searchGames", {
+                term: searchTerm || artworkDesired?.appName || "Steam",
+              }),
+          },
+          "Search",
+        ),
+        artworkDesired?.selectedGame
+          ? h(
+              Button,
+              { onClick: () => void sendArtworkCommand("selectGame", { id: null }) },
+              "Use Steam game",
+            )
+          : null,
+      ),
+      matches.length
+        ? h(
+            Focusable,
+            { className: "sgdb-game-matches" },
+            ...matches.map((match) =>
+              h(
+                Button,
+                {
+                  key: match.id,
+                  onClick: () => void sendArtworkCommand("selectGame", { id: match.id }),
+                },
+                `${match.name} · ${match.provider}`,
+              ),
+            ),
+          )
+        : null,
+      options.dimensions.length
+        ? multiSelect("Dimensions", "dimensions", options.dimensions)
+        : null,
+      multiSelect("Styles", "styles", options.styles),
+      multiSelect("File Types", "mimes", options.mimes),
+      h("h3", null, "Types"),
+      toggle("animated", "Animated"),
+      toggle("static", "Static"),
+      h("h3", null, "Tags"),
+      toggle("adult", "Adult Content"),
+      toggle("humor", "Humor"),
+      toggle("epilepsy", "Epilepsy"),
+      toggle("untagged", "Untagged"),
+      h(
+        Focusable,
+        { className: "sgdb-modal-actions", "flow-children": "row" },
+        h(Button, { onClick: closeModal }, "Cancel"),
+        h(
+          PrimaryButton,
+          {
+            onClick: () => {
+              void sendArtworkCommand("setFilter", filter);
+              closeModal?.();
+            },
+          },
+          "Apply Filters",
+        ),
+      ),
+    );
+  }
+  function ArtworkLogoModal({ closeModal }) {
+    const react = artworkUi.react;
+    const h = react.createElement;
+    const Button = artworkUi.dialogButton;
+    const PrimaryButton = artworkUi.dialogButtonPrimary;
+    const SliderField = artworkUi.sliderField;
+    const Focusable = artworkUi.focusable;
+    const [position, setPosition] = react.useState({ anchor: "BottomLeft", width: 50, height: 50 });
+    const anchors = [
+      "TopLeft",
+      "TopCenter",
+      "TopRight",
+      "CenterLeft",
+      "CenterCenter",
+      "CenterRight",
+      "BottomLeft",
+      "BottomCenter",
+      "BottomRight",
+    ];
+    return h(
+      artworkUi.modalRoot,
+      { className: "sgdb-modal sgdb-modal-logo", closeModal },
+      h("h2", null, "Adjust Logo Position"),
+      h(
+        "div",
+        { className: "sgdb-logo-preview" },
+        h("div", { className: `sgdb-logo-sample anchor-${position.anchor}` }, "GAME LOGO"),
+      ),
+      h(
+        Focusable,
+        { className: "sgdb-logo-anchors", "flow-children": "row" },
+        ...anchors.map((anchor) =>
+          h(
+            Button,
+            {
+              key: anchor,
+              className: position.anchor === anchor ? "sgdb-filter-selected" : "",
+              onClick: () => setPosition({ ...position, anchor }),
+            },
+            anchor.replace(/([A-Z])/g, " $1").trim(),
+          ),
+        ),
+      ),
+      h(SliderField, {
+        label: "Logo width",
+        value: position.width,
+        min: 5,
+        max: 100,
+        step: 1,
+        showValue: true,
+        valueSuffix: "%",
+        onChange: (width) => setPosition({ ...position, width }),
+      }),
+      h(SliderField, {
+        label: "Logo height",
+        value: position.height,
+        min: 5,
+        max: 100,
+        step: 1,
+        showValue: true,
+        valueSuffix: "%",
+        onChange: (height) => setPosition({ ...position, height }),
+      }),
+      h(
+        Focusable,
+        { className: "sgdb-modal-actions", "flow-children": "row" },
+        h(Button, { onClick: closeModal }, "Cancel"),
+        h(
+          PrimaryButton,
+          {
+            onClick: () => {
+              void sendArtworkCommand("saveLogoPosition", position);
+              closeModal?.();
+            },
+          },
+          "Save",
+        ),
+      ),
+    );
+  }
+  function renderArtworkBrowserPage(react, _page) {
+    const h = react.createElement;
+    const Focusable = artworkUi.focusable;
+    const Button = artworkUi.dialogButton;
+    const SliderField = artworkUi.sliderField;
+    const Tabs = artworkUi.tabs;
+    function ArtworkBrowserPage() {
+      const [state, setState] = react.useState(artworkDesired);
+      const [actionError, setActionError] = react.useState("");
+      const [cardSize, setCardSize] = react.useState(170);
+      react.useEffect(() => {
+        const listener = (next) => setState(next);
+        artworkListeners.add(listener);
+        return () => artworkListeners.delete(listener);
+      }, []);
+      if (!state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
+      const activate = (command, payload = {}) =>
+        sendArtworkCommand(command, payload).catch((error) => {
+          setActionError(String(error?.message || error));
+          return undefined;
+        });
+      const tabs = Array.isArray(state.tabs) ? state.tabs : [];
+      const assets = Array.isArray(state.assets) ? state.assets : [];
+      const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
+      const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
+      const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
+      const openFilters = () =>
+        showArtworkModal(ArtworkFilterModal, {
+          tab: state.activeTab,
+          label: active?.label || "Artwork",
+          initialFilter: state.filter,
+        });
+      const assetCard = (asset) =>
+        h(
+          "div",
+          { className: "asset-box-wrap", key: asset.id },
+          h(
+            Focusable,
+            {
+              className: `image-wrap type-${state.activeTab}`,
+              style: {
+                paddingBottom: `${asset.width === asset.height ? 100 : (asset.height / asset.width) * 100}%`,
+              },
+              onActivate: () => activate("apply", { id: asset.id }),
+              onSecondaryButton: openFilters,
+              onMenuButton: () =>
+                showArtworkModal(ArtworkDetailsModal, {
+                  asset,
+                  label: active?.label || "artwork",
+                }),
+              onContextMenu: (event) => {
+                event.preventDefault();
+                showArtworkModal(ArtworkDetailsModal, {
+                  asset,
+                  label: active?.label || "artwork",
+                });
+              },
+              onOKActionDescription: `Apply ${active?.label || "artwork"}`,
+              onSecondaryActionDescription: "Filter",
+              onMenuActionDescription: "Details",
+            },
+            h(
+              "div",
+              { className: "thumb" },
+              h("img", { src: asset.thumbnailUrl || asset.imageUrl, alt: "", loading: "lazy" }),
+            ),
+            asset.animated || asset.nsfw || asset.humor || asset.epilepsy
+              ? h(
+                  "ul",
+                  { className: "chips" },
+                  asset.animated ? h("li", { className: "chip animated" }, "Animated") : null,
+                  asset.nsfw ? h("li", { className: "chip nsfw" }, "Adult") : null,
+                  asset.humor ? h("li", { className: "chip humor" }, "Humor") : null,
+                  asset.epilepsy ? h("li", { className: "chip epilepsy" }, "Epilepsy") : null,
+                )
+              : null,
+          ),
+          asset.author ? h("div", { className: "author" }, asset.author) : null,
+        );
+      const assetContent = h(
+        "div",
+        { className: "tabcontents-wrap" },
+        state.loading
+          ? h("div", { className: "spinnyboi" }, h("img", { src: "/images/steam_spinner.png" }))
+          : null,
+        h(
+          Focusable,
+          { className: "sgdb-asset-toolbar", "flow-children": "row" },
+          h(
+            Focusable,
+            { className: "filter-buttons", "flow-children": "row" },
+            h(Button, { noFocusRing: true, onClick: openFilters }, "Filter"),
+            officialAssets.length
+              ? h(
+                  Button,
+                  {
+                    noFocusRing: true,
+                    onClick: () =>
+                      showArtworkModal(ArtworkOfficialModal, {
+                        assets: officialAssets,
+                        label: active?.label || "Artwork",
+                      }),
+                  },
+                  `Official ${active?.label || "Artwork"}`,
+                )
+              : null,
+            h(
+              Button,
+              {
+                noFocusRing: true,
+                onClick: () => chooseLocalArtwork(state.activeTab, setActionError),
+              },
+              "Browse Local",
+            ),
+            state.activeTab === "logo"
+              ? h(
+                  Button,
+                  { noFocusRing: true, onClick: () => showArtworkModal(ArtworkLogoModal) },
+                  "Adjust Logo Position",
+                )
+              : null,
+          ),
+          h(SliderField, {
+            className: "size-slider",
+            value: cardSize,
+            min: 100,
+            max: 260,
+            step: 5,
+            layout: "below",
+            bottomSeparator: "none",
+            onChange: setCardSize,
+          }),
+        ),
+        state.selectedGame || state.filter?.styles?.length || state.filter?.dimensions?.length
+          ? h(
+              Button,
+              { className: "sgdb-results-state", onClick: openFilters },
+              state.selectedGame
+                ? `Results for ${state.selectedGame}`
+                : "Some assets may be hidden due to filter",
+            )
+          : null,
+        state.error || state.notice || actionError
+          ? h(
+              "div",
+              { className: `sgdb-status${state.error || actionError ? " error" : ""}` },
+              state.error || actionError || state.notice,
+            )
+          : null,
+        h(
+          Focusable,
+          {
+            id: "images-container",
+            style: { "--asset-size": `${cardSize}px` },
+          },
+          ...assets.map(assetCard),
+        ),
+        !state.loading && assets.length === 0 && !state.error
+          ? h("div", { className: "sgdb-empty" }, "No Results Found.")
+          : null,
+        state.hasMore
+          ? h(
+              "div",
+              { className: "sgdb-load-more" },
+              h(Button, { onClick: () => activate("loadMore") }, "Load More"),
+            )
+          : null,
+      );
+      const manageContent = h(
+        Focusable,
+        { id: "local-images-container" },
+        ...managed.map((slot) =>
+          h(
+            "div",
+            { className: `asset-wrap asset-wrap-${slot.id}`, key: slot.id },
+            h("div", { className: "asset-label" }, `Current ${slot.label}`),
+            h(
+              Focusable,
+              { className: "manage-asset", focusWithinClassName: "is-focused" },
+              h(
+                "div",
+                { className: "asset" },
+                slot.imageUrl
+                  ? h("img", { className: "asset-img", src: slot.imageUrl, alt: "" })
+                  : h("span", null, slot.hasCustomArtwork ? "Custom artwork" : "Steam default"),
+              ),
+              h(
+                Focusable,
+                { className: "action-overlay", "flow-children": "row" },
+                h(Button, { onClick: () => activate("clear", { tab: slot.id }) }, "Clear"),
+                h(Button, { onClick: () => chooseLocalArtwork(slot.id, setActionError) }, "Browse"),
+                slot.id !== "icon"
+                  ? h(
+                      Button,
+                      {
+                        onClick: () =>
+                          activate("applyLocal", {
+                            tab: slot.id,
+                            name: "transparent.png",
+                            base64: TransparentPixel,
+                          }),
+                      },
+                      "Invisible",
+                    )
+                  : null,
+              ),
+            ),
+          ),
+        ),
+        h(
+          Focusable,
+          { className: "manage-actions", "flow-children": "row" },
+          h(Button, { onClick: () => showArtworkModal(ArtworkLogoModal) }, "Adjust Logo Position"),
+          h(Button, { onClick: () => activate("resetLogoPosition") }, "Reset Logo Position"),
+        ),
+      );
+      const nativeTabs = tabs.map((tab) => ({
+        id: tab.id,
+        title: tab.label,
+        content: tab.manage ? manageContent : tab.id === state.activeTab ? assetContent : null,
+        footer: tab.manage
+          ? undefined
+          : {
+              onSecondaryActionDescription: "Filter",
+              onSecondaryButton: openFilters,
+            },
+      }));
+      return h(
+        "div",
+        { id: "sgdb-wrap", "aria-label": `Artwork for ${state.appName}` },
+        h("style", null, artworkBrowserStyles),
+        h(Tabs, {
+          autoFocusContents: true,
+          activeTab: state.activeTab,
+          onShowTab: (tab) => activate("selectTab", { tab }),
+          tabs: nativeTabs,
+        }),
+      );
+    }
+    return h(ArtworkBrowserPage);
+  }
+  const artworkBrowserStyles = `
+#sgdb-wrap{--asset-size:170px;margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));background:var(--gpSystemDarkestGrey,#0e141b);color:#fff}
+#sgdb-wrap div[class*="gamepadtabbedpage_TabHeaderRowWrapper"]{background:#1b2838}
+#sgdb-wrap .tabcontents-wrap{display:flex;height:100%;width:100%;flex-direction:column}
+#sgdb-wrap .spinnyboi{display:flex;align-items:center;justify-content:center;position:fixed;inset:0;z-index:10008;background:#0e141b}
+#sgdb-wrap .spinnyboi img{transform:scale(.75)}
+#sgdb-wrap .sgdb-asset-toolbar{display:flex;width:100%;gap:var(--gpSpace-Gap,.6em)}
+#sgdb-wrap .filter-buttons{align-items:center;display:flex;gap:.5em}
+#sgdb-wrap .filter-buttons>button{min-width:auto;flex:1;white-space:nowrap}
+#sgdb-wrap .size-slider{flex:1;padding:.5em 1em;justify-content:center}
+#sgdb-wrap #images-container{display:grid;padding-top:1em;padding-bottom:var(--gamepadui-current-footer-height);justify-content:space-evenly;grid-auto-flow:dense;row-gap:1em;column-gap:.65em;grid-template-columns:repeat(auto-fill,minmax(min(var(--asset-size),100%),var(--asset-size)))}
+#sgdb-wrap .asset-box-wrap{display:flex;align-items:center;flex-wrap:wrap;position:relative}
+#sgdb-wrap .image-wrap{background:url('/images/defaultappimage.png') center/cover;position:relative;width:100%;margin-top:auto;outline:2px solid transparent;transition:outline-color 200ms}
+#sgdb-wrap .image-wrap.gpfocus,#sgdb-wrap .image-wrap:hover{z-index:10005;outline-color:rgba(255,255,255,.5)}
+#sgdb-wrap .image-wrap.type-logo{padding-bottom:0!important;height:185px}
+#sgdb-wrap .image-wrap.type-logo>.thumb,#sgdb-wrap .image-wrap.type-icon>.thumb{background:url('/images/defaultappimage.png') center/cover}
+#sgdb-wrap .image-wrap>.thumb{position:absolute;inset:0}
+#sgdb-wrap .image-wrap>.thumb img{position:absolute;inset:0;max-height:100%;max-width:100%;width:100%;height:auto;margin:0 auto}
+#sgdb-wrap .image-wrap.type-logo>.thumb img,#sgdb-wrap .image-wrap.type-icon>.thumb img{position:static;width:auto;height:100%;object-fit:contain}
+#sgdb-wrap .author{font-size:.65em;padding-top:.15em;overflow:hidden;text-shadow:0 1px 1px #000;white-space:nowrap;text-overflow:ellipsis}
+#sgdb-wrap .chips{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;position:absolute;right:-.5em;top:0;font-size:.5em;font-weight:bold;text-transform:uppercase;z-index:-1}
+#sgdb-wrap .chip{display:flex;align-items:center;justify-content:center;padding:.3em .8em;min-height:2em;border-radius:0 5px 5px 0;transition:transform 300ms cubic-bezier(.33,1,.68,1)}
+#sgdb-wrap .chip.animated{background:#e2a256}.chip.nsfw{background:#e5344c}.chip.humor{background:#eec314;color:#434343}.chip.epilepsy{background:#735f9f}
+#sgdb-wrap .image-wrap.gpfocus .chip,#sgdb-wrap .image-wrap:hover .chip{transform:translateX(calc(100% - .5em - 1px));box-shadow:1px 2px 3px #0004}
+#sgdb-wrap .sgdb-results-state{margin:1em 0 0;min-width:auto}.sgdb-status,.sgdb-empty{padding:1em;text-align:center}.sgdb-status.error{color:#ff6b6b}.sgdb-load-more{display:flex;justify-content:center;padding:1em 0 3em}
+#sgdb-wrap #local-images-container{display:grid;grid-template-columns:30% 1fr;gap:1em;margin-bottom:2em}
+#sgdb-wrap .asset-label{color:#fff;font-weight:500;letter-spacing:1px;text-transform:uppercase;line-height:20px;margin-bottom:.5em}
+#sgdb-wrap .manage-asset{position:relative}.manage-asset .asset{display:flex;min-height:100px;overflow:hidden;background:url('/images/defaultappimage.png') center/cover;align-items:center;justify-content:center}.manage-asset .asset-img{display:block;width:100%;max-height:260px;object-fit:contain}
+#sgdb-wrap .action-overlay{display:none;position:absolute;gap:.25em;right:.5em;bottom:.5em;z-index:2}.manage-asset.is-focused .action-overlay,.manage-asset:hover .action-overlay{display:flex}.manage-actions{grid-column:span 2;display:flex;gap:.5em}
+.sgdb-modal h2,.sgdb-modal h3{color:#fff}.sgdb-modal-details-wrapper{display:flex;gap:1em}.sgdb-modal-details-wrapper.wide{flex-direction:column}.sgdb-modal-details .modal-image{flex:1}.sgdb-modal-details .modal-image img{display:block;max-width:100%;max-height:55vh;margin:auto}.sgdb-modal-details .info{display:flex;flex-direction:column;flex:1;gap:.5em}.sgdb-modal-details .meta{text-transform:capitalize;opacity:.5;font-size:.8em;text-align:right}.sgdb-modal-details .author{margin-top:1em;font-weight:bold}.sgdb-modal-details .notes{max-width:300px;word-break:break-word}
+.sgdb-modal-official-assets .official-steam-asset{margin:0 auto 1em}.sgdb-modal-official-assets img{display:block;max-width:100%;max-height:55vh;margin:auto}.official-steam-asset-action{display:flex;align-items:center;justify-content:space-between;gap:1em;margin-top:.5em}
+.sgdb-filter-game{display:flex;align-items:end;gap:.5em}.sgdb-filter-game>div:first-child{flex:1}.sgdb-filter-field{margin-top:1em}.sgdb-filter-field>label{display:block;margin-bottom:.4em;font-weight:600}.sgdb-filter-options,.sgdb-game-matches{display:flex;flex-wrap:wrap;gap:.4em}.sgdb-filter-options>button,.sgdb-game-matches>button{min-width:auto}.sgdb-filter-selected{box-shadow:inset 0 0 0 2px var(--gpStoreLightestGrey,#fff)}.sgdb-modal-actions{display:flex;justify-content:flex-end;gap:.5em;margin-top:1em}
+.sgdb-logo-preview{height:250px;position:relative;background:#1b2838;overflow:hidden}.sgdb-logo-sample{position:absolute;padding:10px;font-size:28px;font-weight:bold}.anchor-TopLeft{left:0;top:0}.anchor-TopCenter{left:50%;top:0;transform:translateX(-50%)}.anchor-TopRight{right:0;top:0}.anchor-CenterLeft{left:0;top:50%;transform:translateY(-50%)}.anchor-CenterCenter{left:50%;top:50%;transform:translate(-50%,-50%)}.anchor-CenterRight{right:0;top:50%;transform:translateY(-50%)}.anchor-BottomLeft{left:0;bottom:0}.anchor-BottomCenter{left:50%;bottom:0;transform:translateX(-50%)}.anchor-BottomRight{right:0;bottom:0}.sgdb-logo-anchors{display:grid;grid-template-columns:repeat(3,1fr);gap:.4em;margin:1em 0}.sgdb-logo-anchors>button{min-width:auto}
+`;
+  function createArtworkBrowser() {
+    let installed = false;
+    let unsubscribe = null;
+    let lastError = "";
+    const resolve = () => {
+      const runtime = getWebpackRuntime("artwork-browser");
+      artworkUi = resolveSteamUiComponents(runtime);
+      const required = [
+        "react",
+        "focusable",
+        "sliderField",
+        "toggleField",
+        "dialogButton",
+        "dialogButtonPrimary",
+        "tabs",
+        "modalRoot",
+        "showModal",
+      ];
+      const missing = required.filter((name) => !artworkUi?.[name]);
+      if (missing.length) {
+        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
+        artworkUi = null;
+        return false;
+      }
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(ArtworkBrowserPatchId, (state) => {
+        artworkDesired = state;
+        artworkListeners.forEach((listener) => listener(state));
+      });
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      artworkDesired = null;
+      artworkListeners.forEach((listener) => listener(null));
+      artworkUi = null;
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!artworkUi,
+      nativeControls: artworkUi
+        ? {
+            focusable: !!artworkUi.focusable,
+            tabs: !!artworkUi.tabs,
+            dialogButton: !!artworkUi.dialogButton,
+            sliderField: !!artworkUi.sliderField,
+            toggleField: !!artworkUi.toggleField,
+            modalRoot: !!artworkUi.modalRoot,
+          }
+        : null,
+      subscribed: !!unsubscribe,
+      appId: artworkDesired?.appId ?? 0,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerSteamPageRenderer("artwork-browser", renderArtworkBrowserPage);
+  registerGate("artworkBrowser", createArtworkBrowser());
   // The last fragment in the bundle, and the only thing in it.
   //
   // bridge.ts opens the IIFE and every other fragment is concatenated into it, so the value the

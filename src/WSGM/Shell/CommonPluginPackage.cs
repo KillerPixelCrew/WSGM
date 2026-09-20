@@ -9,7 +9,7 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Shell;
 
 /// <summary>A common package sharing the established Device loader's dependency and WinRT identity rules.</summary>
-internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi
+internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi, IPluginSteamUi
 {
     private readonly PluginPackageLoader.PluginLoadContext _context;
     private readonly IPlugin _plugin;
@@ -82,6 +82,30 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
             ? actions.ExecuteActionAsync(request, context, cancellationToken)
             : ValueTask.FromResult(new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
                 "Plugin does not expose actions."));
+    }
+
+    public IReadOnlyList<PluginSteamUiContribution> SteamUiContributions =>
+        _plugin is IPluginSteamUi steamUi ? steamUi.SteamUiContributions : [];
+
+    public IReadOnlyList<ISteamUiModule> SteamUiModules =>
+        _plugin is IPluginSteamUi steamUi ? steamUi.SteamUiModules : [];
+
+    public event Action? SteamUiChanged
+    {
+        add
+        {
+            if (_plugin is IPluginSteamUi steamUi)
+            {
+                steamUi.SteamUiChanged += value;
+            }
+        }
+        remove
+        {
+            if (_plugin is IPluginSteamUi steamUi)
+            {
+                steamUi.SteamUiChanged -= value;
+            }
+        }
     }
 
     public IReadOnlyList<PluginUiContribution> Contributions => _plugin is IPluginUi ui ? ui.Contributions : [];

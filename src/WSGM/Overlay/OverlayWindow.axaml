@@ -218,12 +218,6 @@
                             IconGeometry="{x:Static c:Icons.SdCard}"
                             Title="Card Manager"
                             Description="Rename, hide, and view SD-card libraries" />
-              <c:ActionButton Click="OnChangeArtwork"
-                            Tag="steam.artwork"
-                            IsVisible="{Binding ShowArtwork}"
-                            IconGeometry="{x:Static c:Icons.Palette}"
-                            Title="Change Artwork"
-                            Description="Swap game art from SteamGridDB" />
               <c:ActionButton Click="OnAddLibrary"
                             Tag="steam.add-library"
                             IsVisible="{Binding ShowSdCard}"
@@ -369,7 +363,6 @@
                          the whole sheet. -->
             <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
-            <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" HorizontalAlignment="Stretch" />
 

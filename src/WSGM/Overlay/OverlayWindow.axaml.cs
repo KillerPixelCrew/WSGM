@@ -366,7 +366,6 @@ public partial class OverlayWindow : Window
         }
 
         CardManagerHost.FormatRequested -= OnFormatFromCardManager;
-        ArtworkHost.Close();
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
         KeyDown -= OnKeyDown;

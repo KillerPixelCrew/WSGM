@@ -12,10 +12,12 @@ namespace WSGM.Shell;
 internal sealed class CommonPluginActions
 {
     private readonly IPluginActions? _provider;
+    private readonly IPluginSteamUi? _steamUi;
 
     internal CommonPluginActions(IPlugin plugin)
     {
         _provider = plugin as IPluginActions;
+        _steamUi = plugin as IPluginSteamUi;
         var declared = _provider is null
             ? []
             : _provider.Actions ?? throw new ArgumentException("Plugin actions declaration is absent.");
@@ -69,11 +71,78 @@ internal sealed class CommonPluginActions
 
         Contributions = Array.AsReadOnly([.. contributions]);
         Widgets = CaptureWidgets(plugin is IPluginUi widgetSource ? widgetSource.Widgets : [], Contributions);
+        SteamUiContributions = CaptureSteamUiContributions(
+            plugin is IPluginSteamUi steamUi ? steamUi.SteamUiContributions : []);
+        SteamUiModules = CaptureSteamUiModules(plugin is IPluginSteamUi steamModuleSource
+            ? steamModuleSource.SteamUiModules
+            : []);
     }
 
     internal IReadOnlyList<PluginAction> Actions { get; }
     internal IReadOnlyList<PluginUiContribution> Contributions { get; }
     internal IReadOnlyList<PluginWidget> Widgets { get; }
+    internal IReadOnlyList<PluginSteamUiContribution> SteamUiContributions { get; }
+    internal IReadOnlyList<ISteamUiModule> SteamUiModules { get; }
+
+    internal void SubscribeSteamUiChanged(Action handler)
+    {
+        if (_steamUi is not null)
+        {
+            _steamUi.SteamUiChanged += handler;
+        }
+    }
+
+    internal void UnsubscribeSteamUiChanged(Action handler)
+    {
+        if (_steamUi is not null)
+        {
+            _steamUi.SteamUiChanged -= handler;
+        }
+    }
+
+    private static IReadOnlyList<ISteamUiModule> CaptureSteamUiModules(IReadOnlyList<ISteamUiModule> modules)
+    {
+        if (modules is null || modules.Count > 16 || modules.Any(module => module is null))
+        {
+            throw new ArgumentException("Invalid plugin Steam UI module declaration.");
+        }
+
+        return Array.AsReadOnly([.. modules]);
+    }
+
+    private IReadOnlyList<PluginSteamUiContribution> CaptureSteamUiContributions(
+        IReadOnlyList<PluginSteamUiContribution> contributions)
+    {
+        if (contributions is null || contributions.Count > 64)
+        {
+            throw new ArgumentException("Invalid plugin Steam UI contribution count.");
+        }
+
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        List<PluginSteamUiContribution> captured = [];
+        foreach (var contribution in contributions)
+        {
+            var action = Actions.FirstOrDefault(candidate => candidate.Id == contribution?.ActionId);
+            var argument =
+                action?.Arguments.FirstOrDefault(candidate => candidate.Key == contribution?.AppIdArgumentKey);
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+            if (contribution is null || !PluginConfigurationRules.ValidKey(contribution.Id)
+                                     || !ids.Add(contribution.Id) || !Label(contribution.Label) || action is null
+                                     || !Enum.IsDefined(contribution.Placement)
+                                     || (contribution.Placement == PluginSteamUiPlacement.ExtensionsTab
+                                         ? contribution.AppIdArgumentKey is not null
+                                         : !PluginConfigurationRules.ValidKey(contribution.AppIdArgumentKey)
+                                           || argument?.Kind != PluginSettingKind.Number))
+            {
+                // ReSharper restore once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+                throw new ArgumentException("Invalid plugin Steam UI contribution.");
+            }
+
+            captured.Add(contribution);
+        }
+
+        return captured.AsReadOnly();
+    }
 
     internal static IReadOnlyList<PluginWidget> CaptureWidgets(IReadOnlyList<PluginWidget> widgets,
         IReadOnlyList<PluginUiContribution> contributions)
@@ -146,7 +215,20 @@ internal sealed class CommonPluginActions
                     "The plugin returned an invalid action confirmation.");
             }
 
-            return result with { Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail };
+            var route = result.SteamRoute;
+            if (route is not null &&
+                (route.Length is 0 or > 256 || !route.StartsWith("/wsgm/", StringComparison.Ordinal)
+                                            || route.Any(char.IsControl)))
+            {
+                return new PluginActionResult(operationId, PluginActionOutcome.Unconfirmed,
+                    "The plugin returned an invalid Steam route.");
+            }
+
+            return result with
+            {
+                Detail = result.Detail is { Length: > 2048 } detail ? detail[..2048] : result.Detail,
+                SteamRoute = route
+            };
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

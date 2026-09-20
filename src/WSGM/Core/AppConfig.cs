@@ -409,23 +409,6 @@ public sealed class SplashConfig
 }
 
 /// <summary>
-///     One remembered SteamGridDB match: which SGDB game supplies artwork for a
-///     local target app (typically a non-Steam shortcut, whose generated id has no SGDB
-///     page). Re-picking a match in the artwork changer overwrites the entry.
-/// </summary>
-public sealed class SgdbLinkConfig
-{
-    /// <summary>The local target app id (a shortcut's generated id).</summary>
-    public long AppId { get; set; }
-
-    /// <summary>The SteamGridDB game id supplying the art.</summary>
-    public int SgdbGameId { get; set; }
-
-    /// <summary>The SGDB game's display name (shown as the art source).</summary>
-    public string Name { get; set; } = "";
-}
-
-/// <summary>
 ///     What one game's launch configuration looked like before WSGM changed it.
 ///     Restoring the launch action writes these values back.
 /// </summary>
@@ -757,39 +740,6 @@ public sealed class AppConfig
     ///     captured on every tab sync so the tab-order UI reflects the running Steam.
     /// </summary>
     public List<NativeTabConfig> KnownNativeTabs { get; set; } = [];
-
-    /// <summary>
-    ///     Optional SteamGridDB API key. No key is bundled; set a free personal
-    ///     key from steamgriddb.com to enable artwork search.
-    /// </summary>
-    public string SteamGridDbApiKey { get; set; } = "";
-
-    /// <summary>Whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
-    /// <remarks>
-    ///     On by default. WSGM ships registered developer credentials (see
-    ///     <see cref="ScreenscraperCredentials" />), so unlike SteamGridDB's key there is nothing the
-    ///     user has to obtain first. A configuration written before the credentials shipped keeps its
-    ///     stored value, which was false, and is turned on from Settings.
-    /// </remarks>
-    public bool ScreenscraperEnabled { get; set; } = true;
-
-    /// <summary>Optional Screenscraper user account, which raises the request quota.</summary>
-    /// <remarks>
-    ///     The only Screenscraper credential a user supplies; the developer pair is the application's
-    ///     identity and ships with the build. Without an account, Screenscraper counts the daily
-    ///     allowance against the requesting IP, and a free registration lifts that and the thread limit.
-    /// </remarks>
-    public string ScreenscraperUser { get; set; } = "";
-
-    /// <summary>The password for <see cref="ScreenscraperUser" />.</summary>
-    public string ScreenscraperUserPassword { get; set; } = "";
-
-    /// <summary>
-    ///     Remembered SteamGridDB game matches for targets whose Steam app id
-    ///     cannot be looked up there (non-Steam shortcuts) — so the artwork changer does
-    ///     not re-ask which game a shortcut is on every visit.
-    /// </summary>
-    public List<SgdbLinkConfig> SgdbLinks { get; set; } = [];
 
     /// <summary>
     ///     Games WSGM has pointed at the launch wrapper, with the launch
@@ -1160,9 +1110,6 @@ public sealed class CefConfig
     /// </summary>
     public bool SdFormat { get; set; } = true;
 
-    /// <summary>Shortcut artwork changer (SteamGridDB) applied via Steam's client API.</summary>
-    public bool Artwork { get; set; } = true;
-
     /// <summary>Big Picture header Wi-Fi indicator (feeds Steam's <c>SystemNetworkStore</c>).</summary>
     public bool WifiIndicator { get; set; } = true;
 
@@ -1190,7 +1137,6 @@ public sealed class CefConfig
 [JsonSerializable(typeof(AppConfig))]
 [JsonSerializable(typeof(CefConfig))]
 [JsonSerializable(typeof(SplashConfig))]
-[JsonSerializable(typeof(SgdbLinkConfig))]
 [JsonSerializable(typeof(LaunchWrapperConfig))]
 [JsonSerializable(typeof(CardLibraryConfig))]
 [JsonSerializable(typeof(CustomTabConfig))]

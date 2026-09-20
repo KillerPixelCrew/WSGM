@@ -842,9 +842,14 @@ directly, so the taskbar slider lags the OSD by one poll.
 
 ### Repository extraction
 
-- [ ] **`steam-ui-toolkit`: the Extensions tab.** The extension host from step 7 is built and tested;
-      the surface is not, and it is not next. Also open: whether extensions may carry a .NET backend,
-      which should not arrive as a side effect of building the tab. Plan: `_plan\steam-ui-toolkit.md`.
+- [ ] **`steam-ui-toolkit`: host-rendered plugin Steam surfaces and SteamGridDB port.** The shared
+      Extensions tab and selected-game context-menu contracts are implemented. Review repairs add
+      generation-bound host routing, native focus controls, repeated-probe recognition and first-render
+      menu interception. The artwork system is now the bundled `WSGM.Plugin.Artwork` common plugin,
+      not a Core or toolkit feature. Its action opens a native Steam route with provider-backed tabs,
+      filters, details/apply, manage/reset, game selection, pagination, local files, icons and logo
+      positioning. Live 1:1 visual/controller comparison and the optional Home/library presentation
+      settings remain, plus an installed end-to-end acceptance pass. Plan: `_plan\steam-ui-toolkit.md`.
 
 ### Windows-generic platform
 

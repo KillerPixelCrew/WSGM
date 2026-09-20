@@ -20,18 +20,6 @@ public partial class SteamPage : UserControl
         InitializeComponent();
     }
 
-    // The window hosts the keyboard dialog: it owns the gamepad service and the
-    // navigation swap the dialog needs, and without that swap the keys are
-    // unreachable by pad while the settings page behind the modal still answers
-    // presses (a machine-policy toggle sits on this very page).
-    private void OnOpenApiKeyKeyboard(object? sender, RoutedEventArgs e)
-    {
-        if (TopLevel.GetTopLevel(this) is SettingsWindow window)
-        {
-            window.ShowOnScreenKeyboard(SteamGridDbKeyBox, "SteamGridDB API key");
-        }
-    }
-
     private void OnToggleUac(object? sender, RoutedEventArgs e)
     {
         ObservePolicyChange(() => TogglePolicyAsync(
