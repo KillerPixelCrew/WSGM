@@ -33,6 +33,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </remarks>
     private readonly AudioManagerNativeQamAudioService? _audio;
 
+    private readonly NativeQamAudioFormatService? _audioFormat;
+
     private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
 
     /// <summary>The Bluetooth surface, riding the same radio-manager condition.</summary>
@@ -139,6 +141,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The session's display-off timeouts, shared with the overlay, or null when this session has
     ///     none. Steam's Screensaver settings get no rows then.
     /// </param>
+    /// <param name="audioProfiles">The live advanced-audio service, or null in overlay-test.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -154,7 +157,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Func<bool>? showBluetoothPanel = null,
         NativeQamBrightnessService? brightness = null,
         SteamStorageBridge? storage = null,
-        DisplayTimeouts? displayTimeouts = null)
+        DisplayTimeouts? displayTimeouts = null,
+        AudioProfileService? audioProfiles = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
@@ -176,6 +180,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _autoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, autoTdp);
         _controllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
+        _audioFormat = audio is null || audioProfiles is null ? null : new NativeQamAudioFormatService(audio, audioProfiles);
         _network = radios is null
             ? null
             : new NativeQamNetworkService(
@@ -233,6 +238,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _audio.StateChanged += OnSemanticStateChanged;
         }
 
+        if (_audioFormat is not null)
+        {
+            _audioFormat.StateChanged += OnSemanticStateChanged;
+        }
+
         _synchronization = Task.Run(SynchronizeLoopAsync);
     }
 
@@ -279,6 +289,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_audio is not null)
         {
             _audio.StateChanged -= OnSemanticStateChanged;
+        }
+
+        if (_audioFormat is not null)
+        {
+            _audioFormat.StateChanged -= OnSemanticStateChanged;
+            _audioFormat.Dispose();
         }
 
         _enabled = false;
@@ -800,6 +816,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // Publishing once after injection updates the store whose availability was cached when
             // Steam started before the replacement namespace existed.
             modules.Add(SteamAudioSurface.Module(Enabled, () => new ValueTask<SteamAudioState?>(audio.Current), audio));
+        }
+
+        if (_audioFormat is { } audioFormat)
+        {
+            modules.Add(SteamAudioFormatRow.Module(Enabled, audioFormat.ReadAsync, audioFormat));
         }
 
         // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if

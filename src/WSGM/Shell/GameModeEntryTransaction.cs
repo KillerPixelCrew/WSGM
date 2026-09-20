@@ -60,10 +60,19 @@ internal interface IGameModeEntryBackend
     /// <returns>What happened.</returns>
     Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken);
 
-    /// <summary>Records, or clears, the layout this session owes the desktop.</summary>
+    /// <summary>Captures the current desktop audio state for a later return.</summary>
+    Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken);
+
+    /// <summary>Applies optional audio preferences after display layout work.</summary>
+    Task<AudioProfileApplyResult> ApplyAudioAsync(
+        AudioProfilePreference? preference,
+        CancellationToken cancellationToken);
+
+    /// <summary>Records, or clears, the display and audio state this session owes the desktop.</summary>
     /// <param name="layout">The layout to restore later, or null to clear the record.</param>
+    /// <param name="audio">The captured audio state to restore later, or null to clear the record.</param>
     /// <returns>A task that completes once the record is on disk.</returns>
-    Task PersistPendingReturnAsync(DisplayLayout? layout);
+    Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio);
 
     /// <summary>Applies the scaling posture Default entry uses.</summary>
     Task ApplyDefaultPostureAsync();
@@ -109,6 +118,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
     {
         IReadOnlyList<PluginActionStepResult> entered = [];
         DisplayLayout? returnLayout = null;
+        AudioProfilePreference? returnAudio = null;
         var recoveryAttempted = false;
 
         async Task RecoverAsync()
@@ -134,6 +144,11 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                     : Captured(await backend.ObserveAsync().ConfigureAwait(false));
             }
 
+            if (launch.GameAudio is not null)
+            {
+                returnAudio = await backend.CaptureAudioAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             if (launch.EnterActions.Count > 0)
             {
                 backend.SetStatus("Running the configured entry actions");
@@ -155,10 +170,10 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 await backend.WaitForDisplaysAsync(required, cancellationToken).ConfigureAwait(false);
             }
 
-            if (launch.Kind == GameModeLaunchKind.Custom)
+            if (launch.Kind == GameModeLaunchKind.Custom || returnAudio is not null)
             {
                 backend.SetStatus("Preparing the display layout");
-                await backend.PersistPendingReturnAsync(returnLayout).ConfigureAwait(false);
+                await backend.PersistPendingReturnAsync(returnLayout, returnAudio).ConfigureAwait(false);
             }
 
             backend.SetStatus("Preparing the Windows desktop");
@@ -213,6 +228,19 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             else
             {
                 await backend.ApplyDefaultPostureAsync().ConfigureAwait(false);
+            }
+
+            if (launch.GameAudio is not null)
+            {
+                backend.SetStatus("Applying the Game Mode audio preferences");
+                var audio = await backend.ApplyAudioAsync(launch.GameAudio, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (!audio.Succeeded)
+                {
+                    layoutWarning ??= "Game Mode audio: " + string.Join(" ", audio.Operations
+                        .Where(static operation => !operation.Succeeded)
+                        .Select(static operation => operation.Name + " " + operation.Detail));
+                }
             }
 
             backend.SetStatus("Starting Steam Big Picture");

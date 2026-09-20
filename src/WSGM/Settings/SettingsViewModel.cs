@@ -93,6 +93,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
         GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
+        GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary);
+        DesktopAudioProfile = new AudioProfileEditor(RefreshLaunchSummary);
         ActionLists =
         [
             new PluginActionListEditor("Entering Game Mode", RefreshLaunchSummary),
@@ -294,6 +296,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Edits the Desktop layout leaving Game Mode restores.</summary>
     public DisplayLayoutEditor DesktopLayout { get; }
+
+    /// <summary>Edits saved audio preferences applied when entering Game Mode.</summary>
+    public AudioProfileEditor GameAudioProfile { get; }
+
+    /// <summary>Edits saved audio preferences applied when returning to Desktop.</summary>
+    public AudioProfileEditor DesktopAudioProfile { get; }
 
     /// <summary>The four action lists, in the order the page shows them.</summary>
     public IReadOnlyList<PluginActionListEditor> ActionLists { get; }
@@ -1927,6 +1935,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         GameModeReturnIndex = (int)launch.Return;
         _gameLayout = launch.GameLayout;
         _desktopLayout = launch.DesktopLayout;
+        GameAudioProfile.Load(launch.GameAudio);
+        DesktopAudioProfile.Load(launch.DesktopAudio);
         _waitForDisplay = launch.WaitForDisplay;
         _enterActions = launch.EnterActions;
         _leaveActions = launch.LeaveActions;
@@ -2204,6 +2214,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         launch.Return = (GameModeReturn)Math.Clamp(GameModeReturnIndex, 0, 1);
         launch.GameLayout = GameLayout.Build();
         launch.DesktopLayout = DesktopLayout.Build();
+        launch.GameAudio = GameAudioProfile.Build();
+        launch.DesktopAudio = DesktopAudioProfile.Build();
         launch.WaitForDisplay = WaitForDisplayIndex > 0 && WaitForDisplayIndex <= KnownDisplays.Count
             ? KnownDisplays[WaitForDisplayIndex - 1].Target
             : null;

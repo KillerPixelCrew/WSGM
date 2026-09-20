@@ -4723,6 +4723,7 @@
     let hybridCoreControl;
     let powerPresetControl;
     let resolutionControl;
+    let audioFormatControl;
     let vrrControl;
     let deviceControlsControl;
     // Valve's profile header and its per-game profile toggle. On the current client they are TWO
@@ -4835,6 +4836,11 @@
       resolution: Object.freeze({
         patchId: "steam-ui.resolution",
         command: "setResolution",
+      }),
+      audioFormat: Object.freeze({
+        patchId: "steam-ui.audio-format",
+        formatCommand: "setFormat",
+        spatialCommand: "setSpatial",
       }),
       deviceControls: Object.freeze({
         patchId: "steam-ui.device-controls",
@@ -5091,6 +5097,39 @@
         current: typeof value.current === "string" ? value.current : "",
         statusText: typeof value.statusText === "string" ? value.statusText : "",
       };
+    };
+    const normalizeAudioFormatState = (value) => {
+      if (!value || typeof value !== "object") return null;
+      const options = (items, limit) => {
+        const values = [];
+        if (!Array.isArray(items)) return values;
+        for (const item of items.slice(0, limit)) {
+          if (!item || typeof item !== "object") continue;
+          const id = normalizeText(item.id);
+          const label = normalizeText(item.label);
+          if (id && label && id.length <= 240) values.push(Object.freeze({ id, label }));
+        }
+        return values;
+      };
+      const formatOptions = options(value.formatOptions, 64);
+      const spatialOptions = options(value.spatialOptions, 16);
+      const distinct = (items) => new Set(items.map((item) => item.id)).size === items.length;
+      if (!distinct(formatOptions) || !distinct(spatialOptions)) return null;
+      const currentFormat = normalizeText(value.currentFormat);
+      const currentSpatial = normalizeText(value.currentSpatial);
+      if (
+        (currentFormat && !formatOptions.some((item) => item.id === currentFormat)) ||
+        (currentSpatial && !spatialOptions.some((item) => item.id === currentSpatial))
+      )
+        return null;
+      return Object.freeze({
+        available: value.available === true,
+        formatOptions: Object.freeze(formatOptions),
+        currentFormat,
+        spatialOptions: Object.freeze(spatialOptions),
+        currentSpatial,
+        statusText: normalizeText(value.statusText),
+      });
     };
     const normalizeDeviceRange = (value) => {
       if (value === null || value === undefined) return null;
@@ -5708,6 +5747,63 @@
           description: state.statusText || undefined,
           layout: "below",
         });
+      };
+    const createAudioFormatControl = (controlRuntime) =>
+      function SteamUiAudioFormatControl() {
+        const state = useSemanticState(controlRuntime, "audioFormat", normalizeAudioFormatState);
+        const [pending, setPending] = controlRuntime.react.useState(false);
+        if (!state) return note("audioFormat", "no state");
+        if (!state.available)
+          return note("audioFormat", "unavailable: " + (state.statusText || "no reason"));
+        const definition = definitions.audioFormat;
+        const dropdown = (label, choices, current, command, icon) => {
+          if (choices.length < 2) return null;
+          const options = choices.map((choice) => ({ data: choice.id, label: choice.label }));
+          return controlRuntime.react.createElement(controlRuntime.dropdown, {
+            label,
+            icon: controlRuntime.icon(icon),
+            rgOptions: options,
+            selectedOption: current || undefined,
+            disabled: pending,
+            description: state.statusText || undefined,
+            layout: "below",
+            onChange: (option) => {
+              if (
+                pending ||
+                !option ||
+                option.data === current ||
+                !options.some((choice) => choice.data === option.data)
+              )
+                return;
+              setPending(true);
+              void sendCommand(definition, command, { target: option.data })
+                .catch(() => {})
+                .finally(() => setPending(false));
+            },
+          });
+        };
+        const format = dropdown(
+          "Channel layout and default format",
+          state.formatOptions,
+          state.currentFormat,
+          definition.formatCommand,
+          "speaker",
+        );
+        const spatial = dropdown(
+          "Spatial sound",
+          state.spatialOptions,
+          state.currentSpatial,
+          definition.spatialCommand,
+          "surround",
+        );
+        if (!format && !spatial) return note("audioFormat", "fewer than two choices");
+        drew("audioFormat");
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          format,
+          spatial,
+        );
       };
     // Which notch the display is currently sitting on. A rate that is not one of the listed modes —
     // something else can leave the panel on one — takes the nearest notch at or below it rather
@@ -6612,6 +6708,7 @@
       hybridCoreControl = createHybridCoreControl(controlRuntime);
       powerPresetControl = createPowerPresetControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
+      audioFormatControl = createAudioFormatControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);
       powerLimitControl = createPowerLimitControl(controlRuntime);
@@ -6658,6 +6755,7 @@
         ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],
         ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
         ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
+        ["audioFormat", "steam-ui-audio-format", audioFormatControl, "quickSettings"],
         [
           "valveRefreshRate",
           "steam-ui-valve-refresh-rate",

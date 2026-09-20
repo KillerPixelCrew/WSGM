@@ -179,6 +179,7 @@ public sealed class OverlayController : IDisposable
     private DispatcherTimer? _switcherRefresh;
     private int _switcherRefreshInFlight;
     private AppSwitcherViewModel? _switcherViewModel;
+    private readonly AudioProfileService? _audioProfiles;
     private SystemStatus? _systemStatus;
     private TouchSwipeMonitor? _touchSwipes;
     private TrayHost? _trayHost;
@@ -212,6 +213,7 @@ public sealed class OverlayController : IDisposable
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, OverlaySources? sources,
         AudioManager? audio = null,
+        AudioProfileService? audioProfiles = null,
         RadioManager? radios = null,
         DevicePowerPresets? powerPresets = null,
         DevicePowerAssignments? powerAssignments = null,
@@ -229,6 +231,7 @@ public sealed class OverlayController : IDisposable
         _powerPresets = powerPresets;
         _powerAssignments = powerAssignments;
         _sessionAudio = audio;
+        _audioProfiles = audioProfiles;
         _sessionRadios = radios;
         _sessionDrives = drives;
         if (formats is not null)
@@ -1796,7 +1799,7 @@ public sealed class OverlayController : IDisposable
     {
         if (_systemStatus is not null)
         {
-            _overlay?.ShowAudioSurface(new AudioPanel(_systemStatus.Audio));
+            _overlay?.ShowAudioSurface(new AudioPanel(_systemStatus.Audio, _audioProfiles));
         }
     }
 

@@ -40,6 +40,7 @@ public sealed class GameModeEntryTransactionTests
         Assert.Equal(
         [
             "observe",
+            "capture-audio",
             "enter-actions",
             "wait",
             "persist-return",
@@ -75,6 +76,22 @@ public sealed class GameModeEntryTransactionTests
                 "default-posture", "arm-splash", "big-picture", "commit"
             ],
             backend.Steps);
+    }
+
+    [Fact]
+    public async Task GameModeAudioIsAppliedAfterTheLayout()
+    {
+        Backend backend = new();
+        var launch = Custom();
+        launch.GameAudio = new AudioProfilePreference
+        {
+            Output = new AudioEndpointPreference { Id = "hdmi", Name = "TV" }
+        };
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("apply-audio"));
     }
 
     [Fact]
@@ -336,7 +353,24 @@ public sealed class GameModeEntryTransactionTests
             return Task.FromResult(new DisplayLayoutResult(LayoutOutcome, [], 0, false, false, [], "refused"));
         }
 
-        public Task PersistPendingReturnAsync(DisplayLayout? layout)
+        public Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken)
+        {
+            Calls.Add("capture-audio");
+            return Task.FromResult<AudioProfilePreference?>(new AudioProfilePreference
+            {
+                Output = new AudioEndpointPreference { Id = "desktop", Name = "Desktop" }
+            });
+        }
+
+        public Task<AudioProfileApplyResult> ApplyAudioAsync(
+            AudioProfilePreference? preference,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("apply-audio");
+            return Task.FromResult(new AudioProfileApplyResult([]));
+        }
+
+        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio)
         {
             Calls.Add(layout is null ? "clear-return" : "persist-return");
             PersistedReturns.Add(layout is null ? null
@@ -396,7 +430,7 @@ public sealed class GameModeEntryTransactionTests
                 await RunLeaveActionsAsync();
             }
 
-            await PersistPendingReturnAsync(null);
+            await PersistPendingReturnAsync(null, null);
             return true;
         }
 

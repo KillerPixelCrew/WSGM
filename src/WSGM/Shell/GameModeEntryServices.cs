@@ -48,10 +48,19 @@ internal interface IGameModeEntryServices
     /// <returns>What happened.</returns>
     Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken);
 
-    /// <summary>Records, or clears, the layout this session owes the desktop.</summary>
+    /// <summary>Captures the current desktop audio state for a later return.</summary>
+    Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken);
+
+    /// <summary>Applies an optional audio preference after the display has settled.</summary>
+    Task<AudioProfileApplyResult> ApplyAudioAsync(
+        AudioProfilePreference? preference,
+        CancellationToken cancellationToken);
+
+    /// <summary>Records, or clears, the display and audio state this session owes the desktop.</summary>
     /// <param name="layout">The layout to restore later, or null to clear the record.</param>
+    /// <param name="audio">The captured audio state to restore later, or null to clear the record.</param>
     /// <returns>A task that completes once the record is on disk.</returns>
-    Task PersistPendingReturnAsync(DisplayLayout? layout);
+    Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio);
 
     /// <summary>Runs the configured entry actions, stopping at the first failure.</summary>
     /// <param name="cancellationToken">Cancels the sequence.</param>
@@ -68,6 +77,9 @@ internal interface IGameModeEntryServices
     /// </summary>
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
     Task<string?> ApplyReturnLayoutAsync();
+
+    /// <summary>Restores desktop audio after the return display layout has settled.</summary>
+    Task<string?> ApplyReturnAudioAsync();
 }
 
 /// <summary>
@@ -120,9 +132,23 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     }
 
     /// <inheritdoc />
-    public Task PersistPendingReturnAsync(DisplayLayout? layout)
+    public Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken)
     {
-        return modes.GameModeEntryServices?.PersistPendingReturnAsync(layout) ?? Task.CompletedTask;
+        return modes.GameModeEntryServices?.CaptureAudioAsync(cancellationToken)
+               ?? Task.FromResult<AudioProfilePreference?>(null);
+    }
+
+    public Task<AudioProfileApplyResult> ApplyAudioAsync(
+        AudioProfilePreference? preference,
+        CancellationToken cancellationToken)
+    {
+        return modes.GameModeEntryServices?.ApplyAudioAsync(preference, cancellationToken)
+               ?? Task.FromResult(new AudioProfileApplyResult([]));
+    }
+
+    public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio)
+    {
+        return modes.GameModeEntryServices?.PersistPendingReturnAsync(layout, audio) ?? Task.CompletedTask;
     }
 
     /// <inheritdoc />

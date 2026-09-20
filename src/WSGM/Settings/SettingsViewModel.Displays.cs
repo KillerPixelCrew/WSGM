@@ -40,7 +40,8 @@ public sealed partial class SettingsViewModel
 
             foreach (var name in new[]
                      {
-                         nameof(CurrentDisplayLayout), nameof(ShowLayoutEditor), nameof(DisplayPolicySummary)
+                         nameof(CurrentDisplayLayout), nameof(CurrentAudioProfile), nameof(ShowLayoutEditor),
+                         nameof(DisplayPolicySummary)
                      })
             {
                 Raise(name);
@@ -50,6 +51,9 @@ public sealed partial class SettingsViewModel
 
     /// <summary>Gets the currently selected layout draft.</summary>
     public DisplayLayoutEditor CurrentDisplayLayout => EditingDesktopLayout ? DesktopLayout : GameLayout;
+
+    /// <summary>Gets the audio preference stored beside the layout currently being edited.</summary>
+    public AudioProfileEditor CurrentAudioProfile => EditingDesktopLayout ? DesktopAudioProfile : GameAudioProfile;
 
     /// <summary>Gets whether the current transition uses a saved layout.</summary>
     public bool ShowLayoutEditor => EditingDesktopLayout ? ShowDesktopLayout : ShowCustomLaunch;

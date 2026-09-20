@@ -64,6 +64,60 @@ public sealed class KnownDisplay
     public DateTimeOffset LastSeen { get; set; }
 }
 
+/// <summary>One saved Core Audio endpoint, retained by stable ID and friendly name.</summary>
+public sealed class AudioEndpointPreference
+{
+    /// <summary>Opaque Core Audio endpoint ID.</summary>
+    public string? Id { get; set; }
+
+    /// <summary>Last friendly name Windows reported for the endpoint.</summary>
+    public string? Name { get; set; }
+}
+
+/// <summary>One exact playback format, including its speaker layout.</summary>
+public sealed class AudioFormatPreference
+{
+    /// <summary>Speaker channel count.</summary>
+    public int Channels { get; set; }
+
+    /// <summary>Samples per second.</summary>
+    public int SampleRate { get; set; }
+
+    /// <summary>Meaningful bits in each sample.</summary>
+    public int BitsPerSample { get; set; }
+
+    /// <summary>Bits occupied by each sample.</summary>
+    public int ContainerBitsPerSample { get; set; }
+
+    /// <summary>Windows speaker-position mask.</summary>
+    public uint ChannelMask { get; set; }
+
+    /// <summary>Whether the format uses IEEE float samples rather than PCM.</summary>
+    public bool IsFloat { get; set; }
+}
+
+/// <summary>Optional audio changes for one display-switch direction.</summary>
+public sealed class AudioProfilePreference
+{
+    /// <summary>Default playback endpoint, or null to leave it unchanged.</summary>
+    public AudioEndpointPreference? Output { get; set; }
+
+    /// <summary>Default recording endpoint, or null to leave it unchanged.</summary>
+    public AudioEndpointPreference? Input { get; set; }
+
+    /// <summary>Default playback volume, or null to leave it unchanged.</summary>
+    public int? VolumePercent { get; set; }
+
+    /// <summary>Default playback mute state, or null to leave it unchanged.</summary>
+    public bool? Muted { get; set; }
+
+    /// <summary>Default playback format, or null to leave it unchanged.</summary>
+    public AudioFormatPreference? PlaybackFormat { get; set; }
+
+    /// <summary>Default playback spatial format, or null to leave it unchanged.</summary>
+    public Guid? SpatialFormat { get; set; }
+}
+
 /// <summary>
 ///     Everything Game Mode entry and leave do beyond starting Steam.
 ///     One record covers both directions because entry and leave are two halves of one transaction: the
@@ -92,6 +146,12 @@ public sealed class GameModeLaunchConfiguration
     /// <summary>Layout restored when <see cref="Return" /> is DesktopLayout.</summary>
     public DisplayLayout? DesktopLayout { get; set; }
 
+    /// <summary>Audio preferences applied after the Game Mode layout settles.</summary>
+    public AudioProfilePreference? GameAudio { get; set; }
+
+    /// <summary>Audio preferences applied after the desktop layout settles.</summary>
+    public AudioProfilePreference? DesktopAudio { get; set; }
+
     /// <summary>Actions run after the desktop is back. Every step runs; failures are reported.</summary>
     public List<PluginActionStep> LeaveActions { get; set; } = [];
 
@@ -114,6 +174,9 @@ public sealed class GameModeLaunchRecovery
 {
     /// <summary>Layout to restore, written before Explorer exits and cleared after leave.</summary>
     public DisplayLayout? PendingReturnLayout { get; set; }
+
+    /// <summary>Captured desktop audio state to restore after a Game Mode session.</summary>
+    public AudioProfilePreference? PendingReturnAudio { get; set; }
 
     /// <summary>When the pending layout was recorded.</summary>
     public DateTimeOffset? EnteredAt { get; set; }

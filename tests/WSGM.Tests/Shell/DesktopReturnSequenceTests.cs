@@ -7,6 +7,7 @@ public sealed class DesktopReturnSequenceTests
     [Theory]
     [InlineData("steam")]
     [InlineData("layout")]
+    [InlineData("audio")]
     [InlineData("retire")]
     [InlineData("leave")]
     [InlineData("clear")]
@@ -18,7 +19,7 @@ public sealed class DesktopReturnSequenceTests
         Assert.Single(errors);
         Assert.Contains("explorer", backend.Calls);
         Assert.True(backend.Calls.IndexOf("explorer") < backend.Calls.IndexOf("leave"));
-        Assert.Equal(fail != "layout", backend.Calls.Contains("clear"));
+        Assert.Equal(fail is not "layout" and not "audio", backend.Calls.Contains("clear"));
     }
 
     [Fact]
@@ -26,7 +27,7 @@ public sealed class DesktopReturnSequenceTests
     {
         Backend backend = new() { DesktopReady = false };
         Assert.False(await DesktopReturnSequence.RunAsync(backend, true, (_, _) => { }));
-        Assert.Equal(["steam", "layout", "retire", "explorer"], backend.Calls);
+        Assert.Equal(["steam", "layout", "audio", "retire", "explorer"], backend.Calls);
     }
 
     [Fact]
@@ -44,7 +45,7 @@ public sealed class DesktopReturnSequenceTests
         Backend backend = new() { LeaveGate = leave.Task };
         var returning = DesktopReturnSequence.RunAsync(backend, true, (_, _) => { });
         Assert.False(returning.IsCompleted);
-        Assert.Equal(["steam", "layout", "retire", "explorer", "clear", "leave"], backend.Calls);
+        Assert.Equal(["steam", "layout", "audio", "retire", "explorer", "clear", "leave"], backend.Calls);
         leave.SetResult();
         Assert.True(await returning);
     }
@@ -66,6 +67,12 @@ public sealed class DesktopReturnSequenceTests
         {
             await Call("layout");
             return LayoutReady;
+        }
+
+        public async Task<bool> RestoreAudioAsync()
+        {
+            await Call("audio");
+            return true;
         }
 
         public Task RetireGameModeAsync()

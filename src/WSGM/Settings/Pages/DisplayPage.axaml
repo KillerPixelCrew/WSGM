@@ -113,6 +113,46 @@
         <TextBlock Text="{Binding DisplayDiscoveryText}" Classes="layout-warning" TextWrapping="Wrap"
                    IsVisible="{Binding HasDisplayDiscoveryMessage}" />
         <p:DisplayLayoutView DataContext="{Binding CurrentDisplayLayout}" />
+        <Expander Header="Audio configuration" HorizontalAlignment="Stretch"
+                  HorizontalContentAlignment="Stretch">
+          <StackPanel DataContext="{Binding CurrentAudioProfile}" Spacing="10">
+            <TextBlock
+              Text="Saved here only. Windows audio changes when this display profile is applied, not when you save Settings."
+              Classes="caption" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <StackPanel Spacing="3">
+                <TextBlock Text="Playback device" Classes="caption" />
+                <ComboBox ItemsSource="{Binding OutputChoices}" SelectedItem="{Binding Output}"
+                          PlaceholderText="Leave unchanged" HorizontalAlignment="Stretch" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Refresh audio" Click="OnRefreshAudio"
+                      VerticalAlignment="Bottom" />
+            </Grid>
+            <StackPanel Spacing="3">
+              <TextBlock Text="Recording device" Classes="caption" />
+              <ComboBox ItemsSource="{Binding InputChoices}" SelectedItem="{Binding Input}"
+                        PlaceholderText="Leave unchanged" HorizontalAlignment="Stretch" />
+            </StackPanel>
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+              <CheckBox Content="Set volume" IsChecked="{Binding ApplyVolume}" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding VolumePercent}"
+                      IsEnabled="{Binding ApplyVolume}" />
+              <TextBlock Grid.Column="2" Text="{Binding VolumePercent}" VerticalAlignment="Center" />
+            </Grid>
+            <CheckBox Content="Set muted state" IsChecked="{Binding ApplyMute}" />
+            <CheckBox Content="Mute playback" IsChecked="{Binding Muted}" IsEnabled="{Binding ApplyMute}" />
+            <StackPanel Spacing="3">
+              <TextBlock Text="Channel layout and default format" Classes="caption" />
+              <ComboBox ItemsSource="{Binding FormatChoices}" SelectedItem="{Binding PlaybackFormat}"
+                        PlaceholderText="Leave unchanged" HorizontalAlignment="Stretch" />
+            </StackPanel>
+            <StackPanel Spacing="3">
+              <TextBlock Text="Spatial sound" Classes="caption" />
+              <ComboBox ItemsSource="{Binding SpatialChoices}" SelectedItem="{Binding SpatialFormat}"
+                        PlaceholderText="Leave unchanged" HorizontalAlignment="Stretch" />
+            </StackPanel>
+          </StackPanel>
+        </Expander>
         <StackPanel Spacing="8" IsVisible="{Binding CurrentDisplayLayout.SelectedNeedsRebind}">
           <TextBlock Text="Confirm which display this is before the layout can be saved." Classes="layout-warning" />
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
