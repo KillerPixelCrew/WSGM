@@ -39,7 +39,7 @@ descriptors, state, input and diagnostics through `IPluginHostAdapter`; vendor a
 handles and recovery state stay inside the plugin.
 
 A plugin owns its Device-tab layout by declaring overlay sections inside every
-`CapabilityDescriptorSet` (introduced in API version 2; the current exact API gate is 3): up to 16
+`CapabilityDescriptorSet` (introduced in API version 2; the current exact API gate is 5): up to 16
 `CapabilitySection` entries with bounded categories, each titled by a `SettingSectionKey` or bounded
 custom text and iconed from the closed `SectionIcon` vocabulary, with `SectionId`, `CategoryId` and
 `SortOrder` on each descriptor placing it. Any role may be placed in a declared section; the layout

@@ -11,6 +11,10 @@ It is also the **reference implementation of the
 plugin to read and copy from when writing one for another handheld. That is why it is MIT. A
 reference nobody may copy is not a reference.
 
+The overlay descriptors mark sustained power as a primary control, keep its boost companion
+adjacent, and mark numeric read-only telemetry compact. These layout hints change presentation only;
+command bounds, transport sequencing and hardware verification are unchanged.
+
 ## Power profiles
 
 The plugin declares four profiles for WSGM's Device page and Steam's QAM:

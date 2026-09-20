@@ -17,6 +17,11 @@ public static class DeviceApi
     ///         Version 4 changed <c>CanonicalControllerSample</c> and <c>MotionSample</c> to readonly
     ///         record structs so publishing each controller frame does not allocate contract objects.
     ///     </para>
+    ///     <para>
+    ///         Version 5 adds descriptor prominence and companion hints with
+    ///         normal, unpaired defaults. The new descriptor setters require an exact API match so older
+    ///         hosts reject incompatible plugin binaries before loading them.
+    ///     </para>
     /// </remarks>
-    public const int Version = 4;
+    public const int Version = 5;
 }

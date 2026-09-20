@@ -547,6 +547,11 @@ internal static class AttendedPluginActionRunner
             return false;
         }
 
+        if (!CapabilityLayout.TryValidate(descriptorSet.Descriptors, out error))
+        {
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(request.CapabilityId))
         {
             error = "Capability value action requires an exact capability ID.";
@@ -838,6 +843,11 @@ internal static class AttendedPluginActionRunner
         if (descriptorSet is null)
         {
             error = "The plugin published no capability descriptors.";
+            return false;
+        }
+
+        if (!CapabilityLayout.TryValidate(descriptorSet.Descriptors, out error))
+        {
             return false;
         }
 

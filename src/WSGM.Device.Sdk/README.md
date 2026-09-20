@@ -14,8 +14,9 @@ would inherit.
 
 The common identity and lifecycle contracts shared with non-device plugins live in a separate MIT
 assembly at [ `../WSGM.Plugin.Sdk`](../WSGM.Plugin.Sdk/README.md). The resident common host admits
-this Device runtime through a compatibility adapter. Device API 4 uses value types for high-rate
-controller and motion samples so publishing a frame does not allocate contract objects.
+this Device runtime through a compatibility adapter. Device API 5 adds presentation hints and
+retains value types for high-rate controller and motion samples so publishing a frame does not
+allocate contract objects.
 
 ## What a plugin is
 
@@ -47,6 +48,12 @@ public sealed class MyHandheldPlugin : IDevicePlugin
 You publish capabilities, things like a TDP limit, a fan curve or a lighting zone, and WSGM renders
 them, routes user intent back as a `CapabilityCommand`, and shows whatever you report. It never
 talks to your hardware.
+
+Descriptors may declare `CapabilityProminence` (`Normal`, `Primary`, `Compact`) and an optional
+`LayoutPair` companion in the same section and category. These are presentation hints: WSGM owns
+layout, focus and editor choice. Validate the complete set with `CapabilityLayout.TryValidate` and
+advance descriptor generation when hints change. Pairing for presentation never requests a hardware
+write. See the [reference](docs/reference.md#capabilitydescriptor).
 
 A sustained-power descriptor can declare `PowerPresets`: named shortcuts combining its watt limit,
 the device's slow watt limit, a `DevicePowerMode` and optional AC and battery `ScenarioMode`

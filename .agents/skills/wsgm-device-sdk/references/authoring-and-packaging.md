@@ -29,7 +29,7 @@ others; do not fail the whole plugin because one optional service is missing.
   "id": "com.example.handheld",
   "name": "Example Handheld",
   "version": "1.0.0",
-  "apiVersion": 4,
+  "apiVersion": 5,
   "entryAssembly": "Example.Handheld.dll",
   "entryType": "Example.Handheld.DevicePlugin"
 }
