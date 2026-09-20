@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Labs.Panels;
 using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Shell;
@@ -38,23 +39,26 @@ public partial class OverlayWindow
         }
     }
 
-    private DescriptorStatusRow? RenderControllerPage(DeviceOverlaySnapshot snapshot, string? focusedKey, string pinId)
+    private Control? RenderControllerPage(DeviceOverlaySnapshot snapshot, string? focusedKey, string pinId)
     {
-        var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16 };
+        var columns = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 20, RowSpacing = 20 };
         var glyphs = CreateSection(pinId, "Button glyphs");
         var output = new StackPanel { Spacing = 8 };
         output.Children.Add(new TextBlock { Text = "Controller output", Classes = { "setting-title" }, FontSize = 18 });
-        columns.Children.Add(new Border
+        var glyphCard = new Border
         {
-            Classes = { "device-group", "device-overview-card" }, Child = glyphs,
-            VerticalAlignment = VerticalAlignment.Top
-        });
+            Classes = { "device-group" }, Child = glyphs,
+            VerticalAlignment = VerticalAlignment.Top, MinWidth = 280
+        };
+        Flex.SetGrow(glyphCard, 1);
+        columns.Children.Add(glyphCard);
         var outputCard = new Border
         {
-            Classes = { "device-group", "device-overview-card" }, Child = output,
+            Classes = { "device-group" }, Child = output,
             VerticalAlignment = VerticalAlignment.Top
         };
-        Grid.SetColumn(outputCard, 1);
+        outputCard.MinWidth = 280;
+        Flex.SetGrow(outputCard, 1);
         columns.Children.Add(outputCard);
         DeviceCapabilityList.Children.Add(columns);
 

@@ -1,108 +1,82 @@
 # Overlay surfaces and the input stack
 
-How WSGM's quick access sheet is shaped, how gamepad, touch and raw input reach it, and the Avalonia
-and Windows findings its dismissal and focus handling depend on. Theme and control styling is in
-`docs\ui.md`; the lease the sheet takes while open is in `docs\steam-input.md`; the plugin
-descriptors the Device tab renders are in `docs\device-plugin-system.md`.
+How WSGM's fullscreen sheet, controller navigation and raw touch recognizer work. Styling and
+headless rendering are in [UI mechanisms](ui.md); utility, keyboard and power-menu ownership are in
+[in-window surfaces](overlay-surfaces.md). The [Steam Input lease](steam-input.md) and
+[Device plugin system](device-plugin-system.md) document their separate integration boundaries.
 
 ## The quick access sheet
 
-`Overlay\OverlayWindow` is one top-docked surface that replaced the earlier side panel and bottom
-taskbar. It covers `SheetHeightFraction` (81 %) of the display and leaves the game visible below.
-That strip lies outside the window rectangle, so the raw-input tap-outside dismissal closes the
-sheet with no extra code; a fullscreen window would have needed a second dismiss mechanism.
+`OverlayWindow` covers the summoning application's display. Avalonia requests live DWM acrylic or
+blur, and the command-deck palette supplies the glass tint and opaque fallback. The fixed top-right
+Close control is the touch dismissal path. Closing preserves the 150 ms touch-promotion grace and
+synthesized-mouse filter. No exposed game strip or global tap-outside observer remains. Native blur,
+battery-saver behavior and physical touch acceptance need attended validation for issue #114.
 
-The header carries the wordmark, the active-destination eyebrow and the status pills, bound to a
-per-open `SystemStatus`. The radio, audio and eject panels hang from the header's measured bottom
-edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` sits over the
-always-alive destination roots: Quick access, Steam, Device, Tools and Power. Steam, Tools and Power
-group controls into category tiles: Steam offers Library and Per-game launch fixes; Tools offers
-System, Performance, Storage, Display, Plugins and Controller ownership; Power offers Wake, Idle
-timeouts, Power and Session. Device includes shared Power, RGB, Controller and Info pages, with
-Windows energy plans and Performance directly on its root.
+The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
+access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail
+beside a two-thirds controls pane; both scroll independently. The workspace supports a 980 × 640 DIP
+floor and a shared maximum width. Desktop scaling is capped to keep that minimum usable. Close, the
+header and the bottom app/tray rail remain outside the scrolling workspace.
 
-The tab-by-tab audit behind that, so a later addition is measured against the same rule:
+Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
+Plugins and Controller ownership; Power offers Wake, Idle timeouts, Power and Session. Those
+sections open directly beside their rail rather than behind a category menu. Device has an Overview
+plus sections derived from current descriptors. Windows power schemes and Performance remain
+available without device integration. Device > Power adds AC/battery assignments and presets when
+available; Controller retains glyph selection and explains unavailable output.
 
-| Tab          | Status                    | Why                                                                                                                                                                        |
-| ------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Quick access | Intentional direct layout | It contains pinned actions, grouped sections and plugin widgets. Its whole purpose is one-step reach; a category layer would defeat it.                                    |
-| Steam        | Converted                 | Library, Per-game launch fixes.                                                                                                                                            |
-| Device       | Direct overview           | Category tiles from the plugin's declared sections, plus the shared Power, RGB, Controller and Info pages, with Windows energy plans and Performance directly on its root. |
-| Tools        | Converted                 | System, Performance, Storage, Display, Plugins, Controller ownership.                                                                                                      |
-| Power        | Converted                 | Wake, Idle timeouts, Power, Session.                                                                                                                                       |
-| Session      | Absorbed into Power       | Four buttons never justified a root tab (2026-09-11). They are lifecycle transitions, which is what Power is.                                                              |
+Quick access contains pinned actions, complete sections and plugin widgets.
+`AppConfig.QuickAccessPins` stores stable action and section IDs. Pinned actions invoke the same
+handler as their source. A Device group such as Fans or Charging has one Pin section action in its
+heading; X, right-click and touch hold inside a group target that group, including its nested
+editors. Pinned controls use the source renderer and preserve active drafts during value refresh.
+Unavailable sections remain removable.
 
-New controls belong on the category page that names their group. The approved Device overview
-(2026-09-13) exposes Windows power and Performance directly; Quick Access remains a direct layout.
+Open apps and tray icons share the bottom rail. `AppSwitcherViewModel` reconciles window chips in
+place so refresh does not replace the focused chip. Y cycles to the next window; X on a tray icon
+opens its context menu. Process and window enumeration runs off the UI thread; only its detached
+snapshot returns to Avalonia.
 
-Device's overview and Power page contain the Core Windows power-profile picker even without a device
-plugin, with device presets and AC/battery assignments on Power when available. Controller stays
-reachable without integration for button glyph selection and explains why controller output is
-unavailable. The root's Quick Access pins expander lists available section and widget pin actions.
-LB/RB cycle with wrap; the sheet reopens on its last destination; focus lands on the first row after
-a switch; the warning `InfoBar` stays above the tabs.
+## Sections, nested pages and navigation
 
-Quick access is the home root and the Back target of every other root. `AppConfig.QuickAccessPins`
-holds action and section IDs. Static action cards render live mirrors of their source rows and press
-through to the same Click handler. Device sections such as Fans or Charging have one Pin section
-action in the heading; the whole block appears on the front page with its controls intact. X, touch
-hold and right-click inside a group resolve that group, not the individual toggle or slider. Host
-power, display and performance controls follow the same section model. Pinned editors refresh from
-the current snapshot without replacement while in use; unavailable Device sections remain removable.
+The session remembers each destination's selected section across tab switches and window reopen.
+Rail selection and keyboard/controller focus are independent: moving focus to a peer does not change
+the selected controls. Right from a rail row selects that section and enters its controls. LT/RT and
+LB/RB switch destinations with wrap. An open utility, keyboard or power surface confines input to
+itself; see [surface ownership](overlay-surfaces.md).
 
-The Open apps chip strip (`AppSwitcherViewModel`) sits along the sheet's bottom and is reconciled in
-place every second; a wholesale rebuild would destroy the focused chip under the gamepad cursor. Y
-cycles to the next window; X on a tray pill opens its context menu. The peer keyboard window hangs
-over the sheet's lower edge because the exposed game strip is too short for it; D-pad Down off the
-sheet's last row crosses into it and Up off the keyboard's top row crosses back.
+B, Escape and the header Back button share the same route handling. From primary controls, Back
+focuses the selected rail row; from that rail, Back returns to Quick access. At home, Back dismisses
+the sheet. A deeper editor pops one level and restores its invoker. The Wake-lock list therefore
+returns to Wake, and the Card Manager to Steam library. Switching destination unwinds nested views,
+then restores the remembered primary section.
 
-The process/window snapshot behind that reconciliation runs off the UI thread. Only its immutable
-result returns to Avalonia: synchronous process and `EnumWindows` work on the dispatcher would
-compete with the 16 ms gamepad poll and pointer delivery.
-
-## Sub-views and navigation
-
-Destinations host nested pages in place: six self-drawing sub-views over `OverlaySubView`, the XAML
-`PanelFormat`, the twelve XAML category pages, and the Device sections. The open page is
-`OverlayNavigation.Page`, not a flag per page; the two used to be tracked separately and could
-disagree. Adding a page means adding a row to `OverlayWindow`'s `SubViews` table (page, host, parent
-panel, destination, state released on the way out); the enter/leave sequence, `DefaultFocusTarget`,
-the `Activated` teardown and B-cancel all read that table. A page is never a Popup or Flyout, which
-`GamepadNavigation` cannot reach.
-
-A category page names its destination root as its parent, and a page opened from inside a category
-names that category. That is what makes one Back press move one level: the Wake-lock list returns to
-Wake, and the Card Manager to Steam library, rather than dropping two levels to the root. Leaving a
-page is one path for all of them — `LeaveActiveSubView` pops the stack and reveals the parent — with
-`PanelFormat` the single exception, because it returns to whichever surface opened it. Switching
-destination unwinds whatever is open rather than naming each page, which is what kept going stale as
-pages were added.
-
-The way back out is `BackButton` in the fixed header, shown while `OverlayNavigation.Depth > 1` and
-pressing exactly what B presses (`TryCancelSubView`). It is header chrome rather than a row in the
-page because a control inside the scrolling content is not reachable from where the user is — a long
-Device section pushes one past the bottom edge — and because the tab strip switches destinations
-rather than levels, which left touch-only users no way off a Device section at all.
-`TryCancelSubView` resolves the button's visibility for every route out; the enter paths and
-`ShowDestination` resolve it for every route in.
+`OverlayNavigation` owns stable routes and section IDs. `OverlayWindow`'s `SubViews` table declares
+the host, parent and teardown for nested pages. Add a nested page through that owner so Back,
+DefaultFocusTarget and leaving the destination agree. Pages are in-window controls, while actual
+selector popups retain their owning ComboBox as the controller target. The fixed Back control stays
+reachable when the content scrolls.
 
 ## Device sections, performance profiles and lighting color
 
-Plugin-declared Device sections render as their own pages and lead the Device root menu; WSGM's own
-sections (profiles, glyphs, diagnostics, unplaced rows) follow. `OverlayPage.DevicePluginSection`
-carries the open section's id in the route rather than adding an enum value per section. Rows are
-grouped under the declared category eyebrows in sort-then-snapshot order. A section that vanishes
-with a descriptor generation while its page is open renders a plain "no longer available" line.
-Leaving one runs the same body as leaving a WSGM section: the glyph sample lease is released and
-both panels are redrawn, which the generic pop fallback it used to take did neither of.
+Plugin-declared Device sections and WSGM-owned sections appear in the Device rail.
+`OverlayPage.DevicePluginSection` carries the open section's id in the route rather than adding an
+enum value per section. Rows are grouped under declared category headings in sort-then-snapshot
+order, with groups assigned by measured column height. The SDK's closed prominence and pairing hints
+guide presentation without allowing plugin markup. A section that vanishes with a descriptor
+generation while its page is open renders a plain "no longer available" line. Leaving one runs the
+same body as leaving a WSGM section: the glyph sample lease is released and both panels are redrawn,
+which the generic pop fallback it used to take did neither of.
 
 Per-application performance profiles belong to Device → Profiles; they are not a second detector and
 not a device-plugin feature. `PerformanceOverlayBridge` projects the session's one
 `PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →
 Power and thermals, including when Device Integration is off. Identity-only Steam games stay visible
 as "executable pending", with edits stored for that AppID until foreground observation supplies the
-RTSS profile. Performance state changes rebuild both the owning Device page and its section-card
-count, so the Profiles page cannot disappear merely because no plugin publishes a hardware profile.
+RTSS profile. Descriptor/layout identity changes rebuild the affected rows; value publications
+update retained editors and readings in place. Profiles stays available when WSGM has profile rows
+even if no plugin publishes a hardware profile.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
 hue field, RGB sliders and exact `#RRGGBB` entry are staged locally; only the explicit Apply row
@@ -118,7 +92,7 @@ zone's color editor claimed a per-zone brightness the firmware does not have.
 ## Text entry
 
 Text entry in the panel is a press-to-edit row, never a bare `TextBox`. Every editable name is a row
-whose Description shows the current value and whose click opens the peer keyboard through
+whose current value remains visible and whose click opens the in-window keyboard through
 `KeyboardService.Request`. A `TextBox` in a panel looks editable but is unusable on a controller:
 `GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus never lands
 on one and nothing types. When `KeyboardService.Request` returns false there is no way to type at
@@ -147,10 +121,8 @@ direction auto-repeat) and full-state `StateChanged` (for chords), feeding `Game
 activate, mirrors arrow keys with a 250 ms dedupe and skips TextBoxes.
 
 `Overlay\TouchSwipeMonitor` observes the raw HID digitizer (`RIDEV_INPUTSINK`) for four configurable
-edge swipes and for tap-outside dismissal. The same shared raw-input window observes mouse
-button-down edges for click-outside dismissal, including on the desktop. Mouse movement, wheel
-input, button release and touch-promoted clicks do not dismiss. Input still reaches the clicked
-application; no global mouse hook intercepts it. Settings exposes each edge binding:
+edge swipes. It registers no mouse sink and consumes no touch input; the foreground application
+still receives its events. Settings exposes each edge binding:
 
 | Edge   | Action                                                       |
 | ------ | ------------------------------------------------------------ |
@@ -158,6 +130,25 @@ application; no global mouse hook intercepts it. Settings exposes each edge bind
 | bottom | disabled by default; optionally opens Open apps in Game Mode |
 | left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu)   |
 | right  | sends Ctrl+2 (Quick Access Menu)                             |
+
+`GestureConfig.StripThickness` is the first-contact bezel-zone width in physical pixels, not the
+required swipe travel. New configurations default to 4; recognition clamps saved values to 1–8
+without rewriting them. An existing value of 16 therefore uses an 8-pixel zone. The previous hidden
+48-pixel minimum is gone. Coordinates still map the digitizer's logical range to the primary panel.
+
+Entry requires 8 pixels of inward movement within 120 ms. The completed swipe needs 48 pixels within
+800 ms, with inward displacement at least twice the accumulated sideways travel. A delayed entry or
+sideways drag cannot recover by moving inward later. These are provisional thresholds, not
+calibrated Claw measurements. A very fast drag starting exactly at the bezel can still resemble a
+swipe; attended traces determine whether the limits need adjustment.
+
+For calibration, enable Settings > System > Diagnostics > Verbose logging. `Touch edge trace:`
+summarizes contacts within 48 pixels of an enabled edge, including starts rejected outside the
+narrow zone. Each summary records first raw and physical coordinates, digitizer ranges, screen
+geometry, time to the first 2-pixel motion, admitted 8-pixel entry time, elapsed time, travel and
+outcome. Output is limited to one summary per contact and 12 per minute, with no per-report logging.
+Compare real bezel swipes, maximized-title-bar drags and slow edge touches. The regression traces in
+`TouchSwipeMonitorTests` are synthetic and do not establish attended calibration.
 
 Live device and performance publications may request a redraw while a finger or mouse button is
 down. The sheet coalesces those redraws and defers them until the routed pointer release has
@@ -170,12 +161,12 @@ foreground, because bringing Steam's menu over the game is their purpose.
 
 ## Managed-controller capture and source switching
 
-Each visible WSGM surface owns one named capture claim. The first claim neutralizes the virtual
-target, nested claims keep capture active, and the last close resumes game forwarding only after
-every control the UI used is released. Lifecycle handoffs and source faults share one
-forwarding-blocked state, cleared only by a successfully created or replaced target. There is no
-parallel enum of hypothetical zero reasons: capture, routing admission and target state decide
-delivery.
+Each owning top-level WSGM window has a named capture claim. In-window overlay surfaces retain that
+window's claim and navigation owner. The first claim neutralizes the virtual target, nested claims
+keep capture active, and the last close resumes game forwarding only after every control the UI used
+is released. Lifecycle handoffs and source faults share one forwarding-blocked state, cleared only
+by a successfully created or replaced target. There is no parallel enum of hypothetical zero
+reasons: capture, routing admission and target state decide delivery.
 
 | Source                 | Synthesized trigger threshold |
 | ---------------------- | ----------------------------- |
@@ -204,9 +195,10 @@ operation and the current selection instead of appearing dead.
 ### Raw input is observed, never intercepted
 
 Never intercept mouse or keyboard input globally; `TouchSwipeMonitor` is the pattern, raw-input
-observation only. The one low-level keyboard hook, in `KeyRecorder`, exists only during explicit
-shortcut recording. Tap-outside dismissal is raw-observation hit-testing, deliberately not
-dismiss-on-deactivate, because Next-app cycling deactivates the sheet while it must stay open.
+observation only. The main-app low-level keyboard hook, in `KeyRecorder`, exists only during
+explicit shortcut recording; device-specific interception belongs to its plugin. The overlay uses
+explicit dismissal rather than deactivation because Next-app cycling can deactivate a sheet that
+must stay open.
 
 ### Avalonia's touch promotion produces a ghost click; the close is deferred 150 ms
 
@@ -216,19 +208,12 @@ therefore defers the actual `Close()` by 150 ms, and `OverlayWindow`'s WndProc h
 `MI_WP_SIGNATURE`-tagged mouse messages. Removing either brings back ghost clicks that press buttons
 in whatever sits under the sheet.
 
-The swallowed click still carries `WM_MOUSEACTIVATE`. It re-activated the sheet after the tap's real
-click had opened a status panel over it; two topmost windows order by activation, so the panel was
-covered one frame after it appeared. Touch only: the mouse sends no second activation (reference
-device, 2026-09-01). While a radio, audio or eject panel is open the sheet answers
-`WM_MOUSEACTIVATE` with `MA_NOACTIVATE` (`OverlayWindow.SuppressMouseActivation`, kept in step by
-`OverlayController.SyncSheetMouseActivation`): the click is still delivered, only the activation is
-dropped. A real finger activates the sheet through `WM_POINTERACTIVATE`, which is unaffected, and
-the tap-outside rule closes the panel on that tap anyway.
-
-Tried and disproven: window ownership. Avalonia re-points every `ShowInTaskbar=false` window's owner
-slot at its hidden helper on `Show()` and on every property update, so `Window.Show(owner)` and a
-`GWLP_HWNDPARENT` write after `Show()` both left panel and sheet as siblings (z-order captures,
-reference device, 2026-09-01).
+Historical evidence, reference device, 2026-09-01: a promoted click carried `WM_MOUSEACTIVATE` and
+raised the sheet above a separate topmost status window one frame after it opened. The old design
+suppressed that activation while its peer window was open. Window ownership did not fix it: Avalonia
+reassigned `ShowInTaskbar=false` owners to its hidden helper, leaving the windows as siblings in
+z-order captures. The in-window surfaces introduced for #114 remove that peer-window handoff; those
+dated captures are not validation of the new surface lifetime.
 
 ### Avalonia's three-argument DispatcherTimer constructor auto-starts
 

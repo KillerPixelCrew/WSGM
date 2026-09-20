@@ -128,8 +128,8 @@ it; only Apply writes Windows. The current scheme is read when the sheet opens, 
 selected, after Apply and on Refresh. Duplicate names include their GUIDs. An unknown active scheme
 leaves the picker unselected; an empty or failed read disables Apply. An unconfirmed write requires
 Refresh before another attempt. Preview mode allows reads only. Native calls and persistence run off
-the UI thread, and closing the overlay discards late UI updates. Idle-timeout badges refresh after
-the active scheme is read.
+the UI thread, and closing the overlay discards late UI updates. Idle-timeout selectors refresh
+after the active scheme is read.
 
 The last verified manual selection is saved as `LastSelectedPowerSchemeId`, a GUID in Core config.
 It is a reference, not an instruction to reapply at startup, config reload or a session transition.
@@ -379,15 +379,18 @@ Standby handheld. Downloads during real Modern Standby sleep are impossible for 
 (DAM suspends every desktop process, no opt-out), so keep-awake is the whole feature — the same
 model as SteamOS "Display-Off Downloads". Windows limits it: indefinite on AC; on battery the
 request is force-terminated about 5 min after the sleep timeout expires; the power button always
-wins. Verified on the Claw, 2026-08-12, including the download hold across screen-off, the manual
-cycle, the indicator and the idle-timeout rows.
+wins. Historical Claw evidence from 2026-08-12 covered the download hold across screen-off, the
+then-current manual cycle, indicator and idle-timeout rows. It does not validate the redesigned
+selectors introduced for #114.
 
 There are two independent holds, each its own request so `powercfg /requests` attributes them.
 
-The manual hold is a quick-access Power tab toggle with session lifetime that survives mode
-switches. It cycles Off → Standby lock → Standby+Display lock → Off; the third state holds a
-separate `DisplayRequired` request. Each step acquires before it releases, so there is never a lock
-gap.
+The manual hold is a Power > Wake selector with session lifetime that survives mode switches.
+Automatic leaves the manual hold off; Prevent standby holds a system request; Keep screen on also
+holds a separate `DisplayRequired` request. Browsing the dropdown stages a choice until it closes.
+Readback preserves an open draft and reconciles the resulting held state after the selection,
+including partial or refused native changes. Acquisitions precede releases, and failed requests are
+not retried automatically.
 
 The automatic download hold (`Shell\KeepAwakeService.cs`, toolkit `SteamDownloadActivity`) polls
 `SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s as a one-shot
@@ -417,8 +420,8 @@ listing every requester, deduplicated on (label, detail, reason) so thirty ident
 read as `steam.exe ×30`, sorted by count then name, with caller kind, pid, path and reason on the
 second line. Unlike the summary it does not hide WSGM's own request: the list must not omit an
 answer. An unelevated read shows "couldn't read", never an empty all-clear. It belongs to the Power
-tab rather than Tools, and it is opened from inside the Wake category, so leaving it restores
-`PanelPowerWake` and a second Back returns to the Power root.
+tab rather than Tools, and it is opened from inside the Wake category, so leaving it restores the
+Wake page. Back from the primary page focuses its selected section rail, then returns home.
 
 Windows Device Control's `PowerRequestList` calls the undocumented
 `NtPowerInformation(GetPowerRequestList = 45)` on ntdll directly, because the documented wrapper
@@ -430,16 +433,17 @@ panel is open.
 ### Idle-timeout rows
 
 The two screen-off rows never turn the display off before Steam's Big Picture screensaver may start.
-They cycle through `Shell\DisplayTimeouts.cs`, the owner Steam's Screensaver settings rows share,
-which skips presets below Steam's reported screensaver timeout and names that bound in the row's
-description. The bound and how it is enforced are in `docs\steam-cef-system.md`, "Screensaver
+They select values through `Shell\DisplayTimeouts.cs`, the owner Steam's Screensaver settings rows
+share, which excludes presets below Steam's reported screensaver timeout and names that bound in the
+row's description. The bound and how it is enforced are in `docs\steam-cef-system.md`, "Screensaver
 settings".
 
-Four rows (screen-off and standby, each for battery and plugged-in) cycle presets of 1, 3, 5, 10,
-15, 30, 60 min and never through `Core\PowerTimeouts.cs`, using Windows Device Control's
-policy-value API. Parsing `powercfg /q` was rejected: its output is localized, the same trap as
-netstat. The rows are a convenience over the active scheme, deliberately not snapshotted or
-restored.
+Four selectors (screen-off and standby, each for battery and plugged-in) offer 1, 3, 5, 10, 15, 30,
+60 min and never, preserving a current custom value. A popup stages browsing until it closes;
+confirmed choices enter an ordered background queue and re-read the active scheme before one write
+through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API. Parsing
+`powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are a
+convenience over the active scheme, deliberately not snapshotted or restored.
 
 ### Log lines
 
@@ -447,7 +451,7 @@ restored.
 | ----------------------------------------------------------------------------- | ----------------------------------------------------- |
 | `Keep awake: download hold acquired (…)` / `released (…)`                     | The automatic hold changed, with the snapshot detail. |
 | `Keep awake: download hold released (disabled in settings).`                  | Config apply dropped an engaged hold.                 |
-| `Keep awake: manual mode Off\|Standby\|StandbyAndDisplay (quick access).`     | A step of the manual cycle.                           |
+| `Keep awake: manual mode Off\|Standby\|StandbyAndDisplay (quick access).`     | The resulting manual hold state.                      |
 | `Steam downloads: active\|inactive (…)`                                       | The activity answer consumed by muting changed.       |
 | `Keep awake: PowerCreateRequest\|PowerSetRequest\|PowerClearRequest failed …` | The Windows request itself failed.                    |
 

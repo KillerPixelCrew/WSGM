@@ -144,17 +144,17 @@ public sealed class CardManagerView : OverlaySubView
                         Replace(RenderCardList);
                         _ = SyncQuietly();
                     }))));
-            stack.Children.Add(CycleRow("Steam tab", card.Enabled ? "On" : "Off", () =>
+            stack.Children.Add(ChoiceRow("Steam tab", [(false, "Off"), (true, "On")], card.Enabled, enabled =>
                 _ = RunCardMutationAsync(
-                    () => LibraryTabManager.SetCardEnabledAsync(card.ContentId, !card.Enabled), () =>
+                    () => LibraryTabManager.SetCardEnabledAsync(card.ContentId, enabled), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);
                         _ = SyncQuietly();
                     })));
-            stack.Children.Add(CycleRow("Hidden", card.Hidden ? "Yes" : "No", () =>
+            stack.Children.Add(ChoiceRow("Hidden", [(false, "No"), (true, "Yes")], card.Hidden, hidden =>
                 _ = RunCardMutationAsync(
-                    () => LibraryTabManager.SetCardHiddenAsync(card.ContentId, !card.Hidden), () =>
+                    () => LibraryTabManager.SetCardHiddenAsync(card.ContentId, hidden), () =>
                     {
                         PopIfAny();
                         Replace(RenderCardList);

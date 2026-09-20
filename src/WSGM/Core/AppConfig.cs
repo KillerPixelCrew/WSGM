@@ -91,8 +91,11 @@ public sealed class GestureConfig
     /// <summary>Whether a swipe from the right edge opens Steam's Big Picture quick-access menu.</summary>
     public bool RightEdgeSteamQuickAccess { get; set; } = true;
 
-    /// <summary>Strip thickness in physical pixels.</summary>
-    public int StripThickness { get; set; } = 16;
+    /// <summary>
+    ///     Width of the first-contact bezel zone in physical pixels, clamped to 1–8
+    ///     by the recognizer. Saved values are preserved; this does not set travel distance.
+    /// </summary>
+    public int StripThickness { get; set; } = 4;
 }
 
 /// <summary>Selects the controller-button glyph family rendered by the UI.</summary>

@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -35,6 +36,7 @@ internal sealed class DeviceCurveRow : Border
 
     private readonly CurveEditor _editor;
     private readonly Action<IReadOnlyList<CurvePoint>> _onCommit;
+    private readonly StackPanel _presets;
 
     /// <summary>Builds the row for one curve capability.</summary>
     /// <param name="key">Stable focus key, mirrored onto the editor for focus restore.</param>
@@ -62,16 +64,13 @@ internal sealed class DeviceCurveRow : Border
         Classes.Add("tile");
         Tag = key;
 
-        var header = new TextBlock { Text = title };
-        header.Classes.Add("setting-title");
-
         _editor = new CurveEditor
         {
             Points = points,
             MarkerInput = markerInput,
             RisingOutput = true,
             IsEnabled = enabled,
-            Focusable = enabled,
+            Focusable = true,
             Tag = key,
             Height = 180,
             Margin = new Thickness(0, 8, 0, 0)
@@ -79,7 +78,6 @@ internal sealed class DeviceCurveRow : Border
         _editor.CurveChanged += OnCurveChanged;
 
         var body = new StackPanel { Spacing = 2 };
-        body.Children.Add(header);
         if (!string.IsNullOrWhiteSpace(description))
         {
             var caption = new TextBlock
@@ -92,8 +90,42 @@ internal sealed class DeviceCurveRow : Border
         }
 
         body.Children.Add(_editor);
-        body.Children.Add(BuildPresets(key, enabled));
-        Child = body;
+        _presets = BuildPresets(key, enabled);
+        body.Children.Add(_presets);
+        Child = new FASettingsExpander
+        {
+            Header = title,
+            Description = description,
+            IsExpanded = true,
+            Items =
+            {
+                new FASettingsExpanderItem
+                    { Footer = body, Focusable = false, IsClickEnabled = false, Classes = { "device-setting-primary" } }
+            }
+        };
+        Classes.Remove("tile");
+        DetachedFromVisualTree += (_, _) => _commit.Stop();
+    }
+
+    internal void RefreshReadback(IReadOnlyList<CurvePoint> points, int? marker, bool enabled)
+    {
+        _editor.MarkerInput = marker;
+        _editor.IsEnabled = enabled;
+        _presets.IsEnabled = enabled;
+        foreach (var button in _presets.Children)
+        {
+            button.IsEnabled = enabled;
+        }
+
+        if (!enabled)
+        {
+            _commit.Stop();
+        }
+
+        if (!_editor.IsKeyboardFocusWithin && !_commit.IsEnabled)
+        {
+            _editor.Points = points;
+        }
     }
 
     /// <summary>Applies one preset to the editor and starts the commit window.</summary>
@@ -131,7 +163,7 @@ internal sealed class DeviceCurveRow : Border
             {
                 Content = FanCurvePresets.Label(preset),
                 IsEnabled = enabled,
-                Focusable = enabled,
+                Focusable = true,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 Tag = $"{key}.preset.{preset}"

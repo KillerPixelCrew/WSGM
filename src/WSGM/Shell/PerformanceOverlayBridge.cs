@@ -119,18 +119,22 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             BuildApplicationRow(state),
             BuildActiveProfileRow(state),
             BuildRow(
-                "application-profile",
-                "Per-application settings",
-                state.Target is null
-                    ? "Start or focus an application to give it separate settings."
-                    : "Keep separate performance values for the detected application.",
-                state.Target is null
-                    ? "Unavailable"
-                    : state.ApplicationProfileEnabled
-                        ? "On"
-                        : "Off",
-                state.Target is not null,
-                state.Target is null ? DescriptorStatus.Unsupported : DescriptorStatus.Available),
+                    "application-profile",
+                    "Per-application settings",
+                    state.Target is null
+                        ? "Start or focus an application to give it separate settings."
+                        : "Keep separate performance values for the detected application.",
+                    state.Target is null
+                        ? "Unavailable"
+                        : state.ApplicationProfileEnabled
+                            ? "On"
+                            : "Off",
+                    state.Target is not null,
+                    state.Target is null ? DescriptorStatus.Unsupported : DescriptorStatus.Available) with
+                {
+                    Options = [new DescriptorOption(0, "Off"), new DescriptorOption(1, "On")],
+                    Value = state.ApplicationProfileEnabled ? 1 : 0
+                },
             BuildRow(
                 "reset-profile",
                 "Reset performance profile",
@@ -160,6 +164,16 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (rowId == "application-profile")
+        {
+            if (_service.Current.Target is not null && value is 0 or 1)
+            {
+                await _service.SetApplicationProfileEnabledAsync(value == 1, cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         var control = rowId switch
         {
             "frame-limit" => PerformanceControl.FrameLimit,

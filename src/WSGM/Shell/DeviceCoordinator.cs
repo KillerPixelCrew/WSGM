@@ -2503,27 +2503,25 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///         device state nothing explains.
     ///     </para>
     /// </remarks>
-    internal async Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
+    internal Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
+    {
+        var selection = AuthoredProfileSelection();
+        return SelectAuthoredProfileAsync(selection is { } current
+            ? DeviceOverlayBridge.NextProfile(current.Profiles.Select(profile => profile.ProfileId).ToArray(),
+                current.SelectedProfileId)
+            : null, cancellationToken);
+    }
+
+    /// <summary>Persists and applies an explicit authored profile selection for the current application scope.</summary>
+    internal async Task SelectAuthoredProfileAsync(string? next, CancellationToken cancellationToken = default)
     {
         var current = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
-        if (current is null)
+        if (current is null || (next is not null && !current.Profiles.Any(profile => profile.ProfileId == next)))
         {
-            Log.Info("Fan profile cycle ignored: no profiles are authored for this device.");
             return;
         }
 
         var applicationId = _runningApplicationId;
-        var selected = DeviceProfileSelectionStore.ReadSelection(
-            current,
-            DeviceAuthoredProfileCapabilities.FanCurve,
-            applicationId,
-            out _);
-
-        // NextProfile's contract includes "none", so a user can cycle back off a profile without
-        // opening Settings — the same wrap the hardware-profile row already offers.
-        var next = DeviceOverlayBridge.NextProfile(
-            [.. current.Profiles.Select(profile => profile.ProfileId)],
-            selected);
 
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
