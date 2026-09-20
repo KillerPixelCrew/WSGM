@@ -1,8 +1,8 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-15 issues for 2.0 and seven deferred issues. The maintainer directed this workoff to use default-branch commits, including
-submodule changes, without feature branches or pull requests.
+15 issues for 2.0 and seven deferred issues. Follow the branch ownership and publishing rules in
+AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
 ## Overlay design mockup (2026-09-20, issue 114)
 
@@ -23,8 +23,7 @@ pane. Horizontal LT/RT destination navigation remains unchanged. This follow-up 
 
 ## Production overlay redesign (2026-09-20, issue 114, in progress)
 
-This task uses the maintainer-created `chore/redesign-overlay` branch and a PR into `master`,
-overriding the general direct-push workflow for this work.
+This task uses the maintainer-created `chore/redesign-overlay` branch and a PR into `master`.
 
 The production implementation now uses a fullscreen Avalonia glass sheet with an opaque fallback,
 a persistent section rail beside the controls, remembered sections, a unified app/tray rail and

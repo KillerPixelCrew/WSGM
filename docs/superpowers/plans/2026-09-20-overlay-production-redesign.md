@@ -25,8 +25,8 @@ production exclusion does not apply to this promotion.
 - Build and inspect before attended testing. Do not execute suites or test-bearing gates until the
   maintainer reports manual testing or explicitly requests them.
 - Keep this task on the maintainer-created `chore/redesign-overlay` branch and open a PR into
-  `master`. This explicit task direction overrides the repository's general direct-push rule. Child
-  repositories remain unchanged unless needed.
+  `master`, following AGENTS.md's branch ownership rules. Child repositories remain unchanged unless
+  needed.
 - Report actual hardware observations separately from implementation and simulated verification.
 
 ## Work and ownership

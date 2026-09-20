@@ -1,7 +1,8 @@
 # WSGM contributor guide
 
 This file applies to the whole repository. A nearer AGENTS.md adds rules for its subtree and wins
-when the guidance conflicts.
+when the guidance conflicts. The maintainer's explicit task instructions take precedence over
+repository guidance, plans and skills, including branch and pull-request instructions.
 
 ## Sources of truth
 
@@ -64,12 +65,8 @@ when the guidance conflicts.
 
 - Inspect git status before changing anything. Preserve unrelated edits and never clean, reset, or
   rewrite user work to make a task easier.
-- Commit and push all changes directly to the default branch, including in nested repositories.
-  Do not create feature branches or pull requests. Keep changes scoped and follow the validation
-  rules below.
-- Dependency pin-only updates may also be committed and pushed directly to the default branch.
-  Verify the target commits are already pushed, follow the dependency order below, and keep
-  unrelated changes out of those commits.
+- Preserve the task branch and use the branch/PR workflow below. These rules also apply to nested
+  repositories and dependency pin-only updates; verify dependency commits are already pushed.
 - Do not create tags, releases, or compatibility layers unless the maintainer asks for them.
 - Write documentation, command examples, issues, commit messages, and pull requests in natural,
   concise language. Avoid canned AI phrasing, filler, and em dashes.
@@ -103,6 +100,31 @@ when the guidance conflicts.
 
 ## Git and submodules
 
+### Branch ownership and publishing
+
+- At task start, record the current branch, upstream and working-tree status. Continue on the
+  maintainer-selected branch; an existing non-default checkout is the task branch unless directed
+  otherwise. Preserve its name even when it does not use the usual branch prefix.
+- Use a task branch and PR into the intended base by default. If starting on the default branch or
+  detached HEAD with no selected task branch, create a task branch from the current commit before
+  making changes. Do not switch an existing task branch to the default branch to satisfy a plan,
+  skill or general workflow preference.
+- Before every commit and push, verify that the checked-out branch and explicit push destination
+  match the task branch. A request to "push" or "create a PR" means publish that branch and open or
+  update its PR; it does not authorize merging or writing to the default branch. Direct commits or
+  pushes to the default branch require an explicit maintainer instruction for the current task.
+- Before creating a PR, verify its head, intended base and actual diff. If the change is already on
+  the base branch, report that state and obtain repair direction before changing branches or
+  history. Do not manufacture review-base branches or substitute a different base to produce a PR.
+- Reverting shared commits, rewriting published history, deleting remote branches or moving work
+  to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
+  exact local and remote state and propose a concrete repair before making further Git mutations.
+  Carry out an already authorized repair without asking again.
+- Leave the workspace on the task branch. After pushing, verify its upstream matches and report
+  the actual branch and PR, with any remaining work or unrelated edits stated accurately.
+
+### Submodule ownership
+
 Inspect both the main tree and nested repositories before work:
 
     git status --short --branch
@@ -125,7 +147,8 @@ recording its gitlink in WSGM. Do not run a submodule update after moving a chil
 gitlink has been staged or committed.
 
 Before reporting a push complete, confirm the intended files only were committed, each repository is
-clean, and every local branch equals its upstream.
+clean apart from preserved unrelated edits, and each branch pushed for this task equals its upstream.
+Leave unrelated local branches and detached submodule checkouts unchanged.
 
 ## Safety boundaries
 
