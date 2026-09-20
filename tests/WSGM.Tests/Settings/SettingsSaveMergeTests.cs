@@ -32,6 +32,10 @@ public sealed class SettingsSaveMergeTests
             new DisplayLayoutOutput(new DisplayTargetIdentity(@"\\?\a", null, null, "A", 0, 0, 1), 0, 0, 1920, 1080,
                 DisplayRefresh.FromHertz(60))
         ]);
+        fresh.GameModeLaunchRecovery.PendingReturnAudio = new AudioProfilePreference
+        {
+            Output = new AudioEndpointPreference { Id = "runtime-output", Name = "Runtime speakers" }
+        };
         fresh.LibraryTabOrder = ["fresh-tab"];
         fresh.QuickAccessPins = ["fresh-pin"];
         fresh.PreviousShellSnapshotCaptured = true;
@@ -61,6 +65,7 @@ public sealed class SettingsSaveMergeTests
         Assert.Equal("new.exe", Assert.Single(merged.StartupApps).Path);
         Assert.Equal(GameModeLaunchKind.Custom, merged.GameModeLaunch.Kind);
         Assert.NotNull(merged.GameModeLaunchRecovery.PendingReturnLayout);
+        Assert.Equal("runtime-output", merged.GameModeLaunchRecovery.PendingReturnAudio!.Output!.Id);
         Assert.False(merged.SteamStorageFormatEnabled);
         Assert.Equal("fresh-tab", Assert.Single(merged.LibraryTabOrder));
         Assert.Equal("fresh-pin", Assert.Single(merged.QuickAccessPins));

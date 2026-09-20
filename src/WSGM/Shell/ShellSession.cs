@@ -92,6 +92,9 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private AudioManager? _audio;
 
+    /// <summary>Serializes profile and live advanced-format writes against the session audio manager.</summary>
+    private AudioProfileService? _audioProfiles;
+
     private AutoTdpService? _autoTdp;
 
     // Non-null from the moment the service-boot splash becomes interactive until
@@ -942,6 +945,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         _audio = new AudioManager();
         _audio.Start();
+        _audioProfiles = new AudioProfileService(_audio);
 
         // Not started here: scanning is expensive and belongs to whichever surface is showing a
         // network list. The manager exists for the whole session so Steam's Internet page can
@@ -1002,6 +1006,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _brightness,
                 _deviceCoordinator),
             _audio,
+            _audioProfiles,
             _radios,
             _deviceCoordinator?.PowerPresets,
             _deviceCoordinator?.PowerAssignments,
@@ -1201,6 +1206,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _brightness,
                 _steamStorage,
                 _overlayTestOnly ? null : _displayTimeouts,
+                _audioProfiles,
                 _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost));
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
@@ -3103,6 +3109,23 @@ public sealed class ShellSession : IAsyncDisposable
         // After the Steam host and the overlay, both of which hold them.
         try
         {
+            if (_audioProfiles is not null)
+            {
+                await _audioProfiles.DisposeAsync();
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the audio profile service during application shutdown failed",
+                ex);
+        }
+        finally
+        {
+            _audioProfiles = null;
+        }
+
+        try
+        {
             _audio?.Dispose();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -3892,7 +3915,21 @@ public sealed class ShellSession : IAsyncDisposable
             }, CancellationToken.None);
         }
 
-        public Task PersistPendingReturnAsync(DisplayLayout? layout)
+        public Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken)
+        {
+            return session._audioProfiles?.CaptureAsync(cancellationToken)
+                   ?? Task.FromResult<AudioProfilePreference?>(null);
+        }
+
+        public Task<AudioProfileApplyResult> ApplyAudioAsync(
+            AudioProfilePreference? preference,
+            CancellationToken cancellationToken)
+        {
+            return session._audioProfiles?.ApplyAsync(preference, cancellationToken)
+                   ?? Task.FromResult(new AudioProfileApplyResult([]));
+        }
+
+        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio)
         {
             return Task.Run(() =>
             {
@@ -3900,7 +3937,9 @@ public sealed class ShellSession : IAsyncDisposable
                 ConfigStore.Mutate(fresh =>
                 {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
-                    fresh.GameModeLaunchRecovery.EnteredAt = layout is null ? null : DateTimeOffset.UtcNow;
+                    fresh.GameModeLaunchRecovery.PendingReturnAudio = audio;
+                    fresh.GameModeLaunchRecovery.EnteredAt =
+                        layout is null && audio is null ? null : DateTimeOffset.UtcNow;
                 });
             });
         }
@@ -3933,6 +3972,19 @@ public sealed class ShellSession : IAsyncDisposable
             var result =
                 await ApplyLayoutAsync(layout, CancellationToken.None).ConfigureAwait(false);
             return result.Applied ? null : "Desktop display layout: " + result.Detail;
+        }
+
+        public async Task<string?> ApplyReturnAudioAsync()
+        {
+            var launch = ReadLaunch();
+            var audio = launch.DesktopAudio
+                        ?? ConfigStore.Load().GameModeLaunchRecovery.PendingReturnAudio;
+            var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
+            return result.Succeeded
+                ? null
+                : "Desktop audio: " + string.Join(" ", result.Operations
+                    .Where(static operation => !operation.Succeeded)
+                    .Select(static operation => operation.Name + " " + operation.Detail));
         }
     }
 }

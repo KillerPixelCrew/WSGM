@@ -65,6 +65,9 @@ repository guidance, plans and skills, including branch and pull-request instruc
 
 - Inspect git status before changing anything. Preserve unrelated edits and never clean, reset, or
   rewrite user work to make a task easier.
+- When a maintainer has approved a requested implementation and an applicable design or plan already
+  exists, begin implementation immediately. Treat that approval as sufficient for the execution
+  method; continue without asking for another plan review or execution-choice prompt.
 - Preserve the task branch and use the branch/PR workflow below. These rules also apply to nested
   repositories and dependency pin-only updates; verify dependency commits are already pushed.
 - Do not create tags, releases, or compatibility layers unless the maintainer asks for them.

@@ -52,6 +52,7 @@ public sealed class OverlayController : IDisposable
     private const string QuickAccessSurface = "quick-access";
     private const string SettingsSurface = "settings";
     private static int _nextLeaseOwnerId;
+    private readonly AudioProfileService? _audioProfiles;
     private readonly GamepadChordWatcher _chordWatcher;
 
     /// <summary>
@@ -212,6 +213,7 @@ public sealed class OverlayController : IDisposable
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, OverlaySources? sources,
         AudioManager? audio = null,
+        AudioProfileService? audioProfiles = null,
         RadioManager? radios = null,
         DevicePowerPresets? powerPresets = null,
         DevicePowerAssignments? powerAssignments = null,
@@ -229,6 +231,7 @@ public sealed class OverlayController : IDisposable
         _powerPresets = powerPresets;
         _powerAssignments = powerAssignments;
         _sessionAudio = audio;
+        _audioProfiles = audioProfiles;
         _sessionRadios = radios;
         _sessionDrives = drives;
         if (formats is not null)
@@ -1795,7 +1798,7 @@ public sealed class OverlayController : IDisposable
     {
         if (_systemStatus is not null)
         {
-            _overlay?.ShowAudioSurface(new AudioPanel(_systemStatus.Audio));
+            _overlay?.ShowAudioSurface(new AudioPanel(_systemStatus.Audio, _audioProfiles));
         }
     }
 

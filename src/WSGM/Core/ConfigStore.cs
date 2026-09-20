@@ -461,6 +461,8 @@ public static class ConfigStore
         config.GameModeLaunch ??= new GameModeLaunchConfiguration();
         NormalizeGameModeLaunch(config.GameModeLaunch);
         config.GameModeLaunchRecovery ??= new GameModeLaunchRecovery();
+        config.GameModeLaunchRecovery.PendingReturnAudio =
+            NormalizeAudioProfile(config.GameModeLaunchRecovery.PendingReturnAudio);
         config.PreviousConsoleLockSchemeValues ??= [];
         config.CardLibraries ??= [];
         config.ForgottenInsertedCardIds ??= [];
@@ -835,6 +837,8 @@ public static class ConfigStore
         launch.Return = Definite(launch.Return, Defaults.GameModeLaunch.Return);
         launch.GameLayout = NormalizeLayout(launch.GameLayout);
         launch.DesktopLayout = NormalizeLayout(launch.DesktopLayout);
+        launch.GameAudio = NormalizeAudioProfile(launch.GameAudio);
+        launch.DesktopAudio = NormalizeAudioProfile(launch.DesktopAudio);
         launch.EnterActions = NormalizeSteps(launch.EnterActions);
         launch.LeaveActions = NormalizeSteps(launch.LeaveActions);
         launch.DesktopStartupActions = NormalizeSteps(launch.DesktopStartupActions);
@@ -851,6 +855,76 @@ public static class ConfigStore
             ];
             display.MaximumDpiPercent = Math.Clamp(display.MaximumDpiPercent, 0, 500);
         }
+    }
+
+    private static AudioProfilePreference? NormalizeAudioProfile(AudioProfilePreference? profile)
+    {
+        if (profile is null)
+        {
+            return null;
+        }
+
+        profile.Output = NormalizeAudioEndpoint(profile.Output);
+        profile.Input = NormalizeAudioEndpoint(profile.Input);
+        profile.VolumePercent = profile.VolumePercent is { } volume and >= 0 and <= 100 ? volume : null;
+        profile.PlaybackFormat = NormalizeAudioFormat(profile.PlaybackFormat);
+        profile.SpatialFormat = profile.SpatialFormat is { } format && IsKnownSpatialFormat(format) ? format : null;
+        if (profile.Output is null)
+        {
+            profile.PlaybackFormat = null;
+            profile.SpatialFormat = null;
+        }
+
+        return profile.Output is not null
+               || profile.Input is not null
+               || profile.VolumePercent is not null
+               || profile.Muted is not null
+               || profile.PlaybackFormat is not null
+               || profile.SpatialFormat is not null
+            ? profile
+            : null;
+    }
+
+    private static AudioEndpointPreference? NormalizeAudioEndpoint(AudioEndpointPreference? endpoint)
+    {
+        if (endpoint?.Id is not { Length: > 0 and <= 512 } id)
+        {
+            return null;
+        }
+
+        endpoint.Id = id.Trim();
+        if (endpoint.Id.Length == 0)
+        {
+            return null;
+        }
+
+        endpoint.Name = endpoint.Name?.Trim() is { Length: > 0 and <= 256 } name ? name : null;
+        return endpoint;
+    }
+
+    private static AudioFormatPreference? NormalizeAudioFormat(AudioFormatPreference? format)
+    {
+        return format is
+        {
+            Channels: > 0 and <= 32,
+            SampleRate: > 0 and <= 384000,
+            BitsPerSample: > 0 and <= 32,
+            ContainerBitsPerSample: > 0 and <= 32,
+            ChannelMask: > 0
+        } && format.BitsPerSample <= format.ContainerBitsPerSample
+            ? format
+            : null;
+    }
+
+    private static bool IsKnownSpatialFormat(Guid format)
+    {
+        return format == CoreAudio.SpatialAudioFormats.Off
+               || format == CoreAudio.SpatialAudioFormats.WindowsSonic
+               || format == CoreAudio.SpatialAudioFormats.DolbyAtmosForHeadphones
+               || format == CoreAudio.SpatialAudioFormats.DolbyAtmosForSpeakers
+               || format == CoreAudio.SpatialAudioFormats.DolbyAtmosForHomeTheater
+               || format == CoreAudio.SpatialAudioFormats.DtsHeadphoneX
+               || format == CoreAudio.SpatialAudioFormats.DtsXUltra;
     }
 
     /// <summary>

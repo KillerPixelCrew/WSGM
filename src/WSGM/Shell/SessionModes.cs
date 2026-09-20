@@ -737,6 +737,22 @@ public sealed class SessionModes
             return warning is null;
         }
 
+        public async Task<bool> RestoreAudioAsync()
+        {
+            if (modes.GameModeEntryServices is not { } services)
+            {
+                return true;
+            }
+
+            var warning = await services.ApplyReturnAudioAsync().ConfigureAwait(false);
+            if (warning is not null)
+            {
+                warnings.Add(warning);
+            }
+
+            return warning is null;
+        }
+
         public async Task RetireGameModeAsync()
         {
             await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopModeStarting?.Invoke());
@@ -769,7 +785,7 @@ public sealed class SessionModes
 
         public Task ClearPendingReturnAsync()
         {
-            return modes.GameModeEntryServices?.PersistPendingReturnAsync(null) ?? Task.CompletedTask;
+            return modes.GameModeEntryServices?.PersistPendingReturnAsync(null, null) ?? Task.CompletedTask;
         }
     }
 }

@@ -2232,6 +2232,7 @@
           item.settings.length <= 128 &&
           item.settings.every(validSetting))) &&
       Number.isSafeInteger(item.configurationRevision ?? 0) &&
+      (item.configurationRevision ?? 0) >= 0 &&
       (item.detail === undefined || item.detail === null || typeof item.detail === "string");
     // Steam's QAM tab view is private. This bounded traversal finds the first element whose own
     // props carry the tab list, matching what the live client renders rather than indexing its tree.
@@ -2272,13 +2273,24 @@
           // publication. A rejected click must not tear down the whole Quick Access panel.
         });
       };
+      // A typed draft belongs to the publication it was typed against. Dropping it when the host
+      // answers with a new configuration revision, and when the change is refused, is what stops the
+      // box from showing and resending a value the host has already replaced or rejected.
+      const dropDraft = (draftKey) =>
+        setDrafts((previous) => {
+          if (!(draftKey in previous)) return previous;
+          const next = { ...previous };
+          delete next[draftKey];
+          return next;
+        });
       const configure = (item, setting, value) => {
+        const draftKey = `${item.id}:${setting.key}`;
         void request(
           patchId,
           "configure",
           { id: item.id, key: setting.key, value, revision: item.configurationRevision ?? 0 },
           nextActionGeneration(patchId),
-        ).catch(() => {});
+        ).catch(() => dropDraft(draftKey));
       };
       const settingControl = (item, setting) => {
         const draftKey = `${item.id}:${setting.key}`;
@@ -2394,7 +2406,12 @@
             ),
           );
         }
-        const current = drafts[draftKey] ?? setting.textValue ?? setting.numberValue ?? "";
+        const revision = item.configurationRevision ?? 0;
+        const draft = drafts[draftKey];
+        const current =
+          draft && draft.revision === revision
+            ? draft.value
+            : (setting.textValue ?? setting.numberValue ?? "");
         return react.createElement(
           "div",
           {
@@ -2413,7 +2430,10 @@
             min: setting.minimum,
             max: setting.maximum,
             onChange: (event) =>
-              setDrafts((previous) => ({ ...previous, [draftKey]: event.currentTarget.value })),
+              setDrafts((previous) => ({
+                ...previous,
+                [draftKey]: { value: event.currentTarget.value, revision },
+              })),
             style: {
               padding: "8px 10px",
               color: "inherit",
@@ -2582,17 +2602,19 @@
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
+    // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
+    // leaves the claim live while every later remove() answers `absent` and never retries it.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      desired = { items: [], revision: 0 };
-      descenderCache.clear();
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "Extensions tab release failed";
         return { ok: false, error: lastError };
       }
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      desired = { items: [], revision: 0 };
+      descenderCache.clear();
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -2801,19 +2823,22 @@
       });
       return { ok: true, installed: true, observing: true };
     };
+    // Both claims go back before the gate forgets it holds them. Clearing `installed` and
+    // `menuComponent` first would answer `absent` on every later remove() while the render claim and
+    // the JSX interception were still live, with nothing left that names what to release.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
       const releasedElements = releaseElements(jsxRuntime, patchId);
-      desired = { items: [], revision: 0 };
       const releasedRender = releaseMember(menuComponent?.prototype, "render", renderClaimKeys);
-      menuComponent = null;
       if (!releasedRender.ok || !releasedElements.ok) {
         lastError =
           releasedRender.error ?? releasedElements.error ?? "Game context menu release failed";
         return { ok: false, error: lastError };
       }
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      desired = { items: [], revision: 0 };
+      menuComponent = null;
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -4640,8 +4665,11 @@
       }
       routeSwitchFiber = findRouteSwitchFiber();
       if (!routeSwitchFiber) {
-        releaseMember(memo, "type", claimKeys);
-        lastError = "Steam's mounted route switch was not found";
+        const rolledBack = releaseMember(memo, "type", claimKeys);
+        lastError = rolledBack.ok
+          ? "Steam's mounted route switch was not found"
+          : "Steam's mounted route switch was not found, and the router claim could not be released: " +
+            (rolledBack.error ?? "unknown");
         return { ok: false, error: lastError };
       }
       const currentSwitch = routeSwitchFiber.type;
@@ -4691,12 +4719,11 @@
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
+    // Every owned mutation goes back before the gate forgets it owns anything. Clearing `installed`
+    // ahead of the fallible release left both wrappers running while each later remove() answered
+    // `absent`, so a failed cleanup could never be retried.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
-      pages = [];
-      descendCache.clear();
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "page host release failed";
@@ -4715,6 +4742,10 @@
       }
       routeSwitchFiber = null;
       routeSwitchWrapper = null;
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      pages = [];
+      descendCache.clear();
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -5611,6 +5642,7 @@
     let hybridCoreControl;
     let powerPresetControl;
     let resolutionControl;
+    let audioFormatControl;
     let vrrControl;
     let deviceControlsControl;
     // Valve's profile header and its per-game profile toggle. On the current client they are TWO
@@ -5723,6 +5755,11 @@
       resolution: Object.freeze({
         patchId: "steam-ui.resolution",
         command: "setResolution",
+      }),
+      audioFormat: Object.freeze({
+        patchId: "steam-ui.audio-format",
+        formatCommand: "setFormat",
+        spatialCommand: "setSpatial",
       }),
       deviceControls: Object.freeze({
         patchId: "steam-ui.device-controls",
@@ -5972,6 +6009,39 @@
         current: typeof value.current === "string" ? value.current : "",
         statusText: typeof value.statusText === "string" ? value.statusText : "",
       };
+    };
+    const normalizeAudioFormatState = (value) => {
+      if (!value || typeof value !== "object") return null;
+      const options = (items, limit) => {
+        const values = [];
+        if (!Array.isArray(items)) return values;
+        for (const item of items.slice(0, limit)) {
+          if (!item || typeof item !== "object") continue;
+          const id = normalizeText(item.id);
+          const label = normalizeText(item.label);
+          if (id && label && id.length <= 240) values.push(Object.freeze({ id, label }));
+        }
+        return values;
+      };
+      const formatOptions = options(value.formatOptions, 64);
+      const spatialOptions = options(value.spatialOptions, 16);
+      const distinct = (items) => new Set(items.map((item) => item.id)).size === items.length;
+      if (!distinct(formatOptions) || !distinct(spatialOptions)) return null;
+      const currentFormat = normalizeText(value.currentFormat);
+      const currentSpatial = normalizeText(value.currentSpatial);
+      if (
+        (currentFormat && !formatOptions.some((item) => item.id === currentFormat)) ||
+        (currentSpatial && !spatialOptions.some((item) => item.id === currentSpatial))
+      )
+        return null;
+      return Object.freeze({
+        available: value.available === true,
+        formatOptions: Object.freeze(formatOptions),
+        currentFormat,
+        spatialOptions: Object.freeze(spatialOptions),
+        currentSpatial,
+        statusText: normalizeText(value.statusText),
+      });
     };
     const normalizeDeviceRange = (value) => {
       if (value === null || value === undefined) return null;
@@ -6589,6 +6659,63 @@
           description: state.statusText || undefined,
           layout: "below",
         });
+      };
+    const createAudioFormatControl = (controlRuntime) =>
+      function SteamUiAudioFormatControl() {
+        const state = useSemanticState(controlRuntime, "audioFormat", normalizeAudioFormatState);
+        const [pending, setPending] = controlRuntime.react.useState(false);
+        if (!state) return note("audioFormat", "no state");
+        if (!state.available)
+          return note("audioFormat", "unavailable: " + (state.statusText || "no reason"));
+        const definition = definitions.audioFormat;
+        const dropdown = (label, choices, current, command, icon) => {
+          if (choices.length < 2) return null;
+          const options = choices.map((choice) => ({ data: choice.id, label: choice.label }));
+          return controlRuntime.react.createElement(controlRuntime.dropdown, {
+            label,
+            icon: controlRuntime.icon(icon),
+            rgOptions: options,
+            selectedOption: current || undefined,
+            disabled: pending,
+            description: state.statusText || undefined,
+            layout: "below",
+            onChange: (option) => {
+              if (
+                pending ||
+                !option ||
+                option.data === current ||
+                !options.some((choice) => choice.data === option.data)
+              )
+                return;
+              setPending(true);
+              void sendCommand(definition, command, { target: option.data })
+                .catch(() => {})
+                .finally(() => setPending(false));
+            },
+          });
+        };
+        const format = dropdown(
+          "Channel layout and default format",
+          state.formatOptions,
+          state.currentFormat,
+          definition.formatCommand,
+          "speaker",
+        );
+        const spatial = dropdown(
+          "Spatial sound",
+          state.spatialOptions,
+          state.currentSpatial,
+          definition.spatialCommand,
+          "surround",
+        );
+        if (!format && !spatial) return note("audioFormat", "fewer than two choices");
+        drew("audioFormat");
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          format,
+          spatial,
+        );
       };
     // Which notch the display is currently sitting on. A rate that is not one of the listed modes —
     // something else can leave the panel on one — takes the nearest notch at or below it rather
@@ -7493,6 +7620,7 @@
       hybridCoreControl = createHybridCoreControl(controlRuntime);
       powerPresetControl = createPowerPresetControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
+      audioFormatControl = createAudioFormatControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);
       powerLimitControl = createPowerLimitControl(controlRuntime);
@@ -7539,6 +7667,7 @@
         ["powerLimit", "steam-ui-power-limits", powerLimitControl, "perf"],
         ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
         ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
+        ["audioFormat", "steam-ui-audio-format", audioFormatControl, "quickSettings"],
         [
           "valveRefreshRate",
           "steam-ui-valve-refresh-rate",

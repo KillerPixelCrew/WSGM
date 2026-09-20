@@ -33,6 +33,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </remarks>
     private readonly AudioManagerNativeQamAudioService? _audio;
 
+    private readonly NativeQamAudioFormatService? _audioFormat;
+
     private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
 
     /// <summary>The Bluetooth surface, riding the same radio-manager condition.</summary>
@@ -45,6 +47,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
+
+    private readonly Lock _failedPatchGate = new();
+
+    // Patch ids of modules the runtime quarantined. Written from the publication and request paths,
+    // read wherever patch states are decided.
+    private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
 
     private readonly SteamGameContextMenuBackend? _gameContextMenu;
 
@@ -146,6 +154,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The session's display-off timeouts, shared with the overlay, or null when this session has
     ///     none. Steam's Screensaver settings get no rows then.
     /// </param>
+    /// <param name="audioProfiles">The live advanced-audio service, or null in overlay-test.</param>
     /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
@@ -163,6 +172,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         NativeQamBrightnessService? brightness = null,
         SteamStorageBridge? storage = null,
         DisplayTimeouts? displayTimeouts = null,
+        AudioProfileService? audioProfiles = null,
         CommonPluginSteamUiSource? pluginSteamUi = null)
     {
         _storage = storage;
@@ -189,6 +199,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _autoTdp = new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator, autoTdp);
         _controllerTarget = new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
+        _audioFormat = audio is null || audioProfiles is null
+            ? null
+            : new NativeQamAudioFormatService(audio, audioProfiles);
         _network = radios is null
             ? null
             : new NativeQamNetworkService(
@@ -229,6 +242,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _enabled || _pluginSteamUiEnabled || _libraryBadgeEnabled || _homeCarouselEnabled
                 || _screensaverEnabled,
             BootstrapWanted);
+        _runtime.ModuleFailed += OnModuleFailed;
         _transport.GenerationChanged += OnGenerationChanged;
         LibraryBadges.Changed += OnSemanticStateChanged;
         if (_displayTimeouts is not null)
@@ -251,6 +265,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
+        }
+
+        if (_audioFormat is not null)
+        {
+            _audioFormat.StateChanged += OnSemanticStateChanged;
         }
 
         _synchronization = Task.Run(SynchronizeLoopAsync);
@@ -307,10 +326,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _audio.StateChanged -= OnSemanticStateChanged;
         }
 
+        if (_audioFormat is not null)
+        {
+            _audioFormat.StateChanged -= OnSemanticStateChanged;
+            _audioFormat.Dispose();
+        }
+
         _enabled = false;
         ReleasePerformanceObservation();
         // The runtime first: it stops answering, cancels what is in flight and drains its own
         // request tasks, so nothing is still writing to the bridge when that is disposed below.
+        _runtime.ModuleFailed -= OnModuleFailed;
         await _runtime.DisposeAsync().ConfigureAwait(false);
         // ReSharper disable once MethodHasAsyncOverload
         _shutdown.Cancel();
@@ -866,6 +892,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamAudioSurface.Module(Enabled, () => new ValueTask<SteamAudioState?>(audio.Current), audio));
         }
 
+        if (_audioFormat is { } audioFormat)
+        {
+            modules.Add(SteamAudioFormatRow.Module(Enabled, audioFormat.ReadAsync, audioFormat));
+        }
+
         // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if
         // something can populate it — which is the radio manager. Bluetooth rides the same
         // condition for the same reason.
@@ -916,6 +947,37 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueStatePublication();
     }
 
+    // The runtime refuses a quarantined module's traffic for the rest of its life, so this side
+    // has to match it. Retracting the patches here alone was not enough: the next Quick Access
+    // enable cycle ran SetPatchStates, which knows only the feature switches, and mounted the
+    // surface again with nothing behind it.
+    private void OnModuleFailed(object? sender, SteamUiModuleFailure failure)
+    {
+        lock (_failedPatchGate)
+        {
+            foreach (var patch in failure.Module.Patches)
+            {
+                _failedPatchIds.Add(patch.Id);
+            }
+        }
+
+        foreach (var patch in failure.Module.Patches)
+        {
+            _patches.SetPatchEnabled(patch.Id, false);
+        }
+
+        Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
+        QueueSynchronization();
+    }
+
+    private bool Quarantined(string patchId)
+    {
+        lock (_failedPatchGate)
+        {
+            return _failedPatchIds.Count > 0 && _failedPatchIds.Contains(patchId);
+        }
+    }
+
     private void QueueStatePublication()
     {
         _runtime.QueuePublication();
@@ -946,7 +1008,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _ when _pluginPatchIds.Contains(patch.Id) => _pluginSteamUiEnabled,
                 _ => components
             };
-            _patches.SetPatchEnabled(patch.Id, enabled);
+            _patches.SetPatchEnabled(patch.Id, enabled && !Quarantined(patch.Id));
         }
     }
 

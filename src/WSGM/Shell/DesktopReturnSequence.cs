@@ -9,6 +9,7 @@ internal interface IDesktopReturnBackend
 {
     Task ExitBigPictureAsync();
     Task<bool> RestoreLayoutAsync();
+    Task<bool> RestoreAudioAsync();
     Task RetireGameModeAsync();
     Task<bool> RestoreExplorerAsync();
     Task RunLeaveActionsAsync();
@@ -29,6 +30,9 @@ internal static class DesktopReturnSequence
         var layoutRestored = false;
         await Attempt("Restoring the desktop layout", async () =>
             layoutRestored = await backend.RestoreLayoutAsync().ConfigureAwait(false)).ConfigureAwait(false);
+        var audioRestored = false;
+        await Attempt("Restoring desktop audio", async () =>
+            audioRestored = await backend.RestoreAudioAsync().ConfigureAwait(false)).ConfigureAwait(false);
         await Attempt("Retiring Game Mode", backend.RetireGameModeAsync).ConfigureAwait(false);
         var desktopRestored = false;
         await Attempt("Restoring Explorer", async () =>
@@ -39,7 +43,7 @@ internal static class DesktopReturnSequence
         }
 
         // Settle the durable recovery record before an optional plugin can stall or throw.
-        if (layoutRestored)
+        if (layoutRestored && audioRestored)
         {
             await Attempt("Clearing the desktop recovery record", backend.ClearPendingReturnAsync)
                 .ConfigureAwait(false);

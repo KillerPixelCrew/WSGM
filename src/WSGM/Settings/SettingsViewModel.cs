@@ -92,6 +92,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
         GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
+        GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
+        DesktopAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
         ActionLists =
         [
             new PluginActionListEditor("Entering Game Mode", RefreshLaunchSummary),
@@ -288,6 +290,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Edits the Desktop layout leaving Game Mode restores.</summary>
     public DisplayLayoutEditor DesktopLayout { get; }
+
+    /// <summary>Edits saved audio preferences applied when entering Game Mode.</summary>
+    public AudioProfileEditor GameAudioProfile { get; }
+
+    /// <summary>Edits saved audio preferences applied when returning to Desktop.</summary>
+    public AudioProfileEditor DesktopAudioProfile { get; }
 
     /// <summary>The four action lists, in the order the page shows them.</summary>
     public IReadOnlyList<PluginActionListEditor> ActionLists { get; }
@@ -1870,6 +1878,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         GameModeReturnIndex = (int)launch.Return;
         _gameLayout = launch.GameLayout;
         _desktopLayout = launch.DesktopLayout;
+        GameAudioProfile.Load(launch.GameAudio);
+        DesktopAudioProfile.Load(launch.DesktopAudio);
         _waitForDisplay = launch.WaitForDisplay;
         _enterActions = launch.EnterActions;
         _leaveActions = launch.LeaveActions;
@@ -2147,6 +2157,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         launch.Return = (GameModeReturn)Math.Clamp(GameModeReturnIndex, 0, 1);
         launch.GameLayout = GameLayout.Build();
         launch.DesktopLayout = DesktopLayout.Build();
+        launch.GameAudio = GameAudioProfile.Build();
+        launch.DesktopAudio = DesktopAudioProfile.Build();
         launch.WaitForDisplay = WaitForDisplayIndex > 0 && WaitForDisplayIndex <= KnownDisplays.Count
             ? KnownDisplays[WaitForDisplayIndex - 1].Target
             : null;
@@ -2746,7 +2758,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         Action<string, Exception?> Report,
         Func<ModernStandbyReport> ReadStandby,
         Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
-        Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart)
+        Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart,
+        Func<string?, AudioDiscovery>? ReadAudio = null)
     {
         internal static SettingsServices Windows()
         {
@@ -2775,7 +2788,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // report instead of whatever this machine did last night.
                 ModernStandbyDiagnostics.Read,
                 () => SteamAutostartService.Scan(),
-                sources => SteamAutostartService.Apply(sources, true));
+                sources => SteamAutostartService.Apply(sources, true),
+                // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
+                // rather than whatever this machine has plugged in.
+                AudioDiscovery.Read);
         }
 
         /// <summary>

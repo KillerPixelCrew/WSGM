@@ -89,6 +89,33 @@ pending; validation results are recorded with the follow-up delivery.
 Delivery target: master directly, as requested on 2026-09-20. No live hardware validation or deployment
 was performed for this follow-up.
 
+## Game Mode audio profiles (2026-09-20, issues 115 and 120)
+
+Game Mode and Desktop launch profiles carry optional audio preferences: default playback and
+recording endpoints stored by Core Audio ID with their last friendly name, playback volume, mute,
+playback device format and spatial sound format. `Shell\AudioProfileService.cs` owns every Core
+Audio read and write, off the dispatcher and serialized behind one gate. A custom entry captures the
+desktop snapshot beside the return layout and persists both before Explorer leaves, including when
+the launch sets no Game Mode audio, because the return falls back to that snapshot. One bounded
+arrival budget covers both directions of an application. Nothing is retried automatically.
+
+Settings holds a saved endpoint, format or spatial value that the machine is not currently reporting
+as latent draft state, so an unrelated save cannot delete it; choosing another endpoint clears the
+format and spatial values, which belong to the endpoint that reported them. The Overlay panel and
+the `SteamAudioFormatRow` Quick Access dropdowns are live controls: each read is tagged with the
+endpoint and refresh that produced it, and a selection made against a superseded read is refused
+rather than applied to whatever is default now.
+
+Issue 120's Steam UI Toolkit work is merged upstream: the semantic runtime quarantines a throwing
+publication or command callback by module identity and raises `ModuleFailed` with the module,
+operation, message and stack, so one broken module cannot stop the others. The submodule pointer
+advances to that merged toolkit `main`.
+
+Documented in `docs/power-and-display.md` and `docs/steam-cef-system.md`. The Release build and the
+generated Steam asset, ownership-claim and emitted-asset checks passed. Automated suites are
+deferred until the maintainer reports manual testing. An attended pass over a real endpoint change,
+HDMI audio arrival and the Quick Access rows on a live client has not been run.
+
 ## ROG Ally X portable tester (2026-09-15)
 
 The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides

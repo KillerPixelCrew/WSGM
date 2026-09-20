@@ -198,6 +198,7 @@ public partial class SettingsWindow : Window
             // cannot leave a session — and therefore a pinned directory — behind.
             _services.BeginImportSession();
             _viewModel.StartDisplayDiscovery();
+            _viewModel.StartAudioDiscovery();
             _ = _services.RefreshDeviceOwner();
             MaybeShowQuickSetup();
         };

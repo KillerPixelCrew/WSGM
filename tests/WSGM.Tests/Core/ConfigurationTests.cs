@@ -12,6 +12,68 @@ namespace WSGM.Tests.Core;
 public sealed class ConfigurationTests
 {
     [Fact]
+    public void Normalize_DropsMalformedGameModeAudioPreferenceWithoutChangingTheLaunchConfiguration()
+    {
+        var config = new AppConfig
+        {
+            GameModeLaunch = new GameModeLaunchConfiguration
+            {
+                Kind = GameModeLaunchKind.Custom,
+                GameAudio = new AudioProfilePreference
+                {
+                    Output = new AudioEndpointPreference { Id = new string('x', 513) },
+                    PlaybackFormat = new AudioFormatPreference
+                    {
+                        Channels = 33,
+                        SampleRate = 48000,
+                        BitsPerSample = 24,
+                        ContainerBitsPerSample = 32,
+                        ChannelMask = 0x63F
+                    }
+                }
+            }
+        };
+
+        var normalized = ConfigStore.Normalize(config);
+
+        Assert.Equal(GameModeLaunchKind.Custom, normalized.GameModeLaunch.Kind);
+        Assert.Null(normalized.GameModeLaunch.GameAudio);
+    }
+
+    [Fact]
+    public void Normalize_PreservesValidPendingReturnAudio()
+    {
+        var config = new AppConfig
+        {
+            GameModeLaunchRecovery = new GameModeLaunchRecovery
+            {
+                PendingReturnAudio = new AudioProfilePreference
+                {
+                    Output = new AudioEndpointPreference { Id = "desktop-output", Name = "Desk speakers" },
+                    VolumePercent = 42,
+                    Muted = false,
+                    PlaybackFormat = new AudioFormatPreference
+                    {
+                        Channels = 6,
+                        SampleRate = 48000,
+                        BitsPerSample = 24,
+                        ContainerBitsPerSample = 32,
+                        ChannelMask = 0x3F
+                    },
+                    SpatialFormat = CoreAudio.SpatialAudioFormats.Off
+                }
+            }
+        };
+
+        var normalized = ConfigStore.Normalize(config);
+
+        var audio = Assert.IsType<AudioProfilePreference>(normalized.GameModeLaunchRecovery.PendingReturnAudio);
+        Assert.Equal("desktop-output", audio.Output!.Id);
+        Assert.Equal(6, audio.PlaybackFormat!.Channels);
+        Assert.Equal(CoreAudio.SpatialAudioFormats.Off, audio.SpatialFormat);
+    }
+
+    [Fact]
     public void JsonNullIsRejectedInsteadOfBecomingSilentDefaults()
     {
         Assert.Throws<JsonException>(() => ConfigStore.DeserializeConfig("null"));
