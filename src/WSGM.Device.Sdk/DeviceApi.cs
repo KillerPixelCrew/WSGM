@@ -17,6 +17,10 @@ public static class DeviceApi
     ///         Version 4 changed <c>CanonicalControllerSample</c> and <c>MotionSample</c> to readonly
     ///         record structs so publishing each controller frame does not allocate contract objects.
     ///     </para>
+    ///     <para>
+    ///         Optional descriptor prominence and companion hints were added within version 4 with
+    ///         normal, unpaired defaults. They describe presentation only; command behavior is unchanged.
+    ///     </para>
     /// </remarks>
     public const int Version = 4;
 }
