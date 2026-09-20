@@ -118,6 +118,7 @@ Source: "{#AppPublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignore
 Source: "{#AppPublishDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; Third-party license texts for managed packages (src\WSGM\Licenses\).
 Source: "{#AppPublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\Avalonia.Labs-MIT.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; VIIPER creates the virtual controller. The release build requires and validates the library,
 ; header, license, and notice before invoking setup; missing component bytes fail the build.
 Source: "{#AppPublishDir}\libviiper.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: controller

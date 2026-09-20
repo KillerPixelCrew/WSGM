@@ -1,19 +1,17 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Labs.Panels;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -37,45 +35,6 @@ public partial class OverlayWindow
     private void OnDeviceChanged()
     {
         QueueLiveRefresh(DeviceLiveRefresh);
-    }
-
-    /// <summary>
-    ///     True while focus is on an interactive value control inside <paramref name="list" /> —
-    ///     a slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
-    ///     one is focused would destroy it under the user, so the refresh is skipped until they leave.
-    /// </summary>
-    /// <param name="list">The panel about to be torn down and rebuilt.</param>
-    /// <remarks>
-    ///     Asked for both row lists. The performance rows are a separate panel from the capability list
-    ///     but rebuild on the same kind of event — RTSS republishes its readback every poll — so the
-    ///     frame-limit slider was the one value control on the Device page with no such protection:
-    ///     focus landed on it and the next readback two seconds later deleted the control under it.
-    /// </remarks>
-    private bool IsEditingValueIn(Control list)
-    {
-        if (GetTopLevel(this)?.FocusManager.GetFocusedElement()
-            is not Control focused)
-        {
-            return false;
-        }
-
-        // The curve editor belongs here for the same reason as the slider, and more urgently: the
-        // live temperature it marks republishes several times a second, so a rebuild would drop the
-        // control out from under a finger that is mid-drag on every single sample.
-        if (focused is not (Slider or ComboBox or ToggleSwitch or TextBox or CurveEditor))
-        {
-            return false;
-        }
-
-        for (Visual? node = focused; node is not null; node = node.GetVisualParent())
-        {
-            if (ReferenceEquals(node, list))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -262,6 +221,7 @@ public partial class OverlayWindow
         var performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
+        RefreshDeviceSectionRail(snapshot, performance);
         var powerPage = _navigation.Page is OverlayPage.Device or OverlayPage.DevicePowerAndThermals
                         || (_navigation.Page == OverlayPage.DevicePluginSection
                             && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot,
@@ -273,7 +233,14 @@ public partial class OverlayWindow
                                                snapshot.Visible && DevicePowerPresetHost.IsVisible;
         ManualTdpHost.IsVisible = snapshot.Visible &&
                                   ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
-        DevicePowerOverview.IsVisible = powerPage;
+        var powerControlsVisible = powerPage && (DeviceWindowsPower.IsVisible
+                                                 || DevicePowerPresetContainer.IsVisible || ManualTdpHost.IsVisible);
+        if (this.FindControl<Border>("DevicePowerControlsCard") is { } powerControls)
+        {
+            powerControls.IsVisible = powerControlsVisible;
+        }
+
+        DevicePowerOverview.IsVisible = powerPage && (powerControlsVisible || performance?.Visible is true);
         DeviceWidgetsExpander.IsVisible = _navigation.Page == OverlayPage.Device;
         RefreshDeviceSectionPins(snapshot);
         // Only on a hybrid CPU whose active scheme exposes the policy. Everywhere else the section
@@ -285,36 +252,15 @@ public partial class OverlayWindow
         DeviceStatusDetail.Text = snapshot.Detail;
         RefreshDevicePrerequisites();
 
-        // Do not tear the list down while the user is operating a value control on it. Read-only
-        // telemetry (fan RPM, temperature) streams several samples a second and each one posts a
-        // refresh; rebuilding would destroy the focused slider/dropdown mid-adjust — the pad
-        // cannot hold Left/Right across it, and the row's debounced write timer would die with the
-        // row before it commits. Refresh existing sliders in place; their pending user edits take
-        // precedence over readback. The next change after focus moves on rebuilds as normal.
         if (_renderedDevicePage == _navigation.Page && _renderedDeviceSection == _navigation.SectionId
-                                                    && IsEditingValueIn(DeviceCapabilityList))
+                                                    && SameDeviceLayout(_deviceLayout, snapshot))
         {
-            foreach (var row in DeviceCapabilityList.GetLogicalDescendants().OfType<DeviceSliderRow>())
-            {
-                var capability = snapshot.Capabilities.FirstOrDefault(item =>
-                    Equals(row.Tag, item.InstanceId is { Length: > 0 }
-                        ? $"{item.CapabilityId}#{item.InstanceId}"
-                        : item.CapabilityId));
-                if (capability is not null && RendersAsSlider(capability))
-                {
-                    row.RefreshReadback(capability.Minimum!.Value, capability.Maximum!.Value,
-                        capability.Step ?? 1, capability.CurrentValue?.IntegerValue ?? capability.Minimum.Value,
-                        capability.CanInvoke);
-                }
-                else if (capability is not null)
-                {
-                    row.RefreshReadback(capability.Minimum ?? 0, capability.Maximum ?? 0,
-                        capability.Step ?? 1, capability.CurrentValue?.IntegerValue ?? 0, false);
-                }
-            }
-
+            RefreshDeviceValues(DeviceCapabilityList, snapshot);
+            RenderPins();
             return;
         }
+
+        _deviceLayout = snapshot;
 
         var focusedKey = GetTopLevel(this)?.FocusManager.GetFocusedElement()
             is Control focused
@@ -369,31 +315,30 @@ public partial class OverlayWindow
             + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
-        restoreFocus?.Focus(NavigationMethod.Directional);
+        var focusTarget = focusedKey is null
+            ? null
+            : DeviceCapabilityList.GetLogicalDescendants().OfType<Control>()
+                .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
+        (focusTarget ?? restoreFocus)?.Focus(NavigationMethod.Directional);
         RestoreSectionHeaderFocus(focusedKey);
         RenderPins();
     }
 
     /// <summary>
-    ///     Renders the additional Device sections below the Power and Performance overview.
+    ///     Renders the application profile control on the Device overview.
     /// </summary>
-    /// <remarks>
-    ///     A menu rather than one long list. The whole surface is a few rows tall on a handheld, and a
-    ///     list that needs scrolling is a list a controller cannot cross quickly. Each card carries the
-    ///     most serious status inside it, so a fault is visible without opening the page.
-    /// </remarks>
-    private DescriptorStatusRow? RenderDeviceSectionMenu(
+    private Control? RenderDeviceSectionMenu(
         DeviceOverlaySnapshot snapshot,
         PerformanceOverlaySnapshot? performance,
         IReadOnlyList<DeviceOverlaySectionEntry> sectionPages,
         string? focusedKey)
     {
-        DescriptorStatusRow? restoreFocus = null;
+        Control? restoreFocus = null;
 
         // The per-application profile toggle is the headline of the Device root, the way Steam's own
         // per-game toggle heads the Performance tab: one control, on top of the page, that turns a
         // separate profile for the running application on or off. Its settings live on Power and
-        // thermals; this is only the switch. Rendered before the section grid so it reads first.
+        // thermals; this is only the switch. The section rail owns navigation.
         if (performance is { Visible: true }
             && performance.ProfileRows.FirstOrDefault(row => string.Equals(
                 row.Id,
@@ -410,59 +355,11 @@ public partial class OverlayWindow
             }
         }
 
-        // A grid of tile cards rather than a stretched stack: the sheet is wide, and
-        // a full-width row per section read as the old sidebar scaled up.
-        var grid = new UniformGrid { Columns = 2 };
-        foreach (var entry in sectionPages)
-        {
-            if (!snapshot.Visible && (entry.Section == DeviceOverlaySection.PowerAndThermals
-                                      || entry.PluginSectionId == DeviceSections.PowerId))
-            {
-                continue;
-            }
-
-            var key = DeviceOverlaySectionPages.FocusKey(entry);
-            DescriptorStatusRow row = new();
-            row.Classes.Add("tile");
-            row.Margin = new Thickness(0, 0, 10, 10);
-            row.Apply(new DescriptorRow(
-                key,
-                entry.Title,
-                entry.Description,
-                entry.Count.ToString(CultureInfo.InvariantCulture),
-                true,
-                entry.Status));
-            if (SectionIconFor(entry.Icon) is { } sectionIcon)
-            {
-                row.IconGeometry = sectionIcon;
-            }
-
-            var captured = entry;
-            row.Click += (_, _) =>
-            {
-                if (captured.PluginSectionId is { } pluginSection)
-                {
-                    EnterDevicePluginSection(pluginSection);
-                }
-                else
-                {
-                    EnterDeviceSection(captured.Section);
-                }
-            };
-            grid.Children.Add(row);
-            if (string.Equals(key, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = row;
-            }
-        }
-
-        DeviceCapabilityList.Children.Add(grid);
         return restoreFocus;
     }
 
-    /// <summary>Renders one Device section's rows.</summary>
     /// <summary>Renders one plugin-declared section page: lead rows, then category groups.</summary>
-    private DescriptorStatusRow? RenderDevicePluginSection(
+    private Control? RenderDevicePluginSection(
         DeviceOverlaySnapshot snapshot,
         string sectionId,
         string? focusedKey)
@@ -495,20 +392,36 @@ public partial class OverlayWindow
             return null;
         }
 
-        DescriptorStatusRow? restoreFocus = null;
-        var columns = new Grid
+        Control? restoreFocus = null;
+        var columns = new FlexPanel
         {
-            ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 12, 0, 0)
+            Direction = FlexDirection.Row, Wrap = FlexWrap.Wrap, ColumnSpacing = 20, RowSpacing = 20,
+            AlignItems = AlignItems.FlexStart, Margin = new Thickness(0, 12, 0, 0)
         };
-        StackPanel[] stacks = [new() { Spacing = 16 }, new() { Spacing = 16 }];
-        for (var i = 0; i < stacks.Length; i++)
+        var detailWidth = ContentScroller.Viewport.Width;
+        if (ContentScroller.Content is Control contentHost)
         {
-            Grid.SetColumn(stacks[i], i);
-            columns.Children.Add(stacks[i]);
+            detailWidth -= contentHost.Margin.Left + contentHost.Margin.Right;
+        }
+
+        if (detailWidth <= 0)
+        {
+            detailWidth = DeviceCapabilityList.Bounds.Width;
+        }
+
+        var columnCount = detailWidth >= 880 ? 2 : 1;
+        var columnWidth = Math.Max(300, (detailWidth - (columnCount - 1) * columns.ColumnSpacing) / columnCount);
+        var stacks = Enumerable.Range(0, columnCount).Select(_ => new StackPanel { Spacing = 20, MinWidth = 300 })
+            .ToArray();
+        var heights = new double[columnCount];
+        foreach (var stack in stacks)
+        {
+            Flex.SetGrow(stack, 1);
+            Flex.SetBasis(stack, new FlexBasis(0));
+            columns.Children.Add(stack);
         }
 
         DeviceCapabilityList.Children.Add(columns);
-        var groupIndex = 0;
         foreach (var section in DevicePinSections(snapshot).Where(section => section.PluginSectionId == sectionId))
         {
             var content = CreateSection(section.Id, section.Title);
@@ -518,12 +431,11 @@ public partial class OverlayWindow
                 continue;
             }
 
-            stacks[groupIndex++ % 2].Children.Add(new Border { Classes = { "device-group" }, Child = content });
-        }
-
-        if (groupIndex == 1)
-        {
-            Grid.SetColumnSpan(stacks[0], 2);
+            var group = WrapDeviceSection(content);
+            var column = Array.IndexOf(heights, heights.Min());
+            stacks[column].Children.Add(group);
+            group.Measure(new Size(columnWidth, double.PositiveInfinity));
+            heights[column] += Math.Max(group.DesiredSize.Height, 60) + 20;
         }
 
         return restoreFocus;
@@ -546,7 +458,7 @@ public partial class OverlayWindow
         };
     }
 
-    private DescriptorStatusRow? RenderDeviceSection(
+    private Control? RenderDeviceSection(
         DeviceOverlaySnapshot snapshot,
         DeviceOverlaySection section,
         string? focusedKey)
@@ -568,7 +480,7 @@ public partial class OverlayWindow
         var restoreFocus = AddDeviceSectionRows(snapshot, definition, content, focusedKey);
         if (content.Children.Count > 1)
         {
-            DeviceCapabilityList.Children.Add(content);
+            DeviceCapabilityList.Children.Add(WrapDeviceSection(content));
         }
 
         return restoreFocus;
@@ -590,7 +502,7 @@ public partial class OverlayWindow
     ///     them. One body for both, so the controller target cannot appear on the page the menu counted
     ///     it into and be missing from the page it actually opens.
     /// </remarks>
-    private DescriptorStatusRow? RenderOwnedDeviceRows(
+    private Control? RenderOwnedDeviceRows(
         DeviceOverlaySnapshot snapshot,
         DeviceOverlaySection section,
         string? focusedKey,
@@ -598,23 +510,21 @@ public partial class OverlayWindow
         bool includePreview = true)
     {
         target ??= DeviceCapabilityList;
-        DescriptorStatusRow? restoreFocus = null;
+        Control? restoreFocus = null;
 
         // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
         // instead of arriving through the capability list.
         if (section is DeviceOverlaySection.PowerAndThermals && snapshot.AutoTdp is { } autoTdp)
         {
             const string autoTdpFocusKey = "device.auto-tdp";
-            DescriptorStatusRow row = new();
-            row.Apply(new DescriptorRow(
+            var descriptor = new DescriptorRow(
                 autoTdpFocusKey,
                 autoTdp.Title,
                 autoTdp.Description,
                 autoTdp.TrailingText,
                 autoTdp.CanInvoke,
-                autoTdp.Status));
-            row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                "AutoTDP switch", (bridge, token) => bridge.ToggleAutoTdpAsync(token));
+                autoTdp.Status);
+            var row = CreateHostDeviceRow(snapshot, descriptor);
             target.Children.Add(row);
             if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -628,16 +538,14 @@ public partial class OverlayWindow
         if (section is DeviceOverlaySection.PowerAndThermals && snapshot.Profile is { } profile)
         {
             const string profileFocusKey = "device.hardware-profile";
-            DescriptorStatusRow row = new();
-            row.Apply(new DescriptorRow(
+            var descriptor = new DescriptorRow(
                 profileFocusKey,
                 profile.Title,
                 profile.Description,
                 profile.TrailingText,
                 profile.CanInvoke,
-                profile.Status));
-            row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                "Hardware profile change", (bridge, token) => bridge.CycleHardwareProfileAsync(token));
+                profile.Status);
+            var row = CreateHostDeviceRow(snapshot, descriptor);
             target.Children.Add(row);
             if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -654,16 +562,14 @@ public partial class OverlayWindow
             case DeviceOverlaySection.PowerAndThermals when snapshot.AuthoredProfile is { } authored:
             {
                 const string authoredFocusKey = "device.authored-profile";
-                DescriptorStatusRow authoredRow = new();
-                authoredRow.Apply(new DescriptorRow(
+                var descriptor = new DescriptorRow(
                     authoredFocusKey,
                     authored.Title,
                     authored.Description,
                     authored.TrailingText,
                     authored.CanInvoke,
-                    authored.Status));
-                authoredRow.Click += (_, _) => _ = RunDeviceCommandAsync(
-                    "Fan profile change", (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
+                    authored.Status);
+                var authoredRow = CreateHostDeviceRow(snapshot, descriptor);
                 target.Children.Add(authoredRow);
                 if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
                 {
@@ -677,16 +583,14 @@ public partial class OverlayWindow
             case DeviceOverlaySection.ControllerAndMotion when snapshot.Controller is { } controller:
             {
                 const string controllerFocusKey = "device.controller-target";
-                DescriptorStatusRow row = new();
-                row.Apply(new DescriptorRow(
+                var descriptor = new DescriptorRow(
                     controllerFocusKey,
                     controller.Title,
                     controller.Description,
                     controller.TrailingText,
                     controller.CanInvoke,
-                    controller.Status));
-                row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                    "Controller target change", (bridge, token) => bridge.CycleControllerTargetAsync(token));
+                    controller.Status);
+                var row = CreateHostDeviceRow(snapshot, descriptor);
                 target.Children.Add(row);
                 if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
                 {
@@ -700,16 +604,14 @@ public partial class OverlayWindow
             case DeviceOverlaySection.Diagnostics when snapshot.Recovery is { } recovery:
             {
                 const string recoveryFocusKey = "device.retry";
-                DescriptorStatusRow row = new();
-                row.Apply(new DescriptorRow(
+                var descriptor = new DescriptorRow(
                     recoveryFocusKey,
                     recovery.Title,
                     recovery.Description,
                     recovery.TrailingText,
                     true,
-                    recovery.Status));
-                row.Click += (_, _) => _ = RunDeviceCommandAsync(
-                    "Device integration retry", (bridge, token) => bridge.RetryDeviceCycleAsync(token));
+                    recovery.Status);
+                var row = CreateHostDeviceRow(snapshot, descriptor);
                 target.Children.Add(row);
                 if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
                 {
@@ -997,16 +899,5 @@ public partial class OverlayWindow
 
             ApplyGlyphInputTest();
         });
-    }
-
-    /// <summary>
-    ///     True when a capability should render as a slider: a writable integer with a real
-    ///     declared range. Colour keeps its editor; everything else stays a row.
-    /// </summary>
-    private static bool RendersAsSlider(DeviceOverlayCapability capability)
-    {
-        return capability is
-                   { ValueKind: CapabilityValueKind.Integer, Writable: true, Minimum: { } min, Maximum: { } max }
-               && max > min;
     }
 }

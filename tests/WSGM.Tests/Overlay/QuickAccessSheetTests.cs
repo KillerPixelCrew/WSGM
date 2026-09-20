@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
@@ -12,23 +11,6 @@ namespace WSGM.Tests.Overlay;
 /// </summary>
 public sealed class QuickAccessSheetTests
 {
-    [Theory]
-    [InlineData(0x0001, 0u, true)]
-    [InlineData(0x0004, 0u, true)]
-    [InlineData(0x0010, 0u, true)]
-    [InlineData(0x0002, 0u, false)]
-    [InlineData(0x0400, 0u, false)]
-    [InlineData(0, 0u, false)]
-    [InlineData(0x0001, 0xFF515780u, false)]
-    public void OutsideDismissObservesClicksWithoutRepeatingPromotedTouch(ushort flags, uint extra, bool expected)
-    {
-        var packet = new byte[24];
-        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(4), flags);
-        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(20), extra);
-        Assert.Equal(expected, TouchSwipeMonitor.IsMouseClick(packet));
-        Assert.False(TouchSwipeMonitor.IsMouseClick(packet.AsSpan(0, 23)));
-    }
-
     // The SteamOS map: left/right are Steam's, top/bottom are WSGM's. The bottom
     // edge is explorer's in desktop mode and stays ignored there.
     [Theory]
@@ -56,48 +38,6 @@ public sealed class QuickAccessSheetTests
         IReadOnlySet<string> pins = new HashSet<string>(["steam.artwork"], StringComparer.Ordinal);
 
         Assert.Equal(expected, OverlayWindow.IsOriginalPinnedRow(tag, pins));
-    }
-
-    [Theory]
-    [InlineData(ScreenEdge.Bottom, 100, 100, 125, 35, 65)]
-    [InlineData(ScreenEdge.Right, 100, 100, 35, 125, 65)]
-    [InlineData(ScreenEdge.Left, 100, 100, 165, 35, 65)]
-    [InlineData(ScreenEdge.Top, 100, 100, 35, 165, 65)]
-    public void InwardDistanceUsesTheDirectionOppositeEachScreenEdge(
-        ScreenEdge edge, int startX, int startY, int x, int y, int expected)
-    {
-        Assert.Equal(expected, TouchSwipeMonitor.InwardDistance(edge, startX, startY, x, y));
-    }
-
-    [Theory]
-    [InlineData(true, false, true, false, 100, 100, 165, 100, ScreenEdge.Left)]
-    [InlineData(true, false, true, false, 100, 100, 100, 35, ScreenEdge.Bottom)]
-    [InlineData(false, true, false, true, 100, 100, 35, 100, ScreenEdge.Right)]
-    [InlineData(false, true, false, true, 100, 100, 100, 165, ScreenEdge.Top)]
-    public void CornerSwipeUsesTheEdgeMatchingTheContactsDirection(
-        bool bottom, bool right, bool left, bool top,
-        int startX, int startY, int x, int y, ScreenEdge expected)
-    {
-        Assert.Equal(
-            expected,
-            TouchSwipeMonitor.PickTriggeredEdge(
-                bottom, right, left, top, startX, startY, x, y, 48));
-    }
-
-    [Fact]
-    public void CornerSwipeWaitsUntilOneDirectionCrossesTheTriggerDistance()
-    {
-        Assert.Null(
-            TouchSwipeMonitor.PickTriggeredEdge(
-                true,
-                false,
-                true,
-                false,
-                100,
-                100,
-                140,
-                70,
-                48));
     }
 
     // Each switch is exercised at its NON-default value in one of the two cases:
@@ -198,7 +138,7 @@ public sealed class QuickAccessSheetTests
             @"\\.\DISPLAY2"));
     }
 
-    // ---- Tray width budget: the header's pill zone must never grow past the sheet ----
+    // The tray shares the bottom rail with Open apps.
 
     [Theory]
     [InlineData(1280.0, 1.0, 374.4)] // 1280 px sheet, no touch transform
@@ -207,27 +147,22 @@ public sealed class QuickAccessSheetTests
     [InlineData(0.0, 1.0, 40.0)] // degenerate inputs never fall below one tray pill
     [InlineData(1280.0, 0.0, 40.0)]
     [InlineData(double.NaN, 1.0, 40.0)]
-    public void TheTrayStripIsCappedAtAFractionOfTheHeadersInnerWidth(double width, double scale, double expected)
+    public void TheTrayStripIsCappedAtAFractionOfTheAvailableWidth(double width, double scale, double expected)
     {
         Assert.Equal(expected, OverlayWindow.ComputeTrayMaxWidth(width, scale), 3);
     }
 
-    [Fact]
-    public void TheCappedTrayLeavesTheFixedStatusPillsAndTheWordmark()
+    [Theory]
+    [InlineData(1.5, 1.0, 1280.0, 720.0, 1.125)]
+    [InlineData(2.0, 1.0, 3840.0, 2160.0, 2.0)]
+    [InlineData(1.5, 1.5, 1920.0, 1080.0, 1.0)]
+    [InlineData(3.0, 1.0, 980.0, 640.0, 1.0)]
+    [InlineData(1.0, 2.0, 1280.0, 720.0, 0.5625)]
+    [InlineData(1.0, 2.0, 3840.0, 2160.0, 1.0)]
+    public void ContentScalingPreservesTheMinimumWorkspaceAtEveryViewport(
+        double requested, double renderScale, double width, double height, double expected)
     {
-        // Fixed header cost at 1280 px logical, added up from the XAML: eject 34 +
-        // audio 34 + Wi-Fi 34 + Bluetooth 34 + battery ~70 + clock ~64 + close 34 +
-        // 7x4 spacing + the 9 px separator = ~341; the wordmark and eyebrow ~160;
-        // the header's 2x16 padding 32.
-        const double sheet = 1280;
-        const double pills = 341;
-        const double wordmark = 160;
-        const double padding = 32;
-
-        var tray = OverlayWindow.ComputeTrayMaxWidth(sheet, 1.0);
-        var slack = sheet - padding - wordmark - pills - tray;
-
-        Assert.True(slack > 0, $"status pills do not fit (slack {slack:0.#} px)");
+        Assert.Equal(expected, OverlayWindow.ComputeContentScale(requested, renderScale, width, height), 4);
     }
 
     [Fact]

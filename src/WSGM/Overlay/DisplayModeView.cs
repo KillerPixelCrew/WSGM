@@ -15,7 +15,7 @@ namespace WSGM.Overlay;
 /// <summary>Offers explicit mode selection and apply through Windows Device Control.</summary>
 internal sealed class DisplayModeView : StackPanel
 {
-    private readonly CardButton _apply = new()
+    private readonly ActionButton _apply = new()
         { Title = "Apply display mode", IconGeometry = Icons.Monitor, IsEnabled = false };
 
     private readonly Func<Task<DisplayModeSnapshot?>> _read;

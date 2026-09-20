@@ -73,6 +73,7 @@ public partial class OverlayWindow
     internal void AttachBrightness(NativeQamBrightnessService service,
         Func<Task<DisplayModeSnapshot?>>? readMode = null)
     {
+        AttachBrightnessSurface(service);
         DisplayBrightnessHost.Tag = "section.display";
         PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
         DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));

@@ -1,9 +1,9 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Tests.Fakes;
@@ -114,8 +114,8 @@ public sealed class HybridCoreViewTests
     {
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
+        UiFixture.Click(window, UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
+            .Single(button => AutomationProperties.GetName(button) == "Power"));
         Dispatcher.UIThread.RunJobs();
     }
 }

@@ -1,26 +1,14 @@
-<Window xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="using:WSGM.Controls"
         xmlns:sh="using:WSGM.Shell"
-        x:Class="WSGM.Overlay.RadioWindow"
+        x:Class="WSGM.Overlay.RadioPanel"
         x:DataType="sh:RadioManager"
-        WindowDecorations="None"
-        CanResize="False"
-        ShowInTaskbar="False"
-        Topmost="True"
-        SizeToContent="Manual"
-        Width="500"
-        Height="600"
-        Background="{StaticResource HcBackgroundBrush}"
-        Title="Wi-Fi and Bluetooth">
-  <!-- RootScale: game mode forces 100% display scaling, so DIP sizes render
-         1:1 on very dense handheld panels — the code-behind scales the whole
-         panel (and its keyboard) by the desktop DPI, the same treatment the
-         taskbar and quick access get (see ApplyTouchScale). -->
-  <LayoutTransformControl x:Name="RootScale">
-    <Border BorderBrush="{StaticResource HcCardBorderBrush}"
+        Background="{StaticResource DeckSurfaceBrush}">
+  <Grid>
+    <Border BorderBrush="{StaticResource DeckDividerBrush}"
             BorderThickness="1"
-            CornerRadius="8"
+            CornerRadius="6"
             Padding="14">
       <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
 
@@ -178,7 +166,7 @@
             <StackPanel x:Name="PromptPanel" Spacing="8" IsVisible="False">
               <TextBlock x:Name="PromptTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
               <TextBlock x:Name="PromptDetail" Classes="caption" TextWrapping="Wrap" />
-              <TextBox x:Name="PromptInput" PasswordChar="●" />
+              <TextBox x:Name="PromptInput" PasswordChar="●" IsReadOnly="True" Focusable="False" />
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button x:Name="PromptAccept" Content="Connect" Click="OnPromptAccept" />
                 <Button Content="Cancel" Click="OnPromptCancel" />
@@ -190,7 +178,7 @@
               <!-- Drawn by WSGM, not the Windows touch keyboard: that
                              one is rendered by TextInputHost, an immersive-shell
                              AppX that cannot activate with no Explorer running. -->
-              <c:OnScreenKeyboard x:Name="Keyboard" />
+              <Button x:Name="PromptEdit" Content="Enter password or PIN" Click="OnPromptEdit" />
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
@@ -207,8 +195,8 @@
         </StackPanel>
       </Grid>
     </Border>
-  </LayoutTransformControl>
+  </Grid>
 
   <!-- The radio-row / radio-row-header / radio-row-actions family lives in
          Themes\Shared.axaml so this panel and the eject panel cannot drift apart. -->
-</Window>
+</UserControl>

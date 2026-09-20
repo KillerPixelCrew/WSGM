@@ -30,7 +30,7 @@ public sealed class ArtworkView : OverlaySubView
 {
     // ---- Level: pick a game ----
 
-    // A full Steam library is rendered one CardButton per title into a
+    // A full Steam library is rendered one ActionButton per title into a
     // non-virtualizing host, so it is paged exactly like LibraryTabsView's
     // multi-select: on a 1000+ title account a single pass stalls the UI thread
     // of a focused overlay that is muting the game.
@@ -303,7 +303,7 @@ public sealed class ArtworkView : OverlaySubView
 
     private void RenderNameSearch()
     {
-        // Prefer the separate keyboard window; fall back to an inline keyboard screen.
+        // Use the shared keyboard surface; fall back to an inline keyboard screen.
         if (KeyboardService.Request("Search SteamGridDB by name", _appName, 100,
                 term => DoSgdbSearch(term)))
         {
@@ -328,8 +328,8 @@ public sealed class ArtworkView : OverlaySubView
     }
 
     // inlineKeyboardLevel: true only when the search was started from the inline
-    // keyboard SCREEN, which is a navigation level of its own. The peer keyboard
-    // window (the normal path) pushes nothing, so popping for it as well ate the
+    // keyboard SCREEN, which is a navigation level of its own. The shared keyboard
+    // surface (the normal path) pushes nothing, so popping for it as well ate the
     // level the user came from — the game list.
     private void DoSgdbSearch(string term, bool inlineKeyboardLevel = false)
     {

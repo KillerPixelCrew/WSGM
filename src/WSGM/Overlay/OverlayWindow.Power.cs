@@ -9,6 +9,8 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    private bool _confirmSignOut;
+
     private void OnShowWakeLockHolders(object? sender, RoutedEventArgs e)
     {
         WakeLockHost.Open();
@@ -48,13 +50,6 @@ public partial class OverlayWindow
         PowerActions.Hibernate();
     }
 
-    // Deliberately no dismiss: the row is a toggle, and the updated description/badge
-    // are the immediate feedback the user is looking at.
-    private void OnKeepAwakeToggle(object? sender, RoutedEventArgs e)
-    {
-        KeepAwakeToggleRequested?.Invoke();
-    }
-
     /// <summary>
     ///     Paints the Keep Awake row's status dot in the WakeWatch color
     ///     vocabulary: green free, yellow standby-blocked, red display-pinned, grey
@@ -64,22 +59,13 @@ public partial class OverlayWindow
     /// <param name="state">The system-wide wake-lock state.</param>
     internal void SetKeepAwakeStatus(WakeLockState state)
     {
-        KeepAwakeButton.StatusBrush = this.FindResource(state switch
+        KeepAwakeDetail.Foreground = this.FindResource(state switch
         {
             WakeLockState.DisplayHeld => "HcDangerBrush",
             WakeLockState.SystemHeld => "HcWarningBrush",
             WakeLockState.Free => "HcSuccessBrush",
             _ => "HcTextMutedBrush"
         }) as IBrush;
-    }
-
-    /// <summary>Cycles the idle timeout a row names in its CommandParameter.</summary>
-    private void OnCyclePowerTimeout(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button { CommandParameter: PowerTimeoutKind kind })
-        {
-            PowerTimeoutCycleRequested?.Invoke(kind);
-        }
     }
 
     private void OnRestart(object? sender, RoutedEventArgs e)
@@ -92,6 +78,7 @@ public partial class OverlayWindow
             return;
         }
 
+        Dismissed?.Invoke();
         PowerActions.Restart();
     }
 
@@ -105,7 +92,22 @@ public partial class OverlayWindow
             return;
         }
 
+        Dismissed?.Invoke();
         PowerActions.Shutdown();
+    }
+
+    private void OnSignOut(object? sender, RoutedEventArgs e)
+    {
+        if (!_confirmSignOut)
+        {
+            _confirmSignOut = true;
+            SignOutButton.Title = "Really?";
+            ArmConfirmReset();
+            return;
+        }
+
+        Dismissed?.Invoke();
+        PowerActions.SignOut();
     }
 
     /// <summary>
@@ -133,6 +135,7 @@ public partial class OverlayWindow
         _confirmResetTimer?.Stop();
         _confirmRestart = false;
         _confirmShutdown = false;
+        _confirmSignOut = false;
         _confirmCloseLauncher = false;
         if (DataContext is OverlayViewModel vm)
         {
@@ -141,5 +144,6 @@ public partial class OverlayWindow
 
         RestartButton.Title = "Restart";
         ShutdownButton.Title = "Shut down";
+        SignOutButton.Title = "Sign out";
     }
 }

@@ -31,6 +31,12 @@ public static class PowerActions
         Observe(() => WindowsPower.RequestActionAsync(WindowsPowerAction.Shutdown), "shutdown");
     }
 
+    /// <summary>Requests sign-out of the current Windows user.</summary>
+    public static void SignOut()
+    {
+        Observe(() => WindowsPower.RequestActionAsync(WindowsPowerAction.SignOut), "sign out");
+    }
+
     private static void Observe(Func<Task> request, string operation)
     {
         _ = ObserveAsync(request, operation);

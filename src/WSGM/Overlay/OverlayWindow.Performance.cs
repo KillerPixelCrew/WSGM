@@ -1,14 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Layout;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -46,152 +41,52 @@ public partial class OverlayWindow
 
         PerformanceStatus.Text = snapshot.Status;
 
-        // The status line above is still worth updating, but the rows are not torn down while the
-        // user is on the frame-limit slider: RTSS raises a state change on every readback whether
-        // anything moved or not, and rebuilding takes the focused slider with it.
-        if (IsEditingValueIn(PerformanceRows))
-        {
-            return;
-        }
-
-        PerformanceRows.Children.Clear();
-        var focusedKey = CurrentSemanticFocusKey();
-        DescriptorStatusRow? restoreFocus = null;
-        // On Device the per-application enable toggle is promoted to the headline toggle on the root,
-        // so the Power and thermals rows are the detail (detected application, active layer, reset)
-        // plus the shared frame-limit and overlay rows. On System there is no Device root to host the
-        // toggle, so it stays inline with the rest.
         var onDevice = _navigation.IsVisible(OverlayDestination.Device);
         var descriptors = onDevice
-            ? snapshot.ProfileRows
-                .Where(row => !string.Equals(
-                    row.Id,
-                    DeviceOverlaySectionPages.ApplicationProfileRowId,
-                    StringComparison.Ordinal))
+            ? snapshot.ProfileRows.Where(row => row.Id != DeviceOverlaySectionPages.ApplicationProfileRowId)
                 .Concat(snapshot.Rows)
             : snapshot.ProfileRows.Concat(snapshot.Rows);
-
-        StackPanel details = new() { Spacing = 4 };
-
-        foreach (var descriptor in descriptors)
-        {
-            Panel target = onDevice && snapshot.ProfileRows.Contains(descriptor) ? details : PerformanceRows;
-            var key = $"performance.{descriptor.Id}";
-            if (TryCreatePerformanceControl(descriptor, key) is { } control)
-            {
-                target.Children.Add(control);
-                continue;
-            }
-
-            var button = CreatePerformanceRow(descriptor, key);
-            target.Children.Add(button);
-            if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = button;
-            }
-        }
-
-        if (details.Children.Count > 0)
-        {
-            Expander more = new()
-            {
-                Header = "Profile details and reset",
-                Content = details,
-                IsExpanded = _performanceDetailsExpanded,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch
-            };
-            more.PropertyChanged += (_, change) =>
-            {
-                if (change.Property == Expander.IsExpandedProperty)
-                {
-                    _performanceDetailsExpanded = more.IsExpanded;
-                }
-            };
-            PerformanceRows.Children.Add(more);
-        }
-
-        restoreFocus?.Focus(NavigationMethod.Directional);
-        RestoreSectionHeaderFocus(focusedKey);
+        ReconcilePerformanceRows(PerformanceRows, descriptors, false);
         RenderPins();
     }
 
-    /// <summary>
-    ///     Builds the control a performance row asks for — a slider for a range, a dropdown for named
-    ///     options — or null when the row is a button and should stay one.
-    /// </summary>
-    /// <remarks>
-    ///     A disabled control is still drawn rather than falling back to a button: RTSS going away
-    ///     should grey the frame-limit slider, not replace it with a different-looking row that appears
-    ///     when the service is unhealthy.
-    /// </remarks>
-    private Control? TryCreatePerformanceControl(DescriptorRow descriptor, string key)
+    private void ReconcilePerformanceRows(Panel target, IEnumerable<DescriptorRow> descriptors, bool pinned)
     {
-        if (descriptor is { Range: { } range, Value: { } current })
+        var rows = descriptors.ToArray();
+        var keys = rows.Select(row => (pinned ? PinTagPrefix : "") + "performance." + row.Id).ToArray();
+        foreach (var stale in target.Children.Where(child => child is DescriptorControlView
+                                                             && !keys.Contains(child.Tag as string,
+                                                                 StringComparer.Ordinal)).ToArray())
         {
-            return new DeviceSliderRow(
-                key,
-                descriptor.Title,
-                descriptor.Description,
-                range.Minimum,
-                range.Maximum,
-                range.Step,
-                CapabilityUnit.None,
-                current,
-                descriptor.CanInvoke,
-                value => WritePerformanceValue(descriptor.Id, SettledValue(range, value)),
-                value => FormatFrameRate(SettledValue(range, value)));
+            target.Children.Remove(stale);
         }
 
-        if (descriptor.Options.Count == 0)
+        for (var index = 0; index < rows.Length; index++)
         {
-            return null;
-        }
-
-        IReadOnlyList<CapabilityChoice> choices =
-        [
-            .. descriptor.Options.Select(option => new CapabilityChoice(
-                option.Value.ToString(CultureInfo.InvariantCulture),
-                new CapabilityDisplay
-                {
-                    Key = DisplayKey.Custom,
-                    CustomLabel = option.Label
-                }))
-        ];
-        var selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
-        return DeviceControlRows.Choice(
-            key,
-            descriptor.Title,
-            descriptor.Description,
-            choices,
-            selected,
-            descriptor.CanInvoke,
-            value =>
+            var key = keys[index];
+            var existing = target.Children.OfType<DescriptorControlView>().FirstOrDefault(row => Equals(row.Tag, key));
+            if (existing is not null && existing.Matches(rows[index]))
             {
-                if (int.TryParse(value, CultureInfo.InvariantCulture, out var level))
+                existing.Refresh(rows[index]);
+            }
+            else
+            {
+                if (existing is not null)
                 {
-                    WritePerformanceValue(descriptor.Id, level);
+                    target.Children.Remove(existing);
                 }
-            });
-    }
 
-    /// <summary>What a slider position actually commits, once the row's off band is applied.</summary>
-    /// <remarks>
-    ///     The label and the write ask the same question, so the number the user is reading while they
-    ///     drag is the number that lands. Without that the handle would show a cap in the off band and
-    ///     then write zero.
-    /// </remarks>
-    private static int SettledValue(DescriptorRange range, int value)
-    {
-        return value < range.OffBelow ? 0 : value;
-    }
+                existing = CreatePerformanceRow(rows[index], key);
+                target.Children.Add(existing);
+            }
 
-    /// <summary>A frame limit reads as a rate, and zero means the cap is off rather than "0 FPS".</summary>
-    private static string FormatFrameRate(int value)
-    {
-        return value <= 0
-            ? "Off"
-            : $"{value.ToString(CultureInfo.CurrentCulture)} FPS";
+            var desiredIndex = index + (pinned ? 1 : 0);
+            var currentIndex = target.Children.IndexOf(existing);
+            if (currentIndex != desiredIndex)
+            {
+                target.Children.Move(currentIndex, desiredIndex);
+            }
+        }
     }
 
     private void WritePerformanceValue(string rowId, int value)
@@ -223,65 +118,29 @@ public partial class OverlayWindow
         }
     }
 
-    private DescriptorStatusRow CreatePerformanceRow(DescriptorRow descriptor, string focusKey)
+    private DescriptorControlView CreatePerformanceRow(DescriptorRow descriptor, string focusKey)
     {
-        DescriptorStatusRow button = new();
-        button.Apply(descriptor with { Id = focusKey });
-        button.Click += async (_, _) =>
+        return new DescriptorControlView(descriptor, focusKey, async current =>
         {
-            var source = _performanceSource;
-            if (source is null || _closed || !descriptor.CanInvoke)
+            if (_performanceSource is { } source && !_closed && current.CanInvoke)
             {
-                return;
+                await InvokePerformanceAsync(source, current);
             }
-
-            await RunRowCommandAsync(
-                button,
-                descriptor.CanInvoke,
-                false,
-                token => source.InvokeAsync(descriptor, token),
-                $"Performance overlay command failed: {descriptor.Id}");
-        };
-        return button;
+        }, value => WritePerformanceValue(descriptor.Id, value));
     }
 
-    /// <summary>Runs a row's command with the row disabled, under the overlay's device lifetime.</summary>
-    /// <param name="button">The row that started the command.</param>
-    /// <param name="enabledAfter">Whether the row can be pressed again afterwards.</param>
-    /// <param name="restoreFocus">Puts focus back on the row when the command left nothing focused.</param>
-    /// <param name="command">The command to run.</param>
-    /// <param name="failure">The log line prefix when the command fails.</param>
-    private async Task RunRowCommandAsync(
-        Button button,
-        bool enabledAfter,
-        bool restoreFocus,
-        Func<CancellationToken, Task> command,
-        string failure)
+    private async Task InvokePerformanceAsync(PerformanceOverlayBridge source, DescriptorRow descriptor)
     {
-        var restoreAfterInvoke = restoreFocus && button.IsFocused;
-        button.IsEnabled = false;
         try
         {
-            await command(_deviceLifetime.Token);
+            await source.InvokeAsync(descriptor, _deviceLifetime.Token);
         }
         catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
         {
         }
         catch (Exception ex)
         {
-            Log.Warn($"{failure}, {ex.Message}");
-        }
-        finally
-        {
-            if (!_closed)
-            {
-                button.IsEnabled = enabledAfter;
-                if (restoreAfterInvoke && button.IsEffectivelyVisible
-                                       && FocusManager.GetFocusedElement() is null)
-                {
-                    button.Focus(NavigationMethod.Directional);
-                }
-            }
+            Log.Warn($"Performance command failed: {descriptor.Id}, {ex.Message}");
         }
     }
 

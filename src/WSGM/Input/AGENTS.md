@@ -9,8 +9,9 @@ This scope owns process-wide controller observation, action mapping, recording, 
   recording lifetime.
 - Keep edge detection and repeat timing explicit. Do not turn a held sample into repeated navigation through accidental
   resubscription.
-- Gamepad navigation skips ordinary TextBox focus stops so controller users reach the on-screen keyboard path. Log a
-  peer-window edge before transferring focus.
+- Gamepad navigation skips ordinary TextBox focus stops so controller users reach the on-screen keyboard path. The
+  overlay routes sections and in-window surfaces through one navigation owner. Preserve LT/RT and LB/RB destination
+  switching, surface focus confinement, and release-before-repeat when changing that routing.
 - High-rate paths avoid per-sample allocation, synchronous I/O, and log spam. Preserve the diagnostic prefixes Gamepad
   added:, Controller input:, and Gamepad nav:; log lifecycle changes and actionable failures, not every sample.
 - Main-app input code is device-neutral. MSI Claw chord suppression belongs in src/WSGM.Device.Msi.Claw8A2Vm, including

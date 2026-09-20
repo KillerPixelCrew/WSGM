@@ -1,25 +1,14 @@
-<Window xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="using:WSGM.Controls"
         xmlns:sh="using:WSGM.Shell"
-        x:Class="WSGM.Overlay.EjectWindow"
+        x:Class="WSGM.Overlay.EjectPanel"
         x:DataType="sh:RemovableDriveManager"
-        WindowDecorations="None"
-        CanResize="False"
-        ShowInTaskbar="False"
-        Topmost="True"
-        SizeToContent="Manual"
-        Width="500"
-        Height="420"
-        Background="{StaticResource HcBackgroundBrush}"
-        Title="Safely remove hardware">
-  <!-- A real top-level window, not a flyout: GamepadNavigation only traverses
-         its window, so a device list inside a popup would not be reachable with
-         a controller at all (same reasoning as the radio and audio panels). -->
-  <LayoutTransformControl x:Name="RootScale">
-    <Border BorderBrush="{StaticResource HcCardBorderBrush}"
+        Background="{StaticResource DeckSurfaceBrush}">
+  <Grid>
+    <Border BorderBrush="{StaticResource DeckDividerBrush}"
             BorderThickness="1"
-            CornerRadius="8"
+            CornerRadius="6"
             Padding="14">
       <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
 
@@ -99,9 +88,9 @@
         </StackPanel>
       </Grid>
     </Border>
-  </LayoutTransformControl>
+  </Grid>
 
-  <Window.Styles>
+  <UserControl.Styles>
     <!-- The radio-row / radio-row-header / radio-row-actions family lives in
              Themes\Shared.axaml so this panel and the radio panel cannot drift
              apart. Only the drive glyph below is local to this window. -->
@@ -109,10 +98,10 @@
              geometries are stroke-style, filling them collapses detail. -->
     <Style Selector="Path.row-icon">
       <Setter Property="Fill" Value="{x:Null}" />
-      <Setter Property="Stroke" Value="{StaticResource HcTextMutedBrush}" />
+      <Setter Property="Stroke" Value="{StaticResource DeckSecondaryBrush}" />
       <Setter Property="StrokeThickness" Value="1.5" />
       <Setter Property="StrokeJoin" Value="Round" />
       <Setter Property="StrokeLineCap" Value="Round" />
     </Style>
-  </Window.Styles>
-</Window>
+  </UserControl.Styles>
+</UserControl>

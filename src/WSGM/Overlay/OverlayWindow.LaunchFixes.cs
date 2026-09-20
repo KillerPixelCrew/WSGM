@@ -21,7 +21,7 @@ public partial class OverlayWindow
     ///     The launch fix waiting on the user to pick a game, and the button
     ///     whose title reports the outcome.
     /// </summary>
-    private (LaunchWrapperMode Mode, CardButton Button)? _pendingLaunchFix;
+    private (LaunchWrapperMode Mode, ActionButton Button)? _pendingLaunchFix;
 
     /// <summary>
     ///     Re-labels the launch-fix rows for the current CEF state. Called when
@@ -59,7 +59,7 @@ public partial class OverlayWindow
     /// </summary>
     private void OnApplyLaunchFix(object? sender, RoutedEventArgs e)
     {
-        if (sender is CardButton { CommandParameter: LaunchWrapperMode mode } row)
+        if (sender is ActionButton { CommandParameter: LaunchWrapperMode mode } row)
         {
             StartLaunchFix(mode, row);
         }
@@ -70,9 +70,8 @@ public partial class OverlayWindow
         try
         {
             IReadOnlyList<IStorageFile> files;
-            // The picker is a separate top-level window, so every touch in it lands
-            // outside the bar. Suspend the controller's tap-outside dismissal (and
-            // the gamepad driving the bar behind the dialog) until it closes.
+            // The native picker owns input until it closes. Suspend controller
+            // navigation so it cannot drive the overlay behind the dialog.
             SystemDialogActive?.Invoke(true);
             try
             {
@@ -131,7 +130,7 @@ public partial class OverlayWindow
     ///     Steam that reported no current app — the caller then asks which game, exactly
     ///     as <see cref="ApplyLaunchFixAsync" /> does for the wrapper buttons.
     /// </summary>
-    private async Task<SteamLibraryApp?> ResolveCurrentGameAsync(CardButton button)
+    private async Task<SteamLibraryApp?> ResolveCurrentGameAsync(ActionButton button)
     {
         button.Title = "Asking Steam…";
         var appId = (await SteamCurrentPage.GetAsync()).AppId;
@@ -154,7 +153,7 @@ public partial class OverlayWindow
     }
 
     private async Task ApplyCustomLaunchToAsync(
-        string path, string arguments, SteamLibraryApp game, CardButton button)
+        string path, string arguments, SteamLibraryApp game, ActionButton button)
     {
         try
         {
@@ -223,7 +222,7 @@ public partial class OverlayWindow
         }
     }
 
-    private void StartLaunchFix(LaunchWrapperMode mode, CardButton button)
+    private void StartLaunchFix(LaunchWrapperMode mode, ActionButton button)
     {
         // Resolve the lease route ONCE, here, before anything branches. The
         // clipboard text, the value written into Steam and the snapshot persisted
@@ -249,7 +248,7 @@ public partial class OverlayWindow
     }
 
     private async Task CopyLaunchCommandAsync(
-        LaunchWrapperMode mode, CardButton button, string helperPath)
+        LaunchWrapperMode mode, ActionButton button, string helperPath)
     {
         var clipboard = GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
@@ -297,7 +296,7 @@ public partial class OverlayWindow
     }
 
     private async Task ApplyLaunchFixAsync(
-        LaunchWrapperMode mode, CardButton button)
+        LaunchWrapperMode mode, ActionButton button)
     {
         button.Title = "Asking Steam…";
         var appId = (await SteamCurrentPage.GetAsync()).AppId;
@@ -321,7 +320,7 @@ public partial class OverlayWindow
     }
 
     private async Task ApplyLaunchFixToAsync(
-        LaunchWrapperMode mode, CardButton button, long appId, string name, bool isShortcut)
+        LaunchWrapperMode mode, ActionButton button, long appId, string name, bool isShortcut)
     {
         try
         {

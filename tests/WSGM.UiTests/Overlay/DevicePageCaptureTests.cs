@@ -4,11 +4,9 @@ using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
-using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
@@ -24,6 +22,8 @@ public sealed class DevicePageCaptureTests
 {
     [AvaloniaTheory]
     [InlineData("Device", 1280, 800)]
+    [InlineData("Power", 1280, 720)]
+    [InlineData("Power", 3840, 2160)]
     [InlineData("Power", 1280, 800)]
     [InlineData("Power", 1920, 1200)]
     [InlineData("RGB", 1280, 800)]
@@ -90,8 +90,7 @@ public sealed class DevicePageCaptureTests
                 pins.Add(id);
                 window.SetPins([.. pins]);
             };
-            UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-                .Single(card => card is { IsEffectivelyVisible: true, Title: "Power" }));
+            UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
             foreach (var id in new[]
                      {
                          "section.device.plugin.power.category.control", "section.device.plugin.power.category.charging"
@@ -119,8 +118,8 @@ public sealed class DevicePageCaptureTests
         }
         else if (page != "Device")
         {
-            UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-                .Single(card => card.IsEffectivelyVisible && card.Title == page));
+            var section = page switch { "Power" => "power", "RGB" => "rgb", "Info" => "info", _ => "controller" };
+            UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin." + section));
         }
 
         Dispatcher.UIThread.RunJobs();
@@ -130,25 +129,33 @@ public sealed class DevicePageCaptureTests
             Assert.True(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").IsEffectivelyVisible);
             var cards = window.GetVisualDescendants().OfType<Border>()
                 .Where(border => border.Classes.Contains("device-group") && border.IsEffectivelyVisible).ToArray();
-            Assert.True(cards.Length >= 5);
-            Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 400, width / 2.0));
+            Assert.NotEmpty(cards);
+            var detail = UiFixture.Named<Control>(window, "DeviceCapabilityList");
+            Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 240, detail.Bounds.Width));
+            foreach (var header in cards.SelectMany(card => card.GetVisualDescendants()
+                         .OfType<SectionPinHeader>()))
+            {
+                var title = Assert.Single(header.Children.OfType<TextBlock>());
+                var pin = Assert.Single(header.Children.OfType<Button>());
+                Assert.True(title.Bounds.Right < pin.Bounds.Left, "The heading must not overlap its pin action.");
+                Assert.InRange(pin.Bounds.Height, 44, header.Bounds.Height);
+            }
+
+            var planGroup = Assert.IsType<Border>(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").Parent);
+            var assignmentsGroup = Assert.IsType<Border>(UiFixture.Named<StackPanel>(window,
+                "DevicePowerPresetContainer").Parent);
+            Assert.True(assignmentsGroup.Bounds.Top - planGroup.Bounds.Bottom >= 16,
+                "Separate power sections need a visible gap.");
         }
 
         var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" +
             page.ToLowerInvariant().Replace(' ', '-')
-            + (width == 1280 ? string.Empty : "-" + width));
+            + $"-{width}x{height}");
         Directory.CreateDirectory(directory);
         Capture(window, Path.Combine(directory, "viewport.png"));
         var scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
         if (page == "Power" && width == 1280)
         {
-            var details = window.GetVisualDescendants().OfType<Expander>()
-                .Single(expander => Equals(expander.Header, "Profile details and reset"));
-            details.IsExpanded = true;
-            Dispatcher.UIThread.RunJobs();
-            window.GetVisualDescendants().OfType<CardButton>()
-                .Single(card => card.Title == "Detected application").Focus(NavigationMethod.Directional);
-            Dispatcher.UIThread.RunJobs();
             window.MouseWheel(new Point(1100, 450), new Vector(0, -6));
             Dispatcher.UIThread.RunJobs();
             var before = scroll.Offset.Y;
@@ -162,8 +169,6 @@ public sealed class DevicePageCaptureTests
             }
 
             scroll.Offset = default;
-            window.GetVisualDescendants().OfType<Expander>()
-                .Single(expander => Equals(expander.Header, "Profile details and reset")).IsExpanded = false;
         }
 
         window.Height += Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);

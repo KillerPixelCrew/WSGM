@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using WindowsDeviceControl;
 using WSGM.Controls;
@@ -14,22 +13,11 @@ using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Overlay;
 
-/// <summary>
-///     The game-mode Wi-Fi and Bluetooth panel.
-///     A real window rather than a taskbar flyout for two reasons that both matter
-///     on a handheld: a 240 px flyout cannot hold a network list, and
-///     <see cref="Input.GamepadNavigation" /> has no popup awareness, so a list
-///     inside a flyout would not be reachable with a controller at all.
-/// </summary>
-public partial class RadioWindow : Window
+/// <summary>In-window radio controls backed by the existing overlay actions.</summary>
+public partial class RadioPanel : UserControl
 {
-    /// <summary>The window's design size in DIPs, before the touch scale.</summary>
-    private const double BaseWidth = 500;
-
-    private const double BaseHeight = 600;
     private readonly RadioManager _radios;
 
-    private readonly double _uiScale;
     private bool _applyingSwitch;
 
     private PromptMode _prompt;
@@ -39,17 +27,12 @@ public partial class RadioWindow : Window
     /// <summary>Creates the panel.</summary>
     /// <param name="radios">
     ///     The manager backing both tabs. Not owned: the sheet's
-    ///     status object outlives this window.
+    ///     status object outlives this surface.
     /// </param>
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
-    /// <param name="uiScale">
-    ///     The desktop-DPI scale factor for WSGM UI (e.g. 1.5
-    ///     for a 150% desktop; see DisplayScale.GetUiScalePercent).
-    /// </param>
-    public RadioWindow(RadioManager radios, bool bluetooth, double uiScale = 1.0)
+    public RadioPanel(RadioManager radios, bool bluetooth)
     {
         _radios = radios;
-        _uiScale = uiScale;
         InitializeComponent();
         DataContext = radios;
 
@@ -62,27 +45,10 @@ public partial class RadioWindow : Window
         Tabs.SelectedIndex = bluetooth ? 1 : 0;
         ShowTab(Tabs.SelectedIndex);
 
-        Keyboard.Accepted += (_, _) => OnPromptAccept(this, new RoutedEventArgs());
-        Keyboard.PasteRequested += async (_, _) =>
-        {
-            try
-            {
-                var clipboard = GetTopLevel(this)?.Clipboard;
-                var text = clipboard is null ? null : await clipboard.TryGetTextAsync();
-                if (!string.IsNullOrEmpty(text))
-                {
-                    Keyboard.InsertExternalText(text);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Radio keyboard paste failed: {ex.Message}");
-            }
-        };
         _radios.PairingRequested += OnPairingRequested;
         _radios.PropertyChanged += OnRadiosPropertyChanged;
-        Opened += (_, _) => _radios.StartScanning();
-        Closed += (_, _) =>
+        AttachedToVisualTree += (_, _) => _radios.StartScanning();
+        DetachedFromVisualTree += (_, _) =>
         {
             // A prompt on screen when the panel goes means Windows is still
             // waiting on an answer. Unsubscribing alone left the deferral
@@ -100,44 +66,11 @@ public partial class RadioWindow : Window
             _radios.PairingRequested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
         };
-        StatusPanel.WirePanelBehaviour(this, ListScroller);
+        StatusPanel.WirePanelBehaviour(ListScroller);
     }
 
     private bool OnBluetoothTab => Tabs.SelectedIndex == 1;
 
-    /// <summary>
-    ///     Places the panel just below the sheet header, at the right-hand end
-    ///     where its tiles are.
-    ///     Without this the window opens wherever Windows decides, which is the
-    ///     top-left corner — nowhere near the button that opened it. The bar's own
-    ///     height is measured rather than assumed, because it is content-sized and
-    ///     DPI-scaled.
-    /// </summary>
-    /// <param name="anchorBottom">
-    ///     The bar's top edge in physical screen pixels, or
-    ///     0 when it is not on screen.
-    /// </param>
-    /// <param name="anchorRight">The bar's right edge in physical screen pixels, or 0.</param>
-    internal void DockBelowHeader(int anchorBottom, int anchorRight)
-    {
-        StatusPanel.DockBelowHeader(
-            this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, anchorRight, "Radio");
-    }
-
-    /// <summary>
-    ///     Scrolls a newly focused row (or its action button) into the
-    ///     viewport. A no-op when it is already fully visible.
-    /// </summary>
-    /// <summary>
-    ///     Shows the Wi-Fi or Bluetooth tab. Lets an already-open panel
-    ///     honour the tile that was tapped instead of staying on whichever tab it
-    ///     happened to open on.
-    /// </summary>
-    /// <param name="bluetooth">True for the Bluetooth tab.</param>
-    internal void SelectTab(bool bluetooth)
-    {
-        Tabs.SelectedIndex = bluetooth ? 1 : 0;
-    }
 
     /// <summary>Moves to the previous tab (left shoulder).</summary>
     public void SelectPreviousTab()
@@ -387,9 +320,7 @@ public partial class RadioWindow : Window
         var needsInput = mode is PromptMode.WifiPassword or PromptMode.PairingPin;
         PromptInput.IsVisible = needsInput;
         PromptReveal.IsVisible = needsInput;
-        Keyboard.IsVisible = needsInput;
-        Keyboard.Target = PromptInput;
-        Keyboard.Reset();
+        PromptEdit.IsVisible = needsInput;
         // Passwords start hidden; the reveal button is there for when a
         // one-character-at-a-time entry has gone wrong.
         PromptInput.PasswordChar = '●';
@@ -400,12 +331,32 @@ public partial class RadioWindow : Window
         PanelBluetooth.IsVisible = false;
         if (needsInput)
         {
-            PromptInput.Focus();
+            PromptEdit.Focus();
         }
         else
         {
             PromptAccept.Focus();
         }
+    }
+
+    /// <summary>Requests the shared docked keyboard for a network credential.</summary>
+    internal event Action<string, string, Action<string>>? TextEntryRequested;
+
+    private void OnPromptEdit(object? sender, RoutedEventArgs e)
+    {
+        var mode = _prompt;
+        var token = _promptToken;
+        var ssid = _promptSsid;
+        TextEntryRequested?.Invoke(PromptTitle.Text ?? "Enter credential", PromptInput.Text ?? "", text =>
+        {
+            if (_prompt != mode || _promptToken != token || _promptSsid != ssid)
+            {
+                return;
+            }
+
+            PromptInput.Text = text;
+            OnPromptAccept(this, new RoutedEventArgs());
+        });
     }
 
     private void HidePrompt()
@@ -427,7 +378,7 @@ public partial class RadioWindow : Window
         if (mode == PromptMode.PairingPin && text.Length == 0)
         {
             PromptDetail.Text = "Enter the PIN shown on the device to continue.";
-            PromptInput.Focus();
+            PromptEdit.Focus();
             return;
         }
 
@@ -465,8 +416,11 @@ public partial class RadioWindow : Window
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e)
     {
-        Close();
+        CloseRequested?.Invoke();
     }
+
+    /// <summary>Requests closure of this in-window surface.</summary>
+    public event Action? CloseRequested;
 
     /// <summary>
     ///     What the prompt is currently collecting, so one input box can
