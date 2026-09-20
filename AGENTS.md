@@ -116,6 +116,11 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - Before creating a PR, verify its head, intended base and actual diff. If the change is already on
   the base branch, report that state and obtain repair direction before changing branches or
   history. Do not manufacture review-base branches or substitute a different base to produce a PR.
+- CodeRabbit's review limit is 100 changed files per PR, including documentation and visual
+  baselines. Count the complete diff before creating or expanding a PR, then verify GitHub's
+  `changedFiles` count before requesting review. Split larger work into cohesive dependent PRs;
+  each stack base must be the branch of a real preceding PR. Preserve the maintainer's task branch
+  as the final head, document the merge order, and keep every PR within the limit after retargeting.
 - Reverting shared commits, rewriting published history, deleting remote branches or moving work
   to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
   exact local and remote state and propose a concrete repair before making further Git mutations.
