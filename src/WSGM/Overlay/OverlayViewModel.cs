@@ -282,22 +282,6 @@ public sealed class OverlayViewModel : ObservableObject
     } = true;
 
     /// <summary>
-    ///     Whether the CEF shortcut-artwork button is shown
-    ///     (<c>Cef.Enabled &amp;&amp; Cef.Artwork</c>).
-    /// </summary>
-    public bool ShowArtwork
-    {
-        get;
-        set
-        {
-            if (SetFieldIfChanged(ref field, value, nameof(ShowArtwork)))
-            {
-                Raise(nameof(ShowSteamLibrarySection));
-            }
-        }
-    } = true;
-
-    /// <summary>
     ///     Whether the CEF Format-SD-card and Add-library buttons are shown
     ///     (<c>Cef.Enabled &amp;&amp; Cef.SdFormat</c>).
     /// </summary>
@@ -330,7 +314,7 @@ public sealed class OverlayViewModel : ObservableObject
     ///     its header is hidden rather than left orphaned when every CEF feature is off.
     /// </summary>
     public bool ShowSteamLibrarySection =>
-        ShowLibraryTabs || ShowCardManager || ShowArtwork || ShowSdCard;
+        ShowLibraryTabs || ShowCardManager || ShowSdCard;
 
     /// <summary>
     ///     Whether the launch-wrapper buttons configure the selected game in the

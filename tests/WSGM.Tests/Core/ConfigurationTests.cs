@@ -156,11 +156,9 @@ public sealed class ConfigurationTests
             ForgottenInsertedCardIds = null!,
             CustomTabs = null!,
             LaunchWrappers = null!,
-            SgdbLinks = null!,
             LibraryTabOrder = null!,
             HiddenNativeTabs = null!,
             KnownNativeTabs = null!,
-            SteamGridDbApiKey = null!,
             AccentColor = null!,
             Splash = null!
         };
@@ -179,11 +177,9 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.ForgottenInsertedCardIds);
         Assert.NotNull(normalized.CustomTabs);
         Assert.NotNull(normalized.LaunchWrappers);
-        Assert.NotNull(normalized.SgdbLinks);
         Assert.NotNull(normalized.LibraryTabOrder);
         Assert.NotNull(normalized.HiddenNativeTabs);
         Assert.NotNull(normalized.KnownNativeTabs);
-        Assert.Equal("", normalized.SteamGridDbApiKey);
         Assert.Equal("#FFFF9D3D", normalized.AccentColor);
         Assert.NotNull(normalized.Splash);
     }
@@ -198,8 +194,7 @@ public sealed class ConfigurationTests
         {
             StartupApps = [null!, new StartupAppConfig { Path = null!, Args = null! }],
             SavedDisplayScaleEntries = [null!, new DisplayScaleEntry { DeviceName = null! }],
-            PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }],
-            SgdbLinks = [null!, new SgdbLinkConfig { Name = null! }]
+            PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }]
         };
 
         var normalized = ConfigStore.Normalize(config);
@@ -209,7 +204,6 @@ public sealed class ConfigurationTests
         Assert.Equal("", app.Args);
         Assert.Equal("", Assert.Single(normalized.SavedDisplayScaleEntries).DeviceName);
         Assert.Equal("", Assert.Single(normalized.PreviousConsoleLockSchemeValues).SchemeGuid);
-        Assert.Equal("", Assert.Single(normalized.SgdbLinks).Name);
     }
 
     /// The desired-state resolver takes the first entry matching a key, so a duplicate would make
@@ -820,7 +814,6 @@ public sealed class ConfigurationTests
         Assert.True(defaults.LibraryTabs);
         Assert.True(defaults.CardManager);
         Assert.True(defaults.SdFormat);
-        Assert.True(defaults.Artwork);
         Assert.True(defaults.WifiIndicator);
         Assert.True(defaults.DownloadKeepAwake);
         Assert.True(defaults.DownloadQueueSort);

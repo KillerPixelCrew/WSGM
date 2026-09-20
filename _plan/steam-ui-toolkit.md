@@ -186,19 +186,19 @@ The pleasant part is that this is mostly assembly, not invention. Nearly every p
 | package, validate, pack | Device Lab's `validate` / `pack`, already generalizable |
 | survive a Steam update | probe / apply / verify / remove with ownership |
 
-**An extension is a module loaded at runtime.** That is the unification worth aiming at: step 1 of
-this plan defines `ISteamUiModule` as the internal contract for a surface. An extension is the same
-contract, discovered from a package directory instead of compiled in. If those two things end up as
-one mechanism, the framework is right; if they end up as two, something is wrong.
+**An extension is a common plugin package, not a runtime CEF module.** `ISteamUiModule` remains the
+internal contract for a reviewed host surface. A package declares bounded commands through
+`IPluginSteamUi`; WSGM maps them to the compiled Extensions-tab and game-menu modules. This keeps
+Steam-object discovery, claim, verification and removal in the toolkit, where one update fix serves
+every package, instead of making a raw JavaScript injection API public.
 
 **Shape, mirroring the Device Plugin because that pattern is proven here:**
 
-- `extension.steam-ui.json` — id, name, version, exact API version, entry points.
-- A frontend fragment: the extension's own TypeScript, compiled and hashed like any module fragment,
-  contributing rows or a panel to the Extensions tab.
-- An optional .NET backend implementing an extension contract, reached through the existing
-  publication/command pair. **No Python, no second runtime** — the bridge WSGM already has is the
-  extension↔host RPC.
+- A normal `plugin.wsgm.json` package plus an `IPluginSteamUi` implementation.
+- One or more bounded named actions already admitted by `IPluginActions`.
+- Declarative placements in the shared Extensions tab or selected-game menu. A game-menu action
+  explicitly declares the numeric argument that receives the selected Steam app ID.
+- No frontend fragment, raw JavaScript, React node, Python runtime or Decky API compatibility layer.
 
 **Honesty about isolation, same as the Device SDK.** An extension's backend loaded in-process has the
 host's authority. Validate integrity — manifest, bounds, managed x64 entry, hashes — and say plainly
@@ -206,10 +206,10 @@ that this is not a sandbox. A collectible load context buys clean unload, not co
 thing that must hold is that a broken or hostile extension cannot take down the shell: the same
 fail-open rule every patch already follows.
 
-**Ownership split.** The toolkit provides the extension host — discovery, load, lifecycle, the tab
-mechanism, the package contract. The consumer decides policy: where packages live, whether extensions
-are enabled at all, and what the tab is called. WSGM's answer is a Settings toggle and a package
-directory; another consumer's may be neither.
+**Ownership split.** The toolkit provides the typed CEF surfaces and their patch lifecycle. The
+consumer provides package discovery, lifecycle and action policy. WSGM's common-plugin manager owns
+the latter and projects explicitly enabled packages only. Another consumer can reuse the toolkit
+surfaces with a different package host without exposing a JavaScript injection interface.
 
 This is deliberately **after** steps 1–5. An extension host built before modules are one declaration
 would harden the five-places problem into a public contract.
@@ -225,7 +225,7 @@ documented anywhere:
 | `SteamLibraryBadgeSurface`, `SteamHomeCarouselSurface` | library badges on Steam's tiles and Home's carousel fed from the attached libraries; both moved into the toolkit (2026-09-11) |
 | `SteamLibraryTabs` | sync and reorder library tabs |
 | `SteamLibraryData` (moved 2026-09-17) | collections, games and store tags |
-| `SteamApps` (moved 2026-09-17), `SteamGridDb` | apply and clear custom artwork; WSGM keeps the slot policy |
+| `SteamApps` (moved 2026-09-17) | generic apply and clear custom artwork; artwork providers and slot policy belong to a plugin |
 | `SteamApps` (moved 2026-09-17) | read and write launch configuration on the *running* client; WSGM keeps the wrapper policy in `SteamLaunchConfig` |
 | `SteamDownloadActivity` (moved 2026-09-17), `SteamDownloadSort` | read and reorder the download queue |
 | `SteamGlyphCss`, `SteamInputGlyphStylePatch` | physical controller glyphs as CSS, coexisting with CSSLoader |
@@ -338,13 +338,18 @@ changed against the plan rather than restating it.
 
 **Remaining.**
 
-- **The Extensions tab.** Deferred: the host is built and tested, the surface is not. Picking it up
-  means mounting a tab, rendering one row per loaded extension, and showing the refusals
-  `SteamUiExtensionHost` already reports — it returns rejected extensions with their reason
-  precisely so a tab can say why one is not there.
-- **Whether extensions may carry a .NET backend.** Deliberately unanswered. A JavaScript extension
-  already reaches the three APIs; adding in-process assembly loading is a separate decision with
-  its own consequences, and it should not arrive as a side effect of building the tab.
+- **Host-rendered plugin Steam surfaces (2026-09-20).** `SteamExtensionsTabSurface` mounts the
+  shared QAM tab and `SteamGameContextMenuSurface` adds selected-game commands. Both carry typed
+  state and strict command payloads. WSGM's `IPluginSteamUi` maps admitted common .NET packages to
+  opaque command identities and routes activation through the registration's current generation.
+  Plugins supply bounded declarations only, never React, webpack objects or JavaScript injection.
+- **SteamGridDB UI parity.** `WSGM.Plugin.Artwork` now owns the providers, state, selected-game
+  command, typed module and compiled page renderer. The native route has asset tabs, filters,
+  details, current-art management, local files, game selection, pagination, logo positioning and
+  icon handling. Live visual and controller comparison against Decky SteamGridDB remains open, as do
+  its optional Home/library presentation settings.
+- **The live plugin-surface pass.** Repeated-probe, first-render and controller-control repairs have
+  offline regression coverage. Their live visual acceptance remains open.
 - **The attended device pass.** Every asset change in steps 1-6 is proven by construction and by
   the automated gate — that the asset compiles, hashes, round-trips, and that its ownership claims
   behave. Whether the QAM renders is a device question.

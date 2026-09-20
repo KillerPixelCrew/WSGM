@@ -15,4 +15,7 @@
   <ItemGroup>
     <None Update="README.md" Pack="true" PackagePath="\"/>
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj"/>
+  </ItemGroup>
 </Project>

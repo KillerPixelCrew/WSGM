@@ -169,6 +169,7 @@ internal sealed class PluginPackageLoader : IDisposable
         {
             [SdkName] = typeof(IDevicePlugin).Assembly,
             [typeof(IPlugin).Assembly.GetName().Name!] = typeof(IPlugin).Assembly,
+            [typeof(ISteamUiModule).Assembly.GetName().Name!] = typeof(ISteamUiModule).Assembly,
             [typeof(IWinRTObject).Assembly.GetName().Name!] = typeof(IWinRTObject).Assembly,
             [typeof(Point).Assembly.GetName().Name!] =
                 typeof(Point).Assembly

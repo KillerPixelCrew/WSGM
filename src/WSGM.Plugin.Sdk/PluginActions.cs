@@ -58,7 +58,12 @@ public enum PluginActionOutcome
 /// <param name="OperationId">Request identity being answered.</param>
 /// <param name="Outcome">Dispatch or confirmation status.</param>
 /// <param name="Detail">Bounded plain explanation.</param>
-public sealed record PluginActionResult(Guid OperationId, PluginActionOutcome Outcome, string? Detail = null);
+/// <param name="SteamRoute">Optional host-admitted Steam route to navigate to after a successful user action.</param>
+public sealed record PluginActionResult(
+    Guid OperationId,
+    PluginActionOutcome Outcome,
+    string? Detail = null,
+    string? SteamRoute = null);
 
 /// <summary>Optional named-action capability used by UI and Core orchestration.</summary>
 public interface IPluginActions

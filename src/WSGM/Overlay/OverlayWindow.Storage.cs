@@ -160,13 +160,6 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>Opens the SteamGridDB artwork picker sub-view.</summary>
-    private void OnChangeArtwork(object? sender, RoutedEventArgs e)
-    {
-        ArtworkHost.Open();
-        EnterSubView(OverlayPage.SteamArtwork);
-    }
-
     /// <summary>
     ///     Fire-and-forget background sync when the overlay opens, throttled so
     ///     it runs at most once per <see cref="AutoTabSyncInterval" />. Best-effort — a

@@ -63,8 +63,6 @@ public partial class OverlayWindow
             }),
         new SubView(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteamLibrary, OverlayDestination.Steam),
         new SubView(OverlayPage.SteamCardManager, CardManagerHost, PanelSteamLibrary, OverlayDestination.Steam),
-        new SubView(OverlayPage.SteamArtwork, ArtworkHost, PanelSteamLibrary, OverlayDestination.Steam,
-            () => ArtworkHost.Close()),
         new SubView(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteamLaunch,
             OverlayDestination.Steam,
             () =>

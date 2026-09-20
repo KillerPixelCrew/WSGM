@@ -62,37 +62,6 @@
           </Grid>
         </Border>
 
-        <Border Classes="section-header">
-          <TextBlock Text="ARTWORK SOURCES" />
-        </Border>
-        <Border Classes="setting-row alt">
-          <StackPanel Spacing="6">
-            <TextBlock Text="Change Artwork API key" Classes="setting-title" />
-            <TextBlock
-              Text="Paste your free SteamGridDB key to enable swapping game art from the overlay (Tools → Change Artwork)."
-              Classes="caption" TextWrapping="Wrap" />
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-              <TextBox x:Name="SteamGridDbKeyBox" Text="{Binding SteamGridDbApiKey}"
-                       PlaceholderText="SteamGridDB API key" />
-              <Button Grid.Column="1" Content="Type with controller"
-                      Click="OnOpenApiKeyKeyboard" />
-            </Grid>
-            <TextBlock Text="Get one free at steamgriddb.com/profile/preferences/api"
-                       Classes="caption" TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
-        <Border Classes="setting-row">
-          <StackPanel Spacing="6">
-            <CheckBox Content="Also search Screenscraper.fr"
-                      IsChecked="{Binding ScreenscraperEnabled}" />
-            <TextBlock
-              Text="A second artwork source, useful where SteamGridDB has little for a title, and strongest on retro and emulated games. Nothing to set up. Screenscraper allows a limited number of searches per day, counted against your connection unless you sign in; a free screenscraper.fr account below raises that limit and searches faster."
-              Classes="caption" TextWrapping="Wrap" />
-            <TextBox Text="{Binding ScreenscraperUser}" PlaceholderText="Account name (optional)" />
-            <TextBox Text="{Binding ScreenscraperUserPassword}" PasswordChar="•"
-                     PlaceholderText="Account password (optional)" />
-          </StackPanel>
-        </Border>
       </StackPanel>
 
       <StackPanel Grid.Column="2">

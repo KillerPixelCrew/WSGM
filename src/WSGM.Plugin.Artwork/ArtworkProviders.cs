@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Core;
+namespace WSGM.Plugin.Artwork;
 
 /// <summary>Why a provider cannot be searched right now.</summary>
 /// <remarks>
@@ -37,18 +37,59 @@ public readonly record struct ArtworkProviderStatus(ArtworkProviderReadiness Rea
     public static ArtworkProviderStatus Ready { get; } = new(ArtworkProviderReadiness.Ready);
 }
 
+/// <summary>Provider-neutral artwork paging and content filters.</summary>
+/// <param name="Page">Zero-based result page.</param>
+/// <param name="Styles">Provider style identifiers, or null for that provider's defaults.</param>
+/// <param name="Dimensions">Accepted dimensions such as <c>600x900</c>.</param>
+/// <param name="Mimes">Accepted MIME types.</param>
+/// <param name="Static">Whether static images are included.</param>
+/// <param name="Animated">Whether animated images are included.</param>
+/// <param name="Adult">Whether adult-tagged results are included.</param>
+/// <param name="Humor">Whether humor-tagged results are included.</param>
+/// <param name="Epilepsy">Whether flashing/epilepsy-tagged results are included.</param>
+/// <param name="Untagged">Whether results without those tags are included.</param>
+public sealed record ArtworkQuery(
+    int Page = 0,
+    IReadOnlyList<string>? Styles = null,
+    IReadOnlyList<string>? Dimensions = null,
+    IReadOnlyList<string>? Mimes = null,
+    bool Static = true,
+    bool Animated = true,
+    bool Adult = false,
+    bool Humor = true,
+    bool Epilepsy = true,
+    bool Untagged = true);
+
 /// <summary>One artwork candidate; the merge de-duplicates by <see cref="Url" />.</summary>
 /// <param name="Url">Full-resolution image URL.</param>
 /// <param name="Thumb">Thumbnail URL for the picker grid.</param>
 /// <param name="Width">Pixel width, or zero when the provider does not report one.</param>
 /// <param name="Height">Pixel height, or zero when the provider does not report one.</param>
 /// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
+/// <param name="ProviderId">Stable source identifier populated by the merger.</param>
+/// <param name="ProviderName">Visible source attribution populated by the merger.</param>
+/// <param name="Author">Artwork author, when reported.</param>
+/// <param name="Style">Provider style identifier, when reported.</param>
+/// <param name="Notes">Provider notes, when reported.</param>
+/// <param name="Animated">Whether the result is animated.</param>
+/// <param name="Nsfw">Whether the provider marks the result as adult content.</param>
+/// <param name="Humor">Whether the provider marks the result as humor.</param>
+/// <param name="Epilepsy">Whether the provider marks the result as flashing content.</param>
 public sealed record ArtworkCandidate(
     string Url,
     string Thumb,
     int Width,
     int Height,
-    string Extension);
+    string Extension,
+    string ProviderId = "",
+    string ProviderName = "",
+    string? Author = null,
+    string? Style = null,
+    string? Notes = null,
+    bool Animated = false,
+    bool Nsfw = false,
+    bool Humor = false,
+    bool Epilepsy = false);
 
 /// <summary>A game a provider matched a title to.</summary>
 /// <param name="ProviderId">Stable id of the provider that matched it.</param>
@@ -75,7 +116,7 @@ public interface IArtworkProvider
     /// <summary>Whether this provider can be searched with the current configuration.</summary>
     /// <param name="config">The loaded configuration.</param>
     /// <returns>The provider's readiness and, when it is not ready, why.</returns>
-    ArtworkProviderStatus GetStatus(AppConfig config);
+    ArtworkProviderStatus GetStatus(ArtworkConfiguration config);
 
     /// <summary>Searches the provider for games matching a title.</summary>
     /// <param name="term">The search term.</param>
@@ -83,7 +124,7 @@ public interface IArtworkProvider
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The matches, best first.</returns>
     Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
-        string term, AppConfig config, CancellationToken cancellationToken);
+        string term, ArtworkConfiguration config, CancellationToken cancellationToken);
 
     /// <summary>Lists artwork for a game this provider matched.</summary>
     /// <param name="asset">Which artwork slot.</param>
@@ -92,7 +133,7 @@ public interface IArtworkProvider
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The candidates, best first.</returns>
     Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, AppConfig config, CancellationToken cancellationToken);
+        ArtworkAsset asset, string gameId, ArtworkConfiguration config, CancellationToken cancellationToken);
 
     /// <summary>Lists artwork for a Steam app id, when the provider can address one directly.</summary>
     /// <param name="asset">Which artwork slot.</param>
@@ -101,7 +142,23 @@ public interface IArtworkProvider
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The candidates, or an empty list when this provider cannot address Steam ids.</returns>
     Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, AppConfig config, CancellationToken cancellationToken);
+        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, CancellationToken cancellationToken);
+
+    /// <summary>Lists a filtered page for a provider-issued game id.</summary>
+    Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
+        ArtworkAsset asset, string gameId, ArtworkConfiguration config, ArtworkQuery query,
+        CancellationToken cancellationToken)
+    {
+        return GetAssetsForGameAsync(asset, gameId, config, cancellationToken);
+    }
+
+    /// <summary>Lists a filtered page for a Steam app id.</summary>
+    Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
+        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, ArtworkQuery query,
+        CancellationToken cancellationToken)
+    {
+        return GetAssetsForSteamAppAsync(asset, steamAppId, config, cancellationToken);
+    }
 }
 
 /// <summary>What one provider contributed to a search, including the reason it contributed nothing.</summary>
@@ -166,7 +223,7 @@ public static class ArtworkSearch
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>Matches from every provider that answered, exact matches first.</returns>
     public static async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
-        string term, AppConfig config, CancellationToken cancellationToken = default)
+        string term, ArtworkConfiguration config, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (string.IsNullOrWhiteSpace(term))
@@ -183,7 +240,7 @@ public static class ArtworkSearch
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Log.Warn($"Artwork provider {provider.Id} title search failed: {ex.Message}");
+                ArtworkLog.Warn($"Artwork provider {provider.Id} title search failed: {ex.Message}");
                 return (IReadOnlyList<ArtworkGameMatch>)[];
             }
         })).ConfigureAwait(false);
@@ -206,10 +263,20 @@ public static class ArtworkSearch
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>The merged, de-duplicated and ranked candidates with per-provider outcomes.</returns>
     public static Task<ArtworkSearchResult> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, AppConfig config, CancellationToken cancellationToken = default)
+        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, CancellationToken cancellationToken = default)
     {
         return GatherAsync(config, (provider, token) =>
             provider.GetAssetsForSteamAppAsync(asset, steamAppId, config, token), cancellationToken);
+    }
+
+    /// <summary>Searches every ready provider for one filtered result page.</summary>
+    public static Task<ArtworkSearchResult> GetAssetsForSteamAppAsync(
+        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, ArtworkQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return GatherAsync(config, (provider, token) =>
+            provider.GetAssetsForSteamAppAsync(asset, steamAppId, config, query, token), cancellationToken);
     }
 
     /// <summary>Searches one provider for artwork for a game the user chose from its matches.</summary>
@@ -224,7 +291,7 @@ public static class ArtworkSearch
     ///     artwork that happened to share the number.
     /// </remarks>
     public static Task<ArtworkSearchResult> GetAssetsForMatchAsync(
-        ArtworkAsset asset, ArtworkGameMatch match, AppConfig config,
+        ArtworkAsset asset, ArtworkGameMatch match, ArtworkConfiguration config,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(match);
@@ -235,8 +302,22 @@ public static class ArtworkSearch
                 p.GetAssetsForGameAsync(asset, match.Id, config, token), cancellationToken, provider);
     }
 
+    /// <summary>Searches the issuing provider for one filtered result page.</summary>
+    public static Task<ArtworkSearchResult> GetAssetsForMatchAsync(
+        ArtworkAsset asset, ArtworkGameMatch match, ArtworkConfiguration config, ArtworkQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        ArgumentNullException.ThrowIfNull(query);
+        var provider = Find(match.ProviderId);
+        return provider is null
+            ? Task.FromResult(new ArtworkSearchResult([], []))
+            : GatherAsync(config, (p, token) =>
+                p.GetAssetsForGameAsync(asset, match.Id, config, query, token), cancellationToken, provider);
+    }
+
     private static async Task<ArtworkSearchResult> GatherAsync(
-        AppConfig config,
+        ArtworkConfiguration config,
         Func<IArtworkProvider, CancellationToken, Task<IReadOnlyList<ArtworkCandidate>>> fetch,
         CancellationToken cancellationToken,
         IArtworkProvider? only = null)
@@ -255,6 +336,14 @@ public static class ArtworkSearch
             try
             {
                 var candidates = await fetch(provider, cancellationToken).ConfigureAwait(false);
+                candidates =
+                [
+                    .. candidates.Select(candidate => candidate with
+                    {
+                        ProviderId = provider.Id,
+                        ProviderName = provider.DisplayName
+                    })
+                ];
                 return (Candidates: candidates, Failure: null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -267,7 +356,7 @@ public static class ArtworkSearch
             }
             catch (Exception ex)
             {
-                Log.Warn($"Artwork provider {provider.Id} failed: {ex.Message}");
+                ArtworkLog.Warn($"Artwork provider {provider.Id} failed: {ex.Message}");
                 return (
                     Candidates: (IReadOnlyList<ArtworkCandidate>)[],
                     Failure: (string?)$"{provider.DisplayName} could not be reached.");
