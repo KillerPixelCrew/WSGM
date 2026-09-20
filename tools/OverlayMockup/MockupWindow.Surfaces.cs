@@ -14,35 +14,39 @@ internal sealed partial class MockupWindow
         var cancel = ActionButton("Keep playing", DismissSurface, true);
         cancel.HorizontalAlignment = HorizontalAlignment.Stretch;
         cancel.HorizontalContentAlignment = HorizontalAlignment.Center;
-        var heading = Text("Time for a pause.", 34, weight: FontWeight.SemiBold);
+        var heading = Text("Power & session", 28, weight: FontWeight.SemiBold);
         heading.HorizontalAlignment = HorizontalAlignment.Center;
-        var subtitle = Text("Where would you like to go from here?", muted: true);
+        var subtitle = Text("Simulated actions. Your Windows session will not change.", muted: true);
         subtitle.HorizontalAlignment = HorizontalAlignment.Center;
         var actions = new[]
         {
-            ("Sleep", "Keep everything ready.", "☾"),
-            ("Hibernate", "Save your session for later.", "◌"),
-            ("Game mode", "Go straight to Big Picture.", "▷"),
-            ("Restart", "A fresh start.", "↻"),
-            ("Sign out", "Finish this Windows session.", "↗"),
-            ("Shut down", "All done for now.", "⏻")
+            ("Sleep", "Suspend this session", "☾"),
+            ("Hibernate", "Save session to disk", "◌"),
+            ("Game mode", "Open Big Picture", "▷"),
+            ("Restart", "Restart Windows", "↻"),
+            ("Sign out", "End this Windows session", "↗"),
+            ("Shut down", "Turn off this device", "⏻")
         };
-        var tiles = actions.Select(action => Tile(action.Item1, action.Item2, () =>
+        var tiles = actions.Select(action =>
         {
-            DismissSurface();
-            Notice($"{action.Item1} selected · demonstration only, no system action taken");
-        }, action.Item3)).ToArray();
+            var tile = Tile(action.Item1, action.Item2, () =>
+            {
+                DismissSurface();
+                Notice($"{action.Item1} selected · demonstration only, no system action taken");
+            }, action.Item3);
+            tile.Classes.Set("destructive", action.Item1 is "Restart" or "Sign out" or "Shut down");
+            return tile;
+        }).ToArray();
         var close = ActionButton("×", DismissSurface);
         close.HorizontalAlignment = HorizontalAlignment.Right;
         close.FontSize = 24;
         NameControl(close, "Close power menu");
         var content = Stack(close, heading, subtitle, Flow(250, tiles), cancel);
-        var menu = Card(new ScrollViewer { Content = content });
+        var menu = Card(new ScrollViewer { Content = content }, "power-surface");
         menu.Width = 640;
         menu.MaxHeight = Math.Max(400, Bounds.Height - 72);
         menu.HorizontalAlignment = HorizontalAlignment.Center;
         menu.VerticalAlignment = VerticalAlignment.Center;
-        menu.Background = Brush("#F7232323");
         OpenSurface(menu, cancel);
         _shell.IsVisible = false;
     }
@@ -89,7 +93,7 @@ internal sealed partial class MockupWindow
         {
             var done = ActionButton("Done", HideKeyboard, true);
             var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-            heading.Children.Add(SectionTitle("A word or two.", "Keyboard preview · text stays here"));
+            heading.Children.Add(SectionTitle("Keyboard", "Text stays in this mockup field"));
             Grid.SetColumn(done, 1);
             heading.Children.Add(done);
             var keys = new StackPanel { Spacing = 8 };

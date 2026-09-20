@@ -16,7 +16,7 @@ internal sealed partial class MockupWindow : Window
     private readonly DispatcherTimer _clockTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly TextBlock _date = Text("", 11, true);
     private readonly string[] _destinations = ["Quick access", "Device", "Steam", "Tools", "Power"];
-    private readonly TextBlock _feedback = Text("Interactive concept · Sample data", 12, true);
+    private readonly TextBlock _feedback = Text("Ready", 11, true);
     private readonly TextBlock _heading = Text("Quick access", 23, weight: FontWeight.SemiBold);
     private readonly Border _keyboard = new() { IsVisible = false };
     private readonly Dictionary<string, Button> _navigation = [];
@@ -26,7 +26,7 @@ internal sealed partial class MockupWindow : Window
         { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
 
     private readonly Grid _root = new();
-    private readonly Grid _shell = new() { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
+    private readonly Grid _shell = new() { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto") };
     private readonly TextBlock _subtitle = Text("A few essentials. Then back to your game.", muted: true);
     private readonly Border _surface = new() { IsVisible = false };
     private readonly Border _tint = new();
@@ -48,8 +48,15 @@ internal sealed partial class MockupWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Brushes.Transparent;
         TransparencyLevelHint = [WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur];
-        TransparencyBackgroundFallback = Brush("#232323");
+        TransparencyBackgroundFallback = (IBrush)Application.Current!.Resources["OpaqueCanvas"]!;
         _opaque = args.Contains("--opaque");
+        PropertyChanged += (_, change) =>
+        {
+            if (change.Property == ActualTransparencyLevelProperty)
+            {
+                ApplySurfacePalette();
+            }
+        };
         ApplyGlass();
         BuildShell();
         Content = _root;
@@ -70,6 +77,7 @@ internal sealed partial class MockupWindow : Window
         };
         Opened += async (_, _) =>
         {
+            ApplySurfacePalette();
             if (!args.Contains("--windowed") && captureIndex < 0)
             {
                 WindowState = WindowState.FullScreen;
@@ -115,8 +123,8 @@ internal sealed partial class MockupWindow : Window
         _shell.Children.Add(navigation);
         var body = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"),
-            Margin = new Thickness(24, 10, 24, 12)
+            RowDefinitions = new RowDefinitions("Auto,*"),
+            Margin = new Thickness(24, 16, 24, 16)
         };
         Grid.SetRow(body, 2);
         _shell.Children.Add(body);
@@ -127,30 +135,21 @@ internal sealed partial class MockupWindow : Window
         Grid.SetRow(_pageViewport, 1);
         body.Children.Add(_pageViewport);
         var dock = BuildDock();
-        Grid.SetRow(dock, 2);
-        body.Children.Add(dock);
-        var footer = new Grid
-            { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 12, 0, 0) };
-        footer.Children.Add(_feedback);
-        var hints = Text("LT / RT  Pages     D-pad  Move     A  Select     B  Back", 11, true);
-        Grid.SetColumn(hints, 1);
-        footer.Children.Add(hints);
-        Grid.SetRow(footer, 3);
-        body.Children.Add(footer);
+        Grid.SetRow(dock, 3);
+        _shell.Children.Add(dock);
 
         _root.Children.Add(_surface);
         _root.Children.Add(_keyboard);
-        _surface.Background = Brush("#800E0E0E");
-        _surface.Padding = new Thickness(36);
+        _surface.Bind(Border.BackgroundProperty, _surface.GetResourceObservable("Scrim"));
         _keyboard.VerticalAlignment = VerticalAlignment.Bottom;
-        _keyboard.Background = Brush("#FA232323");
-        _keyboard.Padding = new Thickness(32, 20);
-        _keyboard.CornerRadius = new CornerRadius(24, 24, 0, 0);
+        _keyboard.Classes.Add("keyboard-surface");
+        _keyboard.Padding = new Thickness(24, 16);
+        _keyboard.CornerRadius = new CornerRadius(6, 6, 0, 0);
     }
 
     private Control BuildNavigation()
     {
-        var bar = new Grid { Margin = new Thickness(32, 4, 32, 0) };
+        var bar = new Grid { Margin = new Thickness(24, 4, 24, 0) };
         var navigation = new StackPanel
             { Orientation = Orientation.Horizontal, Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center };
         navigation.Children.Add(ActionButton("LT", () => CycleDestination(-1)));
@@ -159,7 +158,7 @@ internal sealed partial class MockupWindow : Window
             var destination = _destinations[i];
             var button = ActionButton(destination, () => Navigate(destination));
             button.Content = IconLabel(destination);
-            button.Classes.Add("nav");
+            button.Classes.Add("destination");
             _navigation.Add(destination, button);
             navigation.Children.Add(button);
         }
@@ -171,14 +170,14 @@ internal sealed partial class MockupWindow : Window
 
     private Control BuildHeader()
     {
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(24, 8) };
-        var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(16, 8) };
+        var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         brand.Children.Add(Text("wsgm", 22, weight: FontWeight.Bold));
         var profile = new ComboBox
         {
-            ItemsSource = new[] { "Global profile", "Game · Sample game" },
+            ItemsSource = new[] { "Global profile", "Sample game" },
             SelectedIndex = 0,
-            MinWidth = 188,
+            Width = 156,
             VerticalAlignment = VerticalAlignment.Center
         };
         NameControl(profile, "Current profile context");
@@ -193,26 +192,44 @@ internal sealed partial class MockupWindow : Window
         NameControl(options, "Preview options");
         brand.Children.Add(options);
         header.Children.Add(brand);
-        var status = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
-        var clock = Stack(_clock, _date, 1);
-        clock.Margin = new Thickness(0, 0, 16, 0);
-        status.Children.Add(clock);
-        status.Children.Add(IconButton("Wi-Fi", () => ShowStatus("Connections")));
-        status.Children.Add(IconButton("Bluetooth", () => ShowStatus("Bluetooth")));
-        status.Children.Add(IconButton("Audio", () => ShowStatus("Audio")));
-        status.Children.Add(IconButton("Brightness", () => ShowStatus("Brightness")));
-        status.Children.Add(IconButton("Eject", () => ShowStatus("Storage")));
-        status.Children.Add(IconButton("Keyboard", ShowKeyboard));
-        status.Children.Add(IconButton("Close overlay", CloseDeferred));
+        var status = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        status.Children.Add(UtilityCluster(IconButton("Wi-Fi", () => ShowStatus("Connections")),
+            IconButton("Bluetooth", () => ShowStatus("Bluetooth"))));
+        status.Children.Add(UtilityCluster(IconButton("Audio", () => ShowStatus("Audio")),
+            IconButton("Brightness", () => ShowStatus("Brightness"))));
+        // The sample inventory contains one removable microSD drive.
+        status.Children.Add(UtilityCluster(IconButton("Eject", () => ShowStatus("Storage"))));
+        status.Children.Add(UtilityCluster(IconButton("Keyboard", ShowKeyboard)));
+        var readouts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        readouts.Children.Add(IconLabel("82% Battery", 12));
+        readouts.Children.Add(Stack(_clock, _date, 4));
+        status.Children.Add(UtilityCluster(readouts));
+        status.Children.Add(UtilityCluster(IconButton("Close overlay", CloseDeferred)));
         Grid.SetColumn(status, 1);
         header.Children.Add(status);
-        return new Border
+        var plane = new Border
         {
-            Background = Brush("#B01B1B1B"),
-            BorderBrush = Brush("#34555555"),
             BorderThickness = new Thickness(0, 0, 0, 1),
             Child = header
         };
+        plane.Bind(Border.BackgroundProperty, plane.GetResourceObservable("Rail"));
+        plane.Bind(Border.BorderBrushProperty, plane.GetResourceObservable("Divider"));
+        return plane;
+    }
+
+    private static Border UtilityCluster(params Control[] controls)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var control in controls)
+        {
+            row.Children.Add(control);
+        }
+
+        var cluster = new Border
+            { Child = row, Padding = new Thickness(8, 0, 0, 0), BorderThickness = new Thickness(1, 0, 0, 0) };
+        cluster.Bind(Border.BorderBrushProperty, cluster.GetResourceObservable("Divider"));
+        cluster.Bind(Border.BackgroundProperty, cluster.GetResourceObservable("Rail"));
+        return cluster;
     }
 
     private void RefreshClock(object? sender, EventArgs e)
@@ -250,15 +267,54 @@ internal sealed partial class MockupWindow : Window
     private Control BuildDock()
     {
         var dock = new Grid
-            { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 12, 0, 0) };
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto"),
+            Margin = new Thickness(24, 8)
+        };
         var apps = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        apps.Children.Add(ActionButton("▷  Steam", () => Notice("Steam selected · preview only")));
-        apps.Children.Add(ActionButton("▣  Desktop", () => Notice("Desktop selected · preview only")));
-        dock.Children.Add(apps);
-        var status = Text("MSI Claw 8 AI+   ·   82%", 12, true);
-        Grid.SetColumn(status, 1);
-        dock.Children.Add(status);
-        return dock;
+        foreach (var name in new[] { "Steam", "Desktop" })
+        {
+            var app = ActionButton(name, () => Notice(name + " selected · simulated"));
+            app.Content = IconLabel(name);
+            app.Classes.Add("app-item");
+            app.Classes.Set("active", name == "Steam");
+            apps.Children.Add(app);
+        }
+
+        dock.Children.Add(new ScrollViewer
+        {
+            Content = apps, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
+        });
+        var tray = UtilityCluster(TrayItem("Controller", () => ShowDetail("Controller", ControllerControls(), false)),
+            TrayItem("Storage", () => ShowStatus("Storage")));
+        Grid.SetColumn(tray, 1);
+        dock.Children.Add(tray);
+        var edge = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 8, 0, 0) };
+        var feedback = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        feedback.Children.Add(Text("SAMPLE DATA", 10, true, FontWeight.SemiBold));
+        _feedback.MaxWidth = 280;
+        _feedback.TextWrapping = TextWrapping.NoWrap;
+        _feedback.TextTrimming = TextTrimming.CharacterEllipsis;
+        feedback.Children.Add(_feedback);
+        edge.Children.Add(feedback);
+        var hints = Text("LT / RT  Pages    D-pad  Move    A  Select    →  Controls    B  Back", 11, true);
+        Grid.SetColumn(hints, 1);
+        edge.Children.Add(hints);
+        Grid.SetRow(edge, 1);
+        Grid.SetColumnSpan(edge, 2);
+        dock.Children.Add(edge);
+        var plane = new Border { Child = dock, BorderThickness = new Thickness(0, 1, 0, 0) };
+        plane.Bind(Border.BackgroundProperty, plane.GetResourceObservable("Rail"));
+        plane.Bind(Border.BorderBrushProperty, plane.GetResourceObservable("Divider"));
+        return plane;
+    }
+
+    private static Button TrayItem(string label, Action action)
+    {
+        var item = IconButton(label, action);
+        item.Classes.Add("tray-item");
+        return item;
     }
 
     private void Navigate(string destination)
@@ -290,10 +346,22 @@ internal sealed partial class MockupWindow : Window
 
     private void ApplyGlass()
     {
-        _tint.Background = Brush(_opaque ? "#232323" : "#AD232323");
         TransparencyLevelHint = _opaque
             ? [WindowTransparencyLevel.None]
             : [WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur];
+        ApplySurfacePalette();
+    }
+
+    private void ApplySurfacePalette()
+    {
+        var resources = Application.Current!.Resources;
+        var useOpaque = _opaque || ActualTransparencyLevel == WindowTransparencyLevel.None;
+        foreach (var role in new[] { "Canvas", "Rail", "Controls", "Group", "Surface" })
+        {
+            resources[role] = resources[(useOpaque ? "Opaque" : "Glass") + role];
+        }
+
+        _tint.Background = (IBrush)resources["Canvas"]!;
     }
 
     private void Notice(string message)

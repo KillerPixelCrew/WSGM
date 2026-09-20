@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -153,10 +154,9 @@ internal sealed partial class MockupWindow
 
     private static Control CreateIcon(string label, double size = 22)
     {
-        return new Path
+        var icon = new Path
         {
             Data = IconGeometry[IconKey(label)],
-            Stroke = Brush("#FF9D3D"),
             StrokeThickness = 1.7,
             StrokeLineCap = PenLineCap.Round,
             StrokeJoin = PenLineJoin.Round,
@@ -165,11 +165,13 @@ internal sealed partial class MockupWindow
             Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center
         };
+        icon.Bind(Path.StrokeProperty, icon.GetResourceObservable("Secondary"));
+        return icon;
     }
 
     private static Control IconLabel(string label, double size = 14)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         row.Children.Add(CreateIcon(label));
         row.Children.Add(Text(label, size));
         return row;
@@ -179,7 +181,10 @@ internal sealed partial class MockupWindow
     {
         var button = ActionButton(label, action);
         button.Content = CreateIcon(label, 20);
-        button.Width = 46;
+        button.Width = 44;
+        button.Height = 44;
+        button.Padding = new Thickness(8);
+        button.Classes.Add("utility");
         button.HorizontalContentAlignment = HorizontalAlignment.Center;
         NameControl(button, label);
         ToolTip.SetTip(button, label);

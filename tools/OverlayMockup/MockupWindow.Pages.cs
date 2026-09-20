@@ -16,45 +16,33 @@ internal sealed partial class MockupWindow
     {
         Control SessionCard()
         {
-            var resume = ActionButton("Back to play  ↗", () => Notice("Resume requested · preview only"), true);
+            var resume = ActionButton("Return to Steam", () => Notice("Resume requested · preview only"), true);
             var hero = Card(Stack(
-                Text("YOUR SESSION", 11, true, FontWeight.SemiBold),
+                Text("ACTIVE APPLICATION", 11, true, FontWeight.SemiBold),
                 Text("Steam Big Picture", 22, weight: FontWeight.SemiBold),
-                Text("Your session, at a glance.", 13, true),
                 Flow(120, Stat("82%", "Battery"), Stat("17 W", "Balanced"), Stat("60 fps", "Frame limit")),
                 resume));
-            hero.Background = new LinearGradientBrush
-            {
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
-                GradientStops = new GradientStops
-                {
-                    new GradientStop(Color.Parse("#E6403429"), 0),
-                    new GradientStop(Color.Parse("#E62C2C2C"), 1)
-                }
-            };
             return hero;
         }
 
         Control ComfortCard()
         {
             return Card(Stack(
-                SectionTitle("Comfort first", "Your everyday adjustments, one touch away."),
                 Range("brightness", "Brightness", 68, 0, 100, "%"),
                 Range("volume", "Volume", 42, 0, 100, "%"),
                 Row("Night light", Toggle("night-light", "Night light"))));
         }
 
         return SplitPage([
-            ("Your session", () => ShowDetail("Your session", SessionCard())),
-            ("Comfort first", () => ShowDetail("Comfort first", ComfortCard())),
+            ("Session", () => ShowDetail("Session", SessionCard())),
+            ("Brightness & audio", () => ShowDetail("Brightness & audio", ComfortCard())),
             ("Power & cooling", () => ShowDetail("Power & cooling", Stack(
                 Text("Power, cooling and battery controls."),
                 ActionButton("Open Device", () => Navigate("Device"))))),
-            ("Your library", () => ShowDetail("Your library", Stack(
+            ("Library", () => ShowDetail("Library", Stack(
                 Text("Library and per-game launch options."),
                 ActionButton("Open Steam", () => Navigate("Steam"))))),
-            ("Step away", () => ShowDetail("Step away", Stack(
+            ("Power actions", () => ShowDetail("Power actions", Stack(
                 Text("Sleep, switch modes or end your session."),
                 ActionButton("Open power menu", ShowPowerMenu))))
         ]);
@@ -103,26 +91,25 @@ internal sealed partial class MockupWindow
 
             button.Content = label;
             button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            button.Classes.Add("nav");
+            button.Classes.Add("section-row");
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
             button.Height = 48;
             _sectionButtons.Add(title, button);
             menu.Children.Add(button);
         }
 
-        var split = new Grid { ColumnDefinitions = new ColumnDefinitions("*,20,2*") };
+        var split = new Grid { ColumnDefinitions = new ColumnDefinitions("*,16,2*") };
         split.Bind(HeightProperty, new Binding("Viewport.Height") { Source = _pageViewport });
         var sidebar = Card(new ScrollViewer
         {
             Content = menu,
             VerticalContentAlignment = VerticalAlignment.Top,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-        });
-        sidebar.Background = Brush("#CC202020");
-        sidebar.BorderBrush = Brush("#665F5F5F");
-        sidebar.Padding = new Thickness(10);
+        }, "rail-plane");
+        sidebar.Padding = new Thickness(8);
         split.Children.Add(sidebar);
-        var divider = new Border { Width = 2, Background = Brush("#88FF9D3D"), Margin = new Thickness(0, 8) };
+        var divider = new Border { Width = 1, Margin = new Thickness(0, 8) };
+        divider.Bind(Border.BackgroundProperty, divider.GetResourceObservable("Divider"));
         Grid.SetColumn(divider, 1);
         split.Children.Add(divider);
         var detail = new ScrollViewer
@@ -130,9 +117,8 @@ internal sealed partial class MockupWindow
             Content = _sectionDetail,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         };
-        var controls = Card(detail);
-        controls.Background = Brush("#962C2C2C");
-        controls.BorderBrush = Brush("#665F5F5F");
+        var controls = Card(detail, "controls-plane");
+        controls.Padding = new Thickness(16);
         Grid.SetColumn(controls, 2);
         split.Children.Add(controls);
         var first = sections.FirstOrDefault(x => x.Title == _selectedSection);
@@ -148,7 +134,7 @@ internal sealed partial class MockupWindow
     private Control WindowsPowerCard()
     {
         return Card(Stack(
-            SectionTitle("Windows power", "Available with or without a device plugin."),
+            Text("Available with or without a device plugin.", 12, true),
             Row("Energy plan",
                 Picker("windows-plan", "Windows energy plan", "Balanced", "Balanced", "Power saver",
                     "High performance")),
@@ -169,7 +155,6 @@ internal sealed partial class MockupWindow
         performance.Items.Add(Row("Strategy",
             Picker("auto-strategy", "AutoTDP strategy", "Balanced", "Quiet", "Balanced", "Responsive")));
         return Card(Stack(
-            SectionTitle("Power & performance", "Limits and automatic control"),
             Row("Hardware profile",
                 Picker("hardware-profile", "Hardware profile", "Balanced", "Super Battery", "Balanced", "Performance",
                     "Custom")),
@@ -184,7 +169,6 @@ internal sealed partial class MockupWindow
     private Control FansCard()
     {
         return Card(Stack(
-            SectionTitle("Fans & thermals", "Cooling and current readings"),
             Flow(100, Stat("62 °C", "CPU temperature"), Stat("2,140", "Fan 1 · rpm"), Stat("2,080", "Fan 2 · rpm")),
             Row("Fan mode", Picker("fan-mode", "Fan mode", "Automatic", "Automatic", "Custom", "Full speed")),
             ActionButton("Edit fan curve  ↗", ShowFanCurve)));
@@ -193,7 +177,6 @@ internal sealed partial class MockupWindow
     private Control ChargingCard()
     {
         return Card(Stack(
-            SectionTitle("Battery & charging", "Charge limits and source profiles"),
             Range("charge-limit", "Charge limit", 80, 60, 100, "%"),
             Row("On battery",
                 Picker("battery-profile", "Battery profile", "Balanced", "Super Battery", "Balanced", "Performance",
@@ -206,7 +189,6 @@ internal sealed partial class MockupWindow
     private Control DisplayCard()
     {
         return Card(Stack(
-            SectionTitle("Display", "Panel and refresh controls"),
             Range("brightness", "Brightness", 68, 0, 100, "%"),
             Row("Refresh rate", Picker("refresh", "Refresh rate", "120 Hz", "60 Hz", "120 Hz")),
             Row("Variable refresh", Toggle("vrr", "Variable refresh", true))));
@@ -253,7 +235,6 @@ internal sealed partial class MockupWindow
     {
         return SplitPage([
             ("Power actions", () => ShowDetail("Power actions", Stack(
-                Text("Ready for a pause?", 24, weight: FontWeight.SemiBold),
                 Text("Sleep, switch sessions or shut down. Actions here are simulated.", muted: true),
                 ActionButton("Open power menu", ShowPowerMenu, true)))),
             ("Wake & idle", () => ShowDetail("Wake & idle", Stack(
@@ -280,13 +261,18 @@ internal sealed partial class MockupWindow
 
     private void ShowController()
     {
-        ShowDetail("Controller", Stack(
+        ShowDetail("Controller", ControllerControls());
+    }
+
+    private Control ControllerControls()
+    {
+        return Stack(
             Row("Button labels", Picker("glyphs", "Button labels", "Xbox", "Xbox", "Nintendo", "PlayStation")),
             Banner("Controller output",
                 _integration
                     ? "Sample: Steam Deck target active."
                     : "Device Integration is off. No controller target is created."),
-            Text("Physical gamepad capture and Steam Input handoff are outside this visual prototype.", muted: true)));
+            Text("Physical gamepad capture and Steam Input handoff are outside this visual prototype.", muted: true));
     }
 
     private void ShowLighting()
@@ -301,7 +287,6 @@ internal sealed partial class MockupWindow
     private void ShowFanCurve()
     {
         ShowDetail("Fan curve", Stack(
-            Text("Custom fan response", 24, weight: FontWeight.SemiBold),
             Range("fan40", "At 40 °C", 20, 0, 100, "%"),
             Range("fan60", "At 60 °C", 45, 0, 100, "%"),
             Range("fan80", "At 80 °C", 80, 0, 100, "%"),
