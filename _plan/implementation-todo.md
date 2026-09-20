@@ -213,7 +213,8 @@ passed with a warning-clean build. Physical Port 3 acceptance remains an attende
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
 #20/#28/#30/#31/#34/#70/#71/#72 and, that evening, #52, eight issues remain open. Issues #41, #42,
-#44, #45, #47 and #48 remain deferred; #21 and #40 are the 2.0 scope. #20 and #28 were closed on 2026-09-10 and
+#44, #45, #47 and #48 remain deferred; #40 is the 2.0 scope. #21 was closed as a dead end on
+2026-09-20 (see below). #20 and #28 were closed on 2026-09-10 and
 reopened on 2026-09-11: #20 because the Session tab had not followed the category migration, #28
 because the September 9 Steam Client Beta reworked the library UI and added Big Art Mode; both were
 delivered the same day. #70–#72 were filed on 2026-09-11 for the same beta and closed that evening.
@@ -224,7 +225,15 @@ stops here rather than at zero:
 - #64 still needs a decision on what "driver-level VSync" maps to: Intel's header has no
   `CTL_3D_FEATURE_VSYNC`. `CTL_3D_FEATURE_GAMING_FLIP_MODES` and `CTL_3D_FEATURE_LOW_LATENCY` both
   answer on the reference unit but neither is a VSync toggle.
-- #21 needs the hardware: power-button capture over ACPI/HID/EC.
+- #21 and its investigation #116 were closed as dead ends on 2026-09-20. On the Claw 8 the power
+  button is an ACPI fixed-feature button: the FADT declares it, and across all 32 ACPI tables
+  nothing calls the firmware's `PWPR`/`PWRR` press and release methods, so the Intel 5-button HID
+  path is dead code. Windows exposes only a press edge (ETW Kernel-Power event 555), with no
+  release and no hold duration on any user-mode, HID, WMI or ACPI path; vendor `MSI_Event`, raw
+  input, direct HID reads and the `MSI_ACPI` getters were all verified blind with a live control in
+  the same window. Short versus long on that button is not buildable without a kernel driver
+  reading the chipset GPIO pad. A SteamOS-style sleep-or-menu interaction remains possible on OEM2,
+  whose firmware already distinguishes short (0x58) from long (0x2A); that would be a new issue.
 - #20 is delivered (2026-09-11, `804df0d`). The reopen named Session: four buttons on a root tab
   of their own. It is a Power category now, beside Wake, Idle timeouts and Power, with rows, tags
   and handlers unchanged so pins survive. The tab-by-tab audit the issue asked for is in
