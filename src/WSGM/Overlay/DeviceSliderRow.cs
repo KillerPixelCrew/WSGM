@@ -151,7 +151,7 @@ internal sealed class DeviceSliderRow : Border
         AutomationProperties.SetHelpText(_slider, description);
         Child = setting;
         Classes.Remove("tile");
-        DetachedFromVisualTree += (_, _) => _commit.Stop();
+        DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }
 
     /// <summary>The slider is the focus target so gamepad focus restore lands on the control.</summary>
@@ -210,8 +210,21 @@ internal sealed class DeviceSliderRow : Border
 
     private void OnCommitTick(object? sender, EventArgs e)
     {
+        CommitPendingChange();
+    }
+
+    private void CommitPendingChange()
+    {
+        if (!_commit.IsEnabled)
+        {
+            return;
+        }
+
         _commit.Stop();
-        _onCommit((int)Math.Round(_slider.Value));
+        if (_slider.IsEnabled)
+        {
+            _onCommit((int)Math.Round(_slider.Value));
+        }
     }
 
     private string Format(int value)

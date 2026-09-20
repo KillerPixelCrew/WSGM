@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Labs.Panels;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -14,6 +15,124 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class DeviceRowReconciliationTests
 {
+    [AvaloniaFact]
+    public void AnActionSubclassUsesTheStandardButtonTemplate()
+    {
+        using var fixture = new UiFixture();
+        var row = new ThemeProbeRow();
+        Assert.Equal(typeof(Button), row.ResolvedStyleKey);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void DetachingFlushesAnEditOnceUnlessAvailabilityWasWithdrawn(bool curve, bool withdrawn)
+    {
+        using var fixture = new UiFixture();
+        var writes = 0;
+        Control row = curve
+            ? new DeviceCurveRow("edit", "Fan curve", "", [new CurvePoint(40, 20), new CurvePoint(90, 100)],
+                null, true, _ => writes++)
+            : new DeviceSliderRow("edit", "Power", "", 8, 37, 1, CapabilityUnit.Watt, 15, true, _ => writes++);
+        var window = new Window { Content = row, Width = 800, Height = 600 };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            if (row is DeviceCurveRow fan)
+            {
+                UiFixture.Click(window, fan.GetVisualDescendants().OfType<Button>()
+                    .First(button => button.Tag is string tag && tag.Contains(".preset.")));
+                if (withdrawn)
+                {
+                    fan.RefreshReadback([], null, false);
+                }
+            }
+            else
+            {
+                var slider = Assert.IsType<DeviceSliderRow>(row);
+                Assert.IsType<Slider>(slider.FocusTarget).Value = 25;
+                if (withdrawn)
+                {
+                    slider.RefreshReadback(8, 37, 1, 15, false);
+                }
+            }
+
+            Assert.Equal(0, writes);
+            window.Content = null;
+            Assert.Equal(withdrawn ? 0 : 1, writes);
+            window.Content = row;
+            window.Content = null;
+            Assert.Equal(withdrawn ? 0 : 1, writes);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void RebuildingDeviceRowsFlushesOnlyStillValidUserIntent(int change)
+    {
+        using var fixture = new UiFixture();
+        using var device = new FakeDevice();
+        List<DeviceOverlayCapability> writes = [];
+        device.Invoke = (requested, _) =>
+        {
+            writes.Add(requested);
+            return Task.CompletedTask;
+        };
+        var capability = new DeviceOverlayCapability("power.test", null, DeviceOverlaySection.PowerAndThermals,
+            DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
+        {
+            Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
+            ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37,
+            DescriptorGeneration = 1, CycleGeneration = 1
+        };
+        device.State = device.State with { Capabilities = [capability] };
+        var window = fixture.Overlay(1280, 720);
+        window.AttachDeviceBridge(device);
+        try
+        {
+            UiFixture.Click(window, UiFixture.Tab(window, 2));
+            UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+            window.GetVisualDescendants().OfType<Slider>()
+                .Single(slider => Equals(slider.Tag, "power.test")).Value = 25;
+            device.State = device.State with
+            {
+                Capabilities = change switch
+                {
+                    0 => [capability, capability with { CapabilityId = "power.other" }],
+                    1 => [],
+                    2 => [capability with { DescriptorGeneration = 2 }],
+                    3 => [capability with { CanInvoke = false }],
+                    _ => [capability with { CycleGeneration = 2 }]
+                }
+            };
+            device.Notify();
+            Dispatcher.UIThread.RunJobs();
+            if (change == 0)
+            {
+                Assert.Equal(25, Assert.Single(writes).NextValue!.IntegerValue);
+            }
+            else
+            {
+                Assert.Empty(writes);
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void TelemetryRefreshKeepsTheSameEditorAndGenerationReplacementRebuildsIt()
     {
@@ -227,5 +346,10 @@ public sealed class DeviceRowReconciliationTests
             new CapabilityChoice("second", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Second" }),
             new CapabilityChoice("third", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Third" })
         ];
+    }
+
+    private sealed class ThemeProbeRow : ActionButton
+    {
+        internal Type ResolvedStyleKey => StyleKeyOverride;
     }
 }
