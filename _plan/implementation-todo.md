@@ -23,7 +23,12 @@ pane. Horizontal LT/RT destination navigation remains unchanged. This follow-up 
 
 ## Production overlay redesign (2026-09-20, issue 114, in progress)
 
-This task uses the maintainer-created `chore/redesign-overlay` branch and a PR into `master`.
+This task keeps the maintainer-created `chore/redesign-overlay` as the final branch in a review
+stack: #160 adds device layout contracts (14 files), #161 adds the overlay runtime and test code
+(99 files), and #159 adds visual baselines, documentation and the preview tool (48 files). Merge in
+that order into `master`, preserving ancestry and checking each dependent PR's file count when
+retargeting. The complete stack is the validated delivery; the runtime PR requires #159's updated
+visual baselines.
 
 The production implementation now uses a fullscreen Avalonia glass sheet with an opaque fallback,
 a persistent section rail beside the controls, remembered sections, a unified app/tray rail and

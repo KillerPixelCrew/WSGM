@@ -24,9 +24,10 @@ production exclusion does not apply to this promotion.
   focus.
 - Build and inspect before attended testing. Do not execute suites or test-bearing gates until the
   maintainer reports manual testing or explicitly requests them.
-- Keep this task on the maintainer-created `chore/redesign-overlay` branch and open a PR into
-  `master`, following AGENTS.md's branch ownership rules. Child repositories remain unchanged unless
-  needed.
+- Keep the maintainer-created `chore/redesign-overlay` as the final branch in the review stack into
+  `master`: #160 (contracts, 14 files), #161 (runtime/test code, 99 files), then #159 (baselines,
+  documentation and preview, 48 files). Preserve ancestry and recheck counts when retargeting. Child
+  repositories remain unchanged unless needed.
 - Report actual hardware observations separately from implementation and simulated verification.
 
 ## Work and ownership
