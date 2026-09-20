@@ -113,7 +113,7 @@
           <Border Grid.Column="0"
                   Classes="tab-strip-bumper"
                   Margin="0,0,10,0">
-            <TextBlock Text="LB" />
+            <TextBlock Text="LT" />
           </Border>
           <StackPanel Name="PART_TabsHost"
                       Grid.Column="1"
@@ -122,7 +122,7 @@
           <Border Grid.Column="2"
                   Classes="tab-strip-bumper"
                   Margin="10,0,0,0">
-            <TextBlock Text="RB" />
+            <TextBlock Text="RT" />
           </Border>
         </Grid>
       </ControlTemplate>

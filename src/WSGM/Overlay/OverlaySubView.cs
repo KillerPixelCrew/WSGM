@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Input;
 
 namespace WSGM.Overlay;
 
@@ -15,8 +18,7 @@ namespace WSGM.Overlay;
 ///     Base for the self-drawing, gamepad-driven overlay sub-views (tab builder,
 ///     card manager, artwork changer, launch wrappers, wake locks): the render-thunk
 ///     navigation stack, the shared row/label builders, and text entry. Each navigation
-///     level rebuilds <see cref="ContentControl.Content" />, and every interactive element is
-///     a <see cref="Button" /> so D-pad navigation and A/B work with no extra focus plumbing.
+///     level rebuilds <see cref="ContentControl.Content" /> with actions and explicit value editors.
 ///     <para>
 ///         <see cref="_navigationGeneration" /> is also the invalidation token for
 ///         asynchronous work: leaving a level bumps it, so a load that completes afterwards
@@ -135,15 +137,15 @@ public abstract class OverlaySubView : UserControl
 
     private protected StackPanel NewStack(string heading)
     {
-        var stack = new StackPanel { Spacing = 4 };
+        var stack = new StackPanel { Spacing = 10 };
         if (!string.IsNullOrEmpty(heading))
         {
             stack.Children.Add(new TextBlock
             {
                 Text = heading,
-                FontSize = 15,
+                FontSize = 20,
                 FontWeight = FontWeight.SemiBold,
-                Margin = new Thickness(0, 0, 0, 4)
+                Margin = new Thickness(0, 0, 0, 12)
             });
         }
 
@@ -169,9 +171,9 @@ public abstract class OverlaySubView : UserControl
         RenderMessage(title, "Loading from Steam…");
     }
 
-    private protected static CardButton Row(string title, string desc, Geometry? icon, Action? onClick)
+    private protected static ActionButton Row(string title, string desc, Geometry? icon, Action? onClick)
     {
-        var button = new CardButton { Title = title, Description = desc, IconGeometry = icon };
+        var button = new ActionButton { Title = title, Description = desc, IconGeometry = icon };
         if (onClick is not null)
         {
             button.Click += (_, _) => onClick();
@@ -180,23 +182,66 @@ public abstract class OverlaySubView : UserControl
         return button;
     }
 
-    private protected static CardButton PrimaryRow(string title, string desc, Geometry? icon, Action onClick)
+    private protected static ActionButton PrimaryRow(string title, string desc, Geometry? icon, Action onClick)
     {
         var button = Row(title, desc, icon, onClick);
         button.Classes.Add("primary");
         return button;
     }
 
-    private protected static CardButton DangerRow(string title, string desc, Geometry? icon, Action onClick)
+    private protected static ActionButton DangerRow(string title, string desc, Geometry? icon, Action onClick)
     {
         var button = Row(title, desc, icon, onClick);
         button.Classes.Add("danger");
         return button;
     }
 
-    private protected static CardButton CycleRow(string label, string value, Action onClick)
+    private protected static Control ChoiceRow<T>(string label, IReadOnlyList<(T Value, string Label)> options,
+        T current, Action<T> onSelect)
     {
-        return Row(label, value, Icons.Restart, onClick).Also(b => b.TrailingText = "↔");
+        var values = options.Select(option => new ChoiceValue<T>(option.Value, option.Label)).ToArray();
+        var committed = current;
+        var choice = new ComboBox
+        {
+            ItemsSource = values,
+            SelectedItem = values.FirstOrDefault(value => EqualityComparer<T>.Default.Equals(value.Value, current)),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            MinHeight = 44
+        };
+        var open = false;
+        choice.DropDownOpened += (_, _) => open = true;
+        choice.DropDownClosed += (_, _) =>
+        {
+            open = false;
+            CommitChoice();
+        };
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (!open && !choice.IsDropDownOpen)
+            {
+                CommitChoice();
+            }
+        };
+        var row = new Grid
+            { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 16, Margin = new Thickness(0, 4) };
+        row.Children.Add(new TextBlock
+            { Text = label, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+        Grid.SetColumn(choice, 1);
+        row.Children.Add(choice);
+        return row;
+
+        void CommitChoice()
+        {
+            if (choice.SelectedItem is not ChoiceValue<T> selected
+                || EqualityComparer<T>.Default.Equals(committed, selected.Value))
+            {
+                return;
+            }
+
+            committed = selected.Value;
+            onSelect(selected.Value);
+        }
     }
 
     private protected static TextBlock Caption(string text)
@@ -233,33 +278,7 @@ public abstract class OverlaySubView : UserControl
     // still the first thing the user should land on, so the search descends one level.
     private static void FocusFirst(StackPanel stack)
     {
-        Dispatcher.UIThread.Post(() =>
-        {
-            foreach (var child in stack.Children)
-            {
-                switch (child)
-                {
-                    case Button { IsEffectivelyEnabled: true } b:
-                        b.Focus(NavigationMethod.Directional);
-                        return;
-                    case Panel panel:
-                    {
-                        foreach (var nested in panel.Children)
-                        {
-                            if (nested is not Button nestedButton)
-                            {
-                                continue;
-                            }
-
-                            nestedButton.Focus(NavigationMethod.Directional);
-                            return;
-                        }
-
-                        break;
-                    }
-                }
-            }
-        });
+        Dispatcher.UIThread.Post(() => FocusSearch.FirstNavigable(stack)?.Focus(NavigationMethod.Directional));
     }
 
     // ---- Text entry ----
@@ -268,7 +287,7 @@ public abstract class OverlaySubView : UserControl
     {
         // Accept ordering matters: the rows show values straight off the model, so the mutation
         // has to land BEFORE anything re-renders or the user sees the old text. The keyboard
-        // window pushes no navigation level (it is a peer, not a screen), so this re-renders the
+        // surface pushes no navigation level, so this re-renders the
         // current level itself instead of relying on a pop to do it.
         if (KeyboardService.Request(title, current, maxLen, v =>
             {
@@ -286,5 +305,13 @@ public abstract class OverlaySubView : UserControl
         // docs\overlay-and-input.md.
         Log.Warn($"{LogScope}: cannot edit '{title}' — no keyboard surface is available.");
         Toast("Text entry needs the overlay keyboard, which is not available.");
+    }
+
+    private sealed record ChoiceValue<T>(T Value, string Label)
+    {
+        public override string ToString()
+        {
+            return Label;
+        }
     }
 }

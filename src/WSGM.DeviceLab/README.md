@@ -112,3 +112,7 @@ That is what stops you building a plugin against a contract the host does not ha
 
 MIT, see `LICENSE`. Third-party components it redistributes keep their own licences, see
 `THIRD_PARTY_NOTICES.md`.
+
+Capability publications can include SDK prominence and companion hints. Device Lab checks them with
+`CapabilityLayout.TryValidate` before an attended capability action; these hints describe host
+presentation and never permit another hardware write.

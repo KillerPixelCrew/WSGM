@@ -1072,7 +1072,9 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                     section: SectionIds.Power, category: CategoryIds.Limits, order: 0) with
                 {
                     PowerPresets = ClawPowerPresets.All,
-                    PairedPowerLimitId = CapabilityIds.PowerBoost
+                    PairedPowerLimitId = CapabilityIds.PowerBoost,
+                    Prominence = CapabilityProminence.Primary,
+                    LayoutPair = new CapabilityLayoutPair(CapabilityIds.PowerBoost)
                 },
             IntegerDescriptor(CapabilityIds.PowerBoost, CapabilityRole.PowerSlowLimit,
                 DisplayKey.BoostPowerLimit, 8, 37, CapabilityUnit.Watt, true,
@@ -2745,6 +2747,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             SectionId = section,
             CategoryId = category,
             SortOrder = order,
+            Prominence = writable ? CapabilityProminence.Normal : CapabilityProminence.Compact,
             ValueKind = CapabilityValueKind.Integer,
             Display = new CapabilityDisplay { Key = display },
             SupportsRead = true,
@@ -2795,7 +2798,15 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
             [
                 .. choices.Select(choice => new CapabilityChoice(
                     choice,
-                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = choice }))
+                    new CapabilityDisplay
+                    {
+                        Key = DisplayKey.Custom, CustomLabel = choice switch
+                        {
+                            "comfort" => "Comfort", "green" => "Green", "eco" => "Eco", "sport" => "Sport",
+                            "user" => "User", "inactive" => "Inactive", "automatic" => "Automatic",
+                            _ => choice
+                        }
+                    }))
             ],
             Persistence = CapabilityPersistence.Volatile
         };

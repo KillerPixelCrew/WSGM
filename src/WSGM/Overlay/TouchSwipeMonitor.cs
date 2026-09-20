@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -31,7 +30,7 @@ public enum ScreenEdge
 ///     Turns inward swipes from enabled screen edges into <see cref="Triggered" />
 ///     events by observing the touch digitizer through Raw Input (WM_INPUT on a
 ///     message-only window, RIDEV_INPUTSINK).
-///     Purely observational: touch-screen and mouse input are registered without suppressing
+///     Purely observational: touch-screen input is registered without suppressing
 ///     legacy delivery. Nothing is consumed, and no window takes part in
 ///     hit-testing — the foreground game keeps receiving every event untouched.
 ///     Contact coordinates are parsed straight from the raw HID reports and scaled
@@ -46,9 +45,14 @@ public enum ScreenEdge
 public sealed unsafe class TouchSwipeMonitor : IDisposable
 {
     private const string WindowClassName = "WSGM.RawTouchWindow";
-    private const int MinimumBandPx = 48;
+
+    // Provisional thresholds, pending attended Claw bezel/title-bar trace calibration.
+    private const int DiagnosticBandPx = 48;
     private const int TriggerDistancePx = 48;
     private const ulong TriggerTimeMs = 800;
+    private const int EarlyDistancePx = 8;
+    private const ulong EarlyMovementTimeMs = 120;
+    private const int DiagnosticLimitPerMinute = 12;
 
     private static readonly Lock Gate = new();
 
@@ -67,25 +71,25 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
     private readonly Dictionary<nint, DeviceCaps> _devices = [];
     private bool _armed = true;
-    private int _bandPx = MinimumBandPx;
-    private bool _bottomCandidate;
+    private int _bandPx = 4;
     private bool _bottomEnabled;
     private bool _contactWasDown;
+    private int _diagnosticCount;
+    private bool _diagnosticPending;
+    private ulong _diagnosticWindowAt;
     private int _dispatchPending;
     private bool _disposed;
     private byte[] _inputBuffer = new byte[256];
-    private bool _leftCandidate;
     private bool _leftEnabled;
     private bool _loggedFirstReport;
-    private bool _rightCandidate;
     private bool _rightEnabled;
     private int _screenH;
     private int _screenW;
-    private int _startX;
-    private int _startY;
+    private uint _startRawX;
+    private uint _startRawY;
     private ulong _startedAt;
-    private bool _topCandidate;
     private bool _topEnabled;
+    private GestureTrace _trace;
     private bool _tracking;
     private ushort[] _usageBuffer = new ushort[16];
 
@@ -104,9 +108,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
     }
 
-    /// <summary>Enables <see cref="TappedAt" /> (overlay open).</summary>
-    public bool WatchTaps { get; set; }
-
     /// <summary>Stops monitoring and removes shared raw-input registration when last disposed.</summary>
     public void Dispose()
     {
@@ -123,7 +124,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             Volatile.Write(ref _instanceSnapshot, [.. Instances]);
             // The registration is process-wide: it may only go away with the LAST
             // monitor, or disposing the Settings test monitor would kill the live
-            // shell's edge swipes and tap-dismiss until the shell restarts.
+            // shell's edge swipes until the shell restarts.
             if (Instances.Count == 0)
             {
                 var devices = new[]
@@ -132,13 +133,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                     {
                         usUsagePage = NativeMethods.HidUsagePageDigitizer,
                         usUsage = NativeMethods.HidUsageTouchScreen,
-                        dwFlags = NativeMethods.RidevRemove,
-                        hwndTarget = 0
-                    },
-                    new NativeMethods.RawInputDevice
-                    {
-                        usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
-                        usUsage = NativeMethods.HidUsageMouse,
                         dwFlags = NativeMethods.RidevRemove,
                         hwndTarget = 0
                     }
@@ -183,40 +177,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <summary>Raised on the Avalonia UI thread with the edge that was swiped.</summary>
     public event Action<ScreenEdge>? Triggered;
 
-    /// <summary>
-    ///     Raised on the Avalonia UI thread with primary-screen pixel
-    ///     coordinates for every new touch contact or mouse click while <see cref="WatchTaps" /> is on.
-    ///     Lets the overlay dismiss itself on taps or clicks outside its bounds.
-    /// </summary>
-    public event Action<int, int>? TappedAt;
-
-    // RAWMOUSE has a 24-byte layout: button flags at offset 4, extra information at 20.
-    // Only button-down edges dismiss. Touch-promoted mouse input is already handled by the
-    // digitizer path and must not dismiss a second surface from the same contact.
-    internal static bool IsMouseClick(ReadOnlySpan<byte> mouse)
-    {
-        if (mouse.Length < 24)
-        {
-            return false;
-        }
-
-        var buttons = BinaryPrimitives.ReadUInt16LittleEndian(mouse[4..]);
-        var extra = BinaryPrimitives.ReadUInt32LittleEndian(mouse[20..]);
-        return (buttons & 0x0015) != 0
-               && (extra & NativeMethods.MiWpSignatureMask) != NativeMethods.MiWpSignature;
-    }
-
-    private void DispatchTap(int x, int y)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!_disposed && WatchTaps)
-            {
-                TappedAt?.Invoke(x, y);
-            }
-        });
-    }
-
     private static void CreateSharedWindowAndRegister()
     {
         // Class registration + HWND_MESSAGE creation share MessageWindow's code
@@ -234,13 +194,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 usUsage = NativeMethods.HidUsageTouchScreen,
                 dwFlags = NativeMethods.RidevInputSink | NativeMethods.RidevDevNotify,
                 hwndTarget = _sharedHwnd
-            },
-            new NativeMethods.RawInputDevice
-            {
-                usUsagePage = NativeMethods.HidUsagePageGenericDesktop,
-                usUsage = NativeMethods.HidUsageMouse,
-                dwFlags = NativeMethods.RidevInputSink,
-                hwndTarget = _sharedHwnd
             }
         };
         if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length,
@@ -250,7 +203,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
         else
         {
-            Log.Info($"Raw touch input registered (HID digitizer and mouse sinks, foreground {DescribeForeground()}).");
+            Log.Info($"Raw touch input registered (HID digitizer sink, foreground {DescribeForeground()}).");
         }
     }
 
@@ -262,14 +215,16 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _rightEnabled = gestures.RightEdgeSteamQuickAccess;
         _leftEnabled = gestures.LeftEdgeSteamMenu;
         _topEnabled = gestures.TopEdge;
-        _bandPx = Math.Max(MinimumBandPx, gestures.StripThickness);
+        _bandPx = NormalizeStartBand(gestures.StripThickness);
         _tracking = false;
+        _diagnosticPending = false;
         // Re-applied on every config reload, which the shell does often, so this restated an
         // unchanged gesture set 1,162 times in one session.
         Log.Change(
             "touch.edges",
             $"Touch edge swipes configured (bottom={_bottomEnabled}, top={_topEnabled}, " +
-            $"left-steam={_leftEnabled}, right-qam={_rightEnabled}, band={_bandPx}px).");
+            $"left-steam={_leftEnabled}, right-qam={_rightEnabled}, start-band={_bandPx}px, " +
+            $"early={EarlyDistancePx}px/{EarlyMovementTimeMs}ms, travel={TriggerDistancePx}px/{TriggerTimeMs}ms, dominance=2:1).");
     }
 
     /// <summary>Resume gesture detection (overlay closed).</summary>
@@ -316,6 +271,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
         _armed = false;
         _tracking = false;
+        _diagnosticPending = false;
         Log.Info("Touch edge swipes disarmed.");
     }
 
@@ -430,18 +386,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     {
         {
             var header = *(NativeMethods.RawInputHeader*)buffer;
-            if (header.dwType == NativeMethods.RimTypeMouse)
-            {
-                if (WatchTaps && IsMouseClick(new ReadOnlySpan<byte>(buffer + headerSize,
-                                  checked((int)(size - headerSize))))
-                              && NativeMethods.GetCursorPos(out var point))
-                {
-                    DispatchTap(point.X, point.Y);
-                }
-
-                return;
-            }
-
             if (header.dwType != NativeMethods.RimTypeHid)
             {
                 return;
@@ -660,6 +604,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
         if (!tipDown)
         {
+            CompleteDiagnostic(caps, "released");
             _contactWasDown = false;
             _tracking = false;
             return;
@@ -697,8 +642,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private void OnContactDown(DeviceCaps caps, uint rawX, uint rawY)
     {
         _tracking = false;
-        var watchTaps = WatchTaps;
-        if (!_armed && !watchTaps)
+        _diagnosticPending = false;
+        if (!_armed)
         {
             return;
         }
@@ -707,63 +652,45 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _screenH = NativeMethods.GetSystemMetrics(1);
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
 
-        if (watchTaps)
-        {
-            DispatchTap(x, y);
-        }
-
-        if (!_armed)
-        {
-            return;
-        }
-
-        _bottomCandidate = _bottomEnabled && y >= _screenH - _bandPx;
-        _rightCandidate = _rightEnabled && x >= _screenW - _bandPx;
-        _leftCandidate = _leftEnabled && x < _bandPx;
-        _topCandidate = _topEnabled && y < _bandPx;
-        if (!_bottomCandidate && !_rightCandidate && !_leftCandidate && !_topCandidate)
-        {
-            return;
-        }
-
-        _tracking = true;
-        _startX = x;
-        _startY = y;
         _startedAt = (ulong)Environment.TickCount64;
-        // Every edge contact, including the majority that never become a gesture. The line that
-        // matters is the one where a swipe actually triggers.
-        if (Log.MinimumLevel <= LogLevel.Debug)
-        {
-            Log.Debug(
-                $"Touch edge swipe started at {x},{y} " +
-                $"(bottom={_bottomCandidate}, right={_rightCandidate}, " +
-                $"left={_leftCandidate}, top={_topCandidate}).");
-        }
+        _startRawX = rawX;
+        _startRawY = rawY;
+        _trace = new GestureTrace(x, y, _screenW, _screenH, _bandPx,
+            _bottomEnabled, _rightEnabled, _leftEnabled, _topEnabled);
+        _tracking = _trace.HasCandidates;
+        // Verbose calibration includes the old title-bar region so rejected starts are visible.
+        // One summary per contact, capped before formatting, never one line per HID sample.
+        _diagnosticPending = Log.MinimumLevel <= LogLevel.Debug &&
+                             ((_bottomEnabled && y >= _screenH - DiagnosticBandPx) ||
+                              (_rightEnabled && x >= _screenW - DiagnosticBandPx) ||
+                              (_leftEnabled && x < DiagnosticBandPx) ||
+                              (_topEnabled && y < DiagnosticBandPx));
     }
 
     private void OnContactMove(DeviceCaps caps, uint rawX, uint rawY)
     {
-        if (!_tracking)
+        if (!_tracking && !_diagnosticPending)
         {
             return;
         }
 
-        if (!_armed || (ulong)Environment.TickCount64 - _startedAt > TriggerTimeMs)
+        if (!_armed)
         {
             _tracking = false;
+            _diagnosticPending = false;
             return;
         }
 
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
-        var triggeredEdge = PickTriggeredEdge(
-            _bottomCandidate, _rightCandidate, _leftCandidate, _topCandidate,
-            _startX, _startY, x, y, TriggerDistancePx);
+        var triggeredEdge = _trace.Move(x, y, (ulong)Environment.TickCount64 - _startedAt);
+        _tracking = _trace.HasCandidates;
         if (triggeredEdge is null)
         {
             return;
         }
 
         _tracking = false;
+        CompleteDiagnostic(caps, "triggered");
         if (Interlocked.Exchange(ref _dispatchPending, 1) != 0)
         {
             return;
@@ -781,6 +708,40 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             Log.Info($"{edge} touch edge swipe triggered.");
             Triggered?.Invoke(edge);
         });
+    }
+
+    private void CompleteDiagnostic(DeviceCaps caps, string outcome)
+    {
+        if (!_diagnosticPending)
+        {
+            return;
+        }
+
+        _diagnosticPending = false;
+        var now = (ulong)Environment.TickCount64;
+        if (now - _diagnosticWindowAt >= 60_000)
+        {
+            _diagnosticWindowAt = now;
+            _diagnosticCount = 0;
+        }
+
+        if (_diagnosticCount >= DiagnosticLimitPerMinute || Log.MinimumLevel > LogLevel.Debug)
+        {
+            return;
+        }
+
+        _diagnosticCount++;
+        Log.Debug($"Touch edge trace: {outcome}, decision={_trace.Decision}, " +
+                  $"first-raw={_startRawX},{_startRawY}, ranges={caps.XMin}..{caps.XMax}/{caps.YMin}..{caps.YMax}, " +
+                  $"first-px={_trace.StartX},{_trace.StartY}, last-px={_trace.LastX},{_trace.LastY}, " +
+                  $"screen={_screenW}x{_screenH}, start-band={_bandPx}px, elapsed={now - _startedAt}ms, " +
+                  $"dwell-2px={_trace.FirstMovementMs?.ToString() ?? "none"}ms, " +
+                  $"entry-8px={_trace.EntryMs?.ToString() ?? "none"}ms, travel-x/y={_trace.HorizontalTravel}/{_trace.VerticalTravel}px.");
+    }
+
+    internal static int NormalizeStartBand(int configuredThickness)
+    {
+        return Math.Clamp(configuredThickness, 1, 8);
     }
 
     /// <summary>Calculates how far a contact has moved inward from its tracked edge.</summary>
@@ -804,7 +765,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
     /// <summary>
     ///     Selects the candidate edge whose inward movement has crossed the
-    ///     trigger distance by the greatest amount. Tracking all candidates makes
+    ///     trigger distance by the greatest amount and dominates sideways travel 2:1. Tracking all candidates makes
     ///     corner-origin gestures follow their movement instead of an arbitrary edge priority.
     /// </summary>
     /// <param name="bottomCandidate">Whether the contact began inside the bottom band.</param>
@@ -816,10 +777,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <param name="x">Current horizontal screen coordinate.</param>
     /// <param name="y">Current vertical screen coordinate.</param>
     /// <param name="triggerDistance">Required inward distance in physical pixels.</param>
+    /// <param name="horizontalTravel">Accumulated absolute horizontal movement, when tracking a trace.</param>
+    /// <param name="verticalTravel">Accumulated absolute vertical movement, when tracking a trace.</param>
     /// <returns>The movement-matching edge, or null while none has crossed the threshold.</returns>
     internal static ScreenEdge? PickTriggeredEdge(
         bool bottomCandidate, bool rightCandidate, bool leftCandidate, bool topCandidate,
-        int startX, int startY, int x, int y, int triggerDistance)
+        int startX, int startY, int x, int y, int triggerDistance,
+        int horizontalTravel = 0, int verticalTravel = 0)
     {
         ScreenEdge? bestEdge = null;
         var bestDistance = triggerDistance - 1;
@@ -837,7 +801,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             }
 
             var distance = InwardDistance(edge, startX, startY, x, y);
-            if (distance <= bestDistance)
+            var sideways = edge is ScreenEdge.Top or ScreenEdge.Bottom
+                ? Math.Max(horizontalTravel, Math.Abs(x - startX))
+                : Math.Max(verticalTravel, Math.Abs(y - startY));
+            if (distance <= bestDistance || distance < sideways * 2)
             {
                 return;
             }
@@ -852,6 +819,127 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         var x = (int)((rawX - caps.XMin) * (_screenW - 1) / (caps.XMax - caps.XMin));
         var y = (int)((rawY - caps.YMin) * (_screenH - 1) / (caps.YMax - caps.YMin));
         return (x, y);
+    }
+
+    /// <summary>Allocation-free state for one contact, independent of raw-input and UI ownership.</summary>
+    internal struct GestureTrace
+    {
+        private int _candidates;
+        private int _entered;
+
+        internal GestureTrace(int x, int y, int screenWidth, int screenHeight, int stripThickness,
+            bool bottomEnabled, bool rightEnabled, bool leftEnabled, bool topEnabled)
+        {
+            this = default;
+            StartX = LastX = x;
+            StartY = LastY = y;
+            var band = NormalizeStartBand(stripThickness);
+            if (x >= 0 && y >= 0 && x < screenWidth && y < screenHeight)
+            {
+                Add(ScreenEdge.Bottom, bottomEnabled && y >= screenHeight - band);
+                Add(ScreenEdge.Right, rightEnabled && x >= screenWidth - band);
+                Add(ScreenEdge.Left, leftEnabled && x < band);
+                Add(ScreenEdge.Top, topEnabled && y < band);
+            }
+
+            Decision = HasCandidates ? "waiting" : "outside-start-band";
+        }
+
+        internal int StartX { get; }
+        internal int StartY { get; }
+        internal int LastX { get; private set; }
+        internal int LastY { get; private set; }
+        internal int HorizontalTravel { get; private set; }
+        internal int VerticalTravel { get; private set; }
+        internal ulong? FirstMovementMs { get; private set; }
+        internal ulong? EntryMs { get; private set; }
+        internal string Decision { get; private set; }
+        internal readonly bool HasCandidates => _candidates != 0;
+
+        private void Add(ScreenEdge edge, bool enabled)
+        {
+            if (enabled)
+            {
+                _candidates |= 1 << (int)edge;
+            }
+        }
+
+        internal ScreenEdge? Move(int x, int y, ulong elapsedMs)
+        {
+            HorizontalTravel += Math.Abs(x - LastX);
+            VerticalTravel += Math.Abs(y - LastY);
+            LastX = x;
+            LastY = y;
+            if (FirstMovementMs is null && Math.Max(Math.Abs(x - StartX), Math.Abs(y - StartY)) >= 2)
+            {
+                FirstMovementMs = elapsedMs;
+            }
+
+            if (!HasCandidates)
+            {
+                return null;
+            }
+
+            if (elapsedMs > TriggerTimeMs)
+            {
+                _candidates = 0;
+                Decision = "expired";
+                return null;
+            }
+
+            CheckEntry(ScreenEdge.Bottom, elapsedMs);
+            CheckEntry(ScreenEdge.Right, elapsedMs);
+            CheckEntry(ScreenEdge.Left, elapsedMs);
+            CheckEntry(ScreenEdge.Top, elapsedMs);
+            var admitted = _candidates & _entered;
+            var edge = PickTriggeredEdge(
+                (admitted & (1 << (int)ScreenEdge.Bottom)) != 0,
+                (admitted & (1 << (int)ScreenEdge.Right)) != 0,
+                (admitted & (1 << (int)ScreenEdge.Left)) != 0,
+                (admitted & (1 << (int)ScreenEdge.Top)) != 0,
+                StartX, StartY, x, y, TriggerDistancePx, HorizontalTravel, VerticalTravel);
+            if (edge is not null)
+            {
+                Decision = "accepted";
+                _candidates = 0;
+            }
+
+            return edge;
+        }
+
+        private void CheckEntry(ScreenEdge edge, ulong elapsedMs)
+        {
+            var mask = 1 << (int)edge;
+            if ((_candidates & mask) == 0)
+            {
+                return;
+            }
+
+            var inward = InwardDistance(edge, StartX, StartY, LastX, LastY);
+            var sideways = edge is ScreenEdge.Top or ScreenEdge.Bottom ? HorizontalTravel : VerticalTravel;
+            if (sideways >= EarlyDistancePx && inward < sideways * 2)
+            {
+                _candidates &= ~mask;
+                Decision = "sideways-travel";
+                return;
+            }
+
+            if ((_entered & mask) != 0)
+            {
+                return;
+            }
+
+            if (elapsedMs > EarlyMovementTimeMs)
+            {
+                _candidates &= ~mask;
+                Decision = "late-entry";
+            }
+            else if (inward >= EarlyDistancePx && inward >= sideways * 2)
+            {
+                _entered |= mask;
+                EntryMs = elapsedMs;
+            }
+        }
     }
 
     private sealed class DeviceCaps

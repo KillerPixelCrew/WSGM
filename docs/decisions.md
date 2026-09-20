@@ -133,11 +133,12 @@ remains for the people who do. A mode seeds only a machine with no configuration
 setup is how repair and upgrade work, and a mode that rewrote the start mode each time would undo
 Settings behind the user's back. Details in `docs\boot-and-shell.md`, "Install modes".
 
-**Toolchain pins.** .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
+**Toolchain pins.** .NET 10 and Avalonia 12.1.2. `LoadingIndicators.Avalonia` is vendored under
 `external\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from
-`src\WSGM\Licenses\`. `FluentAvaloniaUI` 3.0.2 and an explicit `Avalonia.Controls.ColorPicker`
-12.1.1 pin keep the controls on the same Avalonia line.
+`src\WSGM\Licenses\`. `FluentAvaloniaUI` 3.1.0 and an explicit `Avalonia.Controls.ColorPicker`
+12.1.2 pin keep the controls on the same Avalonia line. `Avalonia.Labs.Panels` 12.0.2 supplies the
+production overlay's FlexPanel layout.
 
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
