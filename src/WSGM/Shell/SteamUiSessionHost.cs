@@ -220,6 +220,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             () =>
                 _enabled || _libraryBadgeEnabled || _homeCarouselEnabled || _screensaverEnabled,
             BootstrapWanted);
+        _runtime.ModuleFailed += OnModuleFailed;
         _transport.GenerationChanged += OnGenerationChanged;
         LibraryBadges.Changed += OnSemanticStateChanged;
         if (_displayTimeouts is not null)
@@ -301,6 +302,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ReleasePerformanceObservation();
         // The runtime first: it stops answering, cancels what is in flight and drains its own
         // request tasks, so nothing is still writing to the bridge when that is disposed below.
+        _runtime.ModuleFailed -= OnModuleFailed;
         await _runtime.DisposeAsync().ConfigureAwait(false);
         // ReSharper disable once MethodHasAsyncOverload
         _shutdown.Cancel();
@@ -871,6 +873,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private void OnSemanticStateChanged()
     {
         QueueStatePublication();
+    }
+
+    private void OnModuleFailed(object? sender, SteamUiModuleFailure failure)
+    {
+        foreach (var patch in failure.Module.Patches)
+        {
+            _patches.SetPatchEnabled(patch.Id, false);
+        }
+
+        Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
+        QueueSynchronization();
     }
 
     private void QueueStatePublication()
