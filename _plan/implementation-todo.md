@@ -24,8 +24,9 @@ pane. Horizontal LT/RT destination navigation remains unchanged. This follow-up 
 ## Production overlay redesign (2026-09-20, issue 114, in progress)
 
 This task keeps the maintainer-created `chore/redesign-overlay` as the final branch in a review
-stack: #160 adds device layout contracts (14 files), #161 adds the overlay runtime and test code
-(99 files), and #159 adds visual baselines, documentation and the preview tool (48 files). Merge in
+stack: #160 adds device layout contracts and power foundations (27 files), #161 adds the overlay
+runtime, its required guides and test code (100 files), and #159 adds visual baselines, acceptance
+notes and the preview tool (45 files). Merge in
 that order into `master`, preserving ancestry and checking each dependent PR's file count when
 retargeting. The complete stack is the validated delivery; the runtime PR requires #159's updated
 visual baselines.
@@ -38,7 +39,8 @@ compact readings, descriptor layout hints and in-place value reconciliation repl
 The raw HID swipe recognizer now separates a narrow bezel start from early inward motion and total
 travel, with bounded verbose traces and synthetic rejection cases.
 
-The integrated Release solution build passed with zero warnings and errors. All 200 UI tests pass,
+Before the review follow-up, the integrated Release solution build passed with zero warnings and
+errors, and all 200 UI tests passed,
 including navigation, saved pins, descriptor refresh, complete PC keyboard editing, utility and
 power surfaces, and viewport/DPI coverage from 720p to 4K. The maintainer authorized this early UI
 run and the 33 reviewed baseline updates. The controls pane now has bordered sections, readable
@@ -47,6 +49,17 @@ desired application scale while Windows is at 100%; desktop DPI is applied once.
 Prettier, guidance and diff checks passed. Render-only production previews support visual review
 without live services. Core/device suites and the full gate remain deferred until the maintainer's
 manual test. This is not a completed issue or a hardware acceptance result.
+
+The review follow-up advances the Device SDK to 0.3.0 / API 5 and updates all device manifests,
+requires explicit shared sections for companion hints, validates Device Lab role actions before
+hardware calls, and gives fan choices readable labels. Slider and curve rows submit pending edits
+once on detachment; device writes reject removed, unavailable or replaced capability generations.
+The Avalonia button-template assertion moved from the platform-free core suite to the UI harness
+after CI reported a missing renderer. The three required overlay guides now travel with the runtime
+PR. Fresh Release builds of the foundation and runtime passed with zero warnings/errors, and all
+19 focused DeviceRowReconciliation UI cases passed. SDK/Device Lab regression cases were added and
+compiled; their execution remains deferred under the manual-first policy. No fresh full-suite pass
+or hardware acceptance is claimed for these review fixes.
 
 Remaining acceptance includes attended Claw real swipes versus title-bar drags and slow touches,
 native blur and opaque fallback under battery saver, touchscreen promotion, controller navigation,
