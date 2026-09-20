@@ -23,6 +23,9 @@ pane. Horizontal LT/RT destination navigation remains unchanged. This follow-up 
 
 ## Production overlay redesign (2026-09-20, issue 114, in progress)
 
+This task uses the maintainer-created `chore/redesign-overlay` branch and a PR into `master`,
+overriding the general direct-push workflow for this work.
+
 The production implementation now uses a fullscreen Avalonia glass sheet with an opaque fallback,
 a persistent section rail beside the controls, remembered sections, a unified app/tray rail and
 in-window utility, keyboard and power surfaces. One controller navigation owner handles section

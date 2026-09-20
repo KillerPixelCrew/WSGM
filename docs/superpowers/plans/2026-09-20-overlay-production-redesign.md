@@ -24,7 +24,9 @@ production exclusion does not apply to this promotion.
   focus.
 - Build and inspect before attended testing. Do not execute suites or test-bearing gates until the
   maintainer reports manual testing or explicitly requests them.
-- Commit and push scoped changes on master. Child repositories remain unchanged unless needed.
+- Keep this task on the maintainer-created `chore/redesign-overlay` branch and open a PR into
+  `master`. This explicit task direction overrides the repository's general direct-push rule. Child
+  repositories remain unchanged unless needed.
 - Report actual hardware observations separately from implementation and simulated verification.
 
 ## Work and ownership
