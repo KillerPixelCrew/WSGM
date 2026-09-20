@@ -473,12 +473,8 @@ public static class ConfigStore
         config.LibraryTabOrder ??= [];
         config.HiddenNativeTabs ??= [];
         config.KnownNativeTabs ??= [];
-        config.SteamGridDbApiKey ??= "";
-        config.ScreenscraperUser ??= "";
-        config.ScreenscraperUserPassword ??= "";
         config.PluginConfigurations ??= [];
         config.PluginConfigurations.RemoveAll(static entry => entry is null);
-        config.SgdbLinks ??= [];
         config.LaunchWrappers ??= [];
         // A null ELEMENT ("StartupApps": [null]) survives the list-level ??= above and
         // would NRE in SelfElevation before the crash-loop breaker has recorded the
@@ -540,12 +536,6 @@ public static class ConfigStore
         foreach (var scheme in config.PreviousConsoleLockSchemeValues)
         {
             scheme.SchemeGuid ??= "";
-        }
-
-        config.SgdbLinks.RemoveAll(static link => link is null);
-        foreach (var link in config.SgdbLinks)
-        {
-            link.Name ??= "";
         }
 
         config.AccentColor ??= Defaults.AccentColor;

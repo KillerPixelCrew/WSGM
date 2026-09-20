@@ -38,7 +38,7 @@ internal sealed class CommonPluginSettings
 
     internal PluginConfiguration? Desired { get; private set; }
     internal PluginConfigurationResult? Result { get; private set; }
-    private IReadOnlyList<PluginSetting> Schema { get; }
+    internal IReadOnlyList<PluginSetting> Schema { get; }
 
     internal Task<PluginConfigurationResult> RestoreAsync(PluginContext context, CancellationToken cancellationToken)
     {

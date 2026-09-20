@@ -20,6 +20,7 @@ internal sealed record CommonPluginInstanceView(
 /// <summary>Owns explicitly enabled non-device instances independently of the Device master switch.</summary>
 internal sealed class CommonPluginManager
 {
+    private readonly IReadOnlyList<CommonInstalledPlugin> _bundled;
     private readonly Dictionary<PluginInstanceIdentity, Entry> _entries = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly PluginHost _host;
@@ -32,14 +33,26 @@ internal sealed class CommonPluginManager
     private volatile bool _stopping;
 
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
-        Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>>? load = null)
+        Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>>? load = null,
+        IReadOnlyList<CommonInstalledPlugin>? bundled = null)
     {
         _host = host;
         _installedRoot = Path.GetFullPath(installedRoot);
         _stateRoot = Path.GetFullPath(stateRoot);
+        _bundled = bundled ?? [];
         _load = load ?? (async (package, token) =>
-            await CommonPluginPackage.LoadAsync(package.PackageRoot, package.Manifest, token).ConfigureAwait(false));
+            package.Factory is { } factory
+                ? factory()
+                : await CommonPluginPackage.LoadAsync(package.PackageRoot, package.Manifest, token)
+                    .ConfigureAwait(false));
     }
+
+    /// <summary>Package identities shipped beside WSGM and admitted through the normal loader.</summary>
+    internal IReadOnlyList<string> BundledPluginIds =>
+        [.. _bundled.Select(package => package.Manifest.Id).Distinct(StringComparer.Ordinal)];
+
+    /// <summary>Raised after the admitted-plugin projection may have changed.</summary>
+    internal event Action? Changed;
 
     internal CommonPluginInstanceView[] Snapshot()
     {
@@ -101,7 +114,7 @@ internal sealed class CommonPluginManager
                 return;
             }
 
-            _catalog = await Task.Run(() => CommonPluginCatalog.Discover(_installedRoot), cancellationToken)
+            _catalog = await Task.Run(() => CommonPluginCatalog.Discover(_installedRoot, _bundled), cancellationToken)
                 .ConfigureAwait(false);
             if (_stopping || revision != Volatile.Read(ref _requestedRevision))
             {
@@ -219,6 +232,7 @@ internal sealed class CommonPluginManager
         finally
         {
             _gate.Release();
+            NotifyChanged();
         }
     }
 
@@ -243,6 +257,10 @@ internal sealed class CommonPluginManager
         {
             entry.Error = ex.Message;
             entry.LoadCleanupUnconfirmed = entry.Loaded is null && ex is AggregateException;
+        }
+        finally
+        {
+            NotifyChanged();
         }
     }
 
@@ -290,6 +308,7 @@ internal sealed class CommonPluginManager
         finally
         {
             _gate.Release();
+            NotifyChanged();
         }
     }
 
@@ -345,6 +364,7 @@ internal sealed class CommonPluginManager
         finally
         {
             _gate.Release();
+            NotifyChanged();
         }
     }
 
@@ -387,6 +407,10 @@ internal sealed class CommonPluginManager
             entry.Error = "Cleanup unconfirmed: " + ex.Message;
             throw;
         }
+        finally
+        {
+            NotifyChanged();
+        }
     }
 
     private static TimeSpan Remaining(DateTimeOffset deadline)
@@ -404,6 +428,11 @@ internal sealed class CommonPluginManager
         catch (ObjectDisposedException)
         {
         }
+    }
+
+    private void NotifyChanged()
+    {
+        Changed?.Invoke();
     }
 
     private sealed class Entry(

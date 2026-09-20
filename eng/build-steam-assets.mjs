@@ -90,6 +90,24 @@ async function discoverIn(root) {
     .sort();
 }
 
+async function discoverPluginSourceDirectories() {
+  const srcDirectory = join(repositoryRoot, "src");
+  return (await readdir(srcDirectory, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("WSGM.Plugin."))
+    .map((entry) => join(srcDirectory, entry.name, "SteamUiAssets"))
+    .sort();
+}
+
+const pluginSourceDirectories = await discoverPluginSourceDirectories();
+const pluginSourcePaths = (
+  await Promise.all(
+    pluginSourceDirectories.map(async (directory) => [
+      ...(await discoverIn(directory)),
+      ...(await discoverIn(join(directory, "gates"))),
+    ]),
+  )
+).flat();
+
 const sourcePaths = [
   ...preludePaths,
   ...(await discoverIn(toolkitSourceDirectory)),
@@ -97,6 +115,7 @@ const sourcePaths = [
   componentsPath,
   ...(await discoverIn(sourceDirectory)),
   ...(await discoverIn(join(sourceDirectory, "gates"))),
+  ...pluginSourcePaths,
   epiloguePath,
 ];
 

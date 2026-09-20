@@ -102,6 +102,8 @@
     <ProjectReference
       Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
     <ProjectReference Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
+    <ProjectReference Include="..\WSGM.Plugin.Artwork\WSGM.Plugin.Artwork.csproj"
+                      ReferenceOutputAssembly="false"/>
     <!-- Wi-Fi, Bluetooth, audio endpoint and panel brightness control. Extracted to its own
          repository because nothing in it is specific to WSGM or to gaming; it is pinned as a
          submodule so this branch keeps a known-good revision while the library moves. -->
@@ -112,6 +114,26 @@
     <ProjectReference
       Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj"/>
   </ItemGroup>
+  <Target Name="StageBundledCommonPlugins" AfterTargets="Build">
+    <PropertyGroup>
+      <ArtworkPluginOutput>$(MSBuildProjectDirectory)\..\WSGM.Plugin.Artwork\bin\$(Configuration)\net10.0-windows</ArtworkPluginOutput>
+      <ArtworkPluginPackage>$(TargetDir)Plugins\wsgm.artwork</ArtworkPluginPackage>
+    </PropertyGroup>
+    <MakeDir Directories="$(ArtworkPluginPackage)"/>
+    <Copy SourceFiles="$(ArtworkPluginOutput)\WSGM.Plugin.Artwork.dll;$(ArtworkPluginOutput)\plugin.wsgm.json"
+          DestinationFolder="$(ArtworkPluginPackage)"
+          SkipUnchangedFiles="true"/>
+  </Target>
+  <Target Name="StageBundledCommonPluginsForPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <ArtworkPluginOutput>$(MSBuildProjectDirectory)\..\WSGM.Plugin.Artwork\bin\$(Configuration)\net10.0-windows</ArtworkPluginOutput>
+      <ArtworkPluginPublishPackage>$(PublishDir)Plugins\wsgm.artwork</ArtworkPluginPublishPackage>
+    </PropertyGroup>
+    <MakeDir Directories="$(ArtworkPluginPublishPackage)"/>
+    <Copy SourceFiles="$(ArtworkPluginOutput)\WSGM.Plugin.Artwork.dll;$(ArtworkPluginOutput)\plugin.wsgm.json"
+          DestinationFolder="$(ArtworkPluginPublishPackage)"
+          SkipUnchangedFiles="true"/>
+  </Target>
   <ItemGroup>
     <!-- Every Steam UI type used to live in WSGM.Core, and the patches and session host reference
          them constantly. A global using keeps that one move from touching thirty files for no

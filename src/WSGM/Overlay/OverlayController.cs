@@ -668,7 +668,6 @@ public sealed class OverlayController : IDisposable
     {
         vm.ShowLibraryTabs = config.Cef is { Enabled: true, LibraryTabs: true };
         vm.ShowCardManager = config.Cef is { Enabled: true, CardManager: true };
-        vm.ShowArtwork = config.Cef is { Enabled: true, Artwork: true };
         vm.ShowSdCard = config.Cef is { Enabled: true, SdFormat: true };
         vm.ConfigureLaunchOptionsLive = config.Cef.Enabled;
         vm.InputLeaseUsesShim = config.SteamInputManagementEnabled;

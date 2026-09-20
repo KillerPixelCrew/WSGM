@@ -38,6 +38,9 @@ const toolkitRoot = join(repositoryRoot, "external", "steam-ui-toolkit", "src", 
 const bridgeIdentityPath = join(toolkitRoot, "SteamUiBridgeIdentity.cs");
 const bridgeSourcePath = join(toolkitRoot, "SteamUiBridge.cs");
 const surfacesDirectory = join(toolkitRoot, "Surfaces");
+const pluginSurfaceDirectories = readdirSync(join(repositoryRoot, "src"), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name.startsWith("WSGM.Plugin."))
+  .map((entry) => join(repositoryRoot, "src", entry.name));
 const sessionHostPath = join(repositoryRoot, "src", "WSGM", "Shell", "SteamUiSessionHost.cs");
 
 // These are read from source rather than copied. The allowlist in particular is what a new control
@@ -76,12 +79,14 @@ const stringifyForScript = (value) =>
 // shell module, which has no toolkit surface behind it.
 const readAllowlist = () => {
   const allowed = {};
-  for (const name of readdirSync(surfacesDirectory).filter((entry) => entry.endsWith(".cs"))) {
-    const source = readFileSync(join(surfacesDirectory, name), "utf8");
-    const id = source.match(/public const string PatchId = "([^"]+)"/);
-    const commands = source.match(/Commands \{ get; \} =\s*\[([\s\S]*?)\];/);
-    if (!id || !commands) continue;
-    allowed[id[1]] = [...commands[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  for (const directory of [surfacesDirectory, ...pluginSurfaceDirectories]) {
+    for (const name of readdirSync(directory).filter((entry) => entry.endsWith(".cs"))) {
+      const source = readFileSync(join(directory, name), "utf8");
+      const id = source.match(/public const string PatchId = "([^"]+)"/);
+      const commands = source.match(/Commands \{ get; \} =\s*\[([\s\S]*?)\];/);
+      if (!id || !commands) continue;
+      allowed[id[1]] = [...commands[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    }
   }
   allowed[
     readSourceConstant(sessionHostPath, /private const string ShellPatchId = "([^"]+)"/, "shell id")
@@ -94,6 +99,7 @@ const readAllowlist = () => {
 };
 
 const asset = readFileSync(assetPath, "utf8");
+const allowlist = readAllowlist();
 const configuration = {
   version: Number(
     readSourceConstant(
@@ -114,12 +120,16 @@ const configuration = {
   ),
   // The product pins the asset's own hash so a changed script replaces a running bridge. The
   // harness does the same, for the same reason: without it an edit appears to do nothing.
-  assetHash: createHash("sha256").update(asset).digest("hex").toUpperCase(),
+  assetHash: createHash("sha256")
+    .update(asset)
+    .update(JSON.stringify(allowlist))
+    .digest("hex")
+    .toUpperCase(),
   contextGeneration: 1,
   documentGeneration: 1,
   maximumPending: 32,
   timeoutMilliseconds: 5000,
-  allowed: readAllowlist(),
+  allowed: allowlist,
 };
 const componentKinds = [
   "autoTdp",
@@ -286,7 +296,18 @@ const install = async (session) => {
   console.log("bootstrap:", result);
 
   const bridge = `window[${stringifyForScript(configuration.namespace)}]`;
-  for (const gate of ["audio", "network", "bluetooth", "brightness", "perf", "steamOsManager"]) {
+  for (const gate of [
+    "audio",
+    "network",
+    "bluetooth",
+    "brightness",
+    "perf",
+    "steamOsManager",
+    "extensionsTab",
+    "gameContextMenu",
+    "artworkBrowser",
+    "pages",
+  ]) {
     const outcome = await session.evaluate(
       `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${stringifyForScript(gate)}):null;` +
         `if(!g)return 'absent';try{return JSON.stringify(g.install());}catch(e){return String(e);}})()`,
@@ -310,7 +331,7 @@ const status = async (session) => {
       `const out={bridge:!!b,version:b&&b.version,` +
       `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__steamUiOwnedNamespace===true),` +
       `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__steamUiOwnedNamespace===true)};` +
-      `if(b){for(const n of ['audio','network','bluetooth','brightness','perf','steamOsManager']){` +
+      `if(b){for(const n of ['audio','network','bluetooth','brightness','perf','steamOsManager','extensionsTab','gameContextMenu','artworkBrowser','pages']){` +
       `try{const g=b.gate?b.gate(n):null;out[n]=g?g.status():'absent';}catch(e){out[n]='ERR '+e;}}` +
       // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every
       // component, which reads as "nothing registered" and is purely an artefact of the call.
@@ -345,9 +366,33 @@ const publish = async (session, file) => {
   }
 };
 
+const navigate = async (session, route) => {
+  if (typeof route !== "string" || !/^\/[a-z0-9/_:-]+$/iu.test(route) || route.length > 256) {
+    throw new Error("navigate requires one bounded Steam route");
+  }
+
+  const outcome = await session.evaluate(
+    `(()=>{const h=window.tempNavStore&&window.tempNavStore.m_history;` +
+      `if(!h||typeof h.push!=='function')return 'navigation unavailable';` +
+      `h.push(${stringifyForScript(route)});return 'navigated';})()`,
+  );
+  console.log(outcome);
+};
+
 const remove = async (session) => {
   const bridge = `window[${stringifyForScript(configuration.namespace)}]`;
-  for (const gate of ["steamOsManager", "perf", "brightness", "bluetooth", "network", "audio"]) {
+  for (const gate of [
+    "pages",
+    "artworkBrowser",
+    "gameContextMenu",
+    "extensionsTab",
+    "steamOsManager",
+    "perf",
+    "brightness",
+    "bluetooth",
+    "network",
+    "audio",
+  ]) {
     const outcome = await session.evaluate(
       `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${stringifyForScript(gate)}):null;` +
         `if(!g)return 'absent';try{return JSON.stringify(g.remove());}catch(e){return String(e);}})()`,
@@ -360,26 +405,43 @@ const remove = async (session) => {
 };
 
 const screenshot = async (file) => {
-  const socket = new WebSocket(await mainWindowTarget());
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = reject;
-  });
-  const session = new Session(socket, () => {});
-  try {
-    await session.send("Page.enable");
-    const result = await session.send("Page.captureScreenshot", {
-      format: "png",
-      fromSurface: true,
+  let lastError;
+  for (const [name, target, options] of [
+    ["MainWindow surface", mainWindowTarget, { format: "png", fromSurface: true }],
+    [
+      "MainWindow view",
+      mainWindowTarget,
+      { format: "png", fromSurface: false, captureBeyondViewport: false },
+    ],
+    ["SharedJSContext", sharedTarget, { format: "png", fromSurface: true }],
+  ]) {
+    const socket = new WebSocket(await target());
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve;
+      socket.onerror = reject;
     });
-    if (typeof result.data !== "string" || result.data.length === 0) {
-      throw new Error("Steam returned no screenshot data");
+    const session = new Session(socket, () => {});
+    try {
+      await session.send("Page.enable");
+      const result = await Promise.race([
+        session.send("Page.captureScreenshot", options),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`${name} screenshot timed out`)), 10000),
+        ),
+      ]);
+      if (typeof result.data !== "string" || result.data.length === 0) {
+        throw new Error(`${name} returned no screenshot data`);
+      }
+      writeFileSync(file, Buffer.from(result.data, "base64"));
+      console.log(`wrote ${file} from ${name}`);
+      return;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      socket.close();
     }
-    writeFileSync(file, Buffer.from(result.data, "base64"));
-    console.log(`wrote ${file}`);
-  } finally {
-    socket.close();
   }
+  throw lastError;
 };
 
 const [command, argument] = process.argv.slice(2);
@@ -391,6 +453,7 @@ const { session, socket } = await connect();
 try {
   if (command === "install") await install(session);
   else if (command === "publish") await publish(session, argument);
+  else if (command === "navigate") await navigate(session, argument);
   else if (command === "remove") await remove(session);
   else await status(session);
 

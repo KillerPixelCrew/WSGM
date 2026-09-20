@@ -507,6 +507,7 @@ public sealed class ShellSession : IAsyncDisposable
                 }
 
                 _steamUi?.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
+                _steamUi?.ApplyPluginSteamUi(_config.Cef.Enabled);
                 _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
                 _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
                 ApplySteamUiSurfacePreferences();
@@ -575,8 +576,14 @@ public sealed class ShellSession : IAsyncDisposable
             // Overlay test deliberately never discovers packages or loads plugin code.
             if (!_overlayTestOnly)
             {
+                var bundledCatalog = CommonPluginCatalog.Discover(Path.Combine(AppContext.BaseDirectory, "Plugins"));
+                foreach (var error in bundledCatalog.Errors)
+                {
+                    Log.Warn("Bundled plugin refused: " + error);
+                }
+
                 _commonPlugins = new CommonPluginManager(_pluginHost, CommonPluginCatalog.InstalledRoot,
-                    Path.Combine(Log.Directory, "PluginState"));
+                    Path.Combine(Log.Directory, "PluginState"), bundled: bundledCatalog.Packages);
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -586,6 +593,11 @@ public sealed class ShellSession : IAsyncDisposable
                     _config,
                     _pluginHost,
                     _shutdownCancellation.Token).ConfigureAwait(false);
+            if (_commonPluginStartup is not null)
+            {
+                await _commonPluginStartup.ConfigureAwait(false);
+            }
+
             if (_shutdownRequested)
             {
                 return;
@@ -1188,8 +1200,10 @@ public sealed class ShellSession : IAsyncDisposable
                 () => _overlay?.ShowBluetoothPanel() == true,
                 _brightness,
                 _steamStorage,
-                _overlayTestOnly ? null : _displayTimeouts);
+                _overlayTestOnly ? null : _displayTimeouts,
+                _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost));
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
+            _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
             {
@@ -1791,6 +1805,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </summary>
     private void ApplySteamUiSurfacePreferences()
     {
+        _steamUi?.ApplyPluginSteamUi(_config.Cef.Enabled);
         _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
@@ -2561,6 +2576,7 @@ public sealed class ShellSession : IAsyncDisposable
                         ApplyDeviceConfig(config);
                         ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
+                        _steamUi?.ApplyPluginSteamUi(config.Cef.Enabled);
                         if (config.Cef.Enabled)
                         {
                             _steamUi?.Apply(config.Cef.NativeQuickAccess);
@@ -3334,7 +3350,23 @@ public sealed class ShellSession : IAsyncDisposable
         {
             if (_commonPlugins is { } manager)
             {
-                await manager.ReconcileAsync(config.PluginInstances, _shutdownCancellation.Token).ConfigureAwait(false);
+                List<CommonPluginInstanceConfig> desired = [.. config.PluginInstances];
+                foreach (var pluginId in manager.BundledPluginIds)
+                {
+                    if (desired.Any(instance => instance.PluginId == pluginId))
+                    {
+                        continue;
+                    }
+
+                    desired.Add(new CommonPluginInstanceConfig
+                    {
+                        PluginId = pluginId,
+                        InstanceId = "default",
+                        Enabled = true
+                    });
+                }
+
+                await manager.ReconcileAsync(desired, _shutdownCancellation.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)

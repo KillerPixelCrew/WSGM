@@ -1,0 +1,61 @@
+{
+  "steam-ui.pages": {
+    "pages": [
+      {
+        "id": "artwork-browser",
+        "path": "/wsgm/artwork/:appid",
+        "title": "Change Artwork",
+        "template": "artwork-browser"
+      }
+    ],
+    "revision": 1
+  },
+  "steam-ui.artwork-browser": {
+    "appId": 480,
+    "appName": "Spacewar",
+    "tabs": [
+      { "id": "grid", "label": "Capsule", "manage": false },
+      { "id": "wide", "label": "Wide Capsule", "manage": false },
+      { "id": "hero", "label": "Hero", "manage": false },
+      { "id": "logo", "label": "Logo", "manage": false },
+      { "id": "icon", "label": "Icon", "manage": false },
+      { "id": "manage", "label": "Manage", "manage": true }
+    ],
+    "activeTab": "grid",
+    "assets": [
+      {
+        "id": "fixture-one",
+        "imageUrl": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/480/library_600x900.jpg",
+        "thumbnailUrl": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/480/library_600x900.jpg",
+        "width": 600,
+        "height": 900,
+        "format": "jpg",
+        "provider": "SteamGridDB"
+      }
+    ],
+    "managedSlots": [
+      { "id": "grid", "label": "Capsule", "hasCustomArtwork": false },
+      { "id": "wide", "label": "Wide Capsule", "hasCustomArtwork": true },
+      { "id": "hero", "label": "Hero", "hasCustomArtwork": false },
+      { "id": "logo", "label": "Logo", "hasCustomArtwork": false },
+      { "id": "icon", "label": "Icon", "hasCustomArtwork": false }
+    ],
+    "filter": {
+      "styles": ["alternate", "white_logo", "no_logo", "blurred", "material"],
+      "dimensions": ["600x900", "342x482", "660x930"],
+      "mimes": ["image/png", "image/jpeg", "image/webp"],
+      "static": true,
+      "animated": true,
+      "adult": false,
+      "humor": true,
+      "epilepsy": true,
+      "untagged": true
+    },
+    "gameMatches": [{ "id": "fixture-game", "name": "Spacewar", "provider": "SteamGridDB" }],
+    "selectedGame": null,
+    "page": 0,
+    "loading": false,
+    "hasMore": false,
+    "revision": 1
+  }
+}
