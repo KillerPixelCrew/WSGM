@@ -1,6 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
@@ -17,6 +19,145 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class OverlayLayoutTests
 {
+    [AvaloniaTheory]
+    [InlineData(1280, 720, 1.25)]
+    [InlineData(1280, 720, 1.5)]
+    [InlineData(1280, 720, 2.0)]
+    [InlineData(3840, 2160, 2.0)]
+    [InlineData(3840, 2160, 3.0)]
+    public void NativeDesktopDpiRetainsTheWorkspaceFloorAndPhysicalKeyboardTargets(int width, int height,
+        double nativeScale)
+    {
+        using UiFixture fixture = new();
+        // Model the DIP viewport Windows provides at this physical resolution and native DPI.
+        var window = fixture.Overlay(width, height, 1.0, nativeScale);
+        var workspace = UiFixture.Named<Grid>(window, "SurfaceRoot");
+        Assert.True(workspace.Bounds.Width >= 979.5);
+        Assert.True(workspace.Bounds.Height >= 639.5);
+        var keyboard = new KeyboardPanel("Text entry", "", 100);
+        window.ShowKeyboardSurface(keyboard);
+        Dispatcher.UIThread.RunJobs();
+        foreach (var button in keyboard.GetVisualDescendants().OfType<Button>()
+                     .Where(button => button.IsEffectivelyVisible))
+        {
+            var origin = button.TranslatePoint(default, window)!.Value;
+            var far = button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value;
+            Assert.InRange(origin.X, 0, window.Bounds.Width);
+            Assert.InRange(origin.Y, 0, window.Bounds.Height);
+            Assert.InRange(far.X, 0, window.Bounds.Width + 0.1);
+            Assert.InRange(far.Y, 0, window.Bounds.Height + 0.1);
+            Assert.True((far.X - origin.X) * nativeScale >= 43.5);
+            Assert.True((far.Y - origin.Y) * nativeScale >= 43.5);
+        }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(1280, 720, 1.5)]
+    [InlineData(1920, 1080, 1.5)]
+    [InlineData(3840, 2160, 2.0)]
+    [InlineData(3840, 2160, 3.0)]
+    public void SavedGameModeScaleMatchesNativeDesktopPhysicalSizing(int width, int height, double desiredScale)
+    {
+        var gameMode = OverlayWindow.ComputeContentScale(desiredScale, 1, width, height);
+        var desktop = OverlayWindow.ComputeContentScale(1, desiredScale, width, height) * desiredScale;
+        Assert.Equal(gameMode, desktop, 5);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(980, 640, 1.0)]
+    [InlineData(1280, 720, 1.5)]
+    [InlineData(3840, 2160, 2.0)]
+    public void PopulatedStatusHeaderKeepsUtilitiesAndCloseSeparateFromTheTitle(int width, int height, double scale)
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay(width, height, scale);
+        UiFixture.Named<TextBlock>(window, "WifiLabel").Text = "A very long wireless network name";
+        UiFixture.Named<TextBlock>(window, "WifiLabel").IsVisible = true;
+        UiFixture.Named<TextBlock>(window, "VolumeLabel").Text = "100%";
+        UiFixture.Named<TextBlock>(window, "BatteryLabel").Text = "100%";
+        UiFixture.Named<TextBlock>(window, "ClockLabel").Text = "23:59";
+        UiFixture.Named<Border>(window, "BatteryStatus").IsVisible = true;
+        UiFixture.Named<Button>(window, "EjectButton").IsVisible = true;
+        UiFixture.Named<Button>(window, "BackButton").IsVisible = true;
+        UiFixture.Named<TextBlock>(window, "TabEyebrow").Text = "WINDOWS & TOOLS";
+        Dispatcher.UIThread.RunJobs();
+        var title = UiFixture.Named<TextBlock>(window, "TabEyebrow");
+        var titleRight = title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X;
+        var buttons = new[]
+        {
+            "WifiButton", "BluetoothButton", "AudioButton", "BrightnessButton",
+            "EjectButton", "KeyboardButton", "CloseButton"
+        }.Select(name => UiFixture.Named<Button>(window, name)).ToArray();
+        var previousRight = titleRight;
+        foreach (var button in buttons)
+        {
+            var left = button.TranslatePoint(default, window)!.Value.X;
+            var right = button.TranslatePoint(new Point(button.Bounds.Width, 0), window)!.Value.X;
+            Assert.True(left >= previousRight, button.Name);
+            Assert.InRange(right, 0, width);
+            Assert.True(button.Bounds.Width >= 44 && button.Bounds.Height >= 44, button.Name);
+            previousRight = right;
+        }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(980, 640, 1.0)]
+    [InlineData(1280, 720, 1.0)]
+    [InlineData(1280, 720, 1.5)]
+    [InlineData(1920, 1080, 1.5)]
+    [InlineData(3840, 2160, 1.0)]
+    [InlineData(3840, 2160, 2.0)]
+    public void FullscreenWorkspaceKeepsHeaderRailControlsAndFooterInsideTheViewport(
+        int width, int height, double uiScale)
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay(width, height, uiScale);
+        UiFixture.Click(window, UiFixture.Tab(window, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(width, window.ClientSize.Width);
+        Assert.Equal(height, window.ClientSize.Height);
+        foreach (var name in new[] { "Header", "CloseButton", "SectionRail", "ContentScroller", "AppsStrip" })
+        {
+            var control = UiFixture.Named<Control>(window, name);
+            var topLeft = control.TranslatePoint(default, window)!.Value;
+            var bottomRight = control.TranslatePoint(new Point(control.Bounds.Width, control.Bounds.Height), window)!
+                .Value;
+            Assert.InRange(topLeft.X, -1, width);
+            Assert.InRange(topLeft.Y, -1, height);
+            Assert.InRange(bottomRight.X, 0, width + 1);
+            Assert.InRange(bottomRight.Y, 0, height + 1);
+            Assert.True(control.Bounds.Width > 0 && control.Bounds.Height > 0, name);
+        }
+
+        var rail = UiFixture.Named<StackPanel>(window, "SectionRail");
+        var rows = rail.Children.OfType<Button>().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(rows, row => Assert.Equal(48, row.Bounds.Height));
+        Assert.All(rows, row => Assert.Equal(rows[0].Bounds.Width, row.Bounds.Width));
+        Assert.Equal(4, rail.Spacing);
+        var content = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+        var railRight = rail.TranslatePoint(new Point(rail.Bounds.Width, 0), window)!.Value.X;
+        var contentLeft = content.TranslatePoint(default, window)!.Value.X;
+        Assert.True(contentLeft > railRight);
+        Assert.True(content.Bounds.Width > rail.Bounds.Width);
+    }
+
+    [AvaloniaFact]
+    public void DisabledNativeTransparencyUsesAnOpaqueCanvasAndDistinctControlPlane()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        Assert.Equal(WindowTransparencyLevel.None, window.ActualTransparencyLevel);
+        var canvas =
+            Assert.IsAssignableFrom<ISolidColorBrush>(UiFixture.Named<Border>(window, "GlassCanvas").Background);
+        Assert.Equal(byte.MaxValue, canvas.Color.A);
+        var controls = Assert.IsType<Border>(UiFixture.Named<ScrollViewer>(window, "ContentScroller").Parent);
+        var plane = Assert.IsAssignableFrom<ISolidColorBrush>(controls.Background);
+        Assert.NotEqual(canvas.Color, plane.Color);
+        Assert.Equal(new[] { WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur },
+            window.TransparencyLevelHint);
+    }
+
     [AvaloniaFact]
     public void PinnedActionKeepsFocusWhenDevicePublishesReadback()
     {
@@ -33,16 +174,18 @@ public sealed class OverlayLayoutTests
         window.SetPins(["section.device.overview"]);
         var panel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
         Dispatcher.UIThread.RunJobs();
-        Action().Focus();
-        UiFixture.Click(window, Action());
+        var original = Action();
+        Assert.True(original.Focus(), "Initial focus refused");
+        UiFixture.Click(window, original);
         Dispatcher.UIThread.RunJobs();
+        Assert.Same(original, Action());
         Assert.True(Action().IsFocused);
 
         return;
 
-        CardButton Action()
+        Button Action()
         {
-            return panel.GetVisualDescendants().OfType<CardButton>().Single();
+            return Assert.IsType<Button>(panel.GetVisualDescendants().OfType<DeviceSettingRow>().Single().Editor);
         }
     }
 
@@ -54,13 +197,14 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
-        var reading = window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card is { IsEffectivelyVisible: true, Title: "Processor temperature" });
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
+        var reading = window.GetVisualDescendants().OfType<DeviceStatisticRow>()
+            .Single(row => row.IsEffectivelyVisible);
         List<string> pins = [];
         window.PinToggleRequested += pins.Add;
-        Assert.False(reading.IsEffectivelyEnabled);
+        Assert.False(reading.Focusable);
+        Assert.DoesNotContain(reading.GetVisualDescendants().OfType<Button>(),
+            button => button.IsEffectivelyVisible && button.Focusable);
         Assert.True(Header().Focus());
         device.Notify();
         Dispatcher.UIThread.RunJobs();
@@ -154,8 +298,7 @@ public sealed class OverlayLayoutTests
         var window = fixture.Overlay();
         window.AttachDeviceBridge(device);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card is { IsEffectivelyVisible: true, Title: "Overview" }));
+        UiFixture.Click(window, UiFixture.Rail(window, "device.section.overview"));
         var type = kind switch
         {
             CapabilityValueKind.Integer => typeof(Slider),
@@ -193,10 +336,10 @@ public sealed class OverlayLayoutTests
             .Single(control => control.GetType() == type);
         Assert.Equal("pin:fixture.value", pinned.Tag);
         var pinnedSection = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
-        Assert.Contains(pinnedSection.GetVisualDescendants().OfType<CardButton>(),
-            row => row.Title == "Processor temperature");
-        Assert.DoesNotContain(pinnedSection.GetVisualDescendants().OfType<CardButton>(),
-            row => row.Title == "Other section");
+        Assert.Contains(pinnedSection.GetVisualDescendants().OfType<TextBlock>(),
+            row => row.Text == "Processor temperature");
+        Assert.DoesNotContain(pinnedSection.GetVisualDescendants().OfType<TextBlock>(),
+            row => row.Text == "Other section");
         pinned.Focus();
         device.Notify();
         Dispatcher.UIThread.RunJobs();
@@ -237,9 +380,9 @@ public sealed class OverlayLayoutTests
             [new DisplayMode(1920, 1200, 60), new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)]);
         window.AttachBrightness(brightness, () => Task.FromResult<DisplayModeSnapshot?>(modes));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, window.GetVisualDescendants().OfType<CardButton>()
-            .Single(card => card is { IsEffectivelyVisible: true, Title: "Display" }));
-        Assert.Equal(720, host.Bounds.Width);
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemDisplay));
+        var content = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+        Assert.InRange(host.Bounds.Width, 400, content.Bounds.Width);
         VisualBaseline.Verify(window, "overlay-display-1280");
         window.SetPins(["section.display"]);
         UiFixture.Click(window, UiFixture.Tab(window, 0));

@@ -24,13 +24,14 @@ public partial class OverlayWindow
     ///     title, description, badge and visibility through the source's property changes, and
     ///     presses through to the source's Click handlers.
     /// </summary>
-    private readonly List<(CardButton Source, EventHandler<AvaloniaPropertyChangedEventArgs> Handler)> _pinMirrors = [];
+    private readonly List<(ActionButton Source, EventHandler<AvaloniaPropertyChangedEventArgs> Handler)> _pinMirrors =
+        [];
 
     /// <summary>
-    ///     Every pinnable XAML row, by its stable id (the CardButton's Tag).
+    ///     Every pinnable XAML row, by its stable id (the ActionButton's Tag).
     ///     Device rows are not here: they are rebuilt from the snapshot on every render.
     /// </summary>
-    private readonly Dictionary<string, CardButton> _pinnable = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ActionButton> _pinnable = new(StringComparer.Ordinal);
 
     private int _loggedPinRendered = -1;
     private int _loggedPinTotal = -1;
@@ -38,7 +39,7 @@ public partial class OverlayWindow
     // The pin list the current mirrors were built for. Mirrors follow their source rows through
     // property changes, so while the list is unchanged a render only revisits the pinned sections.
     private string[]? _mirroredPins;
-    private CardButton? _pinGhost;
+    private ActionButton? _pinGhost;
     private DispatcherTimer? _pinToastTimer;
 
     private IReadOnlyList<string> _pins = [];
@@ -48,7 +49,7 @@ public partial class OverlayWindow
 
     private void IndexPinnableRows()
     {
-        foreach (var button in this.GetLogicalDescendants().OfType<CardButton>())
+        foreach (var button in this.GetLogicalDescendants().OfType<ActionButton>())
         {
             if (button.Tag is string { Length: > 0 } id && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal))
             {
@@ -68,7 +69,7 @@ public partial class OverlayWindow
         var previous = _pinsInitialized ? _pins : null;
         _pins = ids;
         _pinsInitialized = true;
-        RenderPins(false);
+        RenderPins();
         if (previous is not null && ids.Count != previous.Count)
         {
             ShowPinToast(ids.Count > previous.Count);
@@ -101,7 +102,7 @@ public partial class OverlayWindow
         _pinToastTimer.Start();
     }
 
-    private void RenderPins(bool preserveEditing = true)
+    private void RenderPins()
     {
         if (_closed)
         {
@@ -111,32 +112,6 @@ public partial class OverlayWindow
         if (!_opened)
         {
             _rendersAwaitingOpen |= PinsRenderAwaitingOpen;
-            return;
-        }
-
-        if (preserveEditing && (IsEditingValueIn(PinnedGrid) || IsEditingValueIn(PinnedSectionsGrid))
-                            && PinnedSectionProvidersAvailable())
-        {
-            var snapshot = _deviceBridge?.Snapshot();
-            foreach (var slider in PinnedSectionsGrid.GetLogicalDescendants().OfType<DeviceSliderRow>())
-            {
-                var key = (slider.Tag as string ?? "")[PinTagPrefix.Length..];
-                if (key.StartsWith("performance.", StringComparison.Ordinal)
-                    && _performanceSource?.Snapshot() is { Visible: true } performance
-                    && performance.ProfileRows.Concat(performance.Rows)
-                            .FirstOrDefault(row => "performance." + row.Id == key)
-                        is { Range: { } range, Value: { } value } descriptor)
-                {
-                    slider.RefreshReadback(range.Minimum, range.Maximum, range.Step, value, descriptor.CanInvoke);
-                    continue;
-                }
-
-                var capability = snapshot?.Capabilities.FirstOrDefault(item => DeviceRowKey(item) == key);
-                slider.RefreshReadback(capability?.Minimum ?? 0, capability?.Maximum ?? 0, capability?.Step ?? 1,
-                    capability?.CurrentValue?.IntegerValue ?? 0, snapshot?.Visible is true && capability is not null
-                    && RendersAsSlider(capability) && capability.CanInvoke);
-            }
-
             return;
         }
 
@@ -177,7 +152,7 @@ public partial class OverlayWindow
                     continue;
                 }
 
-                row.Margin = new Thickness(0, 0, 10, 10);
+                row.Margin = new Thickness(0);
                 valueControls.Add(row);
             }
 
@@ -228,7 +203,7 @@ public partial class OverlayWindow
         UpdatePinnedIndicators();
         if (restoreFocus is null && PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null)
         {
-            restoreFocus = PinnedSectionsGrid.GetLogicalDescendants().OfType<Control>()
+            restoreFocus = PinnedSectionsGrid.GetVisualDescendants().OfType<Control>()
                 .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
         }
 
@@ -263,8 +238,8 @@ public partial class OverlayWindow
 
     /// <summary>Updates the pin marker on every row in its original destination.</summary>
     /// <remarks>
-    ///     Device and performance rows are rebuilt from snapshots, so this deliberately walks the
-    ///     current logical tree instead of retaining references to those short-lived controls. Quick
+    ///     Descriptor generation changes can replace sections, so this walks the current logical
+    ///     tree instead of retaining references to removed controls. Quick
     ///     access mirrors use a prefixed tag and remain unmarked: the icon is the immediate feedback at
     ///     the source row, where the user pressed X or held the card.
     /// </remarks>
@@ -279,16 +254,16 @@ public partial class OverlayWindow
                 case SectionPinHeader header:
                     header.Refresh(pinned.Contains(header.SectionId));
                     break;
-                case CardButton button and not PluginWidgetPinControls:
+                case ActionButton button and not PluginWidgetPinControls:
                     button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned);
                     break;
             }
         }
     }
 
-    private static CardButton CreatePinGhost()
+    private static ActionButton CreatePinGhost()
     {
-        CardButton ghost = new()
+        ActionButton ghost = new()
         {
             IconGeometry = Icons.Pin,
             Title = "Pin a section",
@@ -309,9 +284,9 @@ public partial class OverlayWindow
                && pinned.Contains(id);
     }
 
-    private CardButton CreatePinMirror(string id, CardButton source)
+    private ActionButton CreatePinMirror(string id, ActionButton source)
     {
-        var clone = new CardButton { Tag = PinTagPrefix + id };
+        var clone = new ActionButton { Tag = PinTagPrefix + id };
         clone.Classes.Add("tile");
         foreach (var cls in source.Classes)
         {
@@ -343,15 +318,15 @@ public partial class OverlayWindow
         _mirroredPins = null;
     }
 
-    private static void MirrorPinnedRow(CardButton clone, CardButton source)
+    private static void MirrorPinnedRow(ActionButton clone, ActionButton source)
     {
         clone.Title = source.Title;
         clone.Description = source.Description;
         clone.IconGeometry = source.IconGeometry;
         clone.TrailingText = source.TrailingText;
         clone.TrailingGlyph = source.TrailingGlyph;
-        clone.StatusBrush = source.StatusBrush;
-        clone.SwatchBrush = source.SwatchBrush;
+
+
         // The source's OWN IsVisible (bound to a feature flag), not its effective one —
         // the source panel is hidden whenever the Quick access root shows.
         clone.IsVisible = source.IsVisible;

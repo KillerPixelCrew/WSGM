@@ -21,7 +21,7 @@ namespace WSGM.UiTests.Overlay;
 public sealed class CommonPluginPanelTests
 {
     [AvaloniaFact]
-    public void PluginPageHasOnePinTogglePerWidgetAndSharedActionCards()
+    public void PluginRailPageHasOnePinTogglePerWidgetAndSharedActions()
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
@@ -30,10 +30,10 @@ public sealed class CommonPluginPanelTests
             (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, _ => Task.CompletedTask,
             () => Task.CompletedTask);
         host.Children.Add(new CommonPluginPanel(new MutableProvider(), preferences: preferences));
-        var tile = UiFixture.Named<CardButton>(window, "SystemPluginsTile");
+        var tile = UiFixture.Named<ActionButton>(window, "SystemPluginsTile");
         tile.IsVisible = true;
         UiFixture.Click(window, UiFixture.Tab(window, 2));
-        UiFixture.Click(window, tile);
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemPlugins));
         Assert.Single(host.GetLogicalDescendants().OfType<PluginWidgetPinControls>());
         VisualBaseline.Verify(window, "overlay-plugins-1280");
     }
@@ -220,7 +220,7 @@ public sealed class CommonPluginPanelTests
             buttons.Press(GamepadButtons.A);
             Assert.False(choice.IsDropDownOpen);
             var apply = panel.GetLogicalDescendants().OfType<Button>()
-                .Single(button => button is CardButton { Title: "Change fan" });
+                .Single(button => button is ActionButton { Title: "Change fan" });
             Assert.True(apply.Focus());
             buttons.Press(GamepadButtons.A);
             Assert.Equal("turbo", source.Requested);
@@ -268,7 +268,7 @@ public sealed class CommonPluginPanelTests
             Assert.Null(source.Requested);
             UiFixture.Click(window,
                 panel.GetLogicalDescendants().OfType<Button>()
-                    .Single(button => button is CardButton { Title: "Change fan" }));
+                    .Single(button => button is ActionButton { Title: "Change fan" }));
             Assert.Equal("turbo", source.Requested);
         }
         finally

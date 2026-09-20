@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using WSGM.Core;
 
 namespace WSGM.Overlay;
@@ -9,6 +10,15 @@ public sealed class OverlayViewModel : ObservableObject
     public const string DisplayTimeoutDescription = "Idle time before the display turns off";
 
     private string _warningText = "";
+
+    internal IReadOnlyDictionary<PowerTimeoutKind, int?> PowerTimeoutMinimums { get; set; } =
+        new Dictionary<PowerTimeoutKind, int?>();
+
+    internal IReadOnlyDictionary<PowerTimeoutKind, int?> PowerTimeoutValues
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(PowerTimeoutValues));
+    } = new Dictionary<PowerTimeoutKind, int?>();
 
     /// <summary>Gets or sets whether Explorer is currently running.</summary>
     public bool ExplorerRunning

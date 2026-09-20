@@ -6,7 +6,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
 using WSGM.Shell;
@@ -16,19 +15,10 @@ namespace WSGM.Overlay;
 /// <summary>
 ///     The quick access sheet: the controller-friendly, top-docked surface that
 ///     carries the pinned home root, the Session / Steam / Device / Tools / Power roots with
-///     their nested pages, the header status pills and the Open apps strip. It covers
-///     <see cref="SheetHeightFraction" /> of the display and leaves the game visible below.
+///     their nested pages, the header utilities and the Open apps strip on a fullscreen glass canvas.
 /// </summary>
 public partial class OverlayWindow : Window
 {
-    /// <summary>
-    ///     Share of the display height the sheet covers. The rest stays the
-    ///     game's — a tap there is outside the window rectangle and dismisses the sheet
-    ///     through the raw-input hit test, which is why the sheet is deliberately NOT
-    ///     fullscreen.
-    /// </summary>
-    internal const double SheetHeightFraction = 0.8125;
-
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
     private const int DeviceRenderAwaitingOpen = 1;
@@ -81,7 +71,7 @@ public partial class OverlayWindow : Window
     private bool _opened;
     private int _pendingLiveRefreshes;
     private FormatTargetEntry? _pendingTarget;
-    private bool _performanceDetailsExpanded;
+
     private IDisposable? _performanceObservation;
     private PerformanceOverlayBridge? _performanceSource;
     private PowerSchemeSelection? _powerSchemeSelection;
@@ -140,6 +130,10 @@ public partial class OverlayWindow : Window
         _switcher = switcher;
         DataContext = viewModel;
         InitializeComponent();
+        SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
+        PropertyChanged += OnGlassTransparencyChanged;
+        ApplyGlassTransparency();
+        InitializePowerEditors();
         // Two subtrees bind different objects than the window (compiled bindings:
         // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
         TrayScroller.DataContext = switcher;
@@ -213,22 +207,7 @@ public partial class OverlayWindow : Window
         Win32Properties.AddWndProcHookCallback(
             this,
             NativeMethods.SwallowTouchSynthesizedMouse);
-        Win32Properties.AddWndProcHookCallback(this, DeclineMouseActivationForPanels);
     }
-
-    /// <summary>
-    ///     Set while the peer keyboard owns activation so focus handoff does not
-    ///     look like a fresh overlay summons and discard the active workflow.
-    /// </summary>
-    internal bool KeyboardOwnsFocus { get; set; }
-
-    /// <summary>
-    ///     True while a status panel hangs from the header. A mouse click on the sheet then
-    ///     reaches its control without activating the sheet, so the click Windows synthesizes from
-    ///     the tap that opened the panel cannot raise the sheet over it. Set by
-    ///     <c>OverlayController.SyncSheetMouseActivation</c>; see its remarks for the mechanism.
-    /// </summary>
-    internal bool SuppressMouseActivation { get; set; }
 
     /// <summary>
     ///     When set before the first show, the window primes the process-global render
@@ -237,7 +216,7 @@ public partial class OverlayWindow : Window
     /// </summary>
     internal bool WarmingUp { get; init; }
 
-    /// <summary>Raised when a nested page is torn down so auxiliary peer windows close too.</summary>
+    /// <summary>Raised when a nested page is torn down so its auxiliary surface closes too.</summary>
     public event Action? SubViewClosed;
 
     /// <summary>Raised when the user requests Task Manager.</summary>
@@ -249,12 +228,6 @@ public partial class OverlayWindow : Window
     {
         OnScreenKeyboardRequested?.Invoke();
     }
-
-    /// <summary>Raised when the keep-awake row is activated (toggle the manual hold).</summary>
-    public event Action? KeepAwakeToggleRequested;
-
-    /// <summary>Raised when an idle-timeout row is activated (cycle to the next preset).</summary>
-    public event Action<PowerTimeoutKind>? PowerTimeoutCycleRequested;
 
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
@@ -293,29 +266,10 @@ public partial class OverlayWindow : Window
     ///     and <c>false</c> once it closes.
     /// </summary>
     /// <remarks>
-    ///     A system dialog is its own window OUTSIDE the bar's rectangle, so for its
-    ///     lifetime the controller must suspend tap-outside dismissal and gamepad
-    ///     navigation. Without this the first touch inside the file picker read as a tap
-    ///     outside the bar, closed it, and cancelled the whole flow (user-reproduced);
-    ///     a B press would likewise have driven the bar hidden behind the dialog.
+    ///     A native file picker is outside the overlay's focus scope. Suspend overlay gamepad
+    ///     navigation until it closes so input cannot activate controls behind the dialog.
     /// </remarks>
     public event Action<bool>? SystemDialogActive;
-
-    private nint DeclineMouseActivationForPanels(
-        nint hWnd,
-        uint msg,
-        nint wParam,
-        nint lParam,
-        ref bool handled)
-    {
-        if (msg != NativeMethods.WmMouseActivate || !SuppressMouseActivation)
-        {
-            return nint.Zero;
-        }
-
-        handled = true;
-        return NativeMethods.MaNoActivate;
-    }
 
     private void OnOpened(object? sender, EventArgs e)
     {
@@ -355,7 +309,7 @@ public partial class OverlayWindow : Window
 
     private void OnActivated(object? sender, EventArgs e)
     {
-        if (KeyboardOwnsFocus)
+        if (HasActiveSurface)
         {
             return;
         }
@@ -366,6 +320,13 @@ public partial class OverlayWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        CloseAllSurfaces();
+        PropertyChanged -= OnGlassTransparencyChanged;
+        if (DataContext is OverlayViewModel powerState)
+        {
+            powerState.PropertyChanged -= OnPowerEditorStateChanged;
+        }
+
         RememberDestinationState(_navigation.Destination);
 
         // Before _closed, because releasing reads the bridge, and after it the guard inside would
@@ -420,6 +381,7 @@ public partial class OverlayWindow : Window
 
     internal sealed class SessionState
     {
+        internal Dictionary<OverlayDestination, string> Sections { get; } = [];
         internal OverlayFocusMemory Focus { get; } = new();
         internal OverlayDestination Destination { get; set; } = OverlayDestination.QuickAccess;
     }

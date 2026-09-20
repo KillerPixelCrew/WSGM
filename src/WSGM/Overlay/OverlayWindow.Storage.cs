@@ -22,7 +22,7 @@ public partial class OverlayWindow
 
     // The library name the confirm step will format with. Held here rather than in a
     // TextBox: the row is press-to-edit (see the XAML), matching the tab editor and
-    // card rename, and the peer keyboard window owns the typing.
+    // card rename, and the in-window keyboard owns the typing.
     private string _formatName = "";
 
     /// <summary>
@@ -41,14 +41,14 @@ public partial class OverlayWindow
         FormatNameButton.Description = _formatName.Length > 0 ? _formatName : "(required)";
     }
 
-    // Controller text entry for the library name goes through the peer keyboard
-    // window (KeyboardService), like every other game-mode text field.
+    // Controller text entry for the library name goes through the shared keyboard
+    // surface (KeyboardService), like every other game-mode text field.
     private void OnFormatEditName(object? sender, RoutedEventArgs e)
     {
         if (!KeyboardService.Request("Name (volume and Steam library)",
                 _formatName, 32, SetFormatName))
         {
-            // No keyboard window means no way to type on a controller; say so instead
+            // No keyboard surface means no way to type on a controller; say so instead
             // of leaving a row that silently does nothing when pressed.
             Log.Warn("Format: no on-screen keyboard available for the library name.");
         }
