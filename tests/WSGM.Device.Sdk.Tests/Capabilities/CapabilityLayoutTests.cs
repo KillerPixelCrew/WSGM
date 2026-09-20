@@ -19,15 +19,28 @@ public sealed class CapabilityLayoutTests
     {
         var primary = PowerLimitDescriptors.Limit(CapabilityRole.PowerSustainedLimit, "power.primary") with
         {
-            Prominence = CapabilityProminence.Primary,
+            SectionId = "power", Prominence = CapabilityProminence.Primary,
             LayoutPair = new CapabilityLayoutPair("reading", "left")
         };
         var reading = PowerLimitDescriptors.Limit(CapabilityRole.Telemetry, "reading") with
         {
-            InstanceId = "left", Prominence = CapabilityProminence.Compact
+            SectionId = "power", InstanceId = "left", Prominence = CapabilityProminence.Compact
         };
         Assert.True(CapabilityLayout.TryValidate([primary, reading, reading with { InstanceId = "right" }], out _));
         Assert.Null(primary.PairedPowerLimitId);
+    }
+
+    [Fact]
+    public void PairingRequiresExplicitPlacementInsteadOfMatchingUnsetRoleFallbacks()
+    {
+        var primary = PowerLimitDescriptors.Limit(CapabilityRole.PowerSustainedLimit, "power") with
+        {
+            LayoutPair = new CapabilityLayoutPair("reading")
+        };
+        var reading = PowerLimitDescriptors.Limit(CapabilityRole.Telemetry, "reading");
+        Assert.False(CapabilityLayout.TryValidate([primary, reading], out _));
+        Assert.True(CapabilityLayout.TryValidate(
+            [primary with { SectionId = "power" }, reading with { SectionId = "power" }], out _));
     }
 
     [Fact]

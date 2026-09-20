@@ -18,9 +18,10 @@ public static class DeviceApi
     ///         record structs so publishing each controller frame does not allocate contract objects.
     ///     </para>
     ///     <para>
-    ///         Optional descriptor prominence and companion hints were added within version 4 with
-    ///         normal, unpaired defaults. They describe presentation only; command behavior is unchanged.
+    ///         Version 5 adds descriptor prominence and companion hints with
+    ///         normal, unpaired defaults. The new descriptor setters require an exact API match so older
+    ///         hosts reject incompatible plugin binaries before loading them.
     ///     </para>
     /// </remarks>
-    public const int Version = 4;
+    public const int Version = 5;
 }
