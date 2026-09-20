@@ -35,7 +35,10 @@ public sealed class DesktopReturnSequenceTests
     {
         Backend backend = new() { LayoutReady = false };
         Assert.True(await DesktopReturnSequence.RunAsync(backend, false, (_, _) => { }));
-        Assert.Equal(["steam", "layout", "retire", "explorer"], backend.Calls);
+        // Audio is restored whether or not the layout came back: the desktop owes both, and a
+        // display that refused is no reason to leave the endpoints where Game Mode put them. Only
+        // the recovery record is held, which is what this test is about.
+        Assert.Equal(["steam", "layout", "audio", "retire", "explorer"], backend.Calls);
     }
 
     [Fact]

@@ -57,6 +57,9 @@ internal sealed class UiFixture : IDisposable
     internal DisplayArrangement Displays { get; set; } =
         new([], "no-displays", DateTimeOffset.UnixEpoch);
 
+    /// <summary>What the audio profile editors observe. Nothing, unless a test says otherwise.</summary>
+    internal AudioDiscovery Audio { get; set; } = AudioDiscovery.Empty;
+
     internal Func<DisplayArrangement>? ReadDisplays { get; set; }
 
     /// <summary>What each display claims to support, keyed by device path.</summary>
@@ -128,7 +131,10 @@ internal sealed class UiFixture : IDisposable
             // A fixed report: the real reader describes this machine's last standby, which put the
             // previous night's sleep length into the settings-system baselines.
             () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []),
-            () => ScanSteamAutostart(), sources => ApplySteamAutostart(sources));
+            () => ScanSteamAutostart(), sources => ApplySteamAutostart(sources),
+            // A fixed observation: the real reader describes whatever this machine has plugged in,
+            // which would put the local endpoint count into every settings baseline.
+            _ => Audio);
         var model = new SettingsViewModel(ConfigStore.CloneJson(Saved, ConfigJsonContext.Default.AppConfig),
             null, false, services);
         var windowServices = new SettingsWindowServices(new GamepadService(),
