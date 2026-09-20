@@ -474,7 +474,11 @@ public sealed class DevicePowerAssignmentsTests
             { ApplicationId = "steam:42", UsePerGameProfile = true, AcPowerPreset = Reference("balanced") });
         var json = JsonSerializer.Serialize(rig.Config, ConfigJsonContext.Default.PerformanceConfig);
         var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.PerformanceConfig)!;
-        ShellSession.MergePerformancePolicy(restored, new PerformancePolicy(new PerformanceValues(60, 1), []));
+        ShellSession.MergePerformancePolicy(restored, new PerformancePolicy(new PerformanceValues(60, 1),
+            restored.Applications.Select(application => new PerformanceApplicationPolicy(application.ApplicationId,
+                    application.RtssProfileName,
+                    new PerformanceValues(application.FrameLimit, application.OverlayLevel))
+                { Enabled = false }).ToArray()));
         Assert.Equal("extreme", restored.AcPowerPreset!.PresetId);
         Assert.Equal("balanced", Assert.Single(restored.Applications).AcPowerPreset!.PresetId);
     }

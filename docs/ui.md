@@ -19,11 +19,13 @@ bounded so its 980 × 640 DIP floor remains usable. Rail buttons stay 48 DIPs ta
 selected sections remain marked when focus enters the controls. Native DWM blur and battery-saver
 fallback still require attended checks.
 
-The controls plane uses bordered groups with 20-DIP separation and 16-DIP inner padding. Section
+The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Section
 headings use 18-DIP semibold text above a divider; supporting captions remain distinct from
-headings. Windows energy plans, power assignments and manual power each have their own group. Pinned
-sections keep their natural height so short sections do not leave large empty blocks between
-controls.
+headings. Empty descriptions reserve no space. Value labels align at the bottom of their row beside
+36-DIP dropdowns, whose closed and popup surfaces use the deck palette. Fan curves sit directly in
+their group with their presets below the graph. Windows energy plans, power assignments and manual
+power each have their own group. Pinned sections keep their natural height so short sections do not
+leave large empty blocks between controls.
 
 Game Mode lowers Windows scaling to 100%; the overlay keeps using WSGM's saved desktop-DPI
 preference from `DisplayScale.GetUiScalePercent`. Desktop Mode uses native window DPI without

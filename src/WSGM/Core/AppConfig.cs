@@ -653,6 +653,12 @@ public sealed class PerformanceApplicationConfig
     /// <summary>Canonical WSGM application identity.</summary>
     public string ApplicationId { get; set; } = string.Empty;
 
+    /// <summary>User-visible profile name; empty legacy names display their application identity.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Exact executable names that activate this profile, compared without case.</summary>
+    public List<string> ProcessNames { get; set; } = [];
+
     /// <summary>Exact executable profile name understood by RTSS.</summary>
     public string RtssProfileName { get; set; } = string.Empty;
 

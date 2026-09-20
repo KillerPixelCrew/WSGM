@@ -3319,7 +3319,13 @@ public sealed class ShellSession : IAsyncDisposable
         // AutoTDP is applied before the coordinator: turning Device Integration off must stop
         // AutoTDP and restore the previous power limit while the capability is still writable.
         _autoTdp?.Apply(ShouldRunAutoTdp(config.DeviceIntegration));
-        Log.Observe(coordinator.ApplyConfigAsync(config), "Device cycle config apply", true);
+        Log.Observe(ApplyDeviceConfigAndTargetAsync(coordinator, config), "Device cycle config apply", true);
+    }
+
+    private async Task ApplyDeviceConfigAndTargetAsync(DeviceCoordinator coordinator, AppConfig config)
+    {
+        await coordinator.ApplyConfigAsync(config).ConfigureAwait(false);
+        _runningApplicationTargets?.RefreshCurrent();
     }
 
     private async Task ApplyCommonPluginConfigAsync(AppConfig config)
@@ -3384,7 +3390,10 @@ public sealed class ShellSession : IAsyncDisposable
         {
             await coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
-            await _applicationProfiles.ReconcileApplicationProfileAsync(snapshot.ApplicationId, cancellationToken)
+            await _applicationProfiles.ReconcileApplicationProfileAsync(
+                    ApplicationProfileRules.Match(_config.Performance, snapshot.ApplicationId, snapshot.RtssProfileName)
+                        ?.ApplicationId,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -3607,11 +3616,15 @@ public sealed class ShellSession : IAsyncDisposable
         bool forceEnabled)
     {
         var applications = config.Performance.Applications
-            .Where(application => application.UsePerGameProfile)
             .Select(application => new PerformanceApplicationPolicy(
                 application.ApplicationId,
                 application.RtssProfileName,
-                new PerformanceValues(application.FrameLimit, application.OverlayLevel)))
+                new PerformanceValues(application.FrameLimit, application.OverlayLevel))
+            {
+                Name = application.Name,
+                ProcessNames = application.ProcessNames.ToArray(),
+                Enabled = application.UsePerGameProfile
+            })
             .ToList();
 
         return new PerformancePolicy(
@@ -3658,25 +3671,6 @@ public sealed class ShellSession : IAsyncDisposable
         destination.Enabled = policy.Enabled;
         destination.FrameLimit = policy.Global.FrameLimit;
         destination.OverlayLevel = policy.Global.OverlayLevel;
-        var disabled = existing.Values
-            .Where(application => !policy.Applications.Any(active => string.Equals(
-                active.ApplicationId,
-                application.ApplicationId,
-                StringComparison.Ordinal)))
-            .Select(application => new PerformanceApplicationConfig
-            {
-                ApplicationId = application.ApplicationId,
-                RtssProfileName = application.RtssProfileName,
-                UsePerGameProfile = false,
-                FrameLimit = application.FrameLimit,
-                OverlayLevel = application.OverlayLevel,
-                TdpWatts = application.TdpWatts,
-                ManualTdp = application.ManualTdp,
-                AcPowerPreset = application.AcPowerPreset,
-                BatteryPowerPreset = application.BatteryPowerPreset,
-                VariableRefreshRate = application.VariableRefreshRate
-            })
-            .ToList();
         destination.Applications.Clear();
         foreach (var application in policy.Applications)
         {
@@ -3687,7 +3681,9 @@ public sealed class ShellSession : IAsyncDisposable
                 RtssProfileName = application.RtssProfileName,
                 FrameLimit = application.Values.FrameLimit,
                 OverlayLevel = application.Values.OverlayLevel,
-                UsePerGameProfile = true,
+                UsePerGameProfile = application.Enabled,
+                Name = application.Name,
+                ProcessNames = application.ProcessNames.ToList(),
                 TdpWatts = prior?.TdpWatts,
                 ManualTdp = prior?.ManualTdp,
                 AcPowerPreset = prior?.AcPowerPreset,
@@ -3695,8 +3691,6 @@ public sealed class ShellSession : IAsyncDisposable
                 VariableRefreshRate = prior?.VariableRefreshRate
             });
         }
-
-        destination.Applications.AddRange(disabled);
     }
 
     private static Task PersistSimulatedPerformancePolicyAsync(

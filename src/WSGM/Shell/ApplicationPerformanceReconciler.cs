@@ -55,7 +55,9 @@ internal sealed class ApplicationPerformanceReconciler(
         // a profile belongs to the application, not the focused window, so reconcile only when the
         // identity actually changes. A mid-game change reaches the device through the manual funnels,
         // not here.
-        var identityKey = applicationId ?? string.Empty;
+        var selected = readConfig().Performance.FindApplication(applicationId);
+        var identityKey =
+            $"{applicationId}|{selected?.UsePerGameProfile}|{selected?.TdpWatts}|{selected?.VariableRefreshRate}";
         if (string.Equals(identityKey, _lastReconciledApplicationId, StringComparison.Ordinal))
         {
             return;
@@ -315,8 +317,10 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <summary>The running application's performance entry and whether its own layer is in force.</summary>
     private (string? ApplicationId, PerformanceApplicationConfig? Entry, bool ApplicationLayer) ActivePerformanceLayer()
     {
-        var applicationId = readPerformance()?.Current.Target?.ApplicationId;
-        var entry = readConfig().Performance.FindApplication(applicationId);
+        var target = readPerformance()?.Current.Target;
+        var entry = ApplicationProfileRules.Match(readConfig().Performance, target?.ApplicationId,
+            target?.RtssProfileName);
+        var applicationId = entry?.ApplicationId;
         return (applicationId, entry, entry is { UsePerGameProfile: true });
     }
 

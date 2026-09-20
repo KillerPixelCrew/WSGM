@@ -138,13 +138,13 @@ public sealed class DevicePageCaptureTests
                 var title = Assert.Single(header.Children.OfType<TextBlock>());
                 var pin = Assert.Single(header.Children.OfType<Button>());
                 Assert.True(title.Bounds.Right < pin.Bounds.Left, "The heading must not overlap its pin action.");
-                Assert.InRange(pin.Bounds.Height, 44, header.Bounds.Height);
+                Assert.InRange(pin.Bounds.Height, 36, header.Bounds.Height);
             }
 
             var planGroup = Assert.IsType<Border>(UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").Parent);
             var assignmentsGroup = Assert.IsType<Border>(UiFixture.Named<StackPanel>(window,
                 "DevicePowerPresetContainer").Parent);
-            Assert.True(assignmentsGroup.Bounds.Top - planGroup.Bounds.Bottom >= 16,
+            Assert.True(assignmentsGroup.Bounds.Top - planGroup.Bounds.Bottom >= 12,
                 "Separate power sections need a visible gap.");
         }
 

@@ -85,6 +85,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private PluginRegistration? _pluginRegistration;
     private string? _runningApplicationId;
+    private string? _runningExecutable;
     private long _steamControllerGeneration;
     private DevicePluginRuntime? _steamControllerOwner;
     private int? _steamPresenceResult;
@@ -109,7 +110,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? Capabilities.Snapshot() : [],
             ExecutePresetCapabilityAsync, WindowsPowerModes.Windows, ReadOnAcPower);
         PowerAssignments = new DevicePowerAssignments(PowerPresets,
-            () => new DevicePowerAssignmentContext(_config.Performance, _runningApplicationId,
+            () => new DevicePowerAssignmentContext(_config.Performance, RunningProfileId,
                 InstalledPackage?.Manifest?.Id,
                 _cycleGeneration, IntegrationEnabled, ReadOnAcPower()),
             SavePowerAssignmentAsync);
@@ -129,6 +130,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             new ControllerProcessPriority());
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
     }
+
+    private string? RunningProfileId => ApplicationProfileRules.Match(_config.Performance,
+        _runningApplicationId, _runningExecutable)?.ApplicationId;
+
+    private string? ActiveProfileId => _config.Performance.FindApplication(RunningProfileId) is
+        { UsePerGameProfile: true }
+        ? RunningProfileId
+        : null;
 
     /// <summary>Current process-long lifecycle state.</summary>
     public DeviceCycleState State { get; private set; } = DeviceCycleState.Disabled;
@@ -172,7 +181,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         get
         {
-            var application = _config.Performance.FindApplication(_runningApplicationId);
+            var application = _config.Performance.FindApplication(RunningProfileId);
             return ManualTdpPolicy.Resolve(_config.Performance, application,
                 application?.UsePerGameProfile == true)?.Unified == true;
         }
@@ -295,7 +304,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 throw new InvalidOperationException("Paired TDP is unavailable.");
             }
 
-            var applicationId = _runningApplicationId;
+            var applicationId = ActiveProfileId;
             await PersistConfigurationAsync(config =>
             {
                 var application = config.Performance.FindApplication(applicationId);
@@ -351,11 +360,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
         try
         {
-            if (_runningApplicationId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId
-                                                       || IntegrationEnabled != selection.Enabled ||
-                                                       Interlocked.Read(ref _cycleGeneration) != selection.Cycle
-                                                       || !ReferenceEquals(selection.Config, _config.Performance) ||
-                                                       selection.OnAc != ReadOnAcPower())
+            if (RunningProfileId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId
+                                                  || IntegrationEnabled != selection.Enabled ||
+                                                  Interlocked.Read(ref _cycleGeneration) != selection.Cycle
+                                                  || !ReferenceEquals(selection.Config, _config.Performance) ||
+                                                  selection.OnAc != ReadOnAcPower())
             {
                 throw new InvalidOperationException(
                     "The running application, device or configuration changed before saving the assignment.");
@@ -1835,6 +1844,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         _runningApplicationId = snapshot.ApplicationId;
+        _runningExecutable = snapshot.RtssProfileName;
         await Controllers.ApplyRunningApplicationAsync(snapshot, cancellationToken)
             .ConfigureAwait(false);
 
@@ -1850,7 +1860,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         // curve and the controller target can never disagree about which application is running.
         // Applied last so an explicitly selected named profile wins over the per-capability value
         // for the two capabilities it covers, rather than the order deciding at random.
-        await ApplyAuthoredProfilesAsync(snapshot.ApplicationId, cancellationToken)
+        await ApplyAuthoredProfilesAsync(ActiveProfileId, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -2073,7 +2083,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         if (origin == CapabilityCommandOrigin.User
             && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
         {
-            var application = _config.Performance.FindApplication(_runningApplicationId);
+            var application = _config.Performance.FindApplication(RunningProfileId);
             applyPowerPair |= ManualTdpPolicy.Resolve(_config.Performance, application,
                 application?.UsePerGameProfile == true)?.Unified == true;
         }
@@ -2205,7 +2215,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var applicationId = _runningApplicationId;
+            var applicationId = ActiveProfileId;
             await PersistConfigurationAsync(config =>
             {
                 var application = config.Performance.FindApplication(applicationId);
@@ -2366,7 +2376,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         var identityKey = DeviceMachineIdentity.StableKey(_identity);
-        var applicationId = _runningApplicationId is { Length: > 0 } running ? running : null;
+        var applicationId = ActiveProfileId;
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -2485,7 +2495,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         var selected = DeviceProfileSelectionStore.ReadSelection(
             scope,
             DeviceAuthoredProfileCapabilities.FanCurve,
-            _runningApplicationId,
+            ActiveProfileId,
             out var applicationScoped);
         return (scope.Profiles, selected, applicationScoped);
     }
@@ -2521,7 +2531,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        var applicationId = _runningApplicationId;
+        var applicationId = ActiveProfileId;
 
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -2806,7 +2816,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             profile,
             onAcPower,
             profile?.SelectedHardwareProfileId,
-            _runningApplicationId);
+            ActiveProfileId);
     }
 
     private void UpdateOemConfiguration()

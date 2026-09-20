@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -29,6 +30,122 @@ public partial class OverlayWindow
     ///     Horizontal padding of the bottom apps and tray rail.
     /// </summary>
     private const double RailHorizontalPadding = 32;
+
+    private bool _profileScopePopupOpen;
+    private bool _profileScopeSynchronizing;
+    private string? _profileScopeTarget;
+    private bool _profileScopeWriting;
+
+    private void OnManageProfiles(object? sender, RoutedEventArgs e)
+    {
+        if (_performanceSource is not { } source)
+        {
+            return;
+        }
+
+        var editor = new ApplicationProfilesView(source, _deviceLifetime.Token);
+        ShowSurface(editor, SurfaceKind.Utility, "Application profiles", editor.DefaultFocusTarget);
+    }
+
+    private void RefreshHeaderProfile()
+    {
+        var scope = _performanceSource?.ProfileScope;
+        var target = scope?.Target;
+        ManageProfiles.IsEnabled = _performanceSource is not null;
+        _profileScopeSynchronizing = true;
+        try
+        {
+            if (_profileScopeTarget != target?.ApplicationId)
+            {
+                HeaderProfile.IsDropDownOpen = false;
+                _profileScopePopupOpen = false;
+            }
+
+            _profileScopeTarget = target?.ApplicationId;
+            if (!_profileScopePopupOpen)
+            {
+                HeaderProfile.SelectedIndex = scope?.Enabled == true ? 1 : 0;
+            }
+
+            HeaderProfile.IsEnabled = target is not null && !_profileScopeWriting;
+            var matched = ApplicationProfileRules.Match(_performanceSource?.Profiles ?? [], target?.ApplicationId,
+                target?.RtssProfileName, item => item.ApplicationId, item => item.ProcessNames);
+            var name = matched is { Name.Length: > 0 }
+                ? matched.Name
+                : target?.RtssProfileName ?? target?.ApplicationId;
+            ProfileContext.Text = name is null ? "Profile" : "Profile: " + name;
+            ToolTip.SetTip(HeaderProfile, name is null
+                ? "Start or focus an application to give it separate settings."
+                : $"Settings profile for {name}. Global uses shared defaults; Per-application keeps separate values.");
+        }
+        finally
+        {
+            _profileScopeSynchronizing = false;
+        }
+    }
+
+    private void OnHeaderProfileOpened(object? sender, EventArgs e)
+    {
+        _profileScopePopupOpen = true;
+    }
+
+    private async void OnHeaderProfileClosed(object? sender, EventArgs e)
+    {
+        _profileScopePopupOpen = false;
+        await CommitHeaderProfileAsync();
+    }
+
+    private async void OnHeaderProfileChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_performanceSource is not null && !_profileScopePopupOpen && sender is ComboBox { IsDropDownOpen: false })
+        {
+            await CommitHeaderProfileAsync();
+        }
+    }
+
+    private async Task CommitHeaderProfileAsync()
+    {
+        if (_profileScopeSynchronizing || _profileScopeWriting || _closed
+            || _performanceSource is not { } source || _profileScopeTarget is not { } target)
+        {
+            return;
+        }
+
+        var enabled = HeaderProfile.SelectedIndex == 1;
+        if (source.ProfileScope.Target?.ApplicationId != target || source.ProfileScope.Enabled == enabled)
+        {
+            RefreshHeaderProfile();
+            return;
+        }
+
+        _profileScopeWriting = true;
+        HeaderProfile.IsEnabled = false;
+        string? failure = null;
+        try
+        {
+            await source.SetProfileScopeAsync(target, enabled, _deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            failure = "Profile change was not confirmed: " + ex.Message;
+            Log.Warn(failure);
+        }
+        finally
+        {
+            _profileScopeWriting = false;
+            if (!_closed)
+            {
+                RefreshHeaderProfile();
+                if (failure is not null)
+                {
+                    ToolTip.SetTip(HeaderProfile, failure);
+                }
+            }
+        }
+    }
 
     private void OnWorkspaceSizeChanged(object? sender, SizeChangedEventArgs e)
     {

@@ -67,6 +67,26 @@ through 30 s (5 s by default). Commands and application transitions still read b
 slower background check reduces profile reloads and discovery while Steam keeps an observation lease
 open. External changes and RTSS availability are detected on that background cadence.
 
+### Configurable application profiles
+
+The overlay header always exposes Global / Per-application and a profile-manager button. The manager
+creates, renames and deletes profiles without requiring their applications to run. Each profile can
+bind up to 32 exact executable names, compared without case. Duplicate bindings across profiles are
+refused, including disabled profiles. A conflicting hand-edited configuration resolves to Global
+rather than selecting an arbitrary profile. Existing profiles without explicit process rules retain
+their canonical application binding; adding rules replaces that binding.
+
+The editor saves frame-limit and overlay-level overrides; empty values inherit Global. Supported
+power, VRR and device values continue to be edited on their overlay pages while the profile is
+active. Executable matching selects the stored settings profile without replacing Steam's canonical
+identity used for controller targeting. Config reload reconciles the current application's device
+profile even when no process transition occurred.
+
+Scope changes, resets and editor saves persist before the new policy is published. Global disables
+the matching profile without deleting its values, so re-enabling restores them. Delete explicitly
+removes the stored performance entry. The header rejects a selection captured for a different
+application, and persistence failures leave the previous policy in force.
+
 ### The foreground fill for a store title is proof-gated by its install folder
 
 A bare foreground name once made `WindowsTerminal.exe` HITMAN 3's sticky frame-limit target for a

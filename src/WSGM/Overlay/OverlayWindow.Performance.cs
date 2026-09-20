@@ -17,6 +17,8 @@ public partial class OverlayWindow
             return;
         }
 
+        RefreshHeaderProfile();
+
         if (!_opened)
         {
             _rendersAwaitingOpen |= PerformanceRenderAwaitingOpen;

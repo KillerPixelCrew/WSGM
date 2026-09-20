@@ -1,5 +1,5 @@
 <Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:c="using:WSGM.Controls" xmlns:fa="using:FluentAvalonia.UI.Controls">
+        xmlns:c="using:WSGM.Controls" xmlns:cv="using:Avalonia.Data.Converters" xmlns:fa="using:FluentAvalonia.UI.Controls">
   <Styles.Resources>
     <SolidColorBrush x:Key="DeckGlassCanvasBrush" Color="#BE171A1F" />
     <SolidColorBrush x:Key="DeckCanvasBrush" Color="#171A1F" />
@@ -65,8 +65,61 @@
     <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
     <Setter Property="MinHeight" Value="44" />
   </Style>
-  <Style Selector="Window.command-deck ComboBox, Window.command-deck ToggleSwitch">
-    <Setter Property="MinHeight" Value="44" />
+  <Style Selector="Window.command-deck .profile-editor TextBox">
+    <Setter Property="Background" Value="{StaticResource DeckControlsBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBox">
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="10,4,32,4" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="Background" Value="{StaticResource DeckSurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBox:pointerover /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBox:pressed /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBox:focus-visible /template/ Border#Background">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBox /template/ Border#PopupBorder">
+    <Setter Property="Background" Value="{StaticResource DeckSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
+    <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBoxItem">
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{StaticResource DeckTextBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBox:disabled /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource DeckSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DeckDividerBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBoxItem:pointerover /template/ Border#LayoutRoot, Window.command-deck ComboBoxItem:selected /template/ Border#LayoutRoot">
+    <Setter Property="Background" Value="{StaticResource DeckHoverBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ComboBoxItem:pressed /template/ Border#LayoutRoot">
+    <Setter Property="Background" Value="{StaticResource DeckPressedBrush}" />
+  </Style>
+  <Style Selector="Window.command-deck ToggleSwitch">
+    <Setter Property="MinHeight" Value="36" />
   </Style>
   <Style Selector="Window.command-deck fa|FASettingsExpanderItem">
     <Setter Property="Focusable" Value="False" />
@@ -75,14 +128,14 @@
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Template">
       <ControlTemplate>
-        <Border BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,0,0,1" Padding="0,8">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" MinHeight="48">
-            <StackPanel VerticalAlignment="Center" Spacing="4">
+        <Border BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,0,0,1" Padding="0,4">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" MinHeight="36">
+            <StackPanel VerticalAlignment="Bottom" Spacing="2">
               <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
-              <TextBlock Text="{TemplateBinding Description}" Foreground="{StaticResource DeckSecondaryBrush}"
+              <TextBlock IsVisible="{Binding Description, RelativeSource={RelativeSource TemplatedParent}, Converter={x:Static cv:StringConverters.IsNotNullOrEmpty}}" Text="{TemplateBinding Description}" Foreground="{StaticResource DeckSecondaryBrush}"
                          FontSize="13" LineHeight="19" TextWrapping="Wrap" />
             </StackPanel>
-            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Footer}" VerticalAlignment="Center" />
+            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Footer}" VerticalAlignment="Bottom" />
           </Grid>
         </Border>
       </ControlTemplate>
@@ -91,7 +144,7 @@
   <Style Selector="Window.command-deck fa|FASettingsExpanderItem.device-setting-primary">
     <Setter Property="Template">
       <ControlTemplate>
-        <Border BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+        <Border BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,0,0,1" Padding="0,4">
           <ContentPresenter Content="{TemplateBinding Footer}" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch" />
         </Border>
@@ -101,7 +154,7 @@
   <Style Selector="Window.command-deck :is(Border).tile">
     <Setter Property="CornerRadius" Value="{StaticResource DeckControlRadius}" />
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="Padding" Value="0,8" />
+    <Setter Property="Padding" Value="0,4" />
     <Setter Property="BorderThickness" Value="0" />
   </Style>
   <Style Selector="Window.command-deck TextBlock.caption">
@@ -115,7 +168,7 @@
     <Setter Property="CornerRadius" Value="{StaticResource DeckGroupRadius}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="{StaticResource DeckGroupBorderBrush}" />
-    <Setter Property="Padding" Value="16" />
+    <Setter Property="Padding" Value="12" />
   </Style>
   <Style Selector="Window.command-deck Border.section-divider">
     <Setter Property="Background" Value="{StaticResource DeckGroupBorderBrush}" />

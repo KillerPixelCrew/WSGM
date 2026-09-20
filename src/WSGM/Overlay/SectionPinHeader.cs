@@ -10,7 +10,7 @@ namespace WSGM.Overlay;
 /// <summary>A section heading with one explicit pin action for the whole block.</summary>
 internal sealed class SectionPinHeader : Grid
 {
-    private readonly Button _pin = new() { MinHeight = 44 };
+    private readonly Button _pin = new() { MinHeight = 36 };
     private readonly string _title;
 
     internal SectionPinHeader(string id, string title, Action<string> toggle, bool pinnedSurface)
@@ -20,8 +20,8 @@ internal sealed class SectionPinHeader : Grid
         ColumnDefinitions = new ColumnDefinitions("*,Auto");
         ColumnSpacing = 12;
         RowDefinitions = new RowDefinitions("Auto,Auto");
-        RowSpacing = 12;
-        Margin = new Thickness(0, 0, 0, 8);
+        RowSpacing = 6;
+        Margin = new Thickness(0, 0, 0, 2);
         Children.Add(new TextBlock
         {
             Text = title, FontSize = 18, FontWeight = FontWeight.SemiBold,

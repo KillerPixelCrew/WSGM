@@ -58,7 +58,7 @@ public sealed class PerformancePolicyPersistenceTests
     }
 
     [Fact]
-    public void RemovingAnActiveRtssPolicyRetainsItsDisabledStoredProfile()
+    public void DisablingAnActivePolicyRetainsItsStoredDeviceValues()
     {
         PerformanceConfig config = new()
         {
@@ -79,10 +79,16 @@ public sealed class PerformancePolicyPersistenceTests
 
         ShellSession.MergePerformancePolicy(
             config,
-            new PerformancePolicy(new PerformanceValues(60, 3), []));
+            new PerformancePolicy(new PerformanceValues(60, 3),
+            [
+                new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(40, 1))
+                    { Enabled = false, Name = "My game", ProcessNames = ["game.exe"] }
+            ]));
 
         var application = Assert.Single(config.Applications);
         Assert.False(application.UsePerGameProfile);
+        Assert.Equal("My game", application.Name);
+        Assert.Equal(["game.exe"], application.ProcessNames);
         Assert.Equal(40, application.FrameLimit);
         Assert.Equal(1, application.OverlayLevel);
         Assert.Equal(18, application.TdpWatts);

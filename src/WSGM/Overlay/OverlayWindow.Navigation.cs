@@ -485,7 +485,6 @@ public partial class OverlayWindow
         // Selecting a destination resets its stack to the root, so the header affordance is
         // resolved here as well as on the enter/leave paths.
         SyncBackAffordance();
-        TabEyebrow.Text = DestinationLabel(destination).ToUpperInvariant();
         PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         PanelDevice.IsVisible = destination == OverlayDestination.Device

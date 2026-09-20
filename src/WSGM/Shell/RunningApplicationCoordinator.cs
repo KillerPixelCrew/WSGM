@@ -145,6 +145,11 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         return snapshot.Generation < latestGeneration;
     }
 
+    internal void RefreshCurrent()
+    {
+        Queue(_monitor.Current);
+    }
+
     private void OnTargetChanged(RunningApplicationTargetSnapshot snapshot)
     {
         Queue(snapshot);

@@ -14,11 +14,27 @@ using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
+using Path = Avalonia.Controls.Shapes.Path;
 
 namespace WSGM.UiTests.Overlay;
 
 public sealed class OverlayLayoutTests
 {
+    [AvaloniaFact]
+    public void BatteryGlyphAndPercentageShareTheSameVerticalCentre()
+    {
+        using var fixture = new UiFixture();
+        var window = fixture.Overlay(1280, 720);
+        var status = UiFixture.Named<Border>(window, "BatteryStatus");
+        status.IsVisible = true;
+        var label = UiFixture.Named<TextBlock>(window, "BatteryLabel");
+        label.Text = "67%";
+        Dispatcher.UIThread.RunJobs();
+        var glyph = status.GetVisualDescendants().OfType<Path>().Single();
+        Assert.InRange(Math.Abs(glyph.Bounds.Center.Y - label.Bounds.Center.Y), 0, 1);
+        window.Close();
+    }
+
     [AvaloniaTheory]
     [InlineData(1280, 720, 1.25)]
     [InlineData(1280, 720, 1.5)]
@@ -79,13 +95,13 @@ public sealed class OverlayLayoutTests
         UiFixture.Named<Border>(window, "BatteryStatus").IsVisible = true;
         UiFixture.Named<Button>(window, "EjectButton").IsVisible = true;
         UiFixture.Named<Button>(window, "BackButton").IsVisible = true;
-        UiFixture.Named<TextBlock>(window, "TabEyebrow").Text = "WINDOWS & TOOLS";
+        UiFixture.Named<TextBlock>(window, "ProfileContext").Text = "Profile: a-very-long-application.exe";
         Dispatcher.UIThread.RunJobs();
-        var title = UiFixture.Named<TextBlock>(window, "TabEyebrow");
+        var title = UiFixture.Named<ComboBox>(window, "HeaderProfile");
         var titleRight = title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X;
         var buttons = new[]
         {
-            "WifiButton", "BluetoothButton", "AudioButton", "BrightnessButton",
+            "ManageProfiles", "WifiButton", "BluetoothButton", "AudioButton", "BrightnessButton",
             "EjectButton", "KeyboardButton", "CloseButton"
         }.Select(name => UiFixture.Named<Button>(window, name)).ToArray();
         var previousRight = titleRight;
@@ -306,7 +322,7 @@ public sealed class OverlayLayoutTests
             CapabilityValueKind.Curve => typeof(CurveEditor),
             _ => typeof(ComboBox)
         };
-        var editor = window.GetVisualDescendants().OfType<Control>()
+        var editor = UiFixture.Named<ScrollViewer>(window, "ContentScroller").GetVisualDescendants().OfType<Control>()
             .Single(control => control.GetType() == type && control.IsEffectivelyVisible);
         List<string> requests = [];
         window.PinToggleRequested += requests.Add;

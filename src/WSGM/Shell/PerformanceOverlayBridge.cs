@@ -60,6 +60,17 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         _service.StateChanged += OnStateChanged;
     }
 
+    internal IReadOnlyList<PerformanceApplicationPolicy> Profiles => _service.Profiles;
+
+    internal (PerformanceApplicationTarget? Target, bool Enabled) ProfileScope
+    {
+        get
+        {
+            var state = _service.Current;
+            return (state.Target, state.ApplicationProfileEnabled);
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -77,6 +88,22 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _service.AcquireObservation();
+    }
+
+    internal Task<bool> SaveProfileAsync(PerformanceApplicationPolicy profile, CancellationToken cancellationToken)
+    {
+        return _service.SaveProfileAsync(profile, cancellationToken);
+    }
+
+    internal Task<bool> DeleteProfileAsync(string applicationId, CancellationToken cancellationToken)
+    {
+        return _service.DeleteProfileAsync(applicationId, cancellationToken);
+    }
+
+    internal Task<bool> SetProfileScopeAsync(string applicationId, bool enabled,
+        CancellationToken cancellationToken)
+    {
+        return _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken, applicationId);
     }
 
     public PerformanceOverlaySnapshot Snapshot()

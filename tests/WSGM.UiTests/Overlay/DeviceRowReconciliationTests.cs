@@ -1,7 +1,10 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Labs.Panels;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
@@ -15,6 +18,62 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class DeviceRowReconciliationTests
 {
+    [AvaloniaFact]
+    public void ChoiceEditorAndPopupUseTheCompactDeckTheme()
+    {
+        using var fixture = new UiFixture();
+        var row = DeviceControlRows.Choice("choice", "Fan mode", "", Choices(), "first", true, _ => { });
+        var window = new Window { Content = row, Width = 600, Height = 200, Classes = { "command-deck" } };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var combo = Assert.IsType<ComboBox>(row.Editor);
+            Assert.Equal(36, combo.Bounds.Height);
+            Assert.Equal(VerticalAlignment.Center, combo.VerticalContentAlignment);
+            Assert.Equal(Color.Parse("#303741"),
+                Assert.IsAssignableFrom<ISolidColorBrush>(combo.Background).Color);
+            combo.IsDropDownOpen = true;
+            Dispatcher.UIThread.RunJobs();
+            var popup = combo.GetVisualDescendants().OfType<Popup>().Single();
+            var border = Assert.IsType<Border>(popup.Child);
+            Assert.Equal(Color.Parse("#303741"),
+                Assert.IsAssignableFrom<ISolidColorBrush>(border.Background).Color);
+            combo.IsDropDownOpen = false;
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void FanPresetsBecomeInteractiveWhenCurveReadbackBecomesAvailable()
+    {
+        using var fixture = new UiFixture();
+        var writes = 0;
+        CurvePoint[] points = [new(40, 20), new(90, 100)];
+        var row = new DeviceCurveRow("fan", "Fan curve", "", points, null, false, _ => writes++);
+        var window = new Window { Content = row, Width = 600, Height = 400, Classes = { "command-deck" } };
+        try
+        {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var presets = row.GetVisualDescendants().OfType<Button>().ToArray();
+            Assert.Equal(3, presets.Length);
+            Assert.All(presets, button => Assert.False(button.IsEffectivelyEnabled));
+            row.RefreshReadback(points, 50, true);
+            Assert.All(presets, button => Assert.True(button.IsEffectivelyEnabled));
+            UiFixture.Click(window, presets[0]);
+            window.Content = null;
+            Assert.Equal(1, writes);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void AnActionSubclassUsesTheStandardButtonTemplate()
     {

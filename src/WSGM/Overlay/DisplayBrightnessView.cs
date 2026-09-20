@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Shell;
 
@@ -12,13 +14,16 @@ internal sealed class DisplayBrightnessView : Border
 {
     private readonly StackPanel _body = new() { Spacing = 4 };
     private readonly CancellationTokenSource _closed = new();
+
+    private readonly TextBlock _percent = new() { Classes = { "setting-title" } };
     private readonly NativeQamBrightnessService _service;
 
     private readonly Slider _slider = new()
         { Minimum = 0, Maximum = 100, TickFrequency = 1, IsSnapToTickEnabled = true };
 
-    private readonly TextBlock _status = new();
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, IsVisible = false };
     private int? _pending;
+    private int? _requested;
     private bool _synchronizing;
     private bool _writing;
 
@@ -27,9 +32,14 @@ internal sealed class DisplayBrightnessView : Border
         _service = service;
         Classes.Add("tile");
         Child = _body;
-        _body.Children.Add(new TextBlock { Text = "Display brightness", Classes = { "setting-title" } });
-        _body.Children.Add(_status);
+        var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        heading.Children.Add(new TextBlock { Text = "Display brightness", Classes = { "setting-title" } });
+        Grid.SetColumn(_percent, 1);
+        _percent.VerticalAlignment = VerticalAlignment.Center;
+        heading.Children.Add(_percent);
+        _body.Children.Add(heading);
         _body.Children.Add(_slider);
+        _body.Children.Add(_status);
         _slider.ValueChanged += async (_, _) =>
         {
             if (_synchronizing || _closed.IsCancellationRequested)
@@ -38,6 +48,9 @@ internal sealed class DisplayBrightnessView : Border
             }
 
             _pending = (int)Math.Round(_slider.Value);
+            _requested = _pending;
+            _percent.Text = $"{_pending}%";
+            _status.IsVisible = false;
             await WriteAsync();
         };
         AttachedToVisualTree += async (_, _) =>
@@ -52,6 +65,7 @@ internal sealed class DisplayBrightnessView : Border
             catch (Exception ex)
             {
                 _status.Text = "Brightness unavailable: " + ex.Message;
+                _status.IsVisible = true;
                 _slider.IsEnabled = false;
             }
         };
@@ -84,7 +98,16 @@ internal sealed class DisplayBrightnessView : Border
                 _slider.Value = current.Percent;
             }
 
-            _status.Text = current is null ? "Brightness unavailable for this display" : $"{current.Percent}%";
+            _percent.Text = current is null ? "--" : $"{current.Percent}%";
+            if (current is null)
+            {
+                _status.Text = "Brightness unavailable for this display";
+                _status.IsVisible = true;
+            }
+            else if (_requested is null || current.Percent == _requested)
+            {
+                _status.IsVisible = false;
+            }
         }
         finally
         {
@@ -112,7 +135,7 @@ internal sealed class DisplayBrightnessView : Border
                     continue;
                 }
 
-                failure = "Brightness change was not confirmed.";
+                failure = result.Error ?? "Brightness change was not confirmed.";
                 _pending = null;
                 break;
             }
@@ -132,6 +155,7 @@ internal sealed class DisplayBrightnessView : Border
             if (failure is not null && !_closed.IsCancellationRequested)
             {
                 _status.Text = failure;
+                _status.IsVisible = true;
             }
         }
     }

@@ -769,6 +769,9 @@ public static class ConfigStore
             application.AcPowerPreset = NormalizePowerPreset(application.AcPowerPreset);
             application.BatteryPowerPreset = NormalizePowerPreset(application.BatteryPowerPreset);
             application.ApplicationId = application.ApplicationId.Trim();
+            application.Name = application.Name?.Trim() ?? string.Empty;
+            application.ProcessNames = (application.ProcessNames ?? []).Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             application.RtssProfileName ??= string.Empty;
             application.RtssProfileName = application.RtssProfileName.Trim();
             if (application.RtssProfileName.Length > 128
@@ -788,6 +791,8 @@ public static class ConfigStore
         // as long as it still says something.
         performance.Applications.RemoveAll(static application =>
             string.IsNullOrWhiteSpace(application.RtssProfileName)
+            && string.IsNullOrWhiteSpace(application.Name)
+            && application.ProcessNames.Count == 0
             && application is
             {
                 UsePerGameProfile: false,

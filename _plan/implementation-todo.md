@@ -68,6 +68,27 @@ Power-menu entry points exist; physical power-button capture remains separate wo
 #116. Run the relevant suites and initial full gate after manual acceptance, then record the actual
 results here.
 
+## Overlay manual-test follow-up (2026-09-20)
+
+The maintainer reported brightness confirmation text flickering over the percentage, an off-centre
+battery icon, unnecessary display-mode Apply, oversized unthemed dropdowns and disabled fan presets.
+The follow-up keeps the percentage separate, waits for accepted brightness writes to settle without
+retrying them, centres the battery glyph, commits display choices directly, compacts the shared
+rows/groups and themes dropdown popups. Curve editors are enabled from available curve readback,
+without requiring the old cycling-button next value. Hardware confirmation of these fixes remains
+pending; validation results are recorded with the follow-up delivery.
+
+- [x] Separate brightness status from the percentage and allow delayed readback without another write.
+- [x] Centre the battery glyph and apply display resolution/refresh selections directly.
+- [x] Compact control groups, theme dropdowns and enable writable fan-curve presets.
+- [x] Keep Global / Per-application and profile management in the header on every destination.
+- [x] Persist scope changes and provide named profile creation, editing, deletion and executable rules.
+- [x] Finish focused profile/UI checks, inspect 720p/4K renders and promote reviewed baselines.
+      351 affected core tests and 173 overlay/UI tests pass; 33 overlay baselines were reviewed.
+
+Delivery target: master directly, as requested on 2026-09-20. No live hardware validation or deployment
+was performed for this follow-up.
+
 ## ROG Ally X portable tester (2026-09-15)
 
 The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides

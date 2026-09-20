@@ -1110,9 +1110,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var next = NextValue(descriptor, displayed);
         var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
                          && displayed?.ColorValue is not null;
+        var curveWrite = descriptor.ValueKind is CapabilityValueKind.Curve
+                         && displayed?.CurveValue is { Count: > 0 };
         var canInvoke = current
                         && (descriptor.SupportsAction
-                            || (descriptor.SupportsWrite && (next is not null || colorWrite)));
+                            || (descriptor.SupportsWrite && (next is not null || colorWrite || curveWrite)));
         var description = projection.Progress switch
         {
             CommandProgress.Pending => "Applying requested value…",

@@ -8,15 +8,13 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
-using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
-/// <summary>Offers explicit mode selection and apply through Windows Device Control.</summary>
+/// <summary>Applies committed mode selections through Windows Device Control.</summary>
 internal sealed class DisplayModeView : StackPanel
 {
-    private readonly ActionButton _apply = new()
-        { Title = "Apply display mode", IconGeometry = Icons.Monitor, IsEnabled = false };
+    private readonly Func<DisplayModeSnapshot, DisplayMode, Task<DisplayProfileResult>> _apply;
 
     private readonly Func<Task<DisplayModeSnapshot?>> _read;
     private readonly ComboBox _refresh = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -28,33 +26,47 @@ internal sealed class DisplayModeView : StackPanel
     private DisplayModeSnapshot? _snapshot;
     private bool _synchronizing;
 
-    internal DisplayModeView(Func<Task<DisplayModeSnapshot?>>? read = null)
+    internal DisplayModeView(Func<Task<DisplayModeSnapshot?>>? read = null,
+        Func<DisplayModeSnapshot, DisplayMode, Task<DisplayProfileResult>>? apply = null)
     {
         _read = read ?? (() => Task.Run(() =>
         {
             var paths = DisplayTopology.CaptureActive().Paths;
             return paths.Count == 0 ? null : DisplayModes.Read(paths[0].Target);
         }));
+        _apply = apply ?? ((snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode)));
         Classes.Add("overlay-control");
         Spacing = 8;
         Children.Add(new TextBlock { Text = "Display mode", Classes = { "setting-title" } });
         Children.Add(_status);
         Children.Add(Selector("Resolution", _resolution));
         Children.Add(Selector("Refresh rate", _refresh));
-        Children.Add(_apply);
         _refresh.ItemTemplate = new FuncDataTemplate<int>((hz, _) => new TextBlock { Text = $"{hz} Hz" });
-        _resolution.SelectionChanged += (_, _) =>
+        _resolution.SelectionChanged += async (_, _) =>
         {
             if (!_synchronizing)
             {
                 UpdateRates();
+                if (!_resolution.IsDropDownOpen)
+                {
+                    await ApplyAsync();
+                }
             }
         };
-        _apply.Click += async (_, _) => await ApplyAsync();
+        _refresh.SelectionChanged += async (_, _) =>
+        {
+            if (!_synchronizing && !_refresh.IsDropDownOpen)
+            {
+                await ApplyAsync();
+            }
+        };
+        _resolution.DropDownClosed += async (_, _) => await ApplyAsync();
+        _refresh.DropDownClosed += async (_, _) => await ApplyAsync();
         // A hidden page keeps its controls in the tree for the sheet's life; skip the tick there.
         _timer.Tick += async (_, _) =>
         {
-            if (this.GetVisualParent() is { IsEffectivelyVisible: false })
+            if (this.GetVisualParent() is { IsEffectivelyVisible: false }
+                || _resolution.IsDropDownOpen || _refresh.IsDropDownOpen)
             {
                 return;
             }
@@ -76,7 +88,7 @@ internal sealed class DisplayModeView : StackPanel
     private static Border Selector(string label, ComboBox selector)
     {
         AutomationProperties.SetName(selector, label);
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,240"), ColumnSpacing = 12 };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,180"), ColumnSpacing = 12 };
         grid.Children.Add(new TextBlock
             { Text = label, Classes = { "setting-title" }, VerticalAlignment = VerticalAlignment.Center });
         Grid.SetColumn(selector, 1);
@@ -99,9 +111,12 @@ internal sealed class DisplayModeView : StackPanel
         var rates = _snapshot.Supported.Where(mode => Resolution(mode) == _resolution.SelectedItem as string)
             .Select(mode => mode.RefreshHz).Distinct().ToArray();
         var selected = _refresh.SelectedItem as int?;
+        var wasSynchronizing = _synchronizing;
+        _synchronizing = true;
         _refresh.ItemsSource = rates;
         _refresh.SelectedItem = selected is { } hz && rates.Contains(hz) ? hz
             : rates.Contains(_snapshot.Current.RefreshHz) ? _snapshot.Current.RefreshHz : rates.FirstOrDefault();
+        _synchronizing = wasSynchronizing;
     }
 
     private async Task ReadAsync()
@@ -112,6 +127,7 @@ internal sealed class DisplayModeView : StackPanel
         }
 
         _busy = true;
+        _resolution.IsEnabled = _refresh.IsEnabled = false;
         try
         {
             var next = await _read();
@@ -124,8 +140,7 @@ internal sealed class DisplayModeView : StackPanel
                                                         || !(_snapshot?.Supported.SequenceEqual(next?.Supported ??
                                                             []) ?? next is null);
             _snapshot = next;
-            _apply.IsEnabled = next is not null && next.Supported.Count > 0;
-            _resolution.IsEnabled = _refresh.IsEnabled = _apply.IsEnabled;
+            _resolution.IsEnabled = _refresh.IsEnabled = next is not null && next.Supported.Count > 0;
             if (next is null)
             {
                 _status.Text = "Display modes unavailable";
@@ -151,7 +166,7 @@ internal sealed class DisplayModeView : StackPanel
             {
                 _snapshot = null;
                 _status.Text = "Display unavailable: " + ex.Message;
-                _apply.IsEnabled = _resolution.IsEnabled = _refresh.IsEnabled = false;
+                _resolution.IsEnabled = _refresh.IsEnabled = false;
             }
         }
         finally
@@ -163,24 +178,28 @@ internal sealed class DisplayModeView : StackPanel
 
     private async Task ApplyAsync()
     {
-        if (_busy || _closed || _snapshot is not { } snapshot)
+        if (_busy || _closed || _synchronizing || _snapshot is not { } snapshot)
         {
             return;
         }
 
         var requested = snapshot.Supported.FirstOrDefault(mode =>
             Resolution(mode) == _resolution.SelectedItem as string && mode.RefreshHz == _refresh.SelectedItem as int?);
-        if (requested is null)
+        if (requested is null || requested == snapshot.Current)
         {
             return;
         }
 
         _busy = true;
-        _apply.IsEnabled = false;
-        string detail;
+        _resolution.IsEnabled = _refresh.IsEnabled = false;
+        string? detail = null;
         try
         {
-            detail = (await Task.Run(() => DisplayModes.Apply(snapshot, requested))).Detail;
+            var result = await _apply(snapshot, requested);
+            if (!result.Applied)
+            {
+                detail = result.Detail;
+            }
         }
         catch (Exception ex)
         {
@@ -191,8 +210,9 @@ internal sealed class DisplayModeView : StackPanel
             _busy = false;
         }
 
+        _snapshot = null;
         await ReadAsync();
-        if (!_closed)
+        if (!_closed && detail is not null)
         {
             _status.Text += "\n" + detail;
         }

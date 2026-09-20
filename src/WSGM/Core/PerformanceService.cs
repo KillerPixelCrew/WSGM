@@ -26,7 +26,7 @@ internal static class PerformancePolicyResolver
                 PerformancePolicyLayer.None);
         }
 
-        var application = Find(policy, target?.ApplicationId);
+        var application = Find(policy, target);
         var persistent = application is null
             ? policy.Global
             : new PerformanceValues(
@@ -42,7 +42,7 @@ internal static class PerformancePolicyResolver
         PerformancePolicy policy,
         PerformanceApplicationTarget? target)
     {
-        return Find(policy, target?.ApplicationId) is null
+        return Find(policy, target) is null
             ? PerformancePersistenceTarget.Global
             : PerformancePersistenceTarget.Application;
     }
@@ -67,7 +67,7 @@ internal static class PerformancePolicyResolver
         List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
         var index = applications.FindIndex(item => string.Equals(
             item.ApplicationId,
-            target.ApplicationId,
+            Find(policy, target)?.ApplicationId,
             StringComparison.Ordinal));
         var current = applications[index];
         applications[index] = current with
@@ -78,16 +78,17 @@ internal static class PerformancePolicyResolver
         return policy with { Applications = [.. applications] };
     }
 
-    internal static PerformanceApplicationPolicy? Find(
-        PerformancePolicy policy,
-        string? applicationId)
+    internal static PerformanceApplicationPolicy? Find(PerformancePolicy policy, PerformanceApplicationTarget? target)
     {
-        return string.IsNullOrWhiteSpace(applicationId)
-            ? null
-            : policy.Applications.FirstOrDefault(item => string.Equals(
-                item.ApplicationId,
-                applicationId,
-                StringComparison.Ordinal));
+        var entry = FindStored(policy, target);
+        return entry is { Enabled: true } ? entry : null;
+    }
+
+    internal static PerformanceApplicationPolicy? FindStored(PerformancePolicy policy,
+        PerformanceApplicationTarget? target)
+    {
+        return ApplicationProfileRules.Match(policy.Applications, target?.ApplicationId, target?.RtssProfileName,
+            item => item.ApplicationId, item => item.ProcessNames);
     }
 
     private static PerformancePolicyLayer LayerFor(int? application, int? global)
@@ -105,7 +106,7 @@ internal static class PerformancePolicyResolver
 ///     serialized, polling runs only while a client holds an observation lease, and RTSS failures never
 ///     escape into shell/session transitions.
 /// </summary>
-internal sealed class PerformanceService : IAsyncDisposable
+internal sealed partial class PerformanceService : IAsyncDisposable
 {
     // Commands and target transitions already read back immediately. This is the background
     // external-change/availability check, including while Steam keeps its observation lease.
@@ -279,139 +280,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         return _observers.Acquire();
     }
 
-    /// <summary>Resets the profile currently in force to its defaults.</summary>
-    /// <param name="cancellationToken">Cancels the apply that follows.</param>
-    /// <returns>Whether anything changed.</returns>
-    /// <remarks>
-    ///     Resets whichever layer is actually in force, which is the only reading that matches what the
-    ///     user sees: with a per-application profile active they are looking at that profile, and
-    ///     clearing the global one underneath it would appear to do nothing.
-    ///     <para>
-    ///         The application's entry is kept and its values emptied, rather than the entry being removed.
-    ///         Removing it is what the per-game toggle means; reset must not silently turn that toggle off
-    ///         as a side effect.
-    ///     </para>
-    /// </remarks>
-    internal async Task<bool> ResetProfileAsync(CancellationToken cancellationToken = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        PerformancePolicy policy;
-        PerformanceApplicationTarget? target;
-        lock (_stateGate)
-        {
-            policy = _policy;
-            target = _state.Target;
-        }
-
-        var application = PerformancePolicyResolver.Find(
-            policy,
-            target?.ApplicationId);
-
-        if (application is not null)
-        {
-            if (application.Values == PerformanceValues.Empty)
-            {
-                return false;
-            }
-
-            List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
-            applications[applications.IndexOf(application)] =
-                application with { Values = PerformanceValues.Empty };
-            Log.Info($"Performance profile reset for {application.ApplicationId}.");
-            await UpdatePolicyAsync(
-                policy with { Applications = applications },
-                cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-
-        if (policy.Global == PerformanceValues.Empty)
-        {
-            return false;
-        }
-
-        Log.Info("Global performance profile reset.");
-        await UpdatePolicyAsync(
-            policy with { Global = PerformanceValues.Empty },
-            cancellationToken).ConfigureAwait(false);
-        return true;
-    }
-
-    /// <summary>
-    ///     Gives the running application its own performance profile, or takes it away.
-    /// </summary>
-    /// <param name="enabled">Whether the application should keep its own values.</param>
-    /// <param name="cancellationToken">Cancels the apply that follows.</param>
-    /// <returns>Whether the policy changed.</returns>
-    /// <remarks>
-    ///     Turning it on seeds the application's values from what is <em>currently in force</em> rather
-    ///     than from nothing. A per-game profile that started empty would drop the user to the global
-    ///     defaults the instant they created it, which reads as the toggle having reset their settings.
-    ///     <para>
-    ///         Turning it off removes the entry rather than blanking it, so the application falls back to
-    ///         the global layer through the ordinary resolution path instead of carrying an empty override
-    ///         that has to be special-cased everywhere it is read.
-    ///     </para>
-    ///     <para>
-    ///         Refused when nothing identifiable is running: there is no application to attach a profile to,
-    ///         and silently writing the global layer instead is the wrong reading of a per-game toggle.
-    ///     </para>
-    /// </remarks>
-    internal async Task<bool> SetApplicationProfileEnabledAsync(
-        bool enabled,
-        CancellationToken cancellationToken = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        PerformancePolicy policy;
-        PerformanceApplicationTarget? target;
-        PerformanceValues desired;
-        lock (_stateGate)
-        {
-            policy = _policy;
-            target = _state.Target;
-            desired = _state.Desired;
-        }
-
-        if (target is null)
-        {
-            Log.Warn(
-                "Per-application performance profile refused: no identifiable application is "
-                + "running.");
-            return false;
-        }
-
-        var existing = PerformancePolicyResolver.Find(
-            policy,
-            target.ApplicationId);
-        if (existing is not null == enabled)
-        {
-            return false;
-        }
-
-        List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
-        if (enabled)
-        {
-            applications.Add(new PerformanceApplicationPolicy(
-                target.ApplicationId,
-                target.RtssProfileName ?? string.Empty,
-                desired));
-            Log.Info(
-                $"Per-application performance profile created for {target.ApplicationId}, seeded "
-                + $"from the values in force.");
-        }
-        else
-        {
-            applications.Remove(existing!);
-            Log.Info(
-                $"Per-application performance profile removed for {target.ApplicationId}; the "
-                + "global profile applies.");
-        }
-
-        await UpdatePolicyAsync(
-            policy with { Applications = applications },
-            cancellationToken).ConfigureAwait(false);
-        return true;
-    }
-
     internal async Task UpdatePolicyAsync(
         PerformancePolicy policy,
         CancellationToken cancellationToken = default)
@@ -420,16 +288,24 @@ internal sealed class PerformanceService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(policy);
         var normalized = NormalizePolicy(policy);
         PerformanceState next;
-        lock (_stateGate)
+        await _adapterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (PoliciesEqual(_policy, normalized))
+            lock (_stateGate)
             {
-                return;
-            }
+                if (PoliciesEqual(_policy, normalized))
+                {
+                    return;
+                }
 
-            _policy = normalized;
-            next = WithResolvedDesired(_state);
-            _state = next;
+                _policy = normalized;
+                next = WithResolvedDesired(_state);
+                _state = next;
+            }
+        }
+        finally
+        {
+            _adapterGate.Release();
         }
 
         RaiseStateChanged(next);
@@ -760,7 +636,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
                 applicationOptedIn = PerformancePolicyResolver.Find(
                     _policy,
-                    target?.ApplicationId) is not null;
+                    target) is not null;
             }
 
             // Saving an RTSS profile that does not exist creates it, which sprayed a profile onto
@@ -983,7 +859,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         {
             applicationOptedIn = PerformancePolicyResolver.Find(
                 _policy,
-                target?.ApplicationId) is not null;
+                target) is not null;
         }
 
         // The same profile-selection rule as the apply path, so readback observes the profile the
@@ -1237,7 +1113,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             Desired = values,
             ApplicationProfileEnabled = PerformancePolicyResolver.Find(
                 _policy,
-                state.Target?.ApplicationId) is not null,
+                state.Target) is not null,
             FrameLimitLayer = frameLimitLayer,
             OverlayLevelLayer = overlayLevelLayer
         };
@@ -1312,7 +1188,9 @@ internal sealed class PerformanceService : IAsyncDisposable
             return false;
         }
 
-        return left.Applications.SequenceEqual(right.Applications);
+        return left.Applications.Zip(right.Applications).All(pair =>
+            pair.First with { ProcessNames = pair.Second.ProcessNames } == pair.Second
+            && pair.First.ProcessNames.SequenceEqual(pair.Second.ProcessNames, StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool ValidTarget(PerformanceApplicationTarget target)

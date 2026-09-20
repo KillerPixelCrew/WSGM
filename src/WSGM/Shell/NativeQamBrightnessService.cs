@@ -71,7 +71,7 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         await _writes.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var result = await Task.Run(() =>
+            var result = await Task.Run(async () =>
             {
                 lock (_gate)
                 {
@@ -85,15 +85,38 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
                     {
                         return new SteamUiCommandResult(false, "The panel backlight refused the write.");
                     }
-
-                    var readback = ReadUnderGate();
-                    return readback is null
-                        ? new SteamUiCommandResult(false, "Brightness was written but readback is unavailable.")
-                        : readback.Percent != percent
-                            ? new SteamUiCommandResult(false,
-                                $"Brightness readback is {readback.Percent}%, requested {percent}%.")
-                            : new SteamUiCommandResult(true, null, SteamBrightnessSurface.Serialize(readback));
                 }
+
+                SteamBrightnessState? readback = null;
+                // The panel may accept the write before its brightness observation catches up. Only read
+                // again while settling; an uncertain hardware write must never be repeated.
+                for (var attempt = 0; attempt < 6; attempt++)
+                {
+                    if (attempt > 0)
+                    {
+                        await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    lock (_gate)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (_disposed || !_active())
+                        {
+                            return SteamUiCommandResult.Refused;
+                        }
+
+                        readback = ReadUnderGate();
+                    }
+
+                    if (readback?.Percent == percent)
+                    {
+                        return new SteamUiCommandResult(true, null, SteamBrightnessSurface.Serialize(readback));
+                    }
+                }
+
+                return new SteamUiCommandResult(false, readback is null
+                    ? "Brightness was written but readback is unavailable."
+                    : $"Brightness readback is {readback.Percent}%, requested {percent}%.");
             }, cancellationToken).ConfigureAwait(false);
             _publish();
             return result;

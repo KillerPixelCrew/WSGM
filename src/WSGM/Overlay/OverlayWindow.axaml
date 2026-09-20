@@ -36,8 +36,22 @@
               </Button>
               <TextBlock Text="WSGM" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
               <Border Width="1" Height="24" Background="{StaticResource DeckDividerBrush}" />
-              <TextBlock x:Name="TabEyebrow" Text="QUICK ACCESS" Classes="eyebrow" VerticalAlignment="Center"
-                         MaxWidth="180" TextTrimming="CharacterEllipsis" />
+              <StackPanel Spacing="2" Width="176" VerticalAlignment="Center">
+                <TextBlock x:Name="ProfileContext" Text="Profile" FontSize="11"
+                           Foreground="{StaticResource DeckSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                <ComboBox x:Name="HeaderProfile" SelectedIndex="0" IsEnabled="False"
+                          HorizontalAlignment="Stretch" AutomationProperties.Name="Settings profile"
+                          ToolTip.Tip="Start or focus an application to give it separate settings."
+                          SelectionChanged="OnHeaderProfileChanged" DropDownOpened="OnHeaderProfileOpened"
+                          DropDownClosed="OnHeaderProfileClosed">
+                  <ComboBoxItem Content="Global" />
+                  <ComboBoxItem Content="Per-application" />
+                </ComboBox>
+              </StackPanel>
+              <Button x:Name="ManageProfiles" Classes="pill" AutomationProperties.Name="Manage application profiles"
+                      ToolTip.Tip="Manage application profiles" Click="OnManageProfiles">
+                <Path Classes="status-icon" Data="{x:Static c:Icons.ListLines}" Width="18" Stretch="Uniform" />
+              </Button>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <StackPanel x:Name="StatusZone" DataContext="{x:Null}" x:DataType="sh:SystemStatus"
@@ -118,7 +132,7 @@
                 </Button>
                 <Border x:Name="BatteryStatus" Classes="pill-static" IsVisible="{Binding HasBattery}">
                   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Path Classes="status-icon" Data="{x:Static c:Icons.Battery}" Width="20" Stretch="Uniform" />
+                    <Path Classes="status-icon" Data="{x:Static c:Icons.Battery}" Width="20" Stretch="Uniform" VerticalAlignment="Center" />
                     <TextBlock x:Name="BatteryLabel" Text="{Binding BatteryText}" FontSize="13" VerticalAlignment="Center" />
                   </StackPanel>
                 </Border>
@@ -156,7 +170,7 @@
         <ScrollViewer x:Name="ContentScroller"
                       VerticalScrollBarVisibility="Auto"
                       GotFocus="OnContentGotFocus">
-          <StackPanel Margin="20" Spacing="20">
+          <StackPanel Margin="20" Spacing="12">
             <!-- Panel-level warning: sits above the destination roots, so it
                          is visible on every one. -->
             <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning"
@@ -164,9 +178,9 @@
 
             <!-- Quick access combines action cards, complete pinned sections and widgets.
                          Section headers own pinning; their controls keep normal editing behavior. -->
-            <StackPanel x:Name="PanelQuickAccess" Spacing="20" IsVisible="True">
+            <StackPanel x:Name="PanelQuickAccess" Spacing="12" IsVisible="True">
               <UniformGrid x:Name="PinnedGrid" Columns="2" />
-              <StackPanel x:Name="PinnedSectionsGrid" Spacing="20" />
+              <StackPanel x:Name="PinnedSectionsGrid" Spacing="12" />
               <StackPanel x:Name="PinnedPluginWidgetsHost" Spacing="8" />
             </StackPanel>
 
@@ -392,10 +406,10 @@
                           Click="OnEnableDeviceIntegration" />
                 </StackPanel>
               </Border>
-              <labs:FlexPanel x:Name="DevicePowerOverview" Wrap="Wrap" ColumnSpacing="20" RowSpacing="20" IsVisible="False">
+              <labs:FlexPanel x:Name="DevicePowerOverview" Wrap="Wrap" ColumnSpacing="12" RowSpacing="12" IsVisible="False">
                 <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top"
                         MinWidth="280" labs:Flex.Grow="1">
-                  <StackPanel Spacing="20">
+                  <StackPanel Spacing="12">
                     <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
                       <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
                         <StackPanel x:Name="DevicePowerSchemeHeading" />
@@ -417,7 +431,7 @@
                   <StackPanel x:Name="DevicePerformanceColumn" />
                 </Border>
               </labs:FlexPanel>
-              <StackPanel x:Name="DeviceCapabilityList" Spacing="20" />
+              <StackPanel x:Name="DeviceCapabilityList" Spacing="12" />
               <Expander x:Name="DeviceWidgetsExpander" Header="Quick Access pins" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="8">

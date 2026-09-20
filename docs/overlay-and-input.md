@@ -277,3 +277,23 @@ to split restores independent editing without changing the observed limits.
 Open ComboBox popups retain their owning selector as the controller navigation target even when
 Avalonia focuses a popup item. D-pad selection stays inside the selector, and confirmation closes
 the popup and restores focus to the selector before another control is activated.
+
+## Display controls
+
+The brightness slider uses the session brightness owner. After one accepted hardware write, that
+owner waits up to 500 ms for readback to settle without repeating the write. The percentage remains
+in the heading; unavailable or unconfirmed results have a separate message below the slider.
+
+Resolution and refresh-rate dropdowns apply the committed selection directly. Browsing an open popup
+does not switch display modes; closing it commits once, and selecting the already active mode does
+nothing. Editors are disabled during a mode change, then restored from fresh readback. There is no
+separate Apply display mode button. Windows Device Control retains its route checks, validation and
+rollback behavior.
+
+### Application profiles
+
+Global / Per-application stays in the top bar on every destination. The adjacent profile-list button
+opens a scrollable editor for saved profiles, their names, activation executable names and
+performance overrides. Profiles can be configured while their applications are closed. Disabling
+preserves values; deleting requires a second explicit click. See `rtss.md` for matching, persistence
+and device scope.

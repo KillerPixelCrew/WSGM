@@ -6,7 +6,6 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using FluentAvalonia.UI.Controls;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -72,12 +71,13 @@ internal sealed class DeviceCurveRow : Border
             IsEnabled = enabled,
             Focusable = true,
             Tag = key,
-            Height = 180,
+            Height = 150,
             Margin = new Thickness(0, 8, 0, 0)
         };
         _editor.CurveChanged += OnCurveChanged;
 
         var body = new StackPanel { Spacing = 2 };
+        body.Children.Add(new TextBlock { Text = title, Classes = { "setting-title" } });
         if (!string.IsNullOrWhiteSpace(description))
         {
             var caption = new TextBlock
@@ -92,17 +92,7 @@ internal sealed class DeviceCurveRow : Border
         body.Children.Add(_editor);
         _presets = BuildPresets(key, enabled);
         body.Children.Add(_presets);
-        Child = new FASettingsExpander
-        {
-            Header = title,
-            Description = description,
-            IsExpanded = true,
-            Items =
-            {
-                new FASettingsExpanderItem
-                    { Footer = body, Focusable = false, IsClickEnabled = false, Classes = { "device-setting-primary" } }
-            }
-        };
+        Child = body;
         Classes.Remove("tile");
         DetachedFromVisualTree += (_, _) => CommitPendingChange();
     }

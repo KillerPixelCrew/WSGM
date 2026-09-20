@@ -5,6 +5,23 @@ namespace WSGM.Tests.Shell;
 public sealed class NativeQamBrightnessServiceTests
 {
     [Fact]
+    public async Task AcceptedWriteWaitsForPanelReadbackWithoutRepeatingTheWrite()
+    {
+        var reads = 0;
+        var writes = 0;
+        using NativeQamBrightnessService service = new(() => true, () => { },
+            () => ++reads == 1 ? 50 : 31, _ =>
+            {
+                writes++;
+                return true;
+            }, Timeout.InfiniteTimeSpan);
+        var result = await service.SetBrightnessAsync(31, CancellationToken.None);
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Equal(1, writes);
+        Assert.Equal(31, service.Current!.Percent);
+    }
+
+    [Fact]
     public async Task SharedStateTracksExternalChangesAndDisplayLossWithoutWriting()
     {
         int? brightness = 42;

@@ -10,6 +10,32 @@ namespace WSGM.Tests.Shell;
 /// <summary>How the Device overlay bridge projects plugin capabilities and WSGM's own Device rows.</summary>
 public sealed class DeviceOverlayBridgeTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ObservedFanCurveCanBeEditedWithoutACyclingNextValue(bool available)
+    {
+        var descriptor = new CapabilityDescriptor
+        {
+            CapabilityId = "fan.curve", Role = CapabilityRole.FanCurve,
+            ValueKind = CapabilityValueKind.Curve,
+            Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            SupportsRead = true, SupportsWrite = true, Persistence = CapabilityPersistence.Volatile
+        };
+        var state = new CapabilityState
+        {
+            CapabilityId = descriptor.CapabilityId, Available = available,
+            Quality = HardwareStateQuality.Observed,
+            ObservedValue = CapabilityValue.Curve([new CurvePoint(40, 20), new CurvePoint(90, 100)]),
+            DescriptorGeneration = 1, CycleGeneration = 1
+        };
+        var view = DeviceOverlayBridge.ToOverlayCapability(
+            new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
+            new HashSet<string>());
+        Assert.Equal(available, view.CanInvoke);
+        Assert.Null(view.NextValue);
+    }
+
     // Pure final-overlay projection coverage; no device package or host is started.
     [Theory]
     [InlineData(37, null, 37)]

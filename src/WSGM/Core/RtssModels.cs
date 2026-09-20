@@ -105,7 +105,12 @@ internal sealed record PerformanceValues(int? FrameLimit, int? OverlayLevel)
 internal sealed record PerformanceApplicationPolicy(
     string ApplicationId,
     string RtssProfileName,
-    PerformanceValues Values);
+    PerformanceValues Values)
+{
+    internal string Name { get; init; } = string.Empty;
+    internal IReadOnlyList<string> ProcessNames { get; init; } = [];
+    internal bool Enabled { get; init; } = true;
+}
 
 /// <summary>Persistent global and per-application RTSS policy.</summary>
 internal sealed record PerformancePolicy(
