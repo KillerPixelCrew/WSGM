@@ -172,18 +172,20 @@ internal sealed class AudioProfileService : IAsyncDisposable
         var inputs = List(CoreAudio.AudioDirection.Capture);
         var output = outputs.FirstOrDefault(static endpoint => endpoint.IsDefault);
         var input = inputs.FirstOrDefault(static endpoint => endpoint.IsDefault);
-        if (output.Id.Length == 0 && input.Id.Length == 0)
+        // A failed enumeration reads as an empty list, and the default AudioEndpoint that comes
+        // back from it carries a null Id, so every identity check here has to tolerate one.
+        if (string.IsNullOrEmpty(output.Id) && string.IsNullOrEmpty(input.Id))
         {
             return null;
         }
 
         var snapshot = new AudioProfilePreference
         {
-            Output = output.Id.Length == 0 ? null : Endpoint(output),
-            Input = input.Id.Length == 0 ? null : Endpoint(input)
+            Output = string.IsNullOrEmpty(output.Id) ? null : Endpoint(output),
+            Input = string.IsNullOrEmpty(input.Id) ? null : Endpoint(input)
         };
 
-        if (output.Id.Length == 0)
+        if (string.IsNullOrEmpty(output.Id))
         {
             return snapshot;
         }
@@ -210,8 +212,11 @@ internal sealed class AudioProfileService : IAsyncDisposable
     private AudioProfileApplyResult Apply(AudioProfilePreference preference, CancellationToken cancellationToken)
     {
         List<AudioProfileOperationResult> results = [];
-        var output = ResolveEndpoint(preference.Output, CoreAudio.AudioDirection.Render, cancellationToken);
-        var input = ResolveEndpoint(preference.Input, CoreAudio.AudioDirection.Capture, cancellationToken);
+        // One arrival budget for the transition, not one per direction: two missing endpoints
+        // would otherwise hold the desktop return for twice the bounded wait.
+        var deadline = DateTime.UtcNow + EndpointArrivalTimeout;
+        var output = ResolveEndpoint(preference.Output, CoreAudio.AudioDirection.Render, deadline, cancellationToken);
+        var input = ResolveEndpoint(preference.Input, CoreAudio.AudioDirection.Capture, deadline, cancellationToken);
         if (preference.Output is not null)
         {
             results.Add(SetDefault("playback endpoint", output));
@@ -249,7 +254,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
     private AudioPlaybackCapabilities? ReadPlaybackCapabilities()
     {
         var output = List(CoreAudio.AudioDirection.Render).FirstOrDefault(static endpoint => endpoint.IsDefault);
-        if (output.Id.Length == 0
+        if (string.IsNullOrEmpty(output.Id)
             || _operations.GetDeviceFormat(output.Id, out var currentFormat) < 0
             || _operations.ListSupportedDeviceFormats(output.Id, out var supportedFormats) < 0
             || _operations.GetSpatialAudio(output.Id, out var spatial) < 0)
@@ -299,6 +304,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
     private CoreAudio.AudioEndpoint? ResolveEndpoint(
         AudioEndpointPreference? preference,
         CoreAudio.AudioDirection direction,
+        DateTime deadline,
         CancellationToken cancellationToken)
     {
         if (preference?.Id is not { Length: > 0 } id)
@@ -306,12 +312,11 @@ internal sealed class AudioProfileService : IAsyncDisposable
             return null;
         }
 
-        var deadline = DateTime.UtcNow + EndpointArrivalTimeout;
         do
         {
             cancellationToken.ThrowIfCancellationRequested();
             var found = List(direction).FirstOrDefault(endpoint => endpoint.Id == id);
-            if (found.Id.Length > 0)
+            if (!string.IsNullOrEmpty(found.Id))
             {
                 return found;
             }

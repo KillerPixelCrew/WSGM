@@ -296,6 +296,48 @@ a running Game Mode session owes the desktop is separate and lives in
 HDR uses DisplayConfig advanced-color get/set against the path target. A persisted flag is neither
 shown nor applied when the target reports no advanced-colour support.
 
+## Game Mode audio profiles
+
+Each Game Mode launch configuration carries an optional audio preference for Game Mode and another
+for Desktop, beside the layouts they already own. Every value in one is independently optional:
+default playback endpoint, default recording endpoint, playback volume, mute, playback device format
+and spatial sound format. An endpoint is stored by its Core Audio ID with the friendly name it last
+had, so a profile keeps naming a device that is currently off or unplugged. Saving a profile never
+changes Windows audio.
+
+`Shell\AudioProfileService.cs` performs every Core Audio read and write off the dispatcher and
+serializes them behind one gate, so the overlay, Steam Quick Access and a mode transition cannot
+interleave writes. Apply order is render endpoint, capture endpoint, volume and mute, device format,
+then spatial format; the format and spatial writes target the endpoint the profile selected, after
+it has been selected. A missing endpoint, an unsupported format, an HRESULT failure or a spatial
+refusal leaves that one value unchanged, reports the reason and does not fail the transition. There
+is no automatic retry write: the next explicit action or mode switch is the retry.
+
+One application waits a short bounded period for a configured endpoint to enumerate, which is what
+lets an HDMI audio endpoint appear as the TV wakes. The budget is for the whole application rather
+than per direction, so two absent endpoints cannot hold a desktop return for twice the wait. After
+it expires the endpoint is logged as unavailable and left alone.
+
+A custom Game Mode entry captures the desktop audio snapshot wherever it captures the return layout,
+and persists both in `AppConfig.GameModeLaunchRecovery` before Explorer leaves. That happens even
+when the launch sets no Game Mode audio, because the return falls back to that snapshot whenever the
+Desktop profile carries no audio preference of its own. Crash recovery restores from the same
+persisted snapshot and clears it only after the return path has finished. The return restores the
+layout before the audio, so an HDMI endpoint is back before anything is asked to select it.
+
+Settings edits the profiles and never probes or writes. A saved endpoint the machine is not
+currently reporting stays in the list under its saved name and stays selected, and a saved format or
+spatial value that the selected endpoint does not report right now is held as latent draft state
+rather than cleared, so an unrelated save cannot silently delete it. Choosing a different endpoint
+does clear both, because a format belongs to the endpoint that reported it.
+
+The Overlay Audio panel and the Steam Quick Access row are live controls on the current playback
+endpoint, not profile editors. Each read is tagged with the endpoint it described and with the
+refresh that produced it, so a read that lands after the default output has already changed is
+discarded instead of describing the wrong device, and a selection made against a superseded read is
+refused rather than applied to whatever is default now. A command is one explicit write followed by
+an observed refresh.
+
 ## Mute during screen-off downloads
 
 Keep-awake (below) lets the display time out while downloads continue, and Steam then plays a sound

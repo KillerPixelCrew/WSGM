@@ -462,6 +462,17 @@ event: brightness every 2 s, network first after 2 s then every 10 s with a 400 
 perf delta field equal to the desired value is dropped as an echo
 (`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level ping-pong.
 
+### Advanced audio
+
+`SteamAudioFormatRow` mounts two dropdowns in Quick Settings: the playback channel layout and
+default format, and spatial sound. The published state carries only the current playback endpoint's
+supported formats, the current selections, and a reason when the endpoint exposes neither. The
+vocabulary is `setFormat` and `setSpatial`, each with one bounded `target` identifier out of the
+list that was published. `NativeQamAudioFormatService` validates every payload against the latest
+observed capability before it reaches `AudioProfileService`, which is the same service the Overlay
+panel writes through, so there is one Windows implementation behind both. A row is not drawn when
+the endpoint offers fewer than two choices for it.
+
 ### Degradation
 
 Brightness reads and user writes are serialized by `NativeQamBrightnessService`. The resident

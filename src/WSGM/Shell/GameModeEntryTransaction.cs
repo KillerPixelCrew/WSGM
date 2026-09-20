@@ -144,7 +144,10 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                     : Captured(await backend.ObserveAsync().ConfigureAwait(false));
             }
 
-            if (launch.GameAudio is not null)
+            // The desktop snapshot is taken wherever the return layout is taken. Returning falls
+            // back to it whenever the Desktop profile has no audio preference of its own, so a
+            // custom launch that sets no Game Mode audio still has to leave one behind.
+            if (launch.Kind == GameModeLaunchKind.Custom || launch.GameAudio is not null)
             {
                 returnAudio = await backend.CaptureAudioAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -237,9 +240,12 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                     .ConfigureAwait(false);
                 if (!audio.Succeeded)
                 {
-                    layoutWarning ??= "Game Mode audio: " + string.Join(" ", audio.Operations
+                    // Both can go wrong in the same entry, and the display warning must not hide
+                    // the audio one: past the boundary these lines are all the user gets.
+                    var audioWarning = "Game Mode audio: " + string.Join(" ", audio.Operations
                         .Where(static operation => !operation.Succeeded)
                         .Select(static operation => operation.Name + " " + operation.Detail));
+                    layoutWarning = layoutWarning is null ? audioWarning : layoutWarning + " " + audioWarning;
                 }
             }
 

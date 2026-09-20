@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -13,6 +14,10 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     private readonly AudioManager _audio;
     private readonly AudioProfileService _profiles;
     private bool _disposed;
+    // Exactly what the last publication offered, and the endpoint that offered it. A command is
+    // admitted only against this: two endpoints can support the same format, so parsing the id is
+    // not evidence that the row the user touched was describing the output that is default now.
+    private volatile Offered? _offered;
 
     internal NativeQamAudioFormatService(AudioManager audio, AudioProfileService profiles)
     {
@@ -30,6 +35,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);
         if (capabilities is null)
         {
+            _offered = null;
             return new SteamAudioFormatState(false, [], string.Empty, [], string.Empty,
                 "Advanced audio controls are unavailable for the current output.");
         }
@@ -45,6 +51,10 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             .Take(16)
             .Select(static format => new SteamAudioFormatOption(format.ToString(), AudioProfileEditor.SpatialName(format)))
             .ToArray();
+        _offered = new Offered(
+            capabilities.EndpointId,
+            [.. formats.Select(static option => option.Id)],
+            [.. spatial.Select(static option => option.Id)]);
         return new SteamAudioFormatState(
             formats.Length > 1 || spatial.Length > 1,
             formats,
@@ -57,7 +67,11 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetFormatAsync(string formatId, CancellationToken cancellationToken)
     {
-        if (_audio.SelectedOutput is not { } output || !TryParseFormat(formatId, out var format))
+        if (_audio.SelectedOutput is not { } output
+            || _offered is not { } offered
+            || offered.EndpointId != output.Id
+            || !offered.Formats.Contains(formatId)
+            || !TryParseFormat(formatId, out var format))
         {
             return new SteamUiCommandResult(false, "That audio format is no longer available.");
         }
@@ -69,7 +83,11 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetSpatialAsync(string spatialId, CancellationToken cancellationToken)
     {
-        if (_audio.SelectedOutput is not { } output || !Guid.TryParse(spatialId, out var spatial))
+        if (_audio.SelectedOutput is not { } output
+            || _offered is not { } offered
+            || offered.EndpointId != output.Id
+            || !offered.Spatial.Contains(spatialId)
+            || !Guid.TryParse(spatialId, out var spatial))
         {
             return new SteamUiCommandResult(false, "That spatial sound format is no longer available.");
         }
@@ -128,4 +146,6 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             StateChanged?.Invoke();
         }
     }
+
+    private sealed record Offered(string EndpointId, HashSet<string> Formats, HashSet<string> Spatial);
 }

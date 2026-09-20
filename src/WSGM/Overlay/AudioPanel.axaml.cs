@@ -17,7 +17,12 @@ public partial class AudioPanel : UserControl
     private readonly AudioManager _audio;
     private readonly AudioProfileService? _profiles;
     private bool _audioSubscribed;
+    // The endpoint the controls currently describe, and the read that put them there. A refresh
+    // starts when the panel attaches, when Refresh is clicked and whenever the default output
+    // changes, so an older read can land after a newer endpoint is already selected.
+    private string? _capabilityEndpointId;
     private bool _loadingCapabilities;
+    private int _refreshGeneration;
 
     /// <summary>Creates an audio panel over the supplied live manager.</summary>
     /// <param name="audio">The taskbar-owned audio manager.</param>
@@ -77,9 +82,15 @@ public partial class AudioPanel : UserControl
             return;
         }
 
+        var generation = ++_refreshGeneration;
         try
         {
             var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None);
+            if (generation != _refreshGeneration)
+            {
+                return;
+            }
+
             _loadingCapabilities = true;
             FormatChoice.ItemsSource = capabilities?.SupportedFormats is { Count: > 0 } formats
                 ? new ObservableCollection<AudioFormatOption>(formats.Select(static format => new AudioFormatOption(format)))
@@ -97,23 +108,48 @@ public partial class AudioPanel : UserControl
             FormatRow.IsVisible = capabilities?.SupportedFormats.Count > 0;
             SpatialRow.IsVisible = capabilities?.SupportedSpatialFormats.Count > 0;
             CapabilityStatus.Text = capabilities is null ? "Advanced audio controls are unavailable for the current output." : "";
+            _capabilityEndpointId = capabilities?.EndpointId;
         }
         catch (System.Exception ex)
         {
+            if (generation != _refreshGeneration)
+            {
+                return;
+            }
+
+            _capabilityEndpointId = null;
             CapabilityStatus.Text = "Could not read advanced audio controls: " + ex.Message;
             FormatRow.IsVisible = false;
             SpatialRow.IsVisible = false;
         }
         finally
         {
-            _loadingCapabilities = false;
+            if (generation == _refreshGeneration)
+            {
+                _loadingCapabilities = false;
+            }
         }
+    }
+
+    // An option is only offered because one endpoint reported it. Two endpoints can support the
+    // same format, so the service alone cannot tell that a selection was made against the one
+    // before last; the panel has to refuse it here.
+    private bool Stale(AudioEndpointEntry output)
+    {
+        if (_capabilityEndpointId is { } endpointId && endpointId == output.Id)
+        {
+            return false;
+        }
+
+        CapabilityStatus.Text = "The playback device changed; re-reading its controls.";
+        _ = RefreshCapabilitiesAsync();
+        return true;
     }
 
     private async void OnFormatChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loadingCapabilities || FormatChoice.SelectedItem is not AudioFormatOption option
-            || _audio.SelectedOutput is not { } output)
+            || _audio.SelectedOutput is not { } output || Stale(output))
         {
             return;
         }
@@ -126,7 +162,7 @@ public partial class AudioPanel : UserControl
     private async void OnSpatialChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loadingCapabilities || SpatialChoice.SelectedItem is not SpatialAudioOption option
-            || _audio.SelectedOutput is not { } output)
+            || _audio.SelectedOutput is not { } output || Stale(output))
         {
             return;
         }

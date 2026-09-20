@@ -18,6 +18,11 @@ public sealed class AudioProfileEditor : ObservableObject
     private bool _loading;
     private bool _muted;
     private AudioEndpointOption? _output;
+    // What the profile holds, independent of what the machine can currently offer. A saved format
+    // or spatial value the selected endpoint does not report right now has no option to select, and
+    // clearing it here would delete a valid preference on the next unrelated save.
+    private AudioFormatPreference? _savedFormat;
+    private Guid? _savedSpatial;
     private SpatialAudioOption? _spatial;
     private int _volumePercent = 50;
 
@@ -50,7 +55,7 @@ public sealed class AudioProfileEditor : ObservableObject
                 return;
             }
 
-            RefreshPlaybackCapabilities();
+            RefreshPlaybackCapabilities(false);
             Edited();
         }
     }
@@ -127,10 +132,13 @@ public sealed class AudioProfileEditor : ObservableObject
         get => _format;
         set
         {
-            if (SetFieldIfChanged(ref _format, value, nameof(PlaybackFormat)))
+            if (!SetFieldIfChanged(ref _format, value, nameof(PlaybackFormat)))
             {
-                Edited();
+                return;
             }
+
+            _savedFormat = value is null ? null : AudioProfileService.ToPreference(value.Format);
+            Edited();
         }
     }
 
@@ -140,10 +148,13 @@ public sealed class AudioProfileEditor : ObservableObject
         get => _spatial;
         set
         {
-            if (SetFieldIfChanged(ref _spatial, value, nameof(SpatialFormat)))
+            if (!SetFieldIfChanged(ref _spatial, value, nameof(SpatialFormat)))
             {
-                Edited();
+                return;
             }
+
+            _savedSpatial = value?.Format;
+            Edited();
         }
     }
 
@@ -171,12 +182,38 @@ public sealed class AudioProfileEditor : ObservableObject
         }
 
         _loading = true;
-        _output = OutputChoices.FirstOrDefault(choice => choice.Id == preferredOutput);
-        _input = InputChoices.FirstOrDefault(choice => choice.Id == preferredInput);
+        // A saved endpoint that is not enumerated right now keeps its entry and stays selected. It
+        // is a preference for a device that is off or unplugged, not a value to discard.
+        _output = Keep(OutputChoices, preferredOutput, _output);
+        _input = Keep(InputChoices, preferredInput, _input);
         _loading = false;
-        RefreshPlaybackCapabilities();
+        RefreshPlaybackCapabilities(true);
         Raise(nameof(Output));
         Raise(nameof(Input));
+    }
+
+    private static AudioEndpointOption? Keep(
+        ObservableCollection<AudioEndpointOption> choices,
+        string? preferredId,
+        AudioEndpointOption? previous)
+    {
+        if (preferredId is null)
+        {
+            return null;
+        }
+
+        if (choices.FirstOrDefault(choice => choice.Id == preferredId) is { } live)
+        {
+            return live;
+        }
+
+        if (previous is null)
+        {
+            return null;
+        }
+
+        choices.Add(previous);
+        return previous;
     }
 
     /// <summary>Seeds this draft from persisted settings without changing Windows audio.</summary>
@@ -201,9 +238,9 @@ public sealed class AudioProfileEditor : ObservableObject
         _volumePercent = preference?.VolumePercent ?? 50;
         _applyMute = preference?.Muted is not null;
         _muted = preference?.Muted ?? false;
-        RefreshPlaybackCapabilities();
-        _format = FormatChoices.FirstOrDefault(choice => Same(choice.Format, preference?.PlaybackFormat));
-        _spatial = SpatialChoices.FirstOrDefault(choice => choice.Format == preference?.SpatialFormat);
+        _savedFormat = preference?.PlaybackFormat;
+        _savedSpatial = preference?.SpatialFormat;
+        RefreshPlaybackCapabilities(true);
         _loading = false;
         Raise(nameof(Output));
         Raise(nameof(Input));
@@ -224,8 +261,9 @@ public sealed class AudioProfileEditor : ObservableObject
             Input = _input is null ? null : new AudioEndpointPreference { Id = _input.Id, Name = _input.Name },
             VolumePercent = _applyVolume ? _volumePercent : null,
             Muted = _applyMute ? _muted : null,
-            PlaybackFormat = _format is null ? null : AudioProfileService.ToPreference(_format.Format),
-            SpatialFormat = _spatial?.Format
+            // The selection when the endpoint reports it, the saved value when it does not.
+            PlaybackFormat = _format is null ? _savedFormat : AudioProfileService.ToPreference(_format.Format),
+            SpatialFormat = _spatial?.Format ?? _savedSpatial
         };
         return result.Output is not null
                || result.Input is not null
@@ -237,35 +275,51 @@ public sealed class AudioProfileEditor : ObservableObject
             : null;
     }
 
-    private void RefreshPlaybackCapabilities()
+    /// <summary>Rebuilds the capability choices for the selected endpoint.</summary>
+    /// <param name="keepSaved">
+    ///     Whether the saved format and spatial values survive. They do for a reload, where nothing
+    ///     the user did caused the rebuild, and they do not when the user picks another endpoint: a
+    ///     format belongs to the endpoint that reported it.
+    /// </param>
+    private void RefreshPlaybackCapabilities(bool keepSaved)
     {
+        if (!keepSaved)
+        {
+            _savedFormat = null;
+            _savedSpatial = null;
+        }
+
         FormatChoices.Clear();
         SpatialChoices.Clear();
         _format = null;
         _spatial = null;
-        if (_output?.Id is not { } endpointId)
+        if (_output?.Id is { } endpointId)
         {
-            Raise(nameof(PlaybackFormat));
-            Raise(nameof(SpatialFormat));
-            return;
+            if (CoreAudio.ListSupportedDeviceFormats(endpointId, out var formats) >= 0)
+            {
+                foreach (var format in formats)
+                {
+                    FormatChoices.Add(new AudioFormatOption(format));
+                }
+            }
+
+            if (CoreAudio.GetSpatialAudio(endpointId, out var spatial) >= 0)
+            {
+                SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
+                foreach (var format in spatial.SupportedFormats)
+                {
+                    SpatialChoices.Add(new SpatialAudioOption(format, SpatialName(format)));
+                }
+            }
+
+            _format = FormatChoices.FirstOrDefault(choice => Same(choice.Format, _savedFormat));
+            _spatial = _savedSpatial is { } savedSpatial
+                ? SpatialChoices.FirstOrDefault(choice => choice.Format == savedSpatial)
+                : null;
         }
 
-        if (CoreAudio.ListSupportedDeviceFormats(endpointId, out var formats) >= 0)
-        {
-            foreach (var format in formats)
-            {
-                FormatChoices.Add(new AudioFormatOption(format));
-            }
-        }
-
-        if (CoreAudio.GetSpatialAudio(endpointId, out var spatial) >= 0)
-        {
-            SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
-            foreach (var format in spatial.SupportedFormats)
-            {
-                SpatialChoices.Add(new SpatialAudioOption(format, SpatialName(format)));
-            }
-        }
+        Raise(nameof(PlaybackFormat));
+        Raise(nameof(SpatialFormat));
     }
 
     private void Edited()
