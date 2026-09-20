@@ -169,7 +169,7 @@ the first failure with a stable rejection code:
 | 3    | Bounded walk: entry, file, per-file and aggregate budgets; no reparse point anywhere.                                           | `package-invalid`                                                   |
 | 4    | `plugin.wsgm.json` resolves under the root without traversal or links, read under 1 MiB.                                        | `package-invalid`                                                   |
 | 5    | SDK `PluginManifestReader.Read` succeeds (size, depth, shape, six field rules).                                                 | `manifest-invalid`, or `api-incompatible` when `apiVersion` differs |
-| 6    | `apiVersion` equals `DeviceApi.Version` (3).                                                                                    | `api-incompatible`                                                  |
+| 6    | `apiVersion` equals `DeviceApi.Version` (5).                                                                                    | `api-incompatible`                                                  |
 | 7    | Entry assembly resolves under the root and is an AMD64 image with a CLR header, metadata and an assembly manifest (`PEReader`). | `architecture-unsupported`                                          |
 
 The slot itself yields `multiple-package-roots`; an empty slot is `no-package-installed`. Validation
@@ -813,7 +813,7 @@ file. Levels and key style are in `docs\logging.md`.
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above was
-tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 4, entry
+tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 5, entry
 `WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin`. It targets `net10.0-windows10.0.19041.0`, references
 only the SDK and `System.Management`, ships its licence and notices beside the assembly, declares no
 settings manifest, and keeps every vendor address inside the package.

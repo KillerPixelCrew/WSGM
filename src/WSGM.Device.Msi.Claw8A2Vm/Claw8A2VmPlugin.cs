@@ -2804,6 +2804,7 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
                         {
                             "comfort" => "Comfort", "green" => "Green", "eco" => "Eco", "sport" => "Sport",
                             "user" => "User", "inactive" => "Inactive", "automatic" => "Automatic",
+                            "custom" => "Custom", "full-speed" => "Full speed",
                             _ => choice
                         }
                     }))

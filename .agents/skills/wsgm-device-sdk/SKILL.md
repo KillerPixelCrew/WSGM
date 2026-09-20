@@ -25,8 +25,7 @@ effective readback only. Never persist an observation or initialization fallback
 1. Resolve the WSGM root with `git rev-parse --show-toplevel`, read every applicable `AGENTS.md`,
    and inspect `git status --short --branch` plus `git submodule status --recursive`.
 2. Read `src/WSGM.Device.Sdk/docs/reference.md` and verify the compatibility integer in
-   `src/WSGM.Device.Sdk/DeviceApi.cs`. It is currently API 4, but source and its pinning test win
-   over copied examples.
+   `src/WSGM.Device.Sdk/DeviceApi.cs`. The source and its pinning test win over copied examples.
 3. Read [references/contract-and-ownership.md](references/contract-and-ownership.md) before adding a
    type or changing lifecycle behavior.
 4. For plugin authoring, packaging, or an API change, read
