@@ -43,12 +43,12 @@ public sealed class CommonPluginSteamUiSourceTests
         using CommonPluginSteamUiSource source = new(manager, host);
         CommonPluginInstanceConfig enabled = new() { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([enabled], CancellationToken.None);
-        var staleId = Assert.Single(source.ReadExtensionsTab().Items).Id;
+        var staleId = ExtensionAction(source).Id;
         await manager.ReconcileAsync([], CancellationToken.None);
         Assert.False((await source.ActivateAsync(staleId, CancellationToken.None)).Succeeded);
         plugin = new SteamUiFixturePlugin();
         await manager.ReconcileAsync([enabled], CancellationToken.None);
-        var currentId = Assert.Single(source.ReadExtensionsTab().Items).Id;
+        var currentId = ExtensionAction(source).Id;
         Assert.NotEqual(staleId, currentId);
         Assert.False((await source.ActivateAsync(staleId, CancellationToken.None)).Succeeded);
         Assert.Null(plugin.LastAction);
@@ -71,7 +71,7 @@ public sealed class CommonPluginSteamUiSourceTests
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
             CancellationToken.None);
         Assert.True(changes > 0);
-        var extension = Assert.Single(source.ReadExtensionsTab().Items);
+        var extension = ExtensionAction(source);
         var game = Assert.Single(source.ReadGameContextMenu().Items);
         Assert.False((await source.ActivateAsync(game.Id, CancellationToken.None)).Succeeded);
         Assert.False((await source.ActivateAsync(480, extension.Id, CancellationToken.None)).Succeeded);
@@ -105,10 +105,14 @@ public sealed class CommonPluginSteamUiSourceTests
 
         var extensions = source.ReadExtensionsTab();
         var extension = Assert.Single(extensions.Items);
-        Assert.Equal("Fixture / Open", extension.Name);
+        Assert.Equal("Fixture", extension.Name);
+        Assert.Equal("1.0.0", extension.Version);
         Assert.Equal("Ready", extension.Status);
 
-        var extensionResult = await source.ActivateAsync(extension.Id, CancellationToken.None);
+        // The package is the row; its declared contributions are the row's actions.
+        var action = Assert.Single(extension.Actions!);
+        Assert.Equal("Open", action.Label);
+        var extensionResult = await source.ActivateAsync(action.Id, CancellationToken.None);
         Assert.True(extensionResult.Succeeded);
         Assert.Equal("open", plugin.LastAction);
 
@@ -121,6 +125,11 @@ public sealed class CommonPluginSteamUiSourceTests
 
         source.Dispose();
         await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+    }
+
+    private static SteamExtensionsTabAction ExtensionAction(CommonPluginSteamUiSource source)
+    {
+        return Assert.Single(Assert.Single(source.ReadExtensionsTab().Items).Actions!);
     }
 
     private static async Task<string> Catalog(TemporaryDirectory temporary)
