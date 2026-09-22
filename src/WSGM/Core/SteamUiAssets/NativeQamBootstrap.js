@@ -5925,7 +5925,9 @@
     // The host's setting id while the running game's own profile supplies a row's value. It is only
     // carried back by Use global, so anything that is not a bounded string means no override.
     const normalizeOverrideId = (value) =>
-      typeof value === "string" && value.length > 0 && value.length <= 200 ? value : null;
+      // Blank is refused the way the host's payload reader refuses it, so a row never offers an
+      // action that can only fail.
+      typeof value === "string" && value.trim().length > 0 && value.length <= 200 ? value : null;
     // The game-override marker leads a row's own description, so the one place a row explains itself
     // also says that this value is the game's rather than the host's global one.
     const overrideDescription = (overrideId, text) =>
