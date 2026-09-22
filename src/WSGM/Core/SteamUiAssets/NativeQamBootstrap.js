@@ -952,6 +952,132 @@
     unsubscribe?.();
     return null;
   };
+  // React's mounted trees, for the gates that find a module-local component by where it is drawn.
+  //
+  // One root fiber per container React attached to under the document: the `#root` host and any
+  // other body child that carries a container key. SharedJSContext keeps a second, empty container
+  // beside `#root` on the September 2026 client. Each container names the fiber root React created;
+  // the root's `current` is the tree on screen, and after the first commit that is not always the
+  // fiber the container key was written with.
+  const reactRootFibers = () => {
+    const hosts = [];
+    const root = document.getElementById("root");
+    if (root) hosts.push(root);
+    for (const child of Array.from(document.body?.children ?? [])) {
+      if (child !== root) hosts.push(child);
+    }
+    const roots = [];
+    for (const host of hosts) {
+      const key = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
+      if (!key) continue;
+      const fiber = host[key];
+      roots.push(fiber?.stateNode?.current ?? fiber);
+    }
+    return roots;
+  };
+  // Walks mounted fibers breadth-first over the child and sibling links, bounded, until `visit`
+  // answers true. Breadth-first because a router sits near the top of its tree, and a depth-first
+  // walk can spend the whole bound inside the first large subtree — a mounted library grid — before
+  // it gets there. Answers how many fibers were seen and whether the walk stopped on a match.
+  const walkFibers = (roots, bound, visit) => {
+    const queue = roots.slice();
+    let visited = 0;
+    for (let head = 0; head < queue.length && visited < bound; head++) {
+      const node = queue[head];
+      if (!node) continue;
+      visited++;
+      if (visit(node) === true) return { visited, stopped: true };
+      queue.push(node.child, node.sibling);
+    }
+    return { visited, stopped: false };
+  };
+  // The mounted fibers drawing one component: those whose element type is the memo or function that
+  // was claimed. The walk covers the tree on screen, so each mounted instance answers once.
+  const mountedFibersOf = (roots, elementType, bound) => {
+    const fibers = [];
+    walkFibers(roots, bound, (fiber) => {
+      if (fiber.elementType === elementType) fibers.push(fiber);
+    });
+    return fibers;
+  };
+  // Where a fiber's real props are kept while an adoption render is forced; see adoptMountedType.
+  const AdoptedPropsKey = "__steamUiAdoptedProps";
+  const MaximumAncestors = 64;
+  // Asks the nearest class component above a fiber to render again. Steam's router switch is a
+  // class, so a claimed page under it re-renders the way a navigation renders it. `forceUpdate` is
+  // React's public API for exactly this. Answers whether an instance was found and asked.
+  const requestRender = (fiber) => {
+    let node = fiber.return;
+    for (let depth = 0; node && depth < MaximumAncestors; depth++) {
+      const instance = node.stateNode;
+      if (instance?.isReactComponent && typeof instance.forceUpdate === "function") {
+        try {
+          instance.forceUpdate();
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      node = node.return;
+    }
+    return false;
+  };
+  // Brings a claim on a component's `type` to the instances already on screen.
+  //
+  // A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
+  // function once and caches it on the fiber as `type`, and every later render of that fiber reads
+  // the cache, not the memo. On the September 2026 client Big Picture mounts its router and Home in
+  // the same commit, the moment its services report initialized, so Home is always on screen by the
+  // time the route list can be found; the claim alone left the carousel Steam's until the user left
+  // Home and came back (2026-09-22).
+  //
+  // Three writes, each to a plain field of the mounted fiber, make the claim current:
+  //   1. `type` on the fiber and its alternate, so the next render calls the replacement. The
+  //      replacement must add no hooks of its own: the fiber keeps the hook list the original built,
+  //      and React refuses a render that ends with more hooks than the last.
+  //   2. `memoizedProps` swapped for an object that shallow-compares unequal to the real props, so
+  //      React's memo bail-out cannot skip that render. React writes the real props back when it
+  //      renders, and the real props stay reachable under AdoptedPropsKey until then.
+  //   3. A render requested from the nearest class ancestor, so it happens now rather than on the
+  //      next navigation.
+  // Answers how many instances were adopted and whether a render was requested. Without a class
+  // ancestor the adoption still holds and takes effect on the instance's next render; `staleFibers`
+  // says whether one is still waiting.
+  const adoptMountedType = (roots, elementType, replacement, bound) => {
+    let adopted = 0;
+    let scheduled = false;
+    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
+      if (fiber.type === replacement) continue;
+      for (const side of [fiber, fiber.alternate]) {
+        if (!side) continue;
+        side.type = replacement;
+        side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
+      }
+      adopted++;
+      scheduled = requestRender(fiber) || scheduled;
+    }
+    return { adopted, scheduled };
+  };
+  // Hands adopted instances back to the function the claim displaced. No render is requested: the
+  // original draws again whenever the page next renders, and a wrapper left on screen until then
+  // passes Steam's tree through once its gate is removed.
+  const releaseMountedType = (roots, elementType, replacement, original, bound) => {
+    let released = 0;
+    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
+      if (fiber.type !== replacement) continue;
+      for (const side of [fiber, fiber.alternate]) {
+        if (side) side.type = original;
+      }
+      released++;
+    }
+    return released;
+  };
+  // Mounted instances of a claimed memo still drawing something other than the memo's current
+  // `type`: an adoption whose render has not happened yet, or a mount the claim never reached.
+  const staleFibers = (roots, memo, bound) =>
+    memo
+      ? mountedFibersOf(roots, memo, bound).filter((fiber) => fiber.type !== memo.type).length
+      : 0;
   const SteamUiIconShapes = Object.freeze({
     // -- Profile scope --------------------------------------------------------------------------
     // An ID card: the question the section answers is whose settings these are, not what they do.
@@ -2879,6 +3005,12 @@
   // from the router's route list in SharedJSContext's React tree, and its `type` is claimed. The
   // carousel element is found in what Home renders.
   //
+  // The claim reaches Homes mounted after it. Big Picture starts on Home, and since the client update
+  // of 2026-09-22 the router and Home mount together the moment Steam's services report initialized,
+  // so the Home on screen at install was drawn by the original and would stay Steam's until the user
+  // left and came back. Install therefore also adopts every mounted Home (adoptMountedType), which
+  // re-renders it through the claim at once.
+  //
   // The carousel is already virtualized, and Home defeats that: it passes `overscan: games.length`,
   // so every tile in the list is mounted. At Steam's cap of 20 that is harmless; at a whole library it
   // is the memory flood. The Play Next carousel uses the same component with no overscan and gets the
@@ -2928,6 +3060,7 @@
     const listeners = new Set();
     let lastOutcome = "never rendered";
     let lastReport = "";
+    let lastAdoption = { adopted: 0, scheduled: false };
     let cached = null;
     const carouselChecks = new WeakMap();
     const carouselCache = new Map();
@@ -3211,59 +3344,37 @@
       typeof type.type === "function" &&
       (type.type[claimKeys.marker] === true ||
         HomeTokens.every((token) => String(type.type).includes(token)));
-    // SharedJSContext's React root, the tree every Steam window renders from.
-    const reactRoots = () => {
-      const host = document.getElementById("root");
-      const key = host
-        ? Object.keys(host).find((name) => name.startsWith("__reactContainer$"))
-        : undefined;
-      return key ? [host[key]] : [];
-    };
     // Home from the router's route list. The list is found by content — the array holding a route for
     // /library/home — and the page element under that route names the Home memo. Bounded and
     // read-only; the memo is one object whichever window renders it, so claiming it reaches them all.
     // Until Big Picture has built its tree there is no route list to find, and the patch manager
-    // probes again: on the reference client two probes during startup refused and a later one
-    // verified.
-    //
-    // Breadth-first over the child and sibling links: a router sits near the top of its tree, and a
-    // depth-first walk can spend the whole bound inside the first large subtree — a mounted library
-    // grid — before it gets there. What the walk saw is kept for `status` and the refusal, so a miss
-    // on a new client says which assumption failed without anyone attaching to Steam.
+    // probes again. What the walk saw is kept for `status` and the refusal, so a miss on a new
+    // client says which assumption failed without anyone attaching to Steam.
     let lastSearch = { roots: 0, visited: 0, homeRoutes: 0, page: "" };
     const findHome = () => {
       let found = null;
-      const roots = reactRoots();
+      const roots = reactRootFibers();
       const search = { roots: roots.length, visited: 0, homeRoutes: 0, page: "" };
-      const queue = roots.slice();
-      for (
-        let head = 0;
-        head < queue.length && !found && search.visited < MaximumNodesVisited;
-        head++
-      ) {
-        const node = queue[head];
-        if (!node) continue;
-        search.visited++;
+      const walk = walkFibers(roots, MaximumNodesVisited, (node) => {
         // A Fragment's fiber holds its children array as the props themselves.
         const props = node.memoizedProps;
         const children = Array.isArray(props) ? props : props?.children;
-        if (Array.isArray(children) && children.length > 2 && children.length < 512) {
-          const route = children.find(
-            (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
-          );
-          if (route) {
-            search.homeRoutes++;
-            const type = route.props?.children?.type;
-            search.page = !type
-              ? "none"
-              : typeof type === "function"
-                ? "function"
-                : String(type.$$typeof);
-            if (isHome(type)) found = type;
-          }
-        }
-        queue.push(node.child, node.sibling);
-      }
+        if (!Array.isArray(children) || children.length <= 2 || children.length >= 512) return;
+        const route = children.find(
+          (child) => react.isValidElement(child) && child.props?.path === KnownRoute,
+        );
+        if (!route) return;
+        search.homeRoutes++;
+        const type = route.props?.children?.type;
+        search.page = !type
+          ? "none"
+          : typeof type === "function"
+            ? "function"
+            : String(type.$$typeof);
+        if (isHome(type)) found = type;
+        return !!found;
+      });
+      search.visited = walk.visited;
       lastSearch = search;
       return found;
     };
@@ -3309,8 +3420,8 @@
         lastError = "home carousel resolution failed: " + String(error);
       });
       if (!resolved) return { ok: false, error: lastError };
-      // Home renders through this memo wherever the router draws it, and a Home already on screen
-      // picks the claim up when it next mounts.
+      // Home renders through this memo wherever the router draws it. The wrapper adds no hooks, so
+      // a Home already on screen can be adopted into it without remounting.
       const claim = claimMember(home, "type", claimKeys, (original) => {
         if (typeof original !== "function") return original;
         return function SteamUiHome(props) {
@@ -3324,6 +3435,7 @@
       }
       installed = true;
       lastError = "";
+      lastAdoption = adoptMountedType(reactRootFibers(), home, home.type, MaximumNodesVisited);
       unsubscribe = subscribe(patchId, (published) => {
         const ids = Array.isArray(published?.disconnectedAppIds)
           ? published.disconnectedAppIds
@@ -3339,7 +3451,12 @@
         };
         notify();
       });
-      return { ok: true, installed: true, reclaimed: claim.reclaimed };
+      return {
+        ok: true,
+        installed: true,
+        reclaimed: claim.reclaimed,
+        adopted: lastAdoption.adopted,
+      };
     };
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
@@ -3356,11 +3473,15 @@
       lastReport = "";
       carouselCache.clear();
       recentGamesCache.clear();
+      const wrapper = home?.type;
       const released = releaseMember(home, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "home carousel release failed";
         return { ok: false, error: lastError };
       }
+      // Adopted Homes draw the original again on their next render; the memo already does.
+      releaseMountedType(reactRootFibers(), home, wrapper, home.type, MaximumNodesVisited);
+      lastAdoption = { adopted: 0, scheduled: false };
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -3374,6 +3495,12 @@
       disconnected: policy.disconnected.size,
       counts: cached?.counts ?? null,
       search: lastSearch,
+      // Homes on screen at install, and any still drawing something other than the memo's current
+      // type: an adoption whose render is pending, or a mount the claim never reached.
+      mounted: {
+        ...lastAdoption,
+        stale: staleFibers(reactRootFibers(), home, MaximumNodesVisited),
+      },
       lastOutcome,
       lastError,
     });
