@@ -8,7 +8,9 @@ namespace WSGM.Core;
 /// <param name="StartDirectory">The working directory Steam stores.</param>
 /// <param name="LaunchOptions">The Launch Arguments Steam stores.</param>
 public sealed record PackagedLauncherShortcutFields(
-    string Target, string StartDirectory, string LaunchOptions);
+    string Target,
+    string StartDirectory,
+    string LaunchOptions);
 
 /// <summary>Composes the shortcut that launches a packaged title through WSGM.</summary>
 /// <remarks>

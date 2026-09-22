@@ -72,6 +72,9 @@ public sealed class ShellSession : IAsyncDisposable
     private readonly SemaphoreSlim _transportGateSignal = new(0);
     private SessionActivation? _activation;
 
+    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
+    private SteamArtworkBrowserSource? _artwork;
+
     // Whether WSGM's per-application feature is the reason the device currently holds a power limit,
     // so an application transition knows whether it has a limit of its own to take back. Written and
     // read only from the running-application transition path and the manual funnels, all of which the
@@ -189,6 +192,10 @@ public sealed class ShellSession : IAsyncDisposable
     private volatile bool _inGameMode = true;
     private KeepAwakeService? _keepAwake;
     private bool _libraryBadgeEnabled;
+
+    /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    private SteamLibraryImportSource? _libraryImport;
+
     private MessageWindow? _messageWindow;
     private SessionModes? _modes;
     private SteamMonitor? _monitor;
@@ -231,12 +238,6 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
     private SteamStorageBridge? _steamStorage;
-
-    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
-    private SteamArtworkBrowserSource? _artwork;
-
-    /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
-    private SteamLibraryImportSource? _libraryImport;
 
     private SteamUiSessionHost? _steamUi;
 
@@ -1005,9 +1006,12 @@ public sealed class ShellSession : IAsyncDisposable
                 (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
             new ImportStateStore(),
             () => new SteamShortcutWriter(
-                async token => [.. (await SteamLibraryData.ListGamesAsync(token).ConfigureAwait(false))
+                async token =>
+                [
+                    .. (await SteamLibraryData.ListGamesAsync(token).ConfigureAwait(false))
                     .Where(game => game.Shortcut)
-                    .Select(game => SteamApps.NormalizeAppId(game.AppId))],
+                    .Select(game => SteamApps.NormalizeAppId(game.AppId))
+                ],
                 async (name, target, directory, options, token) =>
                     (await SteamApps.AddShortcutAsync(name, target, directory, options, token)
                         .ConfigureAwait(false)).AppId,
@@ -1018,7 +1022,63 @@ public sealed class ShellSession : IAsyncDisposable
                     (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
             async token => [.. await ReadShortcutsAsync(token).ConfigureAwait(false)],
             () => ImportMode.SteamIntegration,
-            () => false);
+            () => false,
+            ApplyCatalogArtworkAsync,
+            (id, name, target, token) => _profiles is null
+                ? Task.CompletedTask
+                : _profiles.SetApplicationControllerTargetAsync(id, name, target, token));
+    }
+
+    /// <summary>Applies a title's Store artwork to the shortcut that was just created for it.</summary>
+    /// <param name="appId">The confirmed shortcut app id.</param>
+    /// <param name="artwork">The images the catalog offered.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>How many capsules were applied.</returns>
+    /// <remarks>
+    ///     One capsule failing does not stop the others: a title with a poster and no logo should
+    ///     still get its poster. The download path is the artwork feature's own, so the HTTPS
+    ///     requirement, the size cap and the header check apply here unchanged.
+    /// </remarks>
+    private static async Task<int> ApplyCatalogArtworkAsync(
+        uint appId, IReadOnlyList<DiscoveredArtwork> artwork, CancellationToken cancellationToken)
+    {
+        var applied = 0;
+        foreach (var image in artwork)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var bytes = await SteamGridDb.DownloadImageAsync(image.Url, cancellationToken)
+                    .ConfigureAwait(false);
+                if (bytes is null or { Length: 0 })
+                {
+                    continue;
+                }
+
+                var result = await SteamArtwork
+                    .ApplyAsync(appId, image.Asset, bytes, Extension(image.Url), cancellationToken)
+                    .ConfigureAwait(false);
+                if (result.Succeeded)
+                {
+                    applied++;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                Log.Warn($"Library import: the {image.Asset} image did not apply. {exception.Message}");
+            }
+        }
+
+        return applied;
+    }
+
+    /// <summary>The image format a catalog URL declares by its suffix.</summary>
+    /// <param name="url">The image URL.</param>
+    /// <returns>The extension, defaulting to png when the URL declares none.</returns>
+    private static string Extension(string url)
+    {
+        var suffix = Path.GetExtension(new Uri(url).AbsolutePath).TrimStart('.').ToLowerInvariant();
+        return suffix is "jpg" or "jpeg" or "png" or "webp" ? suffix : "png";
     }
 
     /// <summary>Reads the non-Steam shortcuts Steam currently has, with what each one runs.</summary>

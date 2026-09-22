@@ -143,7 +143,7 @@ public static class SteamLibraryImportSurface
           {{SteamUiProbeJs.Preamble("steam_ui_library_import_probe_")}}
             return JSON.stringify({
               react:count({{SteamUiProbeJs.ReactTokens}}),
-              focusable:count(['onActivate','onCancel','focusableIfEmpty','focusClassName']),
+              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
               controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
               modal:count({{SteamUiProbeJs.NativeModalTokens}}),
               showModal:count({{SteamUiProbeJs.NativeShowModalTokens}})

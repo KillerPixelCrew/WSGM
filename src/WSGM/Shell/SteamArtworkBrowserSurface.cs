@@ -123,14 +123,6 @@ public static class SteamArtworkBrowserSurface
     /// <summary>The Steam router pattern registered by this surface.</summary>
     public const string Route = "/wsgm/artwork/:appid";
 
-    /// <summary>The concrete route that opens this page for one game.</summary>
-    /// <param name="appId">The game the page should open on.</param>
-    /// <returns>The path Steam's router navigates to.</returns>
-    public static string RouteFor(uint appId)
-    {
-        return "/wsgm/artwork/" + appId.ToString(CultureInfo.InvariantCulture);
-    }
-
     /// <summary>The exact command vocabulary emitted by the page.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
@@ -148,7 +140,7 @@ public static class SteamArtworkBrowserSurface
           {{SteamUiProbeJs.Preamble("steam_ui_artwork_browser_probe_")}}
             return JSON.stringify({
               react:count({{SteamUiProbeJs.ReactTokens}}),
-              focusable:count(['onActivate','onCancel','focusableIfEmpty','focusClassName']),
+              focusable:count({{SteamUiProbeJs.NativeFocusableTokens}}),
               controls:count({{SteamUiProbeJs.NativeFieldTokens}}),
               tabs:count({{SteamUiProbeJs.NativeTabsTokens}}),
               modal:count({{SteamUiProbeJs.NativeModalTokens}}),
@@ -165,6 +157,14 @@ public static class SteamArtworkBrowserSurface
         "status.installed&&status.resolved&&status.subscribed",
         "!status.installed",
         "Artwork browser");
+
+    /// <summary>The concrete route that opens this page for one game.</summary>
+    /// <param name="appId">The game the page should open on.</param>
+    /// <returns>The path Steam's router navigates to.</returns>
+    public static string RouteFor(uint appId)
+    {
+        return "/wsgm/artwork/" + appId.ToString(CultureInfo.InvariantCulture);
+    }
 
     /// <summary>Declares the page route, artwork state, and exact backend commands.</summary>
     /// <param name="enabled">Whether the page may be installed and published.</param>

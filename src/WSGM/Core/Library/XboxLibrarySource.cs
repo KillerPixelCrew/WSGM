@@ -45,8 +45,8 @@ public sealed class XboxLibrarySource : ILibrarySource
     ];
 
     private readonly Func<CancellationToken, IReadOnlyList<InstalledPackage>> _enumerate;
-    private readonly Func<string, string?> _readFile;
     private readonly Func<InstalledPackage, CancellationToken, Task<StoreCatalogEntry?>>? _lookUp;
+    private readonly Func<string, string?> _readFile;
 
     /// <summary>Creates the source over injected discovery seams.</summary>
     /// <param name="enumerate">Lists installed packages.</param>
@@ -70,14 +70,6 @@ public sealed class XboxLibrarySource : ILibrarySource
     /// <inheritdoc />
     public string DisplayName => "Xbox";
 
-    /// <summary>Whether a package family is Windows' own rather than something installed.</summary>
-    /// <param name="familyName">The package family name.</param>
-    public static bool IsSystemPackage(string familyName)
-    {
-        return SystemPublishers.Any(
-            prefix => familyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-    }
-
     /// <inheritdoc />
     public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
@@ -94,6 +86,13 @@ public sealed class XboxLibrarySource : ILibrarySource
         }
 
         return found;
+    }
+
+    /// <summary>Whether a package family is Windows' own rather than something installed.</summary>
+    /// <param name="familyName">The package family name.</param>
+    public static bool IsSystemPackage(string familyName)
+    {
+        return SystemPublishers.Any(prefix => familyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task<DiscoveredGame> DescribeAsync(
@@ -120,6 +119,7 @@ public sealed class XboxLibrarySource : ILibrarySource
         var isGame = classification.Runtime is XboxRuntime.PackagedWin32Gdk;
         var multiplayer = MultiplayerVerdict.Unknown;
         var multiplayerEvidence = "Nothing was asked about this title's multiplayer support.";
+        IReadOnlyList<DiscoveredArtwork> artwork = [];
 
         if (_lookUp is not null)
         {
@@ -129,6 +129,7 @@ public sealed class XboxLibrarySource : ILibrarySource
                 isGame = isGame || catalog.IsGame;
                 multiplayer = catalog.Multiplayer;
                 multiplayerEvidence = catalog.MultiplayerEvidence;
+                artwork = SelectArtwork(catalog.Images);
             }
             else
             {
@@ -147,7 +148,55 @@ public sealed class XboxLibrarySource : ILibrarySource
             multiplayer,
             multiplayerEvidence,
             isGame,
-            notes);
+            notes,
+            artwork);
+    }
+
+    /// <summary>Picks one catalog image per Steam capsule.</summary>
+    /// <param name="images">Everything the catalog offered for the title.</param>
+    /// <returns>At most one image per asset, largest first, in a stable order.</returns>
+    /// <remarks>
+    ///     The Store's purposes do not line up with Steam's capsules one for one, so each is mapped
+    ///     to the capsule whose aspect it actually fills. An unmapped purpose is dropped rather than
+    ///     guessed at: a wrongly shaped capsule is worse than none, because Steam would show the
+    ///     stretched result instead of falling back to its own.
+    /// </remarks>
+    private static IReadOnlyList<DiscoveredArtwork> SelectArtwork(IReadOnlyList<StoreCatalogImage> images)
+    {
+        List<DiscoveredArtwork> chosen = [];
+        foreach (var asset in (ArtworkAsset[])
+                 [
+                     ArtworkAsset.Grid, ArtworkAsset.Hero, ArtworkAsset.Logo, ArtworkAsset.Wide,
+                     ArtworkAsset.Icon
+                 ])
+        {
+            var best = images
+                .Where(image => Asset(image.Purpose) == asset)
+                .OrderByDescending(image => (long)image.Width * image.Height)
+                .FirstOrDefault();
+            if (best is not null)
+            {
+                chosen.Add(new DiscoveredArtwork(asset, best.Url));
+            }
+        }
+
+        return chosen;
+    }
+
+    /// <summary>Which Steam capsule a Store image purpose fills, or null when none does.</summary>
+    /// <param name="purpose">The Store's own purpose name.</param>
+    /// <returns>The capsule, or null to drop the image.</returns>
+    private static ArtworkAsset? Asset(string purpose)
+    {
+        return purpose switch
+        {
+            "Poster" or "BoxArt" => ArtworkAsset.Grid,
+            "SuperHeroArt" => ArtworkAsset.Hero,
+            "Logo" or "BrandedKeyArt" => ArtworkAsset.Logo,
+            "TitledHeroArt" => ArtworkAsset.Wide,
+            "Tile" => ArtworkAsset.Icon,
+            _ => null
+        };
     }
 
     /// <summary>What to call this title, preferring what Windows itself shows.</summary>

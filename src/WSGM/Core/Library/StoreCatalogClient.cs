@@ -125,7 +125,7 @@ public sealed class StoreCatalogClient
             return Parse(body);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
-                                       && !cancellationToken.IsCancellationRequested)
+                                   && !cancellationToken.IsCancellationRequested)
         {
             Log.Warn($"Store lookup failed for {familyName}: {ex.Message}");
             return null;
@@ -195,13 +195,16 @@ public sealed class StoreCatalogClient
             return [];
         }
 
-        return [.. attributes.EnumerateArray()
-            .Select(attribute => attribute.ValueKind == JsonValueKind.Object
-                ? Text(attribute, "Name")
-                : attribute.ValueKind == JsonValueKind.String
-                    ? attribute.GetString() ?? string.Empty
-                    : string.Empty)
-            .Where(name => name.Length > 0)];
+        return
+        [
+            .. attributes.EnumerateArray()
+                .Select(attribute => attribute.ValueKind == JsonValueKind.Object
+                    ? Text(attribute, "Name")
+                    : attribute.ValueKind == JsonValueKind.String
+                        ? attribute.GetString() ?? string.Empty
+                        : string.Empty)
+                .Where(name => name.Length > 0)
+        ];
     }
 
     /// <summary>
@@ -223,8 +226,7 @@ public sealed class StoreCatalogClient
         ];
 
         var matched = attributes
-            .Where(name => multiplayer.Any(
-                capability => name.Contains(capability, StringComparison.OrdinalIgnoreCase)))
+            .Where(name => multiplayer.Any(capability => name.Contains(capability, StringComparison.OrdinalIgnoreCase)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

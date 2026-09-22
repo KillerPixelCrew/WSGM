@@ -127,8 +127,8 @@ public static class XboxRuntimeClassifier
                     $"Full trust, and the package activates {GameLaunchHelper}.");
             }
 
-            if (facts.PackageDependencies.Any(
-                    dependency => dependency.StartsWith(GamingServices, StringComparison.OrdinalIgnoreCase)))
+            if (facts.PackageDependencies.Any(dependency =>
+                    dependency.StartsWith(GamingServices, StringComparison.OrdinalIgnoreCase)))
             {
                 return new XboxRuntimeClassification(XboxRuntime.PackagedWin32Gdk,
                     $"Full trust, and the package depends on {GamingServices}.");

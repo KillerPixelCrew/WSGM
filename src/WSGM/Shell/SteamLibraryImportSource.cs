@@ -27,34 +27,48 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     /// <summary>How many entries one apply may write, so a mistake has a bounded blast radius.</summary>
     private const int MaximumPerRun = 50;
 
+    private readonly Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? _applyArtwork;
+    private readonly Func<ImportMode> _defaultMode;
+
+    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+
     private readonly Lock _gate = new();
+    private readonly Func<bool> _includeUnknownRuntime;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
+    private readonly Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? _setControllerTarget;
+    private readonly CancellationTokenSource _shutdown = new();
     private readonly ILibrarySource _source;
     private readonly ImportStateStore _store;
     private readonly Func<SteamShortcutWriter?> _writer;
-    private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
-    private readonly Func<ImportMode> _defaultMode;
-    private readonly Func<bool> _includeUnknownRuntime;
-    private readonly CancellationTokenSource _shutdown = new();
-
-    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
-    private CancellationTokenSource? _work;
-    private long _generation;
-    private string _phase = "idle";
-    private string? _notice;
+    private bool _artworkMissing;
+    private bool _disposed;
     private string? _error;
+    private long _generation;
+    private string? _notice;
+    private string _phase = "idle";
     private int _progress;
     private int _progressTotal;
     private long _revision;
-    private bool _disposed;
+    private CancellationTokenSource? _work;
 
     /// <summary>Creates the backend over its sources and the client calls it drives.</summary>
+    /// <param name="source">Where games are discovered.</param>
+    /// <param name="store">Where this run's records are kept.</param>
+    /// <param name="writer">Opens a shortcut writer over the live client, or null when unreachable.</param>
+    /// <param name="readLibrary">Reads the shortcuts Steam currently holds.</param>
+    /// <param name="defaultMode">The mode an entry starts on.</param>
+    /// <param name="includeUnknownRuntime">Whether unclassified titles may be selected.</param>
+    /// <param name="applyArtwork">Applies catalog images to a confirmed app id, or null to skip.</param>
+    /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
     internal SteamLibraryImportSource(
         ILibrarySource source,
         ImportStateStore store,
         Func<SteamShortcutWriter?> writer,
         Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
         Func<ImportMode> defaultMode,
-        Func<bool> includeUnknownRuntime)
+        Func<bool> includeUnknownRuntime,
+        Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
+        Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null)
     {
         _source = source;
         _store = store;
@@ -62,42 +76,26 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         _readLibrary = readLibrary;
         _defaultMode = defaultMode;
         _includeUnknownRuntime = includeUnknownRuntime;
+        _applyArtwork = applyArtwork;
+        _setControllerTarget = setControllerTarget;
     }
 
-    /// <summary>Raised when the published state changed.</summary>
-    internal event Action? Changed;
-
-    /// <summary>The state Steam should currently render.</summary>
-    internal SteamLibraryImportState ReadState()
+    /// <inheritdoc />
+    public void Dispose()
     {
         lock (_gate)
         {
-            var launcher = PackagedLauncherShortcut.ResolveLauncher();
-            var entries = _entries.Values.OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
-                .Select(Project).ToList();
+            if (_disposed)
+            {
+                return;
+            }
 
-            return new SteamLibraryImportState(
-                _source.DisplayName,
-                _phase,
-                entries,
-                entries.Count(entry => entry.Selected),
-                Count(ImportAction.Add),
-                Count(ImportAction.Update),
-                Count(ImportAction.Remove),
-                Count(ImportAction.Skip),
-                Count(ImportAction.Conflict),
-                _entries.Values.Count(entry => entry.Game.Runtime is XboxRuntime.Unknown),
-                _progress,
-                _progressTotal,
-                launcher is not null,
-                launcher is null
-                    ? "The packaged-game launcher is missing from this install, so nothing can be imported."
-                    : null,
-                _phase is "scanning" or "applying",
-                _notice,
-                _error,
-                _revision);
+            _disposed = true;
         }
+
+        _shutdown.Cancel();
+        _work?.Dispose();
+        _shutdown.Dispose();
     }
 
     /// <inheritdoc />
@@ -248,22 +246,40 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    /// <summary>Raised when the published state changed.</summary>
+    internal event Action? Changed;
+
+    /// <summary>The state Steam should currently render.</summary>
+    internal SteamLibraryImportState ReadState()
     {
         lock (_gate)
         {
-            if (_disposed)
-            {
-                return;
-            }
+            var launcher = PackagedLauncherShortcut.ResolveLauncher();
+            var entries = _entries.Values.OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
+                .Select(Project).ToList();
 
-            _disposed = true;
+            return new SteamLibraryImportState(
+                _source.DisplayName,
+                _phase,
+                entries,
+                entries.Count(entry => entry.Selected),
+                Count(ImportAction.Add),
+                Count(ImportAction.Update),
+                Count(ImportAction.Remove),
+                Count(ImportAction.Skip),
+                Count(ImportAction.Conflict),
+                _entries.Values.Count(entry => entry.Game.Runtime is XboxRuntime.Unknown),
+                _progress,
+                _progressTotal,
+                launcher is not null,
+                launcher is null
+                    ? "The packaged-game launcher is missing from this install, so nothing can be imported."
+                    : null,
+                _phase is "scanning" or "applying",
+                _notice,
+                _error,
+                _revision);
         }
-
-        _shutdown.Cancel();
-        _work?.Dispose();
-        _shutdown.Dispose();
     }
 
     private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
@@ -307,6 +323,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     private async Task ApplyCoreAsync(
         long generation, IReadOnlyList<Entry> selected, CancellationToken cancellationToken)
     {
+        _artworkMissing = false;
         var writer = _writer();
         if (writer is null)
         {
@@ -358,6 +375,10 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             {
                 if (result.Confirmed)
                 {
+                    // The override outlives the shortcut otherwise, and would then match nothing
+                    // while still showing up as a profile the user never made.
+                    await ReleaseControllerTargetAsync(current.AppId, cancellationToken)
+                        .ConfigureAwait(false);
                     _store.Forget(entry.Game.SourceId, entry.Game.Key);
                     applied++;
                     Progress(generation, applied);
@@ -394,6 +415,12 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 return;
             }
 
+            // Everything past the confirmed shortcut is decoration or policy the user can redo by
+            // hand, so a failure here is noted and the run carries on. Losing the whole import over
+            // a capsule that would not download is not a trade worth making.
+            await FinishEntryAsync(generation, entry, result.AppId, cancellationToken)
+                .ConfigureAwait(false);
+
             applied++;
             Progress(generation, applied);
         }
@@ -406,10 +433,93 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             }
 
             _phase = "done";
-            _notice = $"Applied {applied} of {selected.Count} selected entry/entries. "
-                      + "Open a game's menu and choose Change Artwork to set its capsule.";
+            _notice = $"Applied {applied} of {selected.Count} selected entry/entries."
+                      + (_artworkMissing
+                          ? " Some titles had no Store artwork; open a game's menu and choose Change"
+                            + " Artwork to set its capsule."
+                          : string.Empty);
             Publish();
         }
+    }
+
+    /// <summary>Applies the catalog artwork and the controller override for one written entry.</summary>
+    /// <param name="generation">The run this belongs to.</param>
+    /// <param name="entry">The entry that was written.</param>
+    /// <param name="appId">Its confirmed app id.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    private async Task FinishEntryAsync(
+        long generation, Entry entry, uint appId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_setControllerTarget is not null)
+            {
+                await _setControllerTarget(
+                        Identity(appId), entry.Plan.Name,
+                        entry.Mode is ImportMode.ControllerOnly ? ManagedControllerTarget.Xbox360 : null,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Note(generation,
+                $"{entry.Plan.Name} was added, but its controller override could not be written.");
+        }
+
+        if (_applyArtwork is null)
+        {
+            return;
+        }
+
+        if (entry.Game.Artwork.Count == 0)
+        {
+            _artworkMissing = true;
+            return;
+        }
+
+        try
+        {
+            if (await _applyArtwork(appId, entry.Game.Artwork, cancellationToken)
+                    .ConfigureAwait(false) == 0)
+            {
+                _artworkMissing = true;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _artworkMissing = true;
+            Note(generation, $"{entry.Plan.Name} was added, but its Store artwork did not apply.");
+        }
+    }
+
+    /// <summary>Clears a controller override left by an earlier import.</summary>
+    /// <param name="appId">The app id whose override to release.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    private async Task ReleaseControllerTargetAsync(uint appId, CancellationToken cancellationToken)
+    {
+        if (_setControllerTarget is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _setControllerTarget(Identity(appId), string.Empty, null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The shortcut is already gone; a stale override is a profile the user can delete.
+        }
+    }
+
+    /// <summary>The canonical profile identity of a Steam app id.</summary>
+    /// <param name="appId">The app id.</param>
+    /// <returns>The identity the running-application target reports for it when running.</returns>
+    private static string Identity(uint appId)
+    {
+        return "steam:" + appId.ToString(CultureInfo.InvariantCulture);
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> work, long generation)
@@ -504,7 +614,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     private static DiscoveredGame Placeholder(ImportPlanEntry entry)
     {
         return new DiscoveredGame("xbox", entry.Key, entry.Name, string.Empty, XboxRuntime.Unknown,
-            entry.Reason, MultiplayerVerdict.Unknown, entry.Reason, false, []);
+            entry.Reason, MultiplayerVerdict.Unknown, entry.Reason, false, [], []);
     }
 
     private SteamLibraryImportEntry Project(Entry entry)

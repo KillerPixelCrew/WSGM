@@ -17,6 +17,16 @@ public enum MultiplayerVerdict
     Multiplayer
 }
 
+/// <summary>One official image a source's catalog offers for a title.</summary>
+/// <param name="Asset">Which Steam capsule it fills.</param>
+/// <param name="Url">Where to fetch it, always HTTPS.</param>
+/// <remarks>
+///     Carried from discovery rather than looked up again at apply time, because the one catalog
+///     response that answers "is this a game?" and "does it have multiplayer?" carries the images
+///     too, and the catalog is paced at one request every 500 ms.
+/// </remarks>
+public sealed record DiscoveredArtwork(ArtworkAsset Asset, string Url);
+
 /// <summary>One game a source found, before anything has been decided about importing it.</summary>
 /// <param name="SourceId">Which source found it.</param>
 /// <param name="Key">Its stable identity within that source. The AUMID, for Xbox.</param>
@@ -28,6 +38,7 @@ public enum MultiplayerVerdict
 /// <param name="MultiplayerEvidence">Why, in one sentence the preview shows.</param>
 /// <param name="IsGame">Whether this is a game rather than an ordinary application.</param>
 /// <param name="Notes">Anything else worth showing, such as an unmodelled config element.</param>
+/// <param name="Artwork">The official images the catalog offered, empty when it offered none.</param>
 public sealed record DiscoveredGame(
     string SourceId,
     string Key,
@@ -38,7 +49,8 @@ public sealed record DiscoveredGame(
     MultiplayerVerdict Multiplayer,
     string MultiplayerEvidence,
     bool IsGame,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    IReadOnlyList<DiscoveredArtwork> Artwork);
 
 /// <summary>Somewhere games can be imported from.</summary>
 /// <remarks>

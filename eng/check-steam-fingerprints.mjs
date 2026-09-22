@@ -92,6 +92,11 @@ const sourceRoots = [
   "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source",
   "src/WSGM/Core",
   "src/WSGM/Shell",
+  // A plugin may declare its own conjunctions, and one that nobody checks breaks silently on the
+  // next client build. Discovered rather than listed, so adding a plugin covers it.
+  ...readdirSync(resolve(root, "src"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("WSGM.Plugin."))
+    .map((entry) => `src/${entry.name}`),
 ];
 
 const walk = (directory) =>

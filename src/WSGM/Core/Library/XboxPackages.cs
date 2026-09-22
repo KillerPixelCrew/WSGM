@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading;
 using Windows.ApplicationModel;
@@ -47,7 +48,7 @@ public static class XboxPackages
             packages = manager.FindPackagesForUser(identity.User?.Value ?? string.Empty);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException
-                                       or System.Runtime.InteropServices.COMException)
+                                       or COMException)
         {
             Log.Warn($"Installed packages could not be listed: {ex.Message}");
             return found;
@@ -69,7 +70,7 @@ public static class XboxPackages
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
                                            or InvalidOperationException
-                                           or System.Runtime.InteropServices.COMException)
+                                           or COMException)
             {
                 // A package being updated, or one whose location cannot be read. Skipped rather
                 // than allowed to end the scan.
@@ -126,7 +127,7 @@ public static class XboxPackages
             installPath = package.InstalledLocation?.Path ?? string.Empty;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
-                                       or System.Runtime.InteropServices.COMException)
+                                       or COMException)
         {
             // Documented to throw for some Store packages. The candidate is still worth listing;
             // it simply has less evidence behind it.
@@ -162,7 +163,7 @@ public static class XboxPackages
         {
             return entry?.DisplayInfo?.DisplayName ?? string.Empty;
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException
+        catch (Exception ex) when (ex is COMException
                                        or InvalidOperationException)
         {
             return string.Empty;

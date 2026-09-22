@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Shell;
@@ -20,7 +18,7 @@ public sealed class SteamLibraryImportSourceTests
         string name = "Moonlit")
     {
         return new DiscoveredGame("xbox", key, name, @"C:\WindowsApps\Game", runtime,
-            "Evidence.", multiplayer, "Evidence.", true, []);
+            "Evidence.", multiplayer, "Evidence.", true, [], []);
     }
 
     private static SteamLibraryImportSource Source(

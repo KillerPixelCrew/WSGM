@@ -35,10 +35,11 @@ public sealed class SteamShortcutWriter
     /// <summary>How long to let Steam settle between writes.</summary>
     private static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(400);
 
-    private readonly Func<CancellationToken, Task<IReadOnlyList<uint>>> _listShortcuts;
     private readonly Func<string, string, string, string, CancellationToken, Task<uint>> _add;
-    private readonly Func<uint, string, string, CancellationToken, Task<bool>> _setLaunch;
+
+    private readonly Func<CancellationToken, Task<IReadOnlyList<uint>>> _listShortcuts;
     private readonly Func<uint, CancellationToken, Task<bool>> _remove;
+    private readonly Func<uint, string, string, CancellationToken, Task<bool>> _setLaunch;
 
     /// <summary>Creates the writer over the client calls it drives.</summary>
     /// <param name="listShortcuts">Lists the non-Steam shortcut ids Steam currently has.</param>

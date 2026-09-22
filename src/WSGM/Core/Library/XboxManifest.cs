@@ -123,14 +123,14 @@ public static class XboxManifest
             });
             var document = XDocument.Load(reader);
             var candidates = document.Root?.Elements()
-                .Where(element => element.Name.LocalName is "Properties" or "Applications")
-                .SelectMany(element => element.DescendantsAndSelf())
-                .Where(element => element.Name.LocalName == "DisplayName")
-                .Select(element => element.Value)
-                .Concat(document.Root.Descendants()
-                    .Where(element => element.Name.LocalName == "VisualElements")
-                    .Select(element => (string?)element.Attribute("DisplayName") ?? string.Empty))
-                ?? [];
+                                 .Where(element => element.Name.LocalName is "Properties" or "Applications")
+                                 .SelectMany(element => element.DescendantsAndSelf())
+                                 .Where(element => element.Name.LocalName == "DisplayName")
+                                 .Select(element => element.Value)
+                                 .Concat(document.Root.Descendants()
+                                     .Where(element => element.Name.LocalName == "VisualElements")
+                                     .Select(element => (string?)element.Attribute("DisplayName") ?? string.Empty))
+                             ?? [];
 
             foreach (var candidate in candidates)
             {

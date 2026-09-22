@@ -118,7 +118,7 @@ public static class MicrosoftGameConfig
     private static string Value(XElement root, string name)
     {
         return root.Elements().FirstOrDefault(element =>
-            element.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value.Trim()
-            ?? string.Empty;
+                   element.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value.Trim()
+               ?? string.Empty;
     }
 }

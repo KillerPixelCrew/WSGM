@@ -22,6 +22,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 {
     private const string ShellPatchId = "wsgm.native-qam.shell";
 
+    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
+    private readonly SteamArtworkBrowserSource? _artwork;
+
     /// <summary>
     ///     Null when no audio manager exists for this session, which is the overlay-test case.
     /// </summary>
@@ -48,6 +51,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
+    /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
+    private readonly SteamExtensionsTabBackend _extensionsTab;
+
     private readonly Lock _failedPatchGate = new();
 
     // Patch ids of modules the runtime quarantined. Written from the publication and request paths,
@@ -55,15 +61,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
 
     private readonly SteamGameContextMenuBackend _gameContextMenu;
-
-    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
-    private readonly SteamArtworkBrowserSource? _artwork;
-
-    /// <summary>The library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
-    private readonly SteamLibraryImportSource? _libraryImport;
-
-    /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
-    private readonly SteamExtensionsTabBackend _extensionsTab;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
 
@@ -74,6 +71,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge = new();
+
+    /// <summary>The library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    private readonly SteamLibraryImportSource? _libraryImport;
 
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
     private readonly NativeQamNetworkService? _network;
@@ -1217,5 +1217,4 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         _runtime.CancelAllInflight();
     }
-
 }

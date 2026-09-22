@@ -19,7 +19,7 @@ public sealed class ImportPlanTests
         string name = "Moonlit")
     {
         return new DiscoveredGame("xbox", key, name, @"C:\WindowsApps\Game", runtime,
-            "Evidence.", multiplayer, "Evidence.", isGame, []);
+            "Evidence.", multiplayer, "Evidence.", isGame, [], []);
     }
 
     private static ImportedEntry Record(
@@ -176,7 +176,7 @@ public sealed class ImportPlanTests
     {
         // Two titles can share a display name; no two share an AUMID.
         var plan = ImportPlan.Build(
-            [Game(key: "A_x!App", name: "Same"), Game(key: "B_y!App", name: "Same")],
+            [Game("A_x!App", name: "Same"), Game("B_y!App", name: "Same")],
             [], [], Launcher, ImportMode.SteamIntegration, false);
 
         Assert.Equal(2, plan.Count);
@@ -215,7 +215,7 @@ public sealed class ImportPlanTests
     public void EveryEntryCarriesAReasonTheUserCanRead()
     {
         var plan = ImportPlan.Build(
-            [Game(), Game(key: "B_y!App", runtime: XboxRuntime.Unknown), Game(key: "C_z!App", isGame: false)],
+            [Game(), Game("B_y!App", XboxRuntime.Unknown), Game("C_z!App", isGame: false)],
             [Record(key: "gone!App", appId: 99u)],
             [],
             Launcher,

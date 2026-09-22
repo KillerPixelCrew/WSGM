@@ -197,8 +197,8 @@ public static class ImportPlan
                 ? ImportMode.ControllerOnly
                 : defaultMode;
 
-        var record = recorded.FirstOrDefault(
-            entry => string.Equals(entry.Key, game.Key, StringComparison.OrdinalIgnoreCase));
+        var record =
+            recorded.FirstOrDefault(entry => string.Equals(entry.Key, game.Key, StringComparison.OrdinalIgnoreCase));
 
         if (!classified && !includeUnknownRuntime)
         {
