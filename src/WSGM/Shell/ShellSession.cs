@@ -2103,6 +2103,32 @@ public sealed class ShellSession : IAsyncDisposable
     {
         QueueDevicePowerTransition(false, "system resumed");
         QueueDesktopActions(false);
+        RepairAfterResume();
+    }
+
+    /// <summary>Re-establishes the state a sleep invalidates without announcing it.</summary>
+    /// <remarks>
+    ///     The device cycle has its own resume and the Steam transport reconnects on its own. What is
+    ///     left are the two answers cached from before the sleep. The refresh-rate pairing is latched
+    ///     on the limit it last applied, so a panel that came back at its default rate keeps the
+    ///     paired label while running at another cadence until the cap is moved twice. RTSS is only
+    ///     probed while a UI client holds an observation lease, so with Quick Access closed and
+    ///     Steam's performance rows absent nothing looks at it after a wake at all: a restarted RTSS
+    ///     or a profile edited meanwhile goes unnoticed until the next game launch. One forced pass
+    ///     of each costs a driver round trip and a probe, and only on a real wake.
+    /// </remarks>
+    private void RepairAfterResume()
+    {
+        if (_shutdownRequested || _overlayTestOnly)
+        {
+            return;
+        }
+
+        ApplyRefreshPairing(_performance?.Current.Desired.FrameLimit ?? 0, true);
+        if (_performance is { } performance && PerformanceEnabled(_config))
+        {
+            Log.Observe(performance.RefreshAsync(), "RTSS resume refresh");
+        }
     }
 
     /// <summary>
@@ -3681,13 +3707,19 @@ public sealed class ShellSession : IAsyncDisposable
             }
         }
 
-        if (_refreshPairing is not { } pairing)
-        {
-            return;
-        }
+        ApplyRefreshPairing(state.Desired.FrameLimit ?? 0, false);
+    }
 
-        var limit = state.Desired.FrameLimit ?? 0;
-        if (limit == _pairedFrameLimit)
+    /// <summary>Pairs the display cadence to a frame limit, unless that pairing is already held.</summary>
+    /// <param name="limit">The desired frame limit, or zero for uncapped.</param>
+    /// <param name="force">
+    ///     Re-applies the pairing for the limit already latched. Set after a resume: the limit did not
+    ///     change, but the panel behind it was re-established by the driver and may have come back at
+    ///     its default rate, which the latch would otherwise hide until the user moved the cap twice.
+    /// </param>
+    private void ApplyRefreshPairing(int limit, bool force)
+    {
+        if (_refreshPairing is not { } pairing || (limit == _pairedFrameLimit && !force))
         {
             return;
         }
@@ -3695,10 +3727,16 @@ public sealed class ShellSession : IAsyncDisposable
         _pairedFrameLimit = limit;
 
         // Uncapped hands the display back: there is no cadence left to pair against, and holding a
-        // reduced refresh rate after the cap is gone would cap frames by the back door.
+        // reduced refresh rate after the cap is gone would cap frames by the back door. A forced
+        // pass is the exception: with no cap there is no WSGM-driven rate to undo, and restoring
+        // would overwrite a rate the user set by hand before the sleep.
         if (limit <= 0)
         {
-            _ = pairing.Restore();
+            if (!force)
+            {
+                _ = pairing.Restore();
+            }
+
             return;
         }
 
