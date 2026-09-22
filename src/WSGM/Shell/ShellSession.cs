@@ -2372,6 +2372,12 @@ public sealed class ShellSession : IAsyncDisposable
         {
             lock (_devicePowerGate)
             {
+                // The flag records what the MACHINE did, not whether this transition succeeded. A
+                // suspend that failed still slept the hardware, and leaving the flag unset made the
+                // following resume an edge that never came: the wake was skipped as "already
+                // running" and the cycle stayed quiesced (Claw, 2026-09-22). The coordinator's
+                // resume repairs a cycle that was never properly suspended.
+                _deviceSuspended = suspend;
                 if (_devicePowerRequestGeneration == requestGeneration)
                 {
                     _pendingDeviceSuspended = null;
