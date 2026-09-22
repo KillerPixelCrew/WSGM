@@ -414,6 +414,10 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
     internal void ConfigurationChanged()
     {
+        // The key may be the thing that changed, and a response fetched with the old one — or the
+        // refusal it earned — must not be reused to answer for the new one.
+        SteamGridDb.ResetCache();
+
         uint? appId;
         lock (_gate)
         {

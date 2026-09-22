@@ -103,6 +103,22 @@ public static class SteamGridDb
     // enforces its own 16 MB counted cap.
     private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
 
+    /// <summary>How many times one request is attempted before it is reported as failed.</summary>
+    private const int MaximumAttempts = 3;
+
+    /// <summary>How many responses are remembered for the rest of the session.</summary>
+    private const int MaximumCachedResponses = 256;
+
+    /// <summary>The longest a <c>Retry-After</c> may hold a page.</summary>
+    private static readonly TimeSpan MaximumRetryWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>One request in flight, so bulk work cannot race itself into the rate limit.</summary>
+    private static readonly SemaphoreSlim Requests = new(1, 1);
+
+    private static readonly Lock CacheGate = new();
+    private static readonly Dictionary<string, JsonElement> Cache = new(StringComparer.Ordinal);
+    private static readonly Queue<string> CacheOrder = new();
+
     private static readonly HttpClient Http = new()
     {
         Timeout = TimeSpan.FromSeconds(20),
@@ -536,45 +552,171 @@ public static class SteamGridDb
         }
     }
 
+    /// <summary>Forgets every cached response.</summary>
+    /// <remarks>
+    ///     Called when the API key changes, so a key that was rejected is not remembered as a
+    ///     working one and the next search really asks.
+    /// </remarks>
+    public static void ResetCache()
+    {
+        lock (CacheGate)
+        {
+            Cache.Clear();
+            CacheOrder.Clear();
+        }
+    }
+
+    /// <summary>Whether a response is worth asking again for.</summary>
+    /// <param name="status">The status the service answered with.</param>
+    /// <returns>True when the same request could plausibly succeed.</returns>
+    /// <remarks>
+    ///     A 4xx other than 429 and 408 is the request itself being wrong, and repeating it only
+    ///     spends the user's rate limit to be told the same thing.
+    /// </remarks>
+    internal static bool IsTransient(HttpStatusCode status)
+    {
+        return status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
+               || (int)status >= 500;
+    }
+
+    /// <summary>How long the service asked us to wait, bounded.</summary>
+    /// <param name="response">The throttled response.</param>
+    /// <returns>The wait, or null when it named none.</returns>
+    /// <remarks>
+    ///     Honoured rather than guessed at, because the service knows its own window. Bounded
+    ///     because an unbounded <c>Retry-After</c> would hang the page on a spinner for as long as
+    ///     a stranger's header says.
+    /// </remarks>
+    internal static TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        var after = response.Headers.RetryAfter;
+        var delay = after?.Delta
+                    ?? (after?.Date is { } date ? date - DateTimeOffset.UtcNow : null);
+        return delay is null || delay <= TimeSpan.Zero
+            ? null
+            : delay > MaximumRetryWait
+                ? MaximumRetryWait
+                : delay;
+    }
+
     private static async Task<JsonElement?> GetAsync(
         string url, string key, CancellationToken cancellationToken)
     {
+        lock (CacheGate)
+        {
+            if (Cache.TryGetValue(url, out var hit))
+            {
+                return hit;
+            }
+        }
+
+        // One request in flight at a time. Bulk work asks for five assets of the same game at once,
+        // and firing those in parallel is what runs a user into the rate limit they then have to
+        // wait out.
+        await Requests.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            lock (CacheGate)
             {
-                Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
-                throw new SteamGridDbException(response.StatusCode switch
+                if (Cache.TryGetValue(url, out var hit))
                 {
-                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-                        => "SteamGridDB rejected the API key.",
-                    HttpStatusCode.TooManyRequests
-                        => "SteamGridDB rate limit reached. Try again later.",
-                    _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}."
-                });
+                    return hit;
+                }
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(json);
-            // Clone so the element survives disposal of the document.
-            return document.RootElement.Clone();
+            var element = await FetchAsync(url, key, cancellationToken).ConfigureAwait(false);
+            if (element is not null)
+            {
+                Remember(url, element.Value);
+            }
+
+            return element;
         }
-        catch (SteamGridDbException)
+        finally
         {
-            throw;
+            Requests.Release();
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    }
+
+    private static async Task<JsonElement?> FetchAsync(
+        string url, string key, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1;; attempt++)
         {
-            throw;
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                using var response = await Http.SendAsync(request, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (attempt < MaximumAttempts && IsTransient(response.StatusCode))
+                    {
+                        var wait = RetryAfter(response) ?? TimeSpan.FromMilliseconds(400 * attempt);
+                        Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}; "
+                                 + $"retrying in {wait.TotalMilliseconds:F0} ms.");
+                        await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
+                    throw new SteamGridDbException(response.StatusCode switch
+                    {
+                        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                            => "SteamGridDB rejected the API key.",
+                        HttpStatusCode.TooManyRequests
+                            => "SteamGridDB rate limit reached. Try again later.",
+                        _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}."
+                    });
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                using var document = JsonDocument.Parse(json);
+                // Clone so the element survives disposal of the document.
+                return document.RootElement.Clone();
+            }
+            catch (SteamGridDbException)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (attempt >= MaximumAttempts)
+                {
+                    Log.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
+                    throw new SteamGridDbException("Could not contact SteamGridDB.");
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
-        catch (Exception ex)
+    }
+
+    /// <summary>Keeps a response for the rest of the session, evicting the oldest past the bound.</summary>
+    /// <param name="url">The request this answered.</param>
+    /// <param name="element">What it answered.</param>
+    private static void Remember(string url, JsonElement element)
+    {
+        lock (CacheGate)
         {
-            Log.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
-            throw new SteamGridDbException("Could not contact SteamGridDB.");
+            if (!Cache.TryAdd(url, element))
+            {
+                return;
+            }
+
+            CacheOrder.Enqueue(url);
+            while (CacheOrder.Count > MaximumCachedResponses && CacheOrder.TryDequeue(out var oldest))
+            {
+                Cache.Remove(oldest);
+            }
         }
     }
 
