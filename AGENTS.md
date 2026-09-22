@@ -218,17 +218,22 @@ following variant writes formatting changes and must be reviewed:
 
 ### Before a pull request is opened or updated
 
-For `gh pr create` and every later push to a branch with an open pull request, this section
-overrides the follow-up rule above: the gate runs again for each of those pushes.
-
 CI runs `eng/verify.ps1` on every push to a pull request, and a red run is a defect of the change,
-not something to leave for the maintainer. Before `gh pr create`, and before every later push to a
-branch that has an open pull request:
+not something to leave for the maintainer.
+
+The full gate takes about twenty minutes, so run it once per pull request, not once per push.
+Before `gh pr create`, and before a later push that changes anything under `src`, `tests`,
+`external` or the build scripts:
 
 1. Commit first, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
    The layout step diffs the working tree, so any uncommitted change under `src` or `tests` fails
-   it. For a stacked set, run it on every branch of the stack. Fix a failure on the lowest branch it
-   occurs in, then merge that branch upward, so each pull request passes on its own head.
+   it. For a stacked set, run it on the branch the change lands in, then merge that branch upward
+   and push the rest without a second full run unless the merge itself changed code. For these
+   pushes this section overrides the follow-up rule above.
+
+   A push that touches only documentation, plans or guidance needs the formatting and guidance
+   checks instead: `npm run format:check` and `eng/check-agent-guidance.ps1`. Never spend the full
+   gate on prose, and never re-run it just because a review round produced another commit.
 2. Never run a narrower form of a gate step and treat it as the gate. In particular, the Rider
    cleanup must run solution-wide, exactly as `eng/verify.ps1` runs it, never with an `--include`
    limited to the changed files. A change to a type can require cleanup in files the diff never
@@ -240,8 +245,10 @@ branch that has an open pull request:
    cleanup reorder it.
 4. After changing overlay layout, run `eng\update-ui-baselines.ps1` for the affected cases and review
    every changed image before committing it.
-5. After `gh pr create` or a push, wait for the pull request's checks and report their actual state.
-   A failure is fixed on the branch before the work is reported as published.
+5. Do not sit in a polling loop on the pull request's checks. The local gate already ran, so
+   report the branch and pull request, say that CI is still running, and hand the turn back.
+   Check the result once when there is a reason to return to that branch, and fix a real failure
+   then.
 
 This supersedes the manual-first deferral for the pull-request step only. Deploying and committing
 for the maintainer's manual test still come first and do not wait for the gate.

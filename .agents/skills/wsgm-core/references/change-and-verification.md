@@ -116,10 +116,12 @@ Before commit/push:
 2. reconcile docs, plans, scoped guidance, and skill instructions;
 3. confirm each changed child commit is published before its parent pin;
 4. commit the intended scope;
-5. before `gh pr create` or a push to a branch with an open pull request, pass `./eng/verify.ps1` on
-   that exact committed head, with the Rider cleanup solution-wide and never limited to changed
-   files (root AGENTS.md, "Before a pull request is opened or updated");
-6. push only after the gate passes, and verify clean local/upstream equality;
-7. wait for the pull request's checks and report their actual state;
+5. before `gh pr create`, and before a later push that changes `src`, `tests`, `external` or the
+   build scripts, pass `./eng/verify.ps1` on that exact committed head, with the Rider cleanup
+   solution-wide and never limited to changed files. A documentation, plan or guidance push takes
+   `npm run format:check` and `eng/check-agent-guidance.ps1` instead (root AGENTS.md, "Before a pull
+   request is opened or updated");
+6. push only after that check passes, and verify clean local/upstream equality;
+7. report the branch and pull request without polling CI in a loop;
 8. state which attended/live acceptance remains, rather than treating the automated gate as hardware
    proof.
