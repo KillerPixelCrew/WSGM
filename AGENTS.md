@@ -181,8 +181,10 @@ maintainer reports having tested that change manually, unless they explicitly re
 This includes focused suites, full suites, coverage, and test-bearing gates such as eng/verify.ps1
 and Steam asset ownership claims. Writing regression tests may accompany implementation; executing
 them waits. Compilation, asset generation/drift checks, formatting, syntax and guidance checks may
-run before manual testing. Do not hold a requested development deployment or its commit/push for
-test-suite completion. State which tests are deferred. CI stays unchanged.
+run before manual testing. Do not hold a requested development deployment or a commit to a local or
+pushed task branch for test-suite completion. State which tests are deferred. CI stays unchanged.
+Opening a pull request, or pushing to a branch that has one, is the exception: see "Before a pull
+request is opened or updated".
 
 This timing rule applies to scoped contributor guides and skills as well: their test and gate
 instructions describe what to run after manual testing, not a prerequisite for the first deployment.
@@ -213,6 +215,33 @@ require `eng/build-viiper.ps1 -Validate`, which tests and builds the external/vi
 following variant writes formatting changes and must be reviewed:
 
     .\eng\verify.ps1 -Fix
+
+### Before a pull request is opened or updated
+
+CI runs `eng/verify.ps1` on every push to a pull request, and a red run is a defect of the change,
+not something to leave for the maintainer. Before `gh pr create`, and before every later push to a
+branch that has an open pull request:
+
+1. Commit first, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
+   The layout step diffs the working tree, so any uncommitted change under `src` or `tests` fails
+   it. For a stacked set, run it on every branch of the stack. Fix a failure on the lowest branch it
+   occurs in, then merge that branch upward, so each pull request passes on its own head.
+2. Never run a narrower form of a gate step and treat it as the gate. In particular, the Rider
+   cleanup must run solution-wide, exactly as `eng/verify.ps1` runs it, never with an `--include`
+   limited to the changed files. A change to a type can require cleanup in files the diff never
+   touched: on 2026-09-22, removing an interface member left a test fake still implementing it, and
+   cleanup reordered that untouched file.
+3. After removing or renaming a public, internal or interface member, search `src` and `tests` for
+   every implementer and caller, fakes included. The compiler does not flag a class that still
+   implements a method its interface no longer declares; delete the leftover rather than letting
+   cleanup reorder it.
+4. After changing overlay layout, run `eng\update-ui-baselines.ps1` for the affected cases and review
+   every changed image before committing it.
+5. After `gh pr create` or a push, wait for the pull request's checks and report their actual state.
+   A failure is fixed on the branch before the work is reported as published.
+
+This supersedes the manual-first deferral for the pull-request step only. Deploying and committing
+for the maintainer's manual test still come first and do not wait for the gate.
 
 Use build.ps1 only when an installer or full release staging is required. It builds the Steam
 assets, native components, all three applications, staged device/controller payloads, and the Inno

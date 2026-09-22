@@ -116,7 +116,8 @@ public sealed class PerformanceOverlayBridgeTests
             row.Id == "application-profile"));
 
         var after = bridge.Snapshot();
-        Assert.True(service.Current.ApplicationProfileEnabled);
+        // The profile owner holds the switch; RTSS follows it through the fan-out.
+        Assert.True(profiles.Current.EditsGame);
         Assert.Equal(
             "Application",
             after.ProfileRows.Single(row => row.Id == "active-profile").TrailingText);
