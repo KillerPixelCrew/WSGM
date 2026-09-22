@@ -235,6 +235,9 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
     private SteamArtworkBrowserSource? _artwork;
 
+    /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    private SteamLibraryImportSource? _libraryImport;
+
     private SteamUiSessionHost? _steamUi;
 
     private PersistentSteamUiTransport? _steamUiTransport;
@@ -990,6 +993,56 @@ public sealed class ShellSession : IAsyncDisposable
         // Artwork reads its providers from the session's live config, so a key entered in Settings
         // applies to the next search rather than the next session.
         _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
+
+        // The importer talks to the same running Steam client everything else here does, and reads
+        // the machine's installed packages through WinRT. Every seam is injected so the discovery
+        // and planning rules stay testable without a live Steam or a real package.
+        StoreCatalogClient catalog = new();
+        _libraryImport = new SteamLibraryImportSource(
+            new XboxLibrarySource(
+                XboxPackages.Enumerate,
+                XboxPackages.ReadPackageFile,
+                (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
+            new ImportStateStore(),
+            () => new SteamShortcutWriter(
+                async token => [.. (await SteamLibraryData.ListGamesAsync(token).ConfigureAwait(false))
+                    .Where(game => game.Shortcut)
+                    .Select(game => SteamApps.NormalizeAppId(game.AppId))],
+                async (name, target, directory, options, token) =>
+                    (await SteamApps.AddShortcutAsync(name, target, directory, options, token)
+                        .ConfigureAwait(false)).AppId,
+                async (appId, target, options, token) =>
+                    (await SteamApps.SetShortcutLaunchAsync(appId, target, options, token)
+                        .ConfigureAwait(false)).Succeeded,
+                async (appId, token) =>
+                    (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
+            async token => [.. await ReadShortcutsAsync(token).ConfigureAwait(false)],
+            () => ImportMode.SteamIntegration,
+            () => false);
+    }
+
+    /// <summary>Reads the non-Steam shortcuts Steam currently has, with what each one runs.</summary>
+    /// <remarks>
+    ///     The importer needs a shortcut's Target and arguments to tell one it created from one the
+    ///     user wrote by hand, and the library listing carries neither, so each is read separately.
+    /// </remarks>
+    private static async Task<IReadOnlyList<ExistingShortcut>> ReadShortcutsAsync(
+        CancellationToken cancellationToken)
+    {
+        var games = await SteamLibraryData.ListGamesAsync(cancellationToken).ConfigureAwait(false);
+        List<ExistingShortcut> shortcuts = [];
+        foreach (var game in games.Where(game => game.Shortcut))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var appId = SteamApps.NormalizeAppId(game.AppId);
+            var details = await SteamApps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
+            shortcuts.Add(new ExistingShortcut(
+                appId,
+                details.Details?.ShortcutExe ?? string.Empty,
+                details.Details?.ShortcutLaunchOptions ?? string.Empty));
+        }
+
+        return shortcuts;
     }
 
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
@@ -1230,7 +1283,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost),
                 _profiles,
                 // Null in overlay-test, which has no Steam client to read artwork for or write it to.
-                _artwork);
+                _artwork,
+                _libraryImport);
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
@@ -3194,6 +3248,19 @@ public sealed class ShellSession : IAsyncDisposable
         // Before the drive manager, whose collection the bridge is subscribed to. The format
         // manager holds no timer or handle to release; its work is a task already cancelled
         // with the session, so only the drive manager is disposed after it.
+        try
+        {
+            _libraryImport?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the library importer during application shutdown failed", ex);
+        }
+        finally
+        {
+            _libraryImport = null;
+        }
+
         try
         {
             _artwork?.Dispose();

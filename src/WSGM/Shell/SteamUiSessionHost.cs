@@ -59,6 +59,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
     private readonly SteamArtworkBrowserSource? _artwork;
 
+    /// <summary>The library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    private readonly SteamLibraryImportSource? _libraryImport;
+
+    /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
+    private readonly SteamExtensionsTabBackend _extensionsTab;
+
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
 
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
@@ -165,6 +171,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
     /// <param name="profiles">The profile owner Steam's per-game toggle and reset write to.</param>
     /// <param name="artwork">The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</param>
+    /// <param name="libraryImport">The library importer behind Steam's import page, or null in overlay-test.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -184,20 +191,26 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         AudioProfileService? audioProfiles = null,
         CommonPluginSteamUiSource? pluginSteamUi = null,
         ProfileService? profiles = null,
-        SteamArtworkBrowserSource? artwork = null)
+        SteamArtworkBrowserSource? artwork = null,
+        SteamLibraryImportSource? libraryImport = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
         _pluginSteamUi = pluginSteamUi;
-        _artwork = artwork;
         _pluginModules = pluginSteamUi?.ReadModules() ?? [];
         _pluginPatchIds = [.. _pluginModules.SelectMany(module => module.Patches).Select(patch => patch.Id)];
         // The menu exists for WSGM's own Change Artwork entry, so it is not conditional on a plugin
         // source the way it was while artwork was a package.
+        _artwork = artwork;
+        _libraryImport = libraryImport;
         _gameContextMenu = new SteamGameContextMenuBackend(
             pluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
             artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
+        _extensionsTab = new SteamExtensionsTabBackend(
+            pluginSteamUi,
+            libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
+            libraryImport is null ? null : () => libraryImport.ReadState().SourceName);
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -908,12 +921,23 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 artwork));
         }
 
-        if (_pluginSteamUi is { } pluginSteamUi)
+        if (_libraryImport is { } libraryImport)
         {
-            modules.Add(SteamExtensionsTabSurface.Module(
-                () => _pluginSteamUiEnabled,
-                () => new ValueTask<SteamExtensionsTabState?>(pluginSteamUi.ReadExtensionsTab()),
-                pluginSteamUi));
+            modules.Add(SteamLibraryImportSurface.Module(
+                Enabled,
+                () => new ValueTask<SteamLibraryImportState?>(libraryImport.ReadState()),
+                libraryImport));
+        }
+
+        // The plugin tab. Declared unconditionally: WSGM's own tools are on it whether or not any
+        // package is installed, which is the state every install was actually in.
+        modules.Add(SteamExtensionsTabSurface.Module(
+            Enabled,
+            () => new ValueTask<SteamExtensionsTabState?>(_extensionsTab.ReadState()),
+            _extensionsTab));
+
+        if (_pluginSteamUi is not null)
+        {
             modules.AddRange(_pluginModules);
         }
 
@@ -1001,6 +1025,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamArtworkBrowserSurface.Route,
                 "Change Artwork",
                 Template: "artwork-browser"));
+        }
+
+        if (_libraryImport is not null)
+        {
+            pages.Add(new SteamPage(
+                "library-import",
+                SteamLibraryImportSurface.Route,
+                "Import games",
+                Template: SteamLibraryImportSurface.Template));
         }
 
         if (_pluginSteamUiEnabled && _pluginSteamUi is { } pluginSteamUi)
@@ -1094,7 +1127,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => _libraryBadgeEnabled,
                 SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
                 SteamScreensaverSurface.PatchId => _screensaverEnabled,
-                SteamExtensionsTabSurface.PatchId => _pluginSteamUiEnabled,
                 SteamUiBridgePatch.PatchId => bootstrap,
                 SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
                 _ when _pluginPatchIds.Contains(patch.Id) => _pluginSteamUiEnabled,
