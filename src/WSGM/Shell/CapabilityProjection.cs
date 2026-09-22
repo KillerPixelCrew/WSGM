@@ -42,7 +42,7 @@ public sealed record CapabilityProjection
     public CapabilityValue? DesiredValue { get; init; }
 
     /// <summary>Which layer supplied <see cref="DesiredValue" />.</summary>
-    public DeviceDesiredValueSource DesiredSource { get; init; } = DeviceDesiredValueSource.None;
+    public ProfileSource DesiredSource { get; init; } = ProfileSource.None;
 
     /// <summary>The value of an in-flight request, shown while a command is pending.</summary>
     public CapabilityValue? PendingValue { get; init; }

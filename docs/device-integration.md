@@ -165,14 +165,12 @@ away from WSGM's High priority. Priority failures are logged at transitions and 
 Disabled integration and unavailable emulation never acquire the boost. Automated tests cover the
 priority lifetime and failure paths; latency under game load still requires attended verification.
 
-### The target is chosen by two layers keyed by the running application
+### The target is a profile value
 
-There is one global default plus per-application overrides, both stored directly under device
-integration rather than under a per-device profile. The semantic capabilities keep their five
-desired-state layers because hardware limits genuinely differ on battery and per profile; a
-controller target does not. Overrides are keyed by the canonical running-application identity from
-the one `RunningApplicationMonitor`, which also resolves the RTSS profile, so the controller target
-and the performance profile can never disagree about which application is running.
+`ControllerTarget` resolves like every other profile value: the running game's enabled profile, then
+Global, then `SteamDeckComposite`. It is matched with the same rule against the same identity and
+executable as the rest of the profile, so the controller target and the performance values cannot
+disagree about which application is running (`docs\profiles.md`).
 
 ### Steam wins, the foreground fills, and a tie stays ambiguous
 
@@ -314,9 +312,10 @@ A setting is one value WSGM keeps and hands the plugin. A profile is a named sha
 and then applies. They are different records with different homes on purpose, and a curve is refused
 as a setting (`PluginSettingDescriptor.TryValidate`) precisely so it cannot acquire two.
 
-Authoring is Settings' job and selection is the overlay's (decision D22b), which is why
-`DeviceProfileSelectionStore` writes only which profile is chosen and never a profile's contents:
-the two surfaces cannot fight over one record.
+Authoring is Settings' job and selection is the overlay's (decision D22b). The selection is the
+`FanCurveProfileId` profile value, which names a profile and never holds its contents, so the two
+surfaces cannot fight over one record. It resolves like every other profile value
+(`docs\profiles.md`).
 
 The chain, and what each link exists to prevent:
 
@@ -324,8 +323,8 @@ The chain, and what each link exists to prevent:
 | ------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Author  | `Settings\Pages\PluginSettingsPage`, `Controls\CurveEditor` | A gesture producing a curve the router refuses — every edit goes through `CurveEditing`, so an invalid one cannot be built |
 | Store   | `DeviceAuthoredProfile`, `ConfigStore` normalization        | A profile that keys nothing or whose inputs do not ascend surviving to be chosen                                           |
-| Select  | `DeviceProfileSelection`, `DeviceProfileSelectionStore`     | A per-game change silently widening to every game; an override stranded on a stale copy of a curve                         |
-| Resolve | `DeviceProfileSelectionResolver`                            | A deleted profile quietly falling back to someone else's curve                                                             |
+| Select  | `ProfileService`, `ProfileValues.FanCurveProfileId`         | A per-game change silently widening to every game; an override stranded on a stale copy of a curve                         |
+| Resolve | `ProfileLayers`                                             | A game and Global disagreeing about which curve is in force                                                                |
 | Check   | `DeviceProfileValidation`                                   | A curve authored against bounds the device no longer has                                                                   |
 | Apply   | `Shell\DeviceProfileApplier`, `ShellSession`                | The fan curve and the controller target disagreeing about what is running                                                  |
 
@@ -342,11 +341,9 @@ cached; a plugin republishes its capabilities across a cycle.
 **A bound the descriptor leaves unset is not invented.** An absent minimum means the device declared
 no limit there, and supplying one would refuse a curve it would have accepted.
 
-Two refusals are deliberately not symmetrical with the rest. A selection naming a deleted profile is
-kept by normalization rather than pruned, because the resolver reports it by name and pruning would
-turn a diagnosable mistake into an override that vanished without explanation. And it resolves to
-nothing rather than falling back to the global choice, because falling back hides that the user's
-intent for that application is gone while the fans quietly run another curve.
+Deleting a profile in Settings clears every layer that selected it, so that layer falls back to the
+one below instead of naming nothing. Normalization also drops a reference to a profile that no
+longer exists, for a file edited by hand.
 
 Applying counts `AppliedUnverified` as success: many EC writes have no readback, and treating absent
 confirmation as failure would report every one of them as broken. A timeout does not count; whether
@@ -358,13 +355,13 @@ something else. Colours are masked to 24 bits on the way in: the picker returns 
 WSGM has no use for, and a stored value carrying one reads as a wildly different colour when it is
 later unpacked as RGB.
 
-The overlay's row states the scope of the current choice, not only its name: "Quiet, for this game"
-and "Quiet, for everything" read identically otherwise, and that difference is what the row is
-opened mid-game to check. Pressing it scopes the change to the running application when there is one
-and globally otherwise, persisting before applying so a failed save cannot leave the device on a
-profile the configuration does not name. Cycling wraps through "none", and a selection whose profile
-was deleted reads `MISSING` and stays cyclable, because pressing out of that state is faster than
-opening Settings mid-game.
+The overlay's row states where the current choice comes from, not only its name: "this game's
+override" and "from Global" read identically otherwise, and that difference is what the row is
+opened mid-game to check. Pressing it saves to the running game's profile while that is on and to
+Global otherwise, persisting before applying so a failed save cannot leave the device on a profile
+the configuration does not name. Cycling wraps through "none". A selection whose profile was deleted
+after the store was loaded reads `MISSING` and stays cyclable, because pressing out of that state is
+faster than opening Settings mid-game.
 
 ## HidHide findings
 

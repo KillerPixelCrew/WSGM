@@ -24,21 +24,6 @@ internal enum PerformanceControl
     OverlayLevel
 }
 
-/// <summary>Where a performance edit is stored.</summary>
-internal enum PerformancePersistenceTarget
-{
-    Global,
-    Application
-}
-
-/// <summary>Persistent policy layer supplying one effective RTSS value.</summary>
-internal enum PerformancePolicyLayer
-{
-    None,
-    Global,
-    Application
-}
-
 /// <summary>Truthful lifecycle of the last semantic performance command.</summary>
 internal enum PerformanceCommandPhase
 {
@@ -99,28 +84,6 @@ internal sealed record PerformanceValues(int? FrameLimit, int? OverlayLevel)
             _ => this
         };
     }
-}
-
-/// <summary>One persistent per-application override.</summary>
-internal sealed record PerformanceApplicationPolicy(
-    string ApplicationId,
-    string RtssProfileName,
-    PerformanceValues Values)
-{
-    internal string Name { get; init; } = string.Empty;
-    internal IReadOnlyList<string> ProcessNames { get; init; } = [];
-    internal bool Enabled { get; init; } = true;
-}
-
-/// <summary>Persistent global and per-application RTSS policy.</summary>
-internal sealed record PerformancePolicy(
-    PerformanceValues Global,
-    IReadOnlyList<PerformanceApplicationPolicy> Applications,
-    bool Enabled = true)
-{
-    internal static readonly PerformancePolicy Empty = new(
-        PerformanceValues.Empty,
-        []);
 }
 
 /// <summary>Bounds and truthful query support reported by a concrete RTSS adapter.</summary>
@@ -251,8 +214,8 @@ internal sealed record PerformanceState(
     RtssProbe Probe,
     PerformanceApplicationTarget? Target,
     bool ApplicationProfileEnabled,
-    PerformancePolicyLayer FrameLimitLayer,
-    PerformancePolicyLayer OverlayLevelLayer,
+    ProfileSource FrameLimitLayer,
+    ProfileSource OverlayLevelLayer,
     PerformanceValues Desired,
     PerformanceValues Observed,
     PerformanceReadbackQuality FrameLimitQuality,

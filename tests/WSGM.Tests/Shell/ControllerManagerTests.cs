@@ -23,6 +23,7 @@ public sealed class ControllerManagerTests
             Disabled("Controller management is off."),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
 
@@ -46,12 +47,13 @@ public sealed class ControllerManagerTests
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
 
         Assert.Equal(ControllerManagementState.Active, status.State);
         Assert.Equal(ManagedControllerTarget.Xbox360, status.Target);
-        Assert.Equal(ControllerTargetSource.GlobalDefault, status.TargetSource);
+        Assert.Equal(ProfileSource.Global, status.TargetSource);
         Assert.Equal(UiInputSource.ManagedCanonical, status.UiSource);
         Assert.Contains("create:1:neutral", harness.Backend.Operations);
         Assert.Equal([ProcessPriorityClass.High], harness.PriorityWrites);
@@ -72,11 +74,12 @@ public sealed class ControllerManagerTests
                 Override("steam:70", ManagedControllerTarget.DualShock4)),
             [Device()],
             "steam:70",
+            null,
             5,
             CancellationToken.None);
 
         Assert.Equal(ManagedControllerTarget.DualShock4, status.Target);
-        Assert.Equal(ControllerTargetSource.ApplicationOverride, status.TargetSource);
+        Assert.Equal(ProfileSource.Game, status.TargetSource);
         Assert.Equal("steam:70", status.ApplicationId);
     }
 
@@ -93,6 +96,7 @@ public sealed class ControllerManagerTests
         var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
+            null,
             null,
             5,
             CancellationToken.None);
@@ -115,6 +119,7 @@ public sealed class ControllerManagerTests
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
 
@@ -131,6 +136,7 @@ public sealed class ControllerManagerTests
         var status = await manager.StartAsync(
             Enabled(ManagedControllerTarget.DualShock4),
             [Device()],
+            null,
             null,
             5,
             CancellationToken.None);
@@ -151,6 +157,7 @@ public sealed class ControllerManagerTests
                 Override("steam:70", ManagedControllerTarget.DualShock4)),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
 
@@ -159,7 +166,7 @@ public sealed class ControllerManagerTests
             CancellationToken.None);
 
         Assert.Equal(ManagedControllerTarget.DualShock4, status.Target);
-        Assert.Equal(ControllerTargetSource.ApplicationOverride, status.TargetSource);
+        Assert.Equal(ProfileSource.Game, status.TargetSource);
         // The old target is removed before the replacement is created, so the two are never
         // enumerated at the same time.
         List<string> operations = [.. harness.Backend.Operations];
@@ -181,6 +188,7 @@ public sealed class ControllerManagerTests
                 Override("steam:70", ManagedControllerTarget.DualShock4)),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
 
@@ -201,11 +209,13 @@ public sealed class ControllerManagerTests
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
 
         var status = await manager.ApplySelectionAsync(
             Disabled("Controller management is off."),
+            null,
             null,
             CancellationToken.None);
 
@@ -631,6 +641,7 @@ public sealed class ControllerManagerTests
             Enabled(ManagedControllerTarget.Xbox360),
             [Device()],
             null,
+            null,
             5,
             CancellationToken.None);
         Assert.Equal(ControllerManagementState.Active, status.State);
@@ -638,14 +649,16 @@ public sealed class ControllerManagerTests
 
     private static ControllerSelection Enabled(
         ManagedControllerTarget target,
-        params DeviceApplicationTargetOverride[] overrides)
+        params GameProfile[] overrides)
     {
-        return new ControllerSelection(true, target, overrides, "Controller management is off.");
+        return new ControllerSelection(true,
+            new ProfileConfig { Global = new ProfileValues { ControllerTarget = target }, Games = [.. overrides] },
+            "Controller management is off.");
     }
 
     private static ControllerSelection Disabled(string detail)
     {
-        return new ControllerSelection(false, ManagedControllerTarget.SteamDeckComposite, [], detail);
+        return new ControllerSelection(false, new ProfileConfig(), detail);
     }
 
     private static PhysicalDeviceIdentity Device()
@@ -694,7 +707,7 @@ public sealed class ControllerManagerTests
         var mutations = harness.HidHide.MutationCount;
 
         await manager.StartAsync(
-            Enabled(ManagedControllerTarget.Xbox360), [Device()], null,
+            Enabled(ManagedControllerTarget.Xbox360), [Device()], null, null,
             generation + 1, CancellationToken.None);
 
         Assert.Equal(mutations, harness.HidHide.MutationCount);
@@ -731,9 +744,9 @@ public sealed class ControllerManagerTests
         await StartActiveAsync(manager);
         var generation = await manager.BeginSteamOwnershipPauseAsync(CancellationToken.None);
         await manager.ReleaseSteamVisibilityAsync(CancellationToken.None);
-        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [Device()], null,
+        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [Device()], null, null,
             generation + 1, CancellationToken.None);
-        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [], null,
+        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360), [], null, null,
             generation, CancellationToken.None);
         Assert.True(await manager.RestoreSteamOwnershipAsync(generation, CancellationToken.None));
     }

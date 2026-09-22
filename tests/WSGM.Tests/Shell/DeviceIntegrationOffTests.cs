@@ -27,9 +27,8 @@ public sealed class DeviceIntegrationOffTests
         var selection = ControllerSelection.From(new DeviceIntegrationConfig
         {
             Enabled = false,
-            ControllerManagementEnabled = true,
-            ControllerTarget = ManagedControllerTarget.SteamDeckComposite
-        });
+            ControllerManagementEnabled = true
+        }, new ProfileConfig());
 
         Assert.False(selection.Enabled);
     }
@@ -46,7 +45,7 @@ public sealed class DeviceIntegrationOffTests
         };
 
         Assert.True(config.ControllerManagementEnabled);
-        Assert.False(ControllerSelection.From(config).Enabled);
+        Assert.False(ControllerSelection.From(config, new ProfileConfig()).Enabled);
     }
 
     [Fact]
@@ -56,7 +55,7 @@ public sealed class DeviceIntegrationOffTests
         {
             Enabled = false,
             ControllerManagementEnabled = true
-        });
+        }, new ProfileConfig());
 
         // Nothing downstream may read a target out of a disabled selection and act on it.
         Assert.False(selection.Enabled);
@@ -126,8 +125,8 @@ public sealed class DeviceIntegrationOffTests
         var config = ConfigStore.Normalize(new AppConfig { DeviceIntegration = null! });
 
         Assert.False(config.DeviceIntegration.Enabled);
-        Assert.Equal(ManagedControllerTarget.SteamDeckComposite,
-            config.DeviceIntegration.ControllerTarget);
+        // Nothing sets a target, so the default applies without being written into Global.
+        Assert.Null(config.Profiles.Global.ControllerTarget);
     }
 
     [Fact]

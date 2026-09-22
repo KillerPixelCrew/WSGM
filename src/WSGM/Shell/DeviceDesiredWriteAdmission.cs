@@ -36,7 +36,7 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.MissingDesiredValue);
         }
 
-        if (projection.DesiredSource is DeviceDesiredValueSource.None)
+        if (projection.DesiredSource is ProfileSource.None)
         {
             return Skipped(DeviceDesiredWriteSkipReason.MissingDesiredSource);
         }
@@ -66,7 +66,11 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.CommandPending);
         }
 
-        if (view.LastResult?.Outcome is CommandOutcome.Indeterminate or CommandOutcome.TimedOut)
+        // An uncertain write may already have happened, so it is never simply retried. A readback
+        // taken after it finished is the re-read that settles it: the device reports a value other
+        // than the desired one (a match returned AlreadyApplied above), so the write did not stick.
+        if (view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut } uncertain
+            && !(projection.State.ObservedAt is { } observedAt && observedAt > uncertain.CompletedAt))
         {
             return Skipped(DeviceDesiredWriteSkipReason.PreviousResultUncertain);
         }

@@ -7,11 +7,17 @@ namespace WSGM.Tests.Builders;
 /// <summary>Controller targets, running applications and controller manager states for tests.</summary>
 internal static class ControllerBuilders
 {
-    internal static DeviceApplicationTargetOverride Override(
+    /// <summary>An enabled game profile that overrides only the controller target.</summary>
+    internal static GameProfile Override(
         string applicationId,
         ManagedControllerTarget target)
     {
-        return new DeviceApplicationTargetOverride { ApplicationId = applicationId, Target = target };
+        return new GameProfile
+        {
+            Id = applicationId,
+            Enabled = true,
+            Values = new ProfileValues { ControllerTarget = target }
+        };
     }
 
     internal static RunningApplicationTargetSnapshot Running(
@@ -40,7 +46,7 @@ internal static class ControllerBuilders
         return new ControllerManagerStatus(
             state,
             target,
-            ControllerTargetSource.GlobalDefault,
+            ProfileSource.Global,
             applicationId,
             source,
             detail);

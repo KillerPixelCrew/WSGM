@@ -2,6 +2,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using static WSGM.Tests.Fakes.AsyncConditions;
 
 namespace WSGM.Tests.Shell;
@@ -12,9 +13,7 @@ public sealed class SteamUiSessionHostTests
     public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingDeviceControls()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport,
             _ => Task.FromResult(true),
@@ -36,9 +35,7 @@ public sealed class SteamUiSessionHostTests
     public async Task ScreensaverRowsAreDeclaredOnlyWithASessionTimeoutOwnerAndRunWithoutQuickAccess()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var without = new SteamUiSessionHost(
             transport,
             _ => Task.FromResult(true),
@@ -71,9 +68,7 @@ public sealed class SteamUiSessionHostTests
     public async Task SharedContextGenerationCancelsInflightSemanticRequest()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         var requestStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var requestCancelled = new TaskCompletionSource(
@@ -105,9 +100,7 @@ public sealed class SteamUiSessionHostTests
     public async Task SharedContextGenerationQueuesDownloadPatchResynchronization()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport,
             _ => Task.FromResult(true),
@@ -137,9 +130,7 @@ public sealed class SteamUiSessionHostTests
     public async Task MainWindowGenerationQueuesGlyphPatchResynchronization()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport,
             _ => Task.FromResult(true),
@@ -190,9 +181,7 @@ public sealed class SteamUiSessionHostTests
         // Download sort registers its transform on the toolkit's shared JSX-runtime claim, which the
         // bridge serves, so the bridge outlives native Quick Access with it.
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport,
             _ => Task.FromResult(true),
@@ -217,8 +206,7 @@ public sealed class SteamUiSessionHostTests
     public async Task SurfaceObservationSurvivesNativeRowDisableAndStopsWithCef()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport, _ => Task.FromResult(true), null, performance);
         host.ApplySurfaceObservation(true);
@@ -233,8 +221,7 @@ public sealed class SteamUiSessionHostTests
     public async Task StorageSurfaceIsDeclaredOnlyWithABridgeBehindIt()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         using var drives = new RemovableDriveManager();
         var bridge = new SteamStorageBridge(drives, new SdFormatManager(), () => false);
         await using var host = new SteamUiSessionHost(
@@ -258,8 +245,7 @@ public sealed class SteamUiSessionHostTests
     public async Task StorageSurfaceIsAbsentWithoutOne()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport, _ => Task.FromResult(true), null, performance);
 
@@ -280,8 +266,7 @@ public sealed class SteamUiSessionHostTests
     public async Task LibraryBadgeSurfaceIsDeclaredAndFollowsItsOwnSwitch()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport, _ => Task.FromResult(true), null, performance);
 
@@ -304,8 +289,7 @@ public sealed class SteamUiSessionHostTests
     public async Task HomeCarouselSurfaceIsDeclaredAndFollowsItsOwnSwitch()
     {
         await using var transport = new SessionHostTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport, _ => Task.FromResult(true), null, performance);
 
@@ -328,9 +312,7 @@ public sealed class SteamUiSessionHostTests
     public async Task RouterReturnsExplicitSuccessAndMalformedPayloadRefusal()
     {
         await using var transport = new RoutingTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         var toggles = 0;
         await using var host = new SteamUiSessionHost(
             transport,
@@ -372,9 +354,7 @@ public sealed class SteamUiSessionHostTests
     public async Task CancelStopsInflightWorkAndTheNextRequestStillCompletes()
     {
         await using var transport = new RoutingTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         var firstStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var firstCancelled = new TaskCompletionSource(
@@ -436,9 +416,7 @@ public sealed class SteamUiSessionHostTests
     public async Task PerformanceObservationExistsOnlyWhileRowsAndBridgeAreCurrent()
     {
         await using var transport = new RoutingTransport();
-        await using var performance = new PerformanceService(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask);
+        await using var performance = PerformanceBuilders.Service();
         await using var host = new SteamUiSessionHost(
             transport,
             _ => Task.FromResult(true),

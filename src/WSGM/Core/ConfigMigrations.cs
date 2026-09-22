@@ -22,6 +22,19 @@ internal static class ConfigMigrations
     /// <summary>The retired display-management value whose stored layouts migrate, as a file holds it.</summary>
     private const string LegacyFixedProfiles = "FixedProfiles";
 
+    /// <summary>Keys every file written before the profile store carries, as the file holds them.</summary>
+    private static readonly string[] RetiredProfileKeys =
+    [
+        "\"TdpWatts\"", "\"SelectedHardwareProfileId\"", "\"ControllerTargets\"", "\"ProfileSelections\""
+    ];
+
+    /// <summary>Per-game and global values the Performance section used to hold.</summary>
+    private static readonly string[] RetiredPerformanceKeys =
+    [
+        "FrameLimit", "OverlayLevel", "TdpWatts", "ManualTdp", "VariableRefreshRate", "AcPowerPreset",
+        "BatteryPowerPreset", "Applications"
+    ];
+
     /// <summary>
     ///     Whether <paramref name="json" /> may contain a retired key worth a JSON pass.
     ///     Cheap enough to run on every load, so the pass itself stays off the common path.
@@ -33,7 +46,8 @@ internal static class ConfigMigrations
         return json.Contains("\"GameModeBootEnabled\"", StringComparison.Ordinal)
                || json.Contains("\"DisplayManagement\"", StringComparison.Ordinal)
                || json.Contains("\"DisplayProfiles\"", StringComparison.Ordinal)
-               || json.Contains("\"DisplayRoutes\"", StringComparison.Ordinal);
+               || json.Contains("\"DisplayRoutes\"", StringComparison.Ordinal)
+               || RetiredProfileKeys.Any(key => json.Contains(key, StringComparison.Ordinal));
     }
 
     /// <summary>Applies every migration rule to one parsed configuration document.</summary>
@@ -43,7 +57,8 @@ internal static class ConfigMigrations
     {
         // The sign-in rule reads DisplayRoutes, so it has to run before the launch rule removes it.
         var changed = MigrateSignInStart(root);
-        return MigrateGameModeLaunch(root) || changed;
+        changed |= MigrateGameModeLaunch(root);
+        return MigrateProfileStore(root) || changed;
     }
 
     /// <summary>
@@ -78,6 +93,51 @@ internal static class ConfigMigrations
             (!gameModeBoot && desktopResident ? SessionStartMode.Desktop : SessionStartMode.Game)
             .ToString();
         return true;
+    }
+
+    /// <summary>
+    ///     Discards every value stored by the retired per-game model. Those values came from five separate
+    ///     resolvers, some of them copies of Global frozen into a game when it was opted in, and nothing
+    ///     about them can be trusted to mean what the profile store means. The store starts empty; OEM
+    ///     control assignments are not profile values and move to their new home.
+    /// </summary>
+    private static bool MigrateProfileStore(JsonObject root)
+    {
+        var changed = false;
+        if (root["Performance"] is JsonObject performance)
+        {
+            foreach (var key in RetiredPerformanceKeys)
+            {
+                changed |= performance.Remove(key);
+            }
+        }
+
+        if (root["DeviceIntegration"] is not JsonObject device)
+        {
+            return changed;
+        }
+
+        if (device["Profiles"] is JsonArray profiles)
+        {
+            if (!device.ContainsKey("OemAssignments")
+                && profiles.OfType<JsonObject>().Select(profile => profile["OemAssignments"])
+                    .OfType<JsonArray>().FirstOrDefault() is { } assignments)
+            {
+                device["OemAssignments"] = assignments.DeepClone();
+            }
+
+            device.Remove("Profiles");
+            changed = true;
+        }
+
+        changed |= device.Remove("ControllerTarget");
+        changed |= device.Remove("ControllerTargets");
+        foreach (var scope in (device["PluginSettings"] as JsonArray ?? []).OfType<JsonObject>())
+        {
+            changed |= scope.Remove("ProfileSelections");
+        }
+
+        return changed;
     }
 
     /// <summary>

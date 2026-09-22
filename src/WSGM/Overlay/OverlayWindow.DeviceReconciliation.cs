@@ -25,7 +25,6 @@ public partial class OverlayWindow
                              || previous.GlyphSelection is null != current.GlyphSelection is null
                              || previous.Controller is null != current.Controller is null
                              || previous.AutoTdp is null != current.AutoTdp is null
-                             || previous.Profile is null != current.Profile is null
                              || previous.AuthoredProfile is null != current.AuthoredProfile is null
                              || previous.Recovery is null != current.Recovery is null)
         {
@@ -133,7 +132,6 @@ public partial class OverlayWindow
         {
             "device.auto-tdp" => snapshot.AutoTdp,
             "device.controller-target" => snapshot.Controller,
-            "device.hardware-profile" => snapshot.Profile,
             "device.authored-profile" => snapshot.AuthoredProfile,
             "device.retry" or "pin:device.retry" => snapshot.Recovery,
             _ => null

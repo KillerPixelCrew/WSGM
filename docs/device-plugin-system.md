@@ -443,47 +443,43 @@ Terminal results clear the pending value, are stored as the capability's last re
 
 One side effect: a `User` write of an integer to the `PowerSustainedLimit` role that applied pauses
 AutoTDP (`AutoTDP paused: the sustained power limit was set to n W by hand.`) and persists the watts
-to the global or per-application performance profile.
+to the profile layer in force (`docs\profiles.md`).
 
 Debouncing lives in the controls, not the router: the slider commits 250 ms after the last change,
 and the colour editor writes only on Apply (colour, then brightness).
 
 ## 11. Desired state, settings and profiles
 
-### Desired-value layers
+### Desired values
 
-`DeviceDesiredStateResolver` resolves one `DeviceCapabilityPreference` per capability with the
-precedence application override, hardware profile, AC or DC policy by power source, global default,
-none. The values live under `DeviceIntegration.Profiles[]`, keyed by the machine's identity key, so
-swapping plugins keeps the machine's preferences. Reconciliation applies them after a hardware
-profile is selected: lower limits first when lowering, raise the fast limit first when raising, skip
-values equal to the readback, and log one summary line.
+A capability's desired value is its profile value: the running game's enabled profile, then Global,
+then none. The model and every rule about it are in `docs\profiles.md`. The values live in
+`Profiles.*.Device[]`, keyed by the machine's identity key, so swapping plugins keeps the machine's
+preferences. `DeviceCapabilityRouter.UpdateDesiredContext` indexes them for the running application,
+and `CapabilityProjection.DesiredSource` says which layer supplied each one. Reconciliation lowers
+limits first when lowering, raises the fast limit first when raising, skips values equal to the
+readback, and logs one summary line.
 
-`DeviceCoordinator.PersistUserCapabilityValueAsync` is what fills these layers in. Every `User`
-write that the device accepted is stored by `DeviceDesiredStateWriter` into the layer a control
-press means: the running application's override when a game is running, the global default otherwise
-— the same rule `CycleAuthoredProfileAsync` uses, because mid-game a user is configuring what they
-are playing and on the desktop there is no per-game scope to mean. The AC, DC and named-profile
-layers are not written from a control press; they resolve but are authored elsewhere, and a press
-landing in a layer the user cannot see they used would be worse than not saving. A
-running-application change updates the router's context and reconciles, so a value saved for a game
-is applied when it launches and the global one comes back when it exits.
+`DeviceCoordinator.PersistUserCapabilityValueAsync` saves every `User` write the device accepted
+through `ProfileService.SetDeviceAsync`, into the layer in force. Every profile change, including
+the per-game switch and a value reset to Global, reaches the device through
+`DeviceCoordinator.ApplyProfilesAsync`, which reconciles every capability.
 
-Two roles are deliberately excluded, because `AppConfig.Performance` already stores them and also
-decides how each is released when an application closes: `PowerSustainedLimit` and
-`VariableRefreshRate`. Their manual writes reach that owner through `AttachAutoTdpManualOverride`
-and `AttachManualVariableRefreshOverride`, which the shell session roots, so the overlay row and
-Steam's own control save to one place instead of two. Reconciliation uses a separate origin and
-never enters either persistence funnel, even if the active application changes during a write. A
-user control landing on its existing desired value also needs no configuration write.
+Two roles are deliberately excluded from `Device[]` because they have typed profile values and their
+own release rules: `PowerSustainedLimit` and `VariableRefreshRate`. Their manual writes reach
+`ApplicationPerformanceReconciler` through `AttachAutoTdpManualOverride` and
+`AttachManualVariableRefreshOverride`, so the overlay row and Steam's own control save to one place.
+Reconciliation uses a separate origin and never enters either persistence funnel. A user control
+landing on its existing desired value needs no configuration write.
 
-Lighting readiness triggers one restore attempt per desired value and device cycle. Startup,
-reconnect and resume may restore once a fresh, available observation exists. Repeated default
-readbacks and failed writes do not trigger a firmware-write loop. Pending or uncertain commands
-block automatic restoration; an explicit user command or a new device cycle supplies recovery. The
-saved value remains intact after every failure. Diagnostics report the command outcome and
-`Desired-value reconciliation (lighting ready)` summary. A manual command suppresses readiness
-restoration while its hardware result and desired configuration are being committed.
+Every transition of the device cycle to active, including resume, restores every desired value once.
+Lighting readiness also restores lighting, with at most three attempts per zone, value and cycle: a
+refused command may be retried, an uncertain one only after a readback newer than its result shows
+the zone does not hold the value. Pending commands block automatic restoration. The saved value
+remains intact after every failure. Diagnostics report
+`Device restore <capability>/<instance> from <layer> (<reason>): outcome=…, attempt n of 3.` and the
+`Desired-value reconciliation (…)` summary. A manual command suppresses readiness restoration while
+its hardware result and desired configuration are being committed.
 
 During resume and controller reacquisition, the capability router accepts the attached runtime's new
 cycle before validating its first descriptor publication. Descriptor numbering can restart within
@@ -503,14 +499,14 @@ section renders in a fallback section.
 ### Authored profiles
 
 A profile is a named curve or colour the user builds in Settings for `fan.curve` or
-`lighting.zone-color` and selects in the overlay. `Core\DeviceProfileSelectionStore.cs` writes only
-which profile is selected, globally or per application. `Core\DeviceProfileValidation.cs` checks a
-curve against the live descriptor at apply time (`CapabilityAbsent`, `NotACurve`, `PointCount` 1–64,
-`NotAscending`, `OutOfBounds`). `Shell\DeviceProfileApplier.cs` resolves, validates, builds the
-curve value and executes with a 5 s timeout, counting `AppliedUnverified` as success and a timeout
-as failure. A selection naming a deleted profile resolves to nothing and reads `MISSING` in the
-overlay. Curve editing goes through `CurveEditing` (at most 64 points, minimum input gap 1, a 0–100
-plane), so an invalid curve cannot be built. The reasons are in `device-integration.md`, "Authored
+`lighting.zone-color`. The fan curve in force is the `FanCurveProfileId` profile value, chosen in
+the overlay and resolved like every other value. `Core\DeviceProfileValidation.cs` checks a curve
+against the live descriptor at apply time (`CapabilityAbsent`, `NotACurve`, `PointCount` 1–64,
+`NotAscending`, `OutOfBounds`). `Shell\DeviceProfileApplier.cs` validates, builds the curve value
+and executes with a 5 s timeout, counting `AppliedUnverified` as success and a timeout as failure.
+Deleting a profile clears every layer that selected it, so that layer falls back to the one below.
+Curve editing goes through `CurveEditing` (at most 64 points, minimum input gap 1, a 0–100 plane),
+so an invalid curve cannot be built. The reasons are in `device-integration.md`, "Authored
 profiles".
 
 ## 12. Controller management
@@ -526,8 +522,8 @@ Management starts when the plugin publishes physical devices, not at cycle start
 
 1. Store the devices, selection and generation; return `Off` when management is disabled.
 2. `ViiperControllerBackend.DiscoverAsync` must report ready with capabilities, else `Unavailable`.
-3. Resolve the target: the first per-application override whose id equals the running application,
-   else the global default (`SteamDeckComposite` by default).
+3. Resolve the target from the `ControllerTarget` profile value for the running application
+   (`SteamDeckComposite` when no layer sets one).
 4. `HidHideOwnedDeltaManager.StartAsync` allowlists WSGM and hides every identity marked
    `RequiresHiding`; not activated means `Unavailable`.
 5. Create the target (or replace the old one) and activate the source; failure cleans HidHide and
@@ -618,7 +614,7 @@ notation; the findings behind that and the pre-start allowlist are in `device-in
 ## 13. OEM controls
 
 `DeviceOemActionRouter` maps a published control's press to one WSGM action from the closed
-`OemAction` vocabulary stored under `DeviceIntegration.Profiles[].OemAssignments`:
+`OemAction` vocabulary stored under `DeviceIntegration.OemAssignments`:
 
 | Action                                                    | Effect                                                                    |
 | --------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -657,8 +653,8 @@ shared Power, RGB, Controller and Info sections, followed by custom sections, dr
 Windows energy plans keep Power available with integration off. Unplaced controls can still use
 WSGM's fallback sections `Overview`, `PowerAndThermals`, `ControllerAndMotion`, `Oem`,
 `LightingAndFeatures`, `Diagnostics`. An unplaced capability lands in the section its role implies.
-WSGM's own rows join them: AutoTDP, hardware profile and authored profile under power; controller
-target and glyph selection, plus the glyph preview and input test, under controller; recovery under
+WSGM's own rows join them: AutoTDP and the authored fan profile under power; controller target and
+glyph selection, plus the glyph preview and input test, under controller; recovery under
 diagnostics.
 
 **A WSGM section whose subject the plugin already declares is not a second page.** `DeclaredKeyFor`
@@ -725,21 +721,21 @@ companion bounds and steps. The sustained descriptor's range defines coordinated
 owns the mapping and confirms both limits. Host validation does not impose the Claw's equal-limit
 policy on other hardware.
 
-The manual TDP profile model retains unified target and advanced sustained/boost preferences
-separately in global and per-game performance configuration. A missing per-game record inherits the
-global record. These values are preferences rather than readback; RTSS profile edits preserve them.
-Saved unified targets restore through the paired command with captured generations and verified
-readback; profile-owned pair release also uses the coordinated path. Both surfaces expose the shared
-mode and retain readback. Split restoration validates the saved boost against its descriptor,
-applies the plugin's coordinated target and then restores the independent boost under one
-power-mutation gate. Both results must be verified; there is no retry after uncertainty. Manual
-sustained edits from Overlay and QAM now consult the same active profile in the coordinator to
-select paired dispatch. Verified independent boost edits save the advanced boost value and select
-split mode while retaining unified history. Manual sustained edits use the active mode to select
-paired dispatch. Saving a unified target preserves the stored advanced values, and saving an
-advanced sustained value preserves the unified target. Overlay Device now exposes an Advanced/split
-versus Unified selector. Selection persists only policy; a subsequent sustained-slider edit applies
-the coordinated target. QAM exposes the same mode toggle and one TDP slider in unified mode.
+The manual TDP preferences are four profile values: `TdpUnified`, `UnifiedWatts`, `SustainedWatts`
+and `BoostWatts`. Each resolves on its own, so a game that sets one inherits the rest from Global.
+These values are preferences rather than readback. Saved unified targets restore through the paired
+command with captured generations and verified readback; profile-owned pair release also uses the
+coordinated path. Both surfaces expose the shared mode and retain readback. Split restoration
+validates the saved boost against its descriptor, applies the plugin's coordinated target and then
+restores the independent boost under one power-mutation gate. Both results must be verified; there
+is no retry after uncertainty. Manual sustained edits from Overlay and QAM now consult the same
+active profile in the coordinator to select paired dispatch. Verified independent boost edits save
+the advanced boost value and select split mode while retaining unified history. Manual sustained
+edits use the active mode to select paired dispatch. Saving a unified target preserves the stored
+advanced values, and saving an advanced sustained value preserves the unified target. Overlay Device
+now exposes an Advanced/split versus Unified selector. Selection persists only policy; a subsequent
+sustained-slider edit applies the coordinated target. QAM exposes the same mode toggle and one TDP
+slider in unified mode.
 
 ## 15. Glyphs
 
@@ -765,23 +761,23 @@ something to show.
 
 `AppConfig.DeviceIntegration` (`Core\DeviceConfiguration.cs`):
 
-| Key                           | Default              | Effect                                                                                                                                                                                     |
-| ----------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Enabled`                     | false                | Master switch. Off to on starts a fresh cycle; on to off stops with `IntegrationDisabled` and must verify teardown.                                                                        |
-| `ControllerManagementEnabled` | false                | Child preference, remembered while the master is off; toggled live through the 6 s path.                                                                                                   |
-| `ControllerTarget`            | `SteamDeckComposite` | Global default target (`Xbox360`, `DualShock4` selectable).                                                                                                                                |
-| `ControllerTargets`           | `[]`                 | Per-application target overrides keyed by canonical application id.                                                                                                                        |
-| `AutoTdpEnabled`              | false                | Runs only with the master on.                                                                                                                                                              |
-| `GlyphSelection`              | `Automatic`          | `Automatic`, `NativeSteam`, or a manual profile.                                                                                                                                           |
-| `ManualGlyphProfileId`        | null                 | The manual profile id.                                                                                                                                                                     |
-| `Profiles[]`                  | `[]`                 | Per-machine desired values, selected hardware profile and OEM assignments, keyed by the identity key (24 hex characters of SHA-256 over manufacturer, baseboard product and version, SKU). |
-| `PluginSettings[]`            | `[]`                 | Per plugin and device definition: stored values, cached declaration, authored profiles, profile selections.                                                                                |
+| Key                           | Default     | Effect                                                                                                              |
+| ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| `Enabled`                     | false       | Master switch. Off to on starts a fresh cycle; on to off stops with `IntegrationDisabled` and must verify teardown. |
+| `ControllerManagementEnabled` | false       | Child preference, remembered while the master is off; toggled live through the 6 s path.                            |
+| `AutoTdpEnabled`              | false       | Runs only with the master on.                                                                                       |
+| `GlyphSelection`              | `Automatic` | `Automatic`, `NativeSteam`, or a manual profile.                                                                    |
+| `ManualGlyphProfileId`        | null        | The manual profile id.                                                                                              |
+| `OemAssignments[]`            | `[]`        | Allowlisted OEM control assignments.                                                                                |
+| `PluginSettings[]`            | `[]`        | Per plugin and device definition: stored values, cached declaration, authored profiles.                             |
 
 Loading repairs bad enum names so one bad value cannot quarantine the file. Normalization trims ids,
-drops blank or duplicate entries, drops invalid cached declarations and non-ascending curves, and
-keeps a selection naming a deleted profile so it stays diagnosable. Reload replaces the config
-object and calls `ApplyConfigAsync`; coordinator-originated changes persist through
-`ConfigStore.Mutate` under the transition gate.
+drops blank or duplicate entries, and drops invalid cached declarations and non-ascending curves.
+Device values, the controller target and the fan-curve selection are profile values under
+`AppConfig.Profiles`, keyed by the identity key (24 hex characters of SHA-256 over manufacturer,
+baseboard product and version, SKU); see `docs\profiles.md`. Reload replaces the config object and
+calls `ApplyConfigAsync`; coordinator-originated changes persist through `ConfigStore.Mutate` under
+the transition gate.
 
 ## 17. Logging
 

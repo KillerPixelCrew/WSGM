@@ -55,20 +55,29 @@ public sealed class DevicePageCaptureTests
         using FakeDevice device = new();
         device.SampleSource = hostControls;
         device.State = state;
-        await using PerformanceService performance = new(new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask,
-            new PerformancePolicy(new PerformanceValues(60, 2), []));
-        using PerformanceOverlayBridge performanceBridge = new(performance);
+        var profiles = ApplicationProfilesViewTests.Profiles();
+        await profiles.SetAsync(values =>
+        {
+            values.FrameLimit = 60;
+            values.OverlayLevel = 2;
+        }, "fixture");
+        await using var performance = ApplicationProfilesViewTests.Service(profiles);
+        using PerformanceOverlayBridge performanceBridge = new(performance, profiles);
         using UiFixture fixture = new();
         var presets = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected hardware write"),
             new WindowsPowerModes(new ReadOnlyPowerModeApi()), () => true);
-        PerformanceConfig config = new()
+        ProfileConfig config = new()
         {
-            AcPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "balanced" },
-            BatteryPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "super-battery" }
+            Global = new ProfileValues
+            {
+                AcPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "balanced" },
+                BatteryPowerPreset = new DevicePowerPresetReference { PluginId = "claw", PresetId = "super-battery" }
+            }
         };
         var assignments = new DevicePowerAssignments(presets,
-            () => new DevicePowerAssignmentContext(config, null, "claw", 7, true, true),
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "claw", 7,
+                true, true),
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();

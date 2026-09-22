@@ -36,13 +36,6 @@ internal static class ApplicationProfileRules
                                                            && identity(profile) == applicationId);
     }
 
-    internal static PerformanceApplicationConfig? Match(PerformanceConfig config, string? applicationId,
-        string? executable)
-    {
-        return Match(config.Applications, applicationId, executable, item => item.ApplicationId,
-            item => item.ProcessNames);
-    }
-
     internal static string[] ValidateProcesses(IEnumerable<string> names)
     {
         var result = names.Select(name => name.Trim()).Where(name => name.Length > 0)

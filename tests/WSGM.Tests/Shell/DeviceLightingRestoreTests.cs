@@ -13,8 +13,8 @@ public sealed class DeviceLightingRestoreTests
         var view = View();
         var desired = view.Projection.DesiredValue;
 
-        Assert.True(restore.TryBegin(view));
-        Assert.False(restore.TryBegin(view));
+        Assert.True(Begin(restore, view));
+        Assert.False(Begin(restore, view));
         Assert.Same(desired, view.Projection.DesiredValue);
         Assert.Equal(0x123456, desired!.ColorValue);
         Assert.Equal(0xFFFFFF, view.Projection.State.ObservedValue!.ColorValue);
@@ -33,10 +33,10 @@ public sealed class DeviceLightingRestoreTests
             }
         };
 
-        Assert.False(restore.TryBegin(unavailable));
-        Assert.True(restore.TryBegin(ready));
-        Assert.False(restore.TryBegin(unavailable));
-        Assert.False(restore.TryBegin(ready));
+        Assert.False(Begin(restore, unavailable));
+        Assert.True(Begin(restore, ready));
+        Assert.False(Begin(restore, unavailable));
+        Assert.False(Begin(restore, ready));
     }
 
     [Theory]
@@ -48,7 +48,7 @@ public sealed class DeviceLightingRestoreTests
         DeviceLightingRestore restore = new();
         var view = View();
 
-        Assert.False(restore.TryBegin(view with
+        Assert.False(Begin(restore, view with
         {
             Projection = view.Projection with { State = view.Projection.State with { Quality = quality } }
         }));
@@ -70,7 +70,7 @@ public sealed class DeviceLightingRestoreTests
             }
         };
 
-        Assert.False(restore.TryBegin(view));
+        Assert.False(Begin(restore, view));
     }
 
     [Fact]
@@ -78,14 +78,14 @@ public sealed class DeviceLightingRestoreTests
     {
         DeviceLightingRestore restore = new();
         var first = View();
-        Assert.True(restore.TryBegin(first));
+        Assert.True(Begin(restore, first));
         var next = first with
         {
             Projection = first.Projection with { State = first.Projection.State with { CycleGeneration = 2 } }
         };
 
-        Assert.True(restore.TryBegin(next));
-        Assert.False(restore.TryBegin(next));
+        Assert.True(Begin(restore, next));
+        Assert.False(Begin(restore, next));
     }
 
     [Fact]
@@ -93,14 +93,14 @@ public sealed class DeviceLightingRestoreTests
     {
         DeviceLightingRestore restore = new();
         var first = View();
-        Assert.True(restore.TryBegin(first));
+        Assert.True(Begin(restore, first));
         var next = first with
         {
             Projection = first.Projection with { DesiredValue = Color(0x654321) }
         };
 
-        Assert.True(restore.TryBegin(next));
-        Assert.False(restore.TryBegin(next));
+        Assert.True(Begin(restore, next));
+        Assert.False(Begin(restore, next));
     }
 
     [Fact]
@@ -113,7 +113,76 @@ public sealed class DeviceLightingRestoreTests
             Projection = view.Projection with { State = view.Projection.State with { ObservedValue = Color(0x123456) } }
         };
 
-        Assert.False(restore.TryBegin(view));
+        Assert.False(Begin(restore, view));
+    }
+
+    [Fact]
+    public void ARefusedRestoreIsTriedAgainUpToTheBound()
+    {
+        // A refused command wrote nothing. Right after wake the device refuses while it is busy,
+        // and giving up after the first refusal left zones at their firmware default.
+        DeviceLightingRestore restore = new();
+        var view = View();
+        for (var attempt = 1; attempt <= DeviceLightingRestore.MaxAttempts; attempt++)
+        {
+            Assert.Equal(attempt, restore.TryBegin(view));
+            Assert.Equal(0, restore.TryBegin(view));
+            restore.Complete(view, CommandOutcome.Rejected);
+        }
+
+        Assert.Equal(0, restore.TryBegin(view));
+    }
+
+    [Fact]
+    public void AnAppliedRestoreIsNotRepeatedInTheSameCycle()
+    {
+        DeviceLightingRestore restore = new();
+        var view = View();
+
+        Assert.Equal(1, restore.TryBegin(view));
+        restore.Complete(view, CommandOutcome.AppliedUnverified);
+
+        Assert.Equal(0, restore.TryBegin(view));
+    }
+
+    [Fact]
+    public void AnUncertainRestoreWaitsForANewerReadback()
+    {
+        DeviceLightingRestore restore = new();
+        var completed = DateTimeOffset.UnixEpoch.AddMinutes(1);
+        var view = View() with
+        {
+            LastResult = new CapabilityCommandResult
+            {
+                CommandId = Guid.NewGuid(),
+                Outcome = CommandOutcome.TimedOut,
+                CompletedAt = completed
+            }
+        };
+        var stale = view with
+        {
+            Projection = view.Projection with
+            {
+                State = view.Projection.State with { ObservedAt = completed.AddSeconds(-1) }
+            }
+        };
+        var fresh = view with
+        {
+            Projection = view.Projection with
+            {
+                State = view.Projection.State with { ObservedAt = completed.AddSeconds(1) }
+            }
+        };
+
+        // The readback before the write settles nothing; one taken after it shows the zone does
+        // not hold the value, which is the re-read that allows another write.
+        Assert.Equal(0, restore.TryBegin(stale));
+        Assert.Equal(1, restore.TryBegin(fresh));
+    }
+
+    private static bool Begin(DeviceLightingRestore restore, DeviceCapabilityView view)
+    {
+        return restore.TryBegin(view) > 0;
     }
 
     private static CapabilityValue Color(int color)
@@ -126,13 +195,13 @@ public sealed class DeviceLightingRestoreTests
     {
         DeviceLightingRestore restore = new();
         var first = View();
-        Assert.True(restore.TryBegin(first));
+        Assert.True(Begin(restore, first));
         var second = first with
         {
             Projection = first.Projection with { DesiredValue = Color(0xFFFFFF) }
         };
         Assert.False(restore.CanApply(second));
-        Assert.True(restore.TryBegin(first));
+        Assert.True(Begin(restore, first));
     }
 
     [Fact]
@@ -150,7 +219,7 @@ public sealed class DeviceLightingRestoreTests
         {
             Descriptor = view.Descriptor with { Role = CapabilityRole.PowerSlowLimit }
         }));
-        Assert.True(restore.TryBegin(view));
+        Assert.True(Begin(restore, view));
     }
 
     private static DeviceCapabilityView View()
@@ -170,7 +239,7 @@ public sealed class DeviceLightingRestoreTests
             new CapabilityProjection
             {
                 DesiredValue = Color(0x123456),
-                DesiredSource = DeviceDesiredValueSource.GlobalDefault,
+                DesiredSource = ProfileSource.Global,
                 State = new CapabilityState
                 {
                     CapabilityId = "lighting.zone-color",

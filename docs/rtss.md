@@ -49,17 +49,18 @@ so those captures do not establish an equivalent-workload percentage reduction.
 
 ### Shared application identity
 
-`RunningApplicationMonitor` is the only detector; `RunningApplicationCoordinator` projects its one
-answer into `PerformanceService` and controller policy, and QAM and the overlay read that service
-rather than observing Steam or foreground windows again. Identity comes from Steam lifetime
-notifications and foreground-window observation. A Steam AppID wins when exactly one game is
-running. More than one running AppID is ambiguous and uses global policy, because foreground focus
-is not allowed to guess which game should be edited. A usable foreground executable fills Steam's
-missing store-app profile or identifies an application outside Steam.
+`RunningApplicationMonitor` is the only detector; `RunningApplicationCoordinator` hands its one
+answer to `ProfileService`, which RTSS, the device and controller policy all resolve from, and QAM
+and the overlay read those rather than observing Steam or foreground windows again. Identity comes
+from Steam lifetime notifications and foreground-window observation. A Steam AppID wins when exactly
+one game is running. More than one running AppID is ambiguous and uses global policy, because
+foreground focus is not allowed to guess which game should be edited. A usable foreground executable
+fills Steam's missing store-app profile or identifies an application outside Steam.
 
-The performance contract provides global and per-application desired state with per-property
-fallback to global; adapter-published frame-limit and overlay-level bounds; one serialized command
-path with origin/correlation diagnostics; distinct requested, applying, deferred, verified,
+The performance contract takes its desired frame limit and overlay level from the profile store,
+each resolved on its own from the game's profile, then Global (`docs\profiles.md`);
+adapter-published frame-limit and overlay-level bounds; one serialized command path with
+origin/correlation diagnostics; distinct requested, applying, deferred, verified,
 applied-unverified, rejected, timed-out, indeterminate, failed and externally-changed outcomes;
 process-generation checks before readback, so an RTSS restart makes an in-flight result
 indeterminate; and polling only while a UI client holds an observation lease, bounded to 250 ms
@@ -76,16 +77,15 @@ refused, including disabled profiles. A conflicting hand-edited configuration re
 rather than selecting an arbitrary profile. Existing profiles without explicit process rules retain
 their canonical application binding; adding rules replaces that binding.
 
-The editor saves frame-limit and overlay-level overrides; empty values inherit Global. Supported
-power, VRR and device values continue to be edited on their overlay pages while the profile is
-active. Executable matching selects the stored settings profile without replacing Steam's canonical
-identity used for controller targeting. Config reload reconciles the current application's device
-profile even when no process transition occurred.
+The editor saves a profile's name, executables and switch, not its values. Values are set on their
+own overlay and Quick Access rows while the profile is active, and a profile holds only those; the
+rest comes from Global. Config reload reapplies the current application's profile even when no
+process transition occurred.
 
-Scope changes, resets and editor saves persist before the new policy is published. Global disables
-the matching profile without deleting its values, so re-enabling restores them. Delete explicitly
-removes the stored performance entry. The header rejects a selection captured for a different
-application, and persistence failures leave the previous policy in force.
+Scope changes, resets and editor saves persist before the new snapshot is published. Global turns
+the matching profile off without deleting its values, so turning it back on restores them. Delete
+removes the profile. The header rejects a selection captured for a different application, and
+persistence failures leave the previous profile in force.
 
 ### The foreground fill for a store title is proof-gated by its install folder
 

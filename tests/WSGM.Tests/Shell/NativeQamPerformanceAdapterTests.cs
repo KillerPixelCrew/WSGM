@@ -10,10 +10,7 @@ public sealed class NativeQamPerformanceAdapterTests
 {
     private static PerformanceServiceNativeQamAdapter Adapter(Func<int, bool>? applyRefresh)
     {
-        PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            (_, _) => Task.CompletedTask,
-            PerformancePolicy.Empty);
+        var service = Service();
         return new PerformanceServiceNativeQamAdapter(service) { ApplyRefreshRate = applyRefresh };
     }
 
@@ -141,10 +138,10 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task SteamHeaderKeepsTheAppIdBeforeTheExecutableIsKnown()
     {
-        await using var service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
-        await service.SetTargetAsync(
-            new PerformanceApplicationTarget("steam:42", 42, null));
-        PerformanceServiceNativeQamAdapter adapter = new(service);
+        var profiles = Profiles(Config(60, 1));
+        await using var service = Service(profiles);
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, null));
+        PerformanceServiceNativeQamAdapter adapter = new(service) { Profiles = profiles };
 
         var global = adapter.PerfState;
 
@@ -152,7 +149,8 @@ public sealed class NativeQamPerformanceAdapterTests
         Assert.Equal("769", global.ActiveProfileGameId);
         Assert.False(global.PerApp?.IsGamePerfProfileEnabled);
 
-        Assert.True(await service.SetApplicationProfileEnabledAsync(true));
+        Assert.True(await profiles.SetGameEnabledAsync(true));
+        await service.ApplyProfilesAsync(profiles.Current, true);
         var perApplication = adapter.PerfState;
         Assert.Equal("42", perApplication.CurrentGameId);
         Assert.Equal("42", perApplication.ActiveProfileGameId);
@@ -162,10 +160,10 @@ public sealed class NativeQamPerformanceAdapterTests
     [Fact]
     public async Task DeltaForAnApplicationThatIsNoLongerCurrentIsRefused()
     {
-        await using var service = Service(new PerformancePolicy(new PerformanceValues(60, 1), []));
-        await service.SetTargetAsync(
-            new PerformanceApplicationTarget("steam:42", 42, "current.exe"));
-        PerformanceServiceNativeQamAdapter adapter = new(service);
+        var profiles = Profiles(Config(60, 1));
+        await using var service = Service(profiles);
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, "current.exe"));
+        PerformanceServiceNativeQamAdapter adapter = new(service) { Profiles = profiles };
         using var payload = JsonDocument.Parse(
             """{"delta":{"gameid":41,"settings_delta":{"per_app":{"is_game_perf_profile_enabled":true}}}}""");
         Assert.True(SteamPerformanceDeltaReader.TryRead(

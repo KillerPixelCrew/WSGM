@@ -16,21 +16,21 @@ public sealed class ApplicationProfilesViewTests
     [AvaloniaFact]
     public async Task HeaderScopePersistsAndRemainsVisibleAcrossDestinations()
     {
-        PerformancePolicy? saved = null;
-        await using var service = new PerformanceService(new SimulatedRtssAdapter(), (policy, _) =>
-        {
-            saved = policy;
-            return Task.CompletedTask;
-        });
-        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
-        using var bridge = new PerformanceOverlayBridge(service);
+        var profiles = Profiles();
+        await using var service = Service(profiles);
+        await service.ApplyProfilesAsync(
+            profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:42", 42, "game.exe")), true);
+        using var bridge = new PerformanceOverlayBridge(service, profiles);
         using var fixture = new UiFixture();
         var window = fixture.Overlay(1280, 720);
         window.AttachPerformanceSource(bridge);
         var selector = UiFixture.Named<ComboBox>(window, "HeaderProfile");
         selector.SelectedIndex = 1;
-        await WaitAsync(() => service.Current.ApplicationProfileEnabled && selector.IsEnabled);
-        Assert.True(Assert.Single(saved!.Applications).Enabled);
+        await WaitAsync(() => profiles.Current.EditsGame && selector.IsEnabled);
+        var created = Assert.Single(profiles.Current.Config.Games);
+        Assert.True(created.Enabled);
+        // Opting in creates an empty profile: nothing is copied from Global.
+        Assert.Equal(0, created.Values.Count());
         for (var tab = 0; tab < 4; tab++)
         {
             UiFixture.Click(window, UiFixture.Tab(window, tab));
@@ -40,8 +40,8 @@ public sealed class ApplicationProfilesViewTests
         }
 
         selector.SelectedIndex = 0;
-        await WaitAsync(() => !service.Current.ApplicationProfileEnabled && selector.IsEnabled);
-        Assert.False(Assert.Single(saved!.Applications).Enabled);
+        await WaitAsync(() => !profiles.Current.EditsGame && selector.IsEnabled);
+        Assert.False(Assert.Single(profiles.Current.Config.Games).Enabled);
     }
 
     [AvaloniaTheory]
@@ -50,8 +50,9 @@ public sealed class ApplicationProfilesViewTests
     public async Task EditorCreatesEditsAndDeletesProfilesWithoutARunningApplication(int width, int height,
         double scale, string baseline)
     {
-        await using var service = new PerformanceService(new SimulatedRtssAdapter(), (_, _) => Task.CompletedTask);
-        using var bridge = new PerformanceOverlayBridge(service);
+        var profiles = Profiles();
+        await using var service = Service(profiles);
+        using var bridge = new PerformanceOverlayBridge(service, profiles);
         using var fixture = new UiFixture();
         var window = fixture.Overlay(width, height, scale);
         window.AttachPerformanceSource(bridge);
@@ -72,22 +73,42 @@ public sealed class ApplicationProfilesViewTests
 
         Text("Profile name").Text = "My game";
         Text("Activation processes").Text = "game.exe\nlauncher.exe";
-        Text("Profile frame limit").Text = "40";
         UiFixture.Click(window, Button("Save profile"));
-        await WaitAsync(() => editor.IsEnabled && service.Profiles.Count == 1);
-        var entry = Assert.Single(service.Profiles);
+        await WaitAsync(() => editor.IsEnabled && profiles.Current.Config.Games.Count == 1);
+        var entry = Assert.Single(profiles.Current.Config.Games);
         Assert.Equal(["game.exe", "launcher.exe"], entry.ProcessNames);
-        Assert.Equal(40, entry.Values.FrameLimit);
+        Assert.Equal(0, entry.Values.Count());
         Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, baseline);
         Text("Activation processes").Text = "newgame.exe";
         UiFixture.Click(window, Button("Save profile"));
-        await WaitAsync(() => editor.IsEnabled && service.Profiles[0].ProcessNames.Contains("newgame.exe"));
-        Assert.Equal(entry.ApplicationId, service.Profiles[0].ApplicationId);
+        await WaitAsync(() =>
+            editor.IsEnabled && profiles.Current.Config.Games[0].ProcessNames.Contains("newgame.exe"));
+        Assert.Equal(entry.Id, profiles.Current.Config.Games[0].Id);
         UiFixture.Click(window, Button("Delete profile"));
-        Assert.Single(service.Profiles);
+        Assert.Single(profiles.Current.Config.Games);
         UiFixture.Click(window, Button("Confirm delete"));
-        await WaitAsync(() => editor.IsEnabled && service.Profiles.Count == 0);
+        await WaitAsync(() => editor.IsEnabled && profiles.Current.Config.Games.Count == 0);
+    }
+
+    internal static ProfileService Profiles()
+    {
+        var store = new ProfileConfig();
+        var gate = new Lock();
+        return new ProfileService(store, (edit, _) =>
+        {
+            lock (gate)
+            {
+                edit(store);
+                return Task.FromResult(store.Copy());
+            }
+        });
+    }
+
+    internal static PerformanceService Service(ProfileService profiles)
+    {
+        return new PerformanceService(new SimulatedRtssAdapter(),
+            (field, value, token) => profiles.SetAsync(field, value, token), profiles.Current);
     }
 
     private static async Task WaitAsync(Func<bool> predicate)

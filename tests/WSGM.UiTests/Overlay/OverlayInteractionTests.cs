@@ -157,14 +157,18 @@ public sealed class OverlayInteractionTests
                 { SustainedWatts = 16, SlowWatts = 18, WindowsMode = DevicePowerMode.Balanced }
         };
         DevicePowerPresetReference balanced = new() { PluginId = "fixture", PresetId = "balanced" };
-        PerformanceConfig config = new()
-            { AcPowerPreset = ac ? custom : balanced, BatteryPowerPreset = ac ? balanced : custom };
+        ProfileConfig config = new()
+        {
+            Global = new ProfileValues
+                { AcPowerPreset = ac ? custom : balanced, BatteryPowerPreset = ac ? balanced : custom }
+        };
         DevicePowerPresets service = new(
             () => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
             (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
             new WindowsPowerModes(new ReadOnlyPowerModeApi()));
         DevicePowerAssignments assignments = new(service,
-            () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, ac),
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "fixture", 1,
+                true, ac),
             (_, _, _) => throw new InvalidOperationException("Rendering must not save assignments"));
         using DevicePowerPresetSelection model = new(service, false, assignments);
         using UiFixture fixture = new();
@@ -258,14 +262,15 @@ public sealed class OverlayInteractionTests
         var service = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
             new WindowsPowerModes(new ReadOnlyPowerModeApi()));
-        PerformanceConfig config = new();
+        ProfileConfig config = new();
         var saves = 0;
         var assignments = new DevicePowerAssignments(service,
-            () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, saves + 1),
+                "fixture", 1, true, true),
             (_, ac, reference) =>
             {
                 Assert.False(ac);
-                config.BatteryPowerPreset = reference;
+                config.Global.BatteryPowerPreset = reference;
                 saves++;
                 return Task.CompletedTask;
             });
@@ -303,7 +308,7 @@ public sealed class OverlayInteractionTests
 
         await Task.WhenAll(refresh, finished.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(1, saves);
-        Assert.Equal("balanced", config.BatteryPowerPreset?.PresetId);
+        Assert.Equal("balanced", config.Global.BatteryPowerPreset?.PresetId);
 
         return;
 

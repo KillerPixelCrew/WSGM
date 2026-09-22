@@ -85,7 +85,7 @@ public sealed class DeviceDesiredWriteAdmissionTests
             new CapabilityProjection
             {
                 DesiredValue = CapabilityValue.Integer(25),
-                DesiredSource = DeviceDesiredValueSource.GlobalDefault,
+                DesiredSource = ProfileSource.Global,
                 State = new CapabilityState
                 {
                     CapabilityId = "power.slow-limit",

@@ -194,7 +194,6 @@ internal sealed record DeviceOverlaySnapshot(
     DescriptorRow? AutoTdp = null,
     DescriptorRow? Controller = null,
     DescriptorRow? Recovery = null,
-    DescriptorRow? Profile = null,
     DeviceOverlayGlyphPreview? GlyphPreview = null,
     DescriptorRow? AuthoredProfile = null)
 {
@@ -263,7 +262,7 @@ internal interface IDeviceOverlaySource : IDisposable
         return Task.FromException(new NotSupportedException("Explicit host selection is not available."));
     }
 
-    /// <summary>Moves the global default controller target to the next one and persists it.</summary>
+    /// <summary>Moves the controller target to the next one in the layer in force and persists it.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new target is persisted and applied.</returns>
     Task CycleControllerTargetAsync(CancellationToken cancellationToken = default);
@@ -273,19 +272,12 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <returns>A task completing once the attempt has been made.</returns>
     Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Moves to the next named hardware profile, or to none, and persists it.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the new selection is persisted and applied.</returns>
-    Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default);
-
     /// <summary>Moves to the next authored fan profile, or to none, and applies it.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new selection is persisted and applied.</returns>
     /// <remarks>
-    ///     Scoped to the running application when there is one, and global otherwise. That is the
-    ///     choice a user makes by opening this row mid-game: they are changing the profile for what they
-    ///     are playing, and silently changing it for everything would be the wrong reading — while on
-    ///     the desktop, with nothing running, there is no per-game scope to mean.
+    ///     Saved to the running game's profile while it is on, and to Global otherwise, like every
+    ///     other per-game value.
     /// </remarks>
     Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default);
 }
@@ -362,11 +354,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
             controllerStatus);
-        var profile = ProfileView(
-            _coordinator.HardwareProfileIds,
-            _coordinator.SelectedHardwareProfileId);
-        var
-            authored = _coordinator.AuthoredProfileSelection();
+        var authored = _coordinator.AuthoredProfileSelection();
         var glyphPreview = GlyphPreview(
             glyphSelectionState,
             _glyphs,
@@ -418,13 +406,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             autoTdp,
             controller,
             recovery,
-            profile,
             glyphPreview,
             authored is { } selection
                 ? AuthoredProfileView(
                     selection.Profiles,
-                    selection.SelectedProfileId,
-                    selection.ApplicationScoped)
+                    selection.Selected.Value,
+                    selection.Selected.Source)
                 : null)
         {
             HostSelections = new Dictionary<string, DeviceHostSelection>
@@ -434,10 +421,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ["device.controller-target"] = new(controllerStatus.Target?.ToString(),
                     _coordinator.Controllers.SupportedTargets
                         .Select(target => HostChoice(target.ToString(), TargetLabel(target))).ToArray()),
-                ["device.hardware-profile"] = new(_coordinator.SelectedHardwareProfileId ?? "",
-                    new[] { HostChoice("", "None") }
-                        .Concat(_coordinator.HardwareProfileIds.Select(id => HostChoice(id, id))).ToArray()),
-                ["device.authored-profile"] = new(authored?.SelectedProfileId ?? "",
+                ["device.authored-profile"] = new(authored?.Selected.Value ?? "",
                     new[] { HostChoice("", "None") }
                         .Concat(authored?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
                         .ToArray())
@@ -485,10 +469,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             "device.controller-target" when Enum.TryParse<ManagedControllerTarget>(value, out var target)
                                             && _coordinator.Controllers.SupportedTargets.Contains(target) =>
                 _coordinator.SetControllerTargetAsync(target, cancellationToken),
-            "device.hardware-profile" when string.IsNullOrEmpty(value) ||
-                                           _coordinator.HardwareProfileIds.Contains(value)
-                => _coordinator.SelectHardwareProfileAsync(string.IsNullOrEmpty(value) ? null : value,
-                    cancellationToken),
             "device.authored-profile" => _coordinator.SelectAuthoredProfileAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             _ => Task.CompletedTask
@@ -518,13 +498,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.RetryAfterFaultAsync(cancellationToken);
-    }
-
-    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default)
-    {
-        return _coordinator.SelectHardwareProfileAsync(
-            NextProfile(_coordinator.HardwareProfileIds, _coordinator.SelectedHardwareProfileId),
-            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -779,13 +752,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// <summary>Projects the authored profile in force into its overlay row.</summary>
     /// <param name="profiles">Profiles authored for this device.</param>
     /// <param name="selectedProfileId">The profile currently chosen, or null for none.</param>
-    /// <param name="applicationScoped">Whether that choice came from an application override.</param>
+    /// <param name="source">Which profile layer the choice came from.</param>
     /// <returns>The row, or null when the device has no authored profiles at all.</returns>
     /// <remarks>
-    ///     Null when nothing has been authored, unlike the hardware-profile row above. That row is
-    ///     always present because hardware profiles come from the plugin and a user cannot create one;
-    ///     these are created in Settings, and a row offering a choice between nothing would be an
-    ///     invitation to press a button that cannot do anything.
+    ///     Null when nothing has been authored: profiles are created in Settings, and a row offering a
+    ///     choice between nothing would be an invitation to press a button that cannot do anything.
     ///     <para>
     ///         The scope is in the description rather than implied, because a profile chosen for one game
     ///         and the same profile chosen for everything read identically otherwise — and the difference is
@@ -795,7 +766,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     internal static DescriptorRow? AuthoredProfileView(
         IReadOnlyList<DeviceAuthoredProfile> profiles,
         string? selectedProfileId,
-        bool applicationScoped)
+        ProfileSource source)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         if (profiles.Count == 0)
@@ -835,9 +806,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         var scope = selected is null
             ? $"{profiles.Count} authored · none selected"
-            : applicationScoped
-                ? $"1 of {profiles.Count} · applies to this game only"
-                : $"1 of {profiles.Count} · applies to everything";
+            : source is ProfileSource.Game
+                ? $"1 of {profiles.Count} · this game's override"
+                : $"1 of {profiles.Count} · from Global";
 
         return new DescriptorRow(
             "device.authored-profile",
@@ -846,45 +817,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
             true,
             selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
-    }
-
-    /// <summary>Projects named hardware profiles into the Profiles page's own row.</summary>
-    /// <param name="profileIds">The profiles this machine's stored values define.</param>
-    /// <param name="selected">The profile currently selected, or null for none.</param>
-    /// <returns>The row.</returns>
-    /// <remarks>
-    ///     Always present, unlike the recovery row. Profiles are a feature a user has to find before
-    ///     they can use it, so the row says where to author one when none exists yet — an absent row
-    ///     would just look like the feature is missing.
-    /// </remarks>
-    internal static DescriptorRow ProfileView(
-        IReadOnlyList<string> profileIds,
-        string? selected)
-    {
-        ArgumentNullException.ThrowIfNull(profileIds);
-        if (profileIds.Count == 0)
-        {
-            return new DescriptorRow(
-                "device.hardware-profile",
-                "Hardware profile",
-                "No profiles are defined · add profile values in Settings",
-                "NONE",
-                false);
-        }
-
-        var active = selected is { Length: > 0 } && profileIds.Contains(selected, StringComparer.Ordinal);
-        var description = active
-            ? $"1 of {profileIds.Count} · overrides power and battery defaults while selected"
-            : $"{profileIds.Count} defined · none selected";
-        return new DescriptorRow(
-            "device.hardware-profile",
-            "Hardware profile",
-            description,
-            // A selection naming a profile that no longer defines anything reads as NONE, which is
-            // what it now behaves as: the resolver finds no value under that name and falls through.
-            active ? selected!.ToUpperInvariant() : "NONE",
-            true,
-            active ? DescriptorStatus.Available : DescriptorStatus.None);
     }
 
     /// <summary>The next profile in the cycle, with none between the last and the first.</summary>

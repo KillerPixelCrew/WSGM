@@ -65,11 +65,11 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private long _actionGeneration;
     private DeviceOemActionServices? _actions;
+    private IReadOnlyList<DeviceOemAssignment> _assignments = [];
     private DevicePluginRuntime? _client;
     private bool _controllerManagementEnabled;
     private long _cycleGeneration;
     private bool _disposed;
-    private DeviceDesiredProfile? _profile;
     private bool _targetHasRearButtons;
 
     public void Dispose()
@@ -115,13 +115,13 @@ internal sealed class DeviceOemActionRouter : IDisposable
     }
 
     internal void UpdateConfiguration(
-        DeviceDesiredProfile? profile,
+        IReadOnlyList<DeviceOemAssignment> assignments,
         bool controllerManagementEnabled,
         ManagedControllerTarget target)
     {
         lock (_gate)
         {
-            _profile = profile;
+            _assignments = assignments;
             _controllerManagementEnabled = controllerManagementEnabled;
             _targetHasRearButtons = target is ManagedControllerTarget.SteamDeckComposite;
             _actionGeneration++;
@@ -286,7 +286,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     private OemAction ResolveActionUnderGate(OemControlDescriptor control)
     {
-        var assignment = _profile?.OemAssignments.FirstOrDefault(item =>
+        var assignment = _assignments.FirstOrDefault(item =>
             string.Equals(item.ControlId, control.ControlId, StringComparison.Ordinal));
 
         // WSGM claims no physical button by default. The handheld's OEM buttons reach Steam as the

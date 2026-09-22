@@ -120,6 +120,9 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         _service = service ?? throw new ArgumentNullException(nameof(service));
     }
 
+    /// <summary>The profile owner Steam's per-game toggle and reset write to.</summary>
+    internal ProfileService? Profiles { get; init; }
+
     internal SteamFrameLimitState FrameLimit => ProjectFrameLimit(
         _service.Current,
         _service.Enabled,
@@ -479,7 +482,11 @@ internal sealed class PerformanceServiceNativeQamAdapter :
     private async Task<SteamUiCommandResult> ResetProfileAsync(
         CancellationToken cancellationToken)
     {
-        await _service.ResetProfileAsync(cancellationToken).ConfigureAwait(false);
+        if (Profiles is { } profiles)
+        {
+            await profiles.ResetAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         return new SteamUiCommandResult(true, null);
     }
 
@@ -501,9 +508,10 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                 + "running.");
         }
 
-        var changed = await _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken)
-            .ConfigureAwait(false);
-        return changed || _service.Current.ApplicationProfileEnabled == enabled
+        var reached = Profiles is { } profiles
+                      && await profiles.SetGameEnabledAsync(enabled, _service.Current.Target.ApplicationId,
+                          cancellationToken).ConfigureAwait(false);
+        return reached
             ? new SteamUiCommandResult(true, null)
             : new SteamUiCommandResult(
                 false,

@@ -391,39 +391,6 @@ public sealed class DeviceOverlayBridgeTests
             DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section));
     }
 
-    [Fact]
-    public void WithNoProfilesTheRowSaysWhereToMakeOneRatherThanVanishing()
-    {
-        // Unlike recovery, this row is always present: profiles are a feature a user has to find
-        // before they can use it, and an absent row would read as the feature being missing.
-        var row = DeviceOverlayBridge.ProfileView([], null);
-
-        Assert.False(row.CanInvoke);
-        Assert.Equal("NONE", row.TrailingText);
-        Assert.Contains("Settings", row.Description, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ASelectedProfileIsNamedAndMarkedActive()
-    {
-        var row = DeviceOverlayBridge.ProfileView(["docked", "handheld"], "handheld");
-
-        Assert.Equal("HANDHELD", row.TrailingText);
-        Assert.Equal(DescriptorStatus.Available, row.Status);
-        Assert.True(row.CanInvoke);
-    }
-
-    [Fact]
-    public void ASelectionNamingAProfileThatNoLongerExistsReadsAsNone()
-    {
-        // Which is what it now behaves as: the resolver finds no value under that name and falls
-        // through to the power and global layers. Showing the stale name would claim otherwise.
-        var row = DeviceOverlayBridge.ProfileView(["docked"], "deleted");
-
-        Assert.Equal("NONE", row.TrailingText);
-        Assert.Equal(DescriptorStatus.None, row.Status);
-    }
-
     [Theory]
     [InlineData(null, "docked")]
     [InlineData("docked", "handheld")]
@@ -465,10 +432,9 @@ public sealed class DeviceOverlayBridgeTests
     [Fact]
     public void NoAuthoredProfilesShowsNoRowAtAll()
     {
-        // Unlike the hardware-profile row, which is always present because the user cannot create
-        // one. These are created in Settings, so a row offering a choice between nothing would
-        // invite a press that cannot do anything.
-        Assert.Null(DeviceOverlayBridge.AuthoredProfileView([], null, false));
+        // These are created in Settings, so a row offering a choice between nothing would invite a
+        // press that cannot do anything.
+        Assert.Null(DeviceOverlayBridge.AuthoredProfileView([], null, ProfileSource.None));
     }
 
     [Fact]
@@ -477,10 +443,10 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet"), Profile("loud", "Loud")],
             "quiet",
-            false);
+            ProfileSource.Global);
 
         Assert.Equal("QUIET", row?.TrailingText);
-        Assert.Contains("everything", row?.Description);
+        Assert.Contains("from Global", row?.Description);
     }
 
     [Theory]
@@ -492,7 +458,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("profile", "Profile", capabilityId)],
             "profile",
-            false);
+            ProfileSource.Global);
 
         Assert.Equal(expected, row?.Title);
     }
@@ -505,9 +471,9 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
-            true);
+            ProfileSource.Game);
 
-        Assert.Contains("this game only", row?.Description);
+        Assert.Contains("this game's override", row?.Description);
     }
 
     [Fact]
@@ -516,7 +482,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             null,
-            false);
+            ProfileSource.Global);
 
         Assert.Equal("NONE", row?.TrailingText);
         Assert.Equal(DescriptorStatus.None, row?.Status);
@@ -530,7 +496,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
-            true);
+            ProfileSource.Game);
 
         Assert.Equal("MISSING", row?.TrailingText);
         Assert.Equal(DescriptorStatus.Warning, row?.Status);
@@ -542,7 +508,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("colour", "Colour", DeviceAuthoredProfileCapabilities.Lighting)],
             "deleted",
-            true);
+            ProfileSource.Game);
 
         Assert.Equal("Lighting", row?.Title);
     }
@@ -553,7 +519,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
-            false);
+            ProfileSource.Global);
 
         Assert.True(row?.CanInvoke);
     }
@@ -566,7 +532,7 @@ public sealed class DeviceOverlayBridgeTests
         var row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
-            false);
+            ProfileSource.Global);
 
         Assert.True(row?.CanInvoke);
     }

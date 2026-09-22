@@ -310,7 +310,6 @@ public partial class OverlayWindow
             + $"glyphSelection={snapshot.GlyphSelection is not null}, "
             + $"autoTdp={snapshot.AutoTdp is not null}, "
             + $"controller={snapshot.Controller is not null}, "
-            + $"profile={snapshot.Profile is not null}, "
             + $"performanceProfiles={performance?.ProfileRows.Count ?? 0}, "
             + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
@@ -532,33 +531,10 @@ public partial class OverlayWindow
             }
         }
 
-        // The selected hardware profile is stored configuration rather than a device capability, so
-        // it is a direct row for the same reason as the others on this surface. It sits with power
-        // and thermals now that the per-application profile is the toggle on the Device root.
-        if (section is DeviceOverlaySection.PowerAndThermals && snapshot.Profile is { } profile)
-        {
-            const string profileFocusKey = "device.hardware-profile";
-            var descriptor = new DescriptorRow(
-                profileFocusKey,
-                profile.Title,
-                profile.Description,
-                profile.TrailingText,
-                profile.CanInvoke,
-                profile.Status);
-            var row = CreateHostDeviceRow(snapshot, descriptor);
-            target.Children.Add(row);
-            if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
-            {
-                restoreFocus = row;
-            }
-        }
-
         // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (section)
         {
-            // The authored fan profile, below the plugin's hardware profile. Two rows on one page
-            // because they are genuinely different things: the hardware profile comes from the plugin
-            // and switches its own values, while this chooses between curves the user drew in Settings.
+            // The authored fan profile: chooses between curves the user drew in Settings.
             case DeviceOverlaySection.PowerAndThermals when snapshot.AuthoredProfile is { } authored:
             {
                 const string authoredFocusKey = "device.authored-profile";

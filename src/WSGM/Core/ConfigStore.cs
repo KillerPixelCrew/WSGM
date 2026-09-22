@@ -247,6 +247,7 @@ public static class ConfigStore
             // well, and Load then moved the whole otherwise-valid file aside, taking the registry
             // recovery snapshots and every unrelated setting with it.
             RepairDeviceIntegrationJson(root["DeviceIntegration"] as JsonObject);
+            RepairProfilesJson(root["Profiles"] as JsonObject);
             return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig)
                    ?? throw new JsonException("Configuration JSON contained null instead of an object.");
         }
@@ -261,22 +262,10 @@ public static class ConfigStore
             return;
         }
 
-        RepairEnum(device, "ControllerTarget", Defaults.DeviceIntegration.ControllerTarget);
         RepairEnum(device, "GlyphSelection", Defaults.DeviceIntegration.GlyphSelection);
-        if (device["ControllerTargets"] is JsonArray targets)
+        foreach (var assignment in (device["OemAssignments"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            foreach (var target in targets.OfType<JsonObject>())
-            {
-                RepairEnum(target, "Target", Defaults.DeviceIntegration.ControllerTarget);
-            }
-        }
-
-        if (device["Profiles"] is JsonArray profiles)
-        {
-            foreach (var profile in profiles.OfType<JsonObject>())
-            {
-                RepairDeviceProfileJson(profile);
-            }
+            RepairEnum(assignment, "Action", OemAction.Disabled);
         }
 
         if (device["PluginSettings"] is not JsonArray settings)
@@ -323,39 +312,33 @@ public static class ConfigStore
         }
     }
 
-    /// <summary>Repairs the enum-bearing members of one persisted device profile.</summary>
-    /// <param name="profile">The stored profile object, straight from the file.</param>
-    private static void RepairDeviceProfileJson(JsonObject profile)
+    /// <summary>Repairs the enum-bearing members of the profile store.</summary>
+    /// <param name="profiles">The stored section, or null when the file has none.</param>
+    private static void RepairProfilesJson(JsonObject? profiles)
     {
-        if (profile["OemAssignments"] is JsonArray assignments)
-        {
-            foreach (var assignment in assignments.OfType<JsonObject>())
-            {
-                RepairEnum(assignment, "Action", OemAction.Disabled);
-            }
-        }
-
-        if (profile["Capabilities"] is not JsonArray capabilities)
+        if (profiles is null)
         {
             return;
         }
 
-        foreach (var capability in capabilities.OfType<JsonObject>())
+        RepairProfileValuesJson(profiles["Global"] as JsonObject);
+        foreach (var game in (profiles["Games"] as JsonArray ?? []).OfType<JsonObject>())
         {
-            RepairCapabilityValueJson(capability["GlobalDefault"] as JsonObject);
-            RepairCapabilityValueJson(capability["AcPolicy"] as JsonObject);
-            RepairCapabilityValueJson(capability["DcPolicy"] as JsonObject);
-            foreach (var named in (capability["HardwareProfiles"] as JsonArray ?? [])
-                     .OfType<JsonObject>())
-            {
-                RepairCapabilityValueJson(named["Value"] as JsonObject);
-            }
+            RepairProfileValuesJson(game["Values"] as JsonObject);
+        }
+    }
 
-            foreach (var application in (capability["ApplicationOverrides"] as JsonArray ?? [])
-                     .OfType<JsonObject>())
-            {
-                RepairCapabilityValueJson(application["Value"] as JsonObject);
-            }
+    private static void RepairProfileValuesJson(JsonObject? values)
+    {
+        if (values is null)
+        {
+            return;
+        }
+
+        RepairEnum(values, "ControllerTarget", ManagedControllerTarget.SteamDeckComposite);
+        foreach (var entry in (values["Device"] as JsonArray ?? []).OfType<JsonObject>())
+        {
+            RepairCapabilityValueJson(entry["Value"] as JsonObject);
         }
     }
 
@@ -446,6 +429,8 @@ public static class ConfigStore
         NormalizeDeviceIntegration(config.DeviceIntegration);
         config.Performance ??= new PerformanceConfig();
         NormalizePerformance(config.Performance);
+        config.Profiles ??= new ProfileConfig();
+        NormalizeProfiles(config.Profiles, config.DeviceIntegration);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -558,24 +543,11 @@ public static class ConfigStore
     /// </remarks>
     internal static void NormalizeDeviceIntegration(DeviceIntegrationConfig device)
     {
-        device.ControllerTarget = Definite(
-            device.ControllerTarget, Defaults.DeviceIntegration.ControllerTarget);
         device.GlyphSelection = Definite(
             device.GlyphSelection, Defaults.DeviceIntegration.GlyphSelection);
         device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
             ? null
             : device.ManualGlyphProfileId.Trim();
-        device.ControllerTargets ??= [];
-        device.ControllerTargets.RemoveAll(static target => target is null
-                                                            || string.IsNullOrWhiteSpace(target.ApplicationId)
-                                                            || !Enum.IsDefined(target.Target));
-        HashSet<string> controllerApplications = new(StringComparer.Ordinal);
-        device.ControllerTargets.RemoveAll(target => !controllerApplications.Add(target.ApplicationId.Trim()));
-        foreach (var target in device.ControllerTargets)
-        {
-            target.ApplicationId = target.ApplicationId.Trim();
-        }
-
         // A scope with no device, no plugin, or no values keys nothing and can never be matched, so
         // it would sit in the file forever growing it. Values are only shape-checked here; whether
         // one still satisfies its declared bounds is decided against the live manifest on load,
@@ -624,32 +596,6 @@ public static class ConfigStore
                 profile.Curve.RemoveAll(static point => point is null);
             }
 
-            // A selection naming no capability resolves nothing. One naming a profile that no
-            // longer exists is deliberately KEPT: the resolver reports it by name, and dropping it
-            // here would turn a diagnosable mistake into a per-application override that vanished
-            // without explanation.
-            scope.ProfileSelections ??= [];
-            scope.ProfileSelections.RemoveAll(static selection => selection is null
-                                                                  || string.IsNullOrWhiteSpace(selection.CapabilityId));
-            HashSet<string> selectionCapabilities = new(StringComparer.Ordinal);
-            scope.ProfileSelections.RemoveAll(selection => !selectionCapabilities.Add(selection.CapabilityId.Trim()));
-            foreach (var selection in scope.ProfileSelections)
-            {
-                selection.CapabilityId = selection.CapabilityId.Trim();
-                selection.ApplicationOverrides ??= [];
-                selection.ApplicationOverrides.RemoveAll(static entry => entry is null
-                                                                         || string.IsNullOrWhiteSpace(
-                                                                             entry.ApplicationId)
-                                                                         || string.IsNullOrWhiteSpace(entry.ProfileId));
-                HashSet<string> applications = new(StringComparer.Ordinal);
-                selection.ApplicationOverrides.RemoveAll(entry => !applications.Add(entry.ApplicationId.Trim()));
-                foreach (var entry in selection.ApplicationOverrides)
-                {
-                    entry.ApplicationId = entry.ApplicationId.Trim();
-                    entry.ProfileId = entry.ProfileId.Trim();
-                }
-            }
-
             scope.Profiles.RemoveAll(static profile =>
             {
                 if (profile.Curve.Count == 0)
@@ -686,116 +632,104 @@ public static class ConfigStore
         HashSet<(string DeviceDefinitionId, string PluginId)> scopeKeys = [];
         device.PluginSettings.RemoveAll(scope => !scopeKeys.Add((scope.DeviceDefinitionId, scope.PluginId)));
 
-        device.Profiles ??= [];
-        device.Profiles.RemoveAll(static profile => profile is null
-                                                    || string.IsNullOrWhiteSpace(profile.DeviceIdentityKey));
-        foreach (var profile in device.Profiles)
+        device.OemAssignments ??= [];
+        device.OemAssignments.RemoveAll(static assignment => assignment is null
+                                                             || string.IsNullOrWhiteSpace(assignment.ControlId)
+                                                             || !Enum.IsDefined(assignment.Action));
+        HashSet<string> controls = new(StringComparer.Ordinal);
+        device.OemAssignments.RemoveAll(assignment => !controls.Add(assignment.ControlId.Trim()));
+        foreach (var assignment in device.OemAssignments)
         {
-            profile.DeviceIdentityKey = profile.DeviceIdentityKey.Trim();
-            profile.SelectedHardwareProfileId = string.IsNullOrWhiteSpace(profile.SelectedHardwareProfileId)
-                ? null
-                : profile.SelectedHardwareProfileId.Trim();
-            profile.Capabilities ??= [];
-            profile.OemAssignments ??= [];
-            profile.Capabilities.RemoveAll(static capability => capability is null
-                                                                || string.IsNullOrWhiteSpace(capability.CapabilityId));
-            foreach (var capability in profile.Capabilities)
-            {
-                capability.CapabilityId = capability.CapabilityId.Trim();
-                capability.InstanceId = string.IsNullOrWhiteSpace(capability.InstanceId)
-                    ? null
-                    : capability.InstanceId.Trim();
-                capability.HardwareProfiles ??= [];
-                capability.ApplicationOverrides ??= [];
-                capability.HardwareProfiles.RemoveAll(static value => value is null
-                                                                      || string.IsNullOrWhiteSpace(value.ProfileId));
-                capability.ApplicationOverrides.RemoveAll(static value => value is null
-                                                                          || string.IsNullOrWhiteSpace(
-                                                                              value.ApplicationId));
-
-                // The desired-state resolver takes the first entry that matches a key, so a
-                // duplicated profile or application id would decide which value wins by file order.
-                // The first is kept: it is the one that resolution has been using.
-                HashSet<string> profileIds = new(StringComparer.Ordinal);
-                capability.HardwareProfiles.RemoveAll(value => !profileIds.Add(value.ProfileId.Trim()));
-                HashSet<string> applicationIds = new(StringComparer.Ordinal);
-                capability.ApplicationOverrides.RemoveAll(value => !applicationIds.Add(value.ApplicationId.Trim()));
-                foreach (var value in capability.HardwareProfiles)
-                {
-                    value.ProfileId = value.ProfileId.Trim();
-                }
-
-                foreach (var value in capability.ApplicationOverrides)
-                {
-                    value.ApplicationId = value.ApplicationId.Trim();
-                }
-            }
-
-            // Two entries for one capability instance would split its layers in half, and only the
-            // first would ever resolve.
-            HashSet<(string CapabilityId, string? InstanceId)> capabilityKeys = [];
-            profile.Capabilities.RemoveAll(capability =>
-                !capabilityKeys.Add((capability.CapabilityId, capability.InstanceId)));
-
-            profile.OemAssignments.RemoveAll(static assignment => assignment is null
-                                                                  || string.IsNullOrWhiteSpace(assignment.ControlId)
-                                                                  || !Enum.IsDefined(assignment.Action));
+            assignment.ControlId = assignment.ControlId.Trim();
         }
     }
 
     private static void NormalizePerformance(PerformanceConfig performance)
     {
-        performance.AcPowerPreset = NormalizePowerPreset(performance.AcPowerPreset);
-        performance.BatteryPowerPreset = NormalizePowerPreset(performance.BatteryPowerPreset);
         performance.FrameLimitStrategy = Definite(
             performance.FrameLimitStrategy, Defaults.Performance.FrameLimitStrategy);
-        performance.Applications ??= [];
-        performance.Applications.RemoveAll(static application => application is null
-                                                                 || string.IsNullOrWhiteSpace(application
-                                                                     .ApplicationId));
-        HashSet<string> identities = new(StringComparer.Ordinal);
-        performance.Applications.RemoveAll(application =>
-            !identities.Add(application.ApplicationId.Trim()));
-        foreach (var application in performance.Applications)
+    }
+
+    /// <summary>Brings the profile store into a shape the resolver can rely on.</summary>
+    /// <param name="profiles">The store to normalize in place.</param>
+    /// <param name="device">The device section, whose authored profiles a fan-curve reference must name.</param>
+    /// <remarks>
+    ///     Internal so its rules can be tested directly. A reference to an authored profile that no
+    ///     longer exists is dropped, so that layer falls back to the one below it instead of naming
+    ///     nothing.
+    /// </remarks>
+    internal static void NormalizeProfiles(ProfileConfig profiles, DeviceIntegrationConfig device)
+    {
+        HashSet<string> authored = new(device.PluginSettings.SelectMany(scope => scope.Profiles)
+            .Select(profile => profile.ProfileId), StringComparer.Ordinal);
+        profiles.Global ??= new ProfileValues();
+        NormalizeProfileValues(profiles.Global, authored);
+        profiles.Games ??= [];
+        profiles.Games.RemoveAll(static game => game is null || string.IsNullOrWhiteSpace(game.Id));
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        profiles.Games.RemoveAll(game => !ids.Add(game.Id.Trim()));
+        HashSet<string> claimed = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var game in profiles.Games)
         {
-            application.AcPowerPreset = NormalizePowerPreset(application.AcPowerPreset);
-            application.BatteryPowerPreset = NormalizePowerPreset(application.BatteryPowerPreset);
-            application.ApplicationId = application.ApplicationId.Trim();
-            application.Name = application.Name?.Trim() ?? string.Empty;
-            application.ProcessNames = (application.ProcessNames ?? []).Where(name => !string.IsNullOrWhiteSpace(name))
-                .Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            application.RtssProfileName ??= string.Empty;
-            application.RtssProfileName = application.RtssProfileName.Trim();
-            if (application.RtssProfileName.Length > 128
-                || !string.Equals(
-                    Path.GetFileName(application.RtssProfileName),
-                    application.RtssProfileName,
-                    StringComparison.Ordinal)
-                || !application.RtssProfileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            game.Id = game.Id.Trim();
+            game.Name = game.Name?.Trim() ?? string.Empty;
+            if (game.Name.Length > GameProfile.MaxNameLength)
             {
-                application.RtssProfileName = string.Empty;
+                game.Name = game.Name[..GameProfile.MaxNameLength];
+            }
+
+            // One executable activates one profile. A second claim would make the match ambiguous,
+            // and an ambiguous match resolves to no profile at all.
+            game.ProcessNames = (game.ProcessNames ?? []).Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim())
+                .Where(name => name.Length <= 128
+                               && string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
+                               && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(claimed.Add)
+                .ToList();
+            game.Values ??= new ProfileValues();
+            NormalizeProfileValues(game.Values, authored);
+        }
+    }
+
+    private static void NormalizeProfileValues(ProfileValues values, HashSet<string> authoredProfiles)
+    {
+        values.AcPowerPreset = NormalizePowerPreset(values.AcPowerPreset);
+        values.BatteryPowerPreset = NormalizePowerPreset(values.BatteryPowerPreset);
+        if (values.ControllerTarget is { } target && !Enum.IsDefined(target))
+        {
+            values.ControllerTarget = null;
+        }
+
+        if (values.FanCurveProfileId is { } fanCurve)
+        {
+            values.FanCurveProfileId = authoredProfiles.Contains(fanCurve.Trim()) ? fanCurve.Trim() : null;
+        }
+
+        values.Device ??= [];
+        values.Device.RemoveAll(static entry => entry?.Value is null
+                                                || string.IsNullOrWhiteSpace(entry.DeviceIdentityKey)
+                                                || string.IsNullOrWhiteSpace(entry.CapabilityId)
+                                                || entry.Value.Kind is CapabilityValueKind.None);
+        foreach (var entry in values.Device)
+        {
+            entry.DeviceIdentityKey = entry.DeviceIdentityKey.Trim();
+            entry.CapabilityId = entry.CapabilityId.Trim();
+            entry.InstanceId = string.IsNullOrWhiteSpace(entry.InstanceId) ? null : entry.InstanceId.Trim();
+            if (entry.Value is { Kind: CapabilityValueKind.Color, ColorValue: { } color })
+            {
+                // The picker hands back an alpha channel WSGM never uses, and a stored alpha byte reads
+                // as a different colour when the value is unpacked as RGB.
+                entry.Value = entry.Value with { ColorValue = color & 0xFFFFFF };
             }
         }
 
-        // An entry is no longer only an RTSS profile: it also carries the per-game performance
-        // profile, its power limit and its refresh preference. Dropping one for having no RTSS
-        // profile name would silently delete a game profile the user set up, so an entry survives
-        // as long as it still says something.
-        performance.Applications.RemoveAll(static application =>
-            string.IsNullOrWhiteSpace(application.RtssProfileName)
-            && string.IsNullOrWhiteSpace(application.Name)
-            && application.ProcessNames.Count == 0
-            && application is
-            {
-                UsePerGameProfile: false,
-                FrameLimit: null,
-                OverlayLevel: null,
-                TdpWatts: null,
-                ManualTdp: null,
-                AcPowerPreset: null,
-                BatteryPowerPreset: null,
-                VariableRefreshRate: null
-            });
+        // The resolver takes the first entry for a key, so a duplicate would decide the value by
+        // file order.
+        HashSet<(string, string, string?)> keys = [];
+        values.Device.RemoveAll(entry =>
+            !keys.Add((entry.DeviceIdentityKey, entry.CapabilityId, entry.InstanceId)));
     }
 
     private static DevicePowerPresetReference? NormalizePowerPreset(DevicePowerPresetReference? reference)

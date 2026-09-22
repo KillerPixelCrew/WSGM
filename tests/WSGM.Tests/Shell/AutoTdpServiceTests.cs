@@ -713,7 +713,7 @@ public sealed class AutoTdpServiceTests
         int? observed, int? desired, int quality, int expectedFps)
     {
         PerformanceState state = new(new RtssProbe(RtssAvailability.Ready, null, null, 1, null, null),
-            null, false, PerformancePolicyLayer.Global, PerformancePolicyLayer.Global,
+            null, false, ProfileSource.Global, ProfileSource.Global,
             new PerformanceValues(desired, 0), new PerformanceValues(observed, 0), (PerformanceReadbackQuality)quality,
             PerformanceReadbackQuality.Verified, DateTimeOffset.UtcNow, PerformanceCommandState.Idle);
         Assert.Equal(expectedFps == 0 ? 0 : 1000d / expectedFps, AutoTdpService.TargetFrametime(state));

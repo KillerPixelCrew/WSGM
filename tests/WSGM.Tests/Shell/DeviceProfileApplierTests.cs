@@ -23,13 +23,9 @@ public sealed class DeviceProfileApplierTests
         };
     }
 
-    private static DeviceProfileSelection Selection(string? global = "quiet")
+    private static Resolved<string?> Selected(string? id = "quiet", ProfileSource source = ProfileSource.Global)
     {
-        return new DeviceProfileSelection
-        {
-            CapabilityId = Fan,
-            GlobalProfileId = global
-        };
+        return new Resolved<string?>(id, id is null ? ProfileSource.None : source);
     }
 
     /// <summary>
@@ -69,10 +65,9 @@ public sealed class DeviceProfileApplierTests
         CapabilityValue? sent = null;
 
         var outcome = await DeviceProfileApplier.ApplyAsync(
-            [Selection()],
-            [Profile()],
+            Profile(),
+            Selected(),
             Fan,
-            null,
             _ => Descriptor(),
             (_, value, _) =>
             {
@@ -92,10 +87,9 @@ public sealed class DeviceProfileApplierTests
         var sent = false;
 
         var outcome = await DeviceProfileApplier.ApplyAsync(
-            [],
-            [Profile()],
-            Fan,
             null,
+            Selected(null),
+            Fan,
             _ => Descriptor(),
             (_, _, _) =>
             {
@@ -114,10 +108,9 @@ public sealed class DeviceProfileApplierTests
         // Different facts: a dangling reference is a mistake the user can fix once they know, and
         // no selection at all is the normal state.
         var outcome = await DeviceProfileApplier.ApplyAsync(
-            [Selection("deleted")],
-            [Profile()],
-            Fan,
             null,
+            Selected("deleted"),
+            Fan,
             _ => Descriptor(),
             (_, _, _) => Answer(),
             CancellationToken.None);
@@ -133,10 +126,9 @@ public sealed class DeviceProfileApplierTests
         var sent = false;
 
         var outcome = await DeviceProfileApplier.ApplyAsync(
-            [Selection()],
-            [Profile(500)],
+            Profile(500),
+            Selected(),
             Fan,
-            null,
             _ => Descriptor(),
             (_, _, _) =>
             {
@@ -155,10 +147,9 @@ public sealed class DeviceProfileApplierTests
         var sent = false;
 
         var outcome = await DeviceProfileApplier.ApplyAsync(
-            [Selection()],
-            [Profile()],
+            Profile(),
+            Selected(),
             Fan,
-            null,
             _ => null,
             (_, _, _) =>
             {
@@ -175,46 +166,13 @@ public sealed class DeviceProfileApplierTests
     public async Task ADeviceThatReportsFailureIsNotReportedAsApplied()
     {
         var outcome = await DeviceProfileApplier.ApplyAsync(
-            [Selection()],
-            [Profile()],
+            Profile(),
+            Selected(),
             Fan,
-            null,
             _ => Descriptor(),
             (_, _, _) => Answer(CommandOutcome.Rejected),
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.Failed, outcome);
-    }
-
-    [Fact]
-    public async Task TheApplicationOverrideIsTheProfileThatGetsSent()
-    {
-        var loud = Profile(90);
-        loud.ProfileId = "loud";
-        CapabilityValue? sent = null;
-        var selection = Selection();
-        selection.ApplicationOverrides =
-        [
-            new DeviceApplicationProfileSelection
-            {
-                ApplicationId = "steam:42",
-                ProfileId = "loud"
-            }
-        ];
-
-        await DeviceProfileApplier.ApplyAsync(
-            [selection],
-            [Profile(), loud],
-            Fan,
-            "steam:42",
-            _ => Descriptor(),
-            (_, value, _) =>
-            {
-                sent = value;
-                return Answer();
-            },
-            CancellationToken.None);
-
-        Assert.Equal(90, sent?.CurveValue[0].Output);
     }
 }

@@ -145,7 +145,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
-        DeviceControllerTargetIndex = (int)_config.DeviceIntegration.ControllerTarget;
+        DeviceControllerTargetIndex =
+            (int)(_config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget);
         DeviceAutoTdpEnabled = _config.DeviceIntegration.AutoTdpEnabled;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         PerformanceEnabled = _config.Performance.Enabled;
@@ -1798,7 +1799,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (_deviceControllerTargetEdited)
         {
-            config.DeviceIntegration.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
+            config.Profiles.Global.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
                 DeviceControllerTargetIndex,
                 0,
                 Enum.GetValues<ManagedControllerTarget>().Length - 1);
@@ -2318,7 +2319,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         var editedDevice = config.DeviceIntegration;
+        var editedGlobalTarget = config.Profiles.Global.ControllerTarget;
         config.DeviceIntegration = fresh.DeviceIntegration;
+        // Profiles belong to the running shell, which saves them from the overlay and Steam while
+        // Settings is open. Only the Global controller target is edited here.
+        config.Profiles = fresh.Profiles;
         config.DeviceIntegration.Enabled = editedDevice.Enabled;
         config.DeviceIntegration.ControllerManagementEnabled = editedDevice.ControllerManagementEnabled;
         if (request.AutoTdpEdited)
@@ -2328,7 +2333,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (request.ControllerTargetEdited)
         {
-            config.DeviceIntegration.ControllerTarget = editedDevice.ControllerTarget;
+            config.Profiles.Global.ControllerTarget = editedGlobalTarget;
         }
 
         if (request.GlyphSelectionEdited)
@@ -2360,6 +2365,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
             if (request.DeviceProfiles is not null)
             {
+                // A deleted profile is also removed from every layer that selected it, so that layer
+                // falls back to the one below instead of naming nothing.
+                foreach (var removed in scope.Profiles.Select(profile => profile.ProfileId)
+                             .Except(request.DeviceProfiles.Select(profile => profile.ProfileId),
+                                 StringComparer.Ordinal).ToArray())
+                {
+                    ProfileEdits.RemoveFanCurveReferences(config.Profiles, removed);
+                }
+
                 scope.Profiles = [.. request.DeviceProfiles];
             }
         }

@@ -92,24 +92,22 @@ public sealed class ConfigurationTests
                               "AccentColor": "#FF00AA",
                               "DeviceIntegration": {
                                 "Enabled": true,
-                                "ControllerTarget": "NintendoSwitchPro",
                                 "GlyphSelection": "SomethingElse",
                                 "DiagnosticLevel": "Verbose",
-                                "ControllerTargets": [
-                                  { "ApplicationId": "steam:70", "Target": "NotATarget" }
-                                ],
-                                "Profiles": [
-                                  {
-                                    "DeviceIdentityKey": "device",
-                                    "OemAssignments": [ { "ControlId": "oem1", "Action": "LaunchAnything" } ],
-                                    "Capabilities": [
-                                      {
-                                        "CapabilityId": "power.primary-limit",
-                                        "GlobalDefault": { "Kind": "Wattage", "IntegerValue": 15 }
-                                      }
-                                    ]
-                                  }
-                                ]
+                                "OemAssignments": [ { "ControlId": "oem1", "Action": "LaunchAnything" } ]
+                              },
+                              "Profiles": {
+                                "Global": {
+                                  "ControllerTarget": "NintendoSwitchPro",
+                                  "Device": [
+                                    {
+                                      "DeviceIdentityKey": "device",
+                                      "CapabilityId": "power.primary-limit",
+                                      "Value": { "Kind": "Wattage", "IntegerValue": 15 }
+                                    }
+                                  ]
+                                },
+                                "Games": [ { "Id": "steam:70", "Values": { "ControllerTarget": "NotATarget" } } ]
                               }
                             }
                             """;
@@ -120,18 +118,15 @@ public sealed class ConfigurationTests
         // The unrelated setting survived, which is the point of repairing rather than discarding.
         Assert.Equal("#FF00AA", config.AccentColor);
         Assert.True(config.DeviceIntegration.Enabled);
-        Assert.Equal(
-            ManagedControllerTarget.SteamDeckComposite,
-            config.DeviceIntegration.ControllerTarget);
+        Assert.Equal(ManagedControllerTarget.SteamDeckComposite, config.Profiles.Global.ControllerTarget);
         Assert.Equal(DeviceGlyphSelection.Automatic, config.DeviceIntegration.GlyphSelection);
         Assert.Equal(
             ManagedControllerTarget.SteamDeckComposite,
-            Assert.Single(config.DeviceIntegration.ControllerTargets).Target);
-        var profile = Assert.Single(config.DeviceIntegration.Profiles);
-        Assert.Equal(OemAction.Disabled, Assert.Single(profile.OemAssignments).Action);
+            Assert.Single(config.Profiles.Games).Values.ControllerTarget);
+        Assert.Equal(OemAction.Disabled, Assert.Single(config.DeviceIntegration.OemAssignments).Action);
         Assert.Equal(
             CapabilityValueKind.None,
-            Assert.Single(profile.Capabilities).GlobalDefault!.Kind);
+            Assert.Single(config.Profiles.Global.Device).Value!.Kind);
     }
 
     [Fact]
@@ -176,29 +171,28 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void NormalizeRepairsAnExplicitNullRtssProfileName()
+    public void NormalizeDropsAnExecutableClaimedByASecondGameProfile()
     {
+        // One executable activates one profile. Two claims make the match ambiguous, and an ambiguous
+        // match resolves to no profile at all, so the second claim is dropped.
         var config = new AppConfig
         {
-            Performance = new PerformanceConfig
+            Profiles = new ProfileConfig
             {
-                Applications =
+                Games =
                 [
-                    new PerformanceApplicationConfig
-                    {
-                        ApplicationId = "steam:10",
-                        RtssProfileName = null!,
-                        UsePerGameProfile = true
-                    }
+                    new GameProfile { Id = "profile:a", ProcessNames = ["game.exe"] },
+                    new GameProfile { Id = "profile:b", ProcessNames = ["GAME.EXE", "other.exe"] },
+                    new GameProfile { Id = "profile:a" }
                 ]
             }
         };
 
-        var application = Assert.Single(
-            ConfigStore.Normalize(config).Performance.Applications);
+        var games = ConfigStore.Normalize(config).Profiles.Games;
 
-        Assert.Equal(string.Empty, application.RtssProfileName);
-        Assert.True(application.UsePerGameProfile);
+        Assert.Equal(["profile:a", "profile:b"], games.Select(game => game.Id));
+        Assert.Equal(["game.exe"], games[0].ProcessNames);
+        Assert.Equal(["other.exe"], games[1].ProcessNames);
     }
 
     [Fact]
@@ -268,46 +262,112 @@ public sealed class ConfigurationTests
         Assert.Equal("", Assert.Single(normalized.PreviousConsoleLockSchemeValues).SchemeGuid);
     }
 
-    /// The desired-state resolver takes the first entry matching a key, so a duplicate would make
-    /// file order decide which value the device gets.
+    /// The resolver takes the first entry matching a key, so a duplicate would make file order
+    /// decide which value the device gets.
     [Fact]
-    public void NormalizeCollapsesDuplicateDeviceCapabilityLayersOntoTheFirstOfEach()
+    public void NormalizeCollapsesDuplicateDeviceValuesOntoTheFirstAndMasksColours()
     {
         var config = new AppConfig();
-        config.DeviceIntegration.Profiles.Add(new DeviceDesiredProfile
+        config.Profiles.Global.Device =
+        [
+            new ProfileDeviceValue
+            {
+                DeviceIdentityKey = "claw", CapabilityId = " fan.mode ",
+                Value = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 1 }
+            },
+            new ProfileDeviceValue
+            {
+                DeviceIdentityKey = "claw", CapabilityId = "fan.mode",
+                Value = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 2 }
+            },
+            new ProfileDeviceValue
+            {
+                DeviceIdentityKey = "claw", CapabilityId = "lighting.zone-color", InstanceId = "left-ring",
+                Value = new CapabilityValue
+                    { Kind = CapabilityValueKind.Color, ColorValue = unchecked((int)0xFF123456) }
+            },
+            new ProfileDeviceValue { DeviceIdentityKey = "claw", CapabilityId = "empty" }
+        ];
+
+        var values = ConfigStore.Normalize(config).Profiles.Global.Device;
+
+        Assert.Equal(2, values.Count);
+        Assert.Equal(1, values[0].Value!.IntegerValue);
+        Assert.Equal(0x123456, values[1].Value!.ColorValue);
+    }
+
+    [Fact]
+    public void AFanCurveReferenceToADeletedProfileFallsBackInsteadOfNamingNothing()
+    {
+        var config = new AppConfig();
+        config.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
         {
-            DeviceIdentityKey = "claw",
-            Capabilities =
-            [
-                new DeviceCapabilityPreference
-                {
-                    CapabilityId = "fan.mode",
-                    GlobalDefault = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 1 },
-                    HardwareProfiles =
-                    [
-                        new DeviceNamedDesiredValue { ProfileId = " handheld " },
-                        new DeviceNamedDesiredValue { ProfileId = "handheld" }
-                    ],
-                    ApplicationOverrides =
-                    [
-                        new DeviceApplicationDesiredValue { ApplicationId = " steam:42 " },
-                        new DeviceApplicationDesiredValue { ApplicationId = "steam:42" }
-                    ]
-                },
-                new DeviceCapabilityPreference
-                {
-                    CapabilityId = "fan.mode",
-                    GlobalDefault = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 2 }
-                }
-            ]
+            DeviceDefinitionId = "device", PluginId = "plugin",
+            Profiles = [new DeviceAuthoredProfile { ProfileId = "quiet", CapabilityId = "fan.curve" }]
         });
+        config.Profiles.Global.FanCurveProfileId = "quiet";
+        config.Profiles.Games.Add(new GameProfile { Id = "steam:1", Values = { FanCurveProfileId = "deleted" } });
 
         var normalized = ConfigStore.Normalize(config);
 
-        var capability = Assert.Single(Assert.Single(normalized.DeviceIntegration.Profiles).Capabilities);
-        Assert.Equal(1, capability.GlobalDefault?.IntegerValue);
-        Assert.Equal("handheld", Assert.Single(capability.HardwareProfiles).ProfileId);
-        Assert.Equal("steam:42", Assert.Single(capability.ApplicationOverrides).ApplicationId);
+        Assert.Equal("quiet", normalized.Profiles.Global.FanCurveProfileId);
+        Assert.Null(normalized.Profiles.Games[0].Values.FanCurveProfileId);
+    }
+
+    [Fact]
+    public void TheRetiredPerGameModelIsWipedAndItsOemAssignmentsKept()
+    {
+        const string json = """
+                            {
+                              "AccentColor": "#FF00AA",
+                              "Performance": {
+                                "Enabled": true,
+                                "FrameLimit": 60,
+                                "TdpWatts": 15,
+                                "ManualTdp": { "Unified": true, "UnifiedWatts": 20 },
+                                "Applications": [ { "ApplicationId": "steam:1", "UsePerGameProfile": true, "FrameLimit": 30 } ]
+                              },
+                              "DeviceIntegration": {
+                                "Enabled": true,
+                                "ControllerTarget": "Xbox360",
+                                "ControllerTargets": [],
+                                "Profiles": [
+                                  {
+                                    "DeviceIdentityKey": "device",
+                                    "SelectedHardwareProfileId": null,
+                                    "OemAssignments": [ { "ControlId": "oem1", "Action": "ToggleWsgmOverlay" } ],
+                                    "Capabilities": [ { "CapabilityId": "fan.mode", "GlobalDefault": { "Kind": "Integer", "IntegerValue": 1 } } ]
+                                  }
+                                ],
+                                "PluginSettings": [ { "DeviceDefinitionId": "d", "PluginId": "p", "ProfileSelections": [] } ]
+                              }
+                            }
+                            """;
+
+        var config = ConfigStore.Normalize(ConfigStore.DeserializeConfig(json));
+
+        Assert.Equal("#FF00AA", config.AccentColor);
+        Assert.True(config.Performance.Enabled);
+        Assert.True(config.DeviceIntegration.Enabled);
+        Assert.Equal(OemAction.ToggleWsgmOverlay, Assert.Single(config.DeviceIntegration.OemAssignments).Action);
+        Assert.Equal(0, config.Profiles.Global.Count());
+        Assert.Empty(config.Profiles.Games);
+    }
+
+    [Fact]
+    public void TheWipeLeavesACurrentProfileStoreAlone()
+    {
+        const string json = """
+                            {
+                              "Profiles": { "Global": { "FrameLimit": 60, "SustainedWatts": 15 }, "Games": [ { "Id": "steam:1", "Enabled": true } ] }
+                            }
+                            """;
+
+        var config = ConfigStore.Normalize(ConfigStore.DeserializeConfig(json));
+
+        Assert.Equal(60, config.Profiles.Global.FrameLimit);
+        Assert.Equal(15, config.Profiles.Global.SustainedWatts);
+        Assert.Single(config.Profiles.Games);
     }
 
     [Fact]

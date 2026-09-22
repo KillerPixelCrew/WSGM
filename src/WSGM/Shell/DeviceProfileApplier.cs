@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,7 +13,7 @@ public enum DeviceProfileApplyOutcome
     /// <summary>The profile was sent to the device.</summary>
     Applied,
 
-    /// <summary>No profile is selected for this capability; nothing was changed.</summary>
+    /// <summary>No layer selects a profile for this capability; nothing was changed.</summary>
     NoSelection,
 
     /// <summary>A profile is selected but cannot be applied to the device as it is now.</summary>
@@ -25,49 +24,41 @@ public enum DeviceProfileApplyOutcome
 }
 
 /// <summary>
-///     Applies the authored profile in force for the running application to the device.
+///     Applies the authored profile the profile store resolved for the running application.
 /// </summary>
 /// <remarks>
-///     Three steps, each of which can stop the chain for a different reason worth logging separately:
-///     resolve which profile the selection points at, check it against the descriptor the device
-///     publishes right now, and only then send it. The pre-apply check reads the live descriptor on
-///     purpose; see <c>docs\device-integration.md</c> §Authored profiles.
+///     Two steps, each of which can stop the chain for a different reason worth logging separately:
+///     check the profile against the descriptor the device publishes right now, and only then send it.
+///     The pre-apply check reads the live descriptor on purpose; see <c>docs\device-integration.md</c>
+///     §Authored profiles.
 /// </remarks>
 internal static class DeviceProfileApplier
 {
     /// <summary>Applies the profile in force for one capability.</summary>
-    /// <param name="selections">Selections stored for the device.</param>
-    /// <param name="profiles">Profiles authored for the device.</param>
+    /// <param name="profile">The authored profile the selection names, or null when it names none.</param>
+    /// <param name="selection">The resolved selection and the layer it came from.</param>
     /// <param name="capabilityId">The capability to apply.</param>
-    /// <param name="applicationId">The running application identity, or null for none.</param>
     /// <param name="describe">Reads the descriptor the device publishes for a capability.</param>
     /// <param name="execute">Sends a value to the device and reports the command result.</param>
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>What happened, for the caller to act on and for the log.</returns>
     internal static async Task<DeviceProfileApplyOutcome> ApplyAsync(
-        IReadOnlyList<DeviceProfileSelection> selections,
-        IReadOnlyList<DeviceAuthoredProfile> profiles,
+        DeviceAuthoredProfile? profile,
+        Resolved<string?> selection,
         string capabilityId,
-        string? applicationId,
         Func<string, CapabilityDescriptor?> describe,
         Func<string, CapabilityValue, CancellationToken, Task<CapabilityCommandResult>> execute,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(describe);
         ArgumentNullException.ThrowIfNull(execute);
-        var resolution = DeviceProfileSelectionStore.Resolve(
-            selections,
-            profiles,
-            capabilityId,
-            applicationId);
-
-        if (resolution.Profile is not { } profile)
+        if (profile is null)
         {
-            // A dangling reference and no selection at all are different facts. The first is a
-            // mistake the user can fix once they know; the second is the normal state.
-            if (resolution.Diagnostic is { } diagnostic)
+            if (selection.Value is { } missing)
             {
-                Log.Warn($"Device profile for '{capabilityId}' not applied: {diagnostic}.");
+                // Normalization drops a reference to a deleted profile, so this is a profile deleted
+                // after the store was last loaded.
+                Log.Warn($"Device profile for '{capabilityId}' not applied: profile '{missing}' no longer exists.");
                 return DeviceProfileApplyOutcome.Refused;
             }
 
@@ -118,9 +109,7 @@ internal static class DeviceProfileApplier
 
         Log.Info(
             $"Device profile '{profile.ProfileId}' applied to '{capabilityId}' "
-            + (resolution.ApplicationScoped
-                ? $"for application '{applicationId}'."
-                : "as the global selection."));
+            + (selection.IsGameOverride ? "from the game profile." : "from Global."));
         return DeviceProfileApplyOutcome.Applied;
     }
 }

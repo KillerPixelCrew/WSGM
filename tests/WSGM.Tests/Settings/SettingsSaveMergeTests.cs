@@ -19,7 +19,7 @@ public sealed class SettingsSaveMergeTests
         values.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
         values.SteamStorageFormatEnabled = false;
         values.DeviceIntegration.AutoTdpEnabled = false;
-        values.DeviceIntegration.ControllerTarget = ManagedControllerTarget.Xbox360;
+        values.Profiles.Global.ControllerTarget = ManagedControllerTarget.Xbox360;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
 
         var fresh = ConfigStore.Normalize(new AppConfig
@@ -41,7 +41,7 @@ public sealed class SettingsSaveMergeTests
         fresh.PreviousShellSnapshotCaptured = true;
         fresh.PreviousShellValue = "explorer.exe";
         fresh.DeviceIntegration.AutoTdpEnabled = true;
-        fresh.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
+        fresh.Profiles.Global.ControllerTarget = ManagedControllerTarget.DualShock4;
         fresh.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
 
         var request = new SettingsViewModel.SaveRequest(
@@ -72,7 +72,7 @@ public sealed class SettingsSaveMergeTests
         Assert.True(merged.PreviousShellSnapshotCaptured);
         Assert.Equal("explorer.exe", merged.PreviousShellValue);
         Assert.True(merged.DeviceIntegration.AutoTdpEnabled);
-        Assert.Equal(ManagedControllerTarget.DualShock4, merged.DeviceIntegration.ControllerTarget);
+        Assert.Equal(ManagedControllerTarget.DualShock4, merged.Profiles.Global.ControllerTarget);
         Assert.Equal(
             DeviceGlyphSelection.ManualReviewedProfile,
             merged.DeviceIntegration.GlyphSelection);
@@ -83,7 +83,7 @@ public sealed class SettingsSaveMergeTests
     {
         var values = ConfigStore.Normalize(new AppConfig());
         values.DeviceIntegration.AutoTdpEnabled = true;
-        values.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
+        values.Profiles.Global.ControllerTarget = ManagedControllerTarget.DualShock4;
         values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
 
         var fresh = ConfigStore.Normalize(new AppConfig());
@@ -132,7 +132,7 @@ public sealed class SettingsSaveMergeTests
         Assert.Null(edited.Integer);
         Assert.Equal("new", Assert.Single(scope.Profiles).ProfileId);
         Assert.True(merged.DeviceIntegration.AutoTdpEnabled);
-        Assert.Equal(ManagedControllerTarget.DualShock4, merged.DeviceIntegration.ControllerTarget);
+        Assert.Equal(ManagedControllerTarget.DualShock4, merged.Profiles.Global.ControllerTarget);
         Assert.Equal(
             DeviceGlyphSelection.ManualReviewedProfile,
             merged.DeviceIntegration.GlyphSelection);

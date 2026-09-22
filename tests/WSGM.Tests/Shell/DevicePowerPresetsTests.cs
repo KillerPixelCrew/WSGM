@@ -30,18 +30,22 @@ public sealed class DevicePowerPresetsTests
 
     private static DevicePowerPresetSelection Selection(DevicePowerPresets service, bool readOnly)
     {
-        PerformanceConfig config = new();
+        ProfileConfig config = new();
+        long generation = 1;
         DevicePowerAssignments assignments = new(service,
-            () => new DevicePowerAssignmentContext(config, null, "fixture", 1, true, true),
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, generation),
+                "fixture",
+                1, true, true),
             (_, ac, reference) =>
             {
+                generation++;
                 if (ac)
                 {
-                    config.AcPowerPreset = reference;
+                    config.Global.AcPowerPreset = reference;
                 }
                 else
                 {
-                    config.BatteryPowerPreset = reference;
+                    config.Global.BatteryPowerPreset = reference;
                 }
 
                 return Task.CompletedTask;

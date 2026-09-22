@@ -127,9 +127,11 @@ focused regression test when this skill was authored:
 - On resume and controller-management re-enable, the router adopts the attached runtime's new cycle
   before validating its first descriptor publication. The coordinator's post-call cycle
   synchronization must preserve that accepted readback; descriptor generation can restart at one.
-- Desired-state restoration uses `DesiredStateRestore`, never `User`. Lighting readiness admits one
-  automatic attempt per desired value and cycle, and uncertain results block further automatic
-  writes. Readback updates effective state only; it must not enter configuration persistence.
+- Desired values are profile values (`docs\profiles.md`): the running game's enabled profile, then
+  Global, then none. Restoration uses `DesiredStateRestore`, never `User`, and runs once per cycle
+  activation. Lighting readiness admits at most three attempts per zone, value and cycle; a refused
+  write may be retried, an uncertain one only after a newer readback. Readback updates effective
+  state only; it must not enter configuration persistence.
 
 Also check these proven regression patterns: duplicate SDK/WinRT loading, HidHide hiding discovery,
 DOS/NT path duplication, state published before fresh-generation descriptors, whole-set omission,
