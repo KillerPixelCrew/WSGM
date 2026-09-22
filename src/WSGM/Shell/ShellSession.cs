@@ -2786,6 +2786,24 @@ public sealed class ShellSession : IAsyncDisposable
         // ReSharper disable once MethodHasAsyncOverload
         _tabBootSyncCancellation.Cancel();
 
+        // The fan-out writes to the device, RTSS and power, so it stops before any of them is torn
+        // down; a pass left running could otherwise command a coordinator that is being disposed.
+        try
+        {
+            if (_profileFanOut is not null)
+            {
+                await _profileFanOut.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Stopping the profile fan-out during application shutdown failed", ex);
+        }
+        finally
+        {
+            _profileFanOut = null;
+        }
+
         // Device cleanup is the safety-critical part of the outer application budget.
         if (_steamControllerHandoff is not null)
         {
@@ -2990,22 +3008,6 @@ public sealed class ShellSession : IAsyncDisposable
         finally
         {
             _runningApplicationTargets = null;
-        }
-
-        try
-        {
-            if (_profileFanOut is not null)
-            {
-                await _profileFanOut.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Stopping the profile fan-out during application shutdown failed", ex);
-        }
-        finally
-        {
-            _profileFanOut = null;
         }
 
         try
