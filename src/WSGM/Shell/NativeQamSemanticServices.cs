@@ -30,6 +30,25 @@ internal sealed record NativeQamTdpState(
 /// </remarks>
 internal static class NativeQamUi
 {
+    /// <summary>The setting id a row carries while the running game's profile supplies its value.</summary>
+    /// <param name="layers">The profile layers, or null when there is no profile owner.</param>
+    /// <param name="key">The setting the row shows.</param>
+    /// <returns>The id Use global sends back, or null when the value is not the game's.</returns>
+    internal static string? OverrideId(ProfileLayers? layers, ProfileSettingKey key)
+    {
+        return layers?.Source(key) is ProfileSource.Game ? key.Id : null;
+    }
+
+    /// <summary>The setting id of a device capability while the running game's profile supplies it.</summary>
+    /// <param name="view">The capability and its projection.</param>
+    /// <returns>The id Use global sends back, or null.</returns>
+    internal static string? DeviceOverrideId(DeviceCapabilityView view)
+    {
+        return view.Projection.DesiredSource is ProfileSource.Game
+            ? ProfileSettingKey.ForDevice(view.Descriptor.CapabilityId, view.Descriptor.InstanceId).Id
+            : null;
+    }
+
     /// <summary>An integer value that lies on a descriptor's range and step, or null.</summary>
     /// <param name="value">The value to check.</param>
     /// <param name="minimum">The lowest allowed value.</param>
@@ -149,7 +168,9 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                     ? enabled
                         ? "The panel follows the frame rate."
                         : "The panel holds a fixed refresh rate."
-                    : "This device publishes no variable-refresh capability.");
+                    : "This device publishes no variable-refresh capability.",
+                NativeQamUi.OverrideId(Profiles?.Current.Layers,
+                    new ProfileSettingKey(ProfileField.VariableRefreshRate)));
         }
     }
 
@@ -587,7 +608,8 @@ internal sealed class PerformanceServiceNativeQamAdapter :
             support?.CurrentRefreshRateHz,
             // The stops that mode slides between. Windows accepts a MODE, not a rate: it either
             // has 75 Hz or it does not, and asking for 72 gets a refusal, not the nearest thing.
-            support?.RefreshRates);
+            support?.RefreshRates,
+            state.FrameLimitLayer is ProfileSource.Game ? nameof(ProfileField.FrameLimit) : null);
     }
 
     private static int? ValidValue(
@@ -722,12 +744,30 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     }
 
     /// <summary>Both sliders follow device readback, including profile changes.</summary>
-    internal SteamPowerLimitState PowerLimit => ProjectPowerLimits(
-            _coordinator?.Capabilities.Snapshot() ?? []) with
+    internal SteamPowerLimitState PowerLimit
+    {
+        get
         {
-            Unified = _coordinator?.ManualTdpUnified == true,
-            CanSelectMode = _coordinator?.ManualTdpMode.Available == true
-        };
+            var state = ProjectPowerLimits(_coordinator?.Capabilities.Snapshot() ?? []);
+            var layers = _coordinator?.Profiles.Current.Layers;
+            return state with
+            {
+                Sustained = state.Sustained with
+                {
+                    OverrideId = layers is { } resolved
+                        ? NativeQamUi.OverrideId(resolved, resolved.PowerTargetKey)
+                        : null
+                },
+                Boost = state.Boost with
+                {
+                    OverrideId = NativeQamUi.OverrideId(layers, new ProfileSettingKey(ProfileField.BoostWatts))
+                },
+                Unified = _coordinator?.ManualTdpUnified == true,
+                CanSelectMode = _coordinator?.ManualTdpMode.Available == true,
+                ModeOverrideId = NativeQamUi.OverrideId(layers, new ProfileSettingKey(ProfileField.TdpUnified))
+            };
+        }
+    }
 
     public void Dispose()
     {
@@ -1113,7 +1153,8 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                         ValidColor(view.Projection.DesiredValue),
                         ValidColor(view.Projection.State.ObservedValue),
                         NativeQamUi.ProgressText(view.Projection.Progress),
-                        StatusText(view, compatible));
+                        StatusText(view, compatible),
+                        NativeQamUi.DeviceOverrideId(view));
                 })
         ];
 
@@ -1149,7 +1190,8 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
             NativeQamUi.ValidInteger(view.Projection.DesiredValue, minimum, maximum, step),
             NativeQamUi.ValidInteger(view.Projection.State.ObservedValue, minimum, maximum, step),
             NativeQamUi.ProgressText(view.Projection.Progress),
-            StatusText(view, true));
+            StatusText(view, true),
+            NativeQamUi.DeviceOverrideId(view));
     }
 
     private static bool WritableRange(
@@ -1592,7 +1634,8 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
             // A running game holds the target it was launched with, so a change reaches it only on
             // the next launch. Saying so is the difference between a control that looks broken and
             // one the user understands.
-            status.ApplicationId is not null);
+            status.ApplicationId is not null,
+            status.TargetSource is ProfileSource.Game ? nameof(ProfileField.ControllerTarget) : null);
     }
 
     /// <summary>Maps a stored target name back onto the enumeration.</summary>

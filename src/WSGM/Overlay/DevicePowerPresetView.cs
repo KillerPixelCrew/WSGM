@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
@@ -12,9 +13,11 @@ namespace WSGM.Overlay;
 public sealed class DevicePowerPresetView : UserControl
 {
     private readonly ComboBox _ac = AssignmentChoice("device.power-assignment.ac", "When plugged in");
+    private readonly TextBlock _acOverride = OverrideLabel();
     private readonly TextBlock _active = new() { Classes = { "setting-title" }, Tag = "device.power-preset.active" };
     private readonly StackPanel _assignments = new() { Spacing = 6 };
     private readonly ComboBox _battery = AssignmentChoice("device.power-assignment.battery", "On battery");
+    private readonly TextBlock _batteryOverride = OverrideLabel();
     private readonly TextBlock _scope = new() { Classes = { "caption" } };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Classes = { "caption" } };
     private DevicePowerPresetSelection? _model;
@@ -24,9 +27,9 @@ public sealed class DevicePowerPresetView : UserControl
     public DevicePowerPresetView()
     {
         _assignments.Children.Add(_scope);
-        _assignments.Children.Add(new TextBlock { Text = "When plugged in", Classes = { "setting-title" } });
+        _assignments.Children.Add(Title("When plugged in", _acOverride));
         _assignments.Children.Add(_ac);
-        _assignments.Children.Add(new TextBlock { Text = "On battery", Classes = { "setting-title" } });
+        _assignments.Children.Add(Title("On battery", _batteryOverride));
         _assignments.Children.Add(_battery);
         Content = new Border
         {
@@ -62,6 +65,26 @@ public sealed class DevicePowerPresetView : UserControl
             }
 
             await model.AssignAsync(false, choice.Id.Length == 0 ? null : choice.Id);
+        };
+    }
+
+    // The running game's own assignment for a source is marked beside its title. Its unset entry,
+    // "Use global assignment", is the way back, so the marker needs no button of its own.
+    private static TextBlock OverrideLabel()
+    {
+        return new TextBlock
+        {
+            Text = "Game override", Classes = { "profile-override-label" }, IsVisible = false,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+    }
+
+    private static StackPanel Title(string text, TextBlock marker)
+    {
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal, Spacing = 10,
+            Children = { new TextBlock { Text = text, Classes = { "setting-title" } }, marker }
         };
     }
 
@@ -106,6 +129,8 @@ public sealed class DevicePowerPresetView : UserControl
             if (assignments is not null)
             {
                 _scope.Text = assignments.Scope;
+                _acOverride.IsVisible = assignments.AcSource is ProfileSource.Game;
+                _batteryOverride.IsVisible = assignments.BatterySource is ProfileSource.Game;
                 DevicePowerPreset[] choices =
                 [
                     new("", assignments.IsGlobal

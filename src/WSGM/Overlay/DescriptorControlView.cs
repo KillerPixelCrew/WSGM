@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Overlay;
@@ -13,11 +14,12 @@ namespace WSGM.Overlay;
 internal sealed class DescriptorControlView : ContentControl
 {
     private readonly Control _body;
+    private readonly ProfileOverrideMarker _marker;
     private DescriptorRow _descriptor;
     private bool _invoking;
 
     internal DescriptorControlView(DescriptorRow descriptor, string key, Func<DescriptorRow, Task> invoke,
-        Action<int>? setValue = null)
+        Action<int>? setValue = null, Func<string, Task>? useGlobal = null)
     {
         _descriptor = descriptor;
         Tag = key;
@@ -77,7 +79,8 @@ internal sealed class DescriptorControlView : ContentControl
             _body = new DeviceStatisticRow(key);
         }
 
-        Content = _body;
+        _marker = new ProfileOverrideMarker(_body, useGlobal);
+        Content = _marker;
         Refresh(descriptor);
     }
 
@@ -91,6 +94,7 @@ internal sealed class DescriptorControlView : ContentControl
     internal void Refresh(DescriptorRow descriptor)
     {
         _descriptor = descriptor;
+        _marker.Refresh(descriptor.OverrideId);
         switch (_body)
         {
             case DeviceSettingRow setting:
@@ -102,6 +106,8 @@ internal sealed class DescriptorControlView : ContentControl
                     descriptor.Description);
                 break;
             case DeviceSliderRow slider when descriptor.Range is { } range:
+                // The description names the layer the value comes from, so it follows the value.
+                slider.RefreshDescription(descriptor.Description);
                 slider.RefreshReadback(range.Minimum, range.Maximum, range.Step, descriptor.Value ?? range.Minimum,
                     descriptor.CanInvoke);
                 break;

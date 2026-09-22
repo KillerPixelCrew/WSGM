@@ -65,7 +65,8 @@ public partial class OverlayWindow
 
             await RunDeviceCommandAsync("Device capability action",
                 (source, token) => source.InvokeAsync(current, token));
-        }, DeviceTemperature());
+        }, DeviceTemperature(), id => RunDeviceCommandAsync("Use global",
+            (source, token) => source.UseGlobalAsync(id, token)));
     }
 
     private int? DeviceTemperature()

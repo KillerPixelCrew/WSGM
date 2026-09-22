@@ -71,6 +71,30 @@ device values.
 A game without a Steam AppID still gets its profile. Valve's header needs an AppID, so there it
 reads as global; WSGM's own rows still show the game layer.
 
+## A value the game overrides is marked
+
+Every row whose value the running game's profile supplies says so, in the overlay and in the Quick
+Access rows WSGM owns, and offers a way back to Global. Nothing is drawn for a value from Global or
+from nowhere, so a game without overrides looks exactly as it would with no profile.
+
+| Surface                         | Marker                                       | Way back to Global                          |
+| ------------------------------- | -------------------------------------------- | ------------------------------------------- |
+| Overlay device and host rows    | accent bar and "Game override" under the row | Use global button (`ProfileOverrideMarker`) |
+| Overlay frame limit and overlay | the same                                     | Use global                                  |
+| Overlay power presets           | "Game override" beside the source's title    | the "Use global assignment" entry           |
+| Overlay manual power mode       | accent bar and "Game override"               | Use global                                  |
+| Overlay header                  | "Profile: name · N overrides"                | Reset performance profile                   |
+| Quick Access rows WSGM owns     | description leads with "Game override"       | Use global button (`useGlobal` command)     |
+| Quick Access power presets      | the same                                     | the unset entry                             |
+
+Use global calls `ProfileService.ClearGameOverrideAsync`, which removes only the game's value; the
+fan-out then applies Global and the marker disappears. It never clears Global. Each marker carries
+the setting's id (`ProfileSettingKey.Id`: a field name, or `device:<capability>#<instance>`), which
+is what the Quick Access rows send back.
+
+Valve's own overlay-level selector draws no marker: it reads Valve's store, which has no field for
+it. WSGM's overlay row for the same value does.
+
 ## Wake and new cycles
 
 Firmware can come back from sleep with its own defaults. Each time the device cycle becomes active,

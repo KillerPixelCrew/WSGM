@@ -73,6 +73,12 @@ internal sealed record DeviceOverlayCapability(
     /// <summary>Descriptor identity used to invalidate layout independently of state updates.</summary>
     public long DescriptorGeneration { get; init; }
 
+    /// <summary>
+    ///     The profile setting id while the running game's own profile supplies this value, else null.
+    ///     The row marks it and offers Use global.
+    /// </summary>
+    public string? OverrideId { get; init; }
+
     /// <summary>Device cycle that owns this descriptor.</summary>
     public long CycleGeneration { get; init; }
 
@@ -267,6 +273,15 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <returns>A task completing once the new target is persisted and applied.</returns>
     Task CycleControllerTargetAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Removes the running game's value for one setting, so it falls back to Global.</summary>
+    /// <param name="overrideId">The id a row carried in its <c>OverrideId</c>.</param>
+    /// <param name="cancellationToken">Cancels the save.</param>
+    /// <returns>A task completing once the override is gone.</returns>
+    Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
     /// <summary>Retries a faulted device cycle now instead of waiting for the automatic retry.</summary>
     /// <param name="cancellationToken">Cancels the attempt.</param>
     /// <returns>A task completing once the attempt has been made.</returns>
@@ -332,7 +347,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             StringComparer.Ordinal);
         var capabilities = _coordinator.Capabilities.Snapshot()
             .Take(128)
-            .Select(view => ToOverlayCapability(view, declaredSectionIds))
+            .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers))
             .ToList();
         if (_coordinator.ManualTdpUnified)
         {
@@ -353,7 +368,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var recovery = RecoveryView(state);
         var controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
-            controllerStatus);
+            controllerStatus) is { } controllerRow
+            ? controllerRow with
+            {
+                OverrideId = controllerStatus.TargetSource is ProfileSource.Game
+                    ? nameof(ProfileField.ControllerTarget)
+                    : null
+            }
+            : null;
         var authored = _coordinator.AuthoredProfileSelection();
         var glyphPreview = GlyphPreview(
             glyphSelectionState,
@@ -411,7 +433,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ? AuthoredProfileView(
                     selection.Profiles,
                     selection.Selected.Value,
-                    selection.Selected.Source)
+                    selection.Selected.Source) is { } authoredRow
+                    ? authoredRow with
+                    {
+                        OverrideId = selection.Selected.IsGameOverride ? nameof(ProfileField.FanCurveProfile) : null
+                    }
+                    : null
                 : null)
         {
             HostSelections = new Dictionary<string, DeviceHostSelection>
@@ -498,6 +525,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.RetryAfterFaultAsync(cancellationToken);
+    }
+
+    public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
+    {
+        return ProfileSettingKey.TryParse(overrideId, out var key)
+            ? _coordinator.Profiles.ClearGameOverrideAsync(
+                key,
+                key.Field is ProfileField.Device ? _coordinator.DeviceIdentityKey : null,
+                cancellationToken)
+            : Task.CompletedTask;
     }
 
     /// <inheritdoc />
@@ -1023,7 +1060,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
-        IReadOnlySet<string> declaredSections)
+        IReadOnlySet<string> declaredSections,
+        ProfileLayers? layers = null)
     {
         var descriptor = view.Descriptor;
         var projection = view.Projection;
@@ -1080,6 +1118,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ? descriptor.CategoryId
                 : null,
             SortOrder = descriptor.SortOrder,
+            OverrideId = OverrideIdFor(view, layers),
             DescriptorGeneration = state.DescriptorGeneration,
             CycleGeneration = state.CycleGeneration,
             Prominence = descriptor.Prominence,
@@ -1093,6 +1132,26 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             Unit = descriptor.Unit,
             Choices = descriptor.Choices,
             MaximumLength = descriptor.MaximumLength
+        };
+    }
+
+    /// <summary>The setting id while the running game's own profile supplies a capability's value.</summary>
+    /// <remarks>
+    ///     The sustained limit, boost and variable refresh are stored as typed profile values rather than
+    ///     device values, so their source is read from those; everything else from the desired value.
+    /// </remarks>
+    internal static string? OverrideIdFor(DeviceCapabilityView view, ProfileLayers? layers)
+    {
+        return view.Descriptor.Role switch
+        {
+            CapabilityRole.PowerSustainedLimit => layers is { } resolved
+                ? NativeQamUi.OverrideId(resolved, resolved.PowerTargetKey)
+                : null,
+            CapabilityRole.PowerSlowLimit => NativeQamUi.OverrideId(layers,
+                new ProfileSettingKey(ProfileField.BoostWatts)),
+            CapabilityRole.VariableRefreshRate => NativeQamUi.OverrideId(layers,
+                new ProfileSettingKey(ProfileField.VariableRefreshRate)),
+            _ => NativeQamUi.DeviceOverrideId(view)
         };
     }
 
