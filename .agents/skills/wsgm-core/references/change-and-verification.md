@@ -115,10 +115,11 @@ Before commit/push:
 1. inspect staged names and diff; never stage unrelated files;
 2. reconcile docs, plans, scoped guidance, and skill instructions;
 3. confirm each changed child commit is published before its parent pin;
-4. before `gh pr create` or a push to a branch with an open pull request, pass `./eng/verify.ps1` on
-   that branch head, with the Rider cleanup solution-wide and never limited to changed files (root
-   AGENTS.md, "Before a pull request is opened or updated");
-5. commit the intended scope, push the current branch, and verify clean local/upstream equality;
-6. wait for the pull request's checks and report their actual state;
-7. state which attended/live acceptance remains, rather than treating the automated gate as hardware
+4. commit the intended scope;
+5. before `gh pr create` or a push to a branch with an open pull request, pass `./eng/verify.ps1` on
+   that exact committed head, with the Rider cleanup solution-wide and never limited to changed
+   files (root AGENTS.md, "Before a pull request is opened or updated");
+6. push only after the gate passes, and verify clean local/upstream equality;
+7. wait for the pull request's checks and report their actual state;
+8. state which attended/live acceptance remains, rather than treating the automated gate as hardware
    proof.
