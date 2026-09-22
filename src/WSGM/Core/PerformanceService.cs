@@ -7,106 +7,12 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-/// <summary>Pure global/per-application RTSS policy and edit-target resolution.</summary>
-internal static class PerformancePolicyResolver
-{
-    internal static (
-        PerformanceValues Values,
-        PerformancePolicyLayer FrameLimitLayer,
-        PerformancePolicyLayer OverlayLevelLayer) Resolve(
-            PerformancePolicy policy,
-            PerformanceApplicationTarget? target)
-    {
-        ArgumentNullException.ThrowIfNull(policy);
-        if (!policy.Enabled)
-        {
-            return (
-                PerformanceValues.Empty,
-                PerformancePolicyLayer.None,
-                PerformancePolicyLayer.None);
-        }
-
-        var application = Find(policy, target);
-        var persistent = application is null
-            ? policy.Global
-            : new PerformanceValues(
-                application.Values.FrameLimit ?? policy.Global.FrameLimit,
-                application.Values.OverlayLevel ?? policy.Global.OverlayLevel);
-        return (
-            persistent,
-            LayerFor(application?.Values.FrameLimit, policy.Global.FrameLimit),
-            LayerFor(application?.Values.OverlayLevel, policy.Global.OverlayLevel));
-    }
-
-    internal static PerformancePersistenceTarget ResolveEditTarget(
-        PerformancePolicy policy,
-        PerformanceApplicationTarget? target)
-    {
-        return Find(policy, target) is null
-            ? PerformancePersistenceTarget.Global
-            : PerformancePersistenceTarget.Application;
-    }
-
-    internal static PerformancePolicy Write(
-        PerformancePolicy policy,
-        PerformanceApplicationTarget? target,
-        PerformancePersistenceTarget persistence,
-        PerformanceControl control,
-        int value)
-    {
-        if (persistence == PerformancePersistenceTarget.Global)
-        {
-            return policy with { Global = policy.Global.With(control, value) };
-        }
-
-        if (target is null)
-        {
-            throw new InvalidOperationException("An application edit requires an active application target.");
-        }
-
-        List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
-        var index = applications.FindIndex(item => string.Equals(
-            item.ApplicationId,
-            Find(policy, target)?.ApplicationId,
-            StringComparison.Ordinal));
-        var current = applications[index];
-        applications[index] = current with
-        {
-            RtssProfileName = target.RtssProfileName ?? current.RtssProfileName,
-            Values = current.Values.With(control, value)
-        };
-        return policy with { Applications = [.. applications] };
-    }
-
-    internal static PerformanceApplicationPolicy? Find(PerformancePolicy policy, PerformanceApplicationTarget? target)
-    {
-        var entry = FindStored(policy, target);
-        return entry is { Enabled: true } ? entry : null;
-    }
-
-    internal static PerformanceApplicationPolicy? FindStored(PerformancePolicy policy,
-        PerformanceApplicationTarget? target)
-    {
-        return ApplicationProfileRules.Match(policy.Applications, target?.ApplicationId, target?.RtssProfileName,
-            item => item.ApplicationId, item => item.ProcessNames);
-    }
-
-    private static PerformancePolicyLayer LayerFor(int? application, int? global)
-    {
-        return application is not null
-            ? PerformancePolicyLayer.Application
-            : global is not null
-                ? PerformancePolicyLayer.Global
-                : PerformancePolicyLayer.None;
-    }
-}
-
 /// <summary>
 ///     One session-owned RTSS service shared by every UI projection. Adapter access and commands are
 ///     serialized, polling runs only while a client holds an observation lease, and RTSS failures never
 ///     escape into shell/session transitions.
 /// </summary>
-internal sealed partial class PerformanceService : IAsyncDisposable
+internal sealed class PerformanceService : IAsyncDisposable
 {
     // Commands and target transitions already read back immediately. This is the background
     // external-change/availability check, including while Steam keeps its observation lease.
@@ -135,13 +41,14 @@ internal sealed partial class PerformanceService : IAsyncDisposable
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly RtssLauncher _launcher;
     private readonly ObservationGate _observers = new();
-    private readonly Func<PerformancePolicy, CancellationToken, Task> _persistPolicy;
+    private readonly Func<ProfileField, int, CancellationToken, Task<ProfileSnapshot>> _persistValue;
     private readonly Task _pollTask;
     private readonly Lock _stateGate = new();
     private readonly TimeProvider _timeProvider;
     private long _commandSequence;
     private bool _disposed;
-    private PerformancePolicy _policy;
+    private bool _enabled;
+    private ProfileSnapshot _profiles;
 
     private PerformanceState? _raisedState;
 
@@ -152,34 +59,33 @@ internal sealed partial class PerformanceService : IAsyncDisposable
 
     internal PerformanceService(
         IRtssAdapter adapter,
-        Func<PerformancePolicy, CancellationToken, Task> persistPolicy,
-        PerformancePolicy? policy = null,
+        Func<ProfileField, int, CancellationToken, Task<ProfileSnapshot>> persistValue,
+        ProfileSnapshot? profiles = null,
+        bool enabled = true,
         TimeSpan? pollInterval = null,
         TimeSpan? commandTimeout = null,
         TimeProvider? timeProvider = null)
     {
         _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
         _launcher = new RtssLauncher();
-        _persistPolicy = persistPolicy ?? throw new ArgumentNullException(nameof(persistPolicy));
-        _policy = NormalizePolicy(policy ?? PerformancePolicy.Empty);
+        _persistValue = persistValue ?? throw new ArgumentNullException(nameof(persistValue));
+        _profiles = profiles ?? ProfileSnapshot.Empty;
+        _enabled = enabled;
         PollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
         _commandTimeout = BoundTimeout(commandTimeout ?? DefaultCommandTimeout);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var (desired, frameLimitLayer, overlayLevelLayer) = PerformancePolicyResolver.Resolve(
-            _policy,
-            null);
-        _state = new PerformanceState(
+        _state = WithResolvedDesired(new PerformanceState(
             InitialProbe,
             null,
             false,
-            frameLimitLayer,
-            overlayLevelLayer,
-            desired,
+            ProfileSource.None,
+            ProfileSource.None,
+            PerformanceValues.Empty,
             PerformanceValues.Empty,
             PerformanceReadbackQuality.Unavailable,
             PerformanceReadbackQuality.Unavailable,
             null,
-            PerformanceCommandState.Idle);
+            PerformanceCommandState.Idle));
         _pollTask = Task.Run(PollAsync);
     }
 
@@ -202,7 +108,7 @@ internal sealed partial class PerformanceService : IAsyncDisposable
         {
             lock (_stateGate)
             {
-                return _policy.Enabled;
+                return _enabled;
             }
         }
     }
@@ -280,27 +186,41 @@ internal sealed partial class PerformanceService : IAsyncDisposable
         return _observers.Acquire();
     }
 
-    internal async Task UpdatePolicyAsync(
-        PerformancePolicy policy,
+    /// <summary>Applies a new profile snapshot or master switch and writes what now resolves.</summary>
+    /// <param name="profiles">The profile store and the running application it resolves for.</param>
+    /// <param name="enabled">Whether WSGM may change RTSS at all.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>A task completing once the resolved values were written.</returns>
+    /// <remarks>
+    ///     The running application comes from the snapshot rather than a separate target, so RTSS and
+    ///     every other per-game consumer agree about what is running. An older snapshot than the one in
+    ///     force is ignored: a value the user just set is already applied from the newer one.
+    /// </remarks>
+    internal async Task ApplyProfilesAsync(
+        ProfileSnapshot profiles,
+        bool enabled,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(policy);
-        var normalized = NormalizePolicy(policy);
+        ArgumentNullException.ThrowIfNull(profiles);
+        PerformanceState previous;
         PerformanceState next;
         await _adapterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             lock (_stateGate)
             {
-                if (PoliciesEqual(_policy, normalized))
+                if (profiles.Generation < _profiles.Generation
+                    || (ReferenceEquals(profiles, _profiles) && enabled == _enabled))
                 {
                     return;
                 }
 
-                _policy = normalized;
-                next = WithResolvedDesired(_state);
-                _state = next;
+                previous = _state;
+                _profiles = profiles;
+                _enabled = enabled;
+                _state = WithResolvedDesired(_state with { Target = TargetFor(profiles.Active) });
+                next = _state;
             }
         }
         finally
@@ -309,42 +229,13 @@ internal sealed partial class PerformanceService : IAsyncDisposable
         }
 
         RaiseStateChanged(next);
-        await ApplyEffectiveDesiredAsync("policy-reload", cancellationToken).ConfigureAwait(false);
-    }
-
-    internal async Task SetTargetAsync(
-        PerformanceApplicationTarget? target,
-        CancellationToken cancellationToken = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (target is not null && !ValidTarget(target))
+        if (previous.Desired != next.Desired || previous.Target != next.Target
+                                             || previous.ApplicationProfileEnabled != next.ApplicationProfileEnabled)
         {
-            throw new ArgumentException("The RTSS application target is invalid.", nameof(target));
+            await ApplyEffectiveDesiredAsync(
+                previous.Target != next.Target ? "application-transition" : "profile-change",
+                cancellationToken).ConfigureAwait(false);
         }
-
-        if (target is not null)
-        {
-            target = target with
-            {
-                ApplicationId = target.ApplicationId.Trim(),
-                RtssProfileName = target.RtssProfileName?.Trim()
-            };
-        }
-
-        PerformanceState next;
-        lock (_stateGate)
-        {
-            if (_state.Target == target)
-            {
-                return;
-            }
-
-            _state = WithResolvedDesired(_state with { Target = target });
-            next = _state;
-        }
-
-        RaiseStateChanged(next);
-        await ApplyEffectiveDesiredAsync("application-transition", cancellationToken).ConfigureAwait(false);
     }
 
     internal Task<PerformanceCommandState> SetAsync(
@@ -386,7 +277,7 @@ internal sealed partial class PerformanceService : IAsyncDisposable
         bool enabled;
         lock (_stateGate)
         {
-            enabled = _policy.Enabled;
+            enabled = _enabled;
         }
 
         if (!enabled)
@@ -427,7 +318,7 @@ internal sealed partial class PerformanceService : IAsyncDisposable
 
             lock (_stateGate)
             {
-                enabled = _policy.Enabled;
+                enabled = _enabled;
             }
 
             if (!enabled)
@@ -614,29 +505,49 @@ internal sealed partial class PerformanceService : IAsyncDisposable
                     "The requested value is outside the adapter's verified bounds."));
             }
 
+            if (updateDesired)
+            {
+                // Saved before RTSS is touched. The profile store decides which layer the value lands
+                // in, and a write that could not be saved must not leave RTSS holding a value the
+                // configuration does not name.
+                ProfileSnapshot saved;
+                try
+                {
+                    saved = await _persistValue(
+                        control is PerformanceControl.FrameLimit ? ProfileField.FrameLimit : ProfileField.OverlayLevel,
+                        value,
+                        boundedCancellation).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Persisting the RTSS profile value failed", ex);
+                    return UpdateCommand(Command(
+                        PerformanceCommandPhase.Failed,
+                        ex is ArgumentException or InvalidOperationException
+                            ? ex.Message
+                            : "The performance preference could not be persisted."));
+                }
+
+                lock (_stateGate)
+                {
+                    if (saved.Generation >= _profiles.Generation)
+                    {
+                        _profiles = saved;
+                        _state = WithResolvedDesired(_state with { Target = TargetFor(saved.Active) });
+                    }
+                }
+            }
+
             PerformanceApplicationTarget? target;
             bool applicationOptedIn;
-            PerformancePolicy? previousPolicy = null;
-            PerformancePolicy? changedPolicy = null;
             lock (_stateGate)
             {
                 target = _state.Target;
-                if (updateDesired)
-                {
-                    previousPolicy = _policy;
-                    _policy = PerformancePolicyResolver.Write(
-                        _policy,
-                        target,
-                        PerformancePolicyResolver.ResolveEditTarget(_policy, target),
-                        control,
-                        value);
-                    changedPolicy = _policy;
-                    _state = WithResolvedDesired(_state);
-                }
-
-                applicationOptedIn = PerformancePolicyResolver.Find(
-                    _policy,
-                    target) is not null;
+                applicationOptedIn = _profiles.EditsGame;
             }
 
             // Saving an RTSS profile that does not exist creates it, which sprayed a profile onto
@@ -653,27 +564,6 @@ internal sealed partial class PerformanceService : IAsyncDisposable
                     : target.RtssProfileName is null
                         ? $"pending application {target.ApplicationId}"
                         : profile;
-            }
-
-            if (changedPolicy is not null)
-            {
-                try
-                {
-                    await _persistPolicy(changedPolicy, boundedCancellation).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    RestorePolicyAfterPersistenceFailure(changedPolicy, previousPolicy!);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    RestorePolicyAfterPersistenceFailure(changedPolicy, previousPolicy!);
-                    Log.Error("Persisting RTSS performance policy failed", ex);
-                    return UpdateCommand(Command(
-                        PerformanceCommandPhase.Failed,
-                        "The performance preference could not be persisted."));
-                }
             }
 
             RaiseStateChanged(Current);
@@ -857,9 +747,7 @@ internal sealed partial class PerformanceService : IAsyncDisposable
         bool applicationOptedIn;
         lock (_stateGate)
         {
-            applicationOptedIn = PerformancePolicyResolver.Find(
-                _policy,
-                target) is not null;
+            applicationOptedIn = _profiles.EditsGame;
         }
 
         // The same profile-selection rule as the apply path, so readback observes the profile the
@@ -940,25 +828,6 @@ internal sealed partial class PerformanceService : IAsyncDisposable
                     : _state.OverlayLevelQuality,
                 RefreshedAt = _timeProvider.GetUtcNow()
             };
-            next = _state;
-        }
-
-        RaiseStateChanged(next);
-    }
-
-    private void RestorePolicyAfterPersistenceFailure(
-        PerformancePolicy failedPolicy,
-        PerformancePolicy previousPolicy)
-    {
-        PerformanceState next;
-        lock (_stateGate)
-        {
-            if (ReferenceEquals(_policy, failedPolicy))
-            {
-                _policy = previousPolicy;
-                _state = WithResolvedDesired(_state);
-            }
-
             next = _state;
         }
 
@@ -1105,17 +974,26 @@ internal sealed partial class PerformanceService : IAsyncDisposable
 
     private PerformanceState WithResolvedDesired(PerformanceState state)
     {
-        var (values, frameLimitLayer, overlayLevelLayer) = PerformancePolicyResolver.Resolve(
-            _policy,
-            state.Target);
+        if (!_enabled)
+        {
+            return state with
+            {
+                Desired = PerformanceValues.Empty,
+                ApplicationProfileEnabled = false,
+                FrameLimitLayer = ProfileSource.None,
+                OverlayLevelLayer = ProfileSource.None
+            };
+        }
+
+        var layers = _profiles.Layers;
+        var frameLimit = layers.Value(values => values.FrameLimit);
+        var overlayLevel = layers.Value(values => values.OverlayLevel);
         return state with
         {
-            Desired = values,
-            ApplicationProfileEnabled = PerformancePolicyResolver.Find(
-                _policy,
-                state.Target) is not null,
-            FrameLimitLayer = frameLimitLayer,
-            OverlayLevelLayer = overlayLevelLayer
+            Desired = new PerformanceValues(frameLimit.Value, overlayLevel.Value),
+            ApplicationProfileEnabled = _profiles.EditsGame,
+            FrameLimitLayer = frameLimit.Source,
+            OverlayLevelLayer = overlayLevel.Source
         };
     }
 
@@ -1146,59 +1024,18 @@ internal sealed partial class PerformanceService : IAsyncDisposable
             : PerformanceControl.OverlayLevel;
     }
 
-    private static PerformancePolicy NormalizePolicy(PerformancePolicy policy)
+    /// <summary>The RTSS target for the running application, or null for the global profile.</summary>
+    /// <param name="active">The running application.</param>
+    /// <returns>The target, with an invalid executable dropped.</returns>
+    internal static PerformanceApplicationTarget? TargetFor(ActiveProfile active)
     {
-        ArgumentNullException.ThrowIfNull(policy.Global);
-        List<PerformanceApplicationPolicy> applications = [];
-        HashSet<string> identities = new(StringComparer.Ordinal);
-        foreach (var application in policy.Applications)
+        if (!active.HasApplication || active.ApplicationId!.Length > 1024)
         {
-            var applicationId = application.ApplicationId.Trim();
-            if (applicationId.Length == 0)
-            {
-                Log.Warn("RTSS policy entry dropped: the application identity was empty.");
-                continue;
-            }
-
-            if (!identities.Add(applicationId))
-            {
-                Log.Warn(
-                    $"RTSS policy entry dropped: duplicate application identity '{SanitizeToken(applicationId, "unknown")}'.");
-                continue;
-            }
-
-            applications.Add(application with
-            {
-                ApplicationId = applicationId,
-                RtssProfileName = ValidProfileName(application.RtssProfileName)
-                    ? application.RtssProfileName.Trim()
-                    : string.Empty
-            });
+            return null;
         }
 
-        return policy with { Applications = [.. applications] };
-    }
-
-    private static bool PoliciesEqual(PerformancePolicy left, PerformancePolicy right)
-    {
-        if (left.Enabled != right.Enabled
-            || left.Global != right.Global
-            || left.Applications.Count != right.Applications.Count)
-        {
-            return false;
-        }
-
-        return left.Applications.Zip(right.Applications).All(pair =>
-            pair.First with { ProcessNames = pair.Second.ProcessNames } == pair.Second
-            && pair.First.ProcessNames.SequenceEqual(pair.Second.ProcessNames, StringComparer.OrdinalIgnoreCase));
-    }
-
-    private static bool ValidTarget(PerformanceApplicationTarget target)
-    {
-        return !string.IsNullOrWhiteSpace(target.ApplicationId)
-               && target.ApplicationId.Length <= 1024
-               && (target.RtssProfileName is null || ValidProfileName(target.RtssProfileName))
-               && target.ProcessId is null or > 0;
+        var executable = active.Executable is { } name && ValidProfileName(name) ? name.Trim() : null;
+        return new PerformanceApplicationTarget(active.ApplicationId.Trim(), active.SteamAppId, executable);
     }
 
     private static bool ValidProfileName(string value)

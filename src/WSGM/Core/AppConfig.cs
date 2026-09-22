@@ -546,23 +546,11 @@ public sealed class NativeTabConfig
     public string Title { get; set; } = "";
 }
 
-/// <summary>Persistent shared RTSS policy projected into overlay and native QAM.</summary>
+/// <summary>RTSS settings that are not per game. Per-game values live in <see cref="AppConfig.Profiles" />.</summary>
 public sealed class PerformanceConfig
 {
-    /// <summary>Device preset selected on AC power, or null for manual selection.</summary>
-    public DevicePowerPresetReference? AcPowerPreset { get; set; }
-
-    /// <summary>Device preset selected on battery power, or null for manual selection.</summary>
-    public DevicePowerPresetReference? BatteryPowerPreset { get; set; }
-
     /// <summary>Whether WSGM may observe and change supported RTSS profile properties.</summary>
     public bool Enabled { get; set; }
-
-    /// <summary>Global RTSS frame limit; zero disables limiting.</summary>
-    public int? FrameLimit { get; set; }
-
-    /// <summary>Global performance-overlay level when the adapter advertises a verified mapping.</summary>
-    public int? OverlayLevel { get; set; }
 
     /// <summary>How a frame limit relates to the panel's refresh rate.</summary>
     /// <remarks>
@@ -570,15 +558,6 @@ public sealed class PerformanceConfig
     ///     which is a tolerance for mode-change risk the user holds once, not per game.
     /// </remarks>
     public FrameLimitStrategy FrameLimitStrategy { get; set; } = FrameLimitStrategy.FrameLimitOnly;
-
-    /// <summary>Global sustained power limit in watts, or null to leave it to the device.</summary>
-    public int? TdpWatts { get; set; }
-
-    /// <summary>Global manual TDP mode and retained unified/advanced preferences.</summary>
-    public ManualTdpProfile? ManualTdp { get; set; }
-
-    /// <summary>Global variable-refresh preference, or null to leave the panel as found.</summary>
-    public bool? VariableRefreshRate { get; set; }
 
     /// <summary>
     ///     Custom overlay (level 4) widget order — HandheldCompanion's widget names,
@@ -609,66 +588,6 @@ public sealed class PerformanceConfig
     ///     the charge rate.
     /// </summary>
     public int OsdCustomBattery { get; set; } = 2;
-
-    /// <summary>Per-application overrides keyed by WSGM's canonical application identity.</summary>
-    public List<PerformanceApplicationConfig> Applications { get; set; } = [];
-
-    /// <summary>The stored entry for one application, if there is one.</summary>
-    /// <param name="applicationId">The canonical application id, or null.</param>
-    /// <returns>The entry, or null when the id is empty or has no entry.</returns>
-    internal PerformanceApplicationConfig? FindApplication(string? applicationId)
-    {
-        return string.IsNullOrEmpty(applicationId)
-            ? null
-            : Applications.Find(application => application.ApplicationId == applicationId);
-    }
-}
-
-/// <summary>One persistent RTSS application-profile override.</summary>
-public sealed class PerformanceApplicationConfig
-{
-    /// <summary>Per-game AC assignment, or null to inherit the global assignment.</summary>
-    public DevicePowerPresetReference? AcPowerPreset { get; set; }
-
-    /// <summary>Per-game battery assignment, or null to inherit the global assignment.</summary>
-    public DevicePowerPresetReference? BatteryPowerPreset { get; set; }
-
-    /// <summary>Canonical WSGM application identity.</summary>
-    public string ApplicationId { get; set; } = string.Empty;
-
-    /// <summary>User-visible profile name; empty legacy names display their application identity.</summary>
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>Exact executable names that activate this profile, compared without case.</summary>
-    public List<string> ProcessNames { get; set; } = [];
-
-    /// <summary>Exact executable profile name understood by RTSS.</summary>
-    public string RtssProfileName { get; set; } = string.Empty;
-
-    /// <summary>Application frame-limit override, or null to inherit global policy.</summary>
-    public int? FrameLimit { get; set; }
-
-    /// <summary>Application overlay-level override, or null to inherit global policy.</summary>
-    public int? OverlayLevel { get; set; }
-
-    /// <summary>
-    ///     Whether this application's own values apply at all.
-    /// </summary>
-    /// <remarks>
-    ///     The switch behind Steam's "Use per-game profile". Off keeps the stored values so turning it
-    ///     back on restores what the user set up rather than starting from the global defaults again —
-    ///     the same reversibility the device master switch has.
-    /// </remarks>
-    public bool UsePerGameProfile { get; set; }
-
-    /// <summary>Application sustained power limit in watts, or null to inherit.</summary>
-    public int? TdpWatts { get; set; }
-
-    /// <summary>Application manual TDP preferences, or null to inherit the global profile.</summary>
-    public ManualTdpProfile? ManualTdp { get; set; }
-
-    /// <summary>Application variable-refresh preference, or null to inherit.</summary>
-    public bool? VariableRefreshRate { get; set; }
 }
 
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
@@ -685,6 +604,9 @@ public sealed class AppConfig
 
     /// <summary>Optional RTSS policy, independent from Device Integration.</summary>
     public PerformanceConfig Performance { get; set; } = new();
+
+    /// <summary>The Global profile and every per-game profile. See <c>docs\profiles.md</c>.</summary>
+    public ProfileConfig Profiles { get; set; } = new();
 
     /// <summary>
     ///     Restart Steam automatically when it exits. Steam itself is located
@@ -1142,8 +1064,6 @@ public sealed class CefConfig
 [JsonSerializable(typeof(CustomTabConfig))]
 [JsonSerializable(typeof(NativeTabConfig))]
 [JsonSerializable(typeof(DeviceIntegrationConfig))]
-[JsonSerializable(typeof(DeviceDesiredProfile))]
-[JsonSerializable(typeof(DeviceCapabilityPreference))]
 [JsonSerializable(typeof(PluginSettingsScope))]
 // The SDK's own manifest types, so the cached declaration keeps one shape owned by the SDK rather
 // than a WSGM-side copy that would have to be kept in step with it.
@@ -1151,10 +1071,11 @@ public sealed class CefConfig
 [JsonSerializable(typeof(PluginSettingValue))]
 [JsonSerializable(typeof(DeviceAuthoredProfile))]
 [JsonSerializable(typeof(AuthoredCurvePoint))]
-[JsonSerializable(typeof(DeviceProfileSelection))]
-[JsonSerializable(typeof(DeviceApplicationProfileSelection))]
 [JsonSerializable(typeof(PerformanceConfig))]
-[JsonSerializable(typeof(PerformanceApplicationConfig))]
+[JsonSerializable(typeof(ProfileConfig))]
+[JsonSerializable(typeof(GameProfile))]
+[JsonSerializable(typeof(ProfileValues))]
+[JsonSerializable(typeof(ProfileDeviceValue))]
 [JsonSerializable(typeof(FilterNode))]
 [JsonSerializable(typeof(DeviceCoordinatorDiagnosticsSnapshot))]
 // Retired shapes, registered only so ConfigMigrations can read a stored document that still uses

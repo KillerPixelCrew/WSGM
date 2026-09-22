@@ -5,47 +5,6 @@ namespace WSGM.Tests.Core;
 public sealed class PerApplicationPowerPolicyTests
 {
     [Fact]
-    public void AnEnabledProfilePrefersItsOwnLimit()
-    {
-        Assert.Equal(
-            21,
-            PerApplicationPowerPolicy.ResolveEffective(
-                37,
-                21,
-                true));
-    }
-
-    [Fact]
-    public void ADisabledProfileInheritsTheGlobalLimit()
-    {
-        // The per-game switch governs every performance value: a stored application limit is dormant
-        // while its profile is off, exactly like the frame limit and overlay level.
-        Assert.Equal(
-            37,
-            PerApplicationPowerPolicy.ResolveEffective(
-                37,
-                21,
-                false));
-    }
-
-    [Fact]
-    public void AnEnabledProfileWithNoLimitOfItsOwnInheritsTheGlobalLimit()
-    {
-        Assert.Equal(
-            37,
-            PerApplicationPowerPolicy.ResolveEffective(
-                37,
-                null,
-                true));
-    }
-
-    [Fact]
-    public void NoLimitAnywhereResolvesToNone()
-    {
-        Assert.Null(PerApplicationPowerPolicy.ResolveEffective(null, null, true));
-    }
-
-    [Fact]
     public void AResolvedLimitIsAlwaysApplied()
     {
         var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
@@ -105,30 +64,6 @@ public sealed class PerApplicationPowerPolicyTests
 
         Assert.Equal(PerAppPowerAction.Leave, autoOn.Action);
         Assert.Equal(PerAppPowerAction.Leave, autoOff.Action);
-    }
-
-    [Fact]
-    public void VrrAnEnabledProfilePrefersItsOwnState()
-    {
-        Assert.True(PerApplicationVrrPolicy.ResolveEffective(
-            false,
-            true,
-            true));
-    }
-
-    [Fact]
-    public void VrrADisabledProfileInheritsTheGlobalState()
-    {
-        Assert.False(PerApplicationVrrPolicy.ResolveEffective(
-            false,
-            true,
-            false));
-    }
-
-    [Fact]
-    public void VrrNoStateAnywhereResolvesToNone()
-    {
-        Assert.Null(PerApplicationVrrPolicy.ResolveEffective(null, null, true));
     }
 
     [Fact]

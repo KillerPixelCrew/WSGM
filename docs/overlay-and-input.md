@@ -75,8 +75,8 @@ not a device-plugin feature. `PerformanceOverlayBridge` projects the session's o
 Power and thermals, including when Device Integration is off. Identity-only Steam games stay visible
 as "executable pending", with edits stored for that AppID until foreground observation supplies the
 RTSS profile. Descriptor/layout identity changes rebuild the affected rows; value publications
-update retained editors and readings in place. Profiles stays available when WSGM has profile rows
-even if no plugin publishes a hardware profile.
+update retained editors and readings in place. Profiles stays available whenever WSGM has profile
+rows.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
 hue field, RGB sliders and exact `#RRGGBB` entry are staged locally; only the explicit Apply row

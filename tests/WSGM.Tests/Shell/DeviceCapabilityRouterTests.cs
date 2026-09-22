@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Shell;
@@ -40,15 +41,15 @@ public sealed class DeviceCapabilityRouterTests
 
         // Changes that arrive before the posted build runs join it; the build reads the state
         // when it runs on the UI thread, so it carries all of them.
-        router.UpdateDesiredContext(null, true, null, null);
-        router.UpdateDesiredContext(null, false, null, null);
+        router.UpdateDesiredContext(null, new ProfileLayers(new ProfileValues(), null), true);
+        router.UpdateDesiredContext(null, new ProfileLayers(new ProfileValues(), null), false);
 
         Assert.Single(posted);
         posted[0]();
         Assert.Equal(1, notifications);
 
         // Once it has run, the next change needs a build of its own.
-        router.UpdateDesiredContext(null, true, null, null);
+        router.UpdateDesiredContext(null, new ProfileLayers(new ProfileValues(), null), true);
 
         Assert.Equal(2, posted.Count);
         posted[1]();

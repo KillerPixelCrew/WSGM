@@ -58,6 +58,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     private readonly bool _overlayTestOnly;
     private readonly PluginHost _pluginHost = new(UiThread.Post);
+    private readonly ProfileService _profiles;
     private readonly bool _serviceBoot;
 
     private readonly CancellationTokenSource _shutdownCancellation = new();
@@ -202,6 +203,7 @@ public sealed class ShellSession : IAsyncDisposable
     private PerformanceService? _performance;
     private PerformanceOverlayBridge? _performanceOverlay;
     private CommonPluginOverlaySource? _pluginOverlaySource;
+    private ProfileFanOut? _profileFanOut;
 
     /// <summary>
     ///     The one radio manager for this session, shared by the taskbar's status cluster and Steam's
@@ -262,8 +264,12 @@ public sealed class ShellSession : IAsyncDisposable
         bool desktopResident = false)
     {
         _config = config;
-        _applicationProfiles = new ApplicationPerformanceReconciler(() => _config, () => _deviceCoordinator,
-            () => _performance, () => _autoTdp);
+        // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
+        // user's configuration.
+        _profiles = new ProfileService(config.Profiles,
+            overlayTestOnly ? MutateSimulatedProfilesAsync() : MutateProfilesAsync);
+        _applicationProfiles = new ApplicationPerformanceReconciler(_profiles, () => _deviceCoordinator,
+            () => _autoTdp);
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef is { Enabled: true, WifiIndicator: true };
         _downloadSortEnabled = config.Cef is { Enabled: true, DownloadQueueSort: true };
@@ -595,6 +601,7 @@ public sealed class ShellSession : IAsyncDisposable
                 : await DeviceCoordinator.TryStartAsync(
                     _config,
                     _pluginHost,
+                    _profiles,
                     _shutdownCancellation.Token).ConfigureAwait(false);
             if (_commonPluginStartup is not null)
             {
@@ -821,14 +828,17 @@ public sealed class ShellSession : IAsyncDisposable
     {
         _performance = new PerformanceService(
             _overlayTestOnly ? new SimulatedRtssAdapter() : new RtssNativeAdapter(),
-            _overlayTestOnly ? PersistSimulatedPerformancePolicyAsync : PersistPerformancePolicyAsync,
-            BuildPerformancePolicy(_config, _overlayTestOnly));
+            (field, value, token) => _profiles.SetAsync(field, value, token),
+            _profiles.Current,
+            PerformanceEnabled(_config));
         // Read through the field rather than captured, because the pairing service is created a
         // few lines below this and replaced on shutdown; the overlay slider then bookends exactly
         // where the Quick Access row does instead of running over RTSS's own 0-1000.
         _performanceOverlay = new PerformanceOverlayBridge(
             _performance,
+            _profiles,
             () => _refreshPairing?.FrameLimitRange());
+        StartProfileFanOut();
         _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
         AttachOsdPowerStatus();
         if (_overlayTestOnly)
@@ -837,7 +847,7 @@ public sealed class ShellSession : IAsyncDisposable
             // Steam game is running and focused, so Device -> Profiles shows the application layer
             // instead of a permanently unavailable row. The real shell gets this target from
             // RunningApplicationCoordinator, which overlay-test deliberately never creates.
-            _ = _performance.SetTargetAsync(new PerformanceApplicationTarget(
+            _profiles.SetRunningApplication(new PerformanceApplicationTarget(
                 "steam:480",
                 480,
                 "PreviewGame.exe"));
@@ -877,7 +887,13 @@ public sealed class ShellSession : IAsyncDisposable
         _foregroundWindows.ApplicationChanged += OnForegroundApplicationChanged;
         _runningApplicationTargets = new RunningApplicationCoordinator(
             _runningApplications,
-            _performance.SetTargetAsync,
+            (target, _) =>
+            {
+                // The profile store decides what runs and which layer is in force; its change drives
+                // RTSS, the device, power and refresh through the fan-out.
+                _profiles.SetRunningApplication(target);
+                return Task.CompletedTask;
+            },
             _deviceCoordinator is null
                 ? null
                 : ApplyRunningApplicationTargetAsync);
@@ -1207,7 +1223,8 @@ public sealed class ShellSession : IAsyncDisposable
                 _steamStorage,
                 _overlayTestOnly ? null : _displayTimeouts,
                 _audioProfiles,
-                _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost));
+                _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost),
+                _profiles);
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
@@ -2579,6 +2596,7 @@ public sealed class ShellSession : IAsyncDisposable
                         // callback and DisplayScale's saved-scale snapshot must not
                         // drift onto different AppConfig objects.
                         _config = config;
+                        _profiles.ApplyConfig(config.Profiles);
                         ApplyDeviceConfig(config);
                         ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
@@ -2684,14 +2702,13 @@ public sealed class ShellSession : IAsyncDisposable
 
     private async Task<bool> CyclePerformanceProfileAsync(CancellationToken cancellationToken)
     {
-        var device = _deviceOverlay;
-        if (device?.Snapshot().Profile?.CanInvoke is not true)
+        if (_deviceCoordinator is not { } coordinator
+            || !await coordinator.PowerAssignments.CycleAsync(cancellationToken).ConfigureAwait(false))
         {
-            Log.Info("OEM performance-profile cycle skipped: no selectable hardware profile is active.");
+            Log.Info("OEM performance-profile cycle skipped: the device offers no power presets right now.");
             return false;
         }
 
-        await device.CycleHardwareProfileAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -2768,6 +2785,24 @@ public sealed class ShellSession : IAsyncDisposable
 
         // ReSharper disable once MethodHasAsyncOverload
         _tabBootSyncCancellation.Cancel();
+
+        // The fan-out writes to the device, RTSS and power, so it stops before any of them is torn
+        // down; a pass left running could otherwise command a coordinator that is being disposed.
+        try
+        {
+            if (_profileFanOut is not null)
+            {
+                await _profileFanOut.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Stopping the profile fan-out during application shutdown failed", ex);
+        }
+        finally
+        {
+            _profileFanOut = null;
+        }
 
         // Device cleanup is the safety-critical part of the outer application budget.
         if (_steamControllerHandoff is not null)
@@ -3445,11 +3480,6 @@ public sealed class ShellSession : IAsyncDisposable
         {
             await coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
-            await _applicationProfiles.ReconcileApplicationProfileAsync(
-                    ApplicationProfileRules.Match(_config.Performance, snapshot.ApplicationId, snapshot.RtssProfileName)
-                        ?.ApplicationId,
-                    cancellationToken)
-                .ConfigureAwait(false);
         }
     }
 
@@ -3610,7 +3640,7 @@ public sealed class ShellSession : IAsyncDisposable
         _refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy);
         performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(config.Performance));
         Log.Observe(
-            performance.UpdatePolicyAsync(BuildPerformancePolicy(config, _overlayTestOnly)),
+            performance.ApplyProfilesAsync(_profiles.Current, PerformanceEnabled(config)),
             "RTSS performance config apply",
             true);
     }
@@ -3666,37 +3696,63 @@ public sealed class ShellSession : IAsyncDisposable
         _ = pairing.ApplyForCap(limit);
     }
 
-    private static PerformancePolicy BuildPerformancePolicy(
-        AppConfig config,
-        bool forceEnabled)
+    /// <summary>Whether WSGM may change RTSS. Overlay-test always may, against its simulated adapter.</summary>
+    private bool PerformanceEnabled(AppConfig config)
     {
-        var applications = config.Performance.Applications
-            .Select(application => new PerformanceApplicationPolicy(
-                application.ApplicationId,
-                application.RtssProfileName,
-                new PerformanceValues(application.FrameLimit, application.OverlayLevel))
-            {
-                Name = application.Name,
-                ProcessNames = application.ProcessNames.ToArray(),
-                Enabled = application.UsePerGameProfile
-            })
-            .ToList();
-
-        return new PerformancePolicy(
-            new PerformanceValues(
-                config.Performance.FrameLimit,
-                config.Performance.OverlayLevel),
-            applications,
-            forceEnabled || config.Performance.Enabled);
+        return _overlayTestOnly || config.Performance.Enabled;
     }
 
-    private static Task PersistPerformancePolicyAsync(
-        PerformancePolicy policy,
+    /// <summary>Saves a profile edit under the cross-process configuration lock, on a worker.</summary>
+    private static Task<ProfileConfig> MutateProfilesAsync(Func<ProfileConfig, bool> edit,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        ConfigStore.Mutate(config => MergePerformancePolicy(config.Performance, policy));
-        return Task.CompletedTask;
+        return Task.Run(() =>
+        {
+            ProfileConfig? stored = null;
+            ConfigStore.Mutate(config =>
+            {
+                edit(config.Profiles);
+                stored = config.Profiles.Copy();
+            });
+            return stored!;
+        }, cancellationToken);
+    }
+
+    /// <summary>An in-memory profile store for overlay-test.</summary>
+    private Func<Func<ProfileConfig, bool>, CancellationToken, Task<ProfileConfig>> MutateSimulatedProfilesAsync()
+    {
+        var store = _config.Profiles.Copy();
+        var gate = new Lock();
+        return (edit, _) =>
+        {
+            lock (gate)
+            {
+                edit(store);
+                return Task.FromResult(store.Copy());
+            }
+        };
+    }
+
+    /// <summary>Starts the one queue that carries profile changes to every consumer, in order.</summary>
+    /// <remarks>
+    ///     RTSS first because it is cheap and the overlay shows it; then the device's desired values,
+    ///     fan profile and controller target; then the power limit and refresh preference, which read
+    ///     the device's published capabilities.
+    /// </remarks>
+    private void StartProfileFanOut()
+    {
+        _profileFanOut = new ProfileFanOut(_profiles,
+        [
+            new ProfileConsumer("RTSS", (snapshot, token) => _performance is { } performance
+                ? performance.ApplyProfilesAsync(snapshot, PerformanceEnabled(_config), token)
+                : Task.CompletedTask),
+            new ProfileConsumer("device", (snapshot, token) => _deviceCoordinator is { } coordinator
+                ? coordinator.ApplyProfilesAsync(snapshot, token)
+                : Task.CompletedTask),
+            new ProfileConsumer("power and refresh", (snapshot, token) =>
+                _applicationProfiles.ReconcileApplicationProfileAsync(snapshot, token))
+        ]);
+        _profileFanOut.Queue(_profiles.Current, ProfileChangeKind.Application);
     }
 
     private static async Task ObserveUiCaptureClaimAsync(
@@ -3711,49 +3767,6 @@ public sealed class ShellSession : IAsyncDisposable
         {
             Log.Error($"Managed controller capture failed for {surfaceId}", ex);
         }
-    }
-
-    internal static void MergePerformancePolicy(
-        PerformanceConfig destination,
-        PerformancePolicy policy)
-    {
-        ArgumentNullException.ThrowIfNull(destination);
-        ArgumentNullException.ThrowIfNull(policy);
-        var existing = destination.Applications
-            .GroupBy(application => application.ApplicationId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-
-        destination.Enabled = policy.Enabled;
-        destination.FrameLimit = policy.Global.FrameLimit;
-        destination.OverlayLevel = policy.Global.OverlayLevel;
-        destination.Applications.Clear();
-        foreach (var application in policy.Applications)
-        {
-            existing.TryGetValue(application.ApplicationId, out var prior);
-            destination.Applications.Add(new PerformanceApplicationConfig
-            {
-                ApplicationId = application.ApplicationId,
-                RtssProfileName = application.RtssProfileName,
-                FrameLimit = application.Values.FrameLimit,
-                OverlayLevel = application.Values.OverlayLevel,
-                UsePerGameProfile = application.Enabled,
-                Name = application.Name,
-                ProcessNames = application.ProcessNames.ToList(),
-                TdpWatts = prior?.TdpWatts,
-                ManualTdp = prior?.ManualTdp,
-                AcPowerPreset = prior?.AcPowerPreset,
-                BatteryPowerPreset = prior?.BatteryPowerPreset,
-                VariableRefreshRate = prior?.VariableRefreshRate
-            });
-        }
-    }
-
-    private static Task PersistSimulatedPerformancePolicyAsync(
-        PerformancePolicy policy,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
     }
 
     private async Task LaunchAppsAsync(CancellationToken cancellationToken)

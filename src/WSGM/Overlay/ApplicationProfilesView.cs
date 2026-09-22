@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,23 +11,18 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>Edits durable profile activation rules without requiring the application to be running.</summary>
+/// <summary>Edits game profiles' names, activation processes and switches without the game running.</summary>
+/// <remarks>
+///     Values are not edited here. They are set on their own overlay and Quick Access rows while the game
+///     runs, and a game profile holds only those; everything else comes from Global.
+/// </remarks>
 internal sealed class ApplicationProfilesView : StackPanel
 {
     private readonly CancellationToken _cancellation;
     private readonly Button _delete = new() { Content = "Delete profile", IsEnabled = false };
     private readonly CheckBox _enabled = new() { Content = "Use this profile when a matching application is active" };
 
-    private readonly TextBox _frameLimit = new()
-        { PlaceholderText = "Inherit Global", HorizontalAlignment = HorizontalAlignment.Stretch };
-
     private readonly TextBox _name = new() { PlaceholderText = "Profile name", MaxLength = 80 };
-
-    private readonly ComboBox _overlay = new()
-    {
-        ItemsSource = new[] { "Inherit Global", "Off", "Minimal", "Extended", "Full", "Custom" },
-        SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch
-    };
 
     private readonly TextBox _processes = new()
     {
@@ -41,7 +35,7 @@ internal sealed class ApplicationProfilesView : StackPanel
     private readonly PerformanceOverlayBridge _source;
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private bool _confirmDelete;
-    private PerformanceApplicationPolicy? _editing;
+    private GameProfile? _editing;
     private bool _loading;
 
     internal ApplicationProfilesView(PerformanceOverlayBridge source, CancellationToken cancellationToken)
@@ -52,8 +46,7 @@ internal sealed class ApplicationProfilesView : StackPanel
         Classes.Add("profile-editor");
         foreach (var (control, label) in new (Control, string)[]
                  {
-                     (_profiles, "Saved profile"), (_name, "Profile name"), (_processes, "Activation processes"),
-                     (_frameLimit, "Profile frame limit"), (_overlay, "Profile overlay level")
+                     (_profiles, "Saved profile"), (_name, "Profile name"), (_processes, "Activation processes")
                  })
         {
             AutomationProperties.SetName(control, label);
@@ -87,28 +80,10 @@ internal sealed class ApplicationProfilesView : StackPanel
         };
         Children.Add(current);
         Children.Add(_enabled);
-        var values = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 12 };
-        values.Children.Add(new StackPanel
-        {
-            Spacing = 4, Children =
-            {
-                new TextBlock { Text = "Frame limit (0 = unlimited)" }, _frameLimit
-            }
-        });
-        var overlay = new StackPanel
-        {
-            Spacing = 4, Children =
-            {
-                new TextBlock { Text = "Performance overlay" }, _overlay
-            }
-        };
-        Grid.SetColumn(overlay, 1);
-        values.Children.Add(overlay);
-        Children.Add(values);
         Children.Add(new TextBlock
         {
-            Text = "Other supported device settings are saved from their overlay pages while this profile is active. "
-                   + "Selecting Global preserves this profile's values.",
+            Text = "A game profile holds only what you change on the overlay or Quick Access rows while it is "
+                   + "active. Everything else comes from Global. Switching it off keeps its values.",
             FontSize = 12, TextWrapping = TextWrapping.Wrap
         });
         Children.Add(new StackPanel
@@ -116,7 +91,7 @@ internal sealed class ApplicationProfilesView : StackPanel
         Children.Add(_status);
         _profiles.SelectionChanged += (_, _) =>
         {
-            if (!_loading && _profiles.SelectedItem is ComboBoxItem { Tag: PerformanceApplicationPolicy entry })
+            if (!_loading && _profiles.SelectedItem is ComboBoxItem { Tag: GameProfile entry })
             {
                 Load(entry);
             }
@@ -136,7 +111,7 @@ internal sealed class ApplicationProfilesView : StackPanel
             {
                 await RunAsync(async () =>
                 {
-                    await _source.DeleteProfileAsync(entry.ApplicationId, _cancellation);
+                    await _source.DeleteProfileAsync(entry.Id, _cancellation);
                     Reload(null);
                     _status.Text = "Profile deleted.";
                 });
@@ -147,10 +122,7 @@ internal sealed class ApplicationProfilesView : StackPanel
             button.Classes.Add("deck-action");
         }
 
-        var target = source.ProfileScope.Target;
-        var active = ApplicationProfileRules.Match(source.Profiles, target?.ApplicationId, target?.RtssProfileName,
-            item => item.ApplicationId, item => item.ProcessNames);
-        Reload(active?.ApplicationId);
+        Reload(source.ProfileSnapshot.Active.GameProfileId);
     }
 
     internal Control DefaultFocusTarget => _profiles;
@@ -166,14 +138,14 @@ internal sealed class ApplicationProfilesView : StackPanel
         _loading = true;
         var entries = _source.Profiles.Select(entry => new ComboBoxItem
         {
-            Content = string.IsNullOrEmpty(entry.Name) ? entry.ApplicationId : entry.Name, Tag = entry
+            Content = string.IsNullOrEmpty(entry.Name) ? entry.Id : entry.Name, Tag = entry
         }).ToArray();
         _profiles.ItemsSource = entries;
         _profiles.SelectedItem =
-            entries.FirstOrDefault(item => ((PerformanceApplicationPolicy)item.Tag!).ApplicationId == selectedId)
+            entries.FirstOrDefault(item => ((GameProfile)item.Tag!).Id == selectedId)
             ?? entries.FirstOrDefault();
         _loading = false;
-        if (_profiles.SelectedItem is ComboBoxItem { Tag: PerformanceApplicationPolicy entry })
+        if (_profiles.SelectedItem is ComboBoxItem { Tag: GameProfile entry })
         {
             Load(entry);
         }
@@ -192,15 +164,13 @@ internal sealed class ApplicationProfilesView : StackPanel
         _name.Focus();
     }
 
-    private void Load(PerformanceApplicationPolicy? profile)
+    private void Load(GameProfile? profile)
     {
         _editing = profile;
         _name.Text = profile is null ? string.Empty :
-            string.IsNullOrEmpty(profile.Name) ? profile.ApplicationId : profile.Name;
+            string.IsNullOrEmpty(profile.Name) ? profile.Id : profile.Name;
         _processes.Text = string.Join(Environment.NewLine, profile?.ProcessNames ?? []);
         _enabled.IsChecked = profile?.Enabled ?? true;
-        _frameLimit.Text = profile?.Values.FrameLimit?.ToString(CultureInfo.InvariantCulture);
-        _overlay.SelectedIndex = profile?.Values.OverlayLevel is { } level ? level + 1 : 0;
         _confirmDelete = false;
         _delete.Content = "Delete profile";
         _delete.IsEnabled = profile is not null;
@@ -211,28 +181,9 @@ internal sealed class ApplicationProfilesView : StackPanel
     {
         await RunAsync(async () =>
         {
-            int? frameLimit = null;
-            if (!string.IsNullOrWhiteSpace(_frameLimit.Text))
-            {
-                if (!int.TryParse(_frameLimit.Text, out var parsed))
-                {
-                    throw new ArgumentException(
-                        "Enter a whole-number frame limit, or leave it empty to inherit Global.");
-                }
-
-                frameLimit = parsed;
-            }
-
-            var entry = (_editing ?? new PerformanceApplicationPolicy("profile:" + Guid.NewGuid().ToString("N"),
-                    string.Empty, PerformanceValues.Empty)) with
-                {
-                    Name = _name.Text ?? string.Empty, ProcessNames = ProcessNames(),
-                    Enabled = _enabled.IsChecked == true,
-                    Values = new PerformanceValues(frameLimit,
-                        _overlay.SelectedIndex > 0 ? _overlay.SelectedIndex - 1 : null)
-                };
-            await _source.SaveProfileAsync(entry, _cancellation);
-            Reload(entry.ApplicationId);
+            var id = await _source.SaveProfileAsync(_editing?.Id, _name.Text ?? string.Empty, ProcessNames(),
+                _enabled.IsChecked == true, _cancellation);
+            Reload(id);
             _status.Text = "Profile saved.";
         });
     }

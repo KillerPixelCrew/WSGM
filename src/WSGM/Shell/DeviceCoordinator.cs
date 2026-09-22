@@ -84,6 +84,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private Action<bool>? _manualVariableRefreshOverride;
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private PluginRegistration? _pluginRegistration;
+    private Task _resumeRestore = Task.CompletedTask;
     private string? _runningApplicationId;
     private string? _runningExecutable;
     private long _steamControllerGeneration;
@@ -97,9 +98,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         uint sessionId,
         Mutex ownerMutex,
         Action<Action> postToUi,
-        PluginHost pluginHost)
+        PluginHost pluginHost,
+        ProfileService profiles)
     {
         _config = config;
+        Profiles = profiles;
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _pluginHost = pluginHost;
@@ -110,10 +113,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? Capabilities.Snapshot() : [],
             ExecutePresetCapabilityAsync, WindowsPowerModes.Windows, ReadOnAcPower);
         PowerAssignments = new DevicePowerAssignments(PowerPresets,
-            () => new DevicePowerAssignmentContext(_config.Performance, RunningProfileId,
+            () => new DevicePowerAssignmentContext(Profiles.Current,
                 InstalledPackage?.Manifest?.Id,
                 _cycleGeneration, IntegrationEnabled, ReadOnAcPower()),
-            SavePowerAssignmentAsync);
+            SavePowerAssignmentAsync,
+            () => Volatile.Read(ref _resumeRestore));
         _pluginSettings = new PluginSettingsCoordinator();
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
@@ -131,13 +135,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
     }
 
-    private string? RunningProfileId => ApplicationProfileRules.Match(_config.Performance,
-        _runningApplicationId, _runningExecutable)?.ApplicationId;
+    /// <summary>The stable key device values are stored under, or null before the machine is identified.</summary>
+    internal string? DeviceIdentityKey => _identity is null ? null : DeviceMachineIdentity.StableKey(_identity);
 
-    private string? ActiveProfileId => _config.Performance.FindApplication(RunningProfileId) is
-        { UsePerGameProfile: true }
-        ? RunningProfileId
-        : null;
+    /// <summary>The profile owner every per-game value is read from and written to.</summary>
+    internal ProfileService Profiles { get; }
 
     /// <summary>Current process-long lifecycle state.</summary>
     public DeviceCycleState State { get; private set; } = DeviceCycleState.Disabled;
@@ -179,12 +181,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// </summary>
     internal bool ManualTdpUnified
     {
-        get
-        {
-            var application = _config.Performance.FindApplication(RunningProfileId);
-            return ManualTdpPolicy.Resolve(_config.Performance, application,
-                application?.UsePerGameProfile == true)?.Unified == true;
-        }
+        get { return Profiles.Current.Layers.Value(values => values.TdpUnified).Value == true; }
     }
 
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
@@ -205,29 +202,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal bool ControllerManagementEnabled =>
         _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true };
 
-    /// <summary>The stored profile for the device this session is talking to, when there is one.</summary>
-    /// <remarks>
-    ///     Keyed by the machine identity rather than by the package, so a user who swaps plugins keeps
-    ///     the values they set for this machine. Null before an identity is known, which is why every
-    ///     caller has to tolerate a missing profile rather than creating one eagerly.
-    /// </remarks>
-    private DeviceDesiredProfile? CurrentProfile
-    {
-        get
-        {
-            if (_identity is null)
-            {
-                return null;
-            }
-
-            var identityKey = DeviceMachineIdentity.StableKey(_identity);
-            return _config.DeviceIntegration.Profiles.FirstOrDefault(item => string.Equals(
-                item.DeviceIdentityKey,
-                identityKey,
-                StringComparison.Ordinal));
-        }
-    }
-
     /// <summary>The catalog holding the installed package's glyph profiles.</summary>
     /// <remarks>
     ///     Exposed so one <c>PhysicalGlyphService</c> can be built over it and share its invalidation.
@@ -235,38 +209,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///     load, replace or reach past a profile.
     /// </remarks>
     internal PhysicalGlyphCatalog PhysicalGlyphCatalog { get; } = new();
-
-    /// <summary>The named hardware profiles this machine's stored values actually define.</summary>
-    /// <remarks>
-    ///     Derived rather than declared. A profile exists exactly when some capability stores a value
-    ///     under its name, so there is no separate catalog to keep in step with the values — and a
-    ///     profile cannot be offered for selection while it would change nothing.
-    /// </remarks>
-    internal IReadOnlyList<string> HardwareProfileIds
-    {
-        get
-        {
-            var profile = CurrentProfile;
-            if (profile is null)
-            {
-                return [];
-            }
-
-            return
-            [
-                .. profile.Capabilities
-                    .SelectMany(capability => capability.HardwareProfiles)
-                    .Select(value => value.ProfileId)
-                    .Where(id => !string.IsNullOrWhiteSpace(id))
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(id => id, StringComparer.Ordinal)
-                    .Take(32)
-            ];
-        }
-    }
-
-    /// <summary>The named hardware profile currently selected, or null for none.</summary>
-    internal string? SelectedHardwareProfileId => CurrentProfile?.SelectedHardwareProfileId;
 
     /// <inheritdoc />
     public ValueTask DisposeAsync()
@@ -304,24 +246,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 throw new InvalidOperationException("Paired TDP is unavailable.");
             }
 
-            var applicationId = ActiveProfileId;
-            await PersistConfigurationAsync(config =>
-            {
-                var application = config.Performance.FindApplication(applicationId);
-                var own = application?.UsePerGameProfile == true;
-                var profile = ManualTdpPolicy.Resolve(config.Performance, application, own)
-                              ?? new ManualTdpProfile(false, null,
-                                  PerApplicationPowerPolicy.ResolveEffective(config.Performance.TdpWatts,
-                                      application?.TdpWatts, own), null);
-                if (own)
-                {
-                    application!.ManualTdp = profile with { Unified = unified };
-                }
-                else
-                {
-                    config.Performance.ManualTdp = profile with { Unified = unified };
-                }
-            }, _lifetime.Token).ConfigureAwait(false);
+            await Profiles.SetAsync(values => values.TdpUnified = unified, $"TdpUnified={unified}",
+                cancellationToken: _lifetime.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -356,46 +282,31 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private async Task SavePowerAssignmentAsync(DevicePowerAssignmentContext selection, bool ac,
         DevicePowerPresetReference? reference)
     {
-        var applicationId = selection.ApplicationId;
         await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
         try
         {
-            if (RunningProfileId != applicationId || InstalledPackage?.Manifest?.Id != selection.PluginId
-                                                  || IntegrationEnabled != selection.Enabled ||
-                                                  Interlocked.Read(ref _cycleGeneration) != selection.Cycle
-                                                  || !ReferenceEquals(selection.Config, _config.Performance) ||
-                                                  selection.OnAc != ReadOnAcPower())
+            if (Profiles.Current.Generation != selection.Profiles.Generation
+                || InstalledPackage?.Manifest?.Id != selection.PluginId
+                || IntegrationEnabled != selection.Enabled
+                || Interlocked.Read(ref _cycleGeneration) != selection.Cycle
+                || selection.OnAc != ReadOnAcPower())
             {
                 throw new InvalidOperationException(
                     "The running application, device or configuration changed before saving the assignment.");
             }
 
-            await PersistConfigurationAsync(config =>
-            {
-                var application = config.Performance.FindApplication(applicationId) is
-                    { UsePerGameProfile: true } perGame
-                    ? perGame
-                    : null;
-                if (application is not null)
+            await Profiles.SetAsync(values =>
                 {
                     if (ac)
                     {
-                        application.AcPowerPreset = reference;
+                        values.AcPowerPreset = reference;
                     }
                     else
                     {
-                        application.BatteryPowerPreset = reference;
+                        values.BatteryPowerPreset = reference;
                     }
-                }
-                else if (ac)
-                {
-                    config.Performance.AcPowerPreset = reference;
-                }
-                else
-                {
-                    config.Performance.BatteryPowerPreset = reference;
-                }
-            }, _lifetime.Token).ConfigureAwait(false);
+                }, $"{(ac ? "AC" : "battery")} power preset {reference?.PresetId ?? "(none)"}",
+                cancellationToken: _lifetime.Token).ConfigureAwait(false);
         }
         finally
         {
@@ -434,10 +345,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// </summary>
     /// <param name="config">Initial normalized application configuration.</param>
     /// <param name="pluginHost">The resident plugin host that admits the device runtime.</param>
+    /// <param name="profiles">The profile owner every per-game value is read from and written to.</param>
     /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
     /// <returns>The coordinator, or null when the process-wide device owner is already reserved.</returns>
     internal static Task<DeviceCoordinator?> TryStartAsync(
-        AppConfig config, PluginHost pluginHost, CancellationToken cancellationToken)
+        AppConfig config, PluginHost pluginHost, ProfileService profiles, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         cancellationToken.ThrowIfCancellationRequested();
@@ -458,7 +370,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 config,
                 sessionId,
                 owner,
-                UiThread.Post, pluginHost);
+                UiThread.Post, pluginHost, profiles);
         }
         catch
         {
@@ -535,8 +447,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             UpdateCapabilityDesiredContext();
             UpdateOemConfiguration();
             await Controllers.ApplySelectionAsync(
-                ControllerSelection.From(config.DeviceIntegration),
+                CurrentControllerSelection(),
                 _runningApplicationId,
+                _runningExecutable,
                 cancellationToken).ConfigureAwait(false);
             switch (wasEnabled)
             {
@@ -1824,9 +1737,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         long generation)
     {
         var status = await Controllers.StartAsync(
-            ControllerSelection.From(_config.DeviceIntegration),
+            CurrentControllerSelection(),
             devices,
             _runningApplicationId,
+            _runningExecutable,
             generation,
             _lifetime.Token).ConfigureAwait(false);
         Log.Info(
@@ -1847,21 +1761,46 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _runningExecutable = snapshot.RtssProfileName;
         await Controllers.ApplyRunningApplicationAsync(snapshot, cancellationToken)
             .ConfigureAwait(false);
+    }
 
-        // The stored per-application layer only means anything if the resolver is told which
-        // application is running, and the values it now resolves have to reach the device: a fan
-        // mode saved for a game is worth nothing if it is only restored at the next cycle.
+    /// <summary>Applies a profile snapshot: desired device values, the fan profile and the controller target.</summary>
+    /// <param name="snapshot">The profiles and the application they resolve for.</param>
+    /// <param name="cancellationToken">Cancels the device writes.</param>
+    /// <returns>A task completing once every affected capability was attempted.</returns>
+    /// <remarks>
+    ///     The one path a profile change reaches the device by, whether the running application
+    ///     changed, the per-game switch flipped, a value was reset to Global or another process saved.
+    ///     Without it, turning a game profile on or off changed nothing until the next application
+    ///     switch.
+    /// </remarks>
+    internal async Task ApplyProfilesAsync(ProfileSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
         UpdateCapabilityDesiredContext();
+        UpdateOemConfiguration();
+        if (!IntegrationEnabled)
+        {
+            return;
+        }
+
         await ReconcileDesiredValuesAsync(
-            $"running application {snapshot.ApplicationId ?? "(none)"}",
+            $"profile generation {snapshot.Generation}",
             cancellationToken).ConfigureAwait(false);
 
-        // Authored profiles follow the same identity as everything else per-application: the fan
-        // curve and the controller target can never disagree about which application is running.
-        // Applied last so an explicitly selected named profile wins over the per-capability value
-        // for the two capabilities it covers, rather than the order deciding at random.
-        await ApplyAuthoredProfilesAsync(ActiveProfileId, cancellationToken)
-            .ConfigureAwait(false);
+        // Applied after the per-capability values so an explicitly selected fan profile wins for the
+        // capability it covers, rather than the order deciding at random.
+        await ApplyAuthoredProfilesAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        await Controllers.ApplySelectionAsync(
+            CurrentControllerSelection(),
+            _runningApplicationId,
+            _runningExecutable,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The controller selection from the device switches and the profile store.</summary>
+    private ControllerSelection CurrentControllerSelection()
+    {
+        return ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
     }
 
     /// <summary>Resolves the current persisted mode against only the active package's safe profiles.</summary>
@@ -2009,16 +1948,15 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         return Controllers.PulseRearButtonAsync(button, cancellationToken);
     }
 
-    /// <summary>Changes the global default managed-controller target and persists the choice.</summary>
-    /// <param name="target">The target to make the global default.</param>
+    /// <summary>Changes the managed-controller target in the layer in force and persists the choice.</summary>
+    /// <param name="target">The target.</param>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>The controller state after the change was applied.</returns>
     /// <remarks>
     ///     The stored setting is changed and then the manager is asked to re-resolve, in that order, so
     ///     the persisted value and the running target cannot disagree if the apply fails — the setting
-    ///     is what the next reload and the Settings checkbox both read. Per-application overrides are
-    ///     deliberately untouched: this is the global default, and silently clearing an override the
-    ///     user set for one game would be a surprising side effect of changing the default.
+    ///     is what the next reload and the Settings checkbox both read. Like every other setting it lands
+    ///     in the running game's profile while that is on, and in Global otherwise.
     /// </remarks>
     internal async Task<ControllerManagerStatus> SetControllerTargetAsync(
         ManagedControllerTarget target,
@@ -2027,13 +1965,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var persisted = await PersistConfigurationAsync(
-                config => config.DeviceIntegration.ControllerTarget = target,
-                cancellationToken).ConfigureAwait(false);
-            Log.Info($"Controller target set to {target} from the Device surface.");
+            await Profiles.SetAsync(values => values.ControllerTarget = target, $"ControllerTarget={target}",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             return await Controllers.ApplySelectionAsync(
-                ControllerSelection.From(persisted.DeviceIntegration),
+                CurrentControllerSelection(),
                 _runningApplicationId,
+                _runningExecutable,
                 cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -2083,9 +2020,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         if (origin == CapabilityCommandOrigin.User
             && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
         {
-            var application = _config.Performance.FindApplication(RunningProfileId);
-            applyPowerPair |= ManualTdpPolicy.Resolve(_config.Performance, application,
-                application?.UsePerGameProfile == true)?.Unified == true;
+            applyPowerPair |= Profiles.Current.Layers.ManualTdp()?.Unified == true;
         }
 
         if (power)
@@ -2215,28 +2150,20 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var applicationId = ActiveProfileId;
-            await PersistConfigurationAsync(config =>
+            if (Profiles.Current.Layers.ManualTdp() is not { } manual)
             {
-                var application = config.Performance.FindApplication(applicationId);
-                var own = application?.UsePerGameProfile == true;
-                var profile = ManualTdpPolicy.Resolve(config.Performance, application, own);
-                if (profile is null)
-                {
-                    return;
-                }
+                return;
+            }
 
-                // An explicit independent boost edit selects advanced mode; unified history is retained.
-                profile = ManualTdpPolicy.WithBoost(profile, watts);
-                if (own)
+            // An explicit independent boost edit selects advanced mode; the unified target is kept.
+            await Profiles.SetAsync(values =>
                 {
-                    application!.ManualTdp = profile;
-                }
-                else
-                {
-                    config.Performance.ManualTdp = profile;
-                }
-            }, cancellationToken).ConfigureAwait(false);
+                    values.BoostWatts = watts;
+                    if (manual.Unified)
+                    {
+                        values.TdpUnified = false;
+                    }
+                }, $"BoostWatts={watts}", cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -2328,10 +2255,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <returns>A task completing once the value is stored, or immediately when it is not.</returns>
     /// <remarks>
     ///     Without this the Device surface commanded hardware and remembered nothing: every row went
-    ///     back to whatever the firmware held on the next cycle or the next boot. The layer is the same
-    ///     one <see cref="CycleAuthoredProfileAsync" /> writes to — the running application's when there
-    ///     is one, the global default otherwise — because mid-game a user is configuring what they are
-    ///     playing, and on the desktop there is no per-game scope to mean.
+    ///     back to whatever the firmware held on the next cycle or the next boot. The profile store decides
+    ///     the layer: the running game's profile while it is on, Global otherwise.
     ///     <para>
     ///         Applied after the device took the value, not before: recording a preference the hardware
     ///         refused would restore a value on the next launch that the device never accepted. An
@@ -2376,29 +2301,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         var identityKey = DeviceMachineIdentity.StableKey(_identity);
-        var applicationId = ActiveProfileId;
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await PersistConfigurationAsync(
-                config => DeviceDesiredStateWriter.Store(
-                    config.DeviceIntegration,
-                    identityKey,
-                    capabilityId,
-                    instanceId,
-                    applicationId,
-                    value),
-                cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-
+        await Profiles.SetDeviceAsync(identityKey, capabilityId, instanceId, value, cancellationToken)
+            .ConfigureAwait(false);
         UpdateCapabilityDesiredContext();
-        Log.Info(
-            $"Device value for {capabilityId}{Instance(instanceId)} saved to the "
-            + (applicationId is null ? "global profile." : $"profile for {applicationId}."));
     }
 
     /// <summary>The published view of one capability instance, or null when none is published.</summary>
@@ -2420,62 +2325,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _oemActions.ConfigureActions(actions);
     }
 
-    /// <summary>Selects a named hardware profile, or none, and persists the choice.</summary>
-    /// <param name="profileId">The profile to select, or null to select none.</param>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the choice is persisted and applied.</returns>
-    /// <remarks>
-    ///     The stored profile is created if this machine has none, because selecting is the first thing
-    ///     a user can do and refusing until some other write happened first would be arbitrary. Applying
-    ///     is `UpdateCapabilityDesiredContext`, which is the same path a configuration reload takes.
-    /// </remarks>
-    internal async Task SelectHardwareProfileAsync(
-        string? profileId,
-        CancellationToken cancellationToken = default)
-    {
-        if (_identity is null)
-        {
-            return;
-        }
-
-        var identityKey = DeviceMachineIdentity.StableKey(_identity);
-        var normalized = string.IsNullOrWhiteSpace(profileId) ? null : profileId.Trim();
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await PersistConfigurationAsync(
-                config =>
-                {
-                    var stored = config.DeviceIntegration.Profiles
-                        .FirstOrDefault(item => string.Equals(
-                            item.DeviceIdentityKey,
-                            identityKey,
-                            StringComparison.Ordinal));
-                    if (stored is null)
-                    {
-                        stored = new DeviceDesiredProfile { DeviceIdentityKey = identityKey };
-                        config.DeviceIntegration.Profiles.Add(stored);
-                    }
-
-                    stored.SelectedHardwareProfileId = normalized;
-                },
-                cancellationToken).ConfigureAwait(false);
-            UpdateCapabilityDesiredContext();
-            UpdateOemConfiguration();
-            Log.Info($"Hardware profile selected: {normalized ?? "(none)"}.");
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-
-        // Hardware reconciliation stays outside the transition gate: each capability write is
-        // independently bounded and must not block unrelated lifecycle transitions.
-        await ReconcileDesiredValuesAsync(
-            $"hardware profile {normalized ?? "(none)"}",
-            cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>The authored fan profiles for the active device, the choice in force, and its scope.</summary>
     /// <returns>Null when the device has no authored profiles at all.</returns>
     /// <remarks>
@@ -2483,7 +2332,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     ///     and a change of running application, and it is a handful of list lookups against objects
     ///     already in memory.
     /// </remarks>
-    internal (IReadOnlyList<DeviceAuthoredProfile> Profiles, string? SelectedProfileId, bool ApplicationScoped)?
+    internal (IReadOnlyList<DeviceAuthoredProfile> Profiles, Resolved<string?> Selected)?
         AuthoredProfileSelection()
     {
         var scope = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
@@ -2492,12 +2341,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return null;
         }
 
-        var selected = DeviceProfileSelectionStore.ReadSelection(
-            scope,
-            DeviceAuthoredProfileCapabilities.FanCurve,
-            ActiveProfileId,
-            out var applicationScoped);
-        return (scope.Profiles, selected, applicationScoped);
+        var profiles = scope.Profiles
+            .Where(profile => profile.CapabilityId == DeviceAuthoredProfileCapabilities.FanCurve)
+            .ToArray();
+        return profiles.Length == 0
+            ? null
+            : (profiles, Profiles.Current.Layers.Reference(values => values.FanCurveProfileId));
     }
 
     /// <summary>Advances the authored fan profile and applies the new choice.</summary>
@@ -2518,7 +2367,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         var selection = AuthoredProfileSelection();
         return SelectAuthoredProfileAsync(selection is { } current
             ? DeviceOverlayBridge.NextProfile(current.Profiles.Select(profile => profile.ProfileId).ToArray(),
-                current.SelectedProfileId)
+                current.Selected.Value)
             : null, cancellationToken);
     }
 
@@ -2531,91 +2380,51 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        var applicationId = ActiveProfileId;
-
-        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await PersistConfigurationAsync(
-                config =>
-                {
-                    var scope = config.DeviceIntegration.PluginSettings
-                        .FirstOrDefault(candidate => string.Equals(
-                                                         candidate.DeviceDefinitionId,
-                                                         current.DeviceDefinitionId,
-                                                         StringComparison.Ordinal)
-                                                     && string.Equals(
-                                                         candidate.PluginId,
-                                                         current.PluginId,
-                                                         StringComparison.Ordinal));
-                    if (scope is not null)
-                    {
-                        DeviceProfileSelectionStore.SetSelection(
-                            scope,
-                            DeviceAuthoredProfileCapabilities.FanCurve,
-                            next,
-                            applicationId is { Length: > 0 }
-                                ? DeviceProfileScope.Application
-                                : DeviceProfileScope.Global,
-                            applicationId);
-                    }
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-
-        await ApplyAuthoredProfilesAsync(applicationId, cancellationToken).ConfigureAwait(false);
+        var snapshot = await Profiles.SetAsync(values => values.FanCurveProfileId = next,
+            $"fan profile {next ?? "(none)"}", cancellationToken: cancellationToken).ConfigureAwait(false);
+        await ApplyAuthoredProfilesAsync(snapshot, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Applies the authored profile in force for the running application.</summary>
-    /// <param name="applicationId">The running application identity, or null for none.</param>
+    /// <param name="snapshot">The profiles and the application they resolve for.</param>
     /// <param name="cancellationToken">Cancels the device writes.</param>
     /// <remarks>
     ///     Every failure here is contained. A profile that cannot be applied is a degraded feature, not
     ///     a reason to fault the session, and the applier already logs which step refused it.
     /// </remarks>
     private async Task ApplyAuthoredProfilesAsync(
-        string? applicationId,
+        ProfileSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        var scope = ActivePluginScope(candidate => candidate.ProfileSelections.Count > 0);
-        if (scope is null)
+        var selected = snapshot.Layers.Reference(values => values.FanCurveProfileId);
+        var scope = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
+        if (selected.Value is null || scope is null)
         {
             return;
         }
 
-        foreach (var selection in scope.ProfileSelections)
+        try
         {
-            try
-            {
-                await DeviceProfileApplier.ApplyAsync(
-                    scope.ProfileSelections,
-                    scope.Profiles,
-                    selection.CapabilityId,
-                    applicationId,
-                    DescribeCapability,
-                    (capabilityId, value, token) => ExecuteCapabilityAsync(
-                        capabilityId,
-                        null,
-                        value,
-                        TimeSpan.FromSeconds(5),
-                        CapabilityCommandOrigin.AutomaticControl,
-                        cancellationToken: token),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn(
-                    $"Applying the device profile for '{selection.CapabilityId}' failed: "
-                    + ex.Message);
-            }
+            await DeviceProfileApplier.ApplyAsync(
+                scope.Profiles.FirstOrDefault(profile => profile.ProfileId == selected.Value),
+                selected,
+                DeviceAuthoredProfileCapabilities.FanCurve,
+                DescribeCapability,
+                (capabilityId, value, token) => ExecuteCapabilityAsync(
+                    capabilityId,
+                    null,
+                    value,
+                    TimeSpan.FromSeconds(5),
+                    CapabilityCommandOrigin.AutomaticControl,
+                    cancellationToken: token),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Applying the fan profile failed: {ex.Message}");
         }
     }
 
@@ -2717,24 +2526,45 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     continue;
                 }
 
-                if (DeviceLightingRestore.IsLighting(view.Descriptor.Role) && !_lightingRestore.TryBegin(view))
+                var lighting = DeviceLightingRestore.IsLighting(view.Descriptor.Role);
+                var attempt = lighting ? _lightingRestore.TryBegin(view) : 0;
+                if (lighting && attempt == 0)
                 {
                     skipped++;
                     continue;
                 }
 
                 var desired = admission.DesiredValue!;
+                var outcome = CommandOutcome.Indeterminate;
+                CapabilityCommandResult result;
+                try
+                {
+                    result = await ExecuteCapabilityAsync(
+                        view.Descriptor.CapabilityId,
+                        view.Descriptor.InstanceId,
+                        desired,
+                        TimeSpan.FromSeconds(5),
+                        CapabilityCommandOrigin.DesiredStateRestore,
+                        view.Projection.State.CycleGeneration,
+                        view.Projection.State.DescriptorGeneration,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    outcome = result.Outcome;
+                }
+                finally
+                {
+                    if (lighting)
+                    {
+                        _lightingRestore.Complete(view, outcome);
+                        Log.Change(
+                            $"device-restore/{view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)}",
+                            $"Device restore {view.Descriptor.CapabilityId}{Instance(view.Descriptor.InstanceId)} "
+                            + $"from {view.Projection.DesiredSource} ({reason}): outcome={outcome}, "
+                            + $"attempt {attempt} of {DeviceLightingRestore.MaxAttempts}.",
+                            outcome.IsApplied() ? LogLevel.Info : LogLevel.Warn);
+                    }
+                }
 
-                var result = await ExecuteCapabilityAsync(
-                    view.Descriptor.CapabilityId,
-                    view.Descriptor.InstanceId,
-                    desired,
-                    TimeSpan.FromSeconds(5),
-                    CapabilityCommandOrigin.DesiredStateRestore,
-                    view.Projection.State.CycleGeneration,
-                    view.Projection.State.DescriptorGeneration,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (result.Outcome.IsApplied())
+                if (outcome.IsApplied())
                 {
                     applied++;
                     continue;
@@ -2809,23 +2639,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private void UpdateCapabilityDesiredContext()
     {
-        var profile = CurrentProfile;
         // Unknown power reads as AC here: only a confirmed battery state selects battery values.
-        var onAcPower = ReadOnAcPower() ?? true;
-        Capabilities.UpdateDesiredContext(
-            profile,
-            onAcPower,
-            profile?.SelectedHardwareProfileId,
-            ActiveProfileId);
+        Capabilities.UpdateDesiredContext(DeviceIdentityKey, Profiles.Current.Layers, ReadOnAcPower() ?? true);
     }
 
     private void UpdateOemConfiguration()
     {
-        var profile = CurrentProfile;
         _oemActions.UpdateConfiguration(
-            profile,
+            _config.DeviceIntegration.OemAssignments,
             _config.DeviceIntegration.ControllerManagementEnabled,
-            _config.DeviceIntegration.ControllerTarget);
+            ControllerTargetSelection.Resolve(Profiles.Current.Config, _runningApplicationId,
+                _runningExecutable).Target);
     }
 
     private void LoadPhysicalGlyphProfiles(InstalledDevicePackage package)
@@ -2933,9 +2757,20 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
+        var wasRunning = State is DeviceCycleState.Active or DeviceCycleState.Degraded;
         State = state;
         Log.Info($"Device cycle: state={state}, cycleGeneration={_cycleGeneration}.");
         StateChanged?.Invoke(state);
+        if (!wasRunning && state is DeviceCycleState.Active or DeviceCycleState.Degraded && IntegrationEnabled)
+        {
+            // A new cycle, including one after sleep, can start with firmware defaults, so every
+            // desired value is restored once, whichever profile layer it comes from. The power preset
+            // waits for this pass instead of competing with it for the plugin's command lane.
+            var restore = Task.Run(() => ReconcileDesiredValuesAsync($"device {state}", _lifetime.Token));
+            Volatile.Write(ref _resumeRestore, restore);
+            Observe(restore, "cycle restore");
+        }
+
         OnLightingStateChanged(Capabilities.Snapshot());
     }
 

@@ -42,10 +42,12 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     ];
 
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
+    private readonly ProfileService _profiles;
     private readonly PerformanceService _service;
     private bool _disposed;
 
     /// <param name="service">The session-owned RTSS service this projects.</param>
+    /// <param name="profiles">The profile owner the per-game switch, reset and profile editor write to.</param>
     /// <param name="panelFrameLimitRange">
     ///     The caps the display can actually be asked for, from the same pairing policy that bookends
     ///     the Quick Access row. Null while no display has been enumerated — overlay-test has no
@@ -53,20 +55,45 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// </param>
     internal PerformanceOverlayBridge(
         PerformanceService service,
+        ProfileService profiles,
         Func<(int Minimum, int Maximum)?>? panelFrameLimitRange = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _panelFrameLimitRange = panelFrameLimitRange ?? (static () => null);
         _service.StateChanged += OnStateChanged;
+        _profiles.Changed += OnProfilesChanged;
     }
 
-    internal IReadOnlyList<PerformanceApplicationPolicy> Profiles => _service.Profiles;
+    /// <summary>Every saved game profile.</summary>
+    internal IReadOnlyList<GameProfile> Profiles => _profiles.Current.Config.Games;
+
+    /// <summary>The profile store and the application it resolves for.</summary>
+    internal ProfileSnapshot ProfileSnapshot => _profiles.Current;
+
+    /// <summary>The RTSS state, with the running application and per-game switch taken from the profile owner.</summary>
+    /// <remarks>
+    ///     The profile owner publishes first and RTSS catches up through the fan-out, so the header and the
+    ///     profile rows read the owner rather than showing the previous game or switch until then.
+    /// </remarks>
+    private PerformanceState Current
+    {
+        get
+        {
+            var profiles = _profiles.Current;
+            return _service.Current with
+            {
+                Target = PerformanceService.TargetFor(profiles.Active),
+                ApplicationProfileEnabled = profiles.EditsGame
+            };
+        }
+    }
 
     internal (PerformanceApplicationTarget? Target, bool Enabled) ProfileScope
     {
         get
         {
-            var state = _service.Current;
+            var state = Current;
             return (state.Target, state.ApplicationProfileEnabled);
         }
     }
@@ -80,6 +107,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         _disposed = true;
         _service.StateChanged -= OnStateChanged;
+        _profiles.Changed -= OnProfilesChanged;
     }
 
     public event Action? Changed;
@@ -90,25 +118,26 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         return _service.AcquireObservation();
     }
 
-    internal Task<bool> SaveProfileAsync(PerformanceApplicationPolicy profile, CancellationToken cancellationToken)
+    internal Task<string> SaveProfileAsync(string? id, string name, IReadOnlyList<string> processNames,
+        bool enabled, CancellationToken cancellationToken)
     {
-        return _service.SaveProfileAsync(profile, cancellationToken);
+        return _profiles.SaveGameAsync(id, name, processNames, enabled, cancellationToken);
     }
 
-    internal Task<bool> DeleteProfileAsync(string applicationId, CancellationToken cancellationToken)
+    internal Task<bool> DeleteProfileAsync(string id, CancellationToken cancellationToken)
     {
-        return _service.DeleteProfileAsync(applicationId, cancellationToken);
+        return _profiles.DeleteGameAsync(id, cancellationToken);
     }
 
     internal Task<bool> SetProfileScopeAsync(string applicationId, bool enabled,
         CancellationToken cancellationToken)
     {
-        return _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken, applicationId);
+        return _profiles.SetGameEnabledAsync(enabled, applicationId, cancellationToken);
     }
 
     public PerformanceOverlaySnapshot Snapshot()
     {
-        var state = _service.Current;
+        var state = Current;
         if (!_service.Enabled)
         {
             return new PerformanceOverlaySnapshot(false, string.Empty, [], []);
@@ -166,8 +195,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 "reset-profile",
                 "Reset performance profile",
                 state.ApplicationProfileEnabled
-                    ? "Clear this application's overrides without turning its profile off."
-                    : "Clear the global performance defaults.",
+                    ? "Clear every value this game overrides, so it uses Global again."
+                    : "Clear the Global frame limit, overlay, power and refresh values.",
                 "Reset",
                 true,
                 DescriptorStatus.None)
@@ -193,9 +222,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (rowId == "application-profile")
         {
-            if (_service.Current.Target is not null && value is 0 or 1)
+            if (Current.Target is { } target && value is 0 or 1)
             {
-                await _service.SetApplicationProfileEnabledAsync(value == 1, cancellationToken).ConfigureAwait(false);
+                await _profiles.SetGameEnabledAsync(value == 1, target.ApplicationId, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             return;
@@ -208,7 +238,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             _ => throw new InvalidOperationException($"The row '{rowId}' carries no value.")
         };
 
-        var state = _service.Current;
+        var state = Current;
         if (state.Probe.Capabilities?.IsValid(control, value) is not true)
         {
             Log.Warn($"Performance {control} not set to {value}: RTSS does not accept that value.");
@@ -242,13 +272,14 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         switch (row.Id)
         {
-            case "application-profile" when _service.Current.Target is not null:
-                await _service.SetApplicationProfileEnabledAsync(
-                    !_service.Current.ApplicationProfileEnabled,
+            case "application-profile" when Current.Target is { } target:
+                await _profiles.SetGameEnabledAsync(
+                    !Current.ApplicationProfileEnabled,
+                    target.ApplicationId,
                     cancellationToken).ConfigureAwait(false);
                 return;
             case "reset-profile":
-                await _service.ResetProfileAsync(cancellationToken).ConfigureAwait(false);
+                await _profiles.ResetAsync(cancellationToken).ConfigureAwait(false);
                 return;
             default:
                 throw new InvalidOperationException("The performance row is not actionable.");
@@ -261,7 +292,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var state = _service.Current;
+        var state = Current;
         if (!_service.Enabled
             || state.Probe.Availability is not RtssAvailability.Ready
             || state.Probe.Capabilities?.Supports(PerformanceControl.OverlayLevel) is not true)
@@ -288,7 +319,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         string origin,
         CancellationToken cancellationToken)
     {
-        var state = _service.Current;
+        var state = Current;
         var capabilities = state.Probe.Capabilities
                            ?? throw new InvalidOperationException("RTSS capabilities are unavailable.");
         var next = NextOverlayLevel(state, capabilities);
@@ -301,6 +332,11 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     private void OnStateChanged(PerformanceState _)
+    {
+        Changed?.Invoke();
+    }
+
+    private void OnProfilesChanged(ProfileSnapshot snapshot, ProfileChangeKind kind)
     {
         Changed?.Invoke();
     }
@@ -354,16 +390,16 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     private static string DescribeLayer(
-        PerformancePolicyLayer layer,
+        ProfileSource layer,
         PerformanceApplicationTarget? target)
     {
         return layer switch
         {
-            PerformancePolicyLayer.Application when target?.RtssProfileName is { Length: > 0 } profile =>
-                $"Application override · {profile}",
-            PerformancePolicyLayer.Application => "Application override · executable pending",
-            PerformancePolicyLayer.Global => "Global default",
-            _ => "RTSS profile"
+            ProfileSource.Game when target?.RtssProfileName is { Length: > 0 } profile =>
+                $"Game override · {profile}",
+            ProfileSource.Game => "Game override · executable pending",
+            ProfileSource.Global => "From Global",
+            _ => "Not set · RTSS keeps its own value"
         };
     }
 

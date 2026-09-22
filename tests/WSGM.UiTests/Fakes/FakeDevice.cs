@@ -106,11 +106,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         throw new InvalidOperationException("Unexpected device retry");
     }
 
-    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default)
-    {
-        throw new InvalidOperationException("Unexpected hardware profile write");
-    }
-
     public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
     {
         throw new InvalidOperationException("Unexpected authored profile write");

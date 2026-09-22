@@ -163,6 +163,12 @@ These used to be traps and are now covered by tests:
   `DeviceLightingRestoreTests`. The choice of `DesiredStateRestore` over `User` still has no test of
   its own.
 
+Desired values are profile values (`docs\profiles.md`): the running game's enabled profile, then
+Global, then none. Restoration uses `DesiredStateRestore`, never `User`, and runs once per cycle
+activation. Lighting readiness admits at most three attempts per zone, value and cycle; a refused
+write may be retried, an uncertain one only after a newer readback. Readback updates effective state
+only; it must not enter configuration persistence.
+
 Also check these proven regression patterns: duplicate SDK/WinRT loading, HidHide hiding discovery,
 DOS/NT path duplication, state published before fresh-generation descriptors, whole-set omission,
 failed haptic writes cached as success, uncertain writes retried, TestKit passing while production

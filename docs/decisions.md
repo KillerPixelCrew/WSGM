@@ -92,12 +92,16 @@ distinguish the OEM button from ordinary Win+G, so that shortcut, including with
 suppressed while the Claw OEM service is active. Normal Win+Tab remains available. Details and the
 remaining attended validation are in `docs\device-integration.md`.
 
+**A game profile holds only what was changed for that game.** Everything else is read from Global
+when it is resolved and never copied in. Each setting falls back on its own: game, then Global, then
+the device keeps what it has. One owner drives Steam's per-game toggle, the overlay and every
+consumer, and a setting the running game overrides is marked with a way back to Global. Existing
+per-game data was wiped on 2026-09-22 when the model was centralized (the maintainer was the only
+2.0 user). Rules in `docs\profiles.md`.
+
 **A device control the user moves is remembered.** A `User` capability write the device accepted is
-stored as the desired value of the layer that press means — the running application's when a game is
-running, the global default otherwise. The sustained power limit and variable refresh are the two
-exceptions, stored under `Performance` because that owner also decides how each is released when an
-application closes; one value never gets two homes. Mechanism in `docs\device-plugin-system.md`,
-§11.
+saved to the profile layer in force: the running game's profile while it is on, Global otherwise.
+Mechanism in `docs\device-plugin-system.md`, §11.
 
 **Custom power profiles belong to their power source.** Changing a value included in an applied
 device power profile saves the complete observed profile as Custom for AC or battery. Returning to

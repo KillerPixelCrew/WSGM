@@ -41,7 +41,7 @@ internal sealed record ControllerHandoff
 internal sealed record ControllerManagerStatus(
     ControllerManagementState State,
     ManagedControllerTarget? Target,
-    ControllerTargetSource TargetSource,
+    ProfileSource TargetSource,
     string? ApplicationId,
     UiInputSource UiSource,
     string Detail);
@@ -96,8 +96,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private ControllerSelection _selection = new(
         false,
-        ManagedControllerTarget.SteamDeckComposite,
-        [],
+        new ProfileConfig(),
         "Controller management has not started.");
 
     private long _sourceGeneration;
@@ -228,7 +227,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         return new ControllerManagerStatus(
             State,
             Effective?.Target,
-            Effective?.Source ?? ControllerTargetSource.GlobalDefault,
+            Effective?.Source ?? ProfileSource.None,
             Effective?.ApplicationId,
             UiSource,
             Detail);
@@ -240,6 +239,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <param name="selection">The controller selection in effect.</param>
     /// <param name="physicalDevices">Physical devices the plugin owns and WSGM must hide.</param>
     /// <param name="applicationId">Canonical identity of the running application, when known.</param>
+    /// <param name="executable">Its executable, when known.</param>
     /// <param name="sourceGeneration">Cycle generation the canonical samples carry.</param>
     /// <param name="cancellationToken">Cancels the start.</param>
     /// <returns>The resulting projection.</returns>
@@ -252,6 +252,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         ControllerSelection selection,
         IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
         string? applicationId,
+        string? executable,
         long sourceGeneration,
         CancellationToken cancellationToken)
     {
@@ -300,9 +301,9 @@ internal sealed class ControllerManager : IAsyncDisposable
             SupportedTargets = [.. health.Capabilities.SupportedTargets];
 
             var resolved = ControllerTargetSelection.Resolve(
-                selection.GlobalDefault,
-                selection.Overrides,
-                applicationId);
+                selection.Profiles,
+                applicationId,
+                executable);
             if (!health.Capabilities.SupportedTargets.Contains(resolved.Target))
             {
                 return SetState(
@@ -348,6 +349,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </summary>
     /// <param name="selection">The new controller selection.</param>
     /// <param name="applicationId">Canonical identity of the running application, when known.</param>
+    /// <param name="executable">Its executable, when known.</param>
     /// <param name="cancellationToken">Cancels the apply.</param>
     /// <returns>The resulting projection.</returns>
     /// <remarks>
@@ -358,6 +360,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     internal async Task<ControllerManagerStatus> ApplySelectionAsync(
         ControllerSelection selection,
         string? applicationId,
+        string? executable,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selection);
@@ -366,7 +369,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             _selection = selection;
-            return await ReconcileTargetUnderGateAsync(applicationId, cancellationToken)
+            return await ReconcileTargetUnderGateAsync(applicationId, executable, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -394,7 +397,8 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return await ReconcileTargetUnderGateAsync(snapshot.ApplicationId, cancellationToken)
+            return await ReconcileTargetUnderGateAsync(snapshot.ApplicationId, snapshot.RtssProfileName,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -1039,12 +1043,13 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private async Task<ControllerManagerStatus> ReconcileTargetUnderGateAsync(
         string? applicationId,
+        string? executable,
         CancellationToken cancellationToken)
     {
         var resolved = ControllerTargetSelection.Resolve(
-            _selection.GlobalDefault,
-            _selection.Overrides,
-            applicationId);
+            _selection.Profiles,
+            applicationId,
+            executable);
         // A disabled selection is not reconciled here. Removing the target without ordering it
         // against the plugin's physical release is the duplicate-input window make-safe exists to
         // prevent, so the caller that owns the plugin conversation runs that sequence instead.

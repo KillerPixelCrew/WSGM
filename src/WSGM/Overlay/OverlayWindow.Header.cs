@@ -68,15 +68,23 @@ public partial class OverlayWindow
             }
 
             HeaderProfile.IsEnabled = target is not null && !_profileScopeWriting;
-            var matched = ApplicationProfileRules.Match(_performanceSource?.Profiles ?? [], target?.ApplicationId,
-                target?.RtssProfileName, item => item.ApplicationId, item => item.ProcessNames);
+            var snapshot = _performanceSource?.ProfileSnapshot;
+            var matched = snapshot?.Game;
             var name = matched is { Name.Length: > 0 }
                 ? matched.Name
                 : target?.RtssProfileName ?? target?.ApplicationId;
-            ProfileContext.Text = name is null ? "Profile" : "Profile: " + name;
+            // The count is what the header is glanced at mid-game for: how much of what is running
+            // differs from Global.
+            var overrides = snapshot is { EditsGame: true } ? snapshot.Layers.GameOverrideCount : 0;
+            ProfileContext.Text = name is null
+                ? "Profile"
+                : snapshot is { EditsGame: true }
+                    ? $"Profile: {name} · {overrides} {(overrides == 1 ? "override" : "overrides")}"
+                    : "Profile: " + name;
             ToolTip.SetTip(HeaderProfile, name is null
                 ? "Start or focus an application to give it separate settings."
-                : $"Settings profile for {name}. Global uses shared defaults; Per-application keeps separate values.");
+                : $"Settings profile for {name}. Global uses shared values; Per-application stores only what you "
+                  + "change while it is on, and everything else still comes from Global.");
         }
         finally
         {

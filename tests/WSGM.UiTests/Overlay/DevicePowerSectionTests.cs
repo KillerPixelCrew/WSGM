@@ -44,7 +44,7 @@ public sealed class DevicePowerSectionTests
                 ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37
             }
         };
-        var keys = new[] { "device.auto-tdp", "device.hardware-profile", "device.authored-profile" };
+        var keys = new[] { "device.auto-tdp", "device.authored-profile" };
         device.State = device.State with
         {
             Capabilities = capabilities.Take(capabilityCount).ToArray(),
@@ -54,8 +54,7 @@ public sealed class DevicePowerSectionTests
                     [new DeviceOverlayCategory("fans", "Fans")]) { Key = SettingSectionKey.Power }
             ],
             AutoTdp = new DescriptorRow(keys[0], "AutoTDP", "", "Off", true),
-            Profile = new DescriptorRow(keys[1], "Hardware profile", "", "Off", true),
-            AuthoredProfile = new DescriptorRow(keys[2], "Fan profile", "", "Off", true),
+            AuthoredProfile = new DescriptorRow(keys[1], "Fan profile", "", "Off", true),
             HostSelections = keys.ToDictionary(key => key, _ => new DeviceHostSelection("off", choices))
         };
         var window = fixture.Overlay(1280, 720);

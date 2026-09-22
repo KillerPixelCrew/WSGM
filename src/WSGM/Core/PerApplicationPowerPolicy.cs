@@ -31,30 +31,13 @@ internal readonly record struct PerAppPowerDecision(PerAppPowerAction Action, in
 /// </summary>
 /// <remarks>
 ///     The bug this exists to prevent: a limit set inside a game stayed on the device after the game
-///     closed, silently becoming the global limit. The persisted model already carries a per-application
-///     <c>TdpWatts</c> and a global one; this decides how they resolve and, crucially, what to do when
+///     closed, silently becoming the global limit. The profile store resolves which layer holds the
+///     limit; this decides what to do with that value, and crucially what to do when
 ///     the resolved value is <em>absent</em> — which is where the leak happened, because "no preference"
 ///     was read as "keep whatever is currently on the device".
 /// </remarks>
 internal static class PerApplicationPowerPolicy
 {
-    /// <summary>The watt limit in force for an application, or null when none is preferred.</summary>
-    /// <param name="globalWatts">The global limit preference, or null for none.</param>
-    /// <param name="applicationWatts">The application's own limit preference, or null for none.</param>
-    /// <param name="perGameProfileActive">
-    ///     Whether the application keeps its own profile. The per-game switch governs every performance
-    ///     value, so an application's limit applies only while its profile is enabled; otherwise the
-    ///     application inherits the global limit exactly as its frame limit and overlay level do.
-    /// </param>
-    /// <returns>The effective limit, or null when neither layer prefers one.</returns>
-    internal static int? ResolveEffective(
-        int? globalWatts,
-        int? applicationWatts,
-        bool perGameProfileActive)
-    {
-        return perGameProfileActive && applicationWatts is { } watts ? watts : globalWatts;
-    }
-
     /// <summary>Decides the device action for a transition to the resolved limit.</summary>
     /// <param name="effectiveWatts">The limit resolved for the new application, or null for none.</param>
     /// <param name="powerCurrentlyImposed">
@@ -122,19 +105,6 @@ internal readonly record struct PerAppVrrDecision(PerAppVrrAction Action, bool E
 /// </remarks>
 internal static class PerApplicationVrrPolicy
 {
-    /// <summary>The variable-refresh state in force for an application, or null when none is preferred.</summary>
-    /// <param name="globalState">The global preference, or null for none.</param>
-    /// <param name="applicationState">The application's own preference, or null for none.</param>
-    /// <param name="perGameProfileActive">Whether the application keeps its own profile.</param>
-    /// <returns>The effective state, or null when neither layer prefers one.</returns>
-    internal static bool? ResolveEffective(
-        bool? globalState,
-        bool? applicationState,
-        bool perGameProfileActive)
-    {
-        return perGameProfileActive && applicationState is { } state ? state : globalState;
-    }
-
     /// <summary>Decides the display action for a transition to the resolved state.</summary>
     /// <param name="effectiveState">The state resolved for the new application, or null for none.</param>
     /// <param name="stateCurrentlyImposed">

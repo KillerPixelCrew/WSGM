@@ -51,18 +51,16 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// </remarks>
     private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
 
-    private string? _applicationId;
     private DevicePluginRuntime? _client;
     private bool _connected;
     private long _cycleGeneration;
 
     private long _descriptorGeneration;
 
-    // The desired profile's preferences by capability, indexed when the profile changes. The first
-    // preference for a capability wins, as the linear search this replaced did.
-    private Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> _desiredPreferences = [];
+    // The resolved profile value per capability instance, rebuilt when the profiles or the running
+    // application change rather than on every snapshot a state delta builds.
+    private Dictionary<DeviceCapabilityKey, Resolved<CapabilityValue?>> _desired = [];
     private bool _disposed;
-    private string? _hardwareProfileId;
     private bool _onAcPower = true;
 
     // The same descriptors in snapshot order, sorted once per descriptor set rather than on every
@@ -140,18 +138,17 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
-    internal void UpdateDesiredContext(
-        DeviceDesiredProfile? desiredProfile,
-        bool onAcPower,
-        string? hardwareProfileId,
-        string? applicationId)
+    /// <summary>Replaces the profile values desired state resolves from.</summary>
+    /// <param name="deviceIdentityKey">The device the values were stored for, or null before it is known.</param>
+    /// <param name="layers">Global and the running game's layer.</param>
+    /// <param name="onAcPower">Current power source, for descriptors that differ by source.</param>
+    internal void UpdateDesiredContext(string? deviceIdentityKey, ProfileLayers layers, bool onAcPower)
     {
+        var desired = Index(deviceIdentityKey, layers);
         lock (_gate)
         {
-            _desiredPreferences = IndexPreferences(desiredProfile);
+            _desired = desired;
             _onAcPower = onAcPower;
-            _hardwareProfileId = hardwareProfileId;
-            _applicationId = applicationId;
         }
 
         Publish();
@@ -634,29 +631,36 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         return views;
     }
 
-    private ResolvedDeviceDesiredValue ResolveDesired(DeviceCapabilityKey key)
+    private Resolved<CapabilityValue?> ResolveDesired(DeviceCapabilityKey key)
     {
-        return !_desiredPreferences.TryGetValue(key, out var preference)
-            ? new ResolvedDeviceDesiredValue(null, DeviceDesiredValueSource.None)
-            : DeviceDesiredStateResolver.Resolve(
-                preference,
-                _onAcPower,
-                _hardwareProfileId,
-                _applicationId);
+        return _desired.TryGetValue(key, out var resolved)
+            ? resolved
+            : new Resolved<CapabilityValue?>(null, ProfileSource.None);
     }
 
-    private static Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> IndexPreferences(
-        DeviceDesiredProfile? profile)
+    private static Dictionary<DeviceCapabilityKey, Resolved<CapabilityValue?>> Index(
+        string? deviceIdentityKey,
+        ProfileLayers layers)
     {
-        Dictionary<DeviceCapabilityKey, DeviceCapabilityPreference> index = [];
-        if (profile is null)
+        Dictionary<DeviceCapabilityKey, Resolved<CapabilityValue?>> index = [];
+        if (deviceIdentityKey is null)
         {
             return index;
         }
 
-        foreach (var preference in profile.Capabilities)
+        // Global first, then the game over it: the game's value wins wherever it sets one.
+        foreach (var (values, source) in new[]
+                     { (layers.Global, ProfileSource.Global), (layers.Game, ProfileSource.Game) })
         {
-            index.TryAdd(new DeviceCapabilityKey(preference.CapabilityId, preference.InstanceId), preference);
+            foreach (var entry in values?.Device ?? [])
+            {
+                if (entry.Value is not null
+                    && string.Equals(entry.DeviceIdentityKey, deviceIdentityKey, StringComparison.Ordinal))
+                {
+                    index[new DeviceCapabilityKey(entry.CapabilityId, entry.InstanceId)] =
+                        new Resolved<CapabilityValue?>(entry.Value, source);
+                }
+            }
         }
 
         return index;

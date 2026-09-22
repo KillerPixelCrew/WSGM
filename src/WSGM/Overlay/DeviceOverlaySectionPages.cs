@@ -339,10 +339,8 @@ internal static class DeviceOverlaySectionPages
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AutoTdp);
-        // The hardware performance profile and the authored fan curve sit with power and thermals:
-        // the per-application profile is now the toggle on the Device root, so there is no Profiles
-        // page to hold them, and both are decisions about how the device performs and cools.
-        yield return (DeviceOverlaySection.PowerAndThermals, snapshot.Profile);
+        // The authored fan curve sits with power and thermals: it is a decision about how the device
+        // cools, and the per-game switch that scopes it is the toggle on the Device root.
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AuthoredProfile);
         yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.Controller);
         // Glyph selection sits with the controller it draws, not on a page of its own.

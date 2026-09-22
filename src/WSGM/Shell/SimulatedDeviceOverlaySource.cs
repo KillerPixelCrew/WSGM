@@ -19,8 +19,6 @@ namespace WSGM.Shell;
 internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 {
     /// <summary>Two named profiles, so the preview shows the cycle rather than a single state.</summary>
-    private static readonly string[] PreviewProfiles = ["handheld", "docked"];
-
     /// <summary>A static six-point monotonic curve, matching the A2VM firmware contract.</summary>
     private static readonly IReadOnlyList<CurvePoint> PreviewCurve =
     [
@@ -70,7 +68,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     private ManagedControllerTarget _controllerTarget = ManagedControllerTarget.SteamDeckComposite;
     private int _fanMode;
     private int _glyphSelection;
-    private string? _hardwareProfile;
     private bool _lighting = true;
     private int _ringColor = 0xFF9D3D;
     private int _tdp = 15;
@@ -112,14 +109,13 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new ControllerManagerStatus(
                     ControllerManagementState.Active,
                     _controllerTarget,
-                    ControllerTargetSource.GlobalDefault,
+                    ProfileSource.None,
                     null,
                     UiInputSource.ManagedCanonical,
                     "Preview only; no virtual controller is created.")),
             // The recovery row is deliberately shown in the preview even though nothing is faulted,
             // because laying it out is exactly what --overlay-test is for. Pressing it does nothing.
             Recovery: DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted),
-            Profile: DeviceOverlayBridge.ProfileView(PreviewProfiles, _hardwareProfile),
             Capabilities:
             [
                 new DeviceOverlayCapability(
@@ -323,9 +319,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 ["device.auto-tdp"] = new(_autoTdp ? "on" : "off", [Choice("off", "Off"), Choice("on", "On")]),
                 ["device.controller-target"] = new(_controllerTarget.ToString(), Enum
                     .GetValues<ManagedControllerTarget>()
-                    .Select(value => Choice(value.ToString(), value.ToString())).ToArray()),
-                ["device.hardware-profile"] = new(_hardwareProfile ?? "", new[] { Choice("", "None") }
-                    .Concat(PreviewProfiles.Select(value => Choice(value, value))).ToArray())
+                    .Select(value => Choice(value.ToString(), value.ToString())).ToArray())
             },
             GlyphMode = (DeviceGlyphSelection)_glyphSelection,
             PluginSections = PreviewSections
@@ -340,7 +334,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             case "device.auto-tdp": _autoTdp = value == "on"; break;
             case "device.controller-target" when Enum.TryParse<ManagedControllerTarget>(value, out var target):
                 _controllerTarget = target; break;
-            case "device.hardware-profile": _hardwareProfile = string.IsNullOrEmpty(value) ? null : value; break;
         }
 
         Changed?.Invoke();
@@ -406,14 +399,6 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     {
         cancellationToken.ThrowIfCancellationRequested();
         _controllerTarget = DeviceOverlayBridge.NextTarget(_controllerTarget);
-        Changed?.Invoke();
-        return Task.CompletedTask;
-    }
-
-    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _hardwareProfile = DeviceOverlayBridge.NextProfile(PreviewProfiles, _hardwareProfile);
         Changed?.Invoke();
         return Task.CompletedTask;
     }

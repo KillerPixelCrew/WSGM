@@ -4,13 +4,9 @@ namespace WSGM.Tests.Core;
 
 public sealed class ManualTdpPolicyTests
 {
-    [Fact]
-    public void ExistingPerGameLimitStillOverridesANewGlobalManualProfile()
+    private static ProfileLayers Layers(ProfileValues global, ProfileValues? game = null)
     {
-        PerformanceConfig global = new() { ManualTdp = new ManualTdpProfile(true, 30, 20, 35) };
-        PerformanceApplicationConfig app = new() { TdpWatts = 15 };
-        Assert.Equal((15, false), ManualTdpPolicy.ResolveTarget(global, app, true));
-        Assert.Equal((30, true), ManualTdpPolicy.ResolveTarget(global, app, false));
+        return new ProfileLayers(global, game);
     }
 
     [Theory]
@@ -26,42 +22,54 @@ public sealed class ManualTdpPolicyTests
     }
 
     [Fact]
-    public void IndependentBoostEditSelectsSplitAndPreservesUnifiedHistory()
+    public void AGameThatSetsOnlyItsModeKeepsEveryGlobalWattage()
     {
-        ManualTdpProfile profile = new(true, 20, 18, 28);
-        Assert.Equal(new ManualTdpProfile(false, 20, 18, 32), ManualTdpPolicy.WithBoost(profile, 32));
+        // The bug the per-field merge exists for: the game's record used to be taken whole, so a
+        // game that chose advanced mode ran with no sustained limit although Global had one.
+        var layers = Layers(
+            new ProfileValues { TdpUnified = true, UnifiedWatts = 30, SustainedWatts = 20, BoostWatts = 35 },
+            new ProfileValues { TdpUnified = false });
+
+        Assert.Equal(new ManualTdpProfile(false, 30, 20, 35), layers.ManualTdp());
+        Assert.Equal((20, false), ManualTdpPolicy.ResolveTarget(layers));
     }
 
     [Fact]
-    public void ManualEditChangesOnlyTheSelectedModesTarget()
+    public void AGameWattageOverridesOnlyThatWattage()
     {
-        ManualTdpProfile profile = new(true, 20, 18, 28);
-        profile = ManualTdpPolicy.WithTarget(profile, 25);
-        Assert.Equal(new ManualTdpProfile(true, 25, 18, 28), profile);
-        profile = ManualTdpPolicy.WithTarget(profile with { Unified = false }, 16);
-        Assert.Equal(new ManualTdpProfile(false, 25, 16, 28), profile);
+        var layers = Layers(
+            new ProfileValues { TdpUnified = false, SustainedWatts = 20, BoostWatts = 35 },
+            new ProfileValues { SustainedWatts = 15 });
+
+        Assert.Equal(new ManualTdpProfile(false, null, 15, 35), layers.ManualTdp());
+        Assert.Equal(ProfileSource.Game, layers.Source(new ProfileSettingKey(ProfileField.SustainedWatts)));
+        Assert.Equal(ProfileSource.Global, layers.Source(new ProfileSettingKey(ProfileField.BoostWatts)));
     }
 
     [Fact]
-    public void PerGameSwitchPreservesIndependentUnifiedAndAdvancedPreferences()
+    public void TheTargetFollowsTheResolvedMode()
     {
-        PerformanceConfig global = new() { TdpWatts = 30, ManualTdp = new ManualTdpProfile(true, 20, 25, 35) };
-        PerformanceApplicationConfig app = new() { ManualTdp = new ManualTdpProfile(false, 15, 18, 28) };
-        Assert.Equal((20, true), ManualTdpPolicy.ResolveTarget(global, app, false));
-        Assert.Equal((18, false), ManualTdpPolicy.ResolveTarget(global, app, true));
-        app.ManualTdp = app.ManualTdp with { Unified = true };
-        Assert.Equal((15, true), ManualTdpPolicy.ResolveTarget(global, app, true));
-        app.ManualTdp = app.ManualTdp with { Unified = false };
-        Assert.Equal((18, false), ManualTdpPolicy.ResolveTarget(global, app, true));
-        Assert.Equal(28, app.ManualTdp.BoostWatts);
+        ProfileValues global = new() { UnifiedWatts = 20, SustainedWatts = 25 };
+        ProfileValues game = new() { TdpUnified = true, UnifiedWatts = 15 };
+
+        Assert.Equal((25, false), ManualTdpPolicy.ResolveTarget(Layers(global)));
+        Assert.Equal((15, true), ManualTdpPolicy.ResolveTarget(Layers(global, game)));
+        Assert.Equal(ProfileField.UnifiedWatts, Layers(global, game).PowerTargetKey.Field);
+        Assert.Equal(ProfileField.SustainedWatts, Layers(global).PowerTargetKey.Field);
     }
 
     [Fact]
-    public void MissingTargetDoesNotInventAWattageAndExistingProfilesKeepTheirMeaning()
+    public void NoLayerSettingAnythingResolvesToNoProfileAndNoTarget()
     {
-        PerformanceConfig global = new() { TdpWatts = 30 };
-        Assert.Equal((30, false), ManualTdpPolicy.ResolveTarget(global, null, false));
-        global.ManualTdp = new ManualTdpProfile(true, null, 18, 25);
-        Assert.Null(ManualTdpPolicy.ResolveTarget(global, null, false).Watts);
+        Assert.Null(Layers(new ProfileValues(), new ProfileValues()).ManualTdp());
+        Assert.Equal((null, false), ManualTdpPolicy.ResolveTarget(Layers(new ProfileValues())));
+    }
+
+    [Fact]
+    public void AMissingTargetInTheResolvedModeDoesNotInventAWattage()
+    {
+        var layers = Layers(new ProfileValues { TdpUnified = true, SustainedWatts = 18 });
+
+        Assert.Null(ManualTdpPolicy.ResolveTarget(layers).Watts);
     }
 }

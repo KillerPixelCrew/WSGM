@@ -317,8 +317,8 @@ public sealed partial class NativeQamSemanticServicesTests
                 null),
             new PerformanceApplicationTarget("steam:123", 123, "game.exe", 123),
             true,
-            PerformancePolicyLayer.Application,
-            PerformancePolicyLayer.Global,
+            ProfileSource.Game,
+            ProfileSource.Global,
             new PerformanceValues(45, 1),
             new PerformanceValues(44, 0),
             PerformanceReadbackQuality.Verified,
@@ -361,7 +361,7 @@ public sealed partial class NativeQamSemanticServicesTests
             {
                 State = state,
                 DesiredValue = CapabilityValue.Integer(18),
-                DesiredSource = DeviceDesiredValueSource.ApplicationOverride,
+                DesiredSource = ProfileSource.Game,
                 PendingValue = CapabilityValue.Integer(19),
                 Progress = CommandProgress.Pending
             },
@@ -441,7 +441,7 @@ public sealed partial class NativeQamSemanticServicesTests
             {
                 State = state,
                 DesiredValue = desired,
-                DesiredSource = DeviceDesiredValueSource.GlobalDefault,
+                DesiredSource = ProfileSource.Global,
                 Progress = CommandProgress.Idle
             },
             null);

@@ -4,6 +4,28 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and seven deferred issues. Follow the branch ownership and publishing rules in
 AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
+## Global and per-game profile system (2026-09-22, in progress)
+
+One store (`AppConfig.Profiles`), one resolver (`ProfileLayers`) and one owner (`ProfileService`)
+replace the five per-game resolvers. A game profile holds only what was changed for it; every value
+falls back on its own to Global and then to the device. Steam's per-game toggle and reset, the overlay
+header and every consumer use the same snapshot. The retired stored model is wiped on load. Rules in
+`docs\profiles.md`.
+
+- [x] Profile store, resolver, edits and wipe migration, with normalization.
+- [x] `ProfileService` and the ordered fan-out; RTSS, device desired state, fan profile, manual power,
+      VRR, power presets and controller target resolve from it; dead AC/DC and hardware-profile layers
+      removed; the OEM performance-profile action cycles power presets.
+- [x] Steam's per-game toggle and reset route through the profile owner; opting in creates an empty
+      profile; reset clears the game, or only the Performance tab's Global values.
+- [x] Every device cycle activation, including resume, restores every desired value once; lighting
+      retries a refused zone up to three times and releases an uncertain one after a newer readback.
+- [ ] Override markers and "Use global" on every overlay row and WSGM-owned QAM row
+      (`external/steam-ui-toolkit` change first).
+- [ ] Attended check on the Claw: buttons-only game colour survives sleep with Global rings; toggle,
+      reset and inheritance behave as in `docs\profiles.md`.
+- [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
+
 ## Overlay design mockup (2026-09-20, issue 114)
 
 `tools/OverlayMockup` is a standalone C# / Avalonia design exploration using the current overlay

@@ -19,6 +19,7 @@ findings describes, check it again on the device before trusting the change.
 | `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                       |
 | `logging.md`           | what wsgm.log must and must not contain                                                         |
 | `decisions.md`         | standing product decisions in one page                                                          |
+| `profiles.md`          | Global and per-game profiles: what they hold, how values fall back, Steam's toggle and reset    |
 | `plugin-system.md`     | common plugin contracts, widgets, session automation and the Game Mode entry transaction        |
 
 ## Steam

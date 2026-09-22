@@ -22,9 +22,9 @@ public sealed class SettingsViewModelSplashTests
             DeviceIntegration =
             {
                 AutoTdpEnabled = true,
-                ControllerTarget = ManagedControllerTarget.DualShock4,
                 GlyphSelection = DeviceGlyphSelection.NativeSteam
-            }
+            },
+            Profiles = { Global = { ControllerTarget = ManagedControllerTarget.DualShock4 } }
         };
 
         SettingsViewModel viewModel = new(config);

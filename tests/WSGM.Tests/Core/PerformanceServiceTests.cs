@@ -86,7 +86,7 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         await using var service = new PerformanceService(
             adapter,
-            static (_, _) => Task.FromException(new IOException("disk unavailable")));
+            static (_, _, _) => Task.FromException<ProfileSnapshot>(new IOException("disk unavailable")));
 
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
@@ -175,10 +175,7 @@ public sealed class PerformanceServiceTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return new RtssApplyResult(true, null);
         };
-        await using var service = new PerformanceService(
-            adapter,
-            PersistAsync,
-            commandTimeout: TimeSpan.FromMilliseconds(100));
+        await using var service = Service(adapter, Profiles(), commandTimeout: TimeSpan.FromMilliseconds(100));
 
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
@@ -209,9 +206,7 @@ public sealed class PerformanceServiceTests
     {
         await using var adapter = new FakeRtssAdapter();
         adapter.Values[string.Empty] = new PerformanceValues(60, 1);
-        await using var service = CreateService(
-            adapter,
-            new PerformancePolicy(new PerformanceValues(60, 1), []));
+        await using var service = CreateService(adapter, Config(60, 1));
         await service.RefreshAsync();
         Assert.Empty(adapter.Applies);
 
@@ -233,9 +228,7 @@ public sealed class PerformanceServiceTests
     {
         await using var adapter = new FakeRtssAdapter();
         adapter.Values[string.Empty] = new PerformanceValues(60, 1);
-        await using var service = CreateService(
-            adapter,
-            new PerformancePolicy(new PerformanceValues(60, 1), []));
+        await using var service = CreateService(adapter, Config(60, 1));
         await service.RefreshAsync();
 
         // A writer that takes the profile back the moment WSGM lets go of it.
@@ -261,8 +254,9 @@ public sealed class PerformanceServiceTests
     {
         await using var adapter = new FakeRtssAdapter();
         await using var service = CreateService(adapter);
+        var profiles = Profiles(Config(55, 2));
 
-        await service.UpdatePolicyAsync(new PerformancePolicy(new PerformanceValues(55, 2), []));
+        await service.ApplyProfilesAsync(profiles.Current with { Generation = 2 }, true);
 
         Assert.Equal(new PerformanceValues(55, 2), service.Current.Desired);
         Assert.Equal(new PerformanceValues(55, 2), service.Current.Observed);
@@ -273,10 +267,7 @@ public sealed class PerformanceServiceTests
     public async Task PollingStartsOnlyWhileAClientOwnsAnObservationLease()
     {
         await using var adapter = new FakeRtssAdapter();
-        await using var service = new PerformanceService(
-            adapter,
-            PersistAsync,
-            pollInterval: TimeSpan.FromMilliseconds(250));
+        await using var service = Service(adapter, Profiles(), TimeSpan.FromMilliseconds(250));
         await Task.Delay(50);
         Assert.Equal(0, adapter.ProbeCount);
 
@@ -293,13 +284,11 @@ public sealed class PerformanceServiceTests
     [Fact]
     public async Task ApplicationTransitionUsesPerPropertyProfilePrecedence()
     {
-        var policy = new PerformancePolicy(
-            new PerformanceValues(60, 1),
-            [new PerformanceApplicationPolicy("steam:7", "game.exe", new PerformanceValues(null, 3))]);
+        var profiles = Profiles(Config(60, 1, Game("steam:7", "game.exe", overlayLevel: 3)));
         await using var adapter = new FakeRtssAdapter();
-        await using var service = CreateService(adapter, policy);
+        await using var service = Service(adapter, profiles);
 
-        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
 
         Assert.Equal(new PerformanceValues(60, 3), service.Current.Desired);
         Assert.Contains(adapter.Applies, request =>
@@ -309,38 +298,28 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
-    public async Task GlobalAndApplicationWritesHaveOnePersistenceSignalEach()
+    public async Task GlobalAndApplicationWritesLandInTheLayerInForce()
     {
         await using var adapter = new FakeRtssAdapter();
-        var policy = new PerformancePolicy(
-            new PerformanceValues(60, 1),
-            [new PerformanceApplicationPolicy("steam:7", "game.exe", new PerformanceValues(40, 3))]);
-        var policies = new List<PerformancePolicy>();
-        await using var service = new PerformanceService(
-            adapter,
-            (persisted, _) =>
-            {
-                policies.Add(persisted);
-                return Task.CompletedTask;
-            },
-            policy);
+        var profiles = Profiles(Config(60, 1, Game("steam:7", "game.exe", 40, 3)));
+        await using var service = Service(adapter, profiles);
 
         await service.SetAsync(
             PerformanceControl.FrameLimit,
-            60,
+            50,
             "overlay",
             "persistent");
-        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
         await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
             "overlay",
             "application");
 
-        Assert.Equal(2, policies.Count);
-        Assert.Equal(60, policies[0].Global.FrameLimit);
-        Assert.Equal(45, policies[1].Applications[0].Values.FrameLimit);
+        Assert.Equal(50, profiles.Current.Config.Global.FrameLimit);
+        Assert.Equal(45, profiles.Current.Config.Games[0].Values.FrameLimit);
         Assert.Equal(45, service.Current.Desired.FrameLimit);
+        Assert.Equal(ProfileSource.Game, service.Current.FrameLimitLayer);
     }
 
     [Fact]
@@ -389,11 +368,10 @@ public sealed class PerformanceServiceTests
         // every executable that ever took focus (device-observed 2026-09-02). Without a per-game
         // opt-in and without an existing RTSS profile, the global profile carries the value.
         await using var adapter = new FakeRtssAdapter();
-        await using var service = CreateService(
-            adapter,
-            new PerformancePolicy(new PerformanceValues(null, null), []));
+        var profiles = Profiles();
+        await using var service = Service(adapter, profiles);
 
-        await service.SetTargetAsync(
+        await service.RunAsync(profiles,
             new PerformanceApplicationTarget("process:hitman3.exe", null, "HITMAN3.exe"));
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
@@ -414,11 +392,10 @@ public sealed class PerformanceServiceTests
         // a WSGM per-game entry.
         await using var adapter = new FakeRtssAdapter();
         adapter.ExistingProfiles.Add("game.exe");
-        await using var service = CreateService(
-            adapter,
-            new PerformancePolicy(new PerformanceValues(null, null), []));
+        var profiles = Profiles();
+        await using var service = Service(adapter, profiles);
 
-        await service.SetTargetAsync(
+        await service.RunAsync(profiles,
             new PerformanceApplicationTarget("process:game.exe", null, "game.exe"));
         var command = await service.SetAsync(
             PerformanceControl.FrameLimit,
@@ -435,28 +412,29 @@ public sealed class PerformanceServiceTests
     public async Task InvalidRtssProfileNameNeverReachesAdapter()
     {
         await using var adapter = new FakeRtssAdapter();
-        await using var service = CreateService(adapter);
+        var profiles = Profiles(Config(60));
+        await using var service = Service(adapter, profiles);
 
-        await Assert.ThrowsAsync<ArgumentException>(() => service.SetTargetAsync(
-            new PerformanceApplicationTarget("steam:7", 7, @"..\Global")));
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:7", 7, @"..\Global"));
 
-        Assert.Empty(adapter.Applies);
+        // The executable is dropped, so the write waits for a valid one instead of naming a path.
+        Assert.Null(service.Current.Target?.RtssProfileName);
+        Assert.DoesNotContain(adapter.Applies, request => request.RtssProfileName.Contains('\\'));
     }
 
     [Fact]
     public async Task IdentityOnlyApplicationDefersRtssWritesUntilForegroundEnrichment()
     {
         await using var adapter = new FakeRtssAdapter();
-        await using var service = CreateService(
-            adapter,
-            new PerformancePolicy(new PerformanceValues(60, 1), []));
+        var profiles = Profiles(Config(60, 1));
+        await using var service = Service(adapter, profiles);
 
-        await service.SetTargetAsync(
-            new PerformanceApplicationTarget("steam:42", 42, null));
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, null));
         Assert.Empty(adapter.Applies);
         Assert.Equal(PerformanceCommandPhase.Deferred, service.Current.Command.Phase);
 
-        Assert.True(await service.SetApplicationProfileEnabledAsync(true));
+        Assert.True(await profiles.SetGameEnabledAsync(true));
+        await service.ApplyProfilesAsync(profiles.Current, true);
         var deferred = await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
@@ -466,8 +444,7 @@ public sealed class PerformanceServiceTests
         Assert.True(service.Current.ApplicationProfileEnabled);
         Assert.Empty(adapter.Applies);
 
-        await service.SetTargetAsync(
-            new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.Contains(adapter.Applies, request =>
             request is { RtssProfileName: "game.exe", Control: PerformanceControl.FrameLimit, Value: 45 });
@@ -477,17 +454,9 @@ public sealed class PerformanceServiceTests
 
     private static PerformanceService CreateService(
         IRtssAdapter adapter,
-        PerformancePolicy? policy = null)
+        ProfileConfig? config = null)
     {
-        return new PerformanceService(adapter, PersistAsync, policy);
-    }
-
-    private static Task PersistAsync(
-        PerformancePolicy policy,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
+        return Service(adapter, Profiles(config));
     }
 
     [Fact]

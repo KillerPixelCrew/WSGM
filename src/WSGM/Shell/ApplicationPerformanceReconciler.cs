@@ -15,14 +15,12 @@ namespace WSGM.Shell;
 ///     The session decides when this runs; this remembers what it imposed, so a value one
 ///     application set is undone when the next application does not ask for it.
 /// </remarks>
-/// <param name="readConfig">Reads the current configuration, which a reload replaces.</param>
+/// <param name="profiles">The profile owner the values are read from and saved to.</param>
 /// <param name="readCoordinator">Reads the device coordinator, or null without device integration.</param>
-/// <param name="readPerformance">Reads the RTSS performance service, or null before it starts.</param>
 /// <param name="readAutoTdp">Reads AutoTDP, or null when it is not running.</param>
 internal sealed class ApplicationPerformanceReconciler(
-    Func<AppConfig> readConfig,
+    ProfileService profiles,
     Func<DeviceCoordinator?> readCoordinator,
-    Func<PerformanceService?> readPerformance,
     Func<AutoTdpService?> readAutoTdp)
 {
     private string _lastReconciledApplicationId = "(uninitialised)";
@@ -34,12 +32,11 @@ internal sealed class ApplicationPerformanceReconciler(
     ///     Restores the power limit and variable-refresh state the incoming application prefers, and takes
     ///     back the ones the outgoing application imposed.
     /// </summary>
-    /// <param name="applicationId">The canonical identity of the application now in front, or null.</param>
+    /// <param name="snapshot">The profiles and the application they resolve for.</param>
     /// <param name="cancellationToken">Cancels the device writes.</param>
     /// <remarks>
     ///     The fix for a power limit or refresh mode set in a game leaking onto the desktop after the game
-    ///     closes. The per-game switch governs every performance value, so an application's own value
-    ///     applies only while its profile is enabled; otherwise it inherits the global one. When neither
+    ///     closes. Each value comes from the game profile when it sets one and from Global otherwise. When neither
     ///     layer prefers a value, the outgoing application's is undone rather than left running — for
     ///     power, automatic control resumes if it is on and the limit is otherwise released to the device
     ///     ceiling; for variable refresh, it returns to off — but only when WSGM actually imposed the
@@ -48,16 +45,18 @@ internal sealed class ApplicationPerformanceReconciler(
     ///     this only reads the layers and carries them out.
     /// </remarks>
     internal async Task ReconcileApplicationProfileAsync(
-        string? applicationId,
+        ProfileSnapshot snapshot,
         CancellationToken cancellationToken)
     {
-        // The snapshot bumps when the foreground executable is enriched for the same running game;
-        // a profile belongs to the application, not the focused window, so reconcile only when the
-        // identity actually changes. A mid-game change reaches the device through the manual funnels,
-        // not here.
-        var selected = readConfig().Performance.FindApplication(applicationId);
-        var identityKey =
-            $"{applicationId}|{selected?.UsePerGameProfile}|{selected?.TdpWatts}|{selected?.VariableRefreshRate}";
+        ArgumentNullException.ThrowIfNull(snapshot);
+        // Keyed on what resolves, not on the snapshot generation: enriching the executable of the same
+        // game, or saving an unrelated value, must not rewrite the limit. A value the user just set by
+        // hand already matches the device and is skipped below.
+        var layers = snapshot.Layers;
+        var applicationId = snapshot.Active.ApplicationId;
+        var manual = layers.ManualTdp();
+        var vrrPreference = layers.Value(values => values.VariableRefreshRate).Value;
+        var identityKey = $"{applicationId}|{manual}|{vrrPreference}";
         if (string.Equals(identityKey, _lastReconciledApplicationId, StringComparison.Ordinal))
         {
             return;
@@ -79,16 +78,12 @@ internal sealed class ApplicationPerformanceReconciler(
 
         _lastReconciledApplicationId = identityKey;
 
-        var entry = readConfig().Performance.FindApplication(applicationId);
-        var perGameActive = entry?.UsePerGameProfile ?? false;
-
         if (power is not null && !coordinator.PowerAssignments.HasCurrentAssignment)
         {
             await ReconcileApplicationPowerLimitAsync(
                 power,
                 coordinator,
-                entry,
-                perGameActive,
+                manual,
                 applicationId,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -96,8 +91,7 @@ internal sealed class ApplicationPerformanceReconciler(
         if (vrr is not null)
         {
             await ReconcileApplicationVariableRefreshAsync(
-                entry,
-                perGameActive,
+                vrrPreference,
                 applicationId,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -106,13 +100,15 @@ internal sealed class ApplicationPerformanceReconciler(
     private async Task ReconcileApplicationPowerLimitAsync(
         DeviceCapabilityView power,
         DeviceCoordinator coordinator,
-        PerformanceApplicationConfig? entry,
-        bool perGameActive,
+        ManualTdpProfile? manualProfile,
         string? applicationId,
         CancellationToken cancellationToken)
     {
-        var (effective, paired) = ManualTdpPolicy.ResolveTarget(readConfig().Performance, entry, perGameActive);
-        var manualProfile = ManualTdpPolicy.Resolve(readConfig().Performance, entry, perGameActive);
+        var (effective, paired) = manualProfile is null
+            ? (null, false)
+            : manualProfile.Unified
+                ? (manualProfile.UnifiedWatts, true)
+                : (manualProfile.SustainedWatts, false);
         var ceiling = power.Descriptor.Maximum ?? 0;
         var autoTdpEnabled = coordinator.AutoTdpEnabled;
         var decision = PerApplicationPowerPolicy.DecideOnTargetChange(
@@ -125,11 +121,21 @@ internal sealed class ApplicationPerformanceReconciler(
         {
             case PerAppPowerAction.Apply:
                 var splitPair = manualProfile is { Unified: false, BoostWatts: not null };
-                var applied = splitPair
-                    ? await coordinator.RestoreSplitPowerAsync(power, decision.Watts, manualProfile!.BoostWatts!.Value,
-                        cancellationToken).ConfigureAwait(false)
-                    : await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired)
-                        .ConfigureAwait(false);
+                // A value the user just set by hand is already on the device; writing it again would
+                // only pause AutoTDP a second time.
+                bool applied;
+                if (splitPair)
+                {
+                    applied = await coordinator.RestoreSplitPowerAsync(power, decision.Watts,
+                        manualProfile!.BoostWatts!.Value, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    applied = power.Projection.State.ObservedValue?.IntegerValue == decision.Watts
+                              || await ApplyProfilePowerLimitAsync(power, decision.Watts, cancellationToken, paired)
+                                  .ConfigureAwait(false);
+                }
+
                 if (applied)
                 {
                     // An explicit limit overrides automatic control exactly as moving the slider
@@ -181,15 +187,10 @@ internal sealed class ApplicationPerformanceReconciler(
     }
 
     private async Task ReconcileApplicationVariableRefreshAsync(
-        PerformanceApplicationConfig? entry,
-        bool perGameActive,
+        bool? effective,
         string? applicationId,
         CancellationToken cancellationToken)
     {
-        var effective = PerApplicationVrrPolicy.ResolveEffective(
-            readConfig().Performance.VariableRefreshRate,
-            entry?.VariableRefreshRate,
-            perGameActive);
         var decision = PerApplicationVrrPolicy.DecideOnTargetChange(
             effective,
             _profileVrrImposed);
@@ -214,19 +215,15 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <param name="watts">The limit the user just set, already applied to the device.</param>
     /// <remarks>
     ///     Runs from the manual-power funnel, so the value has already reached the device and paused
-    ///     AutoTDP. This only records it as the user's preference for the running application's layer —
-    ///     its own when a per-game profile is enabled, the global layer otherwise — so the next launch
-    ///     restores it instead of the value leaking onto whatever runs next.
+    ///     AutoTDP. This only records it in the layer in force — the game profile while it is on, Global
+    ///     otherwise — so the next launch restores it instead of the value leaking onto whatever runs next.
     /// </remarks>
     internal void PersistManualPowerLimit(int watts)
     {
-        var (applicationId, entry, applicationLayer) = ActivePerformanceLayer();
-        var current = applicationLayer ? entry!.TdpWatts : readConfig().Performance.TdpWatts;
-        var manual = ManualTdpPolicy.Resolve(readConfig().Performance, entry, applicationLayer);
-        if (manual is not null)
-        {
-            current = manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts;
-        }
+        var layers = profiles.Current.Layers;
+        var manual = layers.ManualTdp();
+        var key = layers.PowerTargetKey;
+        var current = manual is null ? null : manual.Unified ? manual.UnifiedWatts : manual.SustainedWatts;
 
         // The manual funnel fires on the value WSGM's own restore just wrote as well — its origin
         // keeps it out of here, but a value that already matches the layer is skipped regardless so
@@ -238,32 +235,7 @@ internal sealed class ApplicationPerformanceReconciler(
             return;
         }
 
-        SaveToPerformanceLayer(
-            applicationId,
-            applicationLayer,
-            target =>
-            {
-                if (manual is null)
-                {
-                    target.TdpWatts = watts;
-                }
-                else
-                {
-                    target.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts);
-                }
-            },
-            global =>
-            {
-                if (manual is null)
-                {
-                    global.TdpWatts = watts;
-                }
-                else
-                {
-                    global.ManualTdp = ManualTdpPolicy.WithTarget(manual, watts);
-                }
-            },
-            $"Power limit {watts} W");
+        Save(profiles.SetAsync(key.Field, watts), $"Power limit {watts} W");
     }
 
     /// <summary>Applies a variable-refresh state the user set.</summary>
@@ -291,63 +263,31 @@ internal sealed class ApplicationPerformanceReconciler(
     /// <param name="enabled">The state the device just accepted.</param>
     /// <remarks>
     ///     Runs from the coordinator's manual funnel, so the state has already reached the device. This
-    ///     only records it as the running application's preference — its own layer when a per-game
-    ///     profile is enabled, the global layer otherwise — so the next launch restores it instead of
-    ///     letting it leak onto whatever runs next.
+    ///     only records it in the layer in force, so the next launch restores it instead of letting it
+    ///     leak onto whatever runs next.
     /// </remarks>
     internal void PersistManualVariableRefresh(bool enabled)
     {
-        var (applicationId, entry, applicationLayer) = ActivePerformanceLayer();
-        var current = applicationLayer ? entry!.VariableRefreshRate : readConfig().Performance.VariableRefreshRate;
-
+        var current = profiles.Current.Layers.Value(values => values.VariableRefreshRate).Value;
         _profileVrrImposed = true;
         if (current == enabled)
         {
             return;
         }
 
-        SaveToPerformanceLayer(
-            applicationId,
-            applicationLayer,
-            target => target.VariableRefreshRate = enabled,
-            global => global.VariableRefreshRate = enabled,
+        Save(profiles.SetAsync(values => values.VariableRefreshRate = enabled, $"VariableRefreshRate={enabled}"),
             $"Variable refresh {(enabled ? "on" : "off")}");
     }
 
-    /// <summary>The running application's performance entry and whether its own layer is in force.</summary>
-    private (string? ApplicationId, PerformanceApplicationConfig? Entry, bool ApplicationLayer) ActivePerformanceLayer()
+    /// <summary>Observes a save started from a synchronous device hook.</summary>
+    private static void Save(Task save, string what)
     {
-        var target = readPerformance()?.Current.Target;
-        var entry = ApplicationProfileRules.Match(readConfig().Performance, target?.ApplicationId,
-            target?.RtssProfileName);
-        var applicationId = entry?.ApplicationId;
-        return (applicationId, entry, entry is { UsePerGameProfile: true });
-    }
-
-    /// <summary>Saves a hand-set preference to the application layer when it is in force, else globally.</summary>
-    /// <param name="applicationId">The running application.</param>
-    /// <param name="applicationLayer">Whether its own layer was in force when the value was set.</param>
-    /// <param name="application">Writes the value to the application's entry.</param>
-    /// <param name="global">Writes the value to the global layer.</param>
-    /// <param name="saved">What was saved, for the log.</param>
-    private static void SaveToPerformanceLayer(
-        string? applicationId,
-        bool applicationLayer,
-        Action<PerformanceApplicationConfig> application,
-        Action<PerformanceConfig> global,
-        string saved)
-    {
-        ConfigStore.Mutate(config =>
-        {
-            if (applicationLayer && config.Performance.FindApplication(applicationId) is { } target)
-            {
-                application(target);
-                return;
-            }
-
-            global(config.Performance);
-        });
-        Log.Info($"{saved} saved to the " + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
+        _ = save.ContinueWith(
+            task => Log.Warn(
+                $"{what} was applied but could not be saved: {task.Exception?.GetBaseException().Message}"),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     private DeviceCapabilityView? FindPowerLimitCapability()

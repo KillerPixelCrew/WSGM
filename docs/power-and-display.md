@@ -203,9 +203,10 @@ and emitted dropdown fixtures; it does not change live power settings or a runni
 Device → Power and Steam QAM → Performance provide **When plugged in** and **On battery** profile
 assignments and a read-only active-profile status. There is no separate active-profile selector.
 Background reads do not block assignment selection or overwrite an open dropdown. Global assignments
-are the defaults; enabling the existing per-game profile switch exposes overrides for the running
-game. An unset per-game value inherits its global assignment. References include the plugin ID so
-changing device packages cannot silently apply another package's similarly named preset.
+are the defaults; with the per-game profile on, an assignment made for the running game overrides
+Global for that source only, and an unset one inherits Global (`docs\profiles.md`). References
+include the plugin ID so changing device packages cannot silently apply another package's similarly
+named preset.
 
 The session applies an assignment once on source, application, assignment or device-cycle changes.
 Every preset checks the selected power source before each device or Windows write, including presets

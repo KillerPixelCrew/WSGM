@@ -156,6 +156,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </param>
     /// <param name="audioProfiles">The live advanced-audio service, or null in overlay-test.</param>
     /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
+    /// <param name="profiles">The profile owner Steam's per-game toggle and reset write to.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -173,7 +174,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SteamStorageBridge? storage = null,
         DisplayTimeouts? displayTimeouts = null,
         AudioProfileService? audioProfiles = null,
-        CommonPluginSteamUiSource? pluginSteamUi = null)
+        CommonPluginSteamUiSource? pluginSteamUi = null,
+        ProfileService? profiles = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
@@ -192,6 +194,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _performanceService = performance;
         _performance = new PerformanceServiceNativeQamAdapter(performance)
         {
+            Profiles = profiles,
             PerfSupport = perfSupport,
             ApplyRefreshRate = applyRefreshRate,
             ApplyVariableRefreshRate = applyVariableRefreshRate

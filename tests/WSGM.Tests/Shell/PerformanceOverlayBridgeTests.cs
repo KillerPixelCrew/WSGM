@@ -11,15 +11,11 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task OverlayProjectionObservesAndMutatesTheSinglePerformanceService()
     {
-        await using PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            static (_, _) => Task.CompletedTask,
-            // The values the simulated profile already holds, so the poll's drift check has
-            // nothing to repair and this stays a test about the projection.
-            new PerformancePolicy(
-                new PerformanceValues(60, 2),
-                []));
-        using PerformanceOverlayBridge bridge = new(service);
+        // The values the simulated profile already holds, so the poll's drift check has
+        // nothing to repair and this stays a test about the projection.
+        var profiles = Profiles(Config(60, 2));
+        await using var service = Service(profiles);
+        using PerformanceOverlayBridge bridge = new(service, profiles);
         using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
 
@@ -37,11 +33,9 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task TheFrameLimitSliderBookendsWhereTheQuickAccessRowDoes()
     {
-        await using PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            static (_, _) => Task.CompletedTask,
-            new PerformancePolicy(new PerformanceValues(60, 2), []));
-        using PerformanceOverlayBridge bridge = new(service, static () => (30, 120));
+        var profiles = Profiles(Config(60, 2));
+        await using var service = Service(profiles);
+        using PerformanceOverlayBridge bridge = new(service, profiles, static () => (30, 120));
         using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
 
@@ -58,11 +52,9 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task WithoutAPanelRangeTheFrameLimitSliderFallsBackToWhatRtssAccepts()
     {
-        await using PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            static (_, _) => Task.CompletedTask,
-            new PerformancePolicy(new PerformanceValues(60, 2), []));
-        using PerformanceOverlayBridge bridge = new(service);
+        var profiles = Profiles(Config(60, 2));
+        await using var service = Service(profiles);
+        using PerformanceOverlayBridge bridge = new(service, profiles);
         using var observation = bridge.AcquireObservation();
         await service.RefreshAsync();
 
@@ -78,14 +70,9 @@ public sealed class PerformanceOverlayBridgeTests
     public async Task DisabledPerformancePolicyHidesTheProjectionWithoutPolling()
     {
         // Device Integration and this switch are unrelated: only this one governs the rows.
-        await using PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            static (_, _) => Task.CompletedTask,
-            new PerformancePolicy(
-                PerformanceValues.Empty,
-                [],
-                false));
-        using PerformanceOverlayBridge bridge = new(service);
+        var profiles = Profiles();
+        await using var service = Service(new SimulatedRtssAdapter(), profiles, enabled: false);
+        using PerformanceOverlayBridge bridge = new(service, profiles);
 
         var snapshot = bridge.Snapshot();
 
@@ -97,13 +84,10 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task PerApplicationRowsLiveOnPowerAndThermalsExceptTheHeadlineToggle()
     {
-        await using PerformanceService service = new(
-            new SimulatedRtssAdapter(),
-            static (_, _) => Task.CompletedTask,
-            new PerformancePolicy(new PerformanceValues(60, 1), []));
-        using PerformanceOverlayBridge bridge = new(service);
-        await service.SetTargetAsync(
-            new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
+        var profiles = Profiles(Config(60, 1));
+        await using var service = Service(profiles);
+        using PerformanceOverlayBridge bridge = new(service, profiles);
+        await service.RunAsync(profiles, new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
         await service.RefreshAsync();
 
         var before = bridge.Snapshot();
@@ -132,7 +116,8 @@ public sealed class PerformanceOverlayBridgeTests
             row.Id == "application-profile"));
 
         var after = bridge.Snapshot();
-        Assert.True(service.Current.ApplicationProfileEnabled);
+        // The profile owner holds the switch; RTSS follows it through the fan-out.
+        Assert.True(profiles.Current.EditsGame);
         Assert.Equal(
             "Application",
             after.ProfileRows.Single(row => row.Id == "active-profile").TrailingText);
@@ -147,8 +132,9 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task TheOverlayProjectionRendersItsRowsWithNoDevicePlatformPresent()
     {
-        await using var service = Service();
-        using PerformanceOverlayBridge bridge = new(service);
+        var profiles = Profiles();
+        await using var service = Service(profiles);
+        using PerformanceOverlayBridge bridge = new(service, profiles);
 
         var snapshot = bridge.Snapshot();
 
@@ -162,8 +148,9 @@ public sealed class PerformanceOverlayBridgeTests
     [Fact]
     public async Task ObservationIsLeasedByTheOverlayRatherThanByTheDeviceCycle()
     {
-        await using var service = Service();
-        using PerformanceOverlayBridge bridge = new(service);
+        var profiles = Profiles();
+        await using var service = Service(profiles);
+        using PerformanceOverlayBridge bridge = new(service, profiles);
 
         Assert.Equal(0, service.ObserverCount);
         var lease = bridge.AcquireObservation();

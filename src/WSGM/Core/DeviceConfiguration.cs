@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
@@ -46,19 +44,6 @@ public sealed class DeviceIntegrationConfig
     /// </remarks>
     public bool ControllerManagementEnabled { get; set; }
 
-    /// <summary>Global managed-controller target.</summary>
-    public ManagedControllerTarget ControllerTarget { get; set; } =
-        ManagedControllerTarget.SteamDeckComposite;
-
-    /// <summary>Per-application managed-controller target overrides.</summary>
-    /// <remarks>
-    ///     Stored beside the global default rather than under a per-device profile. There is one
-    ///     installed plugin and therefore one device, so nesting the controller target under a device
-    ///     identity would add a layer nothing can vary and a projection between the setting and the
-    ///     virtual target.
-    /// </remarks>
-    public List<DeviceApplicationTargetOverride> ControllerTargets { get; set; } = [];
-
     /// <summary>Whether AutoTDP controls the primary power limit from frame delivery.</summary>
     /// <remarks>
     ///     Requires Device Integration, because the limit it moves is a plugin capability. Off leaves
@@ -72,8 +57,8 @@ public sealed class DeviceIntegrationConfig
     /// <summary>Manual reviewed glyph profile when <see cref="GlyphSelection" /> is manual.</summary>
     public string? ManualGlyphProfileId { get; set; }
 
-    /// <summary>Desired semantic profiles keyed by stable local device identity.</summary>
-    public List<DeviceDesiredProfile> Profiles { get; set; } = [];
+    /// <summary>Allowlisted assignments for logical OEM controls.</summary>
+    public List<DeviceOemAssignment> OemAssignments { get; set; } = [];
 
     /// <summary>Stored values for the settings a plugin declares for itself.</summary>
     /// <remarks>
@@ -125,43 +110,6 @@ public sealed class PluginSettingsScope
     ///     which one is in force is the overlay's job (D22b), so nothing here records a selection.
     /// </remarks>
     public List<DeviceAuthoredProfile> Profiles { get; set; } = [];
-
-    /// <summary>Which authored profile is in force, globally and per application.</summary>
-    /// <remarks>
-    ///     Selections reference a profile by id rather than copying its curve, so editing a profile
-    ///     changes every application already using it. Copying would silently strand every override on
-    ///     the shape the profile had when it was chosen.
-    /// </remarks>
-    public List<DeviceProfileSelection> ProfileSelections { get; set; } = [];
-}
-
-/// <summary>Which authored profile is in force for one capability.</summary>
-/// <remarks>
-///     The same two layers, and the same precedence, as
-///     <see cref="DeviceCapabilityPreference" />: an application override outranks the global choice.
-///     This is deliberately not a second per-application mechanism — it stores a profile reference
-///     where that one stores a value, and both resolve against the same running-application identity.
-/// </remarks>
-public sealed class DeviceProfileSelection
-{
-    /// <summary>The capability the selection applies to.</summary>
-    public string CapabilityId { get; set; } = string.Empty;
-
-    /// <summary>Profile in force when no application override matches, or null for none.</summary>
-    public string? GlobalProfileId { get; set; }
-
-    /// <summary>Per-application selections, at the higher precedence.</summary>
-    public List<DeviceApplicationProfileSelection> ApplicationOverrides { get; set; } = [];
-}
-
-/// <summary>One per-application profile choice.</summary>
-public sealed class DeviceApplicationProfileSelection
-{
-    /// <summary>The canonical running-application identity this applies to.</summary>
-    public string ApplicationId { get; set; } = string.Empty;
-
-    /// <summary>The authored profile chosen for it.</summary>
-    public string ProfileId { get; set; } = string.Empty;
 }
 
 /// <summary>One named profile the user authored for a device capability.</summary>
@@ -263,67 +211,6 @@ public enum DeviceGlyphSelection
     ManualReviewedProfile
 }
 
-/// <summary>All persistent desired state for one local device identity.</summary>
-public sealed class DeviceDesiredProfile
-{
-    /// <summary>Stable local device identity key.</summary>
-    public string DeviceIdentityKey { get; set; } = string.Empty;
-
-    /// <summary>Currently selected named hardware profile, when any.</summary>
-    public string? SelectedHardwareProfileId { get; set; }
-
-    /// <summary>Desired values by semantic capability and optional instance.</summary>
-    public List<DeviceCapabilityPreference> Capabilities { get; set; } = [];
-
-    /// <summary>Allowlisted assignments for logical OEM controls.</summary>
-    public List<DeviceOemAssignment> OemAssignments { get; set; } = [];
-}
-
-/// <summary>Persistent desired-state layers for one semantic capability instance.</summary>
-public sealed class DeviceCapabilityPreference
-{
-    /// <summary>Semantic capability identifier.</summary>
-    public string CapabilityId { get; set; } = string.Empty;
-
-    /// <summary>Optional descriptor instance identifier.</summary>
-    public string? InstanceId { get; set; }
-
-    /// <summary>Lowest-precedence global default.</summary>
-    public CapabilityValue? GlobalDefault { get; set; }
-
-    /// <summary>Desired value while on AC power.</summary>
-    public CapabilityValue? AcPolicy { get; set; }
-
-    /// <summary>Desired value while on battery.</summary>
-    public CapabilityValue? DcPolicy { get; set; }
-
-    /// <summary>Values supplied by named hardware profiles.</summary>
-    public List<DeviceNamedDesiredValue> HardwareProfiles { get; set; } = [];
-
-    /// <summary>Per-application values at the highest persistent precedence.</summary>
-    public List<DeviceApplicationDesiredValue> ApplicationOverrides { get; set; } = [];
-}
-
-/// <summary>One named-hardware-profile value.</summary>
-public sealed class DeviceNamedDesiredValue
-{
-    /// <summary>Stable profile identifier.</summary>
-    public string ProfileId { get; set; } = string.Empty;
-
-    /// <summary>Desired semantic value.</summary>
-    public CapabilityValue? Value { get; set; }
-}
-
-/// <summary>One per-application desired semantic value.</summary>
-public sealed class DeviceApplicationDesiredValue
-{
-    /// <summary>Stable application identity owned by WSGM.</summary>
-    public string ApplicationId { get; set; } = string.Empty;
-
-    /// <summary>Desired semantic value.</summary>
-    public CapabilityValue? Value { get; set; }
-}
-
 /// <summary>Closed WSGM-owned actions that an OEM control may invoke.</summary>
 /// <remarks>
 ///     There is deliberately no executable, script, shell-command, text-macro, or arbitrary-key action.
@@ -357,7 +244,7 @@ public enum OemAction
     /// <summary>Show or hide the on-screen keyboard.</summary>
     ToggleOnScreenKeyboard,
 
-    /// <summary>Move to the next performance profile.</summary>
+    /// <summary>Assign the next device power preset for the current power source.</summary>
     CyclePerformanceProfile,
 
     /// <summary>Move to the next performance-overlay level.</summary>
@@ -381,162 +268,4 @@ public sealed class DeviceOemAssignment
 
     /// <summary>Closed WSGM-owned action.</summary>
     public OemAction Action { get; set; } = OemAction.Disabled;
-}
-
-/// <summary>One per-application controller target override.</summary>
-public sealed class DeviceApplicationTargetOverride
-{
-    /// <summary>Stable application identity owned by WSGM.</summary>
-    public string ApplicationId { get; set; } = string.Empty;
-
-    /// <summary>Managed target selected for that application.</summary>
-    public ManagedControllerTarget Target { get; set; }
-}
-
-/// <summary>The desired-state layer that supplied an effective value.</summary>
-/// <remarks>
-///     Ordered lowest to highest precedence. Captured hardware state is deliberately absent: it is
-///     restoration-only and never competes with what the user asked for, because adopting an observed
-///     value as a desired one would silently turn whatever the device happened to be doing into policy.
-/// </remarks>
-public enum DeviceDesiredValueSource
-{
-    /// <summary>No desired value exists; the device keeps whatever it has.</summary>
-    None,
-
-    /// <summary>Global per-device default.</summary>
-    GlobalDefault,
-
-    /// <summary>AC/DC policy for the current power source.</summary>
-    PowerPolicy,
-
-    /// <summary>Selected named hardware profile.</summary>
-    HardwareProfile,
-
-    /// <summary>Matched application override.</summary>
-    ApplicationOverride
-}
-
-/// <summary>Result of resolving the frozen desired-state precedence.</summary>
-public sealed record ResolvedDeviceDesiredValue(
-    CapabilityValue? Value,
-    DeviceDesiredValueSource Source);
-
-/// <summary>Pure desired-state precedence policy.</summary>
-public static class DeviceDesiredStateResolver
-{
-    /// <summary>Resolves the application, profile, power, and global layers.</summary>
-    /// <param name="preference">Persistent capability layers.</param>
-    /// <param name="onAcPower">Current power state.</param>
-    /// <param name="hardwareProfileId">Selected named profile.</param>
-    /// <param name="applicationId">Matched application identity.</param>
-    /// <returns>The highest-precedence available value and its source.</returns>
-    public static ResolvedDeviceDesiredValue Resolve(
-        DeviceCapabilityPreference preference,
-        bool onAcPower,
-        string? hardwareProfileId,
-        string? applicationId)
-    {
-        ArgumentNullException.ThrowIfNull(preference);
-        var application = preference.ApplicationOverrides.FirstOrDefault(value =>
-            string.Equals(value.ApplicationId, applicationId, StringComparison.Ordinal))?.Value;
-        if (application is not null)
-        {
-            return new ResolvedDeviceDesiredValue(application, DeviceDesiredValueSource.ApplicationOverride);
-        }
-
-        var profile = preference.HardwareProfiles
-            .FirstOrDefault(value => string.Equals(value.ProfileId, hardwareProfileId, StringComparison.Ordinal))
-            ?.Value;
-        if (profile is not null)
-        {
-            return new ResolvedDeviceDesiredValue(profile, DeviceDesiredValueSource.HardwareProfile);
-        }
-
-        var power = onAcPower ? preference.AcPolicy : preference.DcPolicy;
-        if (power is not null)
-        {
-            return new ResolvedDeviceDesiredValue(power, DeviceDesiredValueSource.PowerPolicy);
-        }
-
-        return preference.GlobalDefault is null
-            ? new ResolvedDeviceDesiredValue(null, DeviceDesiredValueSource.None)
-            : new ResolvedDeviceDesiredValue(preference.GlobalDefault, DeviceDesiredValueSource.GlobalDefault);
-    }
-}
-
-/// <summary>Pure policy for recording a value the user set on a device control.</summary>
-/// <remarks>
-///     The counterpart to <see cref="DeviceDesiredStateResolver" />, and deliberately narrower than it:
-///     resolution reads five layers, but only two of them are ones a person can author by moving a
-///     control. The AC/DC and named-profile layers are authored elsewhere, so writing into them from a
-///     control press would put a value somewhere the user cannot see they put it.
-/// </remarks>
-public static class DeviceDesiredStateWriter
-{
-    /// <summary>Stores one value in the layer a control press means.</summary>
-    /// <param name="device">The device-integration settings to write into.</param>
-    /// <param name="deviceIdentityKey">Stable local identity of the device being configured.</param>
-    /// <param name="capabilityId">The capability the value belongs to.</param>
-    /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
-    /// <param name="applicationId">
-    ///     The running application, whose override layer receives the value, or null for the global
-    ///     default. Mid-game a user is configuring what they are playing; on the desktop there is no
-    ///     per-game scope to mean.
-    /// </param>
-    /// <param name="value">The value the device accepted.</param>
-    /// <remarks>
-    ///     The profile and the capability entry are created on demand, because storing a value is the
-    ///     first thing a user can do and refusing until some other write had already made a profile
-    ///     would be arbitrary.
-    /// </remarks>
-    public static void Store(
-        DeviceIntegrationConfig device,
-        string deviceIdentityKey,
-        string capabilityId,
-        string? instanceId,
-        string? applicationId,
-        CapabilityValue value)
-    {
-        ArgumentNullException.ThrowIfNull(device);
-        ArgumentNullException.ThrowIfNull(value);
-        var profile = device.Profiles.FirstOrDefault(item => string.Equals(
-            item.DeviceIdentityKey,
-            deviceIdentityKey,
-            StringComparison.Ordinal));
-        if (profile is null)
-        {
-            profile = new DeviceDesiredProfile { DeviceIdentityKey = deviceIdentityKey };
-            device.Profiles.Add(profile);
-        }
-
-        var preference = profile.Capabilities.FirstOrDefault(item =>
-            string.Equals(item.CapabilityId, capabilityId, StringComparison.Ordinal)
-            && string.Equals(item.InstanceId, instanceId, StringComparison.Ordinal));
-        if (preference is null)
-        {
-            preference = new DeviceCapabilityPreference
-            {
-                CapabilityId = capabilityId,
-                InstanceId = instanceId
-            };
-            profile.Capabilities.Add(preference);
-        }
-
-        if (string.IsNullOrWhiteSpace(applicationId))
-        {
-            preference.GlobalDefault = value;
-            return;
-        }
-
-        var entry = preference.ApplicationOverrides.FirstOrDefault(item =>
-            string.Equals(item.ApplicationId, applicationId, StringComparison.Ordinal));
-        if (entry is null)
-        {
-            entry = new DeviceApplicationDesiredValue { ApplicationId = applicationId };
-            preference.ApplicationOverrides.Add(entry);
-        }
-
-        entry.Value = value;
-    }
 }

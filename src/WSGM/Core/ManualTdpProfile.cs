@@ -20,34 +20,13 @@ internal static class ManualTdpPolicy
                && watts >= min && watts <= max && ((long)watts - min) % step.Value == 0;
     }
 
-    internal static ManualTdpProfile WithBoost(ManualTdpProfile profile, int watts)
+    /// <summary>The manual power target in force and whether it is the coordinated pair.</summary>
+    /// <param name="layers">The profile layers for the running application.</param>
+    /// <returns>The target watts, or null when no layer sets one.</returns>
+    internal static (int? Watts, bool Paired) ResolveTarget(ProfileLayers layers)
     {
-        return profile with { Unified = false, BoostWatts = watts };
-    }
-
-    internal static ManualTdpProfile WithTarget(ManualTdpProfile profile, int watts)
-    {
-        return profile.Unified ? profile with { UnifiedWatts = watts } : profile with { SustainedWatts = watts };
-    }
-
-    internal static ManualTdpProfile? Resolve(PerformanceConfig global, PerformanceApplicationConfig? application,
-        bool perGameActive)
-    {
-        return perGameActive && application?.ManualTdp is { } own ? own
-            : perGameActive && application?.TdpWatts is { } watts ? new ManualTdpProfile(false, null, watts, null)
-            : global.ManualTdp;
-    }
-
-    internal static (int? Watts, bool Paired) ResolveTarget(PerformanceConfig global,
-        PerformanceApplicationConfig? application, bool perGameActive)
-    {
-        var profile = Resolve(global, application, perGameActive);
-        if (profile is not null)
-        {
-            return profile.Unified ? (profile.UnifiedWatts, true) : (profile.SustainedWatts, false);
-        }
-
-        return (PerApplicationPowerPolicy.ResolveEffective(global.TdpWatts, application?.TdpWatts, perGameActive),
-            false);
+        return layers.ManualTdp() is { } profile
+            ? profile.Unified ? (profile.UnifiedWatts, true) : (profile.SustainedWatts, false)
+            : (null, false);
     }
 }
