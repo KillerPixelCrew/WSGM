@@ -44,6 +44,12 @@ internal sealed record DescriptorRow(
 
     /// <summary>The value in force, for a row with a range or options.</summary>
     public int? Value { get; init; }
+
+    /// <summary>
+    ///     The profile setting id while the running game's own profile supplies this row's value, else
+    ///     null. The row marks it and offers Use global.
+    /// </summary>
+    public string? OverrideId { get; init; }
 }
 
 /// <summary>The bounds of a row the user sets with a slider.</summary>

@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using FluentAvalonia.UI.Controls;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
@@ -15,12 +16,14 @@ namespace WSGM.Overlay;
 internal sealed class DeviceCapabilityControl : ContentControl
 {
     private readonly Control _body;
+    private readonly ProfileOverrideMarker _marker;
     private readonly Action<DeviceOverlayCapability, CapabilityValue> _write;
     private DeviceOverlayCapability _capability;
     private bool _invoking;
 
     internal DeviceCapabilityControl(DeviceOverlayCapability capability, string key,
-        Action<DeviceOverlayCapability, CapabilityValue> write, Func<DeviceOverlayCapability, Task> invoke, int? marker)
+        Action<DeviceOverlayCapability, CapabilityValue> write, Func<DeviceOverlayCapability, Task> invoke, int? marker,
+        Func<string, Task>? useGlobal = null)
     {
         _capability = capability;
         _write = write;
@@ -98,7 +101,8 @@ internal sealed class DeviceCapabilityControl : ContentControl
             _body = new DeviceStatisticRow(key);
         }
 
-        Content = _body;
+        _marker = new ProfileOverrideMarker(_body, useGlobal);
+        Content = _marker;
         Refresh(capability, marker);
     }
 
@@ -114,6 +118,7 @@ internal sealed class DeviceCapabilityControl : ContentControl
     {
         _capability = capability;
         ToolTip.SetTip(this, capability.Description);
+        _marker.Refresh(capability.OverrideId);
         switch (_body)
         {
             case DeviceSliderRow slider:

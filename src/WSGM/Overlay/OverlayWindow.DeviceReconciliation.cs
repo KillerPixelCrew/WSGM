@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.LogicalTree;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
@@ -111,6 +113,7 @@ public partial class OverlayWindow
                 var descriptor = HostDescriptor(snapshot, key);
                 row.Refresh(new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = selection.Value },
                     descriptor?.CanInvoke ?? false, descriptor?.Description ?? string.Empty);
+                (row.Parent as ProfileOverrideMarker)?.Refresh(descriptor?.OverrideId);
             }
         }
 
@@ -124,6 +127,11 @@ public partial class OverlayWindow
                 view.Refresh(descriptor);
             }
         }
+    }
+
+    private Task UseGlobalOnDevice(string overrideId)
+    {
+        return RunDeviceCommandAsync("Use global", (source, token) => source.UseGlobalAsync(overrideId, token));
     }
 
     private static DescriptorRow? HostDescriptor(DeviceOverlaySnapshot snapshot, string id)
@@ -155,9 +163,12 @@ public partial class OverlayWindow
     {
         if (snapshot.HostSelections.TryGetValue(descriptor.Id, out var selection))
         {
-            return DeviceControlRows.Choice(descriptor.Id, descriptor.Title, descriptor.Description, selection.Choices,
-                selection.Value, descriptor.CanInvoke, value => _ = RunDeviceCommandAsync(descriptor.Title,
-                    (source, token) => source.SetHostSelectionAsync(descriptor.Id, value, token)));
+            var choice = DeviceControlRows.Choice(descriptor.Id, descriptor.Title, descriptor.Description,
+                selection.Choices, selection.Value, descriptor.CanInvoke, value => _ = RunDeviceCommandAsync(
+                    descriptor.Title, (source, token) => source.SetHostSelectionAsync(descriptor.Id, value, token)));
+            var marker = new ProfileOverrideMarker(choice, UseGlobalOnDevice);
+            marker.Refresh(descriptor.OverrideId);
+            return marker;
         }
 
         return new DescriptorControlView(descriptor, descriptor.Id, async current =>

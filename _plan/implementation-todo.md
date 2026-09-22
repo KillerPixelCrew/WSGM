@@ -20,8 +20,8 @@ header and every consumer use the same snapshot. The retired stored model is wip
       profile; reset clears the game, or only the Performance tab's Global values.
 - [x] Every device cycle activation, including resume, restores every desired value once; lighting
       retries a refused zone up to three times and releases an uncertain one after a newer readback.
-- [ ] Override markers and "Use global" on every overlay row and WSGM-owned QAM row
-      (`external/steam-ui-toolkit` change first).
+- [x] Override markers and "Use global" on every overlay row and WSGM-owned QAM row; the toolkit
+      carries `OverrideId` and a `useGlobal` command. Valve's own overlay-level selector has no marker.
 - [ ] Attended check on the Claw: buttons-only game colour survives sleep with Global rings; toggle,
       reset and inheritance behave as in `docs\profiles.md`.
 - [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.

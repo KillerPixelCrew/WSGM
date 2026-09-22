@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -48,6 +49,8 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
         return new SteamPowerPresetState(state.Available && assignments is not null, options, current,
             string.IsNullOrEmpty(selection?.Status) ? state.Status : selection.Status,
             selection?.AcPreset ?? "", selection?.BatteryPreset ?? "", selection?.Scope ?? "",
-            selection?.IsGlobal == false ? "Use global assignment" : "Manual selection");
+            selection?.IsGlobal == false ? "Use global assignment" : "Manual selection",
+            selection?.AcSource is ProfileSource.Game ? nameof(ProfileField.AcPowerPreset) : null,
+            selection?.BatterySource is ProfileSource.Game ? nameof(ProfileField.BatteryPowerPreset) : null);
     }
 }

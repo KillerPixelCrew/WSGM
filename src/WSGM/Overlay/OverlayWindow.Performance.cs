@@ -128,7 +128,27 @@ public partial class OverlayWindow
             {
                 await InvokePerformanceAsync(source, current);
             }
-        }, value => WritePerformanceValue(descriptor.Id, value));
+        }, value => WritePerformanceValue(descriptor.Id, value), UseGlobalOnPerformance);
+    }
+
+    private async Task UseGlobalOnPerformance(string overrideId)
+    {
+        if (_performanceSource is not { } source || _closed)
+        {
+            return;
+        }
+
+        try
+        {
+            await source.UseGlobalAsync(overrideId, _deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Use global for '{overrideId}' failed: {ex.Message}");
+        }
     }
 
     private async Task InvokePerformanceAsync(PerformanceOverlayBridge source, DescriptorRow descriptor)

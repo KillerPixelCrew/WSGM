@@ -4,13 +4,15 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 
 namespace WSGM.Overlay;
 
 /// <summary>Projects manual power mode; selection saves policy without applying a wattage.</summary>
 internal sealed class ManualTdpModeView : StackPanel
 {
-    internal ManualTdpModeView(Func<(bool Available, bool Unified)> read, Func<bool, Task> save)
+    internal ManualTdpModeView(Func<(bool Available, bool Unified)> read, Func<bool, Task> save,
+        Func<string?>? overrideId = null, Func<string, Task>? useGlobal = null)
     {
         Spacing = 6;
         ComboBox choice = new() { ItemsSource = new[] { "Advanced / split TDP", "Unified TDP" } };
@@ -19,7 +21,8 @@ internal sealed class ManualTdpModeView : StackPanel
             Text = "Unified TDP coordinates sustained and boost limits through the device plugin.",
             TextWrapping = TextWrapping.Wrap
         };
-        Children.Add(choice);
+        ProfileOverrideMarker marker = new(choice, useGlobal);
+        Children.Add(marker);
         Children.Add(status);
         bool rendering = false, writing = false, closed = false;
         choice.SelectionChanged += async (_, _) =>
@@ -82,6 +85,7 @@ internal sealed class ManualTdpModeView : StackPanel
             IsVisible = state.Available;
             choice.IsEnabled = state.Available;
             choice.SelectedIndex = state.Unified ? 1 : 0;
+            marker.Refresh(overrideId?.Invoke());
             rendering = false;
         }
     }

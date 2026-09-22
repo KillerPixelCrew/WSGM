@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Labs.Panels;
 using Avalonia.Layout;
 using Avalonia.Media;
+using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Shell;
@@ -165,7 +166,10 @@ public partial class OverlayWindow
             restoreFocus = RenderOwnedDeviceRows(snapshot, hostSection, focusedKey, target, !pinned);
             if (pinned)
             {
-                foreach (var control in target.Children.Where(control => control.Tag is string))
+                // A host row may sit inside its game-override marker, which carries no key of its own.
+                foreach (var control in target.Children
+                             .Select(child => child is ProfileOverrideMarker marker ? marker.Row : child)
+                             .Where(control => control.Tag is string))
                 {
                     if (control.Tag is string key && !key.StartsWith(PinTagPrefix, StringComparison.Ordinal))
                     {

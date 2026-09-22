@@ -129,6 +129,17 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         return _profiles.DeleteGameAsync(id, cancellationToken);
     }
 
+    /// <summary>Removes the running game's value for one setting, so it falls back to Global.</summary>
+    /// <param name="overrideId">The id the row carried.</param>
+    /// <param name="cancellationToken">Cancels the save.</param>
+    /// <returns>Whether an override was removed.</returns>
+    internal Task<bool> UseGlobalAsync(string overrideId, CancellationToken cancellationToken)
+    {
+        return ProfileSettingKey.TryParse(overrideId, out var key)
+            ? _profiles.ClearGameOverrideAsync(key, null, cancellationToken)
+            : Task.FromResult(false);
+    }
+
     internal Task<bool> SetProfileScopeAsync(string applicationId, bool enabled,
         CancellationToken cancellationToken)
     {
@@ -156,7 +167,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     StatusFor(state, PerformanceControl.FrameLimit)) with
                 {
                     Range = ready ? FrameLimitRange(capabilities!) : null,
-                    Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0
+                    Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0,
+                    OverrideId = state.FrameLimitLayer is ProfileSource.Game ? nameof(ProfileField.FrameLimit) : null
                 },
             BuildRow(
                     "overlay-level",
@@ -167,7 +179,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                     StatusFor(state, PerformanceControl.OverlayLevel)) with
                 {
                     Options = ready ? OverlayLevelOptions(capabilities!) : [],
-                    Value = PreferredValue(state, PerformanceControl.OverlayLevel)
+                    Value = PreferredValue(state, PerformanceControl.OverlayLevel),
+                    OverrideId = state.OverlayLevelLayer is ProfileSource.Game
+                        ? nameof(ProfileField.OverlayLevel)
+                        : null
                 }
         ];
         List<DescriptorRow> profileRows =
