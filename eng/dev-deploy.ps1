@@ -11,8 +11,8 @@
 #
 # This script is for the attended dev loop only. It is not part of any release path, CI never
 # calls it, and it deliberately does not touch WSGM.LogonService.exe (Program Files, elevation,
-# and it changes rarely) or the plugin slot (administrator-owned, replaced only by the
-# installer).
+# and it changes rarely). Unless -SkipPlugin or -Desktop is given, it rebuilds the Claw device
+# package and swaps it into the administrator-owned plugin slot behind one elevation prompt.
 [CmdletBinding()]
 param(
     # Skip the publish and swap whatever publish\App already holds — for iterating on the swap

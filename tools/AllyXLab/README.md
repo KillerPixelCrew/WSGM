@@ -117,13 +117,14 @@ requirement. The Xbox Ally RC73YA is not admitted, because its 20 W performance 
 Ordinary steps run in a separate copy of the same executable with a 60-second supervisor deadline.
 The guided rumble session uses one worker with the bounds described above. Hardware writes require
 an explicit wizard action and a durably saved, acknowledged recovery checkpoint. The one change made
-outside the device is HidHide's allowed-application list, only with your agreement: the previous
-list is recorded, this tool's entry is added, and the list is written back when the session ends.
-The hiding switch, the hidden-device list and every other HidHide setting stay untouched, and a
-manager is only ever asked to close through its window. The worker reserves
-`Global\WSGM.DeviceOwner`. Parent death requests cancellation; a blocked driver call can still
-prevent cleanup. A timeout is reported as unknown restoration and blocks further writes until the
-tester confirms recovery. A driver call completing is not independent readback.
+outside the device is HidHide's allowed-application list, only with your agreement: this tool's
+entry is recorded on disk, then added, and at the end only that entry is removed. Other entries are
+left as they are, and an inverse-mode list is not written at all. The hiding switch, the
+hidden-device list and every other HidHide setting stay untouched, and a manager is only ever asked
+to close through its window. The worker reserves `Global\WSGM.DeviceOwner`. Parent death requests
+cancellation; a blocked driver call can still prevent cleanup. A timeout is reported as unknown
+restoration and blocks further writes until the tester confirms recovery. A driver call completing
+is not independent readback.
 
 Power and fan writes require two matching original snapshots, including both valid eight-point fan
 curves. If any original state is unavailable, writes are refused. Applied and restored values are

@@ -53,8 +53,15 @@ requires unwind; cancellation is not rollback.
 - A corrected descriptor set after a rejection needs a newer descriptor generation. The adapter can
   advance before the production router rejects content, so reusing the rejected number can strand
   later states against different host/router views.
-- Descriptors, physical-device identities, and OEM controls are whole-set replacements. Omitting an
-  item withdraws it.
+- Descriptors, physical-device identities, OEM controls and the settings manifest are whole-set
+  replacements. Omitting an item withdraws it. If a new settings manifest fails validation, the host
+  keeps the previous one.
+- The descriptor set carries its sections, categories and placement. It also carries the API 5
+  layout hints: `Prominence` (Normal, Primary or Compact) and `LayoutPair`, which must name a
+  different descriptor in the same explicit section and category. It carries power presets and the
+  power pair too. The production router checks `CapabilityLayout.TryValidate`,
+  `DevicePowerPreset.TryValidate` and `DevicePowerPair.TryValidate` and rejects the whole set if any
+  one fails.
 - Capability states are observations, not desired values, progress, or command acknowledgements.
 - Controller samples are complete latest-wins state. Never publish deltas, carry stale buttons
   forward, or synthesize missing controls or motion.
@@ -65,9 +72,20 @@ The normal host preflight checks attachment, descriptor/state freshness, availab
 bounds, and power-source policy. The plugin must still recheck identity, firmware, range, resource
 state, both generations, and deadline immediately before touching hardware.
 
-For the optional sustained/boost pair, validate `PairedPowerLimitId` with
-`DevicePowerPair.TryValidate`. `ApplyPowerPair` is an explicit request for plugin-owned coordinated
-writes, readback and rollback; it must not change ordinary single-limit command semantics.
+The optional sustained/boost pair works like this:
+
+- `PairedPowerLimitId` goes on a `PowerSustainedLimit` descriptor and names exactly one
+  `PowerSlowLimit` peer.
+- Both limits are readable, writable Integer Watt limits with no `InstanceId`, and `Minimum` and
+  `Step` are both greater than zero. Validate with `DevicePowerPair.TryValidate`.
+- `ApplyPowerPair` asks the plugin to write, read back and roll back both limits together.
+  `ReadbackValue` then reports the sustained wattage.
+
+The SDK XML docs say ordinary commands keep independent-limit behavior. The Claw departs from that
+to protect a firmware invariant. It keeps PL1 <= PL2 by carrying the other limit along when a
+single-limit write would break the rule (see the Claw `AGENTS.md`). If another plugin needs the same
+carry, apply the requested value exactly and publish both resulting states. Raise the SDK doc and
+Claw mismatch with the maintainer rather than copying either one silently.
 
 `CommandOutcome` means:
 
@@ -81,6 +99,12 @@ Capture the original value immediately before the first mutation and preserve th
 through retries or reopen. Restore it on failure/stop where policy requires it. Report rollback and
 device-persistent uncertainty rather than converting it into success.
 
+State quality steers host automation. WSGM re-applies a desired value automatically only when the
+published `HardwareStateQuality` is `Observed` or `Verified`, no command is pending, and the
+previous result was not `TimedOut` or `Indeterminate`
+(`src/WSGM/Shell/DeviceDesiredWriteAdmission.cs`). Publishing an `Unknown` or any other quality
+therefore turns off restoration for that capability.
+
 ## Controller, OEM, and haptics
 
 - Plugins publish device-owned physical interfaces and whether WSGM must hide them. Plugins never
@@ -91,9 +115,13 @@ device-persistent uncertainty rather than converting it into success.
 - WSGM neutralizes and stops forwarding before the plugin releases. The physical device remains
   hidden until acquisition stops and the original mode is restored; otherwise the game sees two
   controllers.
-- `HapticOutputFrame.TargetGeneration` is independent of the device-cycle generation. Drop stale
-  frames, clamp declared channels, drop unsupported channels without redistribution, and always make
-  zero output possible.
+- `HapticOutputFrame.TargetGeneration` is independent of the device-cycle generation. WSGM drops
+  frames whose target generation does not match the live target before delivery. No plugin API
+  exposes the current target generation, and the Claw does not read it. The plugin clamps to its
+  declared channels with `HapticCapabilities.Clamp` and drops unsupported channels without
+  redistribution. For zero output it uses `HapticOutputFrame.Stop(targetGeneration, timestamp)`.
+  `docs/reference.md` still tells plugins to drop non-current frames themselves; doing so is
+  harmless but redundant.
 - `OemControlEvent.DeduplicationId` lets the host collapse the same physical press observed through
   more than one source. Do not turn a keyboard side effect into the primary hardware identity.
 
@@ -112,11 +140,11 @@ device-persistent uncertainty rather than converting it into success.
 
 ## Test adapter limits
 
-`TestPluginHostAdapter` records descriptor sets, states, physical-device sets, haptic declarations,
-controller samples, OEM sets/events, settings manifests, traces, and API-3 change traces. It checks
-nulls and cancellation but intentionally does not reproduce production generation, descriptor,
-state, range, freshness, or router validation. Assert SDK `TryValidate` methods directly and add a
-WSGM host test when acceptance by production matters.
+`TestPluginHostAdapter` records descriptor sets, states, physical-device sets, the latest haptic
+declaration, controller samples, OEM sets/events, settings manifests, traces, and keyed `Changes`.
+`ReportFault` appears as an Error trace. It checks nulls and cancellation but intentionally does not
+reproduce production generation, descriptor, state, range, freshness, or router validation. Assert
+SDK `TryValidate` methods directly and add a WSGM host test when acceptance by production matters.
 
 ## Retired architecture that must stay retired
 

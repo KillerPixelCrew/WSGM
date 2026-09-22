@@ -138,7 +138,7 @@ public enum GlyphAssetFormat
     /// <summary>SVG normalized into WSGM-owned path geometry.</summary>
     Svg,
 
-    /// <summary>Static PNG retained after bounded header and hash validation.</summary>
+    /// <summary>Static PNG retained after bounded header validation.</summary>
     Png
 }
 
