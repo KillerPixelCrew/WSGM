@@ -29,7 +29,9 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - src/WSGM is the self-contained CoreCLR desktop application. It owns the Explorer-replacement
   session, UI, overlay, settings, recovery, and per-user state.
 - src/WSGM.Launch is the console launcher for de-elevation and input-lease containment.
-  src/WSGM.LogonService is the minimal SYSTEM service used at logon.
+  src/WSGM.PackagedLaunch is the launcher an imported Xbox, UWP or MSIX shortcut points at; it is a
+  sibling of WSGM.Launch, not an extension of it. src/WSGM.LogonService is the minimal SYSTEM
+  service used at logon.
 - external/ holds all upstream code and pins. external/steam-input-lease owns the Steam Input shim,
   external/windows-device-control and external/steam-ui-toolkit own their reusable libraries, and
   external/viiper is the VIIPER fork WSGM builds. external/LoadingIndicators.Avalonia is vendored

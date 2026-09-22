@@ -19,6 +19,9 @@ WSGM.LogonService / explicit command
 
 WSGM.Launch
   -> de-elevated/per-game launch and Steam Input lease containment
+
+WSGM.PackagedLaunch
+  -> activation, supervision and overlay routes for an imported packaged game
 ```
 
 The installer, logon service, launcher, resident UI, native Steam Input shim, and reusable/device
@@ -41,6 +44,7 @@ these boundaries for convenience or reject service boot merely because Explorer 
 | `src/WSGM/Interop`                    | narrow native declarations/adapters                                                                              | product decisions or presentation                           |
 | `src/WSGM/Controls`, `Themes`         | reusable Avalonia presentation primitives and styling                                                            | service orchestration                                       |
 | `src/WSGM.Launch`                     | launch wrapper, de-elevation, input-lease containment                                                            | resident shell services                                     |
+| `src/WSGM.PackagedLaunch`             | packaged-game activation, supervision, containment and the two overlay routes                                    | library discovery, shortcut writing or WSGM policy          |
 | `src/WSGM.LogonService`               | minimal logon trigger/watchdog contract                                                                          | user feature behavior                                       |
 
 `ShellSession` is composition root, not permission to implement every feature in one file. A service

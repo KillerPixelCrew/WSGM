@@ -520,9 +520,9 @@ is on screen. For that half the banner says to re-run setup and warns that a reb
    image-name kill. Without the acknowledgement, setup defers the companion's replacement rather
    than kill the only remaining desktop-recovery owner; a silent update skips the locked file
    instead of taking the automatic reboot `restartreplace` would cause.
-6. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, plus the retired
-   `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never terminates
-   either tree, and a failed inspection counts as blocked.
+6. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
+   the retired `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never
+   terminates either tree, and a failed inspection counts as blocked.
 7. `[Run]`: `WSGM.exe --setup` (per-user files, migrate off any legacy shell registration, the
    Xbox-FSE guard, the boot manifest), then `WSGM.LogonService.exe --install`
    (create-or-reconfigure, failure actions, start), then the USB/IP driver if its task was selected,

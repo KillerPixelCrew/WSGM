@@ -1145,9 +1145,9 @@ begin
   // and fail closed if inspection itself is unavailable. Setup never terminates Steam or a launch
   // wrapper: either can own a running game tree that needs its normal save/exit path.
   if IncludeSteam then
-    Script := '$names=@(''steam'',''WSGM.Launch'',''WSGM.Deelevate'',''steam-input-lease''); '
+    Script := '$names=@(''steam'',''WSGM.Launch'',''WSGM.PackagedLaunch'',''WSGM.Deelevate'',''steam-input-lease''); '
   else
-    Script := '$names=@(''WSGM.Launch'',''WSGM.Deelevate'',''steam-input-lease''); ';
+    Script := '$names=@(''WSGM.Launch'',''WSGM.PackagedLaunch'',''WSGM.Deelevate'',''steam-input-lease''); ';
   Script := '$session=(Get-Process -Id $PID).SessionId; ' + Script +
     '$blocked=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { ' +
     '$_.SessionId -eq $session -and $names -contains $_.ProcessName }); ' +

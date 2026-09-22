@@ -158,24 +158,26 @@ Explorer exit request. Capturing the actual matching shell owner now checks iden
 semantics without a UI-response gate or extra stability delay. Desktop restoration still verifies
 responsive windows and stable ownership before reporting success.
 
-**The future packaged-game launcher offers two explicit input modes (2026-09-14).** Under deferred
-[#48](https://github.com/KillerPixelCrew/WSGM/issues/48), Steam integration for single-player games
-uses the overlay and input bridge demonstrated by the Moonlighter spike. Controller-only mode
-switches VIIPER to its Xbox 360 target without custom game injection. Valve controller users in
-Desktop Mode can therefore lack controller support for multiplayer games on this route; the
-maintainer accepts that limitation. Controller-only must not silently enable the injection route.
-Neither mode carries a general anti-cheat compatibility guarantee. These are launcher design
-decisions, not shipped per-game options or an expansion of the 2.0 milestone.
+**The packaged-game launcher offers two explicit input modes (2026-09-14, shipped 2026-09-22).**
+`src/WSGM.PackagedLaunch` delivers [#48](https://github.com/KillerPixelCrew/WSGM/issues/48). Steam
+integration for single-player games uses the overlay and input bridge that Moonlighter's attended
+trial established. Controller-only mode switches VIIPER to its Xbox 360 target without custom game
+injection. Valve controller users in Desktop Mode can therefore lack controller support for
+multiplayer games on this route; the maintainer accepts that limitation. Controller-only must not
+silently enable the injection route. Neither mode carries a general anti-cheat compatibility
+guarantee. The choice is per title on the import page, where a multiplayer title reaches the
+injecting route only by an acknowledgement the backend enforces.
 
-**Xbox imports select a launcher by runtime (2026-09-14).** The future library sync in
-[#47](https://github.com/KillerPixelCrew/WSGM/issues/47) identifies UWP/AppContainer versus packaged
-Win32/GDK before generating a shortcut and selects the corresponding launch strategy from #48. Both
-are packaged; an Xbox source or WindowsApps path does not determine the runtime. Moonlighter
-required an AppContainer IPC/input bridge and CoreWindow correction. PowerWash Simulator 2 worked by
-injecting Steam into its AAM-created launch helper early and letting Steam follow the game child.
-This automatic technical routing remains separate from the user's explicit Steam-integration versus
+**Xbox imports select a launcher by runtime (2026-09-14, shipped 2026-09-22).** The library importer
+delivering [#47](https://github.com/KillerPixelCrew/WSGM/issues/47) identifies UWP/AppContainer
+versus packaged Win32/GDK and selects the corresponding route in `src/WSGM.PackagedLaunch`. Both are
+packaged; an Xbox source or WindowsApps path does not determine the runtime. Moonlighter required an
+AppContainer IPC/input bridge and CoreWindow correction. PowerWash Simulator 2 worked by injecting
+Steam into its AAM-created launch helper early and letting Steam follow the game child. This
+automatic technical routing remains separate from the user's explicit Steam-integration versus
 controller-only choice. Unknown classification must not silently enable injection. See
-[Steam launcher handoff](steam-launcher-handoff.md) for the evidence and remaining limits.
+[Steam launcher handoff](steam-launcher-handoff.md) for the evidence and remaining limits, and
+[the packaged-game launcher](packaged-game-launcher.md) for what was built on it.
 
 **Artwork is a WSGM feature, not a plugin (2026-09-22).** The Steam artwork browser was extracted
 into a bundled `WSGM.Plugin.Artwork` package and is now folded back into `src/WSGM`. Planning the
@@ -185,5 +187,17 @@ load-bearing in a way nobody wanted — a second page-owning plugin throws out o
 `SteamUiSessionHost`'s constructor, because one patch id belongs to one module, taking every Steam
 surface with it. The bundled package had in fact never shipped: `WSGM.csproj` staged it under
 `publish\App\Plugins\` and the installer carried no such line, so no installed build ever loaded it.
-Page registration is now host-owned and plugins declare routes for the host to merge. The plugin
-SDK, `src/WSGM.Plugin.Ir` and the installed third-party path are unchanged.
+Page registration is now host-owned and plugins declare routes for the host to merge. The host's own
+pages are the artwork browser and the library importer. The plugin SDK, `src/WSGM.Plugin.Ir` and the
+installed third-party path are unchanged.
+
+**WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the ban in
+[Steam launcher handoff](steam-launcher-handoff.md), which was written after CEF shortcut-management
+calls destabilized a live Steam session during an attended investigation. The library importer needs
+to create shortcuts, and the alternative — editing `shortcuts.vdf` offline — requires Steam stopped,
+a backup, and preservation of every other entry, which is a worse thing to get wrong. The reversal
+is narrow and comes with the rules that make it safe: one write at a time with a settle between
+them, never in parallel; a new id confirmed by a before/after diff of Steam's own library, which is
+the authority over what the call returned; and an unconfirmed or ambiguous result stops the run and
+is never retried, because the entry may already exist. If Steam is not running, the importer refuses
+rather than falling back. CEF is still barred from diagnosing packaged games.
