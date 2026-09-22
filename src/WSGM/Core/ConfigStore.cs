@@ -431,6 +431,8 @@ public static class ConfigStore
         NormalizePerformance(config.Performance);
         config.Profiles ??= new ProfileConfig();
         NormalizeProfiles(config.Profiles, config.DeviceIntegration);
+        config.Artwork ??= new ArtworkConfig();
+        NormalizeArtwork(config.Artwork);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -691,6 +693,33 @@ public static class ConfigStore
             game.Values ??= new ProfileValues();
             NormalizeProfileValues(game.Values, authored);
         }
+    }
+
+    /// <summary>Brings the artwork section into a shape the Steam browser can render.</summary>
+    /// <param name="artwork">The section to normalize in place.</param>
+    /// <remarks>
+    ///     Internal so its rules can be tested directly. The tab order is a permutation of the known
+    ///     tabs: unknown and duplicate ids are dropped and missing ones appended, so a hand-edited
+    ///     value cannot hide a tab the show switches still say is visible, and the default tab always
+    ///     names one that exists.
+    /// </remarks>
+    internal static void NormalizeArtwork(ArtworkConfig artwork)
+    {
+        artwork.SteamGridDbApiKey = artwork.SteamGridDbApiKey?.Trim() ?? "";
+        artwork.ScreenscraperUser = artwork.ScreenscraperUser?.Trim() ?? "";
+        artwork.ScreenscraperUserPassword = artwork.ScreenscraperUserPassword ?? "";
+
+        var known = ArtworkConfig.DefaultTabOrder.Split(',');
+        var ordered = (artwork.TabOrder ?? "").Split(',')
+            .Select(static tab => tab.Trim())
+            .Where(tab => known.Contains(tab, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        ordered.AddRange(known.Where(tab => !ordered.Contains(tab, StringComparer.Ordinal)));
+        artwork.TabOrder = string.Join(',', ordered);
+
+        var requested = artwork.DefaultTab?.Trim() ?? "";
+        artwork.DefaultTab = known.Contains(requested, StringComparer.Ordinal) ? requested : ordered[0];
     }
 
     private static void NormalizeProfileValues(ProfileValues values, HashSet<string> authoredProfiles)

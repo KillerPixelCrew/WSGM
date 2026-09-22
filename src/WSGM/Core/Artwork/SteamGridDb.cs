@@ -10,7 +10,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Core;
 
 /// <summary>
 ///     An artwork slot. The numeric values are Steam's own <c>eAssetType</c>
@@ -115,7 +115,7 @@ public static class SteamGridDb
     ///     free key in Settings (see <see cref="KeyPageUrl" />).
     /// </summary>
     /// <param name="config">The loaded configuration.</param>
-    public static string ResolveKey(ArtworkConfiguration config)
+    public static string ResolveKey(ArtworkConfig config)
     {
         return config.SteamGridDbApiKey.Trim();
     }
@@ -531,7 +531,7 @@ public static class SteamGridDb
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
+            Log.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
             throw new SteamGridDbException("Could not download the artwork image.");
         }
     }
@@ -547,7 +547,7 @@ public static class SteamGridDb
             using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                ArtworkLog.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
+                Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
                 throw new SteamGridDbException(response.StatusCode switch
                 {
                     HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
@@ -573,7 +573,7 @@ public static class SteamGridDb
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
+            Log.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
             throw new SteamGridDbException("Could not contact SteamGridDB.");
         }
     }

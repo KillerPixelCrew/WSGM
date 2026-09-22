@@ -176,3 +176,14 @@ injecting Steam into its AAM-created launch helper early and letting Steam follo
 This automatic technical routing remains separate from the user's explicit Steam-integration versus
 controller-only choice. Unknown classification must not silently enable injection. See
 [Steam launcher handoff](steam-launcher-handoff.md) for the evidence and remaining limits.
+
+**Artwork is a WSGM feature, not a plugin (2026-09-22).** The Steam artwork browser was extracted
+into a bundled `WSGM.Plugin.Artwork` package and is now folded back into `src/WSGM`. Planning the
+Xbox library importer showed the boundary was in the way at every turn: the importer needs the same
+providers, the same apply path, the same state store and the same Steam page host. It was also
+load-bearing in a way nobody wanted — a second page-owning plugin throws out of
+`SteamUiSessionHost`'s constructor, because one patch id belongs to one module, taking every Steam
+surface with it. The bundled package had in fact never shipped: `WSGM.csproj` staged it under
+`publish\App\Plugins\` and the installer carried no such line, so no installed build ever loaded it.
+Page registration is now host-owned and plugins declare routes for the host to merge. The plugin
+SDK, `src/WSGM.Plugin.Ir` and the installed third-party path are unchanged.

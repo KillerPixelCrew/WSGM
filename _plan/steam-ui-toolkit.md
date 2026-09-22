@@ -343,7 +343,7 @@ changed against the plan rather than restating it.
   state and strict command payloads. WSGM's `IPluginSteamUi` maps admitted common .NET packages to
   opaque command identities and routes activation through the registration's current generation.
   Plugins supply bounded declarations only, never React, webpack objects or JavaScript injection.
-- **SteamGridDB UI parity.** `WSGM.Plugin.Artwork` now owns the providers, state, selected-game
+- **SteamGridDB UI parity.** WSGM owns the providers, state, selected-game
   command, typed module and compiled page renderer. The native route has asset tabs, filters,
   details, current-art management, local files, game selection, pagination, logo positioning and
   icon handling. Live visual and controller comparison against Decky SteamGridDB remains open, as do

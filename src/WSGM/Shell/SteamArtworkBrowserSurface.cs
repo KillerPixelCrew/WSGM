@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Shell;
 
 /// <summary>One artwork result rendered by Steam's native artwork browser page.</summary>
 public sealed record SteamArtworkBrowserAsset(
@@ -122,6 +123,14 @@ public static class SteamArtworkBrowserSurface
     /// <summary>The Steam router pattern registered by this surface.</summary>
     public const string Route = "/wsgm/artwork/:appid";
 
+    /// <summary>The concrete route that opens this page for one game.</summary>
+    /// <param name="appId">The game the page should open on.</param>
+    /// <returns>The path Steam's router navigates to.</returns>
+    public static string RouteFor(uint appId)
+    {
+        return "/wsgm/artwork/" + appId.ToString(CultureInfo.InvariantCulture);
+    }
+
     /// <summary>The exact command vocabulary emitted by the page.</summary>
     public static IReadOnlyList<string> Commands { get; } =
     [
@@ -169,18 +178,10 @@ public static class SteamArtworkBrowserSurface
         string id = "artwork-browser")
     {
         ArgumentNullException.ThrowIfNull(backend);
-        var pages = new SteamPageState([
-            new SteamPage("artwork-browser", Route, "Change Artwork", Template: "artwork-browser")
-        ]);
         return new SteamUiModule(
             id,
-            [SteamPageSurface.Patch, Patch],
+            [Patch],
             [
-                SteamUiModuleBuilder.Publication(
-                    SteamPageSurface.PatchId,
-                    enabled,
-                    () => new ValueTask<SteamPageState?>(pages),
-                    ArtworkJsonContext.Default.SteamPageState),
                 SteamUiModuleBuilder.Publication(
                     PatchId,
                     enabled,

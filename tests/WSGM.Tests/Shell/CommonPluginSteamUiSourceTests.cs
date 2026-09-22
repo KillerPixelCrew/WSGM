@@ -145,6 +145,62 @@ public sealed class CommonPluginSteamUiSourceTests
         return installed;
     }
 
+    [Fact]
+    public async Task DeclaredPagesAreAdmittedAndMalformedOnesAreNot()
+    {
+        using TemporaryDirectory temporary = new();
+        var installed = await Catalog(temporary);
+        PluginHost host = new(action => action());
+        SteamUiFixturePlugin plugin = new()
+        {
+            SteamPages =
+            [
+                new SteamPage("good", "/wsgm/plugin", "Plugin", Template: "plugin-page"),
+                // Overriding a Valve route is a host decision, not a package's.
+                new SteamPage("override", "/library", "Library", Override: true, Template: "plugin-page"),
+                // No renderer: Valve's default would render the route as an empty page.
+                new SteamPage("default", "/wsgm/default", "Default"),
+                new SteamPage("relative", "wsgm/relative", "Relative", Template: "plugin-page"),
+                new SteamPage("root", "/", "Root", Template: "plugin-page")
+            ]
+        };
+        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
+            (_, _) => Task.FromResult<IPlugin>(plugin));
+        using CommonPluginSteamUiSource source = new(manager, host);
+        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
+            CancellationToken.None);
+
+        var page = Assert.Single(source.ReadPages());
+        Assert.Equal("/wsgm/plugin", page.Path);
+        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+    }
+
+    [Fact]
+    public async Task AModuleClaimingAHostOwnedPatchIsRefusedRatherThanRegistered()
+    {
+        // One patch id belongs to one module, so registering a second throws out of the module set —
+        // which would take every Steam surface down, not just this package's own.
+        using TemporaryDirectory temporary = new();
+        var installed = await Catalog(temporary);
+        PluginHost host = new(action => action());
+        SteamUiFixturePlugin plugin = new()
+        {
+            SteamUiModules =
+            [
+                SteamPageSurface.Module(() => true,
+                    () => new ValueTask<SteamPageState?>(new SteamPageState([])))
+            ]
+        };
+        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
+            (_, _) => Task.FromResult<IPlugin>(plugin));
+        using CommonPluginSteamUiSource source = new(manager, host);
+        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
+            CancellationToken.None);
+
+        Assert.Empty(source.ReadModules());
+        await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+    }
+
     private sealed class SteamUiFixturePlugin : IPlugin, IPluginActions, IPluginSteamUi
     {
         public string? LastAction { get; private set; }
@@ -196,5 +252,9 @@ public sealed class CommonPluginSteamUiSourceTests
             new("change-artwork", MenuLabel,
                 PluginSteamUiPlacement.GameContextMenu, "change-artwork", "app-id")
         ];
+
+        public IReadOnlyList<SteamPage> SteamPages { get; init; } = [];
+
+        public IReadOnlyList<ISteamUiModule> SteamUiModules { get; init; } = [];
     }
 }

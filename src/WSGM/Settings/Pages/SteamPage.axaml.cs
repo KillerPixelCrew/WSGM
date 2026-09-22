@@ -20,6 +20,29 @@ public partial class SteamPage : UserControl
         InitializeComponent();
     }
 
+    /// <summary>Opens the controller keyboard for one of the otherwise skipped text fields.</summary>
+    /// <remarks>Gamepad navigation skips text boxes, so each one needs its own explicit way in.</remarks>
+    private void OnEditTextWithController(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is not SettingsWindow window)
+        {
+            return;
+        }
+
+        switch ((sender as Button)?.Tag as string)
+        {
+            case "SteamGridDbKey":
+                window.ShowOnScreenKeyboard(SteamGridDbKeyBox, "SteamGridDB key");
+                break;
+            case "ScreenscraperUser":
+                window.ShowOnScreenKeyboard(ScreenscraperUserBox, "Screenscraper account");
+                break;
+            case "ScreenscraperPassword":
+                window.ShowOnScreenKeyboard(ScreenscraperPasswordBox, "Screenscraper password");
+                break;
+        }
+    }
+
     private void OnToggleUac(object? sender, RoutedEventArgs e)
     {
         ObservePolicyChange(() => TogglePolicyAsync(

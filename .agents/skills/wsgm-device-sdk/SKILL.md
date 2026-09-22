@@ -17,9 +17,8 @@ moving machine policy into the SDK.
 - `src/WSGM.Device.Sdk` (MIT, `DeviceApi.Version`) is the device hardware contract: `IDevicePlugin`,
   `IPluginHostAdapter`, capabilities, controller, haptics, OEM controls, glyphs and `PluginTrace`.
 - `src/WSGM.Plugin.Sdk` (MIT, `PluginApi.Version`) is the common plugin contract used by independent
-  plugins such as `src/WSGM.Plugin.Ir` and `src/WSGM.Plugin.Artwork`. The Shell's common
-  `PluginHost` admits the Device runtime through `DevicePluginCompatibilityAdapter`. See
-  `docs/plugin-system.md`.
+  plugins such as `src/WSGM.Plugin.Ir`. The Shell's common `PluginHost` admits the Device runtime
+  through `DevicePluginCompatibilityAdapter`. See `docs/plugin-system.md`.
 - Device plugins declare preferences with a settings manifest
   (`IPluginHostAdapter.PublishSettingsManifestAsync`) and receive the complete set through
   `ApplySettingsAsync`. `IConfigurablePlugin`, host-owned revisions and `IPluginHost.PublishState`

@@ -11,6 +11,21 @@ namespace WSGM.Shell;
 /// <summary>Projects commands from admitted, ready plugins without exposing plugin code to Steam.</summary>
 internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, IDisposable
 {
+    /// <summary>What the injected page gate accepts, so a longer list is cut here rather than there.</summary>
+    private const int MaximumPluginPages = 32;
+
+    /// <summary>
+    ///     Patches the session host declares itself. A plugin module naming one is dropped: one patch id
+    ///     belongs to one module, and registering a second is refused by the module set — which would
+    ///     take every Steam surface down with it, not just the package's own.
+    /// </summary>
+    private static readonly HashSet<string> HostOwnedPatches = new(StringComparer.Ordinal)
+    {
+        SteamPageSurface.PatchId,
+        SteamExtensionsTabSurface.PatchId,
+        SteamGameContextMenuSurface.PatchId
+    };
+
     private readonly Dictionary<string, Command> _commands = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private readonly PluginHost _host;
@@ -159,8 +174,42 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                     .Where(instance => instance.Registration is { } owner && CanInvoke(owner)
                                                                           && owner.Actions is not null)
                     .SelectMany(instance => instance.Registration!.Actions!.SteamUiModules)
+                    .Where(module => !module.Patches.Any(patch => HostOwnedPatches.Contains(patch.Id)))
             ];
         }
+    }
+
+    /// <summary>The custom routes admitted packages declare, in a shape the host can merge.</summary>
+    /// <remarks>
+    ///     A page is dropped rather than published when its path is not absolute, is the router root, is
+    ///     longer than Steam's own bound, names no renderer, or claims Valve's default one. Overriding a
+    ///     Valve route is a host decision, so a package asking for one is refused outright.
+    /// </remarks>
+    internal IReadOnlyList<SteamPage> ReadPages()
+    {
+        lock (_gate)
+        {
+            Refresh();
+            return
+            [
+                .. _manager.Snapshot()
+                    .Where(instance => instance.Registration is { } owner && CanInvoke(owner)
+                                                                          && owner.Actions is not null)
+                    .SelectMany(instance => instance.Registration!.Actions!.SteamPages)
+                    .Where(Admissible)
+                    .Take(MaximumPluginPages)
+            ];
+        }
+    }
+
+    private static bool Admissible(SteamPage page)
+    {
+        return page is not null
+               && page.Path.StartsWith('/')
+               && page.Path.Length is > 1 and <= 256
+               && !page.Override
+               && page.Template.Length > 0
+               && !string.Equals(page.Template, "default", StringComparison.OrdinalIgnoreCase);
     }
 
     internal Task<SteamUiCommandResult> ActivateAsync(uint appId, string id, CancellationToken cancellationToken)

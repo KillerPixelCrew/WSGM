@@ -1,6 +1,6 @@
 using System;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Core;
 
 internal static class ScreenscraperCredentials
 {

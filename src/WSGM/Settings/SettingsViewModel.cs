@@ -143,6 +143,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                 : $"WSGM starts Steam. {_config.SteamAutostartDisabled.Count} Windows startup entry/entries are turned off and are restored when WSGM is uninstalled.";
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
+        ArtworkSteamGridDbApiKey = _config.Artwork.SteamGridDbApiKey;
+        ArtworkScreenscraperEnabled = _config.Artwork.ScreenscraperEnabled;
+        ArtworkScreenscraperUser = _config.Artwork.ScreenscraperUser;
+        ArtworkScreenscraperPassword = _config.Artwork.ScreenscraperUserPassword;
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
         DeviceControllerTargetIndex =
@@ -532,6 +536,34 @@ public sealed partial class SettingsViewModel : ObservableObject
         get;
         set => SetField(ref field, value, nameof(SteamInputManagementEnabled));
     }
+
+    /// <summary>Gets or sets the user's own SteamGridDB key. Empty leaves that source unsearched.</summary>
+    public string ArtworkSteamGridDbApiKey
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkSteamGridDbApiKey));
+    } = "";
+
+    /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
+    public bool ArtworkScreenscraperEnabled
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkScreenscraperEnabled));
+    }
+
+    /// <summary>Gets or sets the optional Screenscraper account, which raises its own daily quota.</summary>
+    public string ArtworkScreenscraperUser
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkScreenscraperUser));
+    } = "";
+
+    /// <summary>Gets or sets the Screenscraper account's password.</summary>
+    public string ArtworkScreenscraperPassword
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkScreenscraperPassword));
+    } = "";
 
     /// <summary>Gets or sets the optional production Device Integration master switch.</summary>
     public bool DeviceIntegrationEnabled
@@ -1782,6 +1814,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         ApplyLaunchTo(config.GameModeLaunch);
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
+        // The tab layout is not edited here, so it is left exactly as the running shell holds it.
+        config.Artwork.SteamGridDbApiKey = ArtworkSteamGridDbApiKey;
+        config.Artwork.ScreenscraperEnabled = ArtworkScreenscraperEnabled;
+        config.Artwork.ScreenscraperUser = ArtworkScreenscraperUser;
+        config.Artwork.ScreenscraperUserPassword = ArtworkScreenscraperPassword;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
         // Same rule as the three below, for the same reason: only settings this window actually

@@ -859,6 +859,20 @@
       showModal,
     };
   };
+  // Closes whichever side panel is open, so a route followed from inside one is not rendered behind
+  // it. Valve's own main-window instance owns the operation; SteamNativeSurfaceCommands drives the
+  // same MenuStore.CloseSideMenus for the keyboard overlay. Reports whether the panel is now closed,
+  // which for a caller that was never in a panel is trivially true.
+  const closeSteamSideMenus = () => {
+    const menus = window.SteamUIStore?.WindowStore?.MainWindowInstance?.MenuStore;
+    if (typeof menus?.CloseSideMenus !== "function") return false;
+    try {
+      menus.CloseSideMenus();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
   // Only a route returned by a successful host command is followed. Publications cannot inject a
   // target, and the bounds keep this a router operation rather than an open-ended navigation API.
   const navigateSteamRoute = (route) => {
@@ -2268,10 +2282,18 @@
       react.useEffect(() => subscribe(patchId, () => setRevision((value) => value + 1)), []);
       const items = desired.items;
       const activate = (id) => {
-        void request(patchId, "activate", { id }, nextActionGeneration(patchId)).catch(() => {
-          // The host's refusal is already logged and the row remains truthful on the next state
-          // publication. A rejected click must not tear down the whole Quick Access panel.
-        });
+        void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
+          (answer) => {
+            // An action may answer with a page to open. The panel is closed first: this tab is
+            // rendered inside the Quick Access flyout, so navigating with it open leaves the page
+            // behind the panel, which on a controller is indistinguishable from a dead button.
+            if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
+          },
+          () => {
+            // The host's refusal is already logged and the row remains truthful on the next state
+            // publication. A rejected click must not tear down the whole Quick Access panel.
+          },
+        );
       };
       // A typed draft belongs to the publication it was typed against. Dropping it when the host
       // answers with a new configuration revision, and when the change is refused, is what stops the

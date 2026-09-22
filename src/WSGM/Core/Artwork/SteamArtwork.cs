@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Core;
 
 /// <summary>Outcome of an artwork change.</summary>
 /// <param name="Detail">
@@ -132,7 +132,7 @@ public static class SteamArtwork
     {
         try
         {
-            var steamExe = SteamInstallation.ExecutablePath;
+            var steamExe = Steam.ExePath;
             if (steamExe is null)
             {
                 return null;
@@ -194,7 +194,7 @@ public static class SteamArtwork
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Artwork: custom-art lookup failed: {ex.Message}");
+            Log.Warn($"Artwork: custom-art lookup failed: {ex.Message}");
             return null;
         }
     }
@@ -211,14 +211,14 @@ public static class SteamArtwork
             return new ArtworkResult(okMessage, true);
         }
 
-        ArtworkLog.Warn($"Artwork change failed: {result.Error}.");
+        Log.Warn($"Artwork change failed: {result.Error}.");
         return new ArtworkResult(result.Error ?? "Steam rejected the change.");
     }
 
     private static async Task<ArtworkResult> ApplyIconAsync(
         uint appId, byte[] imageBytes, string extension, CancellationToken cancellationToken)
     {
-        var steamExe = SteamInstallation.ExecutablePath;
+        var steamExe = Steam.ExePath;
         if (steamExe is null)
         {
             return new ArtworkResult("Steam's installation directory is unavailable.");

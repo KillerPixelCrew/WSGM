@@ -17,11 +17,9 @@ internal sealed record CommonPluginCatalog(IReadOnlyList<CommonInstalledPlugin> 
     internal static string InstalledRoot => Path.Combine(DeviceInstallationPaths.ProtectedRoot, "Plugins");
 
     /// <summary>Reads protected installed metadata only. Discovery never loads plugin code.</summary>
-    internal static CommonPluginCatalog Discover(
-        string installedRoot,
-        IReadOnlyList<CommonInstalledPlugin>? bundled = null)
+    internal static CommonPluginCatalog Discover(string installedRoot)
     {
-        List<CommonInstalledPlugin> packages = bundled is null ? [] : [.. bundled];
+        List<CommonInstalledPlugin> packages = [];
         List<string> errors = [];
         try
         {

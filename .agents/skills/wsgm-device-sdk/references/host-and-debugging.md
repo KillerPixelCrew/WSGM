@@ -178,23 +178,23 @@ rejects, and high-rate trace spam hiding the first transition.
 
 Paths are under `src/WSGM/` unless another project is named.
 
-| Concern                       | Start here                                                                                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Host mechanism and rationale  | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`, `docs/plugin-system.md`                                               |
-| SDK contract                  | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                                |
-| Package preflight/maintenance | `Program.cs`, `Core/DevicePackagePolicy.cs`, `DevicePackageSlotGate.cs`, `DevicePackageStager.cs`, `DeviceInstallationPaths.cs`                                |
-| Load and lifecycle            | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`                       |
-| Common plugins                | `Shell/CommonPluginManager.cs`, `CommonPluginPackage.cs`, `CommonPluginCatalog.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Artwork`, `src/WSGM.Plugin.Ir` |
-| Publications and commands     | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                                                  |
-| Desired state and restore     | `Shell/DeviceDesiredWriteAdmission.cs`, `DeviceLightingRestore.cs`, `DeviceProfileApplier.cs`                                                                  |
-| Power and AutoTDP             | `Core/AutoTdp.cs`, `Shell/AutoTdpService.cs`, `DevicePowerPresets.cs`, `DevicePowerAssignments.cs`, `NativeQamPowerPresetService.cs`                           |
-| Windows power schemes         | `Core/PowerSchemes.cs`, `Interop/WindowsPowerSchemeApi.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)                                    |
-| Diagnostics and identity      | `Core/DeviceCoordinatorDiagnostics.cs`, `DeviceMachineIdentity.cs`                                                                                             |
-| Controller safety             | `Shell/ControllerManager.cs`, `ControllerMakeSafe.cs`, `HidHideOwnership.cs`, `PluginHapticSink.cs`                                                            |
-| Target input/output           | `Input/ManagedControllerRouter.cs`, `ViiperControllerBackend.cs`, `Xbox360Report.cs`, `DualShock4Report.cs`, `SteamDeckNeptuneReport.cs`                       |
-| Host consumers                | `Shell/DeviceOverlayBridge.cs`; `Core/DeviceConfiguration.cs`, `PhysicalGlyphCatalog.cs`                                                                       |
-| Reference plugin              | `src/WSGM.Device.Msi.Claw8A2Vm/`: `ClawCapabilities.cs`, `ClawResources.cs`, `Claw8A2VmPlugin.cs`, `ClawRecoveryJournal.cs`, `MsiWmiPlatform.cs`               |
-| Reference plugin tests        | `tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs`                                                                                                     |
+| Concern                       | Start here                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host mechanism and rationale  | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`, `docs/plugin-system.md`                                 |
+| SDK contract                  | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                  |
+| Package preflight/maintenance | `Program.cs`, `Core/DevicePackagePolicy.cs`, `DevicePackageSlotGate.cs`, `DevicePackageStager.cs`, `DeviceInstallationPaths.cs`                  |
+| Load and lifecycle            | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`         |
+| Common plugins                | `Shell/CommonPluginManager.cs`, `CommonPluginPackage.cs`, `CommonPluginCatalog.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Ir`              |
+| Publications and commands     | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                                    |
+| Desired state and restore     | `Shell/DeviceDesiredWriteAdmission.cs`, `DeviceLightingRestore.cs`, `DeviceProfileApplier.cs`                                                    |
+| Power and AutoTDP             | `Core/AutoTdp.cs`, `Shell/AutoTdpService.cs`, `DevicePowerPresets.cs`, `DevicePowerAssignments.cs`, `NativeQamPowerPresetService.cs`             |
+| Windows power schemes         | `Core/PowerSchemes.cs`, `Interop/WindowsPowerSchemeApi.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)                      |
+| Diagnostics and identity      | `Core/DeviceCoordinatorDiagnostics.cs`, `DeviceMachineIdentity.cs`                                                                               |
+| Controller safety             | `Shell/ControllerManager.cs`, `ControllerMakeSafe.cs`, `HidHideOwnership.cs`, `PluginHapticSink.cs`                                              |
+| Target input/output           | `Input/ManagedControllerRouter.cs`, `ViiperControllerBackend.cs`, `Xbox360Report.cs`, `DualShock4Report.cs`, `SteamDeckNeptuneReport.cs`         |
+| Host consumers                | `Shell/DeviceOverlayBridge.cs`; `Core/DeviceConfiguration.cs`, `PhysicalGlyphCatalog.cs`                                                         |
+| Reference plugin              | `src/WSGM.Device.Msi.Claw8A2Vm/`: `ClawCapabilities.cs`, `ClawResources.cs`, `Claw8A2VmPlugin.cs`, `ClawRecoveryJournal.cs`, `MsiWmiPlatform.cs` |
+| Reference plugin tests        | `tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs`                                                                                       |
 
 ## Focused tests
 

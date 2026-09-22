@@ -5,8 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Shell;
 
 /// <summary>Projects WSGM's artwork providers into the toolkit's Steam-native browser.</summary>
 internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, IDisposable
@@ -24,7 +25,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
     private readonly object _gate = new();
-    private readonly Func<ArtworkConfiguration> _readConfiguration;
+    private readonly Func<ArtworkConfig> _readConfiguration;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ArtworkStateStore _store;
     private Dictionary<string, ArtworkCandidate> _candidates = new(StringComparer.Ordinal);
@@ -36,7 +37,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     private SteamArtworkBrowserState? _state;
 
     internal SteamArtworkBrowserSource(
-        Func<ArtworkConfiguration> readConfiguration,
+        Func<ArtworkConfig> readConfiguration,
         ArtworkStateStore store)
     {
         _readConfiguration = readConfiguration;
@@ -532,7 +533,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: game search failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: game search failed: {ex.Message}");
             lock (_gate)
             {
                 if (_state is not null)
@@ -691,7 +692,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: load failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: load failed: {ex.Message}");
             lock (_gate)
             {
                 if (_state is null || generation != _generation)
@@ -726,7 +727,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: apply failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: apply failed: {ex.Message}");
             PublishOutcome(appId, ex.Message, true);
         }
     }
@@ -735,7 +736,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         ArtworkAsset asset,
         uint appId,
         ArtworkGameMatch? selected,
-        ArtworkConfiguration config,
+        ArtworkConfig config,
         CancellationToken cancellationToken)
     {
         var key = SteamGridDb.ResolveKey(config);
@@ -764,7 +765,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: official artwork lookup failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: official artwork lookup failed: {ex.Message}");
             return [];
         }
     }
@@ -783,7 +784,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: apply failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: apply failed: {ex.Message}");
             PublishOutcome(appId, ex.Message, true);
         }
     }
@@ -801,7 +802,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: reset failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: reset failed: {ex.Message}");
             PublishOutcome(appId, ex.Message, true);
         }
     }
@@ -910,7 +911,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Steam artwork page: current-art preview failed: {ex.Message}");
+            Log.Warn($"Steam artwork page: current-art preview failed: {ex.Message}");
             return null;
         }
     }
@@ -994,7 +995,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         return tab is "grid" or "wide" or "hero" or "logo" or "icon";
     }
 
-    private static SteamArtworkBrowserTab[] ConfiguredTabs(ArtworkConfiguration configuration)
+    private static SteamArtworkBrowserTab[] ConfiguredTabs(ArtworkConfig configuration)
     {
         var visibility = new Dictionary<string, bool>(StringComparer.Ordinal)
         {

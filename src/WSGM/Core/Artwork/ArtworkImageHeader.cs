@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Core;
 
 internal static class ArtworkImageHeader
 {

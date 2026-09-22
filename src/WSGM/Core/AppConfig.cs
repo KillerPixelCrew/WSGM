@@ -608,6 +608,9 @@ public sealed class AppConfig
     /// <summary>The Global profile and every per-game profile. See <c>docs\profiles.md</c>.</summary>
     public ProfileConfig Profiles { get; set; } = new();
 
+    /// <summary>Artwork provider credentials and the Steam browser's tab layout.</summary>
+    public ArtworkConfig Artwork { get; set; } = new();
+
     /// <summary>
     ///     Restart Steam automatically when it exits. Steam itself is located
     ///     via the registry (see Core.Steam) — there is nothing else to configure.
@@ -1072,6 +1075,7 @@ public sealed class CefConfig
 [JsonSerializable(typeof(DeviceAuthoredProfile))]
 [JsonSerializable(typeof(AuthoredCurvePoint))]
 [JsonSerializable(typeof(PerformanceConfig))]
+[JsonSerializable(typeof(ArtworkConfig))]
 [JsonSerializable(typeof(ProfileConfig))]
 [JsonSerializable(typeof(GameProfile))]
 [JsonSerializable(typeof(ProfileValues))]

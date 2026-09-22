@@ -221,16 +221,16 @@ and an explicit action with the currently declared options. Selection alone does
 
 `IPluginSteamUi` adds host-rendered Steam placements for an admitted common package: actions and
 declared primitive settings in the shared Quick Access Extensions tab, selected-game context-menu
-commands, and typed toolkit modules for plugin-owned pages. A game-menu declaration names exactly
-one numeric action argument; WSGM supplies the app ID from the menu that the user opened. An action
-may return a validated Steam route for the host surface to navigate to. Steam receives opaque
-contribution IDs, and WSGM resolves each request against the current registration, configuration
-revision and generation before dispatch. Secret settings are write-only in Steam and are never
-published back. A package cannot receive Steam's React or webpack objects or raw evaluation access;
-its page presentation is a compiled package-owned fragment using the toolkit's generic renderer
-registration and typed bridge. The current projection exposes only Ready, non-stopping,
-non-quarantined registrations. IDs belong to the captured registration and generation, so a
-replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
+commands, declared custom routes, and typed toolkit modules for plugin-owned pages. A game-menu
+declaration names exactly one numeric action argument; WSGM supplies the app ID from the menu that
+the user opened. An action may return a validated Steam route for the host surface to navigate to.
+Steam receives opaque contribution IDs, and WSGM resolves each request against the current
+registration, configuration revision and generation before dispatch. Secret settings are write-only
+in Steam and are never published back. A package cannot receive Steam's React or webpack objects or
+raw evaluation access; its page presentation is a compiled package-owned fragment using the
+toolkit's generic renderer registration and typed bridge. The current projection exposes only Ready,
+non-stopping, non-quarantined registrations. IDs belong to the captured registration and generation,
+so a replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
 invalidates plugin module state without coupling the session host to a particular plugin.
 
 The Extensions tab maps `PluginSettingKind.OrderedChoices` to native move-up and move-down controls.
@@ -238,11 +238,17 @@ Its text value is a comma-separated permutation of the declared choices; validat
 duplicates, omissions, unknown values and choice names containing commas before a plugin sees the
 new configuration.
 
-The bundled `WSGM.Plugin.Artwork` package is the first complete user of this path. It owns artwork
-provider configuration, SteamGridDB and Screenscraper.fr access, search state, downloads, artwork
-slot policy, its Steam route and all artwork presentation. WSGM Core owns none of that feature; it
-only admits the package through the same common-plugin lifecycle and projects its generic modules,
-settings and selected-game contribution.
+Custom routes are declared, not registered. The session host publishes one route list for the whole
+session, because the page host keys its patch and its publication by a single id: two owners
+publishing it would alternately clobber each other's routes, and two owners registering the patch is
+refused by the module set, which would take every Steam surface down rather than just the package's
+own. A plugin therefore contributes pages through `SteamPages` and the host merges them after its
+own. A route already served is dropped and named in the log, a package cannot override one of
+Valve's, and a plugin module declaring a host-owned patch id is refused at projection.
+
+Artwork was briefly a bundled package and is now part of WSGM again, so nothing ships in `Plugins\`
+by default. `src/WSGM.Plugin.Ir` remains an independent plugin, and an installed third-party package
+still reaches Steam through exactly the placements above.
 
 Widget action clicks re-read provider availability, generation and widget predicates before
 dispatch, including changes between timer refreshes. Reloaded providers rebuild the retained pin

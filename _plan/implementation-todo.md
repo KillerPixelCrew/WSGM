@@ -894,8 +894,10 @@ directly, so the taskbar slider lags the OSD by one poll.
 - [ ] **`steam-ui-toolkit`: host-rendered plugin Steam surfaces and SteamGridDB port.** The shared
       Extensions tab and selected-game context-menu contracts are implemented. Review repairs add
       generation-bound host routing, native focus controls, repeated-probe recognition and first-render
-      menu interception. The artwork system is now the bundled `WSGM.Plugin.Artwork` common plugin,
-      not a Core or toolkit feature. Its action opens a native Steam route with provider-backed tabs,
+      menu interception. The artwork system was briefly a bundled common plugin and is part of WSGM
+      again (2026-09-22): the plugin boundary blocked the Xbox importer, which needs the same
+      providers, apply path and page host, and a second page-owning plugin would have thrown out of
+      the session host's constructor. Its menu entry opens a native Steam route with provider-backed tabs,
       filters, details/apply, manage/reset, game selection, pagination, local files, icons and logo
       positioning. Live 1:1 visual/controller comparison and the optional Home/library presentation
       settings remain, plus an installed end-to-end acceptance pass. Plan: `_plan\steam-ui-toolkit.md`.

@@ -8,7 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Core;
 
 /// <summary>SteamGridDB behind the shared provider contract.</summary>
 /// <remarks>
@@ -26,7 +26,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
     public string DisplayName => "SteamGridDB";
 
     /// <inheritdoc />
-    public ArtworkProviderStatus GetStatus(ArtworkConfiguration config)
+    public ArtworkProviderStatus GetStatus(ArtworkConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         return SteamGridDb.ResolveKey(config).Length > 0
@@ -38,7 +38,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
-        string term, ArtworkConfiguration config, CancellationToken cancellationToken)
+        string term, ArtworkConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         var matches = await SteamGridDb.SearchGamesAsync(
@@ -57,7 +57,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, ArtworkConfiguration config, CancellationToken cancellationToken)
+        ArtworkAsset asset, string gameId, ArtworkConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (!int.TryParse(gameId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
@@ -72,7 +72,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, ArtworkConfiguration config, ArtworkQuery query,
+        ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -88,7 +88,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, CancellationToken cancellationToken)
+        ArtworkAsset asset, long steamAppId, ArtworkConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         var assets = await SteamGridDb.GetAssetsForSteamAppAsync(
@@ -98,7 +98,7 @@ public sealed class SteamGridDbProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, ArtworkQuery query,
+        ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -197,7 +197,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     ///     Credentials are never missing here, unlike SteamGridDB: WSGM ships a developer pair and the
     ///     user's own only replaces it. The switch in Settings is the whole of the readiness question.
     /// </remarks>
-    public ArtworkProviderStatus GetStatus(ArtworkConfiguration config)
+    public ArtworkProviderStatus GetStatus(ArtworkConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         return config.ScreenscraperEnabled
@@ -207,7 +207,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
-        string term, ArtworkConfiguration config, CancellationToken cancellationToken)
+        string term, ArtworkConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         var trimmed = term.Trim();
@@ -251,7 +251,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, ArtworkConfiguration config, CancellationToken cancellationToken)
+        ArtworkAsset asset, string gameId, ArtworkConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         var root = await GetAsync(
@@ -314,12 +314,12 @@ public sealed class ScreenscraperProvider : IArtworkProvider
     ///     so by returning nothing is correct; the user reaches it through a title search instead.
     /// </remarks>
     public Task<IReadOnlyList<ArtworkCandidate>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, ArtworkConfiguration config, CancellationToken cancellationToken)
+        ArtworkAsset asset, long steamAppId, ArtworkConfig config, CancellationToken cancellationToken)
     {
         return Task.FromResult<IReadOnlyList<ArtworkCandidate>>([]);
     }
 
-    private static string Credentials(ArtworkConfiguration config)
+    private static string Credentials(ArtworkConfig config)
     {
         var parts = new List<string>
         {
@@ -425,7 +425,7 @@ public sealed class ScreenscraperProvider : IArtworkProvider
                 $"{ApiBase}/{path}", cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                ArtworkLog.Warn($"Screenscraper {(int)response.StatusCode} for {path.Split('?')[0]}.");
+                Log.Warn($"Screenscraper {(int)response.StatusCode} for {path.Split('?')[0]}.");
                 throw new SteamGridDbException((int)response.StatusCode switch
                 {
                     401 or 403 => "Screenscraper rejected the credentials.",
@@ -454,12 +454,12 @@ public sealed class ScreenscraperProvider : IArtworkProvider
         {
             // Screenscraper answers with a plain-text error body on some failures, which is not a
             // transport fault and must not read like one.
-            ArtworkLog.Warn($"Screenscraper returned unparseable JSON: {ex.Message}");
+            Log.Warn($"Screenscraper returned unparseable JSON: {ex.Message}");
             throw new SteamGridDbException("Screenscraper returned a response WSGM could not read.");
         }
         catch (Exception ex)
         {
-            ArtworkLog.Warn($"Screenscraper request failed: {ex.Message}");
+            Log.Warn($"Screenscraper request failed: {ex.Message}");
             throw new SteamGridDbException("Could not contact Screenscraper.");
         }
     }

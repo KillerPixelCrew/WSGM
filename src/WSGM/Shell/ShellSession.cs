@@ -232,6 +232,9 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
     private SteamStorageBridge? _steamStorage;
 
+    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
+    private SteamArtworkBrowserSource? _artwork;
+
     private SteamUiSessionHost? _steamUi;
 
     private PersistentSteamUiTransport? _steamUiTransport;
@@ -585,14 +588,11 @@ public sealed class ShellSession : IAsyncDisposable
             // Overlay test deliberately never discovers packages or loads plugin code.
             if (!_overlayTestOnly)
             {
-                var bundledCatalog = CommonPluginCatalog.Discover(Path.Combine(AppContext.BaseDirectory, "Plugins"));
-                foreach (var error in bundledCatalog.Errors)
-                {
-                    Log.Warn("Bundled plugin refused: " + error);
-                }
-
+                // Installed packages only. WSGM bundles none, and the application directory is
+                // user-writable, so scanning it would load plugin code from a path the installed
+                // root is administrator-protected precisely to avoid.
                 _commonPlugins = new CommonPluginManager(_pluginHost, CommonPluginCatalog.InstalledRoot,
-                    Path.Combine(Log.Directory, "PluginState"), bundled: bundledCatalog.Packages);
+                    Path.Combine(Log.Directory, "PluginState"));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -986,6 +986,10 @@ public sealed class ShellSession : IAsyncDisposable
         // the next press rather than the next session.
         _steamStorage = new SteamStorageBridge(
             _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
+
+        // Artwork reads its providers from the session's live config, so a key entered in Settings
+        // applies to the next search rather than the next session.
+        _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
     }
 
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
@@ -1224,7 +1228,9 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlayTestOnly ? null : _displayTimeouts,
                 _audioProfiles,
                 _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost),
-                _profiles);
+                _profiles,
+                // Null in overlay-test, which has no Steam client to read artwork for or write it to.
+                _artwork);
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
@@ -3190,6 +3196,19 @@ public sealed class ShellSession : IAsyncDisposable
         // with the session, so only the drive manager is disposed after it.
         try
         {
+            _artwork?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the artwork browser during application shutdown failed", ex);
+        }
+        finally
+        {
+            _artwork = null;
+        }
+
+        try
+        {
             _steamStorage?.Dispose();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -3408,23 +3427,10 @@ public sealed class ShellSession : IAsyncDisposable
         {
             if (_commonPlugins is { } manager)
             {
-                List<CommonPluginInstanceConfig> desired = [.. config.PluginInstances];
-                foreach (var pluginId in manager.BundledPluginIds)
-                {
-                    if (desired.Any(instance => instance.PluginId == pluginId))
-                    {
-                        continue;
-                    }
-
-                    desired.Add(new CommonPluginInstanceConfig
-                    {
-                        PluginId = pluginId,
-                        InstanceId = "default",
-                        Enabled = true
-                    });
-                }
-
-                await manager.ReconcileAsync(desired, _shutdownCancellation.Token).ConfigureAwait(false);
+                // Exactly what the user enabled. Nothing is admitted implicitly: the auto-enable pass
+                // existed for bundled packages, and WSGM bundles none.
+                await manager.ReconcileAsync(config.PluginInstances, _shutdownCancellation.Token)
+                    .ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)

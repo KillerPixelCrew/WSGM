@@ -4,23 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WSGM.Core;
 
-namespace WSGM.Plugin.Artwork;
+namespace WSGM.Shell;
 
 internal sealed class ArtworkStateStore
 {
     private readonly object _gate = new();
-    private string? _path;
+    private readonly string _path = Path.Combine(Log.Directory, "artwork.json");
     private ArtworkPluginState? _state;
-
-    internal void SetDirectory(string stateDirectory)
-    {
-        lock (_gate)
-        {
-            _path = Path.Combine(Path.GetFullPath(stateDirectory), "artwork.json");
-            _state = null;
-        }
-    }
 
     internal ArtworkGameLink? FindGame(uint appId)
     {
@@ -91,7 +83,11 @@ internal sealed class ArtworkStateStore
 
         try
         {
-            if (_path is { } path && File.Exists(path))
+            // Artwork used to be a bundled package, so a machine that has used it before carries its
+            // game links under the retired plugin's state directory. They are read once, from
+            // whichever file exists, and the next write lands in WSGM's own directory.
+            var path = File.Exists(_path) ? _path : RetiredPluginStatePath();
+            if (path is not null && File.Exists(path))
             {
                 using var stream = File.OpenRead(path);
                 _state = JsonSerializer.Deserialize(stream, ArtworkStateJsonContext.Default.ArtworkPluginState);
@@ -99,7 +95,7 @@ internal sealed class ArtworkStateStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            ArtworkLog.Warn($"State load failed: {ex.Message}");
+            Log.Warn($"State load failed: {ex.Message}");
         }
 
         _state ??= new ArtworkPluginState();
@@ -129,13 +125,22 @@ internal sealed class ArtworkStateStore
         }
     }
 
+    /// <summary>Where the retired bundled package kept its state, or null when it never ran.</summary>
+    private static string? RetiredPluginStatePath()
+    {
+        try
+        {
+            return Path.Combine(Log.Directory, "PluginState", "wsgm.artwork", "artwork.json");
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
     private void Write(ArtworkPluginState state)
     {
-        if (_path is not { } path)
-        {
-            return;
-        }
-
+        var path = _path;
         EnsureDirectory(path);
         var temporary = path + ".tmp";
         try
@@ -149,7 +154,7 @@ internal sealed class ArtworkStateStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            ArtworkLog.Warn($"State save failed: {ex.Message}");
+            Log.Warn($"State save failed: {ex.Message}");
         }
         finally
         {

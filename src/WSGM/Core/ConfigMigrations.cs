@@ -22,6 +22,26 @@ internal static class ConfigMigrations
     /// <summary>The retired display-management value whose stored layouts migrate, as a file holds it.</summary>
     private const string LegacyFixedProfiles = "FixedProfiles";
 
+    /// <summary>The bundled artwork package's identity, from when the feature was a plugin.</summary>
+    private const string RetiredArtworkPluginId = "wsgm.artwork";
+
+    /// <summary>The artwork plugin's setting keys, and the section property each becomes.</summary>
+    private static readonly (string Key, string Property)[] RetiredArtworkSettings =
+    [
+        ("steamgriddb-api-key", nameof(ArtworkConfig.SteamGridDbApiKey)),
+        ("screenscraper-enabled", nameof(ArtworkConfig.ScreenscraperEnabled)),
+        ("screenscraper-user", nameof(ArtworkConfig.ScreenscraperUser)),
+        ("screenscraper-password", nameof(ArtworkConfig.ScreenscraperUserPassword)),
+        ("default-tab", nameof(ArtworkConfig.DefaultTab)),
+        ("tab-order", nameof(ArtworkConfig.TabOrder)),
+        ("show-grid", nameof(ArtworkConfig.ShowGrid)),
+        ("show-wide", nameof(ArtworkConfig.ShowWide)),
+        ("show-hero", nameof(ArtworkConfig.ShowHero)),
+        ("show-logo", nameof(ArtworkConfig.ShowLogo)),
+        ("show-icon", nameof(ArtworkConfig.ShowIcon)),
+        ("show-manage", nameof(ArtworkConfig.ShowManage))
+    ];
+
     /// <summary>Keys every file written before the profile store carries, as the file holds them.</summary>
     private static readonly string[] RetiredProfileKeys =
     [
@@ -47,6 +67,7 @@ internal static class ConfigMigrations
                || json.Contains("\"DisplayManagement\"", StringComparison.Ordinal)
                || json.Contains("\"DisplayProfiles\"", StringComparison.Ordinal)
                || json.Contains("\"DisplayRoutes\"", StringComparison.Ordinal)
+               || json.Contains(RetiredArtworkPluginId, StringComparison.Ordinal)
                || RetiredProfileKeys.Any(key => json.Contains(key, StringComparison.Ordinal));
     }
 
@@ -58,7 +79,68 @@ internal static class ConfigMigrations
         // The sign-in rule reads DisplayRoutes, so it has to run before the launch rule removes it.
         var changed = MigrateSignInStart(root);
         changed |= MigrateGameModeLaunch(root);
+        changed |= MigrateArtworkSettings(root);
         return MigrateProfileStore(root) || changed;
+    }
+
+    /// <summary>
+    ///     Lifts the artwork settings out of the retired bundled plugin's configuration entry.
+    ///     Artwork is a WSGM feature again, so its provider credentials and tab layout live in the
+    ///     application's own section rather than in a package's settings bag.
+    /// </summary>
+    /// <param name="root">The document root, modified in place.</param>
+    /// <returns>True when the entry was present.</returns>
+    private static bool MigrateArtworkSettings(JsonObject root)
+    {
+        if (root["PluginConfigurations"] is not JsonArray configurations)
+        {
+            return false;
+        }
+
+        var entry = configurations.OfType<JsonObject>().FirstOrDefault(
+            candidate => candidate["PluginId"]?.GetValue<string>() == RetiredArtworkPluginId);
+        if (entry is null)
+        {
+            return false;
+        }
+
+        configurations.Remove(entry);
+
+        // A build that already knows the section has written the user's current choices; the
+        // package entry left in the same file is stale and only its removal matters.
+        if (root.ContainsKey(nameof(AppConfig.Artwork)))
+        {
+            return true;
+        }
+
+        if (entry["Values"] is not JsonObject values)
+        {
+            return true;
+        }
+
+        JsonObject artwork = [];
+        foreach (var (key, property) in RetiredArtworkSettings)
+        {
+            // A plugin setting is a PluginValue envelope: the primitive lives under Text, Boolean or
+            // Number, not directly on the key.
+            if (values[key] is not JsonObject value)
+            {
+                continue;
+            }
+
+            var carried = value["Text"] ?? value["Boolean"];
+            if (carried is not null)
+            {
+                artwork[property] = carried.DeepClone();
+            }
+        }
+
+        if (artwork.Count > 0)
+        {
+            root[nameof(AppConfig.Artwork)] = artwork;
+        }
+
+        return true;
     }
 
     /// <summary>

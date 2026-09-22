@@ -44,7 +44,19 @@ public interface IPluginSteamUi
     ///     Typed toolkit modules owned by the plugin. The host owns transport, bridge, patch lifecycle and
     ///     enablement; plugins own only their bounded state, commands and renderer-specific gate.
     /// </summary>
+    /// <remarks>
+    ///     A module must not declare a patch the host owns, including the custom-page host: one patch id
+    ///     belongs to one module, so a second declaration is refused rather than registered.
+    /// </remarks>
     IReadOnlyList<ISteamUiModule> SteamUiModules => [];
+
+    /// <summary>Custom Steam routes this plugin's renderer fragments serve.</summary>
+    /// <remarks>
+    ///     Declared rather than registered: the host publishes one route list for the whole session, so a
+    ///     plugin contributes pages instead of owning the page surface. A route already served is refused
+    ///     and named, and a plugin cannot override one of Valve's own.
+    /// </remarks>
+    IReadOnlyList<SteamPage> SteamPages => [];
 
     /// <summary>Raised when a module publication changed and should be pushed to Steam.</summary>
     event Action? SteamUiChanged
