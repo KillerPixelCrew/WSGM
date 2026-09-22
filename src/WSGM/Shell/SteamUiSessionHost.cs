@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit.Surfaces;
@@ -195,7 +194,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _pluginPatchIds = [.. _pluginModules.SelectMany(module => module.Patches).Select(patch => patch.Id)];
         // The menu exists for WSGM's own Change Artwork entry, so it is not conditional on a plugin
         // source the way it was while artwork was a package.
-        _gameContextMenu = new SteamGameContextMenuBackend(pluginSteamUi, artwork);
+        _gameContextMenu = new SteamGameContextMenuBackend(
+            pluginSteamUi,
+            artwork is null ? null : artwork.OpenAsync,
+            artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -1184,65 +1186,4 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _runtime.CancelAllInflight();
     }
 
-    /// <summary>
-    ///     Steam's game menu: WSGM's own entries, then whatever the admitted packages contribute.
-    /// </summary>
-    /// <remarks>
-    ///     WSGM's ids carry a reserved prefix, so a package can neither answer for one nor displace it
-    ///     by choosing the same id.
-    /// </remarks>
-    private sealed class SteamGameContextMenuBackend(
-        CommonPluginSteamUiSource? pluginSteamUi,
-        SteamArtworkBrowserSource? artwork)
-        : ISteamGameContextMenuBackend
-    {
-        private const string ArtworkId = "wsgm.change-artwork";
-
-        public async Task<SteamUiCommandResult> ActivateAsync(uint appId, string id,
-            CancellationToken cancellationToken)
-        {
-            if (id == ArtworkId)
-            {
-                if (artwork is null)
-                {
-                    return new SteamUiCommandResult(false, "Artwork is unavailable in this session.");
-                }
-
-                var opened = await artwork.OpenAsync(appId, cancellationToken).ConfigureAwait(false);
-                if (!opened.Succeeded)
-                {
-                    return new SteamUiCommandResult(false, opened.Error);
-                }
-
-                // The route travels in the payload the gate reads, the same shape a plugin action's
-                // answer takes, so the menu opens the page through one contract.
-                return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-                    new Dictionary<string, string>
-                    {
-                        ["route"] = SteamArtworkBrowserSurface.RouteFor(appId)
-                    }));
-            }
-
-            return pluginSteamUi is null
-                ? new SteamUiCommandResult(false, "That menu entry is no longer available.")
-                : await pluginSteamUi.ActivateAsync(appId, id, cancellationToken).ConfigureAwait(false);
-        }
-
-        internal SteamGameContextMenuState ReadState()
-        {
-            List<SteamGameContextMenuItem> items = [];
-            if (artwork is not null)
-            {
-                items.Add(new SteamGameContextMenuItem(ArtworkId, "Change Artwork…"));
-            }
-
-            if (pluginSteamUi is not null)
-            {
-                items.AddRange(pluginSteamUi.ReadGameContextMenu().Items
-                    .Where(item => item.Id != ArtworkId));
-            }
-
-            return new SteamGameContextMenuState(items);
-        }
-    }
 }

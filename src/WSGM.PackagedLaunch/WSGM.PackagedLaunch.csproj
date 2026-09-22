@@ -23,6 +23,16 @@
          cannot drift. The same arrangement WSGM.Launch uses for ScheduledTaskXml. -->
     <Compile Include="..\WSGM\Core\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
   </ItemGroup>
+  <ItemGroup>
+    <!-- The overlay bridge, staged by eng\build-uwp-bridge.ps1. Generated and not committed, so a
+         checkout without MSVC still builds the launcher; the UWP route then reports the bridge as
+         missing rather than failing to compile. Same arrangement as WSGM's native components. -->
+    <None Include="Native\UwpBridge\*"
+          Condition="'$(SkipNativeArtifacts)' != 'true'"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"/>
+  </ItemGroup>
   <!-- Deliberately no InternalsVisibleTo. The shared launch-command source is compiled into both
        this assembly and WSGM, so exposing internals here would put two copies of the same type in
        front of the test project. The types worth testing are public instead. -->

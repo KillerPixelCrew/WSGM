@@ -86,6 +86,19 @@ internal sealed class GameSessionJob : IDisposable
                && !Shared.Contains(facts.Name);
     }
 
+    /// <summary>Whether this process is the GDK launch helper rather than the game itself.</summary>
+    /// <param name="facts">The process to judge.</param>
+    /// <remarks>
+    ///     The helper is contained and supervised like everything else carrying the package
+    ///     identity, but it is not what owns the swap chain, so checks about the overlay must not
+    ///     settle on it.
+    /// </remarks>
+    internal static bool IsLaunchHelper(ProcessFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        return facts.Name.Equals("gamelaunchhelper.exe", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Adds one of the game's processes to the job.</summary>
     /// <param name="processId">The process to contain.</param>
     /// <param name="name">Its image name, for the log.</param>

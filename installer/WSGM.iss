@@ -111,6 +111,11 @@ Source: "{#AppPublishDir}\WSGM.Launch.exe"; DestDir: "{app}"; Flags: ignoreversi
 ; Steam's session alive for a game Windows activates outside Steam's launch tree, and
 ; anti-cheat compatibility is unverified.
 Source: "{#AppPublishDir}\WSGM.PackagedLaunch.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The overlay bridge that launcher loads into a native UWP game. Listed explicitly rather than
+; relying on the *.dll sweep below, because an injectable DLL belongs in the manifest.
+Source: "{#AppPublishDir}\WsgmUwpBridge.dll"; DestDir: "{app}"; Flags: ignoreversion
+; MinHook (BSD-2-Clause), linked into the overlay bridge.
+Source: "{#AppPublishDir}\MinHook-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; SYSTEM service binary: Program Files only (admin-writable), never {app}. It
 ; launches the per-user WSGM.exe via the boot manifest — as that user, which is
 ; why the user-writable app path is not an escalation.

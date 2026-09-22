@@ -138,35 +138,103 @@ internal static class Program
                 + "from lifetime management and may be suspended when it loses the foreground.");
         }
 
-        var reported = false;
-        GameSessionSupervisor supervisor = new(request.PackageFamilyName, job, facts =>
+        PrivilegeJournal privileges = new();
+        GameInjector injector = new(privileges);
+        var degraded = decision.Degraded;
+
+        // Before the game exists. The helper activation returned is the only place Steam's handoff
+        // can still be influenced; once the game is running it is too late for this route.
+        if (decision.Route is LaunchRoute.PackagedWin32Overlay)
         {
-            if (!request.ReportPrivileges || reported)
+            var prepared = new PackagedWin32OverlayRoute(injector).Prepare(activation.SeedProcessId);
+            PackagedLaunchLog.Info(prepared.Detail);
+            if (!prepared.Succeeded)
             {
-                return;
+                // The game still launches. The user asked to play, and Steam's running state and
+                // containment are worth keeping even when the overlay is not.
+                degraded = true;
             }
-
-            reported = true;
-            PrivilegeJournal.ReportAccess(facts.Id);
-        })
+        }
+        AppContainerOverlayRoute? appContainer = null;
+        GameForegroundProxy? proxy = null;
+        if (decision.Route is LaunchRoute.AppContainerOverlay)
         {
-            // The routes that do the overlay work land in later changes. Until then a session that
-            // was asked for the overlay and cannot have one says so rather than reporting success.
-            Degraded = decision.Degraded
-                       || decision.Route is LaunchRoute.PackagedWin32Overlay or LaunchRoute.AppContainerOverlay
-                       || decision.Route is LaunchRoute.ControllerOnly
-        };
-
-        if (decision.Route is not LaunchRoute.SuperviseOnly)
-        {
-            PackagedLaunchLog.Warn(
-                $"The {decision.Route} route is not implemented in this build, so the game is "
-                + "supervised without it. Steam's running state and containment still apply.");
+            appContainer = new AppContainerOverlayRoute(injector);
+            var prepared = appContainer.Prepare(activation.SeedProcessId, request.Diagnostics);
+            PackagedLaunchLog.Info(prepared.Detail);
+            if (prepared.Succeeded)
+            {
+                // Only for this route. The frame a UWP title renders into belongs to
+                // ApplicationFrameHost, and Steam Input follows the foreground window's owner.
+                proxy = new GameForegroundProxy();
+                proxy.SetTarget(activation.SeedProcessId);
+            }
+            else
+            {
+                degraded = true;
+            }
         }
 
-        var outcome = supervisor.Run(activation.SeedProcessId, cancellation.Token);
-        PackagedLaunchLog.Info(Describe(outcome));
-        return GameSessionExitDecision.ExitCode(outcome);
+        var reported = false;
+        var rendererChecked = false;
+
+        // Declared before it is built so the observation callback can mark the session degraded:
+        // the callback only ever runs from inside Run, long after the assignment.
+        GameSessionSupervisor? supervisor = null;
+        supervisor = new GameSessionSupervisor(request.PackageFamilyName, job, facts =>
+        {
+            if (request.ReportPrivileges && !reported)
+            {
+                reported = true;
+                PrivilegeJournal.ReportAccess(facts.Id);
+            }
+
+            // Observation, not repair. Whether Steam's handoff reached the process that owns the
+            // swap chain is the one thing this route cannot assume, and a game without the renderer
+            // is reported rather than written to.
+            if (decision.Route is LaunchRoute.PackagedWin32Overlay && !rendererChecked
+                && !GameSessionJob.IsLaunchHelper(facts))
+            {
+                rendererChecked = true;
+                if (PackagedWin32OverlayRoute.RendererReached(facts))
+                {
+                    PackagedLaunchLog.Info(
+                        $"Steam's renderer is present in {facts.Name} ({facts.Id}).");
+                }
+                else
+                {
+                    PackagedLaunchLog.Warn(
+                        $"Steam's renderer is not in {facts.Name} ({facts.Id}). The overlay will not "
+                        + "draw for this title, and nothing is injected to force it.");
+                    supervisor!.Degraded = true;
+                }
+            }
+        })
+        {
+            Degraded = degraded
+        };
+
+        int outcomeCode;
+        try
+        {
+            var outcome = supervisor.Run(activation.SeedProcessId, cancellation.Token);
+
+            // While the game is still alive: the bridge's own counters live in its address space.
+            if (outcome is not GameSessionOutcome.Completed and not GameSessionOutcome.Degraded)
+            {
+                appContainer?.Report(activation.SeedProcessId);
+            }
+
+            PackagedLaunchLog.Info(Describe(outcome));
+            outcomeCode = GameSessionExitDecision.ExitCode(outcome);
+        }
+        finally
+        {
+            proxy?.Dispose();
+            appContainer?.Dispose();
+        }
+
+        return outcomeCode;
     }
 
     /// <summary>Maps the shortcut's vocabulary to the launcher's own.</summary>

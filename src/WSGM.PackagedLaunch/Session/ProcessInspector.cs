@@ -27,6 +27,12 @@ internal sealed record ProcessFacts(
     string Integrity,
     DateTime? StartedAt);
 
+/// <summary>One top-level window belonging to, or hosting, a process.</summary>
+/// <param name="Handle">The window.</param>
+/// <param name="ClassName">Its class, which is how a UWP CoreWindow and its frame are told apart.</param>
+/// <param name="Visible">Whether Windows considers it visible.</param>
+internal sealed record WindowEntry(IntPtr Handle, string ClassName, bool Visible);
+
 /// <summary>Reads the few process facts this launcher acts on.</summary>
 /// <remarks>
 ///     Deliberately small. The spike described processes exhaustively because it was answering
@@ -142,6 +148,65 @@ internal static class ProcessInspector
         {
             NativeMethods.CloseHandle(process);
         }
+    }
+
+    /// <summary>The windows a process owns, plus the frame hosting its CoreWindow.</summary>
+    /// <param name="processId">The process to look for.</param>
+    /// <remarks>
+    ///     A UWP title's visible window is an <c>ApplicationFrameWindow</c> owned by
+    ///     ApplicationFrameHost, not by the game, so looking only at the game's own process finds
+    ///     nothing and an empty result would read as "this game has no window". The frame is
+    ///     admitted when it actually hosts a CoreWindow belonging to this process, and never
+    ///     otherwise: every packaged app on the machine shares that host.
+    /// </remarks>
+    internal static IReadOnlyList<WindowEntry> WindowsOf(int processId)
+    {
+        List<WindowEntry> found = [];
+        NativeMethods.EnumWindows((handle, _) =>
+        {
+            NativeMethods.GetWindowThreadProcessId(handle, out var owner);
+            var className = ClassNameOf(handle);
+            var owned = owner == (uint)processId;
+            if (!owned && className.Equals("ApplicationFrameWindow", StringComparison.Ordinal))
+            {
+                owned = HostsCoreWindowOf(handle, processId);
+            }
+
+            if (owned)
+            {
+                found.Add(new WindowEntry(handle, className, NativeMethods.IsWindowVisible(handle)));
+            }
+
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    /// <summary>Whether a frame window hosts a CoreWindow belonging to this process.</summary>
+    internal static bool HostsCoreWindowOf(IntPtr frame, int processId)
+    {
+        var hosts = false;
+        NativeMethods.EnumChildWindows(frame, (child, _) =>
+        {
+            NativeMethods.GetWindowThreadProcessId(child, out var owner);
+            if (owner != (uint)processId
+                || !ClassNameOf(child).Equals("Windows.UI.Core.CoreWindow", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            hosts = true;
+            return false;
+        }, IntPtr.Zero);
+        return hosts;
+    }
+
+    private static string ClassNameOf(IntPtr handle)
+    {
+        StringBuilder className = new(256);
+        return NativeMethods.GetClassNameW(handle, className, className.Capacity) > 0
+            ? className.ToString()
+            : string.Empty;
     }
 
     private static string ImageName(IntPtr process)
