@@ -2372,12 +2372,15 @@ public sealed class ShellSession : IAsyncDisposable
         {
             lock (_devicePowerGate)
             {
-                // The flag records what the MACHINE did, not whether this transition succeeded. A
-                // suspend that failed still slept the hardware, and leaving the flag unset made the
-                // following resume an edge that never came: the wake was skipped as "already
-                // running" and the cycle stayed quiesced (Claw, 2026-09-22). The coordinator's
-                // resume repairs a cycle that was never properly suspended.
-                _deviceSuspended = suspend;
+                // A failed transition leaves the cycle in a state nobody established, so it is
+                // recorded as suspended whichever direction failed. That is the value that lets the
+                // NEXT resume through, and a resume is the only edge that can repair anything: a
+                // failed suspend still slept the hardware, and a failed resume still has to be
+                // retried. Recording the attempted direction instead would latch the cycle off
+                // after a failed resume, and leaving the flag alone made the wake after a failed
+                // suspend skip as "already running" with every capability quiesced (Claw,
+                // 2026-09-22). A redundant suspend edge is harmless; a missed resume is not.
+                _deviceSuspended = true;
                 if (_devicePowerRequestGeneration == requestGeneration)
                 {
                     _pendingDeviceSuspended = null;
