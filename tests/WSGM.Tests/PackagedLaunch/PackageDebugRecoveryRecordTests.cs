@@ -1,0 +1,161 @@
+using WSGM.Device.Tests;
+using WSGM.PackagedLaunch;
+
+namespace WSGM.Tests.PackagedLaunch;
+
+/// <summary>
+///     The journal that stops a killed launcher leaving a package permanently exempt from Process
+///     Lifetime Management. Windows keeps a package out of PLM until something puts it back, so a
+///     record that is never replayed means a game that is never suspended again for the rest of the
+///     machine's life.
+/// </summary>
+public sealed class PackageDebugRecoveryRecordTests
+{
+    private const string Package = "Publisher.Game_1.0.0.0_x64__abc123";
+
+    private static PackageDebugRecoveryRecord Journal(
+        string path, Func<int, DateTime?, bool> isOwnerAlive)
+    {
+        return new PackageDebugRecoveryRecord(path, isOwnerAlive);
+    }
+
+    [Fact]
+    public void ARecordWhoseOwnerIsGoneIsReplayed()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
+
+        var abandoned = Journal(path, static (_, _) => false).TakeAbandoned();
+
+        Assert.Equal(Package, Assert.Single(abandoned));
+    }
+
+    [Fact]
+    public void ARecordOwnedByALiveLauncherIsLeftAlone()
+    {
+        // Releasing a live launcher's exemption would suspend the game it is supervising.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
+
+        Assert.Empty(Journal(path, static (_, _) => true).TakeAbandoned());
+    }
+
+    [Fact]
+    public void AReplayedRecordIsNotReplayedAgain()
+    {
+        // Taking the record out and releasing the package are separate steps, so a release that
+        // itself fails cannot make every later sweep retry it forever.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
+        var journal = Journal(path, static (_, _) => false);
+
+        Assert.Single(journal.TakeAbandoned());
+        Assert.Empty(journal.TakeAbandoned());
+    }
+
+    [Fact]
+    public void ANormalReleaseLeavesNothingToReplay()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var journal = Journal(path, static (_, _) => true);
+        journal.Add(Package, 4242, DateTime.UtcNow);
+        journal.Remove(Package, 4242);
+
+        Assert.Empty(Journal(path, static (_, _) => false).TakeAbandoned());
+    }
+
+    [Fact]
+    public void AnotherLaunchersRecordSurvivesThisOnesRelease()
+    {
+        // Two packaged games can run at once, and one exiting must not drop the other's record.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var journal = Journal(path, static (_, _) => true);
+        journal.Add(Package, 4242, DateTime.UtcNow);
+        journal.Add("Other.Game_1.0.0.0_x64__xyz789", 5353, DateTime.UtcNow);
+        journal.Remove(Package, 4242);
+
+        var abandoned = Journal(path, static (_, _) => false).TakeAbandoned();
+
+        Assert.Equal("Other.Game_1.0.0.0_x64__xyz789", Assert.Single(abandoned));
+    }
+
+    [Fact]
+    public void TheOwnerCheckSeesTheStartTimeThatWasRecorded()
+    {
+        // A process id alone proves nothing: Windows reuses them, so the check is given the start
+        // time to compare against and must actually receive it.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var started = new DateTime(2026, 9, 22, 10, 30, 0, DateTimeKind.Utc);
+        Journal(path, static (_, _) => true).Add(Package, 4242, started);
+
+        DateTime? observed = null;
+        Journal(path, (_, startedUtc) =>
+        {
+            observed = startedUtc;
+            return true;
+        }).TakeAbandoned();
+
+        Assert.Equal(started, observed);
+    }
+
+    [Fact]
+    public void AnEmptyJournalIsRemovedRatherThanLeftBehind()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var journal = Journal(path, static (_, _) => true);
+        journal.Add(Package, 4242, DateTime.UtcNow);
+        Assert.True(File.Exists(path));
+
+        journal.Remove(Package, 4242);
+
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void AMissingJournalIsNotAFailure()
+    {
+        using TemporaryDirectory temporary = new();
+
+        Assert.Empty(Journal(temporary.GetPath("absent.json"), static (_, _) => false).TakeAbandoned());
+    }
+
+    [Fact]
+    public void ACorruptJournalIsTreatedAsEmptyRatherThanStoppingALaunch()
+    {
+        // A journal that cannot be read must not stop a game starting: the exemption it would have
+        // recorded is released by this launcher's own exit in every case except a kill.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        File.WriteAllText(path, "{ not json");
+
+        Assert.Empty(Journal(path, static (_, _) => false).TakeAbandoned());
+    }
+
+    [Fact]
+    public void AMalformedRecordIsDroppedRatherThanReplayed()
+    {
+        // An empty package name would be handed straight to DisableDebugging.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        File.WriteAllText(path, """
+                                {
+                                  "Records": [
+                                    { "PackageFullName": "", "LauncherProcessId": 1 },
+                                    { "PackageFullName": "Good_x__y", "LauncherProcessId": 0 },
+                                    { "PackageFullName": "Kept_x__y", "LauncherProcessId": 7 }
+                                  ]
+                                }
+                                """);
+
+        var abandoned = Journal(path, static (_, _) => false).TakeAbandoned();
+
+        Assert.Equal("Kept_x__y", Assert.Single(abandoned));
+    }
+}

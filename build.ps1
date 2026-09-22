@@ -72,6 +72,13 @@ dotnet publish "$root\src\WSGM.Launch\WSGM.Launch.csproj" -c Release -r win-x64 
     -o $appPublish --no-restore "/p:Version=$version" -m:1
 if ($LASTEXITCODE -ne 0) { throw "WSGM.Launch publish failed" }
 
+# The packaged-game launcher Steam starts for an imported Xbox, UWP or MSIX title. It stays alive
+# for the session so Steam keeps the shortcut running, because package activation puts the game
+# outside Steam's launch tree. Published beside WSGM so a generated shortcut has a stable target.
+dotnet publish "$root\src\WSGM.PackagedLaunch\WSGM.PackagedLaunch.csproj" -c Release -r win-x64 `
+    -o $appPublish --no-restore "/p:Version=$version" -m:1
+if ($LASTEXITCODE -ne 0) { throw "WSGM.PackagedLaunch publish failed" }
+
 # The SYSTEM logon service that launches WSGM's boot cover at sign-in. Published
 # beside the rest; the installer ships it to Program Files (never user-writable).
 dotnet publish "$root\src\WSGM.LogonService\WSGM.LogonService.csproj" -c Release -r win-x64 `
@@ -79,6 +86,7 @@ dotnet publish "$root\src\WSGM.LogonService\WSGM.LogonService.csproj" -c Release
 if ($LASTEXITCODE -ne 0) { throw "WSGM.LogonService publish failed" }
 
 if (-not (Test-Path "$appPublish\WSGM.Launch.exe")) { throw "Launch wrapper was not produced" }
+if (-not (Test-Path "$appPublish\WSGM.PackagedLaunch.exe")) { throw "Packaged-game launcher was not produced" }
 if (-not (Test-Path "$appPublish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 if (-not (Test-Path "$appPublish\libviiper.dll")) { throw "VIIPER controller library was not published" }
 

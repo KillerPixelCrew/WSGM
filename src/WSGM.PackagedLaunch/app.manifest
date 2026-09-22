@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+    <assemblyIdentity version="1.0.0.0" name="WSGM.PackagedLaunch"/>
+    <!-- Never requireAdministrator. This inherits Steam's integrity, and the minimum privilege it
+         actually needs is unknown; the privilege report is how that gets established.
+         Note for editors: a double hyphen cannot appear inside an XML comment. Writing one here
+         makes the manifest malformed, and Windows then refuses to start the process at all with
+         "the side by side configuration is invalid". -->
+    <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+        <security>
+            <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+                <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+            </requestedPrivileges>
+        </security>
+    </trustInfo>
+    <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+        <application>
+            <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+        </application>
+    </compatibility>
+    <application xmlns="urn:schemas-microsoft-com:asm.v3">
+        <windowsSettings>
+            <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+            <!-- A UWP title's CoreWindow and its ApplicationFrameHost frame are both filtered out
+                 of ordinary window enumeration. Without this the game appears to have no window at
+                 all, which is indistinguishable from a game that never started. See
+                 learn.microsoft.com/windows/win32/sbscs/application-manifests -->
+            <disableWindowFiltering xmlns="http://schemas.microsoft.com/SMI/2011/WindowsSettings">true</disableWindowFiltering>
+        </windowsSettings>
+    </application>
+</assembly>

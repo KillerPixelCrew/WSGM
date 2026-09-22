@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Console subsystem on purpose. WSGM.Launch carries the device-verified finding this shares:
+         a windowless GUI wrapper is treated by Steam as a game and gets Steam Input hooked into it,
+         which kills it before it runs. The window is hidden at startup instead. -->
+    <OutputType>Exe</OutputType>
+    <!-- Matches WSGM's own target so the shared launch-command source compiles identically here. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <DebugType>none</DebugType>
+    <AssemblyName>WSGM.PackagedLaunch</AssemblyName>
+    <RootNamespace>WSGM.PackagedLaunch</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\WSGM\Assets\wsgm.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The command line the importer writes and this parses, compiled from one source so the two
+         cannot drift. The same arrangement WSGM.Launch uses for ScheduledTaskXml. -->
+    <Compile Include="..\WSGM\Core\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+  </ItemGroup>
+  <!-- Deliberately no InternalsVisibleTo. The shared launch-command source is compiled into both
+       this assembly and WSGM, so exposing internals here would put two copies of the same type in
+       front of the test project. The types worth testing are public instead. -->
+</Project>

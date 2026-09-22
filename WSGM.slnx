@@ -14,6 +14,7 @@
     <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj"/>
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj"/>
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj"/>
+    <Project Path="src/WSGM.PackagedLaunch/WSGM.PackagedLaunch.csproj"/>
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj"/>
