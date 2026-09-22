@@ -81,9 +81,17 @@ public static class ProfileEdits
         }
 
         var executable = ValidExecutable(active.Executable);
+        var idTaken = config.Games.Any(entry => entry.Id == active.ApplicationId);
+        if (idTaken && executable is null)
+        {
+            // A generated id with no executable matches nothing: neither a process rule nor the
+            // identity fallback could ever select it, so every press would store another dead profile.
+            return false;
+        }
+
         config.Games.Add(new GameProfile
         {
-            Id = config.Games.Any(entry => entry.Id == active.ApplicationId)
+            Id = idTaken
                 ? NamedProfilePrefix + Guid.NewGuid().ToString("N")
                 : active.ApplicationId!,
             Name = executable ?? active.ApplicationId!,

@@ -210,10 +210,24 @@ internal sealed class ProfileService
     internal async Task<bool> SetGameEnabledAsync(bool enabled, string? expectedApplicationId = null,
         CancellationToken cancellationToken = default)
     {
+        var stale = false;
         var result = await MutateAsync((config, active) =>
-                (expectedApplicationId is null || active.ApplicationId == expectedApplicationId)
-                && ProfileEdits.SetGameEnabled(config, active, enabled), cancellationToken)
-            .ConfigureAwait(false);
+        {
+            if (expectedApplicationId is not null && active.ApplicationId != expectedApplicationId)
+            {
+                stale = true;
+                return false;
+            }
+
+            return ProfileEdits.SetGameEnabled(config, active, enabled);
+        }, cancellationToken).ConfigureAwait(false);
+        if (stale)
+        {
+            // The request was for another application. Whatever the current one's switch says, this
+            // request did not set it.
+            return false;
+        }
+
         if (result.Changed)
         {
             Log.Info($"Profile: per-game profile {(enabled ? "on" : "off")} for {Describe(result.Snapshot.Active)}.");

@@ -42,6 +42,20 @@ public sealed class ProfileEditsTests
     }
 
     [Fact]
+    public void AProfileNothingCouldMatchIsNeverCreated()
+    {
+        // The application's id is already used by a profile bound to another executable, and this
+        // one's executable is not known yet: a generated id would match nothing.
+        ProfileConfig config = new()
+        {
+            Games = [new GameProfile { Id = "steam:42", ProcessNames = ["other.exe"], Enabled = true }]
+        };
+
+        Assert.False(ProfileEdits.SetGameEnabled(config, Running(config, exe: null), true));
+        Assert.Single(config.Games);
+    }
+
+    [Fact]
     public void NothingRunningCannotBeOptedIn()
     {
         ProfileConfig config = new();

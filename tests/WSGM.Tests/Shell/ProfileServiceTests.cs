@@ -117,6 +117,19 @@ public sealed class ProfileServiceTests
     }
 
     [Fact]
+    public async Task ARequestForAnotherApplicationIsReportedAsRefused()
+    {
+        var profiles = Profiles();
+        profiles.SetRunningApplication(Game);
+
+        // Asking to switch the profile off matches the current state, but the request named another
+        // application, so it must not be reported as done.
+        Assert.False(await profiles.SetGameEnabledAsync(false, "steam:7"));
+        Assert.False(await profiles.SetGameEnabledAsync(true, "steam:7"));
+        Assert.Empty(profiles.Current.Config.Games);
+    }
+
+    [Fact]
     public void RunningTheSameApplicationTwiceRaisesOneChange()
     {
         var profiles = Profiles();
