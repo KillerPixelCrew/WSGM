@@ -70,9 +70,14 @@ SKU `1T52.1`, supported firmware, and the observed endpoints. Revalidate a new r
 Identity and topology:
 
 - USB VID `0DB0`; PID `1901` is XInput and `1902` is DirectInput; `1903`/`1904` remain diagnostic.
-- Controller/MCU release `0229` is the current exact gate.
+- The controller `bcdDevice` is recorded but never used as a gate. It is `0229` on the reference
+  unit and `0230` after MSI's 2026-08 controller update. The controller, OEM and motion services
+  need only the exact SMBIOS identity (`MsiWmiPlatform.IsExactMachine`). WMI-backed services also
+  need MSI_ACPI 8.0 and an EC firmware prefix of `1T52EMS1.109`. Lighting rechecks the reviewed
+  profile shape at `0x024A` on every acquire.
 - XInput MCU: `MI_01`, usage `FFA0/0001`, 64-byte input/output.
-- DirectInput gamepad: `MI_00&COL01`, 64-byte input, 32-byte output, 48-byte feature.
+- DirectInput gamepad: `MI_00&COL01`, usage `0001/0005`, 64-byte input, 32-byte output, 48-byte
+  feature. The code matches on usage and report lengths; the interface strings come from the plan.
 - DirectInput MCU: `MI_00&COL02`, usage `FFF0/0040`, 64-byte input/output/feature.
 - Mode continuation walks PnP parents to the physical USB location and removes unstable `#USBMI(n)`
   suffixes. The container id is null and the USB serial exists only in XInput.
@@ -99,19 +104,39 @@ corrupt initial state where bytes 1-9 are all `0xFF`.
 Front OEM controls are not in this report. `MSI_Event` low byte `0x29` is OEM1 short/Guide; `0x58`
 is OEM2 short/Quick Access; `0x2A` is OEM2 long/the same logical Quick Access control. Events have
 no release, so the plugin uses independent 120 ms latches. A later event for one button must not
-extend the other and fabricate a chord.
+extend the other and fabricate a chord. The latches put Guide or QuickAccess into the controller
+sample. The plugin also publishes a semantic `OemControlEvent` with a stable deduplication ID.
 
 OEM2 also emits a malformed keyboard side effect through `ACPI\MSNB1001`: short is Win-down, orphan
 G-up, Win-up; long substitutes orphan Tab-up. WMI is the action source. The hook suppresses the
 observed orphan-up sequence while Win is held and no modifier is active. Following the maintainer's
 2026-09-05 request, it also intercepts Win+G on key-down as HC does, including ordinary keyboard
 Win+G with modifiers. Normal Win+Tab and injected input pass through. Never filter the full ACPI
-device. Synthetic Win releases use extended-key flags and the 40-byte x64 INPUT ABI.
+device. Synthetic Win releases use extended-key flags and the 40-byte x64 INPUT ABI. A masking
+`VK_DUMMY` (`0xFF`) down/up, without the extended flag, comes before the Win-up. Every injected
+event carries marker `0x5753474D`. The hook reads `KBDLLHOOKSTRUCT` through a pointer instead of
+marshalling it.
 
 Primary evidence and implementation paths:
 
-- `_plan/claw-8-a2vm-plugin.md` — dated measurements and remaining attended matrix.
-- `src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs` — codec.
-- `WindowsHidTransports.cs` — endpoint discovery, mode continuation, read/write behavior.
-- `MsiWmiPlatform.cs` and `ClawResources.cs` — WMI event source and latches/suppression.
-- Corresponding Claw tests — raw fixtures, mode, OEM, cleanup, and regression evidence.
+- `_plan/claw-8-a2vm-plugin.md`: dated measurements and the remaining attended matrix.
+- `src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs`: the codec.
+- `WindowsHidTransports.cs`: endpoint discovery, mode continuation, read/write behavior.
+- `MsiWmiPlatform.cs` and `ClawResources.cs`: the WMI event source, latches and suppression.
+- `tests/WSGM.Device.Msi.Claw8A2Vm.Tests`, especially `ClawInputTests`, `WindowsHidTransportsTests`
+  and `FirmwareChordTests`: raw fixtures and mode, OEM, cleanup and regression evidence.
+
+## ROG Ally X: no measured controller evidence yet
+
+Nothing measured compares to the Claw section above. The only recorded hardware facts come from one
+remote RC73XA (Xbox Ally X) inventory, in the ROG Ally X sections of `_plan/implementation-todo.md`:
+
+- BIOS RC73XA.317, EC 3.14, controller `0B05:1B4C` and an empty system SKU;
+- BMI320 sensors;
+- an `FF31:0080` collection with no output report, and no HID gamepad collection.
+
+Do not assume a Claw-style gamepad report codec or a HID rumble route on that firmware. The report
+`0x5A` events and rumble bytes in `src/WSGM.Device.Asus.RogAllyX/REFERENCE.md` and
+`AllyXProtocol.cs` come from HHD and HC source, not from measurement. HHD is the primary source for
+buttons because the maintainer reports that HC's button handling is buggy. Record findings from a
+returned `tools/AllyXLab` ZIP in the tracker before encoding them in the plugin.

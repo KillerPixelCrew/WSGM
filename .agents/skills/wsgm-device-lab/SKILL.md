@@ -50,10 +50,9 @@ hostile to automation.
 
 ## Probe without guessing
 
-- Add a closed, compiled Device Lab profile for a new getter. Current candidate matching and
-  compiled read probes cover the known MSI Claw fingerprint; a new handheld has no runnable profile
-  until one is added in source. Never accept a WMI method, EC address, report id, output bytes, or
-  script supplied by inventory/capture input.
+- Add a closed, compiled Device Lab profile for a new getter. Only the MSI Claw has one today, so
+  another handheld has no runnable probe until one is added in source. Never accept a WMI method, EC
+  address, report id, output bytes, or script supplied by inventory/capture input.
 - Capture a neutral controller baseline, then press or move one control at a time through full
   travel and release. Prove report id/length, bit/byte, center, range, signedness, direction,
   diagonals, rollover, first-report corruption, and disconnect behavior.
@@ -75,7 +74,9 @@ belongs to the pressed control.
 
 ## Finish with reproducible evidence
 
-Keep exact device-specific facts in that plugin's plan, source, tests, and provenance; keep the
-generic discovery method here. Run Device Lab and plugin suites plus the focused WSGM protocol tests
-without hardware first. Report which identity, parsing, lifecycle, restoration, and packaging facts
-are proven offline and list every attended device matrix still outstanding.
+Keep exact device-specific facts in that device's plan, source, tests and provenance. Keep the
+generic discovery method here. Write hardware-free fixtures and tests with the change, and build
+before the maintainer's manual test. Run the Device Lab, plugin and focused WSGM protocol suites
+after that test, as the root validation policy requires. Report which identity, parsing, lifecycle,
+restoration and packaging facts are proven offline. List every attended device matrix that is still
+outstanding.

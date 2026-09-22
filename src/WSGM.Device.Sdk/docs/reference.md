@@ -663,8 +663,8 @@ field `Path`, a stable `ManifestValidationCode` and a message.
 
 Glyph data is static package content: artwork for the physical controller and a map from canonical
 controls to that artwork. WSGM validates it and owns every Avalonia and Steam adaptation. Asset
-handling checks integrity (hash, bounds, well-formedness) and passes the author's bytes through
-unchanged; it is an ownership boundary, not a sandbox.
+handling checks integrity (identifiers, confined paths, bounds, well-formedness) and passes the
+author's bytes through unchanged; it is an ownership boundary, not a sandbox.
 
 ### Layout (`GlyphPackageLayout`)
 
@@ -746,8 +746,9 @@ local projection; the document still imports and still reaches Steam.
 PNG rules: the eight-byte signature and IHDR must be present and the header dimensions must match
 the declared pixel width and height. The exact bytes are retained as `ImportedGlyphAsset.RasterPng`.
 
-`ImportedGlyphProfile` is the validated, ordered manifest plus `Assets` keyed by hash.
-`ImportedGlyphAsset.RetainedBytes` is the payload size a bounded cache accounts for.
+`ImportedGlyphProfile` is the validated, ordered manifest plus `Assets` keyed by package-scoped
+asset identifier. `ImportedGlyphAsset.RetainedBytes` is the payload size a bounded cache accounts
+for.
 
 ### Sources
 
