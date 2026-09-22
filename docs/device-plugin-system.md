@@ -307,7 +307,11 @@ only from `Faulted` and is refused while prior hardware cleanup was unverified.
 
 ### Suspend and resume
 
-Session lock and system suspend trigger suspend; unlock and resume trigger resume. The shell
+Session lock and system suspend trigger suspend; unlock and resume trigger resume. The system events
+reach the shell's message-only window only because `MessageWindow` registers for them with
+`RegisterSuspendResumeNotification`; Windows broadcasts the suspend and resume codes to top-level
+windows alone, and until 2026-09-22 nothing was registered, so no sleep ever suspended or resumed
+the cycle and the Claw's lighting came back from standby at the firmware default. The shell
 edge-triggers and serializes them, so overlapping lock and sleep events collapse. Suspend: block
 forwarding, make the controller safe with `ControllerOnly` scope, `client.SuspendAsync`, reset the
 OEM router. Resume: re-collect identity, advance the cycle generation, `client.ResumeAsync` (the
