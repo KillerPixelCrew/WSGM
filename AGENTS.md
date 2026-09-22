@@ -218,6 +218,9 @@ following variant writes formatting changes and must be reviewed:
 
 ### Before a pull request is opened or updated
 
+For `gh pr create` and every later push to a branch with an open pull request, this section
+overrides the follow-up rule above: the gate runs again for each of those pushes.
+
 CI runs `eng/verify.ps1` on every push to a pull request, and a red run is a defect of the change,
 not something to leave for the maintainer. Before `gh pr create`, and before every later push to a
 branch that has an open pull request:
