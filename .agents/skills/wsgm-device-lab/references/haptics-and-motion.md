@@ -24,12 +24,21 @@ events into a binary on/off command. Unsupported plugin channels are dropped, ne
 Known configuration chatter is ignored. An unknown command ID logs at most four bounded hex samples
 so a future Steam protocol change remains discoverable without flooding the log.
 
-`ManagedControllerRouter` admits a capacity-one latest frame, requires current target kind and
-generation, rejects stale/invalid timestamps and nonfinite channels, applies the plugin's channel
-support, and rate-limits to its declared `MaxFramesPerSecond`. It applies
-`MinimumStartIntensity`/`MinimumPulse` only to bounded events. Continuous rumble passes through
-unfloored so quiet scenes do not buzz. Every pulse schedules a route-generation-checked explicit
-zero, and detachment waits for in-flight output.
+For 0xEB, low is bytes 5-6 and high is bytes 7-8. For 0x8F, the period is a u16 at bytes 5-6 and the
+count is a u16 at bytes 7-8. Xbox 360 output decodes low from byte 0 and high from byte 1. DualShock
+4 reverses that.
+
+`ControllerOutputRouter` is defined in `ManagedControllerRouter.cs` and owned by
+`ManagedControllerRouter`. It keeps only the latest frame and requires the current target kind and
+generation. It rejects nonfinite channels and frames older than 250 ms or more than 1 s in the
+future. It applies the plugin's channel support and paces frames to the declared
+`MaxFramesPerSecond`.
+
+Only bounded events get the floor. Their nonzero channels compress to `floor + (1 - floor) * v`, and
+events shorter than `MinimumPulse` are stretched to it. Continuous rumble passes through without a
+floor so quiet scenes do not buzz. Every pulse schedules an explicit zero that checks the route
+generation. On stop, the router waits for any in-flight apply to finish before target removal
+detaches the route. A frame that loses that race is dropped inside the sink gate.
 
 ## Measure physical motors
 
@@ -42,6 +51,13 @@ controller-driven phases measure:
 1. Continuous descending strength, informational only.
 2. Descending 30 ms ticks: weakest rendered bounded event becomes `MinimumStartIntensity`.
 3. Full-strength shrinking pulses: shortest rendered pulse becomes `MinimumPulse`.
+
+Phase 1 is stored as `ContinuousFloor`. Levels run from 255 down to 8/255, pulses from 200 down to 5
+ms, and the whole sweep has a five-minute budget. The sweep calls the plugin's
+`ApplyHapticOutputAsync` directly, bypassing WSGM's router. It reads A/B answers from the plugin's
+own controller samples (`src/WSGM.DeviceLab/Testing/AttendedPluginAction.cs`). `tools/AllyXLab` uses
+a different method: six phases per motor, capped at 50% drive. Do not compare its boundaries with
+Device Lab sweep results.
 
 The stock fixed pulse and sweep drive low and high channels identically. They prove only the
 symmetric path's perceptual floor and pulse length; they cannot prove independent motor routing,
@@ -61,8 +77,11 @@ The Claw's DirectInput physical report is:
 
 Both channels are real `0..255` amplitudes. The measured Claw ERM bounded-event floor is `56/255`
 (about 0.22) and minimum pulse is 10 ms. Successful identical writes may coalesce; a failed write
-must not enter that success cache, so a later explicit output can try again. Nonzero physical writes
-are spaced by at least 4 ms in the current plugin.
+must not enter that success cache, so a later explicit output can try again. The plugin drops a
+nonzero frame that arrives within 4 ms of the previous successful write and never drops a zero
+frame. It declares `MaxFramesPerSecond = 250`, so the router paces frames before they reach that
+check. `ClawResources.cs` also records a measured continuous floor of about 24/255, for information
+only.
 
 ## Generic motion discovery
 
@@ -101,9 +120,14 @@ The reference A2VM uses the ST LSM6DSO behind Intel ISS `VID_8087&PID_0AC2`:
 - Gyro units are degrees/second; acceleration units are g.
 - Gyro field 34 is a `VT_UI4` hardware-report counter that advances even at rest. Publish only when
   it changes.
-- Gyro minimum interval is 10 ms, accelerometer minimum is 2 ms; one dedicated worker waits 2 ms
-  between synchronous reads. The plugin requests each sensor's own minimum per cycle and restores
-  the old interval only if nobody else changed it. No shared thread-pool timer drives acquisition.
+- Gyro minimum interval is 10 ms and accelerometer minimum is 2 ms. One dedicated long-running
+  worker waits 2 ms between synchronous reads. It checks the gyro counter first and reads the
+  accelerometer only after a fresh gyro report. Samples reach an async pump through a bounded
+  channel (8, DropOldest). The plugin requests each sensor's own minimum per cycle and restores the
+  old interval only if nobody else changed it. No shared thread-pool timer drives acquisition.
+- Motion reaches controller frames through `GyroFrameResampler`, which reports the average angular
+  velocity since the previous frame. A reading older than 50 ms (`MotionService.MaximumMotionAge`)
+  stops contributing, so a quiet sensor decays to zero rather than repeating its last value.
 - Both physical sources must match and open; do not synthesize a missing half.
 - Sensor to application axes: `(X, Y, Z) -> (X, Z, -Y)`.
 
@@ -126,9 +150,9 @@ slots:
 - quaternion bytes 36-43 remain zero. A frozen identity quaternion made Steam ignore the raw gyro;
   never synthesize orientation.
 
-Triggers/pressure scale to signed full travel 32767, and signed axes clamp at -32767 to avoid the
-decoder's `-32768` negation overflow. Xbox drops motion; DualShock 4 and Neptune have separate
-tested encoders.
+Triggers and pressure scale to `0..32767`. Stick and pad axes clamp at -32767 because the decoder
+negates stick Y, and negating `-32768` overflows. Motion uses the full int16 range. Xbox drops
+motion; DualShock 4 and Neptune have separate tested encoders.
 
 Key implementation/evidence paths:
 
@@ -138,12 +162,16 @@ Key implementation/evidence paths:
   `ClawResources.cs`
 - WSGM `Input/ViiperControllerBackend.cs`, `ManagedControllerRouter.cs`,
   `SteamDeckNeptuneReport.cs`, `DualShock4Report.cs`
-- `tests/WSGM.Tests/Input/SteamDeckNeptuneReportTests.cs`, `ControllerDependencyAdapterTests.cs`,
+- `tests/WSGM.Tests/Input/SteamDeckNeptuneReportTests.cs`, `DualShock4ReportTests.cs`,
+  `ControllerDependencyAdapterTests.cs` (feedback decode and router),
   `ManagedControllerBackendTests.cs`
+- Claw motion tests: `StationaryGyroBiasCalibratorTests`, `GyroFrameResamplerTests`,
+  `MotionFreshnessReportingTests`, `WindowsMotionSourceTests`
 
-Hardware-free validation:
+Hardware-free validation, run after the maintainer's manual test as the root validation policy
+requires:
 
 ```powershell
 dotnet test tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj --configuration Release
-dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerBackendTests"
+dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~DualShock4ReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerBackendTests"
 ```

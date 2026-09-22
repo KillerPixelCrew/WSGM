@@ -91,8 +91,9 @@ subjects. WSGM can contribute its own controls to the shared pages.
 These are not style preferences. They are why the surface looks the way it does.
 
 **Your plugin runs with WSGM's authority.** It is an assembly the host loads in-process, so the SDK
-does not pretend to sandbox you. Asset handling checks integrity (hash, bounds, well-formedness) and
-passes your bytes through unchanged. Do not mistake validation for isolation.
+does not pretend to sandbox you. Asset handling checks integrity (identifiers, confined paths,
+bounds, well-formedness) and passes your bytes through unchanged. Do not mistake validation for
+isolation.
 
 **Report the truth, including uncertainty.** A capability command returns what actually happened. A
 write whose result you could not confirm is reported as uncertain, never retried silently, and never

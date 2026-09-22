@@ -911,9 +911,9 @@ entries for `msi-power`, `msi-fans` and `physical-controller`, written atomicall
 plugin restores an entry whose firmware identity matches, blocks the service after a failed restore,
 and otherwise reports only.
 
-Glyphs: one profile `claw-8-a2vm` for `ms-1t52`, 23 hash-locked assets (20 control SVGs at 32×32,
-one full-controller SVG, left and right PNGs at 643×464), 20 control mappings with the printed
-labels, no aliases, notice `THIRD_PARTY_NOTICES.md`.
+Glyphs: one profile `claw-8-a2vm` for `ms-1t52`, 23 named assets (20 control SVGs at 32×32, one
+full-controller SVG, left and right PNGs at 643×464), 20 control mappings with the printed labels,
+no aliases, notice `THIRD_PARTY_NOTICES.md`.
 
 Tests build the plugin with fake WMI, MCU, controller, motion, chord and event services and the
 SDK's `TestPluginHostAdapter`. Packaging:
