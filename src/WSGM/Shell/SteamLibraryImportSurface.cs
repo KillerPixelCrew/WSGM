@@ -26,6 +26,7 @@ namespace WSGM.Shell;
 /// <param name="Reason">Why, in one sentence.</param>
 /// <param name="Selected">Whether the user has it selected.</param>
 /// <param name="Selectable">Whether it may be selected at all.</param>
+/// <param name="Excluded">Whether the user said not to import it.</param>
 /// <param name="Notes">Anything else worth showing.</param>
 public sealed record SteamLibraryImportEntry(
     string Id,
@@ -46,6 +47,7 @@ public sealed record SteamLibraryImportEntry(
     string Reason,
     bool Selected,
     bool Selectable,
+    bool Excluded,
     IReadOnlyList<string> Notes);
 
 /// <summary>Everything the import page renders.</summary>
@@ -110,6 +112,12 @@ public interface ISteamLibraryImportBackend
     Task<SteamUiCommandResult> SetModeAsync(
         string id, string mode, bool acknowledged, CancellationToken cancellationToken);
 
+    /// <summary>Leaves a title out of this and every later scan until the user offers it again.</summary>
+    Task<SteamUiCommandResult> ExcludeAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Offers a left-out title again.</summary>
+    Task<SteamUiCommandResult> IncludeAsync(string id, CancellationToken cancellationToken);
+
     /// <summary>Applies the selected entries.</summary>
     Task<SteamUiCommandResult> ApplyAsync(CancellationToken cancellationToken);
 }
@@ -128,7 +136,7 @@ public static class SteamLibraryImportSurface
 
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
-        ["scan", "cancel", "toggleEntry", "selectAll", "setMode", "apply"];
+        ["scan", "cancel", "toggleEntry", "selectAll", "setMode", "exclude", "include", "apply"];
 
     /// <summary>Installs the import renderer and its state subscription.</summary>
     /// <remarks>
@@ -192,6 +200,10 @@ public static class SteamLibraryImportSurface
                     (request, token) => backend.SetModeAsync(
                         request.Id, request.Mode, request.Acknowledged, token),
                     "The import mode payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "exclude", TryReadId,
+                    backend.ExcludeAsync, "The import selection payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "include", TryReadId,
+                    backend.IncludeAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "apply", backend.ApplyAsync)
             ]);
     }

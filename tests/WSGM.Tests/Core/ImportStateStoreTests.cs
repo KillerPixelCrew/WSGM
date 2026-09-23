@@ -73,4 +73,62 @@ public sealed class ImportStateStoreTests
         Assert.Equal(42u, entry.AppId);
         Assert.Equal(nameof(ImportMode.SteamIntegration), entry.Mode);
     }
+
+    [Fact]
+    public void AChoiceSurvivesAReload()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        new ImportStateStore(path).SaveChoice(new ImportChoice
+        {
+            Source = "xbox", Key = "A_x!App", Mode = nameof(ImportMode.ControllerOnly), Excluded = true
+        });
+
+        var choice = Assert.Single(new ImportStateStore(path).Choices());
+
+        Assert.Equal(ImportMode.ControllerOnly, choice.PickedMode());
+        Assert.True(choice.Excluded);
+    }
+
+    [Fact]
+    public void AChoiceThatDecidesNothingIsNotKept()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        ImportStateStore store = new(path);
+        store.SaveChoice(new ImportChoice { Source = "xbox", Key = "A_x!App", Excluded = true });
+
+        store.SaveChoice(new ImportChoice { Source = "xbox", Key = "A_x!App" });
+
+        Assert.Empty(new ImportStateStore(path).Choices());
+    }
+
+    [Fact]
+    public void AChoiceNamingNoKnownModeIsDroppedOnLoad()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        File.WriteAllText(path, """
+                                {"Entries":[],"Choices":[
+                                  {"Source":"xbox","Key":"A_x!App","Mode":"Sideways"},
+                                  {"Source":"xbox","Key":"B_y!App","Mode":null,"Excluded":true},
+                                  {"Source":"xbox","Key":"C_z!App","Mode":"","Excluded":true}
+                                ]}
+                                """);
+
+        Assert.Equal("C_z!App", Assert.Single(new ImportStateStore(path).Choices()).Key);
+    }
+
+    [Fact]
+    public void ForgettingAChoiceLeavesTheOthers()
+    {
+        using TemporaryDirectory temporary = new();
+        ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SaveChoice(new ImportChoice { Source = "xbox", Key = "A_x!App", Excluded = true });
+        store.SaveChoice(new ImportChoice { Source = "xbox", Key = "B_y!App", Excluded = true });
+
+        store.ForgetChoice("xbox", "A_x!App");
+
+        Assert.Equal("B_y!App", Assert.Single(store.Choices()).Key);
+    }
 }

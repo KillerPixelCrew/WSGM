@@ -8832,8 +8832,22 @@
     };
     return react.createElement(Body, {});
   };
-  const renderImportDetailModal = (entry) => {
+  // The entry's own sheet: what the review knows about it, and what can be done to it one entry at a
+  // time. Everything here is also refused by the host when it does not apply, so an action shown for a
+  // stale entry fails with a reason rather than acting on the wrong title.
+  const renderImportDetailModal = (entry, close) => {
     const react = importUi.react;
+    const act = (command) => {
+      void sendImportCommand(command, { id: entry.id });
+      close();
+    };
+    const actions = [
+      entry.excluded
+        ? { label: "Offer again", command: "include" }
+        : entry.action === "Add" || entry.action === "Adopt"
+          ? { label: "Don't import", command: "exclude" }
+          : null,
+    ].filter((action) => action !== null);
     const rows = [
       ["Launch route", entry.launchLabel],
       ["Why", entry.launchEvidence],
@@ -8853,6 +8867,23 @@
       ...(entry.notes ?? []).map((note, index) =>
         react.createElement("dd", { key: `n${index}` }, note),
       ),
+      actions.length
+        ? react.createElement(
+            importUi.focusable,
+            { key: "actions", className: "wsgm-import-bar", "flow-children": "row" },
+            ...actions.map((action) =>
+              react.createElement(
+                importUi.dialogButton,
+                {
+                  key: action.command,
+                  onActivate: () => act(action.command),
+                  onClick: () => act(action.command),
+                },
+                action.label,
+              ),
+            ),
+          )
+        : null,
     );
   };
   const renderImportRow = (entry) => {
@@ -8861,10 +8892,12 @@
       // The source names its own route; the page only marks one that has no validated launcher.
       { text: entry.launchLabel, warn: !entry.launchValidated },
       { text: importModeLabels[entry.mode] ?? entry.mode, warn: false },
-      {
-        text: importActionLabels[entry.action] ?? entry.action,
-        warn: entry.action === "Conflict" || entry.action === "Remove",
-      },
+      entry.excluded
+        ? { text: "Not importing", warn: false }
+        : {
+            text: importActionLabels[entry.action] ?? entry.action,
+            warn: entry.action === "Conflict" || entry.action === "Remove",
+          },
     ];
     const openMode = () => {
       // Switching to the overlay route for a multiplayer title goes through the risk modal. The host
@@ -8888,7 +8921,8 @@
         acknowledged: false,
       });
     };
-    const openDetails = () => showImportModal(() => renderImportDetailModal(entry), entry.name);
+    const openDetails = () =>
+      showImportModal((close) => renderImportDetailModal(entry, close), entry.name);
     return react.createElement(
       importUi.focusable,
       {
@@ -8905,7 +8939,7 @@
         onSecondaryButton: openMode,
         onSecondaryActionDescription: entry.canUseSteamIntegration ? "Launch mode" : undefined,
         onMenuButton: openDetails,
-        onMenuActionDescription: "Details",
+        onMenuActionDescription: "Details and actions",
         onContextMenu: openDetails,
       },
       react.createElement("div", { className: "wsgm-import-name" }, entry.name),

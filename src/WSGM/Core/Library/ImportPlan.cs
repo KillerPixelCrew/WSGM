@@ -70,6 +70,45 @@ public sealed class ImportedEntry
     public string ConfirmedUtc { get; set; } = "";
 }
 
+/// <summary>What the user decided about one title, kept across scans.</summary>
+/// <remarks>
+///     <para>
+///         The Game Library's equivalent of Steam ROM Manager's user exceptions. A scan rebuilds
+///         every entry from what the sources and Steam say now; without these, a mode picked and not
+///         yet applied, or a title the user said not to import, would come back undone on the next
+///         scan.
+///     </para>
+///     <para>
+///         A choice describes intent, and a record describes what Steam has. Once an apply writes a
+///         record for a title, its choice is dropped, so the record is the one truth for anything
+///         already imported.
+///     </para>
+/// </remarks>
+public sealed class ImportChoice
+{
+    /// <summary>Which source the title belongs to.</summary>
+    public string Source { get; set; } = "";
+
+    /// <summary>Its identity in that source.</summary>
+    public string Key { get; set; } = "";
+
+    /// <summary>The launch mode the user picked, or empty when they have not picked one.</summary>
+    public string Mode { get; set; } = "";
+
+    /// <summary>Whether the user accepted the ban risk along with that mode.</summary>
+    public bool Acknowledged { get; set; }
+
+    /// <summary>Whether the user said not to import this title.</summary>
+    public bool Excluded { get; set; }
+
+    /// <summary>The picked mode, when there is one.</summary>
+    /// <returns>The mode, or null when the user has not picked one.</returns>
+    public ImportMode? PickedMode()
+    {
+        return Enum.TryParse<ImportMode>(Mode, false, out var mode) ? mode : null;
+    }
+}
+
 /// <summary>One line of a sync preview.</summary>
 /// <param name="Source">Which source the title belongs to.</param>
 /// <param name="Key">The title's identity within that source.</param>

@@ -191,31 +191,32 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 return Task.FromResult(new SteamUiCommandResult(false, $"'{mode}' is not a launch mode."));
             }
 
-            if (wanted is ImportMode.SteamIntegration)
+            // Checked here, not only in the page. A page defect must not be able to put a
+            // multiplayer title on the route that injects into it.
+            if (Refusal(entry.Plan, wanted, acknowledged) is { } refusal)
             {
-                // Checked here, not only in the page. A page defect must not be able to put a
-                // multiplayer title on the route that injects into it.
-                if (!entry.Plan.CanUseSteamIntegration)
-                {
-                    return Task.FromResult(new SteamUiCommandResult(false,
-                        "This title has no validated launch route, so Steam integration is not "
-                        + "available for it."));
-                }
-
-                if (entry.Plan.RequiresAcknowledgement && !acknowledged)
-                {
-                    return Task.FromResult(new SteamUiCommandResult(false,
-                        "This title is marked multiplayer. Steam integration injects into it, so "
-                        + "the risk has to be accepted first."));
-                }
+                return Task.FromResult(new SteamUiCommandResult(false, refusal));
             }
 
             entry.Mode = wanted;
             entry.Acknowledged = wanted is ImportMode.SteamIntegration && acknowledged;
+            Remember(entry, wanted);
             Publish();
         }
 
         return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> ExcludeAsync(string id, CancellationToken cancellationToken)
+    {
+        return SetExcludedAsync(id, true, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> IncludeAsync(string id, CancellationToken cancellationToken)
+    {
+        return SetExcludedAsync(id, false, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -292,6 +293,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
         var launcher = _resolveLauncher() ?? string.Empty;
         var recorded = _store.Entries();
+        var choices = _store.Choices();
         var plan = ImportPlan.Build(
             discovered, recorded, existing, launcher, _defaultMode(), _includeUnknownRuntime());
 
@@ -319,17 +321,33 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 // Update, and composing that update without the acknowledgement throws.
                 var record = recorded.FirstOrDefault(saved =>
                     ImportPlan.Matches(saved, entry.Source, entry.Key));
-                _entries[id] = new Entry(id, entry, game ?? Placeholder(entry))
+                var created = new Entry(id, entry, game ?? Placeholder(entry))
                 {
                     Mode = entry.Mode,
                     Acknowledged = entry.Mode is ImportMode.SteamIntegration
-                                   && (record?.Acknowledged ?? false),
-
-                    // Never pre-tick something the sources could not vouch for, or a deletion.
-                    Selected = entry.Selectable
-                               && entry.Action is ImportAction.Add or ImportAction.Update
-                               && (game?.IsGame ?? false)
+                                   && (record?.Acknowledged ?? false)
                 };
+
+                // The user's own decisions, laid over what the plan derived. A picked mode the plan
+                // would now refuse - the title lost its validated route, or became multiplayer
+                // without the risk having been accepted - is not honoured, and the plan's stands.
+                var choice = choices.FirstOrDefault(saved =>
+                    string.Equals(saved.Source, entry.Source, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(saved.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
+                if (choice?.PickedMode() is { } picked && Refusal(entry, picked, choice.Acknowledged) is null)
+                {
+                    created.Mode = picked;
+                    created.Acknowledged = picked is ImportMode.SteamIntegration && choice.Acknowledged;
+                }
+
+                created.Excluded = choice?.Excluded == true && Excludable(entry);
+
+                // Never pre-tick something the sources could not vouch for, a deletion, or a title
+                // the user said to leave out.
+                created.Selected = created.Selectable
+                                   && created.Action is ImportAction.Add or ImportAction.Update
+                                   && (game?.IsGame ?? false);
+                _entries[id] = created;
             }
 
             _phase = "review";
@@ -410,6 +428,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                     await ReleaseControllerTargetAsync(current.AppId, cancellationToken)
                         .ConfigureAwait(false);
                     _store.Forget(entry.Game.SourceId, entry.Game.Key);
+                    _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
                     applied++;
                     Progress(generation, applied);
                     continue;
@@ -434,6 +453,10 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                     ? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                     : string.Empty
             });
+
+            // The record now says what Steam has, so a choice for this title would only be a second,
+            // stale answer to the same question.
+            _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
 
             if (!result.Confirmed)
             {
@@ -470,6 +493,85 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                           : string.Empty);
             Publish();
         }
+    }
+
+    /// <summary>Why a mode cannot be used for an entry, or null when it can.</summary>
+    /// <param name="plan">What the plan established about the title.</param>
+    /// <param name="wanted">The mode asked for.</param>
+    /// <param name="acknowledged">Whether the risk was accepted along with it.</param>
+    /// <returns>The refusal in words the page shows, or null.</returns>
+    /// <remarks>
+    ///     One rule for both the command and a stored choice, so a choice saved under one set of
+    ///     facts is judged again, not trusted, when the facts change.
+    /// </remarks>
+    private static string? Refusal(ImportPlanEntry plan, ImportMode wanted, bool acknowledged)
+    {
+        if (wanted is not ImportMode.SteamIntegration)
+        {
+            return null;
+        }
+
+        if (!plan.CanUseSteamIntegration)
+        {
+            return "This title has no validated launch route, so Steam integration is not available for it.";
+        }
+
+        return plan.RequiresAcknowledgement && !acknowledged
+            ? "This title is marked multiplayer. Steam integration injects into it, so the risk has to be "
+              + "accepted first."
+            : null;
+    }
+
+    /// <summary>Whether the user may leave a title out.</summary>
+    /// <param name="plan">The title's plan entry.</param>
+    /// <returns>True for a title Steam does not have as ours yet.</returns>
+    /// <remarks>
+    ///     Only something not yet imported can be left out. An imported title is taken out of Steam
+    ///     by removing it, which is a different and deliberate act.
+    /// </remarks>
+    private static bool Excludable(ImportPlanEntry plan)
+    {
+        return plan.Action is ImportAction.Add or ImportAction.Adopt;
+    }
+
+    private Task<SteamUiCommandResult> SetExcludedAsync(string id, bool excluded, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(id, out var entry))
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "That entry is no longer listed."));
+            }
+
+            if (excluded && !Excludable(entry.Plan))
+            {
+                return Task.FromResult(new SteamUiCommandResult(false,
+                    "Only a title that is not imported yet can be left out. Remove an imported one instead."));
+            }
+
+            entry.Excluded = excluded;
+            entry.Selected = false;
+            Remember(entry, entry.Mode != entry.Plan.Mode ? entry.Mode : null);
+            Publish();
+        }
+
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <summary>Stores what the user decided about one entry, so the next scan keeps it.</summary>
+    /// <param name="entry">The entry.</param>
+    /// <param name="picked">The mode the user picked, or null when they have not picked one.</param>
+    private void Remember(Entry entry, ImportMode? picked)
+    {
+        _store.SaveChoice(new ImportChoice
+        {
+            Source = entry.Plan.Source,
+            Key = entry.Plan.Key,
+            Mode = picked?.ToString() ?? string.Empty,
+            Acknowledged = picked is ImportMode.SteamIntegration && entry.Acknowledged,
+            Excluded = entry.Excluded
+        });
     }
 
     /// <summary>Re-checks one selected entry against the library as it is right now.</summary>
@@ -668,7 +770,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
 
     private int Count(ImportAction action)
     {
-        return _entries.Values.Count(entry => entry.Action == action);
+        return _entries.Values.Count(entry => !entry.Excluded && entry.Action == action);
     }
 
     private void Publish()
@@ -707,6 +809,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             entry.Reason,
             entry.Selected,
             entry.Selectable,
+            entry.Excluded,
             entry.Game.Notes);
     }
 
@@ -719,22 +822,29 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         internal bool Acknowledged { get; set; }
         internal bool Selected { get; set; }
 
-        /// <summary>Whether the user has moved this entry off the mode the plan recorded.</summary>
+        /// <summary>Whether the user said not to import this title.</summary>
+        internal bool Excluded { get; set; }
+
+        /// <summary>Whether the user has moved this entry off the mode Steam's entry launches with.</summary>
         private bool Rerouted => Mode != Plan.Mode && Plan.AppId > 0;
 
         /// <summary>What applying this entry would now do.</summary>
         /// <remarks>
-        ///     An already imported title is a Skip until the user changes its route, at which point
-        ///     the shortcut really does need rewriting. Without this the page would show the new
-        ///     mode, refuse the tick, and quietly never apply it.
+        ///     An entry Steam already has is a Skip, or an Adopt, until the user changes its route;
+        ///     then the shortcut really does need rewriting. Without this the page would show the new
+        ///     mode and never apply it - and an Adopt would record a mode its shortcut does not
+        ///     launch with, because adopting writes nothing.
         /// </remarks>
         internal ImportAction Action =>
-            Plan.Action is ImportAction.Skip && Rerouted ? ImportAction.Update : Plan.Action;
+            Plan.Action is ImportAction.Skip or ImportAction.Adopt && Rerouted
+                ? ImportAction.Update
+                : Plan.Action;
 
         /// <summary>Whether the user may tick this entry.</summary>
-        internal bool Selectable => Plan.Selectable || (Plan.Action is ImportAction.Skip && Rerouted);
+        internal bool Selectable =>
+            !Excluded && (Plan.Selectable || (Plan.Action is ImportAction.Skip && Rerouted));
 
         /// <summary>Why it cannot be ticked, when it cannot.</summary>
-        internal string Reason => Plan.Reason;
+        internal string Reason => Excluded ? "You chose not to import this." : Plan.Reason;
     }
 }

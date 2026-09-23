@@ -258,6 +258,101 @@ public sealed class SteamLibraryImportSourceTests
         Assert.Equal(0, state.SelectedCount);
     }
 
+    [Fact]
+    public async Task AModePickedButNotAppliedSurvivesARescan()
+    {
+        // Every scan rebuilds the entries. A choice that lived only on the rebuilt object was lost
+        // the moment the user scanned again, which is how an acknowledgement used to vanish.
+        using TemporaryDirectory temporary = new();
+        using var source = Source(temporary, Game());
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        await source.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false, CancellationToken.None);
+
+        var rescanned = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.Equal(nameof(ImportMode.ControllerOnly), rescanned.Mode);
+    }
+
+    [Fact]
+    public async Task ATitleLeftOutStaysLeftOutAcrossRescansUntilOfferedAgain()
+    {
+        using TemporaryDirectory temporary = new();
+        using var source = Source(temporary, Game());
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.True((await source.ExcludeAsync(entry.Id, CancellationToken.None)).Succeeded);
+        var excluded = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.True(excluded.Excluded);
+        Assert.False(excluded.Selectable);
+        Assert.False(excluded.Selected);
+
+        Assert.True((await source.IncludeAsync(excluded.Id, CancellationToken.None)).Succeeded);
+        var offered = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.False(offered.Excluded);
+        Assert.True(offered.Selectable);
+    }
+
+    [Fact]
+    public async Task AnImportedTitleCannotBeLeftOut()
+    {
+        // Taking an imported title out of Steam is a removal, and deserves to be asked for as one.
+        using TemporaryDirectory temporary = new();
+        const string options = "--aumid Publisher.Game_abc!App --mode steam-overlay";
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = "Publisher.Game_abc!App", Name = "Moonlit", AppId = 77,
+            Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.SteamIntegration)
+        });
+        using SteamLibraryImportSource source = new(
+            new FakeSource([Game()]), store, () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
+            () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.False((await source.ExcludeAsync(entry.Id, CancellationToken.None)).Succeeded);
+    }
+
+    [Fact]
+    public async Task AStoredChoiceTheFactsNoLongerAllowIsNotHonoured()
+    {
+        // The choice was made for a single-player title. It became multiplayer since, and nobody
+        // accepted that risk, so the stored overlay route is judged again and refused.
+        using TemporaryDirectory temporary = new();
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.SaveChoice(new ImportChoice
+        {
+            Source = "xbox", Key = "Publisher.Game_abc!App", Mode = nameof(ImportMode.SteamIntegration)
+        });
+        using SteamLibraryImportSource source = new(
+            new FakeSource([Game(multiplayer: MultiplayerVerdict.Multiplayer)]), store, () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false);
+
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.Equal(nameof(ImportMode.ControllerOnly), entry.Mode);
+    }
+
+    [Fact]
+    public async Task ReroutingAnAdoptedEntryRewritesItRatherThanRecordingAModeItDoesNotHave()
+    {
+        // Adopting writes nothing. Recording a different mode than the shortcut launches with
+        // would leave the record describing a game that starts some other way.
+        using TemporaryDirectory temporary = new();
+        const string options = "--aumid Publisher.Game_abc!App --mode steam-overlay";
+        using SteamLibraryImportSource source = new(
+            new FakeSource([Game()]), new ImportStateStore(temporary.GetPath("import.json")), () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
+            () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.Equal("Adopt", entry.Action);
+
+        await source.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false, CancellationToken.None);
+
+        Assert.Equal("Update", Assert.Single(source.ReadState().Entries).Action);
+    }
+
     private sealed class FakeSource(IReadOnlyList<DiscoveredGame> games) : ILibrarySource
     {
         public string Id => "xbox";

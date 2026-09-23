@@ -8,11 +8,14 @@ using System.Threading;
 
 namespace WSGM.Core;
 
-/// <summary>Everything WSGM remembers about the entries it created.</summary>
+/// <summary>Everything WSGM remembers about the entries it created, and what the user decided.</summary>
 internal sealed class ImportState
 {
     /// <summary>One record per generated entry.</summary>
     public List<ImportedEntry> Entries { get; set; } = [];
+
+    /// <summary>One choice per title the user has decided something about.</summary>
+    public List<ImportChoice> Choices { get; set; } = [];
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]
@@ -93,10 +96,58 @@ public sealed class ImportStateStore
         }
     }
 
+    /// <summary>Every choice the user has made.</summary>
+    public IReadOnlyList<ImportChoice> Choices()
+    {
+        lock (_gate)
+        {
+            return [.. Read().Choices];
+        }
+    }
+
+    /// <summary>Records one title's choice, replacing any earlier one.</summary>
+    /// <param name="choice">What the user decided.</param>
+    /// <remarks>A choice that decides nothing is removed rather than kept.</remarks>
+    public void SaveChoice(ImportChoice choice)
+    {
+        ArgumentNullException.ThrowIfNull(choice);
+        lock (_gate)
+        {
+            var state = Read();
+            state.Choices.RemoveAll(existing => Same(existing.Source, existing.Key, choice.Source, choice.Key));
+            if (choice.Mode.Length > 0 || choice.Excluded)
+            {
+                state.Choices.Add(choice);
+            }
+
+            Write(state);
+        }
+    }
+
+    /// <summary>Forgets one title's choice.</summary>
+    /// <param name="source">Which source it came from.</param>
+    /// <param name="key">Its identity in that source.</param>
+    public void ForgetChoice(string source, string key)
+    {
+        lock (_gate)
+        {
+            var state = Read();
+            if (state.Choices.RemoveAll(choice => Same(choice.Source, choice.Key, source, key)) > 0)
+            {
+                Write(state);
+            }
+        }
+    }
+
     private static bool Same(ImportedEntry entry, string source, string key)
     {
-        return string.Equals(entry.Source, source, StringComparison.OrdinalIgnoreCase)
-               && string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase);
+        return Same(entry.Source, entry.Key, source, key);
+    }
+
+    private static bool Same(string sourceA, string keyA, string sourceB, string keyB)
+    {
+        return string.Equals(sourceA, sourceB, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(keyA, keyB, StringComparison.OrdinalIgnoreCase);
     }
 
     private ImportState Read()
@@ -121,6 +172,7 @@ public sealed class ImportStateStore
 
         _state ??= new ImportState();
         _state.Entries ??= [];
+        _state.Choices ??= [];
 
         // Bounded on load, like every other state file here: a hand-edited or corrupted record must
         // not become a launch command or a removal target.
@@ -139,6 +191,13 @@ public sealed class ImportStateStore
                     LaunchOptions.Length: <= 2048
                 } && (entry.Mode == nameof(ImportMode.ControllerOnly)
                       || entry.Mode == nameof(ImportMode.SteamIntegration)))
+                .Take(MaximumEntries)
+        ];
+        _state.Choices =
+        [
+            .. _state.Choices
+                .Where(choice => choice is { Source.Length: > 0 and <= 32, Key.Length: > 0 and <= 512, Mode: not null }
+                                 && (choice.Mode.Length == 0 || choice.PickedMode() is not null))
                 .Take(MaximumEntries)
         ];
         return _state;
