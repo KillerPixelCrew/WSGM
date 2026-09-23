@@ -83,10 +83,10 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <summary>More than this many records means something is wrong, not that many games ran.</summary>
     private const int MaximumRecords = 64;
 
-    private static readonly TimeSpan LockBudget = TimeSpan.FromSeconds(5);
-
     /// <summary>How many sweeps may fail to release one package before it is given up on.</summary>
     private const int MaximumReleaseAttempts = 5;
+
+    private static readonly TimeSpan LockBudget = TimeSpan.FromSeconds(5);
 
     /// <summary>Where the journal lives beside WSGM's other per-user state.</summary>
     public static string DefaultPath => Path.Combine(

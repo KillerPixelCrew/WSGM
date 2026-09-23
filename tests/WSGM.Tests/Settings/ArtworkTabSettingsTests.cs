@@ -21,7 +21,7 @@ public sealed class ArtworkTabSettingsTests
     public void TheRowsComeUpInTheStoredOrderWithTheStoredVisibility()
     {
         var model = new SettingsViewModel(
-            Configured("hero,grid,wide,logo,icon,manage", "grid", showHero: false));
+            Configured("hero,grid,wide,logo,icon,manage", "grid", false));
 
         Assert.Equal(["hero", "grid", "wide", "logo", "icon", "manage"],
             model.ArtworkTabs.Select(row => row.Id));

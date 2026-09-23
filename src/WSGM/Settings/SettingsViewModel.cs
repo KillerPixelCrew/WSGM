@@ -23,6 +23,17 @@ namespace WSGM.Settings;
 /// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
+    /// <summary>What each artwork tab id is called, in the canonical order.</summary>
+    private static readonly Dictionary<string, string> ArtworkTabTitles = new(StringComparer.Ordinal)
+    {
+        ["grid"] = "Capsule",
+        ["wide"] = "Wide capsule",
+        ["hero"] = "Hero",
+        ["logo"] = "Logo",
+        ["icon"] = "Icon",
+        ["manage"] = "Manage"
+    };
+
     private readonly AppConfig _config;
 
     /// <summary>Edits made on the plugin page, applied at save. Empty until the user changes one.</summary>
@@ -573,17 +584,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         get;
         set => SetField(ref field, value, nameof(ArtworkScreenscraperPassword));
     } = "";
-
-    /// <summary>What each artwork tab id is called, in the canonical order.</summary>
-    private static readonly Dictionary<string, string> ArtworkTabTitles = new(StringComparer.Ordinal)
-    {
-        ["grid"] = "Capsule",
-        ["wide"] = "Wide capsule",
-        ["hero"] = "Hero",
-        ["logo"] = "Logo",
-        ["icon"] = "Icon",
-        ["manage"] = "Manage"
-    };
 
     /// <summary>Gets the artwork page's tabs, in the order they are offered.</summary>
     /// <remarks>
@@ -1737,8 +1737,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             ArtworkTabs.Add(new ArtworkTabRow(id, titles[id], IsArtworkTabVisible(id)));
         }
 
-        var index = ArtworkTabs.ToList().FindIndex(
-            row => string.Equals(row.Id, _config.Artwork.DefaultTab, StringComparison.Ordinal));
+        var index = ArtworkTabs.ToList()
+            .FindIndex(row => string.Equals(row.Id, _config.Artwork.DefaultTab, StringComparison.Ordinal));
         ArtworkDefaultTabIndex = index < 0 ? 0 : index;
     }
 
