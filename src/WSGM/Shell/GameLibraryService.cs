@@ -40,8 +40,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
     private readonly Lock _gate = new();
-    private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<bool> _includeUnroutable;
+    private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
     private readonly Func<string?> _resolveLauncher;
     private readonly Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? _setControllerTarget;
@@ -662,7 +662,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         var plan = entry.Plan;
         if (entry.Action is ImportAction.Add)
         {
-            return existing.FirstOrDefault(shortcut => PackagedLauncherShortcut.Owns(shortcut, launcher, entry.Game.Key))
+            return existing.FirstOrDefault(shortcut =>
+                    PackagedLauncherShortcut.Owns(shortcut, launcher, entry.Game.Key))
                 is { } appeared
                 ? plan with { Action = ImportAction.Update, AppId = appeared.AppId }
                 : plan with { Action = ImportAction.Add, AppId = 0 };

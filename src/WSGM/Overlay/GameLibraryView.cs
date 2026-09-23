@@ -29,12 +29,12 @@ public sealed class GameLibraryView : OverlaySubView
 {
     private GameLibraryService? _service;
 
+    /// <inheritdoc />
+    protected override string LogScope => "Game Library";
+
     /// <summary>Raised when the user asks to continue in Steam, such as to change a title's artwork.</summary>
     /// <remarks>The overlay controller carries this out: it opens the page, closes the sheet and focuses Steam.</remarks>
     internal event Action<GameLibrarySteamTarget>? OpenInSteamRequested;
-
-    /// <inheritdoc />
-    protected override string LogScope => "Game Library";
 
     /// <summary>Attaches the view to the session's library, or detaches it with null.</summary>
     /// <param name="service">The library, or null when the overlay closes or the session has none.</param>
@@ -183,7 +183,8 @@ public sealed class GameLibraryView : OverlaySubView
 
     private void RenderEntry(string id)
     {
-        if (_service?.ReadState() is not { } state || state.Entries.FirstOrDefault(entry => entry.Id == id) is not { } entry)
+        if (_service?.ReadState() is not { } state || state.Entries.FirstOrDefault(entry => entry.Id == id) is not
+                { } entry)
         {
             // A rescan replaced the list this entry belonged to.
             RenderMessage("Review", "That title is no longer listed. Go back and pick it again.");
@@ -208,7 +209,8 @@ public sealed class GameLibraryView : OverlaySubView
         if (entry.AppId > 0 && entry.Action != "Remove")
         {
             stack.Children.Add(Tagged(Row("Change artwork…", "Opens this title's artwork page in Steam",
-                Icons.Palette, () => OpenInSteamRequested?.Invoke(new GameLibrarySteamTarget(entry.AppId, entry.Name))),
+                    Icons.Palette,
+                    () => OpenInSteamRequested?.Invoke(new GameLibrarySteamTarget(entry.AppId, entry.Name))),
                 "artwork"));
         }
 

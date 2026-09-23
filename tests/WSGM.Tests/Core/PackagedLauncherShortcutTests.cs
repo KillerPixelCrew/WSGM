@@ -27,14 +27,14 @@ public sealed class PackagedLauncherShortcutTests
             Shortcut(options: "--aumid Other_z!App --mode controller-only"), Launcher, Aumid));
 
         // Our game named in a shortcut that runs something else.
-        Assert.False(PackagedLauncherShortcut.Owns(Shortcut(target: @"""C:\other.exe"""), Launcher, Aumid));
+        Assert.False(PackagedLauncherShortcut.Owns(Shortcut(@"""C:\other.exe"""), Launcher, Aumid));
     }
 
     [Fact]
     public void QuotingDoesNotChangeWhetherAnEntryIsOurs()
     {
-        Assert.True(PackagedLauncherShortcut.Owns(Shortcut(target: Launcher), Launcher, Aumid));
-        Assert.True(PackagedLauncherShortcut.Owns(Shortcut(target: "\"" + Launcher + "\""), Launcher, Aumid));
+        Assert.True(PackagedLauncherShortcut.Owns(Shortcut(Launcher), Launcher, Aumid));
+        Assert.True(PackagedLauncherShortcut.Owns(Shortcut("\"" + Launcher + "\""), Launcher, Aumid));
     }
 
     [Fact]

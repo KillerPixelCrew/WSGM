@@ -31,10 +31,10 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
-    private readonly Func<string>? _sourceNames;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
+    private readonly Func<string>? _sourceNames;
 
     /// <summary>Creates the tab over WSGM's own tools and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>

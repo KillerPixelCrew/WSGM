@@ -1043,7 +1043,8 @@ public sealed class ShellSession : IAsyncDisposable
     ///     The artwork page renders whatever its source last opened, so the source is opened for the
     ///     title first, exactly as the game menu does before it answers with the route.
     /// </remarks>
-    private async Task<bool> OpenGameLibraryInSteamAsync(GameLibrarySteamTarget target, CancellationToken cancellationToken)
+    private async Task<bool> OpenGameLibraryInSteamAsync(GameLibrarySteamTarget target,
+        CancellationToken cancellationToken)
     {
         if (!_config.Cef.Enabled || _steamUiTransport is not { } transport)
         {

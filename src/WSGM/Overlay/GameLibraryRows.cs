@@ -72,7 +72,9 @@ internal static class GameLibraryRows
     /// <returns>Offered, and applied once it has been imported.</returns>
     internal static string Artwork(GameLibraryEntry entry)
     {
-        var offered = entry.ArtworkOffered == 1 ? "1 Store image offered" : $"{entry.ArtworkOffered} Store images offered";
+        var offered = entry.ArtworkOffered == 1
+            ? "1 Store image offered"
+            : $"{entry.ArtworkOffered} Store images offered";
         return entry.ArtworkApplied is { } applied ? $"{offered}, {applied} applied" : offered;
     }
 

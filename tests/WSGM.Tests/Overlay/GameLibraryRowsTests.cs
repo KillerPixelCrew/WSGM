@@ -31,7 +31,7 @@ public sealed class GameLibraryRowsTests
     {
         Assert.Equal("Add · UWP · Steam overlay", GameLibraryRows.Describe(Entry()));
         Assert.Equal("Selected · Already imported · UWP · Controller only",
-            GameLibraryRows.Describe(Entry("Skip", "ControllerOnly", selected: true)));
+            GameLibraryRows.Describe(Entry("Skip", "ControllerOnly", true)));
     }
 
     [Fact]

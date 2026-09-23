@@ -198,7 +198,7 @@ public sealed class ImportPlanTests
     public void EveryEntryCarriesAReasonTheUserCanRead()
     {
         var plan = ImportPlan.Build(
-            [Game(), Game("B_y!App", routable: false), Game("C_z!App", isGame: false)],
+            [Game(), Game("B_y!App", false), Game("C_z!App", isGame: false)],
             [Record(key: "gone!App", appId: 99u)],
             [],
             Launcher,

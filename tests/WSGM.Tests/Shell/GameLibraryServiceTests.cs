@@ -421,14 +421,17 @@ public sealed class GameLibraryServiceTests
             (_, _) => Task.FromResult(true));
         var game = Game() with
         {
-            Artwork = [new DiscoveredArtwork(ArtworkAsset.Grid, "https://store/a.png"),
-                new DiscoveredArtwork(ArtworkAsset.Hero, "https://store/b.png")]
+            Artwork =
+            [
+                new DiscoveredArtwork(ArtworkAsset.Grid, "https://store/a.png"),
+                new DiscoveredArtwork(ArtworkAsset.Hero, "https://store/b.png")
+            ]
         };
         using GameLibraryService source = new(
             [new FakeSource([game])], new ImportStateStore(temporary.GetPath("import.json")), () => writer,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
             () => ImportMode.SteamIntegration, () => false,
-            applyArtwork: (_, images, _) => Task.FromResult(images.Count),
+            (_, images, _) => Task.FromResult(images.Count),
             resolveLauncher: () => Launcher);
         await ScannedAsync(source);
 

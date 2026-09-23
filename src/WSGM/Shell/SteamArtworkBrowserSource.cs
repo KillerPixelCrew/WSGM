@@ -25,6 +25,9 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
     private readonly object _gate = new();
+    private readonly Func<ArtworkConfig> _readConfiguration;
+    private readonly CancellationTokenSource _shutdown = new();
+    private readonly ArtworkStateStore _store;
 
     /// <summary>What a caller said a game is called, for games Steam's list does not name yet.</summary>
     /// <remarks>
@@ -33,9 +36,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     ///     SteamGridDB for exactly that.
     /// </remarks>
     private readonly Dictionary<uint, string> _titleHints = [];
-    private readonly Func<ArtworkConfig> _readConfiguration;
-    private readonly CancellationTokenSource _shutdown = new();
-    private readonly ArtworkStateStore _store;
+
     private Dictionary<string, ArtworkCandidate> _candidates = new(StringComparer.Ordinal);
     private long _generation;
     private CancellationTokenSource? _load;
