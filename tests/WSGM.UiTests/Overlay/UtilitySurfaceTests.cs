@@ -36,7 +36,7 @@ public sealed class UtilitySurfaceTests
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
         Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         var shield = Assert.IsType<Grid>(UiFixture.Named<Grid>(window, "SurfaceRoot").Children.Last());
-        Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(shield.Background).Color);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(shield.Background).Color);
         UiFixture.Click(window, UiFixture.Named<Button>(window, "CloseButton"));
         Assert.False(dismissed);
         Assert.True(window.HasActiveSurface);

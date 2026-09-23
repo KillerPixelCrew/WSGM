@@ -131,9 +131,10 @@ The attached video shows the whole sheet darkening as utility panels open and br
 close. Opening a utility, keyboard or power surface should leave the deck's appearance stable while
 blocking input behind the surface; closing should return focus to its invoker. An ordinary window
 activation should keep the current page, while explicitly re-summoning an open sheet returns to its
-selected section. `OverlayWindow` owns the surface shield and focus, and `OverlayController` owns
-re-summon behavior. The code and headless regression cases are in place; attended mouse, touch and
-controller checks are still needed before calling the flicker resolved on the device.
+selected section. `OverlayWindow` owns the surface shield and focus, `GamepadNavigation` confines
+directional focus to it, and `OverlayController` owns re-summon behavior. The code and headless
+regression cases are in place; attended mouse, touch and controller checks are still needed before
+calling the flicker resolved on the device.
 
 ## Overlay manual-test follow-up (2026-09-20)
 

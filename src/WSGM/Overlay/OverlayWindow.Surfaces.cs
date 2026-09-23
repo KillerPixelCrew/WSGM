@@ -36,6 +36,11 @@ public partial class OverlayWindow
         ? frame.Content is KeyboardPanel keyboard ? keyboard.DefaultFocusTarget : frame.PreferredFocus
         : null;
 
+    /// <summary>The active surface's directional focus boundary.</summary>
+    internal InputElement? ActiveSurfaceNavigationRoot => _surfaceFrames.TryPeek(out var frame)
+        ? frame.Container
+        : null;
+
     /// <summary>Requests the centred power menu through the surface owner.</summary>
     internal event Action? PowerMenuRequested;
 

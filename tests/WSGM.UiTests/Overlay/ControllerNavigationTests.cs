@@ -179,7 +179,8 @@ public sealed class ControllerNavigationTests
         FakeButtonSource buttons = new();
         using GamepadNavigation navigation = new(buttons, window, () => window.TryCancelSubView(),
             preferredFocus: () => window.DefaultFocusTarget,
-            navigate: direction => !window.HasActiveSurface && window.NavigateWorkspace(direction));
+            navigate: direction => !window.HasActiveSurface && window.NavigateWorkspace(direction),
+            focusScope: () => window.ActiveSurfaceNavigationRoot);
         window.ShowBrightnessSurface();
         Dispatcher.UIThread.RunJobs();
         var close = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
@@ -189,6 +190,11 @@ public sealed class ControllerNavigationTests
         buttons.Press(GamepadButtons.DPadUp);
         buttons.Press(GamepadButtons.DPadDown);
 
+        Assert.Same(close, window.FocusManager.GetFocusedElement());
+        Assert.True(UiFixture.Named<Button>(window, "CloseButton").Focus());
+        buttons.Press(GamepadButtons.A);
+        Assert.True(window.HasActiveSurface);
+        buttons.Press(GamepadButtons.DPadDown);
         Assert.Same(close, window.FocusManager.GetFocusedElement());
     }
 
