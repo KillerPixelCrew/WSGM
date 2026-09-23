@@ -31,7 +31,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     internal const string ImportId = "wsgm.library.import";
 
     private const string ReservedPrefix = "wsgm.";
-    private readonly Func<string>? _importSourceName;
+    private readonly Func<string>? _sourceNames;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
@@ -39,15 +39,15 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <summary>Creates the tab over WSGM's own tools and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
-    /// <param name="importSourceName">What the importer imports from, for the row's detail line.</param>
+    /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<string>? openImport,
-        Func<string>? importSourceName)
+        Func<string>? sourceNames)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
-        _importSourceName = importSourceName;
+        _sourceNames = sourceNames;
     }
 
     /// <inheritdoc />
@@ -102,7 +102,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 "Game Library",
                 string.Empty,
                 "Ready",
-                $"Add your installed {_importSourceName?.Invoke() ?? "Xbox"} games to Steam.",
+                $"Bring your {_sourceNames?.Invoke() ?? "other launchers'"} games into Steam.",
                 [new SteamExtensionsTabAction(ImportId, "Import games…")]));
         }
 

@@ -8977,7 +8977,12 @@
         react.createElement(
           "div",
           { className: "wsgm-import-head" },
-          react.createElement("h1", {}, `Import from ${state.sourceName ?? "Xbox"}`),
+          react.createElement("h1", {}, "Game Library"),
+          react.createElement(
+            "span",
+            { className: "wsgm-import-counts" },
+            (state.sources ?? []).length ? `From ${state.sources.join(", ")}` : "",
+          ),
           react.createElement(
             "span",
             { className: "wsgm-import-counts" },

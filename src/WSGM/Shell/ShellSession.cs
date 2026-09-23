@@ -195,7 +195,7 @@ public sealed class ShellSession : IAsyncDisposable
     private bool _libraryBadgeEnabled;
 
     /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
-    private SteamLibraryImportSource? _libraryImport;
+    private GameLibraryService? _libraryImport;
 
     private MessageWindow? _messageWindow;
     private SessionModes? _modes;
@@ -1002,11 +1002,13 @@ public sealed class ShellSession : IAsyncDisposable
         // the machine's installed packages through WinRT. Every seam is injected so the discovery
         // and planning rules stay testable without a live Steam or a real package.
         StoreCatalogClient catalog = new();
-        _libraryImport = new SteamLibraryImportSource(
-            new XboxLibrarySource(
-                XboxPackages.Enumerate,
-                XboxPackages.ReadPackageFile,
-                (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
+        _libraryImport = new GameLibraryService(
+            [
+                new XboxLibrarySource(
+                    XboxPackages.Enumerate,
+                    XboxPackages.ReadPackageFile,
+                    (package, token) => catalog.LookUpAsync(package.FamilyName, token))
+            ],
             new ImportStateStore(),
             () => new SteamShortcutWriter(
                 async token =>

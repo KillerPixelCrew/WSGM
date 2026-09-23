@@ -8,8 +8,14 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Drives the library import page.</summary>
+/// <summary>The Game Library: the one backend both of its surfaces drive.</summary>
 /// <remarks>
+///     <para>
+///         Sources discover games, the plan decides what a sync would do, the user's stored choices
+///         are laid over it, and an apply writes shortcuts, records, controller overrides and Store
+///         artwork. The Steam page and the overlay view both render <see cref="ReadState" /> and call
+///         the same methods, so a change made in one is what the other shows next.
+///     </para>
 ///     <para>
 ///         A scan writes nothing. It discovers, classifies, matches against Steam and the state
 ///         file, and publishes a plan; the dry run is the default rather than a mode.
@@ -22,7 +28,7 @@ namespace WSGM.Shell;
 ///         outcome than stopping.
 ///     </para>
 /// </remarks>
-internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDisposable
+internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 {
     /// <summary>How many entries one apply may write, so a mistake has a bounded blast radius.</summary>
     private const int MaximumPerRun = 50;
@@ -38,7 +44,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     private readonly Func<string?> _resolveLauncher;
     private readonly Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? _setControllerTarget;
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly ILibrarySource _source;
+    private readonly IReadOnlyList<ILibrarySource> _sources;
     private readonly ImportStateStore _store;
     private readonly Func<SteamShortcutWriter?> _writer;
     private bool _artworkMissing;
@@ -53,7 +59,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     private CancellationTokenSource? _work;
 
     /// <summary>Creates the backend over its sources and the client calls it drives.</summary>
-    /// <param name="source">Where games are discovered.</param>
+    /// <param name="sources">Where games are discovered, in the order they are listed.</param>
     /// <param name="store">Where this run's records are kept.</param>
     /// <param name="writer">Opens a shortcut writer over the live client, or null when unreachable.</param>
     /// <param name="readLibrary">Reads the shortcuts Steam currently holds.</param>
@@ -62,8 +68,8 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     /// <param name="applyArtwork">Applies catalog images to a confirmed app id, or null to skip.</param>
     /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
     /// <param name="resolveLauncher">Finds the packaged-game launcher, or null for the real one.</param>
-    internal SteamLibraryImportSource(
-        ILibrarySource source,
+    internal GameLibraryService(
+        IReadOnlyList<ILibrarySource> sources,
         ImportStateStore store,
         Func<SteamShortcutWriter?> writer,
         Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
@@ -73,7 +79,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null,
         Func<string?>? resolveLauncher = null)
     {
-        _source = source;
+        _sources = sources;
         _store = store;
         _writer = writer;
         _readLibrary = readLibrary;
@@ -255,7 +261,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     internal event Action? Changed;
 
     /// <summary>The state Steam should currently render.</summary>
-    internal SteamLibraryImportState ReadState()
+    internal GameLibraryState ReadState()
     {
         lock (_gate)
         {
@@ -263,8 +269,8 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             var entries = _entries.Values.OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
                 .Select(Project).ToList();
 
-            return new SteamLibraryImportState(
-                _source.DisplayName,
+            return new GameLibraryState(
+                [.. _sources.Select(source => source.DisplayName)],
                 _phase,
                 entries,
                 entries.Count(entry => entry.Selected),
@@ -289,7 +295,12 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
 
     private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
     {
-        var discovered = await _source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        List<DiscoveredGame> discovered = [];
+        foreach (var source in _sources)
+        {
+            discovered.AddRange(await source.DiscoverAsync(cancellationToken).ConfigureAwait(false));
+        }
+
         var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
         var launcher = _resolveLauncher() ?? string.Empty;
         var recorded = _store.Entries();
@@ -351,7 +362,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             }
 
             _phase = "review";
-            _notice = plan.Count == 0 ? $"No games were found from {_source.DisplayName}." : null;
+            _notice = plan.Count == 0 ? "No games were found." : null;
             Publish();
         }
     }
@@ -779,6 +790,13 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         Changed?.Invoke();
     }
 
+    /// <summary>What to call a source on screen, falling back to its id for one no longer registered.</summary>
+    private string SourceName(string id)
+    {
+        return _sources.FirstOrDefault(source =>
+            string.Equals(source.Id, id, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? id;
+    }
+
     private static DiscoveredGame Placeholder(ImportPlanEntry entry)
     {
         // A title that is no longer installed has no discovery record, so it stands in with its
@@ -788,12 +806,12 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             MultiplayerVerdict.Unknown, entry.Reason, false, [], []);
     }
 
-    private SteamLibraryImportEntry Project(Entry entry)
+    private GameLibraryEntry Project(Entry entry)
     {
-        return new SteamLibraryImportEntry(
+        return new GameLibraryEntry(
             entry.Id,
             entry.Plan.Name,
-            _source.DisplayName,
+            SourceName(entry.Plan.Source),
             entry.Game.Key,
             entry.Game.InstallPath,
             entry.Game.Launch.Label,

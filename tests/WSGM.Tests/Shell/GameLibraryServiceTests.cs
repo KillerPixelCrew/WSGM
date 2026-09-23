@@ -9,7 +9,7 @@ namespace WSGM.Tests.Shell;
 ///     the page, because a page defect must not be able to put a multiplayer title on the route that
 ///     injects into it.
 /// </summary>
-public sealed class SteamLibraryImportSourceTests
+public sealed class GameLibraryServiceTests
 {
     private const string Launcher = @"C:\WSGM\WSGM.PackagedLaunch.exe";
 
@@ -25,12 +25,12 @@ public sealed class SteamLibraryImportSourceTests
             multiplayer, "Evidence.", isGame, [], []);
     }
 
-    private static SteamLibraryImportSource Source(
+    private static GameLibraryService Source(
         TemporaryDirectory temporary,
         params DiscoveredGame[] games)
     {
-        return new SteamLibraryImportSource(
-            new FakeSource(games),
+        return new GameLibraryService(
+            [new FakeSource(games)],
             new ImportStateStore(temporary.GetPath("import.json")),
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
@@ -38,7 +38,7 @@ public sealed class SteamLibraryImportSourceTests
             () => false);
     }
 
-    private static async Task<SteamLibraryImportState> ScannedAsync(SteamLibraryImportSource source)
+    private static async Task<GameLibraryState> ScannedAsync(GameLibraryService source)
     {
         await source.ScanAsync(CancellationToken.None);
         for (var attempt = 0; attempt < 200 && source.ReadState().Phase != "review"; attempt++)
@@ -98,8 +98,8 @@ public sealed class SteamLibraryImportSourceTests
     {
         // There is no validated route, so there is nothing an acknowledgement could authorise.
         using TemporaryDirectory temporary = new();
-        using var source = new SteamLibraryImportSource(
-            new FakeSource([Game(routable: false)]),
+        using var source = new GameLibraryService(
+            [new FakeSource([Game(routable: false)])],
             new ImportStateStore(temporary.GetPath("import.json")),
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
@@ -150,8 +150,8 @@ public sealed class SteamLibraryImportSourceTests
     public async Task SelectAllNeverSelectsSomethingThatCannotBeActedOn()
     {
         using TemporaryDirectory temporary = new();
-        using var source = new SteamLibraryImportSource(
-            new FakeSource([Game(routable: false)]),
+        using var source = new GameLibraryService(
+            [new FakeSource([Game(routable: false)])],
             new ImportStateStore(temporary.GetPath("import.json")),
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
@@ -193,8 +193,8 @@ public sealed class SteamLibraryImportSourceTests
             Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.SteamIntegration)
         });
 
-        using SteamLibraryImportSource source = new(
-            new FakeSource([game]),
+        using GameLibraryService source = new(
+            [new FakeSource([game])],
             store,
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>(
@@ -228,8 +228,8 @@ public sealed class SteamLibraryImportSourceTests
             Mode = nameof(ImportMode.SteamIntegration), Acknowledged = true
         });
 
-        using SteamLibraryImportSource source = new(
-            new FakeSource([game]),
+        using GameLibraryService source = new(
+            [new FakeSource([game])],
             store,
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>(
@@ -304,8 +304,8 @@ public sealed class SteamLibraryImportSourceTests
             Source = "xbox", Key = "Publisher.Game_abc!App", Name = "Moonlit", AppId = 77,
             Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.SteamIntegration)
         });
-        using SteamLibraryImportSource source = new(
-            new FakeSource([Game()]), store, () => null,
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], store, () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
             () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher);
         var entry = Assert.Single((await ScannedAsync(source)).Entries);
@@ -324,8 +324,8 @@ public sealed class SteamLibraryImportSourceTests
         {
             Source = "xbox", Key = "Publisher.Game_abc!App", Mode = nameof(ImportMode.SteamIntegration)
         });
-        using SteamLibraryImportSource source = new(
-            new FakeSource([Game(multiplayer: MultiplayerVerdict.Multiplayer)]), store, () => null,
+        using GameLibraryService source = new(
+            [new FakeSource([Game(multiplayer: MultiplayerVerdict.Multiplayer)])], store, () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
             () => ImportMode.SteamIntegration, () => false);
 
@@ -341,8 +341,8 @@ public sealed class SteamLibraryImportSourceTests
         // would leave the record describing a game that starts some other way.
         using TemporaryDirectory temporary = new();
         const string options = "--aumid Publisher.Game_abc!App --mode steam-overlay";
-        using SteamLibraryImportSource source = new(
-            new FakeSource([Game()]), new ImportStateStore(temporary.GetPath("import.json")), () => null,
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], new ImportStateStore(temporary.GetPath("import.json")), () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
             () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher);
         var entry = Assert.Single((await ScannedAsync(source)).Entries);

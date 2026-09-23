@@ -73,7 +73,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly LibraryBadgeBackend _libraryBadge = new();
 
     /// <summary>The library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
-    private readonly SteamLibraryImportSource? _libraryImport;
+    private readonly GameLibraryService? _libraryImport;
 
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
     private readonly NativeQamNetworkService? _network;
@@ -171,7 +171,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
     /// <param name="profiles">The profile owner Steam's per-game toggle and reset write to.</param>
     /// <param name="artwork">The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</param>
-    /// <param name="libraryImport">The library importer behind Steam's import page, or null in overlay-test.</param>
+    /// <param name="libraryImport">The Game Library behind Steam's import page, or null in overlay-test.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -192,7 +192,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         CommonPluginSteamUiSource? pluginSteamUi = null,
         ProfileService? profiles = null,
         SteamArtworkBrowserSource? artwork = null,
-        SteamLibraryImportSource? libraryImport = null)
+        GameLibraryService? libraryImport = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
@@ -210,7 +210,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _extensionsTab = new SteamExtensionsTabBackend(
             pluginSteamUi,
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
-            libraryImport is null ? null : () => libraryImport.ReadState().SourceName);
+            libraryImport is null ? null : () => string.Join(", ", libraryImport.ReadState().Sources));
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -954,7 +954,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             modules.Add(SteamLibraryImportSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamLibraryImportState?>(libraryImport.ReadState()),
+                () => new ValueTask<GameLibraryState?>(libraryImport.ReadState()),
                 libraryImport));
         }
 
