@@ -3,9 +3,9 @@
 Radio, audio, brightness, removable-drive, text-entry and power controls share the fullscreen
 overlay window. `OverlayController` creates one `GamepadNavigation` for that window. Opening a
 utility surface keeps the overlay capture and input lease in place; closing it returns focus to the
-control that opened it. The normal deck is disabled while a surface is open, and keyboard Tab cycles
-within that surface. Controller shoulders switch radio tabs and otherwise stay inside the current
-surface.
+control that opened it. A transparent shield blocks pointer input to the deck without dimming it or
+changing its controls to disabled styles. Keyboard Tab cycles within the surface. Controller
+shoulders switch radio tabs and otherwise stay inside the current surface.
 
 `RadioPanel`, `AudioPanel` and `EjectPanel` keep the existing manager operations, error reporting,
 selectors and confirmation flows. Radio scanning ends when the panel is detached. An unfinished

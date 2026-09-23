@@ -1349,7 +1349,7 @@ public sealed class OverlayController : IDisposable
                 }
             },
             direction => !overlay.HasActiveSurface && overlay.NavigateWorkspace(direction),
-            true);
+            true, () => overlay.ActiveSurfaceNavigationRoot);
         // Internal text entry shares this window and its single navigation owner.
         // Registered while the overlay owns navigation.
         KeyboardService.Handler = OpenKeyboard;
@@ -1427,6 +1427,7 @@ public sealed class OverlayController : IDisposable
             ClaimUiSurface(QuickAccessSurface);
         }
 
+        overlay.ResetForResummon();
         overlay.Activate();
     }
 

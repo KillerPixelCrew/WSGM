@@ -44,7 +44,8 @@ The session remembers each destination's selected section across tab switches an
 Rail selection and keyboard/controller focus are independent: moving focus to a peer does not change
 the selected controls. Right from a rail row selects that section and enters its controls. LT/RT and
 LB/RB switch destinations with wrap. An open utility, keyboard or power surface confines input to
-itself; see [surface ownership](overlay-surfaces.md).
+itself; see [surface ownership](overlay-surfaces.md). Re-summoning an already open sheet returns to
+the selected section. An ordinary focus or activation change leaves its current page intact.
 
 B, Escape and the header Back button share the same route handling. From primary controls, Back
 focuses the selected rail row; from that rail, Back returns to Quick access. At home, Back dismisses
