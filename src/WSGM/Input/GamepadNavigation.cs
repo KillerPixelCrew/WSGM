@@ -32,9 +32,9 @@ public sealed class GamepadNavigation : IDisposable
     // reads on the device as "the controller went dead" with nothing in the log.
     private const long CrossSourceSuppressionMs = 250;
     private readonly Action _back;
+    private readonly Func<InputElement?>? _focusScope;
 
     private readonly IUiButtonSource _gamepad;
-    private readonly Func<InputElement?>? _focusScope;
     private readonly Func<bool>? _isNintendoLayout;
 
     private readonly Func<NavigationDirection, bool>? _navigate;
@@ -679,7 +679,7 @@ public sealed class GamepadNavigation : IDisposable
     private void FocusFirst()
     {
         if (_preferredFocus?.Invoke() is
-            { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true } preferred
+                { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true } preferred
             && IsInFocusScope(preferred))
         {
             preferred.Focus(NavigationMethod.Directional);
