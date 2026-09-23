@@ -126,9 +126,12 @@ internal static class Program
 
         // After activation on purpose: IPackageDebugSettings takes a running package out of
         // lifetime management, and nothing can suspend a game in the seconds before this runs.
+        // A package that could not be exempted can be suspended the moment the overlay or Alt-Tab
+        // takes the foreground, so the session reports degraded rather than a clean completion.
+        var exempted = false;
         if (packageFullName is { } fullName)
         {
-            exemption.Request(fullName, Environment.ProcessId,
+            exempted = exemption.Request(fullName, Environment.ProcessId,
                 ProcessInspector.StartedAt(Environment.ProcessId));
         }
         else
@@ -140,7 +143,7 @@ internal static class Program
 
         PrivilegeJournal privileges = new();
         GameInjector injector = new(privileges);
-        var degraded = decision.Degraded;
+        var degraded = decision.Degraded || !exempted;
 
         // Before the game exists. The helper activation returned is the only place Steam's handoff
         // can still be influenced; once the game is running it is too late for this route.
@@ -190,16 +193,19 @@ internal static class Program
                 PrivilegeJournal.ReportAccess(facts.Id);
             }
 
+            // The one reconciliation SetTarget does can land before the game's CoreWindow is inside
+            // the foreground frame, and attaching it raises no further foreground event. Without
+            // this, Steam Input keeps following ApplicationFrameHost until the user alt-tabs. The
+            // target stays the process activation returned: a later process of the same package can
+            // be a helper with no CoreWindow, and retargeting to it would break the repair.
+            if (decision.Route is LaunchRoute.AppContainerOverlay)
+            {
+                proxy?.ReconcileForeground();
+            }
+
             // Observation, not repair. Whether Steam's handoff reached the process that owns the
             // swap chain is the one thing this route cannot assume, and a game without the renderer
             // is reported rather than written to.
-            // The one reconciliation SetTarget does can land before the game's CoreWindow is inside
-            // the foreground frame, and attaching it raises no further foreground event. Without
-            // this, Steam Input keeps following ApplicationFrameHost until the user alt-tabs.
-            if (decision.Route is LaunchRoute.AppContainerOverlay)
-            {
-                proxy?.SetTarget(facts.Id);
-            }
 
             if (decision.Route is LaunchRoute.PackagedWin32Overlay && !rendererChecked
                                                                    && !GameSessionJob.IsLaunchHelper(facts))

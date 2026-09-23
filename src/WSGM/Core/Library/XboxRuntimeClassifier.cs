@@ -26,6 +26,7 @@ public enum XboxRuntime
 /// <param name="PackageDependencies">The package families it depends on.</param>
 /// <param name="HasMicrosoftGameConfig">Whether the install root carries MicrosoftGame.config.</param>
 /// <param name="ManifestReadable">Whether the manifest could be read and parsed at all.</param>
+/// <param name="ProcessorArchitecture">What the package's identity declares it is built for, or empty.</param>
 public sealed record XboxPackageFacts(
     string ApplicationId,
     string EntryPoint,
@@ -34,7 +35,8 @@ public sealed record XboxPackageFacts(
     int ApplicationCount,
     IReadOnlyList<string> PackageDependencies,
     bool HasMicrosoftGameConfig,
-    bool ManifestReadable = true);
+    bool ManifestReadable = true,
+    string ProcessorArchitecture = "");
 
 /// <summary>A runtime and the one sentence of evidence that decided it.</summary>
 /// <param name="Runtime">The classification.</param>

@@ -54,6 +54,16 @@ internal sealed class PackagedWin32OverlayRoute(GameInjector injector)
             return new RouteOutcome(false, "Activation returned no process to set Steam up in.");
         }
 
+        // Every payload this route loads - Steam's client and renderer, the bridge, the environment
+        // stub - is x64. A 32-bit game cannot load any of it, so the route is refused rather than
+        // written into a process it cannot work in.
+        if (ProcessInspector.IsNativeX64(helperProcessId) is not true)
+        {
+            return new RouteOutcome(false,
+                "The game is not a native 64-bit process, and the overlay components are 64-bit only, "
+                + "so nothing was loaded into it.");
+        }
+
         if (!SteamInstallation.ComponentsPresent(out var missing))
         {
             return new RouteOutcome(false,

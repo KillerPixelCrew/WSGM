@@ -448,6 +448,94 @@ public sealed class GameLibraryServiceTests
         Assert.Equal(2, entry.ArtworkApplied);
     }
 
+    [Fact]
+    public async Task TheListCannotChangeWhileAnApplyIsWorkingThroughIt()
+    {
+        // A mode changed between composing a shortcut and recording it would be recorded and pinned
+        // while the shortcut still launched the old way.
+        using TemporaryDirectory temporary = new();
+        TaskCompletionSource<IReadOnlyList<ExistingShortcut>> held = new();
+        var reads = 0;
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], new ImportStateStore(temporary.GetPath("import.json")),
+            () => new SteamShortcutWriter(_ => Task.FromResult<IReadOnlyList<uint>>([]),
+                (_, _, _, _, _) => Task.FromResult(0u), (_, _, _, _) => Task.FromResult(true),
+                (_, _) => Task.FromResult(true)),
+            _ => ++reads == 1 ? Task.FromResult<IReadOnlyList<ExistingShortcut>>([]) : held.Task,
+            () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.True((await source.ApplyAsync(CancellationToken.None)).Succeeded);
+
+        Assert.False((await source.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false,
+            CancellationToken.None)).Succeeded);
+        Assert.False((await source.ToggleEntryAsync(entry.Id, CancellationToken.None)).Succeeded);
+        Assert.False((await source.SelectAllAsync(false, CancellationToken.None)).Succeeded);
+        Assert.False((await source.ExcludeAsync(entry.Id, CancellationToken.None)).Succeeded);
+
+        held.SetResult([]);
+    }
+
+    [Fact]
+    public async Task AnAppliedTitleIsDeselectedSoTheNextCappedRunMovesOn()
+    {
+        using TemporaryDirectory temporary = new();
+        const uint created = 2147483651u;
+        Queue<IReadOnlyList<uint>> listings = new([[], [created]]);
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult(listings.Count > 0 ? listings.Dequeue() : [created]),
+            (_, _, _, _, _) => Task.FromResult(created),
+            (_, _, _, _) => Task.FromResult(true),
+            (_, _) => Task.FromResult(true));
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], new ImportStateStore(temporary.GetPath("import.json")), () => writer,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher);
+        await ScannedAsync(source);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.False(Assert.Single(source.ReadState().Entries).Selected);
+    }
+
+    [Fact]
+    public async Task AControllerOverrideThatFailedIsStillReportedWhenTheRunEnds()
+    {
+        // The record and the shortcut both say controller-only, so a rescan would show nothing wrong.
+        // The completion message must not be what hides it.
+        using TemporaryDirectory temporary = new();
+        const uint created = 2147483651u;
+        Queue<IReadOnlyList<uint>> listings = new([[], [created]]);
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult(listings.Count > 0 ? listings.Dequeue() : [created]),
+            (_, _, _, _, _) => Task.FromResult(created),
+            (_, _, _, _) => Task.FromResult(true),
+            (_, _) => Task.FromResult(true));
+        using GameLibraryService source = new(
+            [new FakeSource([Game(multiplayer: MultiplayerVerdict.Multiplayer)])],
+            new ImportStateStore(temporary.GetPath("import.json")), () => writer,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false,
+            setControllerTarget: (_, _, _, _) => throw new IOException("config is locked"),
+            resolveLauncher: () => Launcher);
+        await ScannedAsync(source);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.Contains("Moonlit", source.ReadState().Error, StringComparison.Ordinal);
+    }
+
+    private static async Task DoneAsync(GameLibraryService source)
+    {
+        for (var attempt = 0; attempt < 300 && source.ReadState().Phase != "done"; attempt++)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.Equal("done", source.ReadState().Phase);
+    }
+
     private sealed class FakeSource(IReadOnlyList<DiscoveredGame> games) : ILibrarySource
     {
         public string Id => "xbox";

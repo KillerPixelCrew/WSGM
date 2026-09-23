@@ -118,4 +118,25 @@ public sealed class XboxLibrarySourceTests
         Assert.Equal("Because.", launch.Evidence);
         Assert.False(string.IsNullOrWhiteSpace(launch.Label));
     }
+
+    [Theory]
+    [InlineData("x86")]
+    [InlineData("arm64")]
+    public void APackageBuiltForAnotherArchitectureIsNotOfferedTheOverlayRoute(string architecture)
+    {
+        var launch = XboxLibrarySource.Launch(new XboxRuntimeClassification(XboxRuntime.NativeUwp, "UWP."), architecture);
+
+        Assert.False(launch.Validated);
+        Assert.Contains(architecture, launch.Evidence, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("x64")]
+    [InlineData("neutral")]
+    [InlineData("")]
+    public void AnX64OrNeutralPackageKeepsItsRoute(string architecture)
+    {
+        Assert.True(XboxLibrarySource.Launch(
+            new XboxRuntimeClassification(XboxRuntime.NativeUwp, "UWP."), architecture).Validated);
+    }
 }

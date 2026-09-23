@@ -31,10 +31,8 @@ internal sealed class PackageDebugRecord
 
     /// <summary>How many sweeps have tried and failed to release this package.</summary>
     /// <remarks>
-    ///     A record is kept until its package is actually released, so a transient COM failure
-    ///     cannot lose the only thing that would put the package back. This bounds that: a package
-    ///     that refuses release every time is eventually given up on and said so in the log, rather
-    ///     than retried on every launch for the life of the machine.
+    ///     Counted so the log can say when a package keeps refusing release. The record itself is kept
+    ///     until the release succeeds, however many sweeps that takes.
     /// </remarks>
     public int ReleaseAttempts { get; set; }
 }
@@ -83,8 +81,8 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <summary>More than this many records means something is wrong, not that many games ran.</summary>
     private const int MaximumRecords = 64;
 
-    /// <summary>How many sweeps may fail to release one package before it is given up on.</summary>
-    private const int MaximumReleaseAttempts = 5;
+    /// <summary>How many failed sweeps before the log says a package is stuck.</summary>
+    private const int ReleaseAttemptsBeforeWarning = 5;
 
     private static readonly TimeSpan LockBudget = TimeSpan.FromSeconds(5);
 
@@ -131,16 +129,23 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     ///     The records stay. Removing one before its package is actually released would throw away
     ///     the only thing that could put that package back, so a single transient COM failure would
     ///     leave it outside lifetime management for good. The caller calls <see cref="Forget" />
-    ///     once the release succeeds; a package that fails <see cref="MaximumReleaseAttempts" />
-    ///     sweeps in a row is dropped so the journal cannot grow forever.
+    ///     once the release succeeds. A package still owned by a live launcher is not listed.
     /// </remarks>
     public IReadOnlyList<string> ListAbandoned()
     {
         List<string> abandoned = [];
         Mutate(state =>
         {
+            // Releasing is package-wide. A package another launcher is still running under keeps its
+            // exemption, and every record for it, until that launcher is gone too.
+            var owned = state.Records
+                .Where(record => record.PackageFullName.Length > 0
+                                 && isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc)))
+                .Select(record => record.PackageFullName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var stale = state.Records
                 .Where(record => record.PackageFullName.Length > 0
+                                 && !owned.Contains(record.PackageFullName)
                                  && !isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc)))
                 .ToList();
             if (stale.Count == 0)
@@ -151,14 +156,13 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
             foreach (var record in stale)
             {
                 record.ReleaseAttempts++;
-                if (record.ReleaseAttempts > MaximumReleaseAttempts)
+                if (record.ReleaseAttempts == ReleaseAttemptsBeforeWarning)
                 {
+                    // Said once, and the record stays: it is the only thing that can ever put the
+                    // package back, and one COM call per sweep is cheap next to losing it.
                     PackagedLaunchLog.Warn(
-                        $"Giving up on releasing {record.PackageFullName} after "
-                        + $"{MaximumReleaseAttempts} attempts; it stays outside package lifetime "
-                        + "management until something else puts it back.");
-                    state.Records.Remove(record);
-                    continue;
+                        $"{record.PackageFullName} has refused release {ReleaseAttemptsBeforeWarning} times "
+                        + "and is still outside package lifetime management. Every later sweep tries again.");
                 }
 
                 if (!abandoned.Contains(record.PackageFullName, StringComparer.OrdinalIgnoreCase))

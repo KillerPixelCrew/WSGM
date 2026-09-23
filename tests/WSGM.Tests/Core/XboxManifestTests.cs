@@ -134,4 +134,19 @@ public sealed class XboxManifestTests
 
         Assert.Equal(string.Empty, XboxManifest.ParseDisplayName(manifest));
     }
+
+    [Fact]
+    public void TheIdentitysArchitectureIsRead()
+    {
+        const string manifest = """
+                                <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+                                  <Identity Name="Publisher.Game" ProcessorArchitecture="x86" Version="1.0.0.0" />
+                                  <Applications>
+                                    <Application Id="App" Executable="Game.exe" EntryPoint="Game.App" />
+                                  </Applications>
+                                </Package>
+                                """;
+
+        Assert.Equal("x86", XboxManifest.ParseAppxManifest(manifest, "App", false).ProcessorArchitecture);
+    }
 }

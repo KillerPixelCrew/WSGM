@@ -143,7 +143,7 @@ public sealed class XboxLibrarySource : ILibrarySource
             package.Aumid,
             Name(package, config),
             package.InstallPath,
-            Launch(classification),
+            Launch(classification, facts.ProcessorArchitecture),
             multiplayer,
             multiplayerEvidence,
             isGame,
@@ -153,9 +153,24 @@ public sealed class XboxLibrarySource : ILibrarySource
 
     /// <summary>Describes a classified package as a launch route the rest of the library understands.</summary>
     /// <param name="classification">What the manifest and game config established.</param>
+    /// <param name="architecture">What the package's identity says it is built for, or empty.</param>
     /// <returns>The route, validated for the two runtimes the packaged launcher has a route for.</returns>
-    internal static GameLaunch Launch(XboxRuntimeClassification classification)
+    /// <remarks>
+    ///     Only an x64 or architecture-neutral package is validated. The overlay components are 64-bit,
+    ///     and offering the route for a 32-bit or ARM package would import a shortcut that degrades on
+    ///     every launch. The launcher checks the live process as well, whatever this said.
+    /// </remarks>
+    internal static GameLaunch Launch(XboxRuntimeClassification classification, string architecture = "")
     {
+        if (classification.Runtime is not XboxRuntime.Unknown
+            && architecture.Length > 0
+            && !architecture.Equals("x64", StringComparison.OrdinalIgnoreCase)
+            && !architecture.Equals("neutral", StringComparison.OrdinalIgnoreCase))
+        {
+            return new GameLaunch($"{architecture} package", false,
+                $"This package is built for {architecture}, and WSGM's overlay components are 64-bit only.");
+        }
+
         return classification.Runtime switch
         {
             XboxRuntime.PackagedWin32Gdk => new GameLaunch("Packaged Win32 (GDK)", true, classification.Evidence),

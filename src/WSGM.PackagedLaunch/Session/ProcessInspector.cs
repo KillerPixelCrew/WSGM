@@ -149,6 +149,35 @@ internal static class ProcessInspector
         }
     }
 
+    /// <summary>Whether a process runs as native x64 code, the only kind the overlay components are built for.</summary>
+    /// <param name="processId">The process.</param>
+    /// <returns>True for a native x64 process on an x64 machine; null when it cannot be read.</returns>
+    /// <remarks>
+    ///     A 32-bit package runs under WOW64, and an x64 DLL or an x64 code stub written into it cannot
+    ///     load or run there. Anything that is not established as x64 is treated as not x64.
+    /// </remarks>
+    internal static bool? IsNativeX64(int processId)
+    {
+        var process = NativeMethods.OpenProcess(
+            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
+        if (process == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            return NativeMethods.IsWow64Process2(process, out var processMachine, out var nativeMachine)
+                ? processMachine == NativeMethods.ImageFileMachineUnknown
+                  && nativeMachine == NativeMethods.ImageFileMachineAmd64
+                : null;
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(process);
+        }
+    }
+
     /// <summary>The windows a process owns, plus the frame hosting its CoreWindow.</summary>
     /// <param name="processId">The process to look for.</param>
     /// <remarks>

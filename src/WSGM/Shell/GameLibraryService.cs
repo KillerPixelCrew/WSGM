@@ -50,6 +50,18 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     private readonly ImportStateStore _store;
     private readonly Func<SteamShortcutWriter?> _writer;
     private bool _artworkMissing;
+
+    /// <summary>Titles whose controller override could not be written in this run.</summary>
+    private readonly List<string> _controllerFailures = [];
+
+    /// <summary>The answer to any change to the list while an apply is working through it.</summary>
+    /// <remarks>
+    ///     An apply composes a title's shortcut, writes it, and then records the mode and writes the
+    ///     controller override. A mode changed in between would be recorded and pinned while the
+    ///     shortcut still launched the old way, so the list is read-only until the run ends.
+    /// </remarks>
+    private static readonly SteamUiCommandResult Frozen =
+        new(false, "An import is running. Wait for it to finish, or stop it, before changing the list.");
     private bool _disposed;
     private string? _error;
     private long _generation;
@@ -150,6 +162,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
+            if (_phase == "applying")
+            {
+                return Task.FromResult(Frozen);
+            }
+
             if (!_entries.TryGetValue(id, out var entry))
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "That entry is no longer listed."));
@@ -174,6 +191,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
+            if (_phase == "applying")
+            {
+                return Task.FromResult(Frozen);
+            }
+
             foreach (var entry in _entries.Values.Where(entry => entry.Selectable))
             {
                 entry.Selected = selected;
@@ -192,6 +214,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
+            if (_phase == "applying")
+            {
+                return Task.FromResult(Frozen);
+            }
+
             if (!_entries.TryGetValue(id, out var entry))
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "That entry is no longer listed."));
@@ -421,6 +448,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         long generation, IReadOnlyList<Entry> selected, CancellationToken cancellationToken)
     {
         _artworkMissing = false;
+        _controllerFailures.Clear();
         var writer = _writer();
         if (writer is null)
         {
@@ -490,6 +518,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                         .ConfigureAwait(false);
                     _store.Forget(entry.Game.SourceId, entry.Game.Key);
                     _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
+                    lock (_gate)
+                    {
+                        entry.Selected = false;
+                    }
+
                     applied++;
                     Progress(generation, applied);
                     continue;
@@ -540,10 +573,13 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
             // The entry now has the id Steam gave it, so the review can offer its artwork without a
             // rescan - which is the point of choosing art after the write rather than before it.
+            // Deselected once done. A run is capped, and a finished title left selected would be
+            // taken first again by the next apply, so the titles past the cap would never be reached.
             lock (_gate)
             {
                 entry.AppliedAppId = result.AppId;
                 entry.ArtworkApplied = artwork;
+                entry.Selected = false;
             }
 
             applied++;
@@ -559,10 +595,21 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
             _phase = "done";
             _notice = $"Applied {applied} of {selected.Count} selected entry/entries."
+                      + (selected.Count > MaximumPerRun
+                          ? $" A run takes {MaximumPerRun} at a time; apply again for the rest."
+                          : string.Empty)
                       + (_artworkMissing
                           ? " Some titles got no Store artwork; open one's details and choose Change"
                             + " artwork to pick some."
                           : string.Empty);
+
+            // A controller-only title with no override has no working controller route, and nothing
+            // on a rescan would show it: its record and shortcut say controller-only. So it is an
+            // error the user sees, not a note the completion message replaces.
+            _error = _controllerFailures.Count == 0
+                ? null
+                : $"The controller override could not be written for {string.Join(", ", _controllerFailures)}. "
+                  + "Set Xbox 360 on its per-game profile in Quick Access, or apply it again.";
             Publish();
         }
     }
@@ -611,6 +658,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
+            if (_phase == "applying")
+            {
+                return Task.FromResult(Frozen);
+            }
+
             if (!_entries.TryGetValue(id, out var entry))
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "That entry is no longer listed."));
@@ -705,6 +757,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            lock (_gate)
+            {
+                _controllerFailures.Add(entry.Plan.Name);
+            }
+
             Note(generation,
                 $"{entry.Plan.Name} was added, but its controller override could not be written.");
         }

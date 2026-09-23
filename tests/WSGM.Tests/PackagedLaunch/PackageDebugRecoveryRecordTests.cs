@@ -61,19 +61,33 @@ public sealed class PackageDebugRecoveryRecordTests
     }
 
     [Fact]
-    public void APackageThatNeverReleasesIsEventuallyGivenUpOn()
+    public void APackageThatKeepsRefusingReleaseIsNeverDropped()
     {
-        // Kept, but not forever: a journal that grows a permanent entry would retry it on every
-        // launch for the life of the machine.
+        // The record is the only handle that can ever put the package back, so no number of
+        // failures is a reason to throw it away.
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("recovery.json");
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
         var journal = Journal(path, static (_, _) => false);
 
-        for (var attempt = 0; attempt < 5; attempt++)
+        for (var attempt = 0; attempt < 20; attempt++)
         {
             Assert.Single(journal.ListAbandoned());
         }
+    }
+
+    [Fact]
+    public void APackageALiveLauncherStillOwnsIsNotReleased()
+    {
+        // Releasing is package-wide: releasing a dead launcher's record would take the exemption
+        // away from the game another launcher is running right now.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var writer = Journal(path, static (_, _) => true);
+        writer.Add(Package, 1111, DateTime.UtcNow);
+        writer.Add(Package, 2222, DateTime.UtcNow);
+
+        var journal = Journal(path, static (pid, _) => pid == 2222);
 
         Assert.Empty(journal.ListAbandoned());
     }

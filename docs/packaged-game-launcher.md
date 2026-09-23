@@ -106,6 +106,12 @@ away again.
   of lifetime management until something puts it back, so an exemption with no record is a game that
   is never suspended again for the rest of the machine's life. The journal is replayed at launcher
   startup and at WSGM's session start through `--recover`.
+- Every payload a route loads is x64. A route refuses a process that is not native x64 rather than
+  writing into it, and the Game Library does not offer the overlay route for a package whose
+  identity declares another architecture.
+- A journal record stays until its package's release actually succeeds, however many sweeps that
+  takes, and a package another live launcher still runs under is never released.
+- A session whose package could not be exempted reports degraded, not complete.
 - Containment covers the target package family only, never `RuntimeBroker`, `ApplicationFrameHost`
   or `dllhost`.
 - A mid-session failure records once, marks the session degraded and keeps supervising. Foreground

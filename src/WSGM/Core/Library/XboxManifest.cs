@@ -96,7 +96,10 @@ public static class XboxManifest
             capabilities.Any(name => name.Equals("runFullTrust", StringComparison.OrdinalIgnoreCase)),
             applications.Count,
             dependencies,
-            hasGameConfig);
+            hasGameConfig,
+            ProcessorArchitecture: (string?)document.Root?.Elements()
+                .FirstOrDefault(element => element.Name.LocalName == "Identity")
+                ?.Attribute("ProcessorArchitecture") ?? string.Empty);
     }
 
     /// <summary>The display name a manifest declares, or empty when it has none WSGM can use.</summary>

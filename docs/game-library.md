@@ -106,6 +106,11 @@ made.
 - **Remove** needs the record, the live entry, our Target and our key to agree, and is never
   pre-selected. A record whose shortcut is already gone is cleaned up without a client call.
 
+While an apply runs the list is read-only: a mode changed between composing a shortcut and recording
+it would be pinned while the shortcut still launched the old way. Each applied title is deselected,
+so when more are selected than one run takes, the next apply carries on with the rest. A controller
+override that could not be written is reported as an error when the run ends.
+
 Each entry is re-checked against Steam immediately before its own write, keeping the user's chosen
 action and rechecking only its premise. Applies are capped per run; a failure stops and reports how
 far it got, without rolling back. Steam refusing to return a shortcut's details stops a scan rather

@@ -88,6 +88,16 @@ internal static class NativeMethods
     internal static extern bool QueryFullProcessImageNameW(
         IntPtr process, uint flags, StringBuilder exeName, ref uint size);
 
+    /// <summary>The machine type an x64 image is built for.</summary>
+    internal const ushort ImageFileMachineAmd64 = 0x8664;
+
+    /// <summary>What <c>IsWow64Process2</c> reports for a process that is not running under WOW64.</summary>
+    internal const ushort ImageFileMachineUnknown = 0;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsWow64Process2(IntPtr process, out ushort processMachine, out ushort nativeMachine);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetProcessTimes(
