@@ -1266,7 +1266,7 @@ public sealed class OverlayController : IDisposable
                 }
             },
             direction => !overlay.HasActiveSurface && overlay.NavigateWorkspace(direction),
-            triggerTabs: true, focusScope: () => overlay.ActiveSurfaceNavigationRoot);
+            true, () => overlay.ActiveSurfaceNavigationRoot);
         // Internal text entry shares this window and its single navigation owner.
         // Registered while the overlay owns navigation.
         KeyboardService.Handler = OpenKeyboard;
