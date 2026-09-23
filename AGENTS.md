@@ -237,7 +237,20 @@ The full gate takes about twenty minutes, so run it once per pull request, not o
 Before `gh pr create`, and before a later push that changes anything under `src`, `tests`,
 `external` or the build scripts:
 
-1. Commit first, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
+1. Before that commit, run the solution-wide Rider cleanup and the build yourself, and commit what
+   they change. The gate spends about twenty minutes before it reaches the layout step, and a
+   layout diff is the most common reason it fails, so finding one there wastes the whole run. The
+   command is the one the gate runs, unchanged:
+
+       dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
+           --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**;src\WSGM\ThirdParty\**" `
+           --no-build --verbosity=WARN
+
+   Review its diff before committing it: it reorders members and rewraps lines, and it is the one
+   step that can detach a doc comment from its member. Then `npm run format` for anything Prettier
+   owns, and a warning-free `dotnet build WSGM.slnx -c Release`.
+
+   Commit, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
    The layout step diffs the working tree, so any uncommitted change under `src` or `tests` fails
    it. For a stacked set, run it on the branch the change lands in, then merge that branch upward
    and push the rest without a second full run unless the merge itself changed code. For these
