@@ -197,6 +197,21 @@ public partial class OverlayWindow
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
 
+    /// <summary>Raised when the Game Library asks to continue in Steam.</summary>
+    internal event Action<GameLibrarySteamTarget>? GameLibraryOpenInSteamRequested;
+
+    /// <summary>Gives the Game Library view this session's library, or hides it without one.</summary>
+    /// <param name="library">The library, or null in overlay-test.</param>
+    internal void AttachGameLibrary(GameLibraryService? library)
+    {
+        GameLibraryHost.Attach(library);
+    }
+
+    private void OnGameLibraryOpenInSteam(GameLibrarySteamTarget target)
+    {
+        GameLibraryOpenInSteamRequested?.Invoke(target);
+    }
+
     /// <summary>Raised when the user requests a desktop/game-mode transition.</summary>
     public event Action? DesktopRequested;
 

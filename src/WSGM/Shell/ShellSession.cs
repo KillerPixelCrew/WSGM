@@ -1035,6 +1035,37 @@ public sealed class ShellSession : IAsyncDisposable
             openArtwork: _artwork.OpenAsync);
     }
 
+    /// <summary>Opens a Game Library page inside Steam for the overlay's hand-off.</summary>
+    /// <param name="target">The library page, or one title's artwork page.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Whether Steam took the route.</returns>
+    /// <remarks>
+    ///     The artwork page renders whatever its source last opened, so the source is opened for the
+    ///     title first, exactly as the game menu does before it answers with the route.
+    /// </remarks>
+    private async Task<bool> OpenGameLibraryInSteamAsync(GameLibrarySteamTarget target, CancellationToken cancellationToken)
+    {
+        if (!_config.Cef.Enabled || _steamUiTransport is not { } transport)
+        {
+            return false;
+        }
+
+        var route = SteamLibraryImportSurface.Route;
+        if (target.ArtworkAppId > 0)
+        {
+            if (_artwork is null
+                || !(await _artwork.OpenAsync(target.ArtworkAppId, target.ArtworkTitle, cancellationToken)
+                    .ConfigureAwait(false)).Succeeded)
+            {
+                return false;
+            }
+
+            route = SteamArtworkBrowserSurface.RouteFor(target.ArtworkAppId);
+        }
+
+        return await SteamRouteNavigation.NavigateAsync(transport, route, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Applies a title's Store artwork to the shortcut that was just created for it.</summary>
     /// <param name="appId">The confirmed shortcut app id.</param>
     /// <param name="artwork">The images the catalog offered.</param>
@@ -1189,7 +1220,8 @@ public sealed class ShellSession : IAsyncDisposable
                     : new DevicePrerequisiteSource(
                         ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync),
                 _brightness,
-                _deviceCoordinator),
+                _deviceCoordinator,
+                _libraryImport),
             _audio,
             _audioProfiles,
             _radios,
@@ -1201,6 +1233,7 @@ public sealed class ShellSession : IAsyncDisposable
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         if (!_overlayTestOnly)
         {
+            _overlay.OpenInSteam = OpenGameLibraryInSteamAsync;
             _overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
                     _config.Cef.Enabled && _steamUiTransport is { } transport
                                         && await SteamGameWindowActivation.RaiseAsync(transport, processId, token),

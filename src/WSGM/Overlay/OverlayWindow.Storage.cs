@@ -116,6 +116,13 @@ public partial class OverlayWindow
     ///     Opens the Library Tabs builder sub-view (the gamepad-driven
     ///     custom-tab UI). Its own "Sync now" materializes the tabs.
     /// </summary>
+    /// <summary>Opens the Game Library sub-view on its current state, including an apply in progress.</summary>
+    private void OnGameLibrary(object? sender, RoutedEventArgs e)
+    {
+        GameLibraryHost.Open();
+        EnterSubView(OverlayPage.SteamGameLibrary);
+    }
+
     private void OnLibraryTabs(object? sender, RoutedEventArgs e)
     {
         LibraryTabsHost.Open();

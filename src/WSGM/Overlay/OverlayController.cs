@@ -279,6 +279,13 @@ public sealed class OverlayController : IDisposable
     internal Func<CancellationToken, Task<bool>>? ShowOnScreenKeyboard { get; set; }
     internal GameWindowReturn? GameReturn { get; set; }
 
+    /// <summary>Opens a Game Library page inside Steam, answering whether Steam took the route.</summary>
+    /// <remarks>
+    ///     Supplied by the session, which owns the Steam transport and the artwork source, and set
+    ///     after construction because the Steam UI host is built after the overlay.
+    /// </remarks>
+    internal Func<GameLibrarySteamTarget, CancellationToken, Task<bool>>? OpenInSteam { get; set; }
+
     /// <summary>
     ///     The shared removable-storage format manager backing the Tools
     ///     tab's Format SD Card / Add Steam Library flow. Created on first use and
@@ -667,8 +674,9 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     /// <param name="vm">The panel's view model.</param>
     /// <param name="config">The configuration to read the gates from.</param>
-    private static void ApplyCefVisibility(OverlayViewModel vm, AppConfig config)
+    private void ApplyCefVisibility(OverlayViewModel vm, AppConfig config)
     {
+        vm.ShowGameLibrary = config.Cef.Enabled && _sources.GameLibrary is not null;
         vm.ShowLibraryTabs = config.Cef is { Enabled: true, LibraryTabs: true };
         vm.ShowCardManager = config.Cef is { Enabled: true, CardManager: true };
         vm.ShowSdCard = config.Cef is { Enabled: true, SdFormat: true };
@@ -952,6 +960,80 @@ public sealed class OverlayController : IDisposable
         CloseOverlay(true);
     }
 
+    /// <summary>Hands the user from the overlay's Game Library to a page inside Steam.</summary>
+    /// <param name="target">Which page.</param>
+    /// <remarks>
+    ///     The same order as picking a window: the page is asked for, the sheet closes, and only once
+    ///     it has closed and the input lease is back does Steam get the focus. A bare dismissal
+    ///     returns focus to whatever had it before, which is often not Steam.
+    /// </remarks>
+    private void OpenGameLibraryInSteam(GameLibrarySteamTarget target)
+    {
+        if (_disposed || _overlay is not { } window || OpenInSteam is not { } open)
+        {
+            return;
+        }
+
+        _windowReturnCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _windowReturnCancellation = cancellation;
+        _suppressFocusRestore = true;
+        var navigation = open(target, cancellation.Token);
+        Log.Observe(OpenGameLibraryInSteamAsync(navigation, window, cancellation), "Game Library hand-off");
+        CloseOverlay(true);
+    }
+
+    private async Task OpenGameLibraryInSteamAsync(Task<bool> navigation, OverlayWindow window,
+        CancellationTokenSource cancellation)
+    {
+        TaskCompletionSource closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        window.Closed += OnClosed;
+        try
+        {
+            var navigated = await navigation.WaitAsync(cancellation.Token);
+            await closed.Task.WaitAsync(cancellation.Token);
+            if (_leaseReleaseTask is { } release)
+            {
+                await release.WaitAsync(cancellation.Token);
+            }
+
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (!navigated)
+            {
+                // Steam still gets the focus: the user asked to go there, and the page is one press
+                // away from where they land.
+                Log.Warn("Game Library: Steam did not take the requested page; focusing Steam as it is.");
+            }
+
+            _modes.FocusSteam();
+        }
+        catch (OperationCanceledException)
+        {
+        } // A reopened sheet or session shutdown ends the hand-off.
+        finally
+        {
+            window.Closed -= OnClosed;
+            if (ReferenceEquals(_windowReturnCancellation, cancellation))
+            {
+                _windowReturnCancellation = null;
+            }
+
+            cancellation.Dispose();
+        }
+
+        return;
+
+        void OnClosed(object? sender, EventArgs args)
+        {
+            closed.TrySetResult();
+        }
+    }
+
     private async Task PickWindowAsync(AppSwitcherEntry entry, OverlayWindow window,
         CancellationTokenSource cancellation)
     {
@@ -1207,6 +1289,7 @@ public sealed class OverlayController : IDisposable
         _overlay.AttachDeviceBridge(_sources.Device);
         _overlay.AttachDevicePrerequisites(_sources.DevicePrerequisites);
         _overlay.AttachCommonPlugins(_sources.CommonPlugins);
+        _overlay.AttachGameLibrary(_sources.GameLibrary);
         _overlay.AttachPerformanceSource(_sources.Performance);
         _overlay.SetPins(_config.QuickAccessPins);
         _overlay.PinToggleRequested += OnPinToggleRequested;
@@ -1352,6 +1435,7 @@ public sealed class OverlayController : IDisposable
     /// <param name="vm">Its view model, which some requests update.</param>
     private void WireOverlayRequests(OverlayWindow overlay, OverlayViewModel vm)
     {
+        overlay.GameLibraryOpenInSteamRequested += OpenGameLibraryInSteam;
         overlay.HomeAppRequested += () =>
         {
             _suppressFocusRestore = true;

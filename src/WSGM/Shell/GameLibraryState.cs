@@ -132,6 +132,15 @@ public interface IGameLibraryBackend
     Task<SteamUiCommandResult> ApplyAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>Where the overlay hands the user over to inside Steam.</summary>
+/// <param name="ArtworkAppId">The shortcut whose artwork page to open, or zero for the library page.</param>
+/// <param name="ArtworkTitle">That title's name, for a shortcut Steam has not listed yet.</param>
+internal sealed record GameLibrarySteamTarget(uint ArtworkAppId = 0, string ArtworkTitle = "")
+{
+    /// <summary>The Game Library's own page.</summary>
+    internal static GameLibrarySteamTarget Library { get; } = new();
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GameLibraryState))]
 internal sealed partial class GameLibraryJsonContext : JsonSerializerContext;
