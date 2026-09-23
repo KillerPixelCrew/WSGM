@@ -82,6 +82,11 @@ repository guidance, plans and skills, including branch and pull-request instruc
   documentation-only changes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
+- Moving a feature between projects is a move, not a rewrite. Before calling one done, enumerate
+  what the old home declared - every setting, action, contribution, event and lifecycle hook - and
+  name where each one now lives or why it is gone. A file that is dissolved rather than moved is
+  where the losses hide: the artwork fold dropped eight of twelve settings and the configuration-
+  changed hook that way, and both shipped because nothing compared the two surfaces.
 - Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
   engine that `jb cleanupcode` and `jb inspectcode` run) defines the layout, including
   expanded braces and the JetBrains recommended style: `var` for locals, no trailing commas in

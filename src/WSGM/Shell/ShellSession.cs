@@ -2785,6 +2785,10 @@ public sealed class ShellSession : IAsyncDisposable
                             config.Cef is { Enabled: true, ConnectedLibraryCarousel: true },
                             config.Cef.CarouselShowUninstalled);
                         ApplyScreensaverTimeouts(config.Cef.Enabled);
+                        // The artwork settings are in this file too. The browser reads them live,
+                        // but a page already open still shows the old tabs, and a response the old
+                        // key earned is still cached against the new one.
+                        _artwork?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);
