@@ -69,4 +69,13 @@ public sealed class GameLibraryRowsTests
             GameLibraryRows.Summary(new GameLibraryState(["Xbox"], "idle", [], 0, 0, 0, 0, 0, 0, 0, 0, 0, true)));
         Assert.Equal("2 to add, 1 to update, 4 already imported", GameLibraryRows.Summary(State(Entry())));
     }
+
+    [Fact]
+    public void OnlyATitleSteamHasAsOursCountsAsImported()
+    {
+        Assert.False(GameLibraryRows.InSteam(Entry()));
+        Assert.True(GameLibraryRows.InSteam(Entry("Skip") with { AppId = 77 }));
+        Assert.False(GameLibraryRows.InSteam(Entry("Remove") with { AppId = 77 }));
+        Assert.False(GameLibraryRows.InSteam(Entry("Conflict") with { AppId = 77 }));
+    }
 }

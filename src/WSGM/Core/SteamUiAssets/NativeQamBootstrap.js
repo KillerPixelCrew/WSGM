@@ -8913,6 +8913,16 @@
       // The source names its own route; the page only marks one that has no validated launcher.
       { text: entry.launchLabel, warn: !entry.launchValidated },
       { text: importModeLabels[entry.mode] ?? entry.mode, warn: false },
+      // What the Store's artwork did: offered before an import, applied after one.
+      {
+        text:
+          entry.artworkApplied === null || entry.artworkApplied === undefined
+            ? entry.artworkOffered
+              ? `Store art: ${entry.artworkOffered}`
+              : "No Store art"
+            : `Art: ${entry.artworkApplied} of ${entry.artworkOffered}`,
+        warn: false,
+      },
       entry.excluded
         ? { text: "Not importing", warn: false }
         : {

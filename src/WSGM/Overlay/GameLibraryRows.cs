@@ -59,6 +59,14 @@ internal static class GameLibraryRows
         return string.Join(" · ", parts);
     }
 
+    /// <summary>Whether a title is already in Steam as an entry the library manages.</summary>
+    /// <param name="entry">The title.</param>
+    /// <returns>True once it has an app id and is not on its way out.</returns>
+    internal static bool InSteam(GameLibraryEntry entry)
+    {
+        return entry.AppId > 0 && entry.Action is not ("Remove" or "Conflict");
+    }
+
     /// <summary>What the Store's artwork did for a title.</summary>
     /// <param name="entry">The title.</param>
     /// <returns>Offered, and applied once it has been imported.</returns>

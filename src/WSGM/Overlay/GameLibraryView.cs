@@ -124,7 +124,15 @@ public sealed class GameLibraryView : OverlaySubView
         {
             stack.Children.Add(Tagged(Row($"Review ({state.Entries.Count})",
                 "Choose what to import, how each launches, and change artwork", Icons.ListLines,
-                () => Navigate(RenderReview)), "review"));
+                () => Navigate(() => RenderReview(false))), "review"));
+        }
+
+        var imported = state.Entries.Count(GameLibraryRows.InSteam);
+        if (imported > 0)
+        {
+            stack.Children.Add(Tagged(Row($"Imported games ({imported})",
+                "Titles already in Steam: change their launch mode or artwork", Icons.Grid4,
+                () => Navigate(() => RenderReview(true))), "imported"));
         }
 
         if (state.SelectedCount > 0)
@@ -139,9 +147,9 @@ public sealed class GameLibraryView : OverlaySubView
         SetContent(stack);
     }
 
-    private void RenderReview()
+    private void RenderReview(bool importedOnly)
     {
-        var stack = NewStack("Review");
+        var stack = NewStack(importedOnly ? "Imported games" : "Review");
         if (_service?.ReadState() is not { } state)
         {
             SetContent(stack);
@@ -149,7 +157,7 @@ public sealed class GameLibraryView : OverlaySubView
         }
 
         AddStatus(stack, state);
-        if (state.Entries.Any(entry => entry.Selectable))
+        if (!importedOnly && state.Entries.Any(entry => entry.Selectable))
         {
             var selected = state.SelectedCount > 0;
             stack.Children.Add(Tagged(Row(selected ? "Clear selection" : "Select all",
@@ -157,13 +165,13 @@ public sealed class GameLibraryView : OverlaySubView
                 Icons.ListLines, () => Run(token => _service.SelectAllAsync(!selected, token))), "select-all"));
         }
 
-        if (state.SelectedCount > 0 && state.Phase is not ("scanning" or "applying"))
+        if (!importedOnly && state.SelectedCount > 0 && state.Phase is not ("scanning" or "applying"))
         {
             stack.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Write the selected entries to Steam",
                 Icons.Play, () => Run(_service.ApplyAsync)), "apply"));
         }
 
-        foreach (var entry in state.Entries)
+        foreach (var entry in state.Entries.Where(entry => !importedOnly || GameLibraryRows.InSteam(entry)))
         {
             var id = entry.Id;
             stack.Children.Add(Tagged(Row(entry.Name, GameLibraryRows.Describe(entry), null,
