@@ -125,6 +125,16 @@ Power-menu entry points exist; physical power-button capture remains separate wo
 #116. Run the relevant suites and initial full gate after manual acceptance, then record the actual
 results here.
 
+## Overlay interaction flicker (2026-09-23, issue 171)
+
+The attached video shows the whole sheet darkening as utility panels open and brighten again on
+close. Opening a utility, keyboard or power surface should leave the deck's appearance stable while
+blocking input behind the surface; closing should return focus to its invoker. An ordinary window
+activation should keep the current page, while explicitly re-summoning an open sheet returns to its
+selected section. `OverlayWindow` owns the surface shield and focus, and `OverlayController` owns
+re-summon behavior. The code and headless regression cases are in place; attended mouse, touch and
+controller checks are still needed before calling the flicker resolved on the device.
+
 ## Overlay manual-test follow-up (2026-09-20)
 
 The maintainer reported brightness confirmation text flickering over the percentage, an off-centre
