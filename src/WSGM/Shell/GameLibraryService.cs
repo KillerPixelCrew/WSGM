@@ -34,7 +34,20 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <summary>How many entries one apply may write, so a mistake has a bounded blast radius.</summary>
     private const int MaximumPerRun = 50;
 
+    /// <summary>The answer to any change to the list while an apply is working through it.</summary>
+    /// <remarks>
+    ///     An apply composes a title's shortcut, writes it, and then records the mode and writes the
+    ///     controller override. A mode changed in between would be recorded and pinned while the
+    ///     shortcut still launched the old way, so the list is read-only until the run ends.
+    /// </remarks>
+    private static readonly SteamUiCommandResult Frozen =
+        new(false, "An import is running. Wait for it to finish, or stop it, before changing the list.");
+
     private readonly Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? _applyArtwork;
+
+    /// <summary>Titles whose controller override could not be written in this run.</summary>
+    private readonly List<string> _controllerFailures = [];
+
     private readonly Func<ImportMode> _defaultMode;
 
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
@@ -50,18 +63,6 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     private readonly ImportStateStore _store;
     private readonly Func<SteamShortcutWriter?> _writer;
     private bool _artworkMissing;
-
-    /// <summary>Titles whose controller override could not be written in this run.</summary>
-    private readonly List<string> _controllerFailures = [];
-
-    /// <summary>The answer to any change to the list while an apply is working through it.</summary>
-    /// <remarks>
-    ///     An apply composes a title's shortcut, writes it, and then records the mode and writes the
-    ///     controller override. A mode changed in between would be recorded and pinned while the
-    ///     shortcut still launched the old way, so the list is read-only until the run ends.
-    /// </remarks>
-    private static readonly SteamUiCommandResult Frozen =
-        new(false, "An import is running. Wait for it to finish, or stop it, before changing the list.");
     private bool _disposed;
     private string? _error;
     private long _generation;

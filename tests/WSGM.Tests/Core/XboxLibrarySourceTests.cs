@@ -124,7 +124,8 @@ public sealed class XboxLibrarySourceTests
     [InlineData("arm64")]
     public void APackageBuiltForAnotherArchitectureIsNotOfferedTheOverlayRoute(string architecture)
     {
-        var launch = XboxLibrarySource.Launch(new XboxRuntimeClassification(XboxRuntime.NativeUwp, "UWP."), architecture);
+        var launch =
+            XboxLibrarySource.Launch(new XboxRuntimeClassification(XboxRuntime.NativeUwp, "UWP."), architecture);
 
         Assert.False(launch.Validated);
         Assert.Contains(architecture, launch.Evidence, StringComparison.Ordinal);

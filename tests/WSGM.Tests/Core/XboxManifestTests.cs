@@ -147,6 +147,6 @@ public sealed class XboxManifestTests
                                 </Package>
                                 """;
 
-        Assert.Equal("x86", XboxManifest.ParseAppxManifest(manifest, "App", false).ProcessorArchitecture);
+        Assert.Equal("x86", XboxManifest.ParseAppxManifest(manifest, "App").ProcessorArchitecture);
     }
 }

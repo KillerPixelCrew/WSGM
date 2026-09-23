@@ -75,6 +75,12 @@ internal static class NativeMethods
     // ---- Console ----
     internal const int SwHide = 0;
 
+    /// <summary>The machine type an x64 image is built for.</summary>
+    internal const ushort ImageFileMachineAmd64 = 0x8664;
+
+    /// <summary>What <c>IsWow64Process2</c> reports for a process that is not running under WOW64.</summary>
+    internal const ushort ImageFileMachineUnknown = 0;
+
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern IntPtr OpenProcess(
         uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
@@ -87,12 +93,6 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool QueryFullProcessImageNameW(
         IntPtr process, uint flags, StringBuilder exeName, ref uint size);
-
-    /// <summary>The machine type an x64 image is built for.</summary>
-    internal const ushort ImageFileMachineAmd64 = 0x8664;
-
-    /// <summary>What <c>IsWow64Process2</c> reports for a process that is not running under WOW64.</summary>
-    internal const ushort ImageFileMachineUnknown = 0;
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
