@@ -493,6 +493,24 @@ public sealed class OverlayInteractionTests
         Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.SteamLibrary).Classes);
     }
 
+    [AvaloniaFact]
+    public void ResummoningAnOpenOverlayReturnsToItsSelectedSection()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        UiFixture.Click(window, UiFixture.Tab(window, 3));
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.PowerWake));
+        UiFixture.Click(window, VisibleCard(window, "What's keeping this awake"));
+        Assert.True(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+
+        window.ResetForResummon();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+        Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
+        Assert.Contains("selected", UiFixture.Rail(window, OverlayPage.PowerWake).Classes);
+    }
+
     private static ActionButton VisibleCard(OverlayWindow window, string title)
     {
         return window.GetVisualDescendants().OfType<ActionButton>()

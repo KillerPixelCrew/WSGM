@@ -164,10 +164,6 @@ public partial class OverlayWindow : Window
 
         ConfigureTabs(false);
         Tabs.SelectionChanged += OnTabSelectionChanged;
-        // The panel reopens on the destination the user last had selected (static: the
-        // window is recreated per open). Activated covers both the fresh open and a
-        // re-summon of a still-open panel. Any nested page is torn down with it.
-        Activated += OnActivated;
 
         // ReSharper disable once UseDeconstruction
         foreach (var view in SubViews)
@@ -308,7 +304,8 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private void OnActivated(object? sender, EventArgs e)
+    /// <summary>Returns an already open sheet to its selected section when summoned again.</summary>
+    internal void ResetForResummon()
     {
         if (HasActiveSurface)
         {
@@ -373,7 +370,6 @@ public partial class OverlayWindow : Window
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
         KeyDown -= OnKeyDown;
         Opened -= OnOpened;
-        Activated -= OnActivated;
         Closed -= OnClosed;
         StopSlide();
         ResetConfirms();
