@@ -1,7 +1,7 @@
 # Steam overlay and input across launchers
 
 This records the attended Moonlighter, PowerWash Simulator 2, and Balatro findings from September
-13–14, 2026. It is the evidence behind the library importer in
+13–14, 2026. It is the evidence behind the Game Library in
 [#47](https://github.com/KillerPixelCrew/WSGM/issues/47) and the launch integration in
 [#48](https://github.com/KillerPixelCrew/WSGM/issues/48), both of which shipped on September 22.
 What was built on it is `src/WSGM.PackagedLaunch`, described in
@@ -113,8 +113,7 @@ For this investigation, use native process/window observations and file logs. Th
 reported Steam failures during CEF investigation and later shortcut-management calls. Do not use CEF
 to diagnose these games, and do not edit a shortcut out from under an attended trial.
 
-Creating and maintaining the shortcuts themselves is now done over CEF, by the library importer and
+Creating and maintaining the shortcuts themselves is now done over CEF, by the Game Library and
 nothing else. That reversal, and the rules the importer follows to make it safe, are recorded in
-[decisions](decisions.md) and [importing an Xbox library into Steam](steam-library-import.md).
-Offline `shortcuts.vdf` editing is not used and is not a fallback: if Steam is not running, the
-importer refuses.
+[decisions](decisions.md) and [the Game Library](game-library.md). Offline `shortcuts.vdf` editing
+is not used and is not a fallback: if Steam is not running, the importer refuses.

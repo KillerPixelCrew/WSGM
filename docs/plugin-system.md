@@ -243,8 +243,8 @@ session, because the page host keys its patch and its publication by a single id
 publishing it would alternately clobber each other's routes, and two owners registering the patch is
 refused by the module set, which would take every Steam surface down rather than just the package's
 own. A plugin therefore contributes pages through `SteamPages` and the host merges them after its
-own. The host's own pages are the artwork browser and the library importer. A route already served
-is dropped and named in the log, a package cannot override one of Valve's, and a plugin module
+own. The host's own pages are the artwork browser and the Game Library. A route already served is
+dropped and named in the log, a package cannot override one of Valve's, and a plugin module
 declaring a host-owned patch id is refused at projection.
 
 Artwork was briefly a bundled package and is now part of WSGM again, so nothing ships in `Plugins\`

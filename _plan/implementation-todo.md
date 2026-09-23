@@ -26,39 +26,40 @@ header and every consumer use the same snapshot. The retired stored model is wip
       reset and inheritance behave as in `docs\profiles.md`.
 - [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
 
-## Xbox launcher and library importer (2026-09-22, issues 47 and 48)
+## Game Library (2026-09-23, issues 47 and 48)
 
-`src/WSGM.PackagedLaunch` is the launcher an imported Xbox, UWP or MSIX shortcut points at;
-`src/WSGM/Core/Library/` and `Shell/SteamLibraryImport*` are the importer that writes those
-shortcuts. The artwork feature came back out of its plugin into `src/WSGM` in the same work. Rules
-in `docs/packaged-game-launcher.md` and `docs/steam-library-import.md`; the attended evidence both
-rest on is `docs/steam-launcher-handoff.md`.
+WSGM's own Steam ROM Manager: bring other launchers' games into Steam from both the overlay and
+Steam's Quick Access plugin tab, with artwork as a stage of the pipeline. Xbox is the first source;
+`src/WSGM.PackagedLaunch` is the launcher its shortcuts point at. The finished shape, its parts and
+their owners are in `docs/game-library.md`; the launch routes in `docs/packaged-game-launcher.md`;
+the attended evidence in `docs/steam-launcher-handoff.md`.
 
-- [x] Artwork folded back into core: providers, apply path, state store, settings and the page,
-      with a migration that lifts the retired plugin's settings and adopts its state file.
-- [x] Page registration is host-owned. A plugin declares routes through `SteamPages`; a plugin
-      module claiming a host-owned patch id is refused instead of throwing out of the session host.
-- [x] "Change Artwork…" is a WSGM-owned entry on a game's own menu. It was unreachable before:
-      the entry came only from a bundled plugin the installer never shipped.
-- [x] Launcher project, shared command contract, route selection as a pure function, activation,
-      supervision, containment, the package-lifetime journal and its replay.
-- [x] Both overlay routes: the packaged Win32/GDK helper route and the AppContainer bridge route.
-- [x] Discovery, runtime classification, the Store catalog lookup, plan construction and the
-      shortcut writer, with the library diff as the authority on a new app id.
-- [x] The import page on the Quick Access plugin tab, with the acknowledgement enforced in the
-      backend rather than the page.
-- [x] Catalog artwork applied at import, and controller-only written as a per-game profile.
-- [x] SteamGridDB honours `Retry-After`, retries only what could succeed, keeps one request in
-      flight and caches for the session.
-- [x] The exploratory spike under `tools/` is deleted; every route it proved has a shipped owner.
-- [ ] Attended: Moonlighter for the UWP route and PowerWash Simulator 2 for packaged Win32 —
-      launch, gameplay input, overlay and QAM, repeated Alt-Tab, clean exit, Steam's running state
-      throughout. The helper-only route has not been re-tested since the simplification.
-- [ ] Attended: scan, apply one title, confirm it launches, re-run and confirm it updates rather
-      than duplicates, and confirm the catalog artwork landed on the right entry.
-- [ ] Attended: controller-only switches VIIPER to Xbox 360 while Steam reports the imported game
-      running, restores when it stops, and injects nothing.
-- [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
+The first delivery was an Xbox importer beside a separate artwork page, with no overlay surface,
+because its plan listed edits and never described the finished product. It was reworked on
+2026-09-23 against a written target.
+
+- [x] Artwork folded back into core, its settings and tab layout on Settings' Steam page, the
+      configuration-reload hook reconnected.
+- [x] Host-owned Steam surfaces gated on CEF, republished on their backends' `Changed`, and
+      protected from plugins claiming their patch ids.
+- [x] Launcher project, both overlay routes, the package-lifetime journal and its replay.
+- [x] Source-neutral discovery and source-qualified identity; the packaged route owns reading its
+      own shortcuts.
+- [x] Per-title choices kept across scans: launch mode, acknowledgement, "don't import".
+- [x] Renamed to the Game Library; several sources; Steam page heading and Quick Access row.
+- [x] Artwork stage: entries learn their app id on confirmation, Store art is counted, "Change
+      artwork…" from the review opens the page under the title's own name.
+- [x] Toolkit `SteamRouteNavigation` for the overlay's hand-off to Steam.
+- [x] Overlay surface: Game Library view, hand-off through the controller.
+- [x] Settings: default launch mode and whether unroutable titles are offered.
+- [ ] Attended, Steam page: scan, change a mode, apply, "Change artwork…" opens the page searched
+      by the title, B returns to the review.
+- [ ] Attended, overlay: the same flow; "Change artwork…" closes the sheet and Steam shows the page
+      in front; reopening mid-apply lands on the progress.
+- [ ] Attended: an exclusion and a picked-but-unapplied mode both survive a rescan; a change in one
+      surface shows in the other.
+- [ ] Attended: Moonlighter and PowerWash Simulator 2 through the launcher; controller-only
+      switching. The packaged Win32 helper-only route has not been re-tested since it was simplified.
 
 ## Overlay design mockup (2026-09-20, issue 114)
 

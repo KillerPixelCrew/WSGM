@@ -22,8 +22,8 @@ ordinary Steam games and holds input leases, and is deliberately kept small.
 
 ## The shortcut contract
 
-The library importer writes the shortcut; the launcher reads it. Both compile the same
-`Core\PackagedLaunchCommand.cs`, so the two cannot drift.
+The [Game Library](game-library.md) writes the shortcut; the launcher reads it. Both compile the
+same `Core\PackagedLaunchCommand.cs`, so the two cannot drift.
 
 ```text
 WSGM.PackagedLaunch.exe --aumid <PackageFamilyName>!<AppId> --mode steam-overlay|controller-only

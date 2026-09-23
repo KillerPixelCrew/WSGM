@@ -41,8 +41,8 @@ Related:
                                                 running apps
  Core\SteamCdp.cs, SteamLaunchConfig.cs                  WSGM's policy over generic calls
  Core\Artwork\                                  the artwork feature and its providers
- Core\Library\, Shell\SteamLibraryImport*       the Xbox library importer: discovery,
-                                                classification, planning, shortcut writing
+ Core\Library\, Shell\GameLibrary*             the Game Library: sources, planning, choices,
+ Shell\SteamLibraryImportSurface.cs             shortcut writing; its Steam page
  tools\WsgmLibTest\                             live probes and the QAM harness
 ```
 
@@ -562,8 +562,27 @@ The findings behind each of these are in `docs\steam-cef.md`.
 | Downloads            | toolkit `SteamDownloadActivity`, `Core\SteamDownloadSort.cs`                           | overview is a one-shot `RegisterForDownloadOverview` with immediate unregister (keep-awake, screen-off mute); the sort patch transforms the header on the JSX claim, builds buttons from Valve's `Focusable`, renumbers through `SetQueueIndex` every 120 ms                                                                  | `Cef.DownloadQueueSort`                                       |
 | Launch configuration | `Core\SteamLaunchConfig.cs`, `Core\SteamCustomLaunchCommand.cs`, toolkit `SteamApps`   | reads through `RegisterForAppDetails` (3 s timeout, unregister); writes `SetAppLaunchOptions` for titles, `SetShortcutExe` + `SetShortcutLaunchOptions` for shortcuts, verbatim, 400 ms settle; clipboard fallback with CEF off                                                                                               | —                                                             |
 | Artwork              | `Core\Artwork\`, `Shell\SteamArtworkBrowser*`, toolkit `SteamApps`, `SteamPageSurface` | providers searched in parallel; SteamGridDB and Screenscraper.fr over HTTPS, bounded downloads; native tabbed Steam route; clear/apply through the running client                                                                                                                                                             | `Cef.Enabled`                                                 |
-| Library import       | `Core\Library\`, `Shell\SteamLibraryImport*`, toolkit `SteamApps`, `SteamLibraryData`  | Xbox packages classified by runtime, one Store catalog lookup per title for the multiplayer tag and official art; shortcuts written through the running client one at a time with a settle, a new id confirmed by a before/after library diff which is the authority, an unconfirmed write stops the run and is never retried | `Cef.Enabled`                                                 |
+| Game Library         | `Core\Library\`, `Shell\GameLibrary*`, toolkit `SteamApps`, `SteamLibraryData`         | Xbox packages classified by runtime, one Store catalog lookup per title for the multiplayer tag and official art; shortcuts written through the running client one at a time with a settle, a new id confirmed by a before/after library diff which is the authority, an unconfirmed write stops the run and is never retried | `Cef.Enabled`                                                 |
 | Libraries            | `Core\SteamCdp.cs`, `Shell\SteamLibraryVdf.cs`, toolkit `SteamInstallFolders`          | `AddInstallFolder` on the running client after purging same-path registrations; removal iterates one snapshot; WSGM resolves a card's content id to one path first and refuses an ambiguous one; `libraryfolders.vdf` splice with Steam closed                                                                                | `Cef.SdFormat`                                                |
+
+### Host-owned surfaces
+
+The pages, the game menu and the plugin tab are WSGM's own and exist whether or not any plugin is
+installed. Each is gated on CEF itself, not on native Quick Access, and each republishes when its
+backend raises `Changed`; the host subscribes to both page backends for exactly that reason, since
+their commands answer at once and finish in the background.
+
+| Patch id                     | Backend                        | Republished on                               | On config reload         |
+| ---------------------------- | ------------------------------ | -------------------------------------------- | ------------------------ |
+| `steam-ui.pages`             | `SteamUiSessionHost.ReadPages` | the host's page set                          | nothing                  |
+| `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`    | plugin changes, `GameLibraryService.Changed` | nothing                  |
+| `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`  | plugin changes                               | nothing                  |
+| `steam-ui.artwork-browser`   | `SteamArtworkBrowserSource`    | its `Changed`                                | `ConfigurationChanged()` |
+| `steam-ui.library-import`    | `GameLibraryService`           | its `Changed`                                | reads `AppConfig` live   |
+
+One route change starts on the host side: the overlay's Game Library hands the user to a page in
+Steam through the toolkit's `SteamRouteNavigation`, a single bounded push rather than a request left
+in published state.
 
 The library badge's surface also puts the library on a game's own page, as a stat after Last Played
 and Play Time, drawn from the same card reading. That row is built inside mobx observer classes that

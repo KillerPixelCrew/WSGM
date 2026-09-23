@@ -168,7 +168,7 @@ silently enable the injection route. Neither mode carries a general anti-cheat c
 guarantee. The choice is per title on the import page, where a multiplayer title reaches the
 injecting route only by an acknowledgement the backend enforces.
 
-**Xbox imports select a launcher by runtime (2026-09-14, shipped 2026-09-22).** The library importer
+**Xbox imports select a launcher by runtime (2026-09-14, shipped 2026-09-22).** The Game Library
 delivering [#47](https://github.com/KillerPixelCrew/WSGM/issues/47) identifies UWP/AppContainer
 versus packaged Win32/GDK and selects the corresponding route in `src/WSGM.PackagedLaunch`. Both are
 packaged; an Xbox source or WindowsApps path does not determine the runtime. Moonlighter required an
@@ -188,16 +188,25 @@ load-bearing in a way nobody wanted — a second page-owning plugin throws out o
 surface with it. The bundled package had in fact never shipped: `WSGM.csproj` staged it under
 `publish\App\Plugins\` and the installer carried no such line, so no installed build ever loaded it.
 Page registration is now host-owned and plugins declare routes for the host to merge. The host's own
-pages are the artwork browser and the library importer. The plugin SDK, `src/WSGM.Plugin.Ir` and the
+pages are the artwork browser and the Game Library. The plugin SDK, `src/WSGM.Plugin.Ir` and the
 installed third-party path are unchanged.
+
+**The Game Library is one feature, and Xbox is its first source (2026-09-23).** Bringing other
+launchers' games into Steam is WSGM's own Steam ROM Manager: one backend with a source for each
+launcher, a plan, the user's per-title choices kept across scans, a review, an apply, and artwork as
+a stage of that pipeline rather than a neighbouring page. It is reached from both of WSGM's
+surfaces, the overlay and Steam's Quick Access plugin tab, and both render the same state. Xbox is
+the first source, and shipping it needed the packaged-game launcher. The work first shipped as an
+Xbox importer beside a separate artwork page, with no overlay surface, because its plan listed edits
+rather than describing the finished product; see [the Game Library](game-library.md).
 
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the ban in
 [Steam launcher handoff](steam-launcher-handoff.md), which was written after CEF shortcut-management
-calls destabilized a live Steam session during an attended investigation. The library importer needs
-to create shortcuts, and the alternative — editing `shortcuts.vdf` offline — requires Steam stopped,
-a backup, and preservation of every other entry, which is a worse thing to get wrong. The reversal
-is narrow and comes with the rules that make it safe: one write at a time with a settle between
-them, never in parallel; a new id confirmed by a before/after diff of Steam's own library, which is
-the authority over what the call returned; and an unconfirmed or ambiguous result stops the run and
-is never retried, because the entry may already exist. If Steam is not running, the importer refuses
+calls destabilized a live Steam session during an attended investigation. The Game Library needs to
+create shortcuts, and the alternative — editing `shortcuts.vdf` offline — requires Steam stopped, a
+backup, and preservation of every other entry, which is a worse thing to get wrong. The reversal is
+narrow and comes with the rules that make it safe: one write at a time with a settle between them,
+never in parallel; a new id confirmed by a before/after diff of Steam's own library, which is the
+authority over what the call returned; and an unconfirmed or ambiguous result stops the run and is
+never retried, because the entry may already exist. If Steam is not running, the importer refuses
 rather than falling back. CEF is still barred from diagnosing packaged games.

@@ -58,8 +58,8 @@ page.
 Steam Input lease. It replaced `WSGM.Deelevate.exe` and `steam-input-lease.exe`, which the installer
 deletes on update; a user who pasted one of the old commands has to re-apply the fix.
 
-There is one other shipped wrapper, `WSGM.PackagedLaunch.exe`, which the library importer puts in
-the Target of an imported Xbox, UWP or MSIX shortcut. It is a sibling, not an extension: see
+There is one other shipped wrapper, `WSGM.PackagedLaunch.exe`, which the Game Library puts in the
+Target of an imported Xbox, UWP or MSIX shortcut. It is a sibling, not an extension: see
 [the packaged-game launcher](packaged-game-launcher.md). It runs `asInvoker`, never self-elevates,
 and must never be composed with `WSGM.Launch --deelevate` — a medium-integrity injector cannot open
 an elevated game.

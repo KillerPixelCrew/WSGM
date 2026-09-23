@@ -36,7 +36,7 @@ that evidence is in `packaged-game-launcher.md`.
 | `steam-cef-startup-audit.md`                     | the 2026-09-05 login failure, the module-loading audit, the corrections and what is still to check live                                   |
 | `..\external\steam-ui-toolkit\docs\reference.md` | the toolkit the mechanism is built on                                                                                                     |
 | `packaged-game-launcher.md`                      | how an imported Xbox, UWP or MSIX game gets Steam's overlay and Steam Input, and the two routes that work                                 |
-| `steam-library-import.md`                        | turning installed Xbox games into Steam shortcuts: what the scan decides and what a second run does                                       |
+| `game-library.md`                                | bringing other launchers' games into Steam from the overlay or Steam: the pipeline, its parts, and what a second run does                 |
 | `sd-cards.md`                                    | the card manager and the format flow                                                                                                      |
 
 ## Hardware
