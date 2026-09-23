@@ -27,7 +27,8 @@ public sealed class OverlaySurfaceTests
         var keepPlaying = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
         Assert.Equal("Keep playing", keepPlaying.Content);
         Assert.Same(keepPlaying, window.FocusManager?.GetFocusedElement());
-        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         Assert.True(window.IsPowerMenuOpen);
         var closed = new TaskCompletionSource();
         window.SurfaceClosed += () => closed.TrySetResult();
@@ -36,6 +37,7 @@ public sealed class OverlaySurfaceTests
 
         Assert.False(window.HasActiveSurface);
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
         Assert.False(dismissed);
         Assert.True(window.IsVisible);
@@ -68,7 +70,8 @@ public sealed class OverlaySurfaceTests
         Assert.Equal(["sample"], accepted);
         Assert.True(window.IsPowerMenuOpen);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
-        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
     }
 
     [AvaloniaFact]

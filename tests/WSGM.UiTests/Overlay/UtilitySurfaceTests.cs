@@ -3,6 +3,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Overlay;
@@ -20,6 +21,8 @@ public sealed class UtilitySurfaceTests
         var invoker = UiFixture.Named<Button>(window, "BrightnessButton");
         invoker.Focus(NavigationMethod.Directional);
         var invokerBottom = invoker.TranslatePoint(new Point(0, invoker.Bounds.Height), window)!.Value;
+        var dismissed = false;
+        window.Dismissed += () => dismissed = true;
 
         // No brightness service is attached: this exercises the real shared surface owner
         // without constructing a manager that would enumerate or change the live machine.
@@ -30,7 +33,13 @@ public sealed class UtilitySurfaceTests
         Assert.Equal("Close Brightness", AutomationProperties.GetName(close));
         Assert.Same(close, window.FocusManager?.GetFocusedElement());
         Assert.Same(window, TopLevel.GetTopLevel(close));
-        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
+        var shield = Assert.IsType<Grid>(UiFixture.Named<Grid>(window, "SurfaceRoot").Children.Last());
+        Assert.Equal(Colors.Transparent, Assert.IsType<SolidColorBrush>(shield.Background).Color);
+        UiFixture.Click(window, UiFixture.Named<Button>(window, "CloseButton"));
+        Assert.False(dismissed);
+        Assert.True(window.HasActiveSurface);
         var surface = close.GetVisualAncestors().OfType<Border>()
             .First(border => border.Child is Grid && border.Padding.Left == 20);
         var origin = surface.TranslatePoint(default, window)!.Value;
@@ -54,6 +63,7 @@ public sealed class UtilitySurfaceTests
         Assert.Null(TopLevel.GetTopLevel(surface));
         Assert.False(window.HasActiveSurface);
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
         Assert.True(window.IsVisible);
     }
@@ -92,7 +102,8 @@ public sealed class UtilitySurfaceTests
         Assert.Equal(0, utilityDetachments);
         Assert.True(window.HasActiveSurface);
         Assert.Same(utilityClose, window.FocusManager?.GetFocusedElement());
-        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.False(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         var utilityClosed = new TaskCompletionSource();
         window.SurfaceClosed += () => utilityClosed.TrySetResult();
         Assert.True(window.CloseActiveSurface());
@@ -102,6 +113,7 @@ public sealed class UtilitySurfaceTests
         Assert.Null(TopLevel.GetTopLevel(utilityContent));
         Assert.False(window.HasActiveSurface);
         Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsEnabled);
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
         Assert.Same(invoker, window.FocusManager?.GetFocusedElement());
     }
 }

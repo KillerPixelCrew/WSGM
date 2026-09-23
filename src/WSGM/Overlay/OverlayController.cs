@@ -1344,6 +1344,7 @@ public sealed class OverlayController : IDisposable
             ClaimUiSurface(QuickAccessSurface);
         }
 
+        overlay.ResetForResummon();
         overlay.Activate();
     }
 

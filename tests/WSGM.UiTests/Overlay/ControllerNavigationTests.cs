@@ -172,6 +172,27 @@ public sealed class ControllerNavigationTests
     }
 
     [AvaloniaFact]
+    public void ControllerDirectionsStayInAnOpenUtilitySurface()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        FakeButtonSource buttons = new();
+        using GamepadNavigation navigation = new(buttons, window, () => window.TryCancelSubView(),
+            preferredFocus: () => window.DefaultFocusTarget,
+            navigate: direction => !window.HasActiveSurface && window.NavigateWorkspace(direction));
+        window.ShowBrightnessSurface();
+        Dispatcher.UIThread.RunJobs();
+        var close = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);
+
+        buttons.Press(GamepadButtons.DPadLeft);
+        buttons.Press(GamepadButtons.DPadRight);
+        buttons.Press(GamepadButtons.DPadUp);
+        buttons.Press(GamepadButtons.DPadDown);
+
+        Assert.Same(close, window.FocusManager.GetFocusedElement());
+    }
+
+    [AvaloniaFact]
     public void TelemetryRetainsTheFocusedRailButtonAndSelectedSection()
     {
         using FakeDevice device = new();
