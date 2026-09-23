@@ -14,6 +14,23 @@ Related:
 - `docs\sd-cards.md` — the card manager and format UI that call into library registration.
 - `docs\elevation.md` — the launch wrapper and the non-Steam shortcut rules.
 
+## Home carousel after the client update of 2026-09-22
+
+After Steam updated itself on 2026-09-22 (22:46 in `wsgm.log`) the Home carousel patch refused three
+times with `homeFound:0, homeRoutes:0, visited:1456` and then applied and verified at 22:48:12, yet
+the carousel stayed Steam's own list and sent no report. A read-only walk of SharedJSContext showed
+why: the route list was there, the Home memo's `type` was ours, but the mounted Home fiber still
+held Steam's original function as its `type`. React resolves a memo once at mount and renders the
+cached function afterwards, so the claim reaches new mounts only. The client now renders a loading
+placeholder until `GetServicesInitialized()` flips and then mounts the router and Home in one
+commit, which is why the route list is never visible before Home is on screen. Leaving Home and
+returning remounted it through the claim and the report arrived at 22:59:11 with 95 entries.
+
+The toolkit's carousel gate now adopts a mounted Home at install: it writes the wrapper as the
+cached `type` on the fiber and its alternate, replaces the cached props so the memo cannot bail out,
+and asks the router switch above it (a class) to render. The probe reports the mounted count as
+`mounted`, and the gate's `status.mounted` says whether a render is still pending.
+
 ## Balatro overlay after task switching, 2026-09-13
 
 The maintainer reported that Steam's overlay became unusable after switching away from a game and

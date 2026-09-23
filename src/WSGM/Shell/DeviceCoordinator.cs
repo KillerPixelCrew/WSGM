@@ -563,6 +563,26 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return;
             }
 
+            // A suspend that did not finish leaves the runtime unsuspended, and it refuses a resume
+            // from there. Modern Standby freezes the process wherever it stood, so a suspend that
+            // started at sleep comes back with its five-second lifecycle deadline already spent
+            // (Claw, 2026-09-22): the controller had been released, the plugin was never quiesced,
+            // and the refused resume left every capability Quiescing with nothing scheduled to
+            // repair it. The hardware slept either way, so the honest recovery is a fresh cycle.
+            if (ResumeRequiresRestart(_pluginAdapter?.LastState?.State))
+            {
+                Log.Warn(
+                    "Device resume found a cycle that was never suspended; restarting it: state="
+                    + $"{_pluginAdapter?.LastState?.State.ToString() ?? "unknown"}.");
+                var repair = await StopCycleUnderGateAsync(
+                    PluginStopReason.RuntimeFault,
+                    NormalShutdownDeadline(),
+                    cancellationToken).ConfigureAwait(false);
+                ThrowIfDeviceTeardownIncomplete(repair, cancellationToken);
+                await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             _identity = DeviceMachineIdentity.Collect();
             var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
             var previousGeneration = Interlocked.Read(ref _cycleGeneration);
@@ -587,6 +607,19 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             _transitionGate.Release();
         }
+    }
+
+    /// <summary>Whether a resume has to restart the cycle rather than resume it.</summary>
+    /// <param name="lifecycleState">The plugin runtime's last published lifecycle state.</param>
+    /// <returns>True when the cycle was never suspended, so a resume would be refused.</returns>
+    /// <remarks>
+    ///     Only <see cref="DeviceCycleState.Suspended" /> can be resumed; the runtime refuses every
+    ///     other state. No state is a softer case than the rest here: a cycle still Active never
+    ///     quiesced its hardware, and a Degraded or Faulted one is further from a resume, not nearer.
+    /// </remarks>
+    internal static bool ResumeRequiresRestart(DeviceCycleState? lifecycleState)
+    {
+        return lifecycleState is not DeviceCycleState.Suspended;
     }
 
     /// <summary>Starts one user-requested attempt after automatic recovery was exhausted.</summary>

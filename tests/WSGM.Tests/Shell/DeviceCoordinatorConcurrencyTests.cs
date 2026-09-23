@@ -521,6 +521,22 @@ public sealed class DeviceCoordinatorConcurrencyTests
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
+    // Modern Standby freezes the process where it stands, so a suspend that began at sleep can come
+    // back at the wake with its lifecycle deadline already spent and the plugin never quiesced. The
+    // runtime then refuses the resume, and on 2026-09-22 that left the Claw with its virtual
+    // controller removed and every capability Quiescing until WSGM was restarted by hand.
+    [Theory]
+    [InlineData(DeviceCycleState.Suspended, false)]
+    [InlineData(DeviceCycleState.Active, true)]
+    [InlineData(DeviceCycleState.Degraded, true)]
+    [InlineData(DeviceCycleState.Faulted, true)]
+    [InlineData(DeviceCycleState.Activating, true)]
+    [InlineData(null, true)]
+    public void Resume_RestartsEveryCycleThatWasNotSuspended(DeviceCycleState? state, bool restart)
+    {
+        Assert.Equal(restart, DeviceCoordinator.ResumeRequiresRestart(state));
+    }
+
     private static ControllerHandoff VerifiedHandoff()
     {
         return new ControllerHandoff

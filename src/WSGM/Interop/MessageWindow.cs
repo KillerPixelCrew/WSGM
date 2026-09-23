@@ -52,6 +52,7 @@ public sealed unsafe class MessageWindow : IDisposable
     private bool _sessionNotify;
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
+    private nint _suspendResumeNotify;
 
     private nint _volumeNotify;
 
@@ -78,6 +79,7 @@ public sealed unsafe class MessageWindow : IDisposable
         DeregisterShellHook();
         DeregisterDisplayStateNotifications();
         UnregisterSessionNotifications();
+        UnregisterSuspendResumeNotifications();
         UnregisterVolumeNotifications();
         if (Handle != 0)
         {
@@ -125,6 +127,11 @@ public sealed unsafe class MessageWindow : IDisposable
     /// <remarks>
     ///     Delivered before the machine goes down and on a deadline Windows does not extend, so
     ///     subscribers must start their work and return rather than block this notification.
+    ///     Reaches this window only through the suspend/resume registration made at creation:
+    ///     Windows broadcasts the suspend and resume codes to top-level windows, and a message-only
+    ///     window hears nothing of a sleep without it. Until 2026-09-22 nothing was registered, so
+    ///     no sleep ever suspended or resumed the device cycle and the Claw's lighting came back
+    ///     from standby at the firmware default.
     /// </remarks>
     public event Action? SystemSuspending;
 
@@ -170,6 +177,7 @@ public sealed unsafe class MessageWindow : IDisposable
             "WSGM.MessageWindow", &WndProc, "Failed to create message window");
         _instance = new MessageWindow { Handle = hwnd };
         _instance.RegisterSessionNotifications();
+        _instance.RegisterSuspendResumeNotifications();
         return _instance;
     }
 
@@ -301,6 +309,43 @@ public sealed unsafe class MessageWindow : IDisposable
         }
 
         _sessionNotify = false;
+    }
+
+    // Suspend and resume are broadcast to top-level windows only, so this message-only window has
+    // to ask for them explicitly, the way the volume interface is registered below. Without this
+    // registration the SystemSuspending and SystemResumed events never fired.
+    private void RegisterSuspendResumeNotifications()
+    {
+        if (_suspendResumeNotify != 0)
+        {
+            return;
+        }
+
+        _suspendResumeNotify = WindowsPower.RegisterSuspendResumeNotification(Handle);
+        if (_suspendResumeNotify == 0)
+        {
+            Log.Warn("RegisterSuspendResumeNotification failed "
+                     + $"(error {Marshal.GetLastWin32Error()}) — a sleep will not suspend or resume the device cycle.");
+            return;
+        }
+
+        Log.Info("Suspend/resume notifications registered.");
+    }
+
+    private void UnregisterSuspendResumeNotifications()
+    {
+        if (_suspendResumeNotify == 0)
+        {
+            return;
+        }
+
+        if (!WindowsPower.UnregisterSuspendResumeNotification(_suspendResumeNotify))
+        {
+            Log.Warn("UnregisterSuspendResumeNotification failed "
+                     + $"(error {Marshal.GetLastWin32Error()}).");
+        }
+
+        _suspendResumeNotify = 0;
     }
 
     /// <summary>
