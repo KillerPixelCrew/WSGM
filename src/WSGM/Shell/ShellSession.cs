@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -71,6 +72,9 @@ public sealed class ShellSession : IAsyncDisposable
     // flipping the transport underneath a retract-then-close in flight.
     private readonly SemaphoreSlim _transportGateSignal = new(0);
     private SessionActivation? _activation;
+
+    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
+    private SteamArtworkBrowserSource? _artwork;
 
     // Whether WSGM's per-application feature is the reason the device currently holds a power limit,
     // so an application transition knows whether it has a limit of its own to take back. Written and
@@ -189,6 +193,10 @@ public sealed class ShellSession : IAsyncDisposable
     private volatile bool _inGameMode = true;
     private KeepAwakeService? _keepAwake;
     private bool _libraryBadgeEnabled;
+
+    /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    private GameLibraryService? _libraryImport;
+
     private MessageWindow? _messageWindow;
     private SessionModes? _modes;
     private SteamMonitor? _monitor;
@@ -516,7 +524,7 @@ public sealed class ShellSession : IAsyncDisposable
                 }
 
                 _steamUi?.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
-                _steamUi?.ApplyPluginSteamUi(_config.Cef.Enabled);
+                _steamUi?.ApplyHostSteamUi(_config.Cef.Enabled);
                 _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
                 _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
                 ApplySteamUiSurfacePreferences();
@@ -585,14 +593,11 @@ public sealed class ShellSession : IAsyncDisposable
             // Overlay test deliberately never discovers packages or loads plugin code.
             if (!_overlayTestOnly)
             {
-                var bundledCatalog = CommonPluginCatalog.Discover(Path.Combine(AppContext.BaseDirectory, "Plugins"));
-                foreach (var error in bundledCatalog.Errors)
-                {
-                    Log.Warn("Bundled plugin refused: " + error);
-                }
-
+                // Installed packages only. WSGM bundles none, and the application directory is
+                // user-writable, so scanning it would load plugin code from a path the installed
+                // root is administrator-protected precisely to avoid.
                 _commonPlugins = new CommonPluginManager(_pluginHost, CommonPluginCatalog.InstalledRoot,
-                    Path.Combine(Log.Directory, "PluginState"), bundled: bundledCatalog.Packages);
+                    Path.Combine(Log.Directory, "PluginState"));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -986,6 +991,203 @@ public sealed class ShellSession : IAsyncDisposable
         // the next press rather than the next session.
         _steamStorage = new SteamStorageBridge(
             _drives, _formats, () => _config.SteamStorageFormatEnabled, _libraryPolicy);
+
+        // Artwork reads its providers from the session's live config, so a key entered in Settings
+        // applies to the next search rather than the next session.
+        _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
+
+        ReleaseAbandonedPackageExemptions();
+
+        // The importer talks to the same running Steam client everything else here does, and reads
+        // the machine's installed packages through WinRT. Every seam is injected so the discovery
+        // and planning rules stay testable without a live Steam or a real package.
+        StoreCatalogClient catalog = new();
+        _libraryImport = new GameLibraryService(
+            [
+                new XboxLibrarySource(
+                    XboxPackages.Enumerate,
+                    XboxPackages.ReadPackageFile,
+                    (package, token) => catalog.LookUpAsync(package.FamilyName, token))
+            ],
+            new ImportStateStore(),
+            () => new SteamShortcutWriter(
+                async token =>
+                [
+                    .. (await SteamLibraryData.ListGamesAsync(token).ConfigureAwait(false))
+                    .Where(game => game.Shortcut)
+                    .Select(game => SteamApps.NormalizeAppId(game.AppId))
+                ],
+                async (name, target, directory, options, token) =>
+                    (await SteamApps.AddShortcutAsync(name, target, directory, options, token)
+                        .ConfigureAwait(false)).AppId,
+                async (appId, target, options, token) =>
+                    (await SteamApps.SetShortcutLaunchAsync(appId, target, options, token)
+                        .ConfigureAwait(false)).Succeeded,
+                async (appId, token) =>
+                    (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
+            async token => [.. await ReadShortcutsAsync(token).ConfigureAwait(false)],
+            () => _config.GameLibrary.DefaultMode,
+            () => _config.GameLibrary.ImportUnroutable,
+            ApplyCatalogArtworkAsync,
+            (id, name, target, removeEmptyProfile, token) => _profiles is null
+                ? Task.FromResult(false)
+                : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
+            openArtwork: _artwork.OpenAsync,
+            controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true });
+    }
+
+    /// <summary>Opens a Game Library page inside Steam for the overlay's hand-off.</summary>
+    /// <param name="target">The library page, or one title's artwork page.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Whether Steam took the route.</returns>
+    /// <remarks>
+    ///     The artwork page renders whatever its source last opened, so the source is opened for the
+    ///     title first, exactly as the game menu does before it answers with the route.
+    /// </remarks>
+    private async Task<bool> OpenGameLibraryInSteamAsync(GameLibrarySteamTarget target,
+        CancellationToken cancellationToken)
+    {
+        if (!_config.Cef.Enabled || _steamUiTransport is not { } transport)
+        {
+            return false;
+        }
+
+        var route = SteamLibraryImportSurface.Route;
+        if (target.ArtworkAppId > 0)
+        {
+            if (_artwork is null
+                || !(await _artwork.OpenAsync(target.ArtworkAppId, target.ArtworkTitle, cancellationToken)
+                    .ConfigureAwait(false)).Succeeded)
+            {
+                return false;
+            }
+
+            route = SteamArtworkBrowserSurface.RouteFor(target.ArtworkAppId);
+        }
+
+        return await SteamRouteNavigation.NavigateAsync(transport, route, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Applies a title's Store artwork to the shortcut that was just created for it.</summary>
+    /// <param name="appId">The confirmed shortcut app id.</param>
+    /// <param name="artwork">The images the catalog offered.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>How many capsules were applied.</returns>
+    /// <remarks>
+    ///     One capsule failing does not stop the others: a title with a poster and no logo should
+    ///     still get its poster. The download path is the artwork feature's own, so the HTTPS
+    ///     requirement, the size cap and the header check apply here unchanged.
+    /// </remarks>
+    private static async Task<int> ApplyCatalogArtworkAsync(
+        uint appId, IReadOnlyList<DiscoveredArtwork> artwork, CancellationToken cancellationToken)
+    {
+        var applied = 0;
+        foreach (var image in artwork)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var bytes = await SteamGridDb.DownloadImageAsync(image.Url, cancellationToken)
+                    .ConfigureAwait(false);
+                if (bytes is null or { Length: 0 })
+                {
+                    continue;
+                }
+
+                var result = await SteamArtwork
+                    .ApplyAsync(appId, image.Asset, bytes, Extension(image.Url), cancellationToken)
+                    .ConfigureAwait(false);
+                if (result.Succeeded)
+                {
+                    applied++;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                Log.Warn($"Library import: the {image.Asset} image did not apply. {exception.Message}");
+            }
+        }
+
+        return applied;
+    }
+
+    /// <summary>The image format a catalog URL declares by its suffix.</summary>
+    /// <param name="url">The image URL.</param>
+    /// <returns>The extension, defaulting to png when the URL declares none.</returns>
+    private static string Extension(string url)
+    {
+        var suffix = Path.GetExtension(new Uri(url).AbsolutePath).TrimStart('.').ToLowerInvariant();
+        return suffix is "jpg" or "jpeg" or "png" or "webp" ? suffix : "png";
+    }
+
+    /// <summary>Puts packages a killed launcher left exempt back under lifetime management.</summary>
+    /// <remarks>
+    ///     <para>
+    ///         Steam's Stop button terminates the launcher outright, so its own release never runs
+    ///         and the package stays exempt. Nothing else ever puts it back: the next launcher only
+    ///         sweeps when the user happens to start another imported game, so without this a single
+    ///         Stop leaves a package outside lifetime management for the life of the machine.
+    ///     </para>
+    ///     <para>
+    ///         The launcher owns the COM interop for this, so it does the work and WSGM just asks.
+    ///         Fire and forget, off the startup path: a sweep that cannot run is not a reason to
+    ///         hold up a session.
+    ///     </para>
+    /// </remarks>
+    private static void ReleaseAbandonedPackageExemptions()
+    {
+        if (PackagedLauncherShortcut.ResolveLauncher() is not { } launcher)
+        {
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo(launcher, "--recover")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException
+                                           or ObjectDisposedException or IOException)
+            {
+                Log.Warn($"Packaged launcher recovery sweep did not run: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>Reads the non-Steam shortcuts Steam currently has, with what each one runs.</summary>
+    /// <remarks>
+    ///     The importer needs a shortcut's Target and arguments to tell one it created from one the
+    ///     user wrote by hand, and the library listing carries neither, so each is read separately.
+    /// </remarks>
+    private static async Task<IReadOnlyList<ExistingShortcut>> ReadShortcutsAsync(
+        CancellationToken cancellationToken)
+    {
+        var games = await SteamLibraryData.ListGamesAsync(cancellationToken).ConfigureAwait(false);
+        List<ExistingShortcut> shortcuts = [];
+        foreach (var game in games.Where(game => game.Shortcut))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var appId = SteamApps.NormalizeAppId(game.AppId);
+            var details = await SteamApps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
+            if (details.Details is not { } shortcut)
+            {
+                // Refused, not guessed at. Empty fields here read as "not one of ours", which turns
+                // an existing generated entry into a fresh Add and puts a second copy of the same
+                // game in the library, and turns a recorded one into a hand-edited conflict.
+                throw new InvalidOperationException(
+                    $"Steam did not return the details for shortcut {appId}, so the library could "
+                    + "not be read. Nothing was changed; try again.");
+            }
+
+            shortcuts.Add(new ExistingShortcut(appId, shortcut.ShortcutExe, shortcut.ShortcutLaunchOptions));
+        }
+
+        return shortcuts;
     }
 
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
@@ -1020,7 +1222,8 @@ public sealed class ShellSession : IAsyncDisposable
                     : new DevicePrerequisiteSource(
                         ReadDevicePrerequisiteState, EnableDeviceIntegrationAsync),
                 _brightness,
-                _deviceCoordinator),
+                _deviceCoordinator,
+                _libraryImport),
             _audio,
             _audioProfiles,
             _radios,
@@ -1032,6 +1235,7 @@ public sealed class ShellSession : IAsyncDisposable
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         if (!_overlayTestOnly)
         {
+            _overlay.OpenInSteam = OpenGameLibraryInSteamAsync;
             _overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
                     _config.Cef.Enabled && _steamUiTransport is { } transport
                                         && await SteamGameWindowActivation.RaiseAsync(transport, processId, token),
@@ -1224,9 +1428,12 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlayTestOnly ? null : _displayTimeouts,
                 _audioProfiles,
                 _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost),
-                _profiles);
+                _profiles,
+                // Null in overlay-test, which has no Steam client to read artwork for or write it to.
+                _artwork,
+                _libraryImport);
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
-            _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
+            _steamUi.ApplyHostSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
             {
@@ -1828,7 +2035,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </summary>
     private void ApplySteamUiSurfacePreferences()
     {
-        _steamUi?.ApplyPluginSteamUi(_config.Cef.Enabled);
+        _steamUi?.ApplyHostSteamUi(_config.Cef.Enabled);
         _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
@@ -2635,7 +2842,7 @@ public sealed class ShellSession : IAsyncDisposable
                         ApplyDeviceConfig(config);
                         ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
-                        _steamUi?.ApplyPluginSteamUi(config.Cef.Enabled);
+                        _steamUi?.ApplyHostSteamUi(config.Cef.Enabled);
                         if (config.Cef.Enabled)
                         {
                             _steamUi?.Apply(config.Cef.NativeQuickAccess);
@@ -2651,6 +2858,10 @@ public sealed class ShellSession : IAsyncDisposable
                             config.Cef is { Enabled: true, ConnectedLibraryCarousel: true },
                             config.Cef.CarouselShowUninstalled);
                         ApplyScreensaverTimeouts(config.Cef.Enabled);
+                        // The artwork settings are in this file too. The browser reads them live,
+                        // but a page already open still shows the old tabs, and a response the old
+                        // key earned is still cached against the new one.
+                        _artwork?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);
@@ -3225,6 +3436,32 @@ public sealed class ShellSession : IAsyncDisposable
         // with the session, so only the drive manager is disposed after it.
         try
         {
+            _libraryImport?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the library importer during application shutdown failed", ex);
+        }
+        finally
+        {
+            _libraryImport = null;
+        }
+
+        try
+        {
+            _artwork?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the artwork browser during application shutdown failed", ex);
+        }
+        finally
+        {
+            _artwork = null;
+        }
+
+        try
+        {
             _steamStorage?.Dispose();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -3443,23 +3680,10 @@ public sealed class ShellSession : IAsyncDisposable
         {
             if (_commonPlugins is { } manager)
             {
-                List<CommonPluginInstanceConfig> desired = [.. config.PluginInstances];
-                foreach (var pluginId in manager.BundledPluginIds)
-                {
-                    if (desired.Any(instance => instance.PluginId == pluginId))
-                    {
-                        continue;
-                    }
-
-                    desired.Add(new CommonPluginInstanceConfig
-                    {
-                        PluginId = pluginId,
-                        InstanceId = "default",
-                        Enabled = true
-                    });
-                }
-
-                await manager.ReconcileAsync(desired, _shutdownCancellation.Token).ConfigureAwait(false);
+                // Exactly what the user enabled. Nothing is admitted implicitly: the auto-enable pass
+                // existed for bundled packages, and WSGM bundles none.
+                await manager.ReconcileAsync(config.PluginInstances, _shutdownCancellation.Token)
+                    .ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)

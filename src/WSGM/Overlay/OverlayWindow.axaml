@@ -206,6 +206,12 @@
               <TextBlock Text="Steam integration is turned off in Settings."
                          Classes="caption"
                          IsVisible="{Binding !ShowSteamLibrarySection}" />
+              <c:ActionButton Click="OnGameLibrary"
+                            Tag="steam.game-library"
+                            IsVisible="{Binding ShowGameLibrary}"
+                            IconGeometry="{x:Static c:Icons.Grid4}"
+                            Title="Game Library"
+                            Description="Bring games from other launchers into Steam" />
               <c:ActionButton Click="OnLibraryTabs"
                             Tag="steam.library-tabs"
                             IsVisible="{Binding ShowLibraryTabs}"
@@ -363,6 +369,7 @@
                          the whole sheet. -->
             <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" HorizontalAlignment="Stretch" />
 

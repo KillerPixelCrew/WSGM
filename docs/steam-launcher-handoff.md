@@ -1,10 +1,12 @@
 # Steam overlay and input across launchers
 
 This records the attended Moonlighter, PowerWash Simulator 2, and Balatro findings from September
-13–14, 2026. It guides the future library importer in
-[#47](https://github.com/KillerPixelCrew/WSGM/issues/47) and launch integration in
-[#48](https://github.com/KillerPixelCrew/WSGM/issues/48). The implementation is an exploratory
-[launch spike](../tools/UwpLaunchSpike/README.md), not a shipped universal launcher.
+13–14, 2026. It is the evidence behind the Game Library in
+[#47](https://github.com/KillerPixelCrew/WSGM/issues/47) and the launch integration in
+[#48](https://github.com/KillerPixelCrew/WSGM/issues/48), both of which shipped on September 22.
+What was built on it is `src/WSGM.PackagedLaunch`, described in
+[the packaged-game launcher](packaged-game-launcher.md). It is not a universal launcher, and nothing
+here generalizes past the two recorded titles.
 
 ## Classify the runtime before choosing a launcher
 
@@ -83,17 +85,19 @@ been separately confirmed. These results support targeted repairs, not periodic 
 
 ## Remaining limits
 
-The working PowerWash route is not only launch ordering. The spike forwards remote environment
-variables and loads Valve DLLs through `CreateRemoteThread`/`LoadLibraryW` in the helper. Its
-delayed descendant setup also performs remote environment writes and DLL loads in the game, even
-when Steam already loaded the renderer. No custom AppContainer bridge is used, but Valve signatures
-alone do not establish acceptance of this external loading path by every anti-cheat. A helper-only
-comparison with no later custom game-process writes is the next simplification to validate.
+The working PowerWash route is not only launch ordering. The launcher forwards remote environment
+variables and loads Valve DLLs through `CreateRemoteThread`/`LoadLibraryW` in the helper. No custom
+AppContainer bridge is used, but Valve signatures alone do not establish acceptance of this external
+loading path by every anti-cheat.
 
-On September 14 the maintainer indicated they may test a protected multiplayer title in the next few
-days. That attended test is planned, not completed. Current status remains: **overlay and input work
-in the two recorded titles; anti-cheat compatibility is unverified**. No game or anti-cheat has been
-selected for that future test, and the helper-only simplification is not implemented.
+The trial that produced this evidence also performed delayed remote writes and DLL loads in the game
+itself, and could not say whether they mattered. The shipped route does not: it sets Steam up in the
+helper and does nothing to the game. That is the helper-only simplification this section called for,
+and it has not been re-tested attended since it was made.
+
+A protected multiplayer title was discussed on September 14 and has not been tested. Current status
+remains: **overlay and input work in the two recorded titles; anti-cheat compatibility is
+unverified**. No game or anti-cheat has been selected for such a test.
 
 Record the tested game/build, package runtime, anti-cheat and version if known, Steam version,
 launcher build and exact options, and whether delayed descendant setup was enabled. Record launch,
@@ -101,12 +105,15 @@ gameplay input, overlay/QAM, Alt-Tab recovery, exit, and any protection-system r
 Keep any resulting compatibility finding specific to that configuration and observation window.
 
 The PowerWash trial used both Steam-client preloading and early renderer injection. It does not
-establish that every preloaded component is necessary. The supervisor also retained delayed
-environment/injection checks for descendants; removing those needs a separate comparison. Minimum
-privileges, crash recovery, additional game engines, Steam updates, and broader launcher coverage
-remain unverified. Do not turn the two successful titles into a universal compatibility claim.
+establish that every preloaded component is necessary. Additional game engines, Steam updates, and
+broader launcher coverage remain unverified. Do not turn the two successful titles into a universal
+compatibility claim.
 
 For this investigation, use native process/window observations and file logs. The maintainer
 reported Steam failures during CEF investigation and later shortcut-management calls. Do not use CEF
-to diagnose these games or edit their trial shortcuts; offline shortcut updates require Steam
-stopped, a backup, and preservation of other entries.
+to diagnose these games, and do not edit a shortcut out from under an attended trial.
+
+Creating and maintaining the shortcuts themselves is now done over CEF, by the Game Library and
+nothing else. That reversal, and the rules the importer follows to make it safe, are recorded in
+[decisions](decisions.md) and [the Game Library](game-library.md). Offline `shortcuts.vdf` editing
+is not used and is not a fallback: if Steam is not running, the importer refuses.

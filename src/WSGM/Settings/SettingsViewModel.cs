@@ -23,6 +23,17 @@ namespace WSGM.Settings;
 /// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
+    /// <summary>What each artwork tab id is called, in the canonical order.</summary>
+    private static readonly Dictionary<string, string> ArtworkTabTitles = new(StringComparer.Ordinal)
+    {
+        ["grid"] = "Capsule",
+        ["wide"] = "Wide capsule",
+        ["hero"] = "Hero",
+        ["logo"] = "Logo",
+        ["icon"] = "Icon",
+        ["manage"] = "Manage"
+    };
+
     private readonly AppConfig _config;
 
     /// <summary>Edits made on the plugin page, applied at save. Empty until the user changes one.</summary>
@@ -120,6 +131,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         });
         MoveUpCommand = new RelayCommand<StartupAppRow>(row => MoveStartupApp(row, -1));
         MoveDownCommand = new RelayCommand<StartupAppRow>(row => MoveStartupApp(row, +1));
+        MoveArtworkTabUpCommand = new RelayCommand<ArtworkTabRow>(row => MoveArtworkTab(row, -1));
+        MoveArtworkTabDownCommand = new RelayCommand<ArtworkTabRow>(row => MoveArtworkTab(row, +1));
 
         // Normalize so an injected bare AppConfig gets the same non-null nested
         // sections (and clamped splash numbers) the load path guarantees.
@@ -143,6 +156,13 @@ public sealed partial class SettingsViewModel : ObservableObject
                 : $"WSGM starts Steam. {_config.SteamAutostartDisabled.Count} Windows startup entry/entries are turned off and are restored when WSGM is uninstalled.";
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
+        ArtworkSteamGridDbApiKey = _config.Artwork.SteamGridDbApiKey;
+        ArtworkScreenscraperEnabled = _config.Artwork.ScreenscraperEnabled;
+        ArtworkScreenscraperUser = _config.Artwork.ScreenscraperUser;
+        ArtworkScreenscraperPassword = _config.Artwork.ScreenscraperUserPassword;
+        GameLibraryDefaultModeIndex = _config.GameLibrary.DefaultMode is ImportMode.ControllerOnly ? 1 : 0;
+        GameLibraryImportUnroutable = _config.GameLibrary.ImportUnroutable;
+        LoadArtworkTabs();
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
         DeviceControllerTargetIndex =
@@ -285,6 +305,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Gets the command that moves one startup-program row down.</summary>
     public RelayCommand<StartupAppRow> MoveDownCommand { get; }
+
+    /// <summary>Gets the command that moves an artwork tab earlier in the strip.</summary>
+    public RelayCommand<ArtworkTabRow> MoveArtworkTabUpCommand { get; }
+
+    /// <summary>Gets the command that moves an artwork tab later in the strip.</summary>
+    public RelayCommand<ArtworkTabRow> MoveArtworkTabDownCommand { get; }
 
     /// <summary>Edits the Game Mode layout.</summary>
     public DisplayLayoutEditor GameLayout { get; }
@@ -531,6 +557,65 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(SteamInputManagementEnabled));
+    }
+
+    /// <summary>Gets or sets the user's own SteamGridDB key. Empty leaves that source unsearched.</summary>
+    public string ArtworkSteamGridDbApiKey
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkSteamGridDbApiKey));
+    } = "";
+
+    /// <summary>Gets or sets whether Screenscraper.fr is searched alongside SteamGridDB.</summary>
+    public bool ArtworkScreenscraperEnabled
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkScreenscraperEnabled));
+    }
+
+    /// <summary>Gets or sets the optional Screenscraper account, which raises its own daily quota.</summary>
+    public string ArtworkScreenscraperUser
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkScreenscraperUser));
+    } = "";
+
+    /// <summary>Gets or sets the Screenscraper account's password.</summary>
+    public string ArtworkScreenscraperPassword
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkScreenscraperPassword));
+    } = "";
+
+    /// <summary>Gets the artwork page's tabs, in the order they are offered.</summary>
+    /// <remarks>
+    ///     The collection's own order is the stored tab order, so the move commands are the whole
+    ///     reordering edit and nothing else has to be kept in step.
+    /// </remarks>
+    public ObservableCollection<ArtworkTabRow> ArtworkTabs { get; } = [];
+
+    /// <summary>Gets the launch modes a new Game Library title can start on, in index order.</summary>
+    public IReadOnlyList<string> GameLibraryModes { get; } = ["Steam overlay", "Controller only"];
+
+    /// <summary>Gets or sets which mode a newly found single-player title starts on.</summary>
+    public int GameLibraryDefaultModeIndex
+    {
+        get;
+        set => SetField(ref field, value, nameof(GameLibraryDefaultModeIndex));
+    }
+
+    /// <summary>Gets or sets whether titles with no validated launch route are offered.</summary>
+    public bool GameLibraryImportUnroutable
+    {
+        get;
+        set => SetField(ref field, value, nameof(GameLibraryImportUnroutable));
+    }
+
+    /// <summary>Gets or sets which tab the artwork page opens on, as an index into the strip.</summary>
+    public int ArtworkDefaultTabIndex
+    {
+        get;
+        set => SetField(ref field, value, nameof(ArtworkDefaultTabIndex));
     }
 
     /// <summary>Gets or sets the optional production Device Integration master switch.</summary>
@@ -1648,6 +1733,84 @@ public sealed partial class SettingsViewModel : ObservableObject
         return ok;
     }
 
+    /// <summary>Builds the tab rows from the stored order and visibility.</summary>
+    private void LoadArtworkTabs()
+    {
+        var titles = ArtworkTabTitles;
+        var stored = _config.Artwork.TabOrder
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(titles.ContainsKey)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // ConfigStore repairs a stored order that is not a permutation, but Settings can be opened
+        // against anything on disk, so the canonical list still fills in whatever is missing.
+        stored.AddRange(ArtworkConfig.DefaultTabOrder.Split(',').Where(id => !stored.Contains(id)));
+
+        ArtworkTabs.Clear();
+        foreach (var id in stored)
+        {
+            ArtworkTabs.Add(new ArtworkTabRow(id, titles[id], IsArtworkTabVisible(id)));
+        }
+
+        var index = ArtworkTabs.ToList()
+            .FindIndex(row => string.Equals(row.Id, _config.Artwork.DefaultTab, StringComparison.Ordinal));
+        ArtworkDefaultTabIndex = index < 0 ? 0 : index;
+    }
+
+    /// <summary>Whether the stored configuration offers one tab.</summary>
+    /// <param name="id">The tab id.</param>
+    private bool IsArtworkTabVisible(string id)
+    {
+        return id switch
+        {
+            "grid" => _config.Artwork.ShowGrid,
+            "wide" => _config.Artwork.ShowWide,
+            "hero" => _config.Artwork.ShowHero,
+            "logo" => _config.Artwork.ShowLogo,
+            "icon" => _config.Artwork.ShowIcon,
+            "manage" => _config.Artwork.ShowManage,
+            _ => true
+        };
+    }
+
+    /// <summary>Whether the edited rows offer one tab.</summary>
+    /// <param name="id">The tab id.</param>
+    private bool IsArtworkTabChecked(string id)
+    {
+        return ArtworkTabs.FirstOrDefault(row => string.Equals(row.Id, id, StringComparison.Ordinal))
+            ?.Visible ?? true;
+    }
+
+    /// <summary>Moves an artwork tab by one position when the target remains in range.</summary>
+    /// <param name="row">The row to move, or null (a no-op).</param>
+    /// <param name="delta">The signed number of positions to move the row.</param>
+    private void MoveArtworkTab(ArtworkTabRow? row, int delta)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var index = ArtworkTabs.IndexOf(row);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= ArtworkTabs.Count)
+        {
+            return;
+        }
+
+        // The default follows the tab it names rather than the position, which is what a user
+        // reordering the strip means by it.
+        var wanted = ArtworkDefaultTabIndex >= 0 && ArtworkDefaultTabIndex < ArtworkTabs.Count
+            ? ArtworkTabs[ArtworkDefaultTabIndex]
+            : null;
+        ArtworkTabs.Move(index, target);
+        if (wanted is not null)
+        {
+            ArtworkDefaultTabIndex = ArtworkTabs.IndexOf(wanted);
+        }
+    }
+
     /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>
     /// <param name="row">The row to move, or null (a no-op).</param>
     /// <param name="delta">The signed number of positions to move the row.</param>
@@ -1782,6 +1945,25 @@ public sealed partial class SettingsViewModel : ObservableObject
         ApplyLaunchTo(config.GameModeLaunch);
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
+        // The tab strip's order is the row order, and its default follows the tab it names.
+        config.Artwork.SteamGridDbApiKey = ArtworkSteamGridDbApiKey;
+        config.Artwork.ScreenscraperEnabled = ArtworkScreenscraperEnabled;
+        config.Artwork.ScreenscraperUser = ArtworkScreenscraperUser;
+        config.Artwork.ScreenscraperUserPassword = ArtworkScreenscraperPassword;
+        config.Artwork.TabOrder = string.Join(',', ArtworkTabs.Select(row => row.Id));
+        config.Artwork.DefaultTab = ArtworkDefaultTabIndex >= 0 && ArtworkDefaultTabIndex < ArtworkTabs.Count
+            ? ArtworkTabs[ArtworkDefaultTabIndex].Id
+            : ArtworkConfig.DefaultTabOrder.Split(',')[0];
+        config.Artwork.ShowGrid = IsArtworkTabChecked("grid");
+        config.Artwork.ShowWide = IsArtworkTabChecked("wide");
+        config.Artwork.ShowHero = IsArtworkTabChecked("hero");
+        config.Artwork.ShowLogo = IsArtworkTabChecked("logo");
+        config.Artwork.ShowIcon = IsArtworkTabChecked("icon");
+        config.Artwork.ShowManage = IsArtworkTabChecked("manage");
+        config.GameLibrary.DefaultMode = GameLibraryDefaultModeIndex == 1
+            ? ImportMode.ControllerOnly
+            : ImportMode.SteamIntegration;
+        config.GameLibrary.ImportUnroutable = GameLibraryImportUnroutable;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
         // Same rule as the three below, for the same reason: only settings this window actually
@@ -2258,6 +2440,24 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.LibraryTabOrder = fresh.LibraryTabOrder;
         config.HiddenNativeTabs = fresh.HiddenNativeTabs;
         config.KnownNativeTabs = fresh.KnownNativeTabs;
+
+        // Settings is the only editor of every artwork field, so the captured values are written
+        // whole. Starting from the shell's instance rather than the snapshot's keeps any field
+        // added later from being reverted here by accident.
+        var artwork = fresh.Artwork;
+        artwork.SteamGridDbApiKey = config.Artwork.SteamGridDbApiKey;
+        artwork.ScreenscraperEnabled = config.Artwork.ScreenscraperEnabled;
+        artwork.ScreenscraperUser = config.Artwork.ScreenscraperUser;
+        artwork.ScreenscraperUserPassword = config.Artwork.ScreenscraperUserPassword;
+        artwork.TabOrder = config.Artwork.TabOrder;
+        artwork.DefaultTab = config.Artwork.DefaultTab;
+        artwork.ShowGrid = config.Artwork.ShowGrid;
+        artwork.ShowWide = config.Artwork.ShowWide;
+        artwork.ShowHero = config.Artwork.ShowHero;
+        artwork.ShowLogo = config.Artwork.ShowLogo;
+        artwork.ShowIcon = config.Artwork.ShowIcon;
+        artwork.ShowManage = config.Artwork.ShowManage;
+        config.Artwork = artwork;
         config.LaunchWrappers = fresh.LaunchWrappers;
         config.SteamDelayMs = fresh.SteamDelayMs;
         config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;

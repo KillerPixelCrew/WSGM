@@ -286,6 +286,93 @@ public sealed class ConfigMigrationTests
     }
 
     [Fact]
+    public void TheRetiredArtworkPackagesSettingsBecomeTheArtworkSection()
+    {
+        // Artwork was briefly a bundled package, so a machine that configured it carries its key and
+        // account inside a plugin settings bag. A plugin setting is a PluginValue envelope, so each
+        // primitive sits under Text or Boolean rather than on the key itself.
+        var config = Migrate("""
+                             {
+                               "PluginConfigurations": [
+                                 {
+                                   "PluginId": "wsgm.artwork",
+                                   "Values": {
+                                     "steamgriddb-api-key": { "Text": "abc" },
+                                     "screenscraper-enabled": { "Boolean": false },
+                                     "screenscraper-user": { "Text": "someone" },
+                                     "tab-order": { "Text": "hero,grid,wide,logo,icon,manage" }
+                                   }
+                                 }
+                               ]
+                             }
+                             """);
+
+        Assert.Equal("abc", config.Artwork.SteamGridDbApiKey);
+        Assert.False(config.Artwork.ScreenscraperEnabled);
+        Assert.Equal("someone", config.Artwork.ScreenscraperUser);
+        Assert.Equal("hero,grid,wide,logo,icon,manage", config.Artwork.TabOrder);
+        Assert.Empty(config.PluginConfigurations);
+    }
+
+    [Fact]
+    public void ABuildThatAlreadyWroteTheArtworkSectionKeepsIt()
+    {
+        // The package entry left in the same file is stale: a newer build's save must not be undone
+        // by a retired key beside it. Only its removal matters here.
+        var config = Migrate("""
+                             {
+                               "Artwork": { "SteamGridDbApiKey": "current" },
+                               "PluginConfigurations": [
+                                 {
+                                   "PluginId": "wsgm.artwork",
+                                   "Values": { "steamgriddb-api-key": { "Text": "stale" } }
+                                 }
+                               ]
+                             }
+                             """);
+
+        Assert.Equal("current", config.Artwork.SteamGridDbApiKey);
+        Assert.Empty(config.PluginConfigurations);
+    }
+
+    [Fact]
+    public void AnotherPackagesSettingsSurviveTheArtworkMigration()
+    {
+        var config = Migrate("""
+                             {
+                               "PluginConfigurations": [
+                                 { "PluginId": "wsgm.artwork", "Values": {} },
+                                 { "PluginId": "wsgm.ir", "Values": { "port": { "Text": "COM3" } } }
+                               ]
+                             }
+                             """);
+
+        var kept = Assert.Single(config.PluginConfigurations);
+        Assert.Equal("wsgm.ir", kept.PluginId);
+    }
+
+    [Fact]
+    public void TheArtworkMigrationIsIdempotent()
+    {
+        var root = JsonNode.Parse("""
+                                  {
+                                    "PluginConfigurations": [
+                                      {
+                                        "PluginId": "wsgm.artwork",
+                                        "Values": { "steamgriddb-api-key": { "Text": "abc" } }
+                                      }
+                                    ]
+                                  }
+                                  """)!.AsObject();
+
+        Assert.True(ConfigMigrations.Apply(root));
+        var once = root.ToJsonString();
+        Assert.False(ConfigMigrations.Apply(root));
+
+        Assert.Equal(once, root.ToJsonString());
+    }
+
+    [Fact]
     public void TheDisplayMigrationIsIdempotent()
     {
         var root = JsonNode.Parse("""

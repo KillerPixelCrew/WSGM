@@ -107,6 +107,15 @@ Source: "{#AppPublishDir}\WSGM.runtimeconfig.json"; DestDir: "{app}"; Flags: ign
 ; defer replacement/deletion to reboot; a silent update keeps the old image and never auto-reboots.
 Source: "{#AppPublishDir}\WSGM.exe"; DestDir: "{app}"; DestName: "WSGM.ShellAnchor.exe"; Flags: ignoreversion restartreplace uninsrestartdelete; Check: CanInstallShellAnchor
 Source: "{#AppPublishDir}\WSGM.Launch.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The packaged-game launcher a generated Xbox/MSIX shortcut points at. Experimental: it keeps
+; Steam's session alive for a game Windows activates outside Steam's launch tree, and
+; anti-cheat compatibility is unverified.
+Source: "{#AppPublishDir}\WSGM.PackagedLaunch.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The overlay bridge that launcher loads into a native UWP game. Listed explicitly rather than
+; relying on the *.dll sweep below, because an injectable DLL belongs in the manifest.
+Source: "{#AppPublishDir}\WsgmUwpBridge.dll"; DestDir: "{app}"; Flags: ignoreversion
+; MinHook (BSD-2-Clause), linked into the overlay bridge.
+Source: "{#AppPublishDir}\MinHook-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; SYSTEM service binary: Program Files only (admin-writable), never {app}. It
 ; launches the per-user WSGM.exe via the boot manifest — as that user, which is
 ; why the user-writable app path is not an escalation.
@@ -179,6 +188,8 @@ Filename: "{app}\WSGM.exe"; Flags: nowait; Check: WasSettingsRunning
 Filename: "{app}\WSGM.exe"; Description: "Open WSGM settings"; Flags: nowait postinstall skipifsilent; Check: WasNothingRunning
 
 [UninstallRun]
+; Package lifetime exemptions are released by ReleasePackageExemptions in InitializeUninstall, which
+; can refuse the uninstall. An entry here could not: its exit code is never seen.
 ; Remove the Steam Input shim from STEAM's directory before anything else — it is
 ; the only file WSGM puts outside its own install, it needs {app}\WSGM.exe to
 ; still exist, and only WSGM can tell its own copy from a same-named file another
@@ -1127,6 +1138,33 @@ begin
   WaitForShellAnchorRecovery();
 end;
 
+// A killed packaged-game launcher can leave its package outside Windows lifetime management, and
+// only the launcher's journal says which. [UninstallDelete] removes the journal and the launcher, so
+// the sweep runs first, and a record it could not release refuses the uninstall rather than leaving
+// a game Windows never suspends again. Runs after ReplacementBlockersPresent, so no launcher is
+// still running and a remaining record is a release that failed.
+function ReleasePackageExemptions(): Boolean;
+var
+  R: Integer;
+  Launcher: String;
+begin
+  Result := True;
+  Launcher := ExpandConstant('{app}\WSGM.PackagedLaunch.exe');
+  if not FileExists(Launcher) then
+    Exit;
+
+  if not Exec(Launcher, '--recover', '', SW_HIDE, ewWaitUntilTerminated, R) then
+  begin
+    Log('Could not start the package lifetime recovery sweep; refusing uninstall');
+    Result := False;
+    Exit;
+  end;
+
+  Result := R = 0;
+  if not Result then
+    Log('Package lifetime recovery left an exemption recorded (code ' + IntToStr(R) + ')');
+end;
+
 function ReplacementBlockersPresent(IncludeSteam: Boolean): Boolean;
 var
   R: Integer;
@@ -1136,9 +1174,9 @@ begin
   // and fail closed if inspection itself is unavailable. Setup never terminates Steam or a launch
   // wrapper: either can own a running game tree that needs its normal save/exit path.
   if IncludeSteam then
-    Script := '$names=@(''steam'',''WSGM.Launch'',''WSGM.Deelevate'',''steam-input-lease''); '
+    Script := '$names=@(''steam'',''WSGM.Launch'',''WSGM.PackagedLaunch'',''WSGM.Deelevate'',''steam-input-lease''); '
   else
-    Script := '$names=@(''WSGM.Launch'',''WSGM.Deelevate'',''steam-input-lease''); ';
+    Script := '$names=@(''WSGM.Launch'',''WSGM.PackagedLaunch'',''WSGM.Deelevate'',''steam-input-lease''); ';
   Script := '$session=(Get-Process -Id $PID).SessionId; ' + Script +
     '$blocked=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { ' +
     '$_.SessionId -eq $session -and $names -contains $_.ProcessName }); ' +
@@ -1467,6 +1505,16 @@ begin
     RestoreStoppedUninstallRuntime();
     MsgBox('A game launched through WSGM is still running. Close it normally, then retry ' +
       'uninstall. No process was terminated.', mbCriticalError, MB_OK);
+    Exit;
+  end;
+  if not ReleasePackageExemptions() then
+  begin
+    ReleaseDevicePublicationReservations();
+    RestoreStoppedUninstallRuntime();
+    MsgBox('An imported Xbox or Store game is still exempt from Windows suspending it, and WSGM ' +
+      'could not put it back. Uninstalling now would delete the only record of it. Retry ' +
+      'uninstall; if this repeats, packaged-launch.log in %LOCALAPPDATA%\WSGM names the game and the error.',
+      mbCriticalError, MB_OK);
     Exit;
   end;
   if not ReserveDeviceOwner() then

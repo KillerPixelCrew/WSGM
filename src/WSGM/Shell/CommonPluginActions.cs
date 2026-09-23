@@ -76,6 +76,9 @@ internal sealed class CommonPluginActions
         SteamUiModules = CaptureSteamUiModules(plugin is IPluginSteamUi steamModuleSource
             ? steamModuleSource.SteamUiModules
             : []);
+        SteamPages = CaptureSteamPages(plugin is IPluginSteamUi steamPageSource
+            ? steamPageSource.SteamPages
+            : []);
     }
 
     internal IReadOnlyList<PluginAction> Actions { get; }
@@ -83,6 +86,7 @@ internal sealed class CommonPluginActions
     internal IReadOnlyList<PluginWidget> Widgets { get; }
     internal IReadOnlyList<PluginSteamUiContribution> SteamUiContributions { get; }
     internal IReadOnlyList<ISteamUiModule> SteamUiModules { get; }
+    internal IReadOnlyList<SteamPage> SteamPages { get; }
 
     internal void SubscribeSteamUiChanged(Action handler)
     {
@@ -98,6 +102,24 @@ internal sealed class CommonPluginActions
         {
             _steamUi.SteamUiChanged -= handler;
         }
+    }
+
+    /// <summary>Captures declared pages, refusing a malformed declaration at admission.</summary>
+    /// <remarks>
+    ///     Only shape is checked here, as everywhere else in this class. Whether a route is actually
+    ///     served is the host's decision, because only it knows what the rest of the session already
+    ///     claims.
+    /// </remarks>
+    private static IReadOnlyList<SteamPage> CaptureSteamPages(IReadOnlyList<SteamPage> pages)
+    {
+        if (pages is null || pages.Count > 16 || pages.Any(page => page is null
+                                                                   || !PluginConfigurationRules.ValidKey(page.Id)
+                                                                   || !Label(page.Title)))
+        {
+            throw new ArgumentException("Invalid plugin Steam page declaration.");
+        }
+
+        return Array.AsReadOnly([.. pages]);
     }
 
     private static IReadOnlyList<ISteamUiModule> CaptureSteamUiModules(IReadOnlyList<ISteamUiModule> modules)

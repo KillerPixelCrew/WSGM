@@ -70,6 +70,19 @@ hardware volume keys.
 
 **Safe Eject** for SD cards and USB drives, from the sheet.
 
+**Game Library: other launchers' games, in Steam.** WSGM's own Steam ROM Manager, in both the
+overlay and Steam's Quick Access plugin tab. It finds the games your other launchers installed,
+shows what it would add, and brings them into Steam with the Store's own artwork, which you can
+change per title. Xbox, UWP and MSIX games are the first source. Windows starts a packaged game
+outside Steam's launch tree, so a plain shortcut would get you no overlay and no Steam Input; WSGM
+ships a launcher that puts them back. A title the Store reports as multiplayer defaults to a
+controller-only route that injects nothing, and moving it to the overlay route means accepting the
+ban risk yourself. This is experimental and no anti-cheat has been tested against it. See
+[the Game Library](docs/game-library.md).
+
+**Artwork for any game.** Search SteamGridDB and Screenscraper.fr for capsules, heroes, logos and
+icons from a native Steam page, opened from the cog menu on a game's own page.
+
 **Library tabs.** Build custom tabs for Steam's library from filters (installed, tags, playtime,
 size, title patterns and so on), reorder the whole tab strip, and hide Steam's built-in tabs.
 

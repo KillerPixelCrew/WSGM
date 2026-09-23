@@ -29,16 +29,8 @@ codes, and safe to rerun.
   gitlink changes, and both generated updates together.
 - Build Steam Input and VIIPER from source. Treat publish and staging directories as disposable
   output; do not populate them manually.
-- eng/qodana-bootstrap.ps1 is the Qodana for .NET bootstrap named in qodana.yaml. It builds the
-  native libraries and the solution, runs WSGM.Tests with coverage, and copies the Cobertura report
-  to .qodana/code-coverage. The `qodana-dotnet` job in `.github/workflows/ci.yml` sets
-  `WSGM_QODANA_USE_STAGED_NATIVE` and `WSGM_QODANA_COVERAGE_FROM` so it reuses the libraries and
-  coverage from the `verify` and `viiper` jobs instead. It is a CI step, not a local gate.
-- .qodana/dotnet-baseline.sarif.json is the Qodana for .NET baseline the `qodana-dotnet` job passes
-  with `--baseline`. It holds the reviewed findings that stay on purpose; only findings new against
-  it fail the check. Rules kept for a whole scope are severity-scoped in .editorconfig instead, with
-  the reason on each block. Regenerate the baseline from a scan of the current tree when a reviewed
-  finding is deliberately added, never to hide a new one.
+- eng/verify.ps1 is the analysis gate. Rules kept for a whole scope are severity-scoped in
+  .editorconfig, with the reason on each block.
 - eng/build-viiper.ps1 builds the external/viiper submodule as checked out. build.ps1 passes
   `-RequirePinned`, which refuses a dirty submodule or one that is not at the gitlink HEAD records,
   so a release library always matches a pinned commit. Move the VIIPER pin by pushing to the fork's

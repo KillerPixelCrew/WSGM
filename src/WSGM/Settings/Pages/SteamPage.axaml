@@ -6,8 +6,9 @@
              x:DataType="s:SettingsViewModel">
   <!-- Element order is the controller tab order: Big Picture info → Steam
          status → auto-relaunch → Steam Input management → UAC → lock-on-wake.
-         The CEF integration toggles live on their own Integration tab: with them
-         here the right column no longer fits the 1024x640 layout floor. -->
+         The CEF integration toggles live on their own Integration tab. The artwork and
+         Game Library sections outgrow the 1024x640 floor, so the page scrolls. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
   <Border Padding="16,10,16,10">
     <Grid ColumnDefinitions="*,24,*">
       <StackPanel Grid.Column="0">
@@ -85,6 +86,123 @@
         </Border>
 
         <Border Classes="section-header">
+          <TextBlock Text="ARTWORK" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="SteamGridDB key" Classes="setting-title" />
+              <TextBlock
+                Text="Your own key from steamgriddb.com. Without one that source is not searched, rather than searched and refused."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBox Grid.Column="1" x:Name="SteamGridDbKeyBox" Width="170"
+                     Text="{Binding ArtworkSteamGridDbApiKey}" MaxLength="128"
+                     PasswordChar="●" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Edit" Tag="SteamGridDbKey" Click="OnEditTextWithController"
+                    AutomationProperties.Name="Edit SteamGridDB key with controller" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Search Screenscraper.fr" Classes="setting-title" />
+              <TextBlock
+                Text="A ROM database, so it answers for retro titles and rarely for PC ones. An account is optional and only raises your own daily quota."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding ArtworkScreenscraperEnabled}"
+                          VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock Text="Screenscraper account" Classes="setting-title" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" x:Name="ScreenscraperUserBox" Width="170"
+                     Text="{Binding ArtworkScreenscraperUser}" MaxLength="128" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Edit" Tag="ScreenscraperUser" Click="OnEditTextWithController"
+                    AutomationProperties.Name="Edit Screenscraper account with controller" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock Text="Screenscraper password" Classes="setting-title" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" x:Name="ScreenscraperPasswordBox" Width="170"
+                     Text="{Binding ArtworkScreenscraperPassword}" MaxLength="128"
+                     PasswordChar="●" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Content="Edit" Tag="ScreenscraperPassword" Click="OnEditTextWithController"
+                    AutomationProperties.Name="Edit Screenscraper password with controller" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Artwork tab opened first" Classes="setting-title" />
+              <TextBlock Text="Where the in-Steam artwork page starts. A hidden tab falls back to the first one shown."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding ArtworkTabs}" DisplayMemberBinding="{Binding Title}"
+                      SelectedIndex="{Binding ArtworkDefaultTabIndex}" VerticalAlignment="Center"
+                      AutomationProperties.Name="Artwork tab opened first" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <StackPanel Spacing="1">
+            <TextBlock Text="Artwork tabs" Classes="setting-title" />
+            <TextBlock Text="Which tabs the artwork page offers, and the order they appear in."
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <ItemsControl ItemsSource="{Binding ArtworkTabs}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="s:ArtworkTabRow">
+              <Border Classes="setting-row alt" Margin="0,0,0,3">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
+                  <ToggleSwitch Grid.Column="0" IsChecked="{Binding Visible}" OnContent="" OffContent=""
+                                MinWidth="42" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" />
+                  <Button Grid.Column="2" Classes="icon" Content="↑" ToolTip.Tip="Move up"
+                          AutomationProperties.Name="Move artwork tab up"
+                          Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveArtworkTabUpCommand, FallbackValue={x:Null}}"
+                          CommandParameter="{Binding}" />
+                  <Button Grid.Column="3" Classes="icon" Content="↓" ToolTip.Tip="Move down"
+                          AutomationProperties.Name="Move artwork tab down"
+                          Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveArtworkTabDownCommand, FallbackValue={x:Null}}"
+                          CommandParameter="{Binding}" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Border Classes="section-header">
+          <TextBlock Text="GAME LIBRARY" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="New titles launch with" Classes="setting-title" />
+              <TextBlock Text="A multiplayer title always starts controller only. You can change any title on its own."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryModes}"
+                      SelectedIndex="{Binding GameLibraryDefaultModeIndex}" VerticalAlignment="Center"
+                      AutomationProperties.Name="Launch mode for new Game Library titles" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Offer titles with no launch route" Classes="setting-title" />
+              <TextBlock Text="Packages WSGM cannot give the Steam overlay. They can only be imported as controller only."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GameLibraryImportUnroutable}"
+                          VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
           <TextBlock Text="WINDOWS POLICIES" />
         </Border>
         <Border Classes="setting-row alt">
@@ -120,4 +238,5 @@
       </StackPanel>
     </Grid>
   </Border>
+  </ScrollViewer>
 </UserControl>

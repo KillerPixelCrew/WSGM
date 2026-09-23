@@ -262,6 +262,39 @@ internal sealed class ProfileService
         return result.Changed;
     }
 
+    /// <summary>Pins or releases the controller target of a profile addressed by application identity.</summary>
+    /// <param name="id">The canonical application identity, such as <c>steam:1234567890</c>.</param>
+    /// <param name="name">What to call the profile when this creates it.</param>
+    /// <param name="target">The target to pin, or null to release it.</param>
+    /// <param name="removeEmptyProfile">When releasing, whether an emptied profile is removed.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether this created the profile.</returns>
+    /// <remarks>
+    ///     The library importer's controller-only route is this and nothing else. The profile
+    ///     system already switches the virtual pad for whatever Steam reports running, so an
+    ///     imported shortcut needs no launcher-to-WSGM channel of its own, and the user can see and
+    ///     change the override in the Quick Access rows like any other.
+    /// </remarks>
+    internal async Task<bool> SetApplicationControllerTargetAsync(
+        string id, string name, ManagedControllerTarget? target, bool removeEmptyProfile,
+        CancellationToken cancellationToken = default)
+    {
+        var created = false;
+        var result = await MutateAsync(
+                (config, _) => ProfileEdits.SetApplicationControllerTarget(
+                    config, id, name, target, removeEmptyProfile, out created),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Changed)
+        {
+            Log.Info(target is null
+                ? $"Profile: {id} no longer pins a controller target."
+                : $"Profile: {id} pins the {target} controller target.");
+        }
+
+        return result.Changed && created;
+    }
+
     /// <summary>Creates or updates a game profile's name, processes and switch.</summary>
     internal async Task<string> SaveGameAsync(string? id, string name, IReadOnlyList<string> processNames,
         bool enabled, CancellationToken cancellationToken = default)

@@ -33,6 +33,9 @@ internal enum OverlayPage
     SteamLaunchFixes,
     SteamLibraryTabs,
     SteamCardManager,
+
+    /// <summary>The Game Library: bring other launchers' games into Steam.</summary>
+    SteamGameLibrary,
     SteamLaunchConfiguration,
     SteamStorageFormat,
     Device,
@@ -260,7 +263,7 @@ internal sealed class OverlayNavigation
             OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
             OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
-                or OverlayPage.SteamLaunchConfiguration
+                or OverlayPage.SteamGameLibrary or OverlayPage.SteamLaunchConfiguration
                 or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
             OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion

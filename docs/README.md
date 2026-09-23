@@ -12,7 +12,7 @@ findings describes, check it again on the device before trusting the change.
 | Read                   | When you want to understand                                                                     |
 | ---------------------- | ----------------------------------------------------------------------------------------------- |
 | `boot-and-shell.md`    | boot, Explorer takeover, Desktop Mode, Game Mode entry, Steam autostart takeover, install modes |
-| `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrapper                     |
+| `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrappers                    |
 | `steam-input.md`       | how the overlay takes the controller from Steam and gives it back, and the OEM button handoff   |
 | `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                   |
 | `overlay-surfaces.md`  | in-window utility panels, credentials, keyboard and power-menu ownership                        |
@@ -24,9 +24,10 @@ findings describes, check it again on the device before trusting the change.
 
 ## Steam
 
-[Steam overlay and input across launchers](steam-launcher-handoff.md) records runtime
-classification, the UWP and packaged Win32 launch routes that work, and the checks for keeping
-overlay and input consistent through launcher replacements and foreground changes.
+[Steam overlay and input across launchers](steam-launcher-handoff.md) records the attended evidence
+behind runtime classification, the UWP and packaged Win32 launch routes, and the checks for keeping
+overlay and input consistent through launcher replacements and foreground changes. What was built on
+that evidence is in `packaged-game-launcher.md`.
 
 | Read                                             | When you want to understand                                                                                                               |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -34,6 +35,8 @@ overlay and input consistent through launcher replacements and foreground change
 | `steam-cef-system.md`                            | the mechanism end to end: Steam discovery, the transport gate, the session host, patches, the native Quick Access Menu                    |
 | `steam-cef-startup-audit.md`                     | the 2026-09-05 login failure, the module-loading audit, the corrections and what is still to check live                                   |
 | `..\external\steam-ui-toolkit\docs\reference.md` | the toolkit the mechanism is built on                                                                                                     |
+| `packaged-game-launcher.md`                      | how an imported Xbox, UWP or MSIX game gets Steam's overlay and Steam Input, and the two routes that work                                 |
+| `game-library.md`                                | bringing other launchers' games into Steam from the overlay or Steam: the pipeline, its parts, and what a second run does                 |
 | `sd-cards.md`                                    | the card manager and the format flow                                                                                                      |
 
 ## Hardware

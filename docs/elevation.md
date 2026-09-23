@@ -1,9 +1,10 @@
-# Elevation, de-elevation and the launch wrapper
+# Elevation, de-elevation and the launch wrappers
 
 How WSGM lowers integrity when it must: for Explorer on a fail-open desktop, for Settings pages, for
-individual games through `WSGM.Launch`, and for the whole Steam client on request. Why WSGM is
-elevated at all and what that buys is in `docs\decisions.md`. The shell anchor that restores
-Explorer on a normal desktop transition is in `docs\boot-and-shell.md`.
+individual games through `WSGM.Launch`, for imported packaged games through `WSGM.PackagedLaunch`,
+and for the whole Steam client on request. Why WSGM is elevated at all and what that buys is in
+`docs\decisions.md`. The shell anchor that restores Explorer on a normal desktop transition is in
+`docs\boot-and-shell.md`.
 
 Related:
 
@@ -53,9 +54,15 @@ page.
 
 ## The launch wrapper: WSGM.Launch
 
-`WSGM.Launch.exe` is the single launch wrapper for Steam games that reject elevation or need a Steam
-Input lease. It replaced `WSGM.Deelevate.exe` and `steam-input-lease.exe`, which the installer
+`WSGM.Launch.exe` is the launch wrapper for ordinary Steam games that reject elevation or need a
+Steam Input lease. It replaced `WSGM.Deelevate.exe` and `steam-input-lease.exe`, which the installer
 deletes on update; a user who pasted one of the old commands has to re-apply the fix.
+
+There is one other shipped wrapper, `WSGM.PackagedLaunch.exe`, which the Game Library puts in the
+Target of an imported Xbox, UWP or MSIX shortcut. It is a sibling, not an extension: see
+[the packaged-game launcher](packaged-game-launcher.md). It runs `asInvoker`, never self-elevates,
+and must never be composed with `WSGM.Launch --deelevate` — a medium-integrity injector cannot open
+an elevated game.
 
 ```text
 "...\WSGM.Launch.exe" [--deelevate] [--input-lease | --input-lease-inject] -- %command%
@@ -63,11 +70,11 @@ deletes on update; a user who pasted one of the old commands has to re-apply the
 
 At least one flag is required, and the target command always follows `--`.
 
-| Flag                   | Behaviour                                                         |
-| ---------------------- | ----------------------------------------------------------------- |
-| `--deelevate`          | run the target at medium integrity                                |
-| `--input-lease`        | hold a Steam Input lease through the resident shim; never injects |
-| `--input-lease-inject` | hold the lease by injecting; the only shipped route that injects  |
+| Flag                   | Behaviour                                                             |
+| ---------------------- | --------------------------------------------------------------------- |
+| `--deelevate`          | run the target at medium integrity                                    |
+| `--input-lease`        | hold a Steam Input lease through the resident shim; never injects     |
+| `--input-lease-inject` | hold the lease by injecting; the only injecting route in this wrapper |
 
 ### The two lease flags differ only in delivery and are mutually exclusive
 
@@ -166,6 +173,10 @@ For a non-Steam (custom) shortcut Steam ignores an exe-replacing `%command%` lau
 the original target anyway. The wrapper goes in the shortcut's Target and the real program in its
 Launch Arguments. `Core\SteamLaunchConfig.cs` writes this into the running client so the user never
 has to; the mechanism is in `docs\steam-cef.md`.
+
+The same rule is why an imported packaged game carries `WSGM.PackagedLaunch.exe` in its Target and
+its AUMID in the arguments. `Core\Library\PackagedLauncherShortcut.cs` composes those fields and
+`Core\Library\SteamShortcutWriter.cs` writes them.
 
 ## Steam client launch integrity
 

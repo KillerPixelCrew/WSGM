@@ -1,4 +1,4 @@
-using WSGM.Plugin.Artwork;
+using WSGM.Core;
 
 namespace WSGM.Tests.Core;
 
@@ -14,8 +14,8 @@ public sealed class ArtworkProviderTests
     {
         SteamGridDbProvider provider = new();
 
-        var missing = provider.GetStatus(ArtworkConfiguration.Default);
-        var present = provider.GetStatus(new ArtworkConfiguration("abc", true, "", ""));
+        var missing = provider.GetStatus(new ArtworkConfig());
+        var present = provider.GetStatus(new ArtworkConfig { SteamGridDbApiKey = "abc" });
 
         Assert.Equal(ArtworkProviderReadiness.MissingCredentials, missing.Readiness);
         Assert.Contains(SteamGridDb.KeyPageUrl, missing.Detail, StringComparison.Ordinal);
@@ -30,10 +30,10 @@ public sealed class ArtworkProviderTests
         // the only way to not search it is to have said so.
         ScreenscraperProvider provider = new();
 
-        Assert.True(provider.GetStatus(ArtworkConfiguration.Default).IsReady);
+        Assert.True(provider.GetStatus(new ArtworkConfig()).IsReady);
         Assert.Equal(
             ArtworkProviderReadiness.Disabled,
-            provider.GetStatus(new ArtworkConfiguration("", false, "", "")).Readiness);
+            provider.GetStatus(new ArtworkConfig { ScreenscraperEnabled = false }).Readiness);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public sealed class ArtworkProviderTests
         ScreenscraperProvider provider = new();
 
         Assert.Empty(await provider.GetAssetsForSteamAppAsync(
-            ArtworkAsset.Grid, 440, ArtworkConfiguration.Default, CancellationToken.None));
+            ArtworkAsset.Grid, 440, new ArtworkConfig(), CancellationToken.None));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class ArtworkProviderTests
         var result = await ArtworkSearch.GetAssetsForSteamAppAsync(
             ArtworkAsset.Grid,
             440,
-            new ArtworkConfiguration("", false, "", ""),
+            new ArtworkConfig { ScreenscraperEnabled = false },
             CancellationToken.None);
 
         Assert.Empty(result.Candidates);
@@ -105,7 +105,7 @@ public sealed class ArtworkProviderTests
         ArtworkGameMatch match = new("nonexistent-provider", "1", "Something", true);
 
         var result = await ArtworkSearch.GetAssetsForMatchAsync(
-            ArtworkAsset.Grid, match, ArtworkConfiguration.Default, CancellationToken.None);
+            ArtworkAsset.Grid, match, new ArtworkConfig(), CancellationToken.None);
 
         Assert.Empty(result.Candidates);
         Assert.Empty(result.Outcomes);

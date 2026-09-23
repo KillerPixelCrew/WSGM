@@ -29,7 +29,9 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - src/WSGM is the self-contained CoreCLR desktop application. It owns the Explorer-replacement
   session, UI, overlay, settings, recovery, and per-user state.
 - src/WSGM.Launch is the console launcher for de-elevation and input-lease containment.
-  src/WSGM.LogonService is the minimal SYSTEM service used at logon.
+  src/WSGM.PackagedLaunch is the launcher an imported Xbox, UWP or MSIX shortcut points at; it is a
+  sibling of WSGM.Launch, not an extension of it. src/WSGM.LogonService is the minimal SYSTEM
+  service used at logon.
 - external/ holds all upstream code and pins. external/steam-input-lease owns the Steam Input shim,
   external/windows-device-control and external/steam-ui-toolkit own their reusable libraries, and
   external/viiper is the VIIPER fork WSGM builds. external/LoadingIndicators.Avalonia is vendored
@@ -80,8 +82,19 @@ repository guidance, plans and skills, including branch and pull-request instruc
   documentation-only changes.
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
+- Moving a feature between projects is a move, not a rewrite. Before calling one done, enumerate
+  what the old home declared - every setting, action, contribution, event and lifecycle hook - and
+  name where each one now lives or why it is gone. A file that is dissolved rather than moved is
+  where the losses hide: the artwork fold dropped eight of twelve settings and the configuration-
+  changed hook that way, and both shipped because nothing compared the two surfaces.
+- A plan records the scope and the finished product before it lists any edits: what the feature is
+  for, which surfaces reach it, its components and who owns each, and what a user can do with it
+  when it is complete. A list of file moves and changes is not a plan, because nothing can be
+  checked against it. Before calling the work done, compare the code against that description
+  point by point - every component at its named home, every surface reaching every stage, every
+  lifecycle hook wired - and report each gap. Compiling and passing tests is not that check.
 - Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
-  engine that `jb cleanupcode`, `jb inspectcode` and Qodana run) defines the layout, including
+  engine that `jb cleanupcode` and `jb inspectcode` run) defines the layout, including
   expanded braces and the JetBrains recommended style: `var` for locals, no trailing commas in
   multiline lists, explicit types on `new` when the target type is not evident. eng/verify.ps1
   runs that cleanup over src and tests and fails on any diff; `-Fix` applies it. `dotnet format`
@@ -119,11 +132,10 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - Before creating a PR, verify its head, intended base and actual diff. If the change is already on
   the base branch, report that state and obtain repair direction before changing branches or
   history. Do not manufacture review-base branches or substitute a different base to produce a PR.
-- CodeRabbit's review limit is 100 changed files per PR, including documentation and visual
-  baselines. Count the complete diff before creating or expanding a PR, then verify GitHub's
-  `changedFiles` count before requesting review. Split larger work into cohesive dependent PRs;
-  each stack base must be the branch of a real preceding PR. Preserve the maintainer's task branch
-  as the final head, document the merge order, and keep every PR within the limit after retargeting.
+- Keep a pull request reviewable. A diff nobody can hold in their head does not get reviewed
+  properly, by a person or by a model. Split work that has natural seams into cohesive dependent
+  PRs; each stack base must be the branch of a real preceding PR. Preserve the maintainer's task
+  branch as the final head and document the merge order.
 - Reverting shared commits, rewriting published history, deleting remote branches or moving work
   to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
   exact local and remote state and propose a concrete repair before making further Git mutations.
@@ -225,7 +237,20 @@ The full gate takes about twenty minutes, so run it once per pull request, not o
 Before `gh pr create`, and before a later push that changes anything under `src`, `tests`,
 `external` or the build scripts:
 
-1. Commit first, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
+1. Before that commit, run the solution-wide Rider cleanup and the build yourself, and commit what
+   they change. The gate spends about twenty minutes before it reaches the layout step, and a
+   layout diff is the most common reason it fails, so finding one there wastes the whole run. The
+   command is the one the gate runs, unchanged:
+
+       dotnet jb cleanupcode WSGM.slnx --settings=WSGM.slnx.DotSettings --profile="Built-in: Full Cleanup" `
+           --include="src\**\*.cs;tests\**\*.cs" --exclude="**\obj\**;**\bin\**;src\WSGM\ThirdParty\**" `
+           --no-build --verbosity=WARN
+
+   Review its diff before committing it: it reorders members and rewraps lines, and it is the one
+   step that can detach a doc comment from its member. Then `npm run format` for anything Prettier
+   owns, and a warning-free `dotnet build WSGM.slnx -c Release`.
+
+   Commit, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
    The layout step diffs the working tree, so any uncommitted change under `src` or `tests` fails
    it. For a stacked set, run it on the branch the change lands in, then merge that branch upward
    and push the rest without a second full run unless the merge itself changed code. For these

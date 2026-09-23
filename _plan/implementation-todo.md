@@ -1,7 +1,7 @@
 # WSGM 2.0 implementation tracker
 
 Status: the previous implementation baseline is on `master`; the current open workoff contains
-15 issues for 2.0 and seven deferred issues. Follow the branch ownership and publishing rules in
+15 issues for 2.0 and five deferred issues. Follow the branch ownership and publishing rules in
 AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
 ## Global and per-game profile system (2026-09-22, in progress)
@@ -25,6 +25,41 @@ header and every consumer use the same snapshot. The retired stored model is wip
 - [ ] Attended check on the Claw: buttons-only game colour survives sleep with Global rings; toggle,
       reset and inheritance behave as in `docs\profiles.md`.
 - [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
+
+## Game Library (2026-09-23, issues 47 and 48)
+
+WSGM's own Steam ROM Manager: bring other launchers' games into Steam from both the overlay and
+Steam's Quick Access plugin tab, with artwork as a stage of the pipeline. Xbox is the first source;
+`src/WSGM.PackagedLaunch` is the launcher its shortcuts point at. The finished shape, its parts and
+their owners are in `docs/game-library.md`; the launch routes in `docs/packaged-game-launcher.md`;
+the attended evidence in `docs/steam-launcher-handoff.md`.
+
+The first delivery was an Xbox importer beside a separate artwork page, with no overlay surface,
+because its plan listed edits and never described the finished product. It was reworked on
+2026-09-23 against a written target.
+
+- [x] Artwork folded back into core, its settings and tab layout on Settings' Steam page, the
+      configuration-reload hook reconnected.
+- [x] Host-owned Steam surfaces gated on CEF, republished on their backends' `Changed`, and
+      protected from plugins claiming their patch ids.
+- [x] Launcher project, both overlay routes, the package-lifetime journal and its replay.
+- [x] Source-neutral discovery and source-qualified identity; the packaged route owns reading its
+      own shortcuts.
+- [x] Per-title choices kept across scans: launch mode, acknowledgement, "don't import".
+- [x] Renamed to the Game Library; several sources; Steam page heading and Quick Access row.
+- [x] Artwork stage: entries learn their app id on confirmation, Store art is counted, "Change
+      artwork…" from the review opens the page under the title's own name.
+- [x] Toolkit `SteamRouteNavigation` for the overlay's hand-off to Steam.
+- [x] Overlay surface: Game Library view, hand-off through the controller.
+- [x] Settings: default launch mode and whether unroutable titles are offered.
+- [ ] Attended, Steam page: scan, change a mode, apply, "Change artwork…" opens the page searched
+      by the title, B returns to the review.
+- [ ] Attended, overlay: the same flow; "Change artwork…" closes the sheet and Steam shows the page
+      in front; reopening mid-apply lands on the progress.
+- [ ] Attended: an exclusion and a picked-but-unapplied mode both survive a rescan; a change in one
+      surface shows in the other.
+- [ ] Attended: Moonlighter and PowerWash Simulator 2 through the launcher; controller-only
+      switching. The packaged Win32 helper-only route has not been re-tested since it was simplified.
 
 ## Overlay design mockup (2026-09-20, issue 114)
 
@@ -89,6 +124,18 @@ utility actions, desktop/game focus and Steam lease release. The swipe threshold
 Power-menu entry points exist; physical power-button capture remains separate work under #21 and
 #116. Run the relevant suites and initial full gate after manual acceptance, then record the actual
 results here.
+
+## Overlay interaction flicker (2026-09-23, issue 171)
+
+The attached video shows the whole sheet darkening as utility panels open and brighten again on
+close. Opening a utility, keyboard or power surface should leave the deck's appearance stable while
+blocking input behind the surface; closing should return focus to its invoker. An ordinary window
+activation should keep the current page, while explicitly re-summoning an open sheet returns to its
+selected section. `OverlayWindow` owns the surface shield and focus, `GamepadNavigation` confines
+directional focus to it, and `OverlayController` owns re-summon behavior. The code and headless
+regression cases are in place. All 219 UI tests pass with six reviewed surface baselines at 720p and
+4K. Attended mouse, touch and controller checks are still needed before calling the flicker resolved
+on the device.
 
 ## Overlay manual-test follow-up (2026-09-20)
 
@@ -226,38 +273,23 @@ warning-clean, and the solution tests and 2,569-test coverage run passed.
 `docs/boot-and-shell.md` and `docs/elevation.md`. Changed documentation passes formatting.
 The documentation-only acceptance update reuses those results without rerunning suites.
 
-For deferred [#48](https://github.com/KillerPixelCrew/WSGM/issues/48), manual loading of Steam's
-overlay DLLs remains a fallback research option for Xbox/UWP/MSIX games outside the wrapper's
-process tree, after investigating native Steam handoff. The public
-[C++ loading example](https://gist.github.com/Andon13/d439d5334d8173e5b959f383f1c49b03) and
-[startup injection example](https://gist.github.com/bburky/9abb40556bba56e745a5e78e47797733)
-are research leads, not current-client or packaged-game validation. This return-to-game change
-does not implement injection, wrapper lifetime tracking or packaged-game handoff.
-
-The separate [UWP launch spike](../tools/UwpLaunchSpike/README.md) passed an attended Moonlighter
-trial on 2026-09-14: controller input, QAM, and repeated Alt-Tab away/back. It bridges Steam's IPC
-objects into the AppContainer, routes Unity's WinRT gamepad factory queries through Steam, and
-corrects foreground attribution from the frame to the game-owned CoreWindow. This validates the
-spike on the reference machine; production integration, crash recovery and broader packaged-game
-support remain deferred under #48.
-The eventual launcher will offer explicit single-player Steam integration and controller-only
-VIIPER Xbox modes; this selection and its session switching are not implemented by the spike.
+The attended Moonlighter trial on 2026-09-14 passed controller input, QAM, and repeated Alt-Tab
+away/back. That route bridges Steam's IPC objects into the AppContainer, routes Unity's WinRT
+gamepad factory queries through Steam, and corrects foreground attribution from the frame to the
+game-owned CoreWindow. It now lives in `src/WSGM.PackagedLaunch`.
 
 PowerWash Simulator 2 also passed attended controller input and overlay testing on 2026-09-14.
 It is packaged Win32/GDK: early Steam environment/client/renderer injection into the AAM-created
 GameLaunchHelper enabled Steam's child-process handoff without the AppContainer bridge or foreground
-proxy. Repeated Alt-Tab is not separately confirmed. The future #47 importer must classify Xbox titles
-by runtime and select the corresponding #48 launcher while preserving the explicit input-mode choice.
+proxy. Repeated Alt-Tab is not separately confirmed. The shipped route drops the delayed remote setup
+in the game that the trial also performed, which is the helper-only simplification the handoff
+findings called for; that simplification has not itself been re-tested attended.
 The reusable [launcher handoff findings](../docs/steam-launcher-handoff.md) document session lifetime,
-creation timing, IPC, foreground ownership, and input API validation. Both issues remain deferred;
-automatic classification and production launch routing are not implemented.
+creation timing, IPC, foreground ownership, and input API validation.
 
-The maintainer may test a protected multiplayer title in the days after 2026-09-14. No title or
-result is recorded yet; anti-cheat compatibility remains unverified. The packaged Win32 spike still
-performs delayed remote setup in the game. Removing that setup for a helper-only comparison is a
-proposed follow-up, not an implemented change. Capture the exact game/anti-cheat, Steam and launcher
-build/options with any attended result under #48; #47 must not infer compatibility from package
-classification or Valve DLL signatures.
+No protected multiplayer title has been tested; anti-cheat compatibility remains unverified. Capture
+the exact game/anti-cheat, Steam and launcher build/options with any attended result; compatibility
+must never be inferred from package classification or Valve DLL signatures.
 
 ## Display and Device usability follow-up (2026-09-13)
 
@@ -330,7 +362,7 @@ passed with a warning-clean build. Physical Port 3 acceptance remains an attende
 
 After delivery of #38/#39, #51/#53, #58/#59, #61, #65–#68, #22/#26/#35/#36 and, on 2026-09-11,
 #20/#28/#30/#31/#34/#70/#71/#72 and, that evening, #52, eight issues remain open. Issues #41, #42,
-#44, #45, #47 and #48 remain deferred; #40 is the 2.0 scope. #21 was closed as a dead end on
+#44 and #45 remain deferred; #47 and #48 were delivered on 2026-09-22; #40 is the 2.0 scope. #21 was closed as a dead end on
 2026-09-20 (see below). #20 and #28 were closed on 2026-09-10 and
 reopened on 2026-09-11: #20 because the Session tab had not followed the category migration, #28
 because the September 9 Steam Client Beta reworked the library UI and added Big Art Mode; both were
@@ -755,6 +787,7 @@ WSGM.exe (self-contained CoreCLR)
 Real separate boundaries
   WSGM.LogonService                  SYSTEM logon/watchdog process
   WSGM.Launch                        per-game medium-integrity wrapper
+  WSGM.PackagedLaunch                imported packaged-game activation and session owner
   external/steam-input-lease         Steam Input lease/proxy ABI (submodule)
   src/WSGM.Device.Sdk                public plugin and package contract (MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
@@ -766,8 +799,8 @@ Real separate boundaries
   VIIPER                             native virtual-controller backend
 ```
 
-The solution contains WSGM, Launch, LogonService and their tests plus the production and test
-projects for the SDK, Device Lab, Claw plugin, HC scaffold, and pinned reusable libraries. The application
+The solution contains WSGM, Launch, PackagedLaunch, LogonService and their tests plus the production
+and test projects for the SDK, Device Lab, Claw plugin, HC scaffold, and pinned reusable libraries. The application
 still loads the installed package dynamically. A process, project, helper, mirror, protocol or
 abstraction is not retained for future flexibility; it needs a current consumer or an OS, lifetime,
 packaging or public-contract boundary.
@@ -894,8 +927,10 @@ directly, so the taskbar slider lags the OSD by one poll.
 - [ ] **`steam-ui-toolkit`: host-rendered plugin Steam surfaces and SteamGridDB port.** The shared
       Extensions tab and selected-game context-menu contracts are implemented. Review repairs add
       generation-bound host routing, native focus controls, repeated-probe recognition and first-render
-      menu interception. The artwork system is now the bundled `WSGM.Plugin.Artwork` common plugin,
-      not a Core or toolkit feature. Its action opens a native Steam route with provider-backed tabs,
+      menu interception. The artwork system was briefly a bundled common plugin and is part of WSGM
+      again (2026-09-22): the plugin boundary blocked the Xbox importer, which needs the same
+      providers, apply path and page host, and a second page-owning plugin would have thrown out of
+      the session host's constructor. Its menu entry opens a native Steam route with provider-backed tabs,
       filters, details/apply, manage/reset, game selection, pagination, local files, icons and logo
       positioning. Live 1:1 visual/controller comparison and the optional Home/library presentation
       settings remain, plus an installed end-to-end acceptance pass. Plan: `_plan\steam-ui-toolkit.md`.

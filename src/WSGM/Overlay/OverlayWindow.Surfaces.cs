@@ -36,6 +36,11 @@ public partial class OverlayWindow
         ? frame.Content is KeyboardPanel keyboard ? keyboard.DefaultFocusTarget : frame.PreferredFocus
         : null;
 
+    /// <summary>The active surface's directional focus boundary.</summary>
+    internal InputElement? ActiveSurfaceNavigationRoot => _surfaceFrames.TryPeek(out var frame)
+        ? frame.Container
+        : null;
+
     /// <summary>Requests the centred power menu through the surface owner.</summary>
     internal event Action? PowerMenuRequested;
 
@@ -220,7 +225,8 @@ public partial class OverlayWindow
 
         if (_surfaceLayer is null)
         {
-            _surfaceLayer = new Grid { Background = new SolidColorBrush(Color.Parse("#88000000")) };
+            // Keep a hit-test shield without repainting the entire deck on every open.
+            _surfaceLayer = new Grid { Background = Brushes.Transparent };
             SurfaceRoot.Children.Add(_surfaceLayer);
         }
 
@@ -275,7 +281,10 @@ public partial class OverlayWindow
         preferredFocus ??= FocusSearch.FirstNavigable(content) ?? close;
         _surfaceFrames.Push(new SurfaceFrame(content, container, kind, preferredFocus, invokingControl));
         _surfaceLayer.Children.Add(container);
-        DeckContent.IsEnabled = false;
+        // A disabled deck changes the styling of every child. The surface layer blocks
+        // pointer input, and tab navigation stays inside the active surface.
+        DeckContent.IsHitTestVisible = false;
+        KeyboardNavigation.SetTabNavigation(DeckContent, KeyboardNavigationMode.None);
         UpdateLayout();
         preferredFocus.Focus(NavigationMethod.Directional);
         Dispatcher.UIThread.Post(() =>
@@ -345,7 +354,8 @@ public partial class OverlayWindow
                 _surfaceLayer = null;
             }
 
-            DeckContent.IsEnabled = true;
+            KeyboardNavigation.SetTabNavigation(DeckContent, KeyboardNavigationMode.Continue);
+            DeckContent.IsHitTestVisible = true;
         }
 
         var target = frame.Invoker is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } invoker

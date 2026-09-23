@@ -22,6 +22,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 {
     private const string ShellPatchId = "wsgm.native-qam.shell";
 
+    /// <summary>The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</summary>
+    private readonly SteamArtworkBrowserSource? _artwork;
+
     /// <summary>
     ///     Null when no audio manager exists for this session, which is the overlay-test case.
     /// </summary>
@@ -48,13 +51,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
+    /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
+    private readonly SteamExtensionsTabBackend _extensionsTab;
+
     private readonly Lock _failedPatchGate = new();
 
     // Patch ids of modules the runtime quarantined. Written from the publication and request paths,
     // read wherever patch states are decided.
     private readonly HashSet<string> _failedPatchIds = new(StringComparer.Ordinal);
 
-    private readonly SteamGameContextMenuBackend? _gameContextMenu;
+    private readonly SteamGameContextMenuBackend _gameContextMenu;
 
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
 
@@ -65,6 +71,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge = new();
+
+    /// <summary>The library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
+    private readonly GameLibraryService? _libraryImport;
 
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
     private readonly NativeQamNetworkService? _network;
@@ -121,10 +130,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _glyphsEnabled;
     private volatile bool _homeCarouselEnabled;
+    private volatile bool _hostSteamUiEnabled;
     private volatile bool _libraryBadgeEnabled;
     private volatile bool _networkIndicatorEnabled;
     private IDisposable? _performanceObservation;
-    private volatile bool _pluginSteamUiEnabled;
     private volatile bool _screensaverEnabled;
     private int _signalPending;
     private volatile bool _surfaceObservationEnabled;
@@ -161,6 +170,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="audioProfiles">The live advanced-audio service, or null in overlay-test.</param>
     /// <param name="pluginSteamUi">The common-plugin projection rendered through host-owned Steam surfaces.</param>
     /// <param name="profiles">The profile owner Steam's per-game toggle and reset write to.</param>
+    /// <param name="artwork">The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</param>
+    /// <param name="libraryImport">The Game Library behind Steam's import page, or null in overlay-test.</param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -179,14 +190,27 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         DisplayTimeouts? displayTimeouts = null,
         AudioProfileService? audioProfiles = null,
         CommonPluginSteamUiSource? pluginSteamUi = null,
-        ProfileService? profiles = null)
+        ProfileService? profiles = null,
+        SteamArtworkBrowserSource? artwork = null,
+        GameLibraryService? libraryImport = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
         _pluginSteamUi = pluginSteamUi;
         _pluginModules = pluginSteamUi?.ReadModules() ?? [];
         _pluginPatchIds = [.. _pluginModules.SelectMany(module => module.Patches).Select(patch => patch.Id)];
-        _gameContextMenu = pluginSteamUi is null ? null : new SteamGameContextMenuBackend(pluginSteamUi);
+        // The menu exists for WSGM's own Change Artwork entry, so it is not conditional on a plugin
+        // source the way it was while artwork was a package.
+        _artwork = artwork;
+        _libraryImport = libraryImport;
+        _gameContextMenu = new SteamGameContextMenuBackend(
+            pluginSteamUi,
+            artwork is null ? null : artwork.OpenAsync,
+            artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
+        _extensionsTab = new SteamExtensionsTabBackend(
+            pluginSteamUi,
+            libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
+            libraryImport is null ? null : () => string.Join(", ", libraryImport.ReadState().Sources));
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -249,7 +273,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _bridge,
             modules,
             () =>
-                _enabled || _pluginSteamUiEnabled || _libraryBadgeEnabled || _homeCarouselEnabled
+                _enabled || _hostSteamUiEnabled || _libraryBadgeEnabled || _homeCarouselEnabled
                 || _screensaverEnabled,
             BootstrapWanted);
         _runtime.ModuleFailed += OnModuleFailed;
@@ -280,6 +304,19 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _pluginSteamUi.Changed += _onPluginSteamUiChanged;
         }
 
+        // Both host pages answer a command immediately and finish the work in the background, so
+        // without these the page only ever sees the first loading snapshot: the scan or the search
+        // completes, raises this, and nobody is listening. The page spins forever.
+        if (_artwork is not null)
+        {
+            _artwork.Changed += QueueStatePublication;
+        }
+
+        if (_libraryImport is not null)
+        {
+            _libraryImport.Changed += QueueStatePublication;
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
@@ -304,6 +341,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         await DisableAsync().ConfigureAwait(false);
         _disposed = true;
         _brightness.Changed -= QueueStatePublication;
+        if (_artwork is not null)
+        {
+            _artwork.Changed -= QueueStatePublication;
+        }
+
+        if (_libraryImport is not null)
+        {
+            _libraryImport.Changed -= QueueStatePublication;
+        }
+
         if (_ownsBrightness)
         {
             _brightness.Dispose();
@@ -423,15 +470,21 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueSynchronization();
     }
 
-    /// <summary>Shows host-rendered common-plugin commands in Steam while the CEF master is on.</summary>
-    internal void ApplyPluginSteamUi(bool enabled)
+    /// <summary>Shows the host-rendered Steam surfaces while the CEF master is on.</summary>
+    /// <param name="enabled">Whether CEF itself is on.</param>
+    /// <remarks>
+    ///     This is deliberately not conditional on a plugin source existing. The pages, the game
+    ///     menu and the plugin tab carry WSGM's own entries now, and gating them on a package would
+    ///     leave every install with no packages — which is every install — unable to open them.
+    /// </remarks>
+    internal void ApplyHostSteamUi(bool enabled)
     {
-        if (_disposed || _pluginSteamUi is null || _pluginSteamUiEnabled == enabled)
+        if (_disposed || _hostSteamUiEnabled == enabled)
         {
             return;
         }
 
-        _pluginSteamUiEnabled = enabled;
+        _hostSteamUiEnabled = enabled;
         if (enabled)
         {
             _patches.SetGlobalEnabled(true);
@@ -583,7 +636,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private bool IndependentSurfacesEnabled()
     {
         return _networkIndicatorEnabled
-               || _pluginSteamUiEnabled
+               || _hostSteamUiEnabled
                || _libraryBadgeEnabled
                || _homeCarouselEnabled
                || _screensaverEnabled
@@ -640,7 +693,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _enabled = false;
-        _pluginSteamUiEnabled = false;
+        _hostSteamUiEnabled = false;
         _networkIndicatorEnabled = false;
         _downloadSortEnabled = false;
         _libraryBadgeEnabled = false;
@@ -875,20 +928,45 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _homeCarousel)
         ];
 
-        if (_gameContextMenu is { } gameContextMenu)
+        // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
+        // whether or not a plugin contributes anything.
+        modules.Add(SteamGameContextMenuSurface.Module(
+            HostSteamUiEnabled,
+            () => new ValueTask<SteamGameContextMenuState?>(_gameContextMenu.ReadState()),
+            _gameContextMenu));
+
+        // Every custom route in one module. The page host owns one patch and one publication, so a
+        // second page owner cannot register the same patch id and take the whole session down with
+        // it; each owner contributes routes and the host merges them.
+        modules.Add(SteamPageSurface.Module(
+            HostSteamUiEnabled,
+            () => new ValueTask<SteamPageState?>(ReadPages())));
+
+        if (_artwork is { } artwork)
         {
-            modules.Add(SteamGameContextMenuSurface.Module(
-                () => _pluginSteamUiEnabled,
-                () => new ValueTask<SteamGameContextMenuState?>(gameContextMenu.ReadState()),
-                gameContextMenu));
+            modules.Add(SteamArtworkBrowserSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<SteamArtworkBrowserState?>(artwork.ReadState()),
+                artwork));
         }
 
-        if (_pluginSteamUi is { } pluginSteamUi)
+        if (_libraryImport is { } libraryImport)
         {
-            modules.Add(SteamExtensionsTabSurface.Module(
-                () => _pluginSteamUiEnabled,
-                () => new ValueTask<SteamExtensionsTabState?>(pluginSteamUi.ReadExtensionsTab()),
-                pluginSteamUi));
+            modules.Add(SteamLibraryImportSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<GameLibraryState?>(libraryImport.ReadState()),
+                libraryImport));
+        }
+
+        // The plugin tab. Declared unconditionally: WSGM's own tools are on it whether or not any
+        // package is installed, which is the state every install was actually in.
+        modules.Add(SteamExtensionsTabSurface.Module(
+            HostSteamUiEnabled,
+            () => new ValueTask<SteamExtensionsTabState?>(_extensionsTab.ReadState()),
+            _extensionsTab));
+
+        if (_pluginSteamUi is not null)
+        {
             modules.AddRange(_pluginModules);
         }
 
@@ -956,6 +1034,64 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private bool Enabled()
     {
         return _enabled;
+    }
+
+    /// <summary>Whether the host-rendered Steam surfaces may publish.</summary>
+    /// <returns>Whether CEF itself is on, regardless of the native Quick Access switch.</returns>
+    private bool HostSteamUiEnabled()
+    {
+        return _hostSteamUiEnabled;
+    }
+
+    /// <summary>Every custom route this session serves, WSGM's own first.</summary>
+    /// <remarks>
+    ///     One owner publishes the route list, because the page host keys its patch and publication by
+    ///     one id: two owners publishing it would alternately clobber each other's routes, and two
+    ///     owners registering the patch is refused outright by the module set. A plugin route that
+    ///     collides with one already admitted is dropped and named, so a package cannot shadow
+    ///     another's page or WSGM's.
+    /// </remarks>
+    private SteamPageState ReadPages()
+    {
+        List<SteamPage> pages = [];
+        if (_artwork is not null)
+        {
+            pages.Add(new SteamPage(
+                "artwork-browser",
+                SteamArtworkBrowserSurface.Route,
+                "Change Artwork",
+                Template: "artwork-browser"));
+        }
+
+        if (_libraryImport is not null)
+        {
+            pages.Add(new SteamPage(
+                "library-import",
+                SteamLibraryImportSurface.Route,
+                "Import games",
+                Template: SteamLibraryImportSurface.Template));
+        }
+
+        if (_hostSteamUiEnabled && _pluginSteamUi is { } pluginSteamUi)
+        {
+            HashSet<string> claimed = new(pages.Select(page => page.Path), StringComparer.OrdinalIgnoreCase);
+            foreach (var page in pluginSteamUi.ReadPages())
+            {
+                if (claimed.Add(page.Path))
+                {
+                    pages.Add(page);
+                }
+                else
+                {
+                    Log.Change(
+                        $"steam-page-collision:{page.Path}",
+                        $"A plugin page was refused: {page.Path} is already served.",
+                        LogLevel.Warn);
+                }
+            }
+        }
+
+        return new SteamPageState(pages);
     }
 
     private async Task<SteamUiCommandResult> HandleToggleQuickAccessAsync(
@@ -1027,11 +1163,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => _libraryBadgeEnabled,
                 SteamHomeCarouselSurface.PatchId => _homeCarouselEnabled,
                 SteamScreensaverSurface.PatchId => _screensaverEnabled,
-                SteamExtensionsTabSurface.PatchId => _pluginSteamUiEnabled,
-                SteamGameContextMenuSurface.PatchId => _pluginSteamUiEnabled,
                 SteamUiBridgePatch.PatchId => bootstrap,
                 SteamNetworkSurface.PatchId => components || _networkIndicatorEnabled,
-                _ when _pluginPatchIds.Contains(patch.Id) => _pluginSteamUiEnabled,
+                // Host-rendered surfaces follow CEF itself. Native Quick Access can be off while a
+                // user still wants the artwork page and the plugin tab.
+                SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
+                    or SteamGameContextMenuSurface.PatchId or SteamArtworkBrowserSurface.PatchId
+                    or SteamLibraryImportSurface.PatchId => _hostSteamUiEnabled,
+                _ when _pluginPatchIds.Contains(patch.Id) => _hostSteamUiEnabled,
                 _ => components
             };
             _patches.SetPatchEnabled(patch.Id, enabled && !Quarantined(patch.Id));
@@ -1118,20 +1257,5 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private void CancelAllInflightRequests()
     {
         _runtime.CancelAllInflight();
-    }
-
-    private sealed class SteamGameContextMenuBackend(CommonPluginSteamUiSource pluginSteamUi)
-        : ISteamGameContextMenuBackend
-    {
-        public async Task<SteamUiCommandResult> ActivateAsync(uint appId, string id,
-            CancellationToken cancellationToken)
-        {
-            return await pluginSteamUi.ActivateAsync(appId, id, cancellationToken).ConfigureAwait(false);
-        }
-
-        internal SteamGameContextMenuState ReadState()
-        {
-            return pluginSteamUi.ReadGameContextMenu();
-        }
     }
 }

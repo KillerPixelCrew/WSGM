@@ -173,4 +173,121 @@ public sealed class ProfileEditsTests
         Assert.Equal(id, ProfileEdits.SaveGame(config, id, "Renamed", ["game.exe", "launcher.exe"], false));
         Assert.False(config.Games[0].Enabled);
     }
+
+    private static bool Set(
+        ProfileConfig config, string id, string name, ManagedControllerTarget? target, bool removeEmptyProfile = true)
+    {
+        return ProfileEdits.SetApplicationControllerTarget(config, id, name, target, removeEmptyProfile, out _);
+    }
+
+    [Fact]
+    public void AnImportedControllerTargetIsAProfileTheIdentityAloneActivates()
+    {
+        // The importer's controller-only route is this write and nothing else: no executable, so
+        // the profile matches whatever Steam reports running under that identity.
+        ProfileConfig config = new();
+
+        Assert.True(Set(config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360));
+
+        var game = Assert.Single(config.Games);
+        Assert.Equal("steam:42", game.Id);
+        Assert.Equal("Moonlit", game.Name);
+        Assert.Empty(game.ProcessNames);
+        Assert.True(game.Enabled);
+        Assert.Equal(ManagedControllerTarget.Xbox360, game.Values.ControllerTarget);
+    }
+
+    [Fact]
+    public void RewritingTheSameControllerTargetReportsNoChange()
+    {
+        ProfileConfig config = new();
+        Set(config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360);
+
+        Assert.False(Set(config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360));
+    }
+
+    [Fact]
+    public void ClearingAnImportedTargetRemovesAProfileThatThenSaysNothing()
+    {
+        // Switching an import back to the overlay route must not leave an empty profile behind.
+        ProfileConfig config = new();
+        Set(config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360);
+
+        Assert.True(Set(config, "steam:42", "Moonlit", null));
+
+        Assert.Empty(config.Games);
+        Assert.False(Set(config, "steam:42", "Moonlit", null));
+    }
+
+    [Fact]
+    public void ClearingAnImportedTargetKeepsAProfileThatStillCarriesSomething()
+    {
+        ProfileConfig config = new();
+        Set(config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360);
+        config.Games[0].Values.FrameLimit = 60;
+
+        Assert.True(Set(config, "steam:42", "Moonlit", null));
+
+        Assert.Equal(60, Assert.Single(config.Games).Values.FrameLimit);
+    }
+
+    [Fact]
+    public void AnImportedTargetNeverAddressesANamedProfile()
+    {
+        // A named profile is the user's own; the importer must not be able to repurpose one.
+        ProfileConfig config = new();
+        var id = ProfileEdits.SaveGame(config, null, "Mine", ["game.exe"], true);
+
+        Assert.Throws<ArgumentException>(() => Set(config, id, "Moonlit", ManagedControllerTarget.Xbox360));
+        Assert.Throws<ArgumentException>(() => Set(config, string.Empty, "Moonlit", ManagedControllerTarget.Xbox360));
+    }
+
+    [Fact]
+    public void AnImportedTargetKeepsTheNameAProfileAlreadyHad()
+    {
+        ProfileConfig config = new();
+        ProfileEdits.SetGameEnabled(config, Running(config), true);
+        config.Games[0].Name = "Chosen by the user";
+
+        Set(config, "steam:42", "Store name", ManagedControllerTarget.Xbox360);
+
+        Assert.Equal("Chosen by the user", Assert.Single(config.Games).Name);
+        Assert.Equal(["game.exe"], config.Games[0].ProcessNames);
+    }
+
+    [Fact]
+    public void SettingATargetSaysWhetherItCreatedTheProfile()
+    {
+        // The importer remembers this, because only a profile it created may be removed later.
+        ProfileConfig config = new();
+
+        ProfileEdits.SetApplicationControllerTarget(
+            config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360, false, out var created);
+        Assert.True(created);
+
+        config.Games[0].Values.ControllerTarget = null;
+        ProfileEdits.SetApplicationControllerTarget(
+            config, "steam:42", "Moonlit", ManagedControllerTarget.Xbox360, false, out created);
+        Assert.False(created);
+    }
+
+    [Fact]
+    public void ClearingATargetKeepsAProfileTheImporterDidNotCreate()
+    {
+        // A profile the user made, whose only value is its controller target, keeps its name,
+        // executables and switch when an import over it is switched back or removed.
+        ProfileConfig config = new();
+        config.Games.Add(new GameProfile
+        {
+            Id = "steam:42", Name = "Mine", Enabled = false, ProcessNames = ["game.exe"],
+            Values = new ProfileValues { ControllerTarget = ManagedControllerTarget.Xbox360 }
+        });
+
+        Assert.True(Set(config, "steam:42", string.Empty, null, false));
+
+        var kept = Assert.Single(config.Games);
+        Assert.Equal("Mine", kept.Name);
+        Assert.Equal(["game.exe"], kept.ProcessNames);
+        Assert.Null(kept.Values.ControllerTarget);
+    }
 }

@@ -73,6 +73,28 @@ try {
     }
     Write-Host "Parsed $($powerShellFiles.Count) tracked PowerShell scripts."
 
+    # A stray control byte in a source file is invisible in every diff and every review. This has
+    # already shipped twice as a path written with a single backslash before a "b", which is a
+    # backspace rather than a directory separator, and both times it broke a build script in a way
+    # only running it would reveal. Binary assets legitimately contain these bytes and are skipped
+    # by extension.
+    $binary = @(".png", ".jpg", ".jpeg", ".gif", ".ico", ".exe", ".dll", ".pdf", ".zip", ".sarif")
+    $controlChars = @()
+    foreach ($tracked in @(git ls-files)) {
+        if ($binary -contains [IO.Path]::GetExtension($tracked).ToLowerInvariant()) { continue }
+        $full = Join-Path $root $tracked
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+        $bytes = [IO.File]::ReadAllBytes($full)
+        $at = [Array]::FindIndex($bytes, [Predicate[byte]] {
+            param($b) $b -in 7, 8, 11, 12, 27
+        })
+        if ($at -ge 0) { $controlChars += "${tracked}: byte $at is 0x{0:X2}" -f $bytes[$at] }
+    }
+    if ($controlChars.Count -gt 0) {
+        throw "Control characters in tracked text files:`n$($controlChars -join [Environment]::NewLine)"
+    }
+    Write-Host "No tracked text file carries a stray control character."
+
     # Cheap source scan, before anything is built: a test or probe that can resolve the real
     # %LOCALAPPDATA%\WSGM directory is a defect regardless of whether it compiles.
     & "$PSScriptRoot\check-no-live-data-paths.ps1"
