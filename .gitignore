@@ -513,9 +513,6 @@ _ref/
 # Maintainer-requested portable Ally X tester download.
 !tools/AllyXLab/Downloads/AllyXLab.exe
 
-# Qodana coverage input and the PlatformIO install for the clang scan. Generated, never committed.
-/.qodana/code-coverage/
-/.qodana/platformio/
 
 # Local repository graph cache built by code-navigation tooling. Hundreds of megabytes of
 # derived index, rebuilt on demand and never committed.

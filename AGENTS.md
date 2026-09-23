@@ -83,7 +83,7 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - Prefer the smallest direct design that preserves established behavior. Remove dead paths instead
   of keeping speculative abstractions.
 - Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
-  engine that `jb cleanupcode`, `jb inspectcode` and Qodana run) defines the layout, including
+  engine that `jb cleanupcode` and `jb inspectcode` run) defines the layout, including
   expanded braces and the JetBrains recommended style: `var` for locals, no trailing commas in
   multiline lists, explicit types on `new` when the target type is not evident. eng/verify.ps1
   runs that cleanup over src and tests and fails on any diff; `-Fix` applies it. `dotnet format`
@@ -121,11 +121,10 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - Before creating a PR, verify its head, intended base and actual diff. If the change is already on
   the base branch, report that state and obtain repair direction before changing branches or
   history. Do not manufacture review-base branches or substitute a different base to produce a PR.
-- CodeRabbit's review limit is 100 changed files per PR, including documentation and visual
-  baselines. Count the complete diff before creating or expanding a PR, then verify GitHub's
-  `changedFiles` count before requesting review. Split larger work into cohesive dependent PRs;
-  each stack base must be the branch of a real preceding PR. Preserve the maintainer's task branch
-  as the final head, document the merge order, and keep every PR within the limit after retargeting.
+- Keep a pull request reviewable. A diff nobody can hold in their head does not get reviewed
+  properly, by a person or by a model. Split work that has natural seams into cohesive dependent
+  PRs; each stack base must be the branch of a real preceding PR. Preserve the maintainer's task
+  branch as the final head and document the merge order.
 - Reverting shared commits, rewriting published history, deleting remote branches or moving work
   to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
   exact local and remote state and propose a concrete repair before making further Git mutations.
