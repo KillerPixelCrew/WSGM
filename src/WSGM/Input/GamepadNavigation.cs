@@ -1,7 +1,9 @@
 using System;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
 
@@ -32,6 +34,7 @@ public sealed class GamepadNavigation : IDisposable
     private readonly Action _back;
 
     private readonly IUiButtonSource _gamepad;
+    private readonly Func<InputElement?>? _focusScope;
     private readonly Func<bool>? _isNintendoLayout;
 
     private readonly Func<NavigationDirection, bool>? _navigate;
@@ -99,12 +102,13 @@ public sealed class GamepadNavigation : IDisposable
     /// </param>
     /// <param name="navigate">Optional surface-specific directional move; true means the move was handled.</param>
     /// <param name="triggerTabs">Whether trigger edges also switch destinations.</param>
+    /// <param name="focusScope">Optional subtree that confines directional focus while a surface is open.</param>
     public GamepadNavigation(IUiButtonSource gamepad, Window window, Action back,
         Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
         Action<InputElement?>? secondary = null, Action? tabPrevious = null,
         Action? tabNext = null,
         Action<InputElement?>? tertiary = null, Func<NavigationDirection, bool>? navigate = null,
-        bool triggerTabs = false)
+        bool triggerTabs = false, Func<InputElement?>? focusScope = null)
     {
         _gamepad = gamepad;
         _window = window;
@@ -117,6 +121,7 @@ public sealed class GamepadNavigation : IDisposable
         _tabNext = tabNext;
         _navigate = navigate;
         _triggerTabs = triggerTabs;
+        _focusScope = focusScope;
         _gamepad.ButtonPressed += OnButtons;
         // Tunnel so the arrows aren't consumed by a ScrollViewer for scrolling first.
         _window.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
@@ -546,7 +551,7 @@ public sealed class GamepadNavigation : IDisposable
         if (_lastFocused is ComboBox
             {
                 IsDropDownOpen: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true
-            } selector && IsInWindow(selector))
+            } selector && IsInWindow(selector) && IsInFocusScope(selector))
         {
             return selector;
         }
@@ -555,11 +560,17 @@ public sealed class GamepadNavigation : IDisposable
         if (focused is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } && focused is not Window &&
             IsInWindow(focused))
         {
+            if (!IsInFocusScope(focused))
+            {
+                return null;
+            }
+
             _lastFocused = focused;
             return focused;
         }
 
-        if (_lastFocused is not { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } last || !IsInWindow(last))
+        if (_lastFocused is not { IsEffectivelyEnabled: true, IsEffectivelyVisible: true } last
+            || !IsInWindow(last) || !IsInFocusScope(last))
         {
             return null;
         }
@@ -638,7 +649,7 @@ public sealed class GamepadNavigation : IDisposable
     {
         return TopLevel.GetTopLevel(_window)?.FocusManager.FindNextElement(
             direction,
-            new FindNextElementOptions { FocusedElement = from, SearchRoot = _window });
+            new FindNextElementOptions { FocusedElement = from, SearchRoot = _focusScope?.Invoke() ?? _window });
     }
 
     private bool IsInWindow(InputElement element)
@@ -646,17 +657,37 @@ public sealed class GamepadNavigation : IDisposable
         return TopLevel.GetTopLevel(element) == _window;
     }
 
+    private bool IsInFocusScope(InputElement element)
+    {
+        var scope = _focusScope?.Invoke();
+        if (scope is null)
+        {
+            return true;
+        }
+
+        for (var current = (Visual?)element; current is not null; current = current.GetVisualParent())
+        {
+            if (ReferenceEquals(current, scope))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void FocusFirst()
     {
         if (_preferredFocus?.Invoke() is
-            { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true } preferred)
+            { Focusable: true, IsEffectivelyEnabled: true, IsEffectivelyVisible: true } preferred
+            && IsInFocusScope(preferred))
         {
             preferred.Focus(NavigationMethod.Directional);
             _lastFocused = preferred;
             return;
         }
 
-        if (FocusSearch.FirstNavigable(_window) is { } input)
+        if (FocusSearch.FirstNavigable(_focusScope?.Invoke() ?? _window) is { } input)
         {
             input.Focus(NavigationMethod.Directional);
             _lastFocused = input;
