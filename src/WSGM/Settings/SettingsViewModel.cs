@@ -1714,9 +1714,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         return ok;
     }
 
-    /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>
-    /// <param name="row">The row to move, or null (a no-op).</param>
-    /// <param name="delta">The signed number of positions to move the row.</param>
     /// <summary>Builds the tab rows from the stored order and visibility.</summary>
     private void LoadArtworkTabs()
     {
@@ -1766,6 +1763,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             ?.Visible ?? true;
     }
 
+    /// <summary>Moves an artwork tab by one position when the target remains in range.</summary>
+    /// <param name="row">The row to move, or null (a no-op).</param>
+    /// <param name="delta">The signed number of positions to move the row.</param>
     private void MoveArtworkTab(ArtworkTabRow? row, int delta)
     {
         if (row is null)
@@ -1792,6 +1792,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>
+    /// <param name="row">The row to move, or null (a no-op).</param>
+    /// <param name="delta">The signed number of positions to move the row.</param>
     private void MoveStartupApp(StartupAppRow? row, int delta)
     {
         if (row is null)
