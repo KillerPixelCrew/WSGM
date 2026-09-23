@@ -62,7 +62,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
     private readonly Func<string?> _resolveLauncher;
-    private readonly Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? _setControllerTarget;
+
+    private readonly Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>?
+        _setControllerTarget;
+
     private readonly CancellationTokenSource _shutdown = new();
     private readonly IReadOnlyList<ILibrarySource> _sources;
     private readonly ImportStateStore _store;
@@ -86,7 +89,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="defaultMode">The mode an entry starts on.</param>
     /// <param name="includeUnroutable">Whether titles with no validated launch route are offered.</param>
     /// <param name="applyArtwork">Applies catalog images to a confirmed app id, or null to skip.</param>
-    /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
+    /// <param name="setControllerTarget">
+    ///     Writes the per-game controller override, or null to skip: identity, name, target (null to
+    ///     clear), whether a cleared profile left empty is removed, and a token. Answers whether the
+    ///     write created the profile, which is the only kind a clear may remove.
+    /// </param>
     /// <param name="resolveLauncher">Finds the packaged-game launcher, or null for the real one.</param>
     /// <param name="openArtwork">Opens the artwork page for an app id and title, or null without one.</param>
     /// <param name="controllerManaged">Whether anything switches the controller for a running title.</param>
@@ -98,7 +105,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         Func<ImportMode> defaultMode,
         Func<bool> includeUnroutable,
         Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
-        Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null,
+        Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>? setControllerTarget =
+            null,
         Func<string?>? resolveLauncher = null,
         Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null,
         Func<bool>? controllerManaged = null)
@@ -439,10 +447,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
                 created.Excluded = choice?.Excluded == true && Excludable(entry);
 
-                // Never pre-tick something the sources could not vouch for, a deletion, or a title
-                // the user said to leave out.
+                // Never pre-tick something the sources could not vouch for, a deletion, a title the
+                // user said to leave out, or an add that may already have happened.
                 created.Selected = created.Selectable
                                    && created.Action is ImportAction.Add or ImportAction.Update
+                                   && !entry.Unconfirmed
                                    && (game?.IsGame ?? false);
                 _entries[id] = created;
             }
@@ -490,6 +499,12 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 continue;
             }
 
+            // Whether an earlier run created this title's profile. Only such a profile may be removed
+            // when its override is cleared; one the user made, or had before an adoption, is theirs.
+            var ownsProfile = _store.Entries()
+                .FirstOrDefault(record => ImportPlan.Matches(record, entry.Game.SourceId, entry.Game.Key))
+                ?.OwnsProfile == true;
+
             var fields = PackagedLauncherShortcut.Compose(
                 launcher, entry.Game.Key, entry.Mode,
                 entry.Game.Multiplayer is MultiplayerVerdict.Multiplayer, entry.Acknowledged);
@@ -524,7 +539,9 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 {
                     // The override outlives the shortcut otherwise, and would then match nothing
                     // while still showing up as a profile the user never made.
-                    await ReleaseControllerTargetAsync(current.AppId, cancellationToken)
+                    // Not cancellable: the shortcut is gone, and stopping before the record is
+                    // dropped would leave a removal the next scan offers again.
+                    await ReleaseControllerTargetAsync(current.AppId, ownsProfile, CancellationToken.None)
                         .ConfigureAwait(false);
                     _store.Forget(entry.Game.SourceId, entry.Game.Key);
                     _store.ForgetChoice(entry.Game.SourceId, entry.Game.Key);
@@ -555,7 +572,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 ImportedUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 ConfirmedUtc = result.Confirmed
                     ? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
-                    : string.Empty
+                    : string.Empty,
+                OwnsProfile = ownsProfile
             };
             _store.Save(saved);
 
@@ -578,10 +596,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             // a capsule that would not download is not a trade worth making.
             // Store art only for a shortcut this run created. An update or an adoption keeps the
             // artwork the entry already has, which may well be something the user chose.
-            var artwork = await FinishEntryAsync(generation, entry, result.AppId,
-                    current.Action is ImportAction.Add, cancellationToken)
+            var (artwork, ownsAfter) = await FinishEntryAsync(generation, entry, result.AppId,
+                    current.Action is ImportAction.Add, ownsProfile, cancellationToken)
                 .ConfigureAwait(false);
             saved.ArtworkApplied = artwork;
+            saved.OwnsProfile = ownsAfter;
             _store.Save(saved);
 
             // The entry now has the id Steam gave it, so the review can offer its artwork without a
@@ -765,10 +784,15 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="entry">The entry that was written.</param>
     /// <param name="appId">Its confirmed app id.</param>
     /// <param name="applyArtwork">Whether to apply Store art: only for a shortcut this run created.</param>
+    /// <param name="ownsProfile">Whether an earlier run created this title's profile.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>How many Store images were applied, or the count the entry already had.</returns>
-    private async Task<int> FinishEntryAsync(
-        long generation, Entry entry, uint appId, bool applyArtwork, CancellationToken cancellationToken)
+    /// <returns>
+    ///     How many Store images were applied, or the count the entry already had, and whether an import
+    ///     now owns the title's profile.
+    /// </returns>
+    private async Task<(int Artwork, bool OwnsProfile)> FinishEntryAsync(
+        long generation, Entry entry, uint appId, bool applyArtwork, bool ownsProfile,
+        CancellationToken cancellationToken)
     {
         if (entry.Mode is ImportMode.ControllerOnly && !_controllerManaged())
         {
@@ -784,10 +808,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         {
             if (_setControllerTarget is not null)
             {
-                await _setControllerTarget(
+                ownsProfile |= await _setControllerTarget(
                         Identity(appId), entry.Plan.Name,
                         entry.Mode is ImportMode.ControllerOnly ? ManagedControllerTarget.Xbox360 : null,
-                        cancellationToken)
+                        ownsProfile, cancellationToken)
                     .ConfigureAwait(false);
             }
         }
@@ -804,18 +828,18 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
         if (!applyArtwork)
         {
-            return entry.ArtworkApplied ?? 0;
+            return (entry.ArtworkApplied ?? 0, ownsProfile);
         }
 
         if (_applyArtwork is null)
         {
-            return 0;
+            return (0, ownsProfile);
         }
 
         if (entry.Game.Artwork.Count == 0)
         {
             _artworkMissing = true;
-            return 0;
+            return (0, ownsProfile);
         }
 
         try
@@ -823,20 +847,21 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             var applied = await _applyArtwork(appId, entry.Game.Artwork, cancellationToken)
                 .ConfigureAwait(false);
             _artworkMissing |= applied == 0;
-            return applied;
+            return (applied, ownsProfile);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _artworkMissing = true;
             Note(generation, $"{entry.Plan.Name} was added, but its Store artwork did not apply.");
-            return 0;
+            return (0, ownsProfile);
         }
     }
 
     /// <summary>Clears a controller override left by an earlier import.</summary>
     /// <param name="appId">The app id whose override to release.</param>
+    /// <param name="ownsProfile">Whether an import created the profile, so it may go once empty.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    private async Task ReleaseControllerTargetAsync(uint appId, CancellationToken cancellationToken)
+    private async Task ReleaseControllerTargetAsync(uint appId, bool ownsProfile, CancellationToken cancellationToken)
     {
         if (_setControllerTarget is null)
         {
@@ -845,7 +870,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
         try
         {
-            await _setControllerTarget(Identity(appId), string.Empty, null, cancellationToken)
+            await _setControllerTarget(Identity(appId), string.Empty, null, ownsProfile, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

@@ -19,6 +19,18 @@ public sealed class PackageDebugRecoveryRecordTests
         return new PackageDebugRecoveryRecord(path, isOwnerAlive);
     }
 
+    /// <summary>What a sweep would release, with every release failing so nothing is dropped.</summary>
+    private static List<string> Abandoned(PackageDebugRecoveryRecord journal)
+    {
+        List<string> offered = [];
+        journal.ReleaseAbandoned(package =>
+        {
+            offered.Add(package);
+            return false;
+        });
+        return offered;
+    }
+
     [Fact]
     public void ARecordWhoseOwnerIsGoneIsReplayed()
     {
@@ -26,7 +38,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
 
-        var abandoned = Journal(path, static (_, _) => false).ListAbandoned();
+        var abandoned = Abandoned(Journal(path, static (_, _) => false));
 
         Assert.Equal(Package, Assert.Single(abandoned));
     }
@@ -39,7 +51,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
 
-        Assert.Empty(Journal(path, static (_, _) => true).ListAbandoned());
+        Assert.Empty(Abandoned(Journal(path, static (_, _) => true)));
     }
 
     [Fact]
@@ -52,12 +64,12 @@ public sealed class PackageDebugRecoveryRecordTests
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
         var journal = Journal(path, static (_, _) => false);
 
-        Assert.Single(journal.ListAbandoned());
-        Assert.Single(journal.ListAbandoned());
+        Assert.Single(Abandoned(journal));
+        Assert.Single(Abandoned(journal));
 
-        journal.Forget(Package);
+        Assert.Equal(1, journal.ReleaseAbandoned(static _ => true));
 
-        Assert.Empty(journal.ListAbandoned());
+        Assert.Empty(Abandoned(journal));
     }
 
     [Fact]
@@ -72,7 +84,7 @@ public sealed class PackageDebugRecoveryRecordTests
 
         for (var attempt = 0; attempt < 20; attempt++)
         {
-            Assert.Single(journal.ListAbandoned());
+            Assert.Single(Abandoned(journal));
         }
     }
 
@@ -89,7 +101,7 @@ public sealed class PackageDebugRecoveryRecordTests
 
         var journal = Journal(path, static (pid, _) => pid == 2222);
 
-        Assert.Empty(journal.ListAbandoned());
+        Assert.Empty(Abandoned(journal));
     }
 
     [Fact]
@@ -101,7 +113,7 @@ public sealed class PackageDebugRecoveryRecordTests
         journal.Add(Package, 4242, DateTime.UtcNow);
         journal.Remove(Package, 4242);
 
-        Assert.Empty(Journal(path, static (_, _) => false).ListAbandoned());
+        Assert.Empty(Abandoned(Journal(path, static (_, _) => false)));
     }
 
     [Fact]
@@ -115,7 +127,7 @@ public sealed class PackageDebugRecoveryRecordTests
         journal.Add("Other.Game_1.0.0.0_x64__xyz789", 5353, DateTime.UtcNow);
         journal.Remove(Package, 4242);
 
-        var abandoned = Journal(path, static (_, _) => false).ListAbandoned();
+        var abandoned = Abandoned(Journal(path, static (_, _) => false));
 
         Assert.Equal("Other.Game_1.0.0.0_x64__xyz789", Assert.Single(abandoned));
     }
@@ -131,11 +143,11 @@ public sealed class PackageDebugRecoveryRecordTests
         Journal(path, static (_, _) => true).Add(Package, 4242, started);
 
         DateTime? observed = null;
-        Journal(path, (_, startedUtc) =>
+        Abandoned(Journal(path, (_, startedUtc) =>
         {
             observed = startedUtc;
             return true;
-        }).ListAbandoned();
+        }));
 
         Assert.Equal(started, observed);
     }
@@ -159,7 +171,7 @@ public sealed class PackageDebugRecoveryRecordTests
     {
         using TemporaryDirectory temporary = new();
 
-        Assert.Empty(Journal(temporary.GetPath("absent.json"), static (_, _) => false).ListAbandoned());
+        Assert.Empty(Abandoned(Journal(temporary.GetPath("absent.json"), static (_, _) => false)));
     }
 
     [Fact]
@@ -171,7 +183,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         File.WriteAllText(path, "{ not json");
 
-        Assert.Empty(Journal(path, static (_, _) => false).ListAbandoned());
+        Assert.Empty(Abandoned(Journal(path, static (_, _) => false)));
     }
 
     [Fact]
@@ -190,24 +202,123 @@ public sealed class PackageDebugRecoveryRecordTests
                                 }
                                 """);
 
-        var abandoned = Journal(path, static (_, _) => false).ListAbandoned();
+        var abandoned = Abandoned(Journal(path, static (_, _) => false));
 
         Assert.Equal("Kept_x__y", Assert.Single(abandoned));
     }
 
     [Fact]
-    public void AnotherRunningLauncherIsSeenAsAnOwnerAndThisOneIsNot()
+    public void TheLastLauncherOutReleasesThePackageAndEveryRecordForIt()
     {
-        // A normal exit asks this before releasing a package-wide exemption.
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("recovery.json");
         var writer = Journal(path, static (_, _) => true);
         writer.Add(Package, 1111, DateTime.UtcNow);
+        var released = 0;
 
-        Assert.False(Journal(path, static (_, _) => true).HasOtherLiveOwner(Package, 1111));
+        var outcome = Journal(path, static (_, _) => true).Retire(Package, 1111, _ =>
+        {
+            released++;
+            return true;
+        });
 
+        Assert.Equal(PackageRetirement.Released, outcome);
+        Assert.Equal(1, released);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void ALauncherLeavingWhileAnotherRunsThePackageReleasesNothing()
+    {
+        // Releasing is package-wide: the other launcher's game would be suspended on its next
+        // Alt-Tab. This one drops its own record and nothing else.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var writer = Journal(path, static (_, _) => true);
+        writer.Add(Package, 1111, DateTime.UtcNow);
         writer.Add(Package, 2222, DateTime.UtcNow);
-        Assert.True(Journal(path, static (_, _) => true).HasOtherLiveOwner(Package, 1111));
-        Assert.False(Journal(path, static (pid, _) => pid == 1111).HasOtherLiveOwner(Package, 1111));
+
+        var outcome = Journal(path, static (_, _) => true).Retire(Package, 1111, static _ =>
+            throw new InvalidOperationException("Must not release a package another launcher runs."));
+
+        Assert.Equal(PackageRetirement.KeptForAnotherLauncher, outcome);
+        Assert.Equal(PackageRetirement.Released,
+            Journal(path, static (pid, _) => pid == 2222).Retire(Package, 2222, static _ => true));
+    }
+
+    [Fact]
+    public void TwoLaunchersLeavingTogetherStillReleaseThePackageOnce()
+    {
+        // Checked and released in separate steps, both could see the other alive and leave the
+        // package exempt with no record. Under one lock the second sees itself as the last.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var writer = Journal(path, static (_, _) => true);
+        writer.Add(Package, 1111, DateTime.UtcNow);
+        writer.Add(Package, 2222, DateTime.UtcNow);
+        var releases = 0;
+        var alive = new HashSet<int> { 1111, 2222 };
+        var journal = Journal(path, (pid, _) => alive.Contains(pid));
+
+        Parallel.ForEach(new[] { 1111, 2222 }, pid =>
+        {
+            journal.Retire(Package, pid, _ =>
+            {
+                Interlocked.Increment(ref releases);
+                return true;
+            });
+        });
+
+        Assert.Equal(1, releases);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void AFailedReleaseKeepsTheRecordForTheNextSweep()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        Journal(path, static (_, _) => true).Add(Package, 1111, DateTime.UtcNow);
+
+        Assert.Equal(PackageRetirement.Failed,
+            Journal(path, static (_, _) => true).Retire(Package, 1111, static _ => false));
+
+        Assert.Equal(Package, Assert.Single(Abandoned(Journal(path, static (_, _) => false))));
+    }
+
+    [Fact]
+    public void AFullJournalRefusesANewRecordRatherThanWritingOneNothingReads()
+    {
+        // The reader keeps the first 64. A 65th written anyway would enable an exemption no sweep
+        // could ever find again.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var journal = Journal(path, static (_, _) => true);
+        for (var pid = 1; pid <= 64; pid++)
+        {
+            Assert.True(journal.Add($"Game{pid}_x__y", pid, DateTime.UtcNow));
+        }
+
+        Assert.False(journal.Add("OneTooMany_x__y", 65, DateTime.UtcNow));
+
+        // Replacing a launcher's own record is not growth, and still allowed.
+        Assert.True(journal.Add("Game1_x__y", 1, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void TheJournalIsSettledOnlyWhenNothingIsLeft()
+    {
+        // What uninstall asks before deleting the journal and the launcher.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        Assert.True(Journal(path, static (_, _) => false).IsSettled());
+
+        Journal(path, static (_, _) => true).Add(Package, 1111, DateTime.UtcNow);
+        var journal = Journal(path, static (_, _) => false);
+        journal.ReleaseAbandoned(static _ => false);
+        Assert.False(journal.IsSettled());
+
+        journal.ReleaseAbandoned(static _ => true);
+        Assert.True(journal.IsSettled());
     }
 }

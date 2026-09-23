@@ -204,6 +204,12 @@ public static class ProfileEdits
     /// <param name="id">The canonical application identity, such as <c>steam:1234567890</c>.</param>
     /// <param name="name">What to call the profile when this creates it.</param>
     /// <param name="target">The target to pin, or null to clear it.</param>
+    /// <param name="removeEmptyProfile">
+    ///     When clearing, whether a profile left with nothing in it is removed. Only for a profile the
+    ///     caller created: one the user made, or one an import adopted, keeps its name, executables
+    ///     and switch however empty its values become.
+    /// </param>
+    /// <param name="created">Whether setting the target created the profile.</param>
     /// <returns>Whether anything changed.</returns>
     /// <remarks>
     ///     <para>
@@ -214,14 +220,17 @@ public static class ProfileEdits
     ///         process name, so <see cref="ApplicationProfileRules" /> matches on identity alone.
     ///     </para>
     ///     <para>
-    ///         Clearing removes a profile this left empty, so switching an import back to the
-    ///         overlay route does not leave a profile behind that says nothing.
+    ///         Clearing removes a profile this created and left empty, so switching an import back to
+    ///         the overlay route does not leave a profile behind that says nothing. Whether this
+    ///         created it is the caller's to remember, from <paramref name="created" />.
     ///     </para>
     /// </remarks>
     /// <exception cref="ArgumentException">The id is not an application identity.</exception>
     public static bool SetApplicationControllerTarget(
-        ProfileConfig config, string id, string name, ManagedControllerTarget? target)
+        ProfileConfig config, string id, string name, ManagedControllerTarget? target, bool removeEmptyProfile,
+        out bool created)
     {
+        created = false;
         ArgumentNullException.ThrowIfNull(config);
         if (id.Length == 0 || id.StartsWith(NamedProfilePrefix, StringComparison.Ordinal))
         {
@@ -237,7 +246,7 @@ public static class ProfileEdits
             }
 
             existing.Values.ControllerTarget = null;
-            if (existing.Values.Count() == 0)
+            if (removeEmptyProfile && existing.Values.Count() == 0)
             {
                 config.Games.Remove(existing);
             }
@@ -249,6 +258,7 @@ public static class ProfileEdits
         {
             existing = new GameProfile { Id = id, Enabled = true };
             config.Games.Add(existing);
+            created = true;
         }
 
         if (existing.Name.Length == 0)

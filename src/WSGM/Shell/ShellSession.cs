@@ -1029,9 +1029,9 @@ public sealed class ShellSession : IAsyncDisposable
             () => _config.GameLibrary.DefaultMode,
             () => _config.GameLibrary.ImportUnroutable,
             ApplyCatalogArtworkAsync,
-            (id, name, target, token) => _profiles is null
-                ? Task.CompletedTask
-                : _profiles.SetApplicationControllerTargetAsync(id, name, target, token),
+            (id, name, target, removeEmptyProfile, token) => _profiles is null
+                ? Task.FromResult(false)
+                : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
             openArtwork: _artwork.OpenAsync,
             controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true });
     }

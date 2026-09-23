@@ -516,7 +516,7 @@ public sealed class GameLibraryServiceTests
             new ImportStateStore(temporary.GetPath("import.json")), () => writer,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
             () => ImportMode.SteamIntegration, () => false,
-            setControllerTarget: (_, _, _, _) => throw new IOException("config is locked"),
+            setControllerTarget: (_, _, _, _, _) => throw new IOException("config is locked"),
             resolveLauncher: () => Launcher);
         await ScannedAsync(source);
 
@@ -593,7 +593,7 @@ public sealed class GameLibraryServiceTests
             new ImportStateStore(temporary.GetPath("import.json")), () => writer,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
             () => ImportMode.SteamIntegration, () => false,
-            setControllerTarget: (_, _, _, _) => Task.CompletedTask,
+            setControllerTarget: (_, _, _, _, _) => Task.FromResult(false),
             resolveLauncher: () => Launcher,
             controllerManaged: () => false);
         await ScannedAsync(source);
@@ -612,6 +612,93 @@ public sealed class GameLibraryServiceTests
         }
 
         Assert.Equal("done", source.ReadState().Phase);
+    }
+
+    [Fact]
+    public async Task AnAddSteamNeverConfirmedIsNotTickedForTheUser()
+    {
+        using TemporaryDirectory temporary = new();
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = "Publisher.Game_abc!App", Name = "Moonlit",
+            Target = Launcher, LaunchOptions = "--aumid Publisher.Game_abc!App --mode steam-overlay",
+            Mode = nameof(ImportMode.SteamIntegration)
+        });
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], store, () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false);
+
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.True(entry.Selectable);
+        Assert.False(entry.Selected);
+    }
+
+    [Fact]
+    public async Task RemovingAnImportKeepsAProfileTheImportDidNotCreate()
+    {
+        // Adopted over a profile the user already had: clearing the override must not delete it.
+        using TemporaryDirectory temporary = new();
+        const string options = "--aumid Publisher.Game_abc!App --mode controller-only";
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = "Publisher.Game_abc!App", Name = "Moonlit", AppId = 77,
+            Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.ControllerOnly),
+            ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00", OwnsProfile = false
+        });
+        List<bool> removeEmpty = [];
+        using GameLibraryService source = new(
+            [new FakeSource([])],
+            store,
+            () => new SteamShortcutWriter(_ => Task.FromResult<IReadOnlyList<uint>>([77]),
+                (_, _, _, _, _) => Task.FromResult(0u), (_, _, _, _) => Task.FromResult(true),
+                (_, _) => Task.FromResult(true)),
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
+            () => ImportMode.SteamIntegration, () => false,
+            setControllerTarget: (_, _, target, remove, _) =>
+            {
+                Assert.Null(target);
+                removeEmpty.Add(remove);
+                return Task.FromResult(false);
+            },
+            resolveLauncher: () => Launcher);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        await source.ToggleEntryAsync(entry.Id, CancellationToken.None);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.Equal([false], removeEmpty);
+    }
+
+    [Fact]
+    public async Task AProfileTheImportCreatedIsRememberedSoItCanGoLater()
+    {
+        using TemporaryDirectory temporary = new();
+        const uint created = 2147483651u;
+        Queue<IReadOnlyList<uint>> listings = new([[], [created]]);
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult(listings.Count > 0 ? listings.Dequeue() : [created]),
+            (_, _, _, _, _) => Task.FromResult(created),
+            (_, _, _, _) => Task.FromResult(true),
+            (_, _) => Task.FromResult(true));
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        using GameLibraryService source = new(
+            [new FakeSource([Game(multiplayer: MultiplayerVerdict.Multiplayer)])],
+            store, () => writer,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false,
+            setControllerTarget: (_, _, _, _, _) => Task.FromResult(true),
+            resolveLauncher: () => Launcher);
+        await ScannedAsync(source);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.True(Assert.Single(store.Entries()).OwnsProfile);
     }
 
     private sealed class FakeSource(IReadOnlyList<DiscoveredGame> games) : ILibrarySource

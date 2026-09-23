@@ -266,8 +266,9 @@ internal sealed class ProfileService
     /// <param name="id">The canonical application identity, such as <c>steam:1234567890</c>.</param>
     /// <param name="name">What to call the profile when this creates it.</param>
     /// <param name="target">The target to pin, or null to release it.</param>
+    /// <param name="removeEmptyProfile">When releasing, whether an emptied profile is removed.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>Whether anything changed.</returns>
+    /// <returns>Whether this created the profile.</returns>
     /// <remarks>
     ///     The library importer's controller-only route is this and nothing else. The profile
     ///     system already switches the virtual pad for whatever Steam reports running, so an
@@ -275,11 +276,13 @@ internal sealed class ProfileService
     ///     change the override in the Quick Access rows like any other.
     /// </remarks>
     internal async Task<bool> SetApplicationControllerTargetAsync(
-        string id, string name, ManagedControllerTarget? target,
+        string id, string name, ManagedControllerTarget? target, bool removeEmptyProfile,
         CancellationToken cancellationToken = default)
     {
+        var created = false;
         var result = await MutateAsync(
-                (config, _) => ProfileEdits.SetApplicationControllerTarget(config, id, name, target),
+                (config, _) => ProfileEdits.SetApplicationControllerTarget(
+                    config, id, name, target, removeEmptyProfile, out created),
                 cancellationToken)
             .ConfigureAwait(false);
         if (result.Changed)
@@ -289,7 +292,7 @@ internal sealed class ProfileService
                 : $"Profile: {id} pins the {target} controller target.");
         }
 
-        return result.Changed;
+        return result.Changed && created;
     }
 
     /// <summary>Creates or updates a game profile's name, processes and switch.</summary>

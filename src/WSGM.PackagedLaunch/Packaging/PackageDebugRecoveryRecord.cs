@@ -37,6 +37,19 @@ internal sealed class PackageDebugRecord
     public int ReleaseAttempts { get; set; }
 }
 
+/// <summary>What ending a launcher's claim on a package did.</summary>
+public enum PackageRetirement
+{
+    /// <summary>This was the last owner, and the package is back under lifetime management.</summary>
+    Released,
+
+    /// <summary>Another running launcher still owns the package, so it stays exempt for that one.</summary>
+    KeptForAnotherLauncher,
+
+    /// <summary>Nothing was released; the record stays for a later sweep.</summary>
+    Failed
+}
+
 /// <summary>The recovery journal's file shape.</summary>
 internal sealed class PackageDebugRecoveryState
 {
@@ -66,7 +79,8 @@ internal sealed partial class PackageDebugRecoveryJsonContext : JsonSerializerCo
 ///         So the record is written <em>before</em> the exemption is requested and cleared after it is
 ///         released, and any record whose owner is gone is replayed. The launcher does this at its own
 ///         startup, before activating anything, and WSGM runs the same sweep through
-///         <c>--recover</c> for the user who never launches another packaged game.
+///         <c>--recover</c> for the user who never launches another packaged game. Uninstall runs
+///         it too, and refuses to delete the journal while any record is left.
 ///     </para>
 ///     <para>
 ///         Not in <c>config.json</c>: that file is user policy under a strict load-or-abort rule, and
@@ -99,11 +113,23 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <param name="launcherProcessId">This launcher.</param>
     /// <param name="launcherStartedUtc">When this launcher started.</param>
     /// <returns>Whether the record was written. False means no exemption may be requested.</returns>
+    /// <remarks>
+    ///     Refused when the journal is full. The reader keeps only the first
+    ///     <see cref="MaximumRecords" />, so a record past that would be written and then never read,
+    ///     and its exemption could never be replayed.
+    /// </remarks>
     public bool Add(string packageFullName, int launcherProcessId, DateTime? launcherStartedUtc)
     {
-        return Mutate(state =>
+        var full = false;
+        var written = Mutate(state =>
         {
             state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId));
+            if (state.Records.Count >= MaximumRecords)
+            {
+                full = true;
+                return false;
+            }
+
             state.Records.Add(new PackageDebugRecord
             {
                 PackageFullName = packageFullName,
@@ -113,99 +139,161 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
             });
             return true;
         });
+        if (full)
+        {
+            PackagedLaunchLog.Warn(
+                $"Package recovery journal already holds {MaximumRecords} records, so no more are added.");
+        }
+
+        return written && !full;
     }
 
-    /// <summary>Clears one exemption this launcher has just released.</summary>
-    /// <param name="packageFullName">The package that was released.</param>
+    /// <summary>Clears this launcher's record for an exemption that was never granted.</summary>
+    /// <param name="packageFullName">The package.</param>
     /// <param name="launcherProcessId">This launcher.</param>
     public void Remove(string packageFullName, int launcherProcessId)
     {
         Mutate(state => state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId)) > 0);
     }
 
-    /// <summary>Every package whose owning launcher is gone, and which should be released now.</summary>
-    /// <returns>The package full names to release, in the order they were recorded.</returns>
+    /// <summary>Ends this launcher's claim on a package, releasing it if this was the last owner.</summary>
+    /// <param name="packageFullName">The package this launcher exempted.</param>
+    /// <param name="launcherProcessId">This launcher.</param>
+    /// <param name="release">Puts the package back under lifetime management; false on failure.</param>
+    /// <returns>What happened to the package.</returns>
     /// <remarks>
-    ///     The records stay. Removing one before its package is actually released would throw away
-    ///     the only thing that could put that package back, so a single transient COM failure would
-    ///     leave it outside lifetime management for good. The caller calls <see cref="Forget" />
-    ///     once the release succeeds. A package still owned by a live launcher is not listed.
+    ///     <para>
+    ///         Releasing is package-wide, so the decision and the release are one transaction under
+    ///         the journal lock. Checked and released separately, two launchers of one package
+    ///         exiting together could each see the other alive and both leave without releasing,
+    ///         and a launcher starting in between could have its fresh exemption taken away.
+    ///     </para>
+    ///     <para>
+    ///         Without the lock nothing is released and the record stays, which a later sweep
+    ///         replays once this launcher is gone.
+    ///     </para>
     /// </remarks>
-    public IReadOnlyList<string> ListAbandoned()
+    public PackageRetirement Retire(string packageFullName, int launcherProcessId, Func<string, bool> release)
     {
-        List<string> abandoned = [];
+        ArgumentNullException.ThrowIfNull(release);
+        var outcome = PackageRetirement.Failed;
+        Mutate(state =>
+        {
+            if (state.Records.Any(record => !Same(record, packageFullName, launcherProcessId)
+                                            && SamePackage(record, packageFullName)
+                                            && IsAlive(record)))
+            {
+                outcome = PackageRetirement.KeptForAnotherLauncher;
+                return state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId)) > 0;
+            }
+
+            if (!release(packageFullName))
+            {
+                return false;
+            }
+
+            // Every record for the package, a dead launcher's included: the package is back under
+            // lifetime management, so there is nothing left for any of them to replay.
+            outcome = PackageRetirement.Released;
+            return state.Records.RemoveAll(record => SamePackage(record, packageFullName)) > 0;
+        });
+        return outcome;
+    }
+
+    /// <summary>Releases every package whose owning launchers are all gone.</summary>
+    /// <param name="release">Puts one package back under lifetime management; false on failure.</param>
+    /// <returns>How many packages were released.</returns>
+    /// <remarks>
+    ///     <para>
+    ///         Under the journal lock for the whole sweep, so a launcher cannot record and exempt a
+    ///         package between this deciding it is abandoned and releasing it; that launcher's
+    ///         <see cref="Add" /> waits, and its exemption comes after the release.
+    ///     </para>
+    ///     <para>
+    ///         A record is dropped only once its package is actually released. It is the only
+    ///         thing that could put the package back, so a single transient COM failure must not
+    ///         lose it, however many sweeps it takes.
+    ///     </para>
+    /// </remarks>
+    public int ReleaseAbandoned(Func<string, bool> release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+        var released = 0;
         Mutate(state =>
         {
             // Releasing is package-wide. A package another launcher is still running under keeps its
             // exemption, and every record for it, until that launcher is gone too.
             var owned = state.Records
-                .Where(record => record.PackageFullName.Length > 0
-                                 && isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc)))
+                .Where(IsAlive)
                 .Select(record => record.PackageFullName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var stale = state.Records
-                .Where(record => record.PackageFullName.Length > 0
-                                 && !owned.Contains(record.PackageFullName)
-                                 && !isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc)))
+            var abandoned = state.Records
+                .Select(record => record.PackageFullName)
+                .Where(name => !owned.Contains(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            if (stale.Count == 0)
+            if (abandoned.Count == 0)
             {
                 return false;
             }
 
-            foreach (var record in stale)
+            foreach (var packageFullName in abandoned)
             {
-                record.ReleaseAttempts++;
-                if (record.ReleaseAttempts == ReleaseAttemptsBeforeWarning)
+                if (release(packageFullName))
                 {
-                    // Said once, and the record stays: it is the only thing that can ever put the
-                    // package back, and one COM call per sweep is cheap next to losing it.
-                    PackagedLaunchLog.Warn(
-                        $"{record.PackageFullName} has refused release {ReleaseAttemptsBeforeWarning} times "
-                        + "and is still outside package lifetime management. Every later sweep tries again.");
+                    state.Records.RemoveAll(record => SamePackage(record, packageFullName));
+                    released++;
+                    continue;
                 }
 
-                if (!abandoned.Contains(record.PackageFullName, StringComparer.OrdinalIgnoreCase))
+                foreach (var record in state.Records.Where(record => SamePackage(record, packageFullName)))
                 {
-                    abandoned.Add(record.PackageFullName);
+                    record.ReleaseAttempts++;
+                    if (record.ReleaseAttempts == ReleaseAttemptsBeforeWarning)
+                    {
+                        // Said once, and the record stays: it is the only thing that can ever put the
+                        // package back, and one COM call per sweep is cheap next to losing it.
+                        PackagedLaunchLog.Warn(
+                            $"{packageFullName} has refused release {ReleaseAttemptsBeforeWarning} times "
+                            + "and is still outside package lifetime management. Every later sweep tries again.");
+                    }
                 }
             }
 
             return true;
         });
-        return abandoned;
+        return released;
     }
 
-    /// <summary>Whether another launcher that is still running holds an exemption for a package.</summary>
-    /// <param name="packageFullName">The package.</param>
-    /// <param name="launcherProcessId">This launcher, which does not count.</param>
-    /// <returns>True when releasing the package would take the exemption from a running game.</returns>
-    public bool HasOtherLiveOwner(string packageFullName, int launcherProcessId)
+    /// <summary>Whether the journal is readable and holds no exemption at all.</summary>
+    /// <returns>False when anything is recorded, or when the journal could not be read.</returns>
+    /// <remarks>
+    ///     What uninstall asks after a sweep: a record left over is a package nothing could put back
+    ///     once the journal and the launcher are deleted.
+    /// </remarks>
+    public bool IsSettled()
     {
-        var owned = false;
-        Mutate(state =>
+        var empty = false;
+        return Mutate(state =>
         {
-            owned = state.Records.Any(record =>
-                record.LauncherProcessId != launcherProcessId
-                && string.Equals(record.PackageFullName, packageFullName, StringComparison.OrdinalIgnoreCase)
-                && isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc)));
+            empty = state.Records.Count == 0;
             return false;
-        });
-        return owned;
+        }) && empty;
     }
 
-    /// <summary>Drops every record for a package that has now been released.</summary>
-    /// <param name="packageFullName">The package that is back under lifetime management.</param>
-    public void Forget(string packageFullName)
+    private bool IsAlive(PackageDebugRecord record)
     {
-        Mutate(state => state.Records.RemoveAll(record =>
-            string.Equals(record.PackageFullName, packageFullName, StringComparison.OrdinalIgnoreCase)) > 0);
+        return isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc));
+    }
+
+    private static bool SamePackage(PackageDebugRecord record, string packageFullName)
+    {
+        return string.Equals(record.PackageFullName, packageFullName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool Same(PackageDebugRecord record, string packageFullName, int launcherProcessId)
     {
-        return record.LauncherProcessId == launcherProcessId
-               && string.Equals(record.PackageFullName, packageFullName, StringComparison.OrdinalIgnoreCase);
+        return record.LauncherProcessId == launcherProcessId && SamePackage(record, packageFullName);
     }
 
     private static string Stamp(DateTime? value)

@@ -145,4 +145,45 @@ public sealed class SteamShortcutWriterTests
 
         Assert.False(result.Confirmed);
     }
+
+    [Fact]
+    public async Task StopAfterSteamAcceptedAnUpdateStillReturnsItsResult()
+    {
+        // Steam has changed the entry; stopping before the caller records it would make the next
+        // scan call WSGM's own change a hand edit.
+        using CancellationTokenSource stop = new();
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult<IReadOnlyList<uint>>([]),
+            (_, _, _, _, _) => Task.FromResult(0u),
+            (_, _, _, _) =>
+            {
+                stop.Cancel();
+                return Task.FromResult(true);
+            },
+            (_, _) => Task.FromResult(true));
+
+        var result = await writer.UpdateAsync(7, Fields, stop.Token);
+
+        Assert.True(result.Confirmed);
+    }
+
+    [Fact]
+    public async Task StopAfterSteamCreatedAShortcutStillConfirmsIt()
+    {
+        using CancellationTokenSource stop = new();
+        Queue<IReadOnlyList<uint>> listings = new([[], [9u]]);
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult(listings.Count > 0 ? listings.Dequeue() : []),
+            (_, _, _, _, _) =>
+            {
+                stop.Cancel();
+                return Task.FromResult(9u);
+            },
+            (_, _, _, _) => Task.FromResult(true),
+            (_, _) => Task.FromResult(true));
+
+        var result = await writer.AddAsync("Moonlit", Fields, stop.Token);
+
+        Assert.Equal((9u, true), (result.AppId, result.Confirmed));
+    }
 }

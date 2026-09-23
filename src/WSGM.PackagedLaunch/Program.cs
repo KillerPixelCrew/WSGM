@@ -27,6 +27,9 @@ internal static class Program
     private const int ExitActivationFailed = 3;
     private const int ExitRefused = 4;
 
+    /// <summary>A package is still recorded as exempt after a recovery sweep.</summary>
+    private const int ExitRecoveryIncomplete = 7;
+
     // Held for the process lifetime: the delegate is passed to Windows, and letting it be collected
     // would leave a dangling callback for the one event this exists to catch.
     private static NativeMethods.ConsoleCtrlHandler? _consoleHandler;
@@ -57,13 +60,27 @@ internal static class Program
     }
 
     /// <summary>Releases package exemptions left behind by a launcher that was killed.</summary>
+    /// <returns>
+    ///     Zero when the journal is empty afterwards. Anything else means a package is still exempt,
+    ///     either because a launcher is running it or because its release failed, and uninstall
+    ///     refuses on that answer rather than deleting the only record that could put it back.
+    /// </returns>
     private static int Recover()
     {
-        var released = PackageDebugExemption.ReleaseAbandoned(Journal());
+        var journal = Journal();
+        var released = PackageDebugExemption.ReleaseAbandoned(journal);
         PackagedLaunchLog.Info(released == 0
-            ? "Package lifetime recovery: nothing to release."
+            ? "Package lifetime recovery: nothing released."
             : $"Package lifetime recovery: released {released} stale exemption(s).");
-        return 0;
+        if (journal.IsSettled())
+        {
+            return 0;
+        }
+
+        PackagedLaunchLog.Warn(
+            "Package lifetime recovery: an exemption is still recorded, for a running game or a "
+            + "release that failed.");
+        return ExitRecoveryIncomplete;
     }
 
     private static int Launch(PackagedLaunchRequest request)
@@ -160,24 +177,24 @@ internal static class Program
         }
 
         AppContainerOverlayRoute? appContainer = null;
-        GameForegroundProxy? proxy = null;
         if (decision.Route is LaunchRoute.AppContainerOverlay)
         {
             appContainer = new AppContainerOverlayRoute(injector);
             var prepared = appContainer.Prepare(activation.SeedProcessId, request.Diagnostics);
             PackagedLaunchLog.Info(prepared.Detail);
-            degraded |= prepared.Degraded;
-            if (prepared.Succeeded)
-            {
-                // Only for this route. The frame a UWP title renders into belongs to
-                // ApplicationFrameHost, and Steam Input follows the foreground window's owner.
-                proxy = new GameForegroundProxy();
-                proxy.SetTarget(activation.SeedProcessId);
-            }
-            else
-            {
-                degraded = true;
-            }
+            degraded |= prepared.Degraded || !prepared.Succeeded;
+        }
+
+        // For every AppContainer title, whatever the route and whether or not its setup worked. It
+        // writes nothing into the game: it is this wrapper's own window, the only one Steam can
+        // activate to resume the game, and it raises the game's CoreWindow over
+        // ApplicationFrameHost's frame because the foreground window's owner is what Steam Input
+        // follows.
+        GameForegroundProxy? proxy = null;
+        if (runtime is PackagedRuntime.AppContainer && activation.SeedProcessId > 0)
+        {
+            proxy = new GameForegroundProxy();
+            proxy.SetTarget(activation.SeedProcessId);
         }
 
         var reported = false;
@@ -199,10 +216,7 @@ internal static class Program
             // this, Steam Input keeps following ApplicationFrameHost until the user alt-tabs. The
             // target stays the process activation returned: a later process of the same package can
             // be a helper with no CoreWindow, and retargeting to it would break the repair.
-            if (decision.Route is LaunchRoute.AppContainerOverlay)
-            {
-                proxy?.ReconcileForeground();
-            }
+            proxy?.ReconcileForeground();
 
             // Observation, not repair. Whether Steam's handoff reached the process that owns the
             // swap chain is the one thing this route cannot assume, and a game without the renderer

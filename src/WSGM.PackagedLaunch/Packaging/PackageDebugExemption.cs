@@ -26,42 +26,24 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
     {
         if (_settings is not null && _packageFullName is { } packageFullName)
         {
-            if (journal.HasOtherLiveOwner(packageFullName, Environment.ProcessId))
+            // Releasing is package-wide, so the journal decides and releases in one step: another
+            // imported title from this package still running keeps the exemption, and the last
+            // launcher out puts the package back.
+            var settings = (NativeMethods.IPackageDebugSettings)_settings;
+            switch (journal.Retire(packageFullName, Environment.ProcessId, name => Disable(settings, name)))
             {
-                // Releasing is package-wide. Another imported title from this package is still
-                // running, and taking its exemption away would let it be suspended on the next
-                // Alt-Tab. The last launcher out releases it; this one only drops its own record.
-                PackagedLaunchLog.Info(
-                    $"Package lifetime: {packageFullName} stays exempt for another running launcher.");
-                journal.Remove(packageFullName, Environment.ProcessId);
-            }
-            else
-            {
-                ReleaseExemption(packageFullName);
+                case PackageRetirement.KeptForAnotherLauncher:
+                    PackagedLaunchLog.Info(
+                        $"Package lifetime: {packageFullName} stays exempt for another running launcher.");
+                    break;
+                case PackageRetirement.Failed:
+                    PackagedLaunchLog.Warn(
+                        $"Package lifetime: {packageFullName} is still exempt; a later sweep releases it.");
+                    break;
             }
         }
 
         Release();
-    }
-
-    private void ReleaseExemption(string packageFullName)
-    {
-        try
-        {
-            var result = ((NativeMethods.IPackageDebugSettings)_settings!).DisableDebugging(packageFullName);
-            if (result < 0)
-            {
-                PackagedLaunchLog.Warn($"Could not release the package lifetime exemption: 0x{result:X8}");
-            }
-            else
-            {
-                journal.Remove(packageFullName, Environment.ProcessId);
-            }
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
-        {
-            PackagedLaunchLog.Warn($"Could not release the package lifetime exemption: {ex.Message}");
-        }
     }
 
     /// <summary>Exempts one package, recording it first so a kill cannot lose it.</summary>
@@ -84,7 +66,7 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
         {
             PackagedLaunchLog.Warn(
                 $"Not exempting {packageFullName} from package lifetime: the recovery journal could "
-                + "not be written, so a killed launcher could never put it back. The game may be "
+                + "not record it, so a killed launcher could never put it back. The game may be "
                 + "suspended when it loses the foreground.");
             return false;
         }
@@ -127,47 +109,62 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
     internal static int ReleaseAbandoned(PackageDebugRecoveryRecord journal)
     {
         ArgumentNullException.ThrowIfNull(journal);
-        var abandoned = journal.ListAbandoned();
-        if (abandoned.Count == 0)
-        {
-            return 0;
-        }
-
         object? settings = null;
-        var released = 0;
         try
         {
-            settings = new NativeMethods.PackageDebugSettings();
-            var api = (NativeMethods.IPackageDebugSettings)settings;
-            foreach (var packageFullName in abandoned)
+            return journal.ReleaseAbandoned(packageFullName =>
             {
-                var result = api.DisableDebugging(packageFullName);
-                if (result < 0)
+                NativeMethods.IPackageDebugSettings api;
+                try
                 {
-                    PackagedLaunchLog.Warn(
-                        $"Could not release the package lifetime exemption for {packageFullName}: 0x{result:X8}");
-                    continue;
+                    settings ??= new NativeMethods.PackageDebugSettings();
+                    api = (NativeMethods.IPackageDebugSettings)settings;
+                }
+                catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
+                {
+                    PackagedLaunchLog.Warn($"Package lifetime recovery unavailable: {ex.Message}");
+                    return false;
                 }
 
-                // Only now. The record is what a later sweep would use to try again, so dropping
-                // it before the release succeeded would turn one transient failure into a package
-                // nothing ever puts back.
-                journal.Forget(packageFullName);
-                released++;
-                PackagedLaunchLog.Info(
-                    $"Package lifetime: released a stale exemption for {packageFullName}.");
-            }
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
-        {
-            PackagedLaunchLog.Warn($"Package lifetime recovery unavailable: {ex.Message}");
+                if (!Disable(api, packageFullName))
+                {
+                    return false;
+                }
+
+                PackagedLaunchLog.Info($"Package lifetime: released a stale exemption for {packageFullName}.");
+                return true;
+            });
         }
         finally
         {
             FinalRelease(settings);
         }
+    }
 
-        return released;
+    /// <summary>Puts one package back under lifetime management.</summary>
+    /// <param name="settings">The debug settings object.</param>
+    /// <param name="packageFullName">The package.</param>
+    /// <returns>Whether Windows accepted the release.</returns>
+    private static bool Disable(NativeMethods.IPackageDebugSettings settings, string packageFullName)
+    {
+        try
+        {
+            var result = settings.DisableDebugging(packageFullName);
+            if (result >= 0)
+            {
+                return true;
+            }
+
+            PackagedLaunchLog.Warn(
+                $"Could not release the package lifetime exemption for {packageFullName}: 0x{result:X8}");
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
+        {
+            PackagedLaunchLog.Warn(
+                $"Could not release the package lifetime exemption for {packageFullName}: {ex.Message}");
+        }
+
+        return false;
     }
 
     private static void FinalRelease(object? settings)

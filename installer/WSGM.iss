@@ -188,10 +188,8 @@ Filename: "{app}\WSGM.exe"; Flags: nowait; Check: WasSettingsRunning
 Filename: "{app}\WSGM.exe"; Description: "Open WSGM settings"; Flags: nowait postinstall skipifsilent; Check: WasNothingRunning
 
 [UninstallRun]
-; Release any packaged game a killed launcher left outside lifetime management, while the launcher
-; and its journal still exist. [UninstallDelete] removes both, and after that nothing could ever
-; put such a package back.
-Filename: "{app}\WSGM.PackagedLaunch.exe"; Parameters: "--recover"; RunOnceId: "ReleasePackageExemptions"; Flags: runhidden skipifdoesntexist
+; Package lifetime exemptions are released by ReleasePackageExemptions in InitializeUninstall, which
+; can refuse the uninstall. An entry here could not: its exit code is never seen.
 ; Remove the Steam Input shim from STEAM's directory before anything else — it is
 ; the only file WSGM puts outside its own install, it needs {app}\WSGM.exe to
 ; still exist, and only WSGM can tell its own copy from a same-named file another
@@ -1140,6 +1138,33 @@ begin
   WaitForShellAnchorRecovery();
 end;
 
+// A killed packaged-game launcher can leave its package outside Windows lifetime management, and
+// only the launcher's journal says which. [UninstallDelete] removes the journal and the launcher, so
+// the sweep runs first, and a record it could not release refuses the uninstall rather than leaving
+// a game Windows never suspends again. Runs after ReplacementBlockersPresent, so no launcher is
+// still running and a remaining record is a release that failed.
+function ReleasePackageExemptions(): Boolean;
+var
+  R: Integer;
+  Launcher: String;
+begin
+  Result := True;
+  Launcher := ExpandConstant('{app}\WSGM.PackagedLaunch.exe');
+  if not FileExists(Launcher) then
+    Exit;
+
+  if not Exec(Launcher, '--recover', '', SW_HIDE, ewWaitUntilTerminated, R) then
+  begin
+    Log('Could not start the package lifetime recovery sweep; refusing uninstall');
+    Result := False;
+    Exit;
+  end;
+
+  Result := R = 0;
+  if not Result then
+    Log('Package lifetime recovery left an exemption recorded (code ' + IntToStr(R) + ')');
+end;
+
 function ReplacementBlockersPresent(IncludeSteam: Boolean): Boolean;
 var
   R: Integer;
@@ -1480,6 +1505,16 @@ begin
     RestoreStoppedUninstallRuntime();
     MsgBox('A game launched through WSGM is still running. Close it normally, then retry ' +
       'uninstall. No process was terminated.', mbCriticalError, MB_OK);
+    Exit;
+  end;
+  if not ReleasePackageExemptions() then
+  begin
+    ReleaseDevicePublicationReservations();
+    RestoreStoppedUninstallRuntime();
+    MsgBox('An imported Xbox or Store game is still exempt from Windows suspending it, and WSGM ' +
+      'could not put it back. Uninstalling now would delete the only record of it. Retry ' +
+      'uninstall; if this repeats, packaged-launch.log in %LOCALAPPDATA%\WSGM names the game and the error.',
+      mbCriticalError, MB_OK);
     Exit;
   end;
   if not ReserveDeviceOwner() then

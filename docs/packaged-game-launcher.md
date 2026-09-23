@@ -77,6 +77,11 @@ through Steam, so Steam Input reaches the game rather than the raw device. And f
 attribution is corrected from the frame window to the game-owned CoreWindow, which is the repair
 that made Alt-Tab work.
 
+The foreground correction is the wrapper's own invisible window and writes nothing into the game, so
+every AppContainer title gets it, whatever the route and whether or not the bridge set up. It is
+also the only window Steam can activate for the wrapper, which is what makes Resume in Steam bring
+the game back.
+
 The bridge is the whole route. A missing or failed bridge never falls back to direct renderer
 injection: that is the recorded configuration that registered with Steam and produced no overlay and
 no input at all, which is worse than a clean refusal because it looks like it worked.
@@ -105,14 +110,18 @@ away again.
 - Every package-lifetime exemption is journalled before it is requested. Windows keeps a package out
   of lifetime management until something puts it back, so an exemption with no record is a game that
   is never suspended again for the rest of the machine's life. The journal is replayed at launcher
-  startup, at WSGM's session start and on uninstall, before the journal is deleted, through
-  `--recover`.
+  startup and at WSGM's session start, through `--recover`. Uninstall runs the same sweep first and
+  refuses to continue if any record is left, because deleting the journal and the launcher would
+  throw away the only thing that could put that package back. The journal refuses a new record once
+  it is full rather than write one its reader would never see.
 - Every payload a route loads is x64. A route refuses a process that is not native x64 rather than
   writing into it, and the Game Library does not offer the overlay route for a package whose
   identity declares another architecture.
 - A journal record stays until its package's release actually succeeds, however many sweeps that
   takes. Releasing is package-wide, so neither a sweep nor a launcher's own exit releases a package
-  another running launcher still owns; the last one out does.
+  another running launcher still owns; the last one out does. Deciding that and releasing happen in
+  one step under the journal's lock, so two launchers leaving together cannot both leave the package
+  exempt, and a sweep cannot release a package a launcher is exempting at that moment.
 - A session reports degraded, not complete, when its package could not be exempted or when the
   bridge installed the overlay but not the Steam Input route.
 - Containment covers the target package family only, never `RuntimeBroker`, `ApplicationFrameHost`

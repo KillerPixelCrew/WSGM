@@ -77,8 +77,11 @@ public sealed class SteamShortcutWriter
                 name, fields.Target, fields.StartDirectory, fields.LaunchOptions, cancellationToken)
             .ConfigureAwait(false);
 
-        await Task.Delay(Settle, cancellationToken).ConfigureAwait(false);
-        var after = await ShortcutsAsync(cancellationToken).ConfigureAwait(false);
+        // Past this point Steam may already have the entry, so Stop is no longer honoured until the
+        // result is known: a run cancelled here would leave an entry nothing recorded, and a record
+        // is what stops the next run adding it again.
+        await Task.Delay(Settle, CancellationToken.None).ConfigureAwait(false);
+        var after = await ShortcutsAsync(CancellationToken.None).ConfigureAwait(false);
         var appeared = after.Except(before).ToList();
 
         // The diff is the authority. A returned id that no library read corroborates describes
@@ -114,7 +117,10 @@ public sealed class SteamShortcutWriter
         ArgumentNullException.ThrowIfNull(fields);
         var accepted = await _setLaunch(appId, fields.Target, fields.LaunchOptions, cancellationToken)
             .ConfigureAwait(false);
-        await Task.Delay(Settle, cancellationToken).ConfigureAwait(false);
+
+        // Steam has changed the entry, so the caller has to get to record it: stopped here, the next
+        // scan would compare the new command with the old record and call WSGM's own change a hand edit.
+        await Task.Delay(Settle, CancellationToken.None).ConfigureAwait(false);
         return accepted
             ? new ShortcutWriteResult(appId, true, null)
             : new ShortcutWriteResult(appId, false, "Steam did not accept the new launch command.");
@@ -126,7 +132,9 @@ public sealed class SteamShortcutWriter
     public async Task<ShortcutWriteResult> RemoveAsync(uint appId, CancellationToken cancellationToken)
     {
         var accepted = await _remove(appId, cancellationToken).ConfigureAwait(false);
-        await Task.Delay(Settle, cancellationToken).ConfigureAwait(false);
+
+        // As for an update: once Steam has deleted the entry, the caller has to get to drop its record.
+        await Task.Delay(Settle, CancellationToken.None).ConfigureAwait(false);
         return accepted
             ? new ShortcutWriteResult(appId, true, null)
             : new ShortcutWriteResult(appId, false, "Steam did not accept the removal.");

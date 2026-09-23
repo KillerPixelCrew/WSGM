@@ -294,4 +294,29 @@ public sealed class ImportPlanTests
 
         Assert.Equal(["xbox", "other", "xbox"], plan.Select(entry => entry.Source));
     }
+
+    [Fact]
+    public void AnAddSteamNeverConfirmedIsOfferedButMarkedSoItIsNotRetriedBlindly()
+    {
+        // The first add may still have gone through. Offered, because only the user can look, and
+        // marked, so nothing ticks it for them and a second copy is not made by default.
+        var entry = Single([Game()], [Record(0)]);
+
+        Assert.Equal(ImportAction.Add, entry.Action);
+        Assert.True(entry.Unconfirmed);
+        Assert.Contains("never confirmed", entry.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AConfirmedRecordWhoseShortcutWasDeletedIsAnOrdinaryAdd()
+    {
+        // The user removed it in Steam; offering it back is the normal case, not a retry.
+        var record = Record();
+        record.ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00";
+
+        var entry = Single([Game()], [record]);
+
+        Assert.Equal(ImportAction.Add, entry.Action);
+        Assert.False(entry.Unconfirmed);
+    }
 }

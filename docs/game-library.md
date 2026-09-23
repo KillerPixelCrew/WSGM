@@ -96,7 +96,10 @@ non-Steam shortcut ignores an exe-replacing launch option. A missing launcher re
 A new app id is confirmed by the add call's answer and a before/after diff of Steam's library, and
 **the diff is the authority**. Disagreement records the entry as unconfirmed and stops the run; that
 write is never retried, because it may well have succeeded and asking again is how a duplicate is
-made.
+made. If a later scan still finds no such shortcut, the title is offered as an Add that says so and
+is never ticked for the user: only they can look at the library and decide. Once Steam has accepted
+a write, Stop waits for that entry to be recorded, so the next scan does not mistake WSGM's own
+change for a hand edit.
 
 - **Update** rewrites the launch fields in place, never remove-and-re-add, which would lose the id
   and its artwork. It only happens because the user changed an imported or adopted title's mode.
@@ -132,6 +135,9 @@ sheet, waits for the close and the input lease, and then focuses Steam.
 
 A controller-only entry also gets a per-game profile pinning the Xbox 360 target, keyed by the
 shortcut's identity; see [the packaged-game launcher](packaged-game-launcher.md#controller-only).
+The record notes whether the import created that profile. Switching the title to Steam integration
+or removing it clears the target, and removes the profile only when the import created it and
+nothing else is left in it; a profile the user already had keeps its name, executables and switch.
 
 ## Not in this pass
 

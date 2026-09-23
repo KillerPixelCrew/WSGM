@@ -71,6 +71,14 @@ public sealed class ImportedEntry
 
     /// <summary>How many of the Store's images were applied when it was imported.</summary>
     public int ArtworkApplied { get; set; }
+
+    /// <summary>Whether an import created the per-game profile holding its controller override.</summary>
+    /// <remarks>
+    ///     Only such a profile is removed when the override is cleared and nothing else is left in it.
+    ///     A profile the user made, or had before an entry was adopted, keeps its name, executables
+    ///     and switch.
+    /// </remarks>
+    public bool OwnsProfile { get; set; }
 }
 
 /// <summary>What the user decided about one title, kept across scans.</summary>
@@ -124,6 +132,10 @@ public sealed class ImportChoice
 /// <param name="RequiresAcknowledgement">Whether choosing that route needs the risk accepted.</param>
 /// <param name="AppId">The existing shortcut id, when there is one.</param>
 /// <param name="Selectable">Whether a sync may act on it without a per-entry decision.</param>
+/// <param name="Unconfirmed">
+///     Whether this adds a title again after an earlier add Steam never confirmed. That entry may
+///     still appear, so this is offered for the user to decide and never started ticked.
+/// </param>
 public sealed record ImportPlanEntry(
     string Source,
     string Key,
@@ -134,7 +146,8 @@ public sealed record ImportPlanEntry(
     bool CanUseSteamIntegration,
     bool RequiresAcknowledgement,
     uint AppId,
-    bool Selectable);
+    bool Selectable,
+    bool Unconfirmed = false);
 
 /// <summary>An existing non-Steam shortcut, as Steam reports it.</summary>
 /// <param name="AppId">Its generated id.</param>
@@ -316,6 +329,21 @@ public static class ImportPlan
                 : mode;
             return Entry(game, ImportAction.Adopt, "Steam already has an entry for this title.",
                 adopted, canIntegrate, requiresAcknowledgement, orphan.AppId, true);
+        }
+
+        if (record is { ConfirmedUtc.Length: 0 })
+        {
+            // An earlier add that Steam did not show within the settle, and does not show now either.
+            // It may still have succeeded, so adding again could make a second copy: offered, because
+            // only the user can look at the library and say, but never ticked for them.
+            return Entry(game, ImportAction.Add,
+                    "An earlier import of this title was never confirmed by Steam and may still appear. "
+                    + "Check the library before adding it again.",
+                    mode, canIntegrate, requiresAcknowledgement, 0, true)
+                with
+                {
+                    Unconfirmed = true
+                };
         }
 
         return Entry(game, ImportAction.Add, game.Launch.Evidence,
