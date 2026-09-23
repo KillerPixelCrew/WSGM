@@ -13,8 +13,9 @@ namespace WSGM.Shell;
 /// <param name="Source">Which source found it.</param>
 /// <param name="Identity">Its identity in that source, shown for diagnosis.</param>
 /// <param name="InstallPath">Where it is installed.</param>
-/// <param name="Runtime">Which launch route it needs.</param>
-/// <param name="RuntimeEvidence">Why, in one sentence.</param>
+/// <param name="LaunchLabel">What its launch route is called.</param>
+/// <param name="LaunchValidated">Whether that route is validated.</param>
+/// <param name="LaunchEvidence">Why, in one sentence.</param>
 /// <param name="Multiplayer">Whether it is known to have multiplayer.</param>
 /// <param name="MultiplayerEvidence">Why, in one sentence.</param>
 /// <param name="Mode">Which route it would launch with.</param>
@@ -32,8 +33,9 @@ public sealed record SteamLibraryImportEntry(
     string Source,
     string Identity,
     string InstallPath,
-    string Runtime,
-    string RuntimeEvidence,
+    string LaunchLabel,
+    bool LaunchValidated,
+    string LaunchEvidence,
     string Multiplayer,
     string MultiplayerEvidence,
     string Mode,
@@ -56,7 +58,7 @@ public sealed record SteamLibraryImportEntry(
 /// <param name="RemoveCount">How many would be deleted.</param>
 /// <param name="SkipCount">How many need nothing.</param>
 /// <param name="ConflictCount">How many were changed by hand.</param>
-/// <param name="UnknownRuntimeCount">How many could not be classified.</param>
+/// <param name="UnroutableCount">How many have no validated launch route.</param>
 /// <param name="Progress">How many entries of an apply are done.</param>
 /// <param name="ProgressTotal">How many an apply will do.</param>
 /// <param name="LauncherAvailable">Whether the packaged-game launcher is installed.</param>
@@ -75,7 +77,7 @@ public sealed record SteamLibraryImportState(
     int RemoveCount,
     int SkipCount,
     int ConflictCount,
-    int UnknownRuntimeCount,
+    int UnroutableCount,
     int Progress,
     int ProgressTotal,
     bool LauncherAvailable,

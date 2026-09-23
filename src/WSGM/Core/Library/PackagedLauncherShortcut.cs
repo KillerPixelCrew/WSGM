@@ -12,7 +12,7 @@ public sealed record PackagedLauncherShortcutFields(
     string StartDirectory,
     string LaunchOptions);
 
-/// <summary>Composes the shortcut that launches a packaged title through WSGM.</summary>
+/// <summary>The packaged launch route: the only code that knows how its shortcut is written.</summary>
 /// <remarks>
 ///     <para>
 ///         A non-Steam shortcut ignores an exe-replacing launch option and runs its Target anyway —
@@ -79,6 +79,60 @@ public static class PackagedLauncherShortcut
 
         var directory = Path.GetDirectoryName(launcherPath) ?? string.Empty;
         return new PackagedLauncherShortcutFields(Quote(launcherPath), Quote(directory), arguments);
+    }
+
+    /// <summary>Whether a live shortcut is one WSGM created for this title.</summary>
+    /// <param name="shortcut">The shortcut Steam reports.</param>
+    /// <param name="launcherTarget">The Target a generated entry carries.</param>
+    /// <param name="key">The title's identity.</param>
+    /// <returns>True only when both the Target and the key in the arguments agree.</returns>
+    /// <remarks>
+    ///     Both halves must agree. A Target alone would match every title WSGM imported, and a key
+    ///     alone would match an entry somebody wrote by hand. The key is read as the launch
+    ///     request's own argument rather than searched for in the string, so a title whose key
+    ///     contains another as a prefix cannot claim it.
+    /// </remarks>
+    public static bool Owns(ExistingShortcut shortcut, string launcherTarget, string key)
+    {
+        ArgumentNullException.ThrowIfNull(shortcut);
+        return SameProgram(shortcut.Target, launcherTarget)
+               && TryReadKey(shortcut.LaunchOptions, out var owned)
+               && string.Equals(owned, key, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Reads the title's key back out of a generated shortcut's arguments.</summary>
+    /// <param name="launchOptions">The Launch Arguments Steam stores.</param>
+    /// <param name="key">The key, when this returns true.</param>
+    /// <returns>Whether the arguments are a launch request this route composed.</returns>
+    public static bool TryReadKey(string launchOptions, out string key)
+    {
+        key = PackagedLaunchCommand.TryDescribe(launchOptions, out var request) ? request.Aumid : string.Empty;
+        return key.Length > 0;
+    }
+
+    /// <summary>Reads the input mode back out of a generated shortcut's arguments.</summary>
+    /// <param name="launchOptions">The Launch Arguments Steam stores.</param>
+    /// <param name="mode">The mode, when this returns true.</param>
+    /// <returns>Whether the arguments are a launch request this route composed.</returns>
+    public static bool TryReadMode(string launchOptions, out ImportMode mode)
+    {
+        mode = ImportMode.ControllerOnly;
+        if (!PackagedLaunchCommand.TryDescribe(launchOptions, out var request))
+        {
+            return false;
+        }
+
+        mode = request.Mode is PackagedLaunchMode.SteamOverlay
+            ? ImportMode.SteamIntegration
+            : ImportMode.ControllerOnly;
+        return true;
+    }
+
+    /// <summary>Whether two Target values name the same program, ignoring the quoting.</summary>
+    private static bool SameProgram(string left, string right)
+    {
+        return string.Equals(
+            left.Trim().Trim('"'), right.Trim().Trim('"'), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Quotes a path Steam stores verbatim, and only when it needs it.</summary>

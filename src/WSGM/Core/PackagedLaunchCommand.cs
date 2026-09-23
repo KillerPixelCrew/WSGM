@@ -172,22 +172,6 @@ internal static class PackagedLaunchCommand
         return composed.ToString();
     }
 
-    /// <summary>Reads the AUMID out of a composed launch-options string.</summary>
-    /// <param name="arguments">A shortcut's launch options, as Steam stores them.</param>
-    /// <param name="aumid">The AUMID the options name, when this returns true.</param>
-    /// <returns>Whether the options carry an AUMID.</returns>
-    /// <remarks>
-    ///     Ownership of a shortcut is decided on this value, so it is read as the flag's argument
-    ///     rather than searched for anywhere in the string. A title whose AUMID merely contains
-    ///     another as a prefix would otherwise be claimed by it, and the next sync would overwrite
-    ///     or delete a shortcut the user had pointed somewhere else.
-    /// </remarks>
-    internal static bool TryReadAumid(string arguments, out string aumid)
-    {
-        aumid = TryDescribe(arguments, out var request) ? request.Aumid : string.Empty;
-        return aumid.Length > 0;
-    }
-
     /// <summary>Reads back a launch request this composed.</summary>
     /// <param name="arguments">A shortcut's launch options, as Steam stores them.</param>
     /// <param name="request">What those options ask for, when this returns true.</param>

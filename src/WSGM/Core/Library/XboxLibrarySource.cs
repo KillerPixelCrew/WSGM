@@ -143,13 +143,25 @@ public sealed class XboxLibrarySource : ILibrarySource
             package.Aumid,
             Name(package, config),
             package.InstallPath,
-            classification.Runtime,
-            classification.Evidence,
+            Launch(classification),
             multiplayer,
             multiplayerEvidence,
             isGame,
             notes,
             artwork);
+    }
+
+    /// <summary>Describes a classified package as a launch route the rest of the library understands.</summary>
+    /// <param name="classification">What the manifest and game config established.</param>
+    /// <returns>The route, validated for the two runtimes the packaged launcher has a route for.</returns>
+    internal static GameLaunch Launch(XboxRuntimeClassification classification)
+    {
+        return classification.Runtime switch
+        {
+            XboxRuntime.PackagedWin32Gdk => new GameLaunch("Packaged Win32 (GDK)", true, classification.Evidence),
+            XboxRuntime.NativeUwp => new GameLaunch("UWP", true, classification.Evidence),
+            _ => new GameLaunch("Unrecognised package", false, classification.Evidence)
+        };
     }
 
     /// <summary>Picks one catalog image per Steam capsule.</summary>

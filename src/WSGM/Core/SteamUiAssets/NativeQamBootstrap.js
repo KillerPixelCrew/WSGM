@@ -8710,7 +8710,7 @@
   }
   registerSteamPageRenderer("artwork-browser", renderArtworkBrowserPage);
   registerGate("artworkBrowser", createArtworkBrowser());
-  // The library importer's page: pick installed Xbox games and add them to Steam.
+  // The Game Library's page in Steam: bring games from other launchers into Steam.
   //
   // Rendered entirely with Steam's own component exports, so it behaves like the rest of Big Picture
   // under a controller. WSGM owns the data and every decision; the toolkit owns only the fail-closed
@@ -8730,11 +8730,6 @@
     Remove: "Remove",
     Skip: "Skip",
     Conflict: "Edited by hand",
-  };
-  const importRuntimeLabels = {
-    NativeUwp: "UWP",
-    PackagedWin32Gdk: "GDK",
-    Unknown: "Unclassified",
   };
   const importModeLabels = {
     ControllerOnly: "Controller only",
@@ -8840,8 +8835,8 @@
   const renderImportDetailModal = (entry) => {
     const react = importUi.react;
     const rows = [
-      ["Launch route", `${importRuntimeLabels[entry.runtime] ?? entry.runtime}`],
-      ["Why", entry.runtimeEvidence],
+      ["Launch route", entry.launchLabel],
+      ["Why", entry.launchEvidence],
       ["Multiplayer", entry.multiplayer],
       ["Why", entry.multiplayerEvidence],
       ["This sync would", `${importActionLabels[entry.action] ?? entry.action}: ${entry.reason}`],
@@ -8863,10 +8858,8 @@
   const renderImportRow = (entry) => {
     const react = importUi.react;
     const chips = [
-      {
-        text: importRuntimeLabels[entry.runtime] ?? entry.runtime,
-        warn: entry.runtime === "Unknown",
-      },
+      // The source names its own route; the page only marks one that has no validated launcher.
+      { text: entry.launchLabel, warn: !entry.launchValidated },
       { text: importModeLabels[entry.mode] ?? entry.mode, warn: false },
       {
         text: importActionLabels[entry.action] ?? entry.action,

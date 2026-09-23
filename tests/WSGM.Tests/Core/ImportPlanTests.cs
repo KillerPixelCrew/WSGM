@@ -13,13 +13,15 @@ public sealed class ImportPlanTests
 
     private static DiscoveredGame Game(
         string key = Aumid,
-        XboxRuntime runtime = XboxRuntime.NativeUwp,
+        bool routable = true,
         MultiplayerVerdict multiplayer = MultiplayerVerdict.SinglePlayer,
         bool isGame = true,
-        string name = "Moonlit")
+        string name = "Moonlit",
+        string source = "xbox")
     {
-        return new DiscoveredGame("xbox", key, name, @"C:\WindowsApps\Game", runtime,
-            "Evidence.", multiplayer, "Evidence.", isGame, [], []);
+        return new DiscoveredGame(source, key, name, @"C:\WindowsApps\Game",
+            new GameLaunch("UWP", routable, "Evidence."),
+            multiplayer, "Evidence.", isGame, [], []);
     }
 
     private static ImportedEntry Record(
@@ -130,18 +132,18 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void AnUnknownRuntimeIsExcludedUnlessAskedFor()
+    public void ATitleWithNoValidatedRouteIsExcludedUnlessAskedFor()
     {
-        Assert.Equal(ImportAction.Skip, Single([Game(runtime: XboxRuntime.Unknown)]).Action);
+        Assert.Equal(ImportAction.Skip, Single([Game(routable: false)]).Action);
         Assert.Equal(ImportAction.Add,
-            Single([Game(runtime: XboxRuntime.Unknown)], includeUnknown: true).Action);
+            Single([Game(routable: false)], includeUnknown: true).Action);
     }
 
     [Fact]
-    public void AnUnknownRuntimeCannotTakeTheOverlayRoute()
+    public void ATitleWithNoValidatedRouteCannotTakeTheOverlayRoute()
     {
         // There is no validated route, so there is nothing for the user to accept a risk about.
-        var entry = Single([Game(runtime: XboxRuntime.Unknown)], includeUnknown: true);
+        var entry = Single([Game(routable: false)], includeUnknown: true);
 
         Assert.False(entry.CanUseSteamIntegration);
         Assert.False(entry.RequiresAcknowledgement);
@@ -193,30 +195,10 @@ public sealed class ImportPlanTests
 
 
     [Fact]
-    public void OwnershipNeedsBothTheTargetAndTheIdentity()
-    {
-        Assert.True(ImportPlan.Ours(Shortcut(), Launcher, Aumid));
-
-        // Our launcher, somebody else's game.
-        Assert.False(ImportPlan.Ours(
-            Shortcut(options: "--aumid Other_z!App --mode controller-only"), Launcher, Aumid));
-
-        // Our game named in a shortcut that runs something else.
-        Assert.False(ImportPlan.Ours(Shortcut(target: @"""C:\other.exe"""), Launcher, Aumid));
-    }
-
-    [Fact]
-    public void QuotingDoesNotChangeWhetherAnEntryIsOurs()
-    {
-        Assert.True(ImportPlan.Ours(Shortcut(target: Launcher), Launcher, Aumid));
-        Assert.True(ImportPlan.Ours(Shortcut(target: "\"" + Launcher + "\""), Launcher, Aumid));
-    }
-
-    [Fact]
     public void EveryEntryCarriesAReasonTheUserCanRead()
     {
         var plan = ImportPlan.Build(
-            [Game(), Game("B_y!App", XboxRuntime.Unknown), Game("C_z!App", isGame: false)],
+            [Game(), Game("B_y!App", routable: false), Game("C_z!App", isGame: false)],
             [Record(key: "gone!App", appId: 99u)],
             [],
             Launcher,
@@ -225,21 +207,6 @@ public sealed class ImportPlanTests
 
         Assert.All(plan, entry => Assert.False(string.IsNullOrWhiteSpace(entry.Reason)));
         Assert.Equal(4, plan.Count);
-    }
-
-    [Fact]
-    public void AnEntryWhoseAumidMerelyStartsWithOursIsNotOurs()
-    {
-        // A prefix match would let the next sync overwrite, or delete, a shortcut the user had
-        // pointed at a different application.
-        ExistingShortcut other = new(
-            7, Launcher, "--aumid Publisher.Game_abc!AppTwo --mode controller-only");
-
-        Assert.False(ImportPlan.Ours(other, Launcher, "Publisher.Game_abc!App"));
-        Assert.True(ImportPlan.Ours(
-            new ExistingShortcut(7, Launcher, "--aumid Publisher.Game_abc!App --mode controller-only"),
-            Launcher,
-            "Publisher.Game_abc!App"));
     }
 
     [Fact]
@@ -292,5 +259,37 @@ public sealed class ImportPlanTests
 
         // The app id is kept so the controller override that entry left behind can be found.
         Assert.NotEqual(0u, entry.AppId);
+    }
+
+    [Fact]
+    public void ARecordFromAnotherSourceIsNotThisTitle()
+    {
+        // Identity is the pair. Two sources may one day use the same key, and a record one wrote
+        // must never make the other's title look imported, or be removed under its name.
+        var record = Record();
+        record.Source = "other";
+
+        var plan = ImportPlan.Build([Game()], [record], [Shortcut()], Launcher,
+            ImportMode.SteamIntegration, false);
+
+        // The Xbox title finds its live shortcut unrecorded and adopts it; the other source's
+        // record stays that source's, and is offered back under its own name.
+        Assert.Collection(plan,
+            xbox => Assert.Equal((ImportAction.Adopt, "xbox"), (xbox.Action, xbox.Source)),
+            other => Assert.Equal((ImportAction.Remove, "other"), (other.Action, other.Source)));
+    }
+
+    [Fact]
+    public void EveryEntryNamesTheSourceItBelongsTo()
+    {
+        var plan = ImportPlan.Build(
+            [Game(), Game("B_y!App", source: "other")],
+            [Record(key: "gone!App", appId: 99u)],
+            [],
+            Launcher,
+            ImportMode.SteamIntegration,
+            false);
+
+        Assert.Equal(["xbox", "other", "xbox"], plan.Select(entry => entry.Source));
     }
 }

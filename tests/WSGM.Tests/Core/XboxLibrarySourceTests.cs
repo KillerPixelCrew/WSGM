@@ -103,4 +103,19 @@ public sealed class XboxLibrarySourceTests
 
         Assert.Empty(await source.DiscoverAsync(CancellationToken.None));
     }
+
+    [Theory]
+    [InlineData(XboxRuntime.PackagedWin32Gdk, true)]
+    [InlineData(XboxRuntime.NativeUwp, true)]
+    [InlineData(XboxRuntime.Unknown, false)]
+    public void OnlyTheTwoRuntimesTheLauncherHasARouteForAreValidated(XboxRuntime runtime, bool validated)
+    {
+        // Everything after discovery reads this, not the Xbox runtime, so it has to carry both the
+        // verdict and the reason the review shows.
+        var launch = XboxLibrarySource.Launch(new XboxRuntimeClassification(runtime, "Because."));
+
+        Assert.Equal(validated, launch.Validated);
+        Assert.Equal("Because.", launch.Evidence);
+        Assert.False(string.IsNullOrWhiteSpace(launch.Label));
+    }
 }

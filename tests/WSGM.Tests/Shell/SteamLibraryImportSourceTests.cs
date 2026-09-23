@@ -15,13 +15,14 @@ public sealed class SteamLibraryImportSourceTests
 
     private static DiscoveredGame Game(
         string key = "Publisher.Game_abc!App",
-        XboxRuntime runtime = XboxRuntime.NativeUwp,
+        bool routable = true,
         MultiplayerVerdict multiplayer = MultiplayerVerdict.SinglePlayer,
         string name = "Moonlit",
         bool isGame = true)
     {
-        return new DiscoveredGame("xbox", key, name, @"C:\WindowsApps\Game", runtime,
-            "Evidence.", multiplayer, "Evidence.", isGame, [], []);
+        return new DiscoveredGame("xbox", key, name, @"C:\WindowsApps\Game",
+            new GameLaunch("UWP", routable, "Evidence."),
+            multiplayer, "Evidence.", isGame, [], []);
     }
 
     private static SteamLibraryImportSource Source(
@@ -98,7 +99,7 @@ public sealed class SteamLibraryImportSourceTests
         // There is no validated route, so there is nothing an acknowledgement could authorise.
         using TemporaryDirectory temporary = new();
         using var source = new SteamLibraryImportSource(
-            new FakeSource([Game(runtime: XboxRuntime.Unknown)]),
+            new FakeSource([Game(routable: false)]),
             new ImportStateStore(temporary.GetPath("import.json")),
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
@@ -150,7 +151,7 @@ public sealed class SteamLibraryImportSourceTests
     {
         using TemporaryDirectory temporary = new();
         using var source = new SteamLibraryImportSource(
-            new FakeSource([Game(runtime: XboxRuntime.Unknown)]),
+            new FakeSource([Game(routable: false)]),
             new ImportStateStore(temporary.GetPath("import.json")),
             () => null,
             _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),

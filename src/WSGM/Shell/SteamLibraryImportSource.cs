@@ -272,7 +272,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 Count(ImportAction.Remove),
                 Count(ImportAction.Skip),
                 Count(ImportAction.Conflict),
-                _entries.Values.Count(entry => entry.Game.Runtime is XboxRuntime.Unknown),
+                _entries.Values.Count(entry => !entry.Game.Launch.Validated),
                 _progress,
                 _progressTotal,
                 launcher is not null,
@@ -307,7 +307,8 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             foreach (var entry in plan)
             {
                 var game = discovered.FirstOrDefault(candidate =>
-                    string.Equals(candidate.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(candidate.SourceId, entry.Source, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(candidate.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
 
                 // Opaque per-publication ids, so a page rendered against an older scan cannot
                 // address an entry by guessing a title's identity.
@@ -317,7 +318,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 // cosmetic: an acknowledged multiplayer title whose launch fields changed becomes an
                 // Update, and composing that update without the acknowledgement throws.
                 var record = recorded.FirstOrDefault(saved =>
-                    string.Equals(saved.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
+                    ImportPlan.Matches(saved, entry.Source, entry.Key));
                 _entries[id] = new Entry(id, entry, game ?? Placeholder(entry))
                 {
                     Mode = entry.Mode,
@@ -487,7 +488,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         var plan = entry.Plan;
         if (entry.Action is ImportAction.Add)
         {
-            return existing.FirstOrDefault(shortcut => ImportPlan.Ours(shortcut, launcher, entry.Game.Key))
+            return existing.FirstOrDefault(shortcut => PackagedLauncherShortcut.Owns(shortcut, launcher, entry.Game.Key))
                 is { } appeared
                 ? plan with { Action = ImportAction.Update, AppId = appeared.AppId }
                 : plan with { Action = ImportAction.Add, AppId = 0 };
@@ -502,7 +503,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             return entry.Action is ImportAction.Remove ? plan : null;
         }
 
-        return ImportPlan.Ours(live, launcher, entry.Game.Key)
+        return PackagedLauncherShortcut.Owns(live, launcher, entry.Game.Key)
             ? plan with { Action = entry.Action }
             : null;
     }
@@ -678,8 +679,11 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
 
     private static DiscoveredGame Placeholder(ImportPlanEntry entry)
     {
-        return new DiscoveredGame("xbox", entry.Key, entry.Name, string.Empty, XboxRuntime.Unknown,
-            entry.Reason, MultiplayerVerdict.Unknown, entry.Reason, false, [], []);
+        // A title that is no longer installed has no discovery record, so it stands in with its
+        // plan entry's own identity: the source it came from, not an assumed one.
+        return new DiscoveredGame(entry.Source, entry.Key, entry.Name, string.Empty,
+            new GameLaunch("Not installed", false, entry.Reason),
+            MultiplayerVerdict.Unknown, entry.Reason, false, [], []);
     }
 
     private SteamLibraryImportEntry Project(Entry entry)
@@ -690,8 +694,9 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             _source.DisplayName,
             entry.Game.Key,
             entry.Game.InstallPath,
-            entry.Game.Runtime.ToString(),
-            entry.Game.RuntimeEvidence,
+            entry.Game.Launch.Label,
+            entry.Game.Launch.Validated,
+            entry.Game.Launch.Evidence,
             entry.Game.Multiplayer.ToString(),
             entry.Game.MultiplayerEvidence,
             entry.Mode.ToString(),
