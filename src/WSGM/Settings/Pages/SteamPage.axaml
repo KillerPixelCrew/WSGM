@@ -133,6 +133,46 @@
                     AutomationProperties.Name="Edit Screenscraper password with controller" />
           </Grid>
         </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Artwork tab opened first" Classes="setting-title" />
+              <TextBlock Text="Where the in-Steam artwork page starts. A hidden tab falls back to the first one shown."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding ArtworkTabs}" DisplayMemberBinding="{Binding Title}"
+                      SelectedIndex="{Binding ArtworkDefaultTabIndex}" VerticalAlignment="Center"
+                      AutomationProperties.Name="Artwork tab opened first" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <StackPanel Spacing="1">
+            <TextBlock Text="Artwork tabs" Classes="setting-title" />
+            <TextBlock Text="Which tabs the artwork page offers, and the order they appear in."
+                       Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <ItemsControl ItemsSource="{Binding ArtworkTabs}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="s:ArtworkTabRow">
+              <Border Classes="setting-row alt" Margin="0,0,0,3">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6">
+                  <ToggleSwitch Grid.Column="0" IsChecked="{Binding Visible}" OnContent="" OffContent=""
+                                MinWidth="42" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" />
+                  <Button Grid.Column="2" Classes="icon" Content="↑" ToolTip.Tip="Move up"
+                          AutomationProperties.Name="Move artwork tab up"
+                          Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveArtworkTabUpCommand, FallbackValue={x:Null}}"
+                          CommandParameter="{Binding}" />
+                  <Button Grid.Column="3" Classes="icon" Content="↓" ToolTip.Tip="Move down"
+                          AutomationProperties.Name="Move artwork tab down"
+                          Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveArtworkTabDownCommand, FallbackValue={x:Null}}"
+                          CommandParameter="{Binding}" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
 
         <Border Classes="section-header">
           <TextBlock Text="WINDOWS POLICIES" />

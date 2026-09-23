@@ -111,7 +111,7 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
     internal static int ReleaseAbandoned(PackageDebugRecoveryRecord journal)
     {
         ArgumentNullException.ThrowIfNull(journal);
-        var abandoned = journal.TakeAbandoned();
+        var abandoned = journal.ListAbandoned();
         if (abandoned.Count == 0)
         {
             return 0;
@@ -133,6 +133,10 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
                     continue;
                 }
 
+                // Only now. The record is what a later sweep would use to try again, so dropping
+                // it before the release succeeded would turn one transient failure into a package
+                // nothing ever puts back.
+                journal.Forget(packageFullName);
                 released++;
                 PackagedLaunchLog.Info(
                     $"Package lifetime: released a stale exemption for {packageFullName}.");

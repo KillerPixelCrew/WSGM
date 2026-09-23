@@ -1138,10 +1138,17 @@ public sealed class ShellSession : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             var appId = SteamApps.NormalizeAppId(game.AppId);
             var details = await SteamApps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
-            shortcuts.Add(new ExistingShortcut(
-                appId,
-                details.Details?.ShortcutExe ?? string.Empty,
-                details.Details?.ShortcutLaunchOptions ?? string.Empty));
+            if (details.Details is not { } shortcut)
+            {
+                // Refused, not guessed at. Empty fields here read as "not one of ours", which turns
+                // an existing generated entry into a fresh Add and puts a second copy of the same
+                // game in the library, and turns a recorded one into a hand-edited conflict.
+                throw new InvalidOperationException(
+                    $"Steam did not return the details for shortcut {appId}, so the library could "
+                    + "not be read. Nothing was changed; try again.");
+            }
+
+            shortcuts.Add(new ExistingShortcut(appId, shortcut.ShortcutExe, shortcut.ShortcutLaunchOptions));
         }
 
         return shortcuts;

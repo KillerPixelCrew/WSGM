@@ -23,7 +23,9 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     {
         SteamPageSurface.PatchId,
         SteamExtensionsTabSurface.PatchId,
-        SteamGameContextMenuSurface.PatchId
+        SteamGameContextMenuSurface.PatchId,
+        SteamArtworkBrowserSurface.PatchId,
+        SteamLibraryImportSurface.PatchId
     };
 
     private readonly Dictionary<string, Command> _commands = new(StringComparer.Ordinal);

@@ -151,10 +151,13 @@ public static class ImportPlan
 
             if (!byId.TryGetValue(record.AppId, out var shortcut))
             {
-                // Already gone from Steam. Nothing to remove; the stale record is dropped on apply.
-                plan.Add(new ImportPlanEntry(record.Key, record.Name, ImportAction.Skip,
-                    "This entry is no longer in Steam, so its record is dropped.",
-                    ParseMode(record.Mode), false, false, 0, false));
+                // Already gone from Steam: there is nothing to delete, but the record and the
+                // controller override it left behind are still here. Kept as a removal, keeping the
+                // app id so that override can be found, and selectable — an entry nobody can tick
+                // is a record that announces on every scan that it is about to be dropped, forever.
+                plan.Add(new ImportPlanEntry(record.Key, record.Name, ImportAction.Remove,
+                    "This entry is no longer in Steam, so only its record is left to drop.",
+                    ParseMode(record.Mode), false, false, record.AppId, true));
                 continue;
             }
 

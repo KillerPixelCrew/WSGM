@@ -98,7 +98,7 @@ if (-not $SkipBuild) {
     # The bridge first, as the release build does. The project compiles happily without it, so
     # skipping this deploys a launcher whose UWP route degrades at launch - which is exactly the
     # thing the attended test is trying to measure.
-    & (Join-Path $root 'enguild-uwp-bridge.ps1')
+    & (Join-Path $root 'eng\build-uwp-bridge.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'Overlay bridge build failed' }
 
     dotnet publish (Join-Path $root 'src\WSGM.PackagedLaunch\WSGM.PackagedLaunch.csproj') -c Release -r win-x64 `

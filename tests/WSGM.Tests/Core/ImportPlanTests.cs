@@ -191,13 +191,6 @@ public sealed class ImportPlanTests
         Assert.All(plan, entry => Assert.Equal(ImportAction.Add, entry.Action));
     }
 
-    [Fact]
-    public void ARecordWhoseEntryIsGoneFromSteamIsDroppedRatherThanRemoved()
-    {
-        var entry = Single([], [Record()], []);
-
-        Assert.Equal(ImportAction.Skip, entry.Action);
-    }
 
     [Fact]
     public void OwnershipNeedsBothTheTargetAndTheIdentity()
@@ -284,5 +277,20 @@ public sealed class ImportPlanTests
 
         Assert.Equal(ImportAction.Adopt, entry.Action);
         Assert.Equal(ImportMode.ControllerOnly, entry.Mode);
+    }
+
+    [Fact]
+    public void ARecordWhoseShortcutIsAlreadyGoneCanBeCleanedUp()
+    {
+        // Listed with no app id and selectable. Left unselectable it announced on every scan that
+        // its record was about to be dropped, and nothing ever dropped it.
+        var entry = Assert.Single(ImportPlan.Build(
+            [], [Record()], [], Launcher, ImportMode.SteamIntegration, false));
+
+        Assert.Equal(ImportAction.Remove, entry.Action);
+        Assert.True(entry.Selectable);
+
+        // The app id is kept so the controller override that entry left behind can be found.
+        Assert.NotEqual(0u, entry.AppId);
     }
 }

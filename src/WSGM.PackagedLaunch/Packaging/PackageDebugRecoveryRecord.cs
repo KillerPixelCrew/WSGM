@@ -28,6 +28,15 @@ internal sealed class PackageDebugRecord
 
     /// <summary>When the record was written, for diagnostics only.</summary>
     public string WrittenUtc { get; set; } = "";
+
+    /// <summary>How many sweeps have tried and failed to release this package.</summary>
+    /// <remarks>
+    ///     A record is kept until its package is actually released, so a transient COM failure
+    ///     cannot lose the only thing that would put the package back. This bounds that: a package
+    ///     that refuses release every time is eventually given up on and said so in the log, rather
+    ///     than retried on every launch for the life of the machine.
+    /// </remarks>
+    public int ReleaseAttempts { get; set; }
 }
 
 /// <summary>The recovery journal's file shape.</summary>
@@ -76,6 +85,9 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
 
     private static readonly TimeSpan LockBudget = TimeSpan.FromSeconds(5);
 
+    /// <summary>How many sweeps may fail to release one package before it is given up on.</summary>
+    private const int MaximumReleaseAttempts = 5;
+
     /// <summary>Where the journal lives beside WSGM's other per-user state.</summary>
     public static string DefaultPath => Path.Combine(
         // wsgm-allow-live-data-path: the launcher is a WSGM component and its recovery journal
@@ -116,10 +128,13 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <summary>Every package whose owning launcher is gone, and which should be released now.</summary>
     /// <returns>The package full names to release, in the order they were recorded.</returns>
     /// <remarks>
-    ///     Taking a record out and releasing its package are separate steps on purpose: the record is
-    ///     removed first, so a release that itself fails cannot make the sweep retry forever.
+    ///     The records stay. Removing one before its package is actually released would throw away
+    ///     the only thing that could put that package back, so a single transient COM failure would
+    ///     leave it outside lifetime management for good. The caller calls <see cref="Forget" />
+    ///     once the release succeeds; a package that fails <see cref="MaximumReleaseAttempts" />
+    ///     sweeps in a row is dropped so the journal cannot grow forever.
     /// </remarks>
-    public IReadOnlyList<string> TakeAbandoned()
+    public IReadOnlyList<string> ListAbandoned()
     {
         List<string> abandoned = [];
         Mutate(state =>
@@ -135,7 +150,17 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
 
             foreach (var record in stale)
             {
-                state.Records.Remove(record);
+                record.ReleaseAttempts++;
+                if (record.ReleaseAttempts > MaximumReleaseAttempts)
+                {
+                    PackagedLaunchLog.Warn(
+                        $"Giving up on releasing {record.PackageFullName} after "
+                        + $"{MaximumReleaseAttempts} attempts; it stays outside package lifetime "
+                        + "management until something else puts it back.");
+                    state.Records.Remove(record);
+                    continue;
+                }
+
                 if (!abandoned.Contains(record.PackageFullName, StringComparer.OrdinalIgnoreCase))
                 {
                     abandoned.Add(record.PackageFullName);
@@ -145,6 +170,14 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
             return true;
         });
         return abandoned;
+    }
+
+    /// <summary>Drops every record for a package that has now been released.</summary>
+    /// <param name="packageFullName">The package that is back under lifetime management.</param>
+    public void Forget(string packageFullName)
+    {
+        Mutate(state => state.Records.RemoveAll(record =>
+            string.Equals(record.PackageFullName, packageFullName, StringComparison.OrdinalIgnoreCase)) > 0);
     }
 
     private static bool Same(PackageDebugRecord record, string packageFullName, int launcherProcessId)
@@ -186,6 +219,16 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
                 // A process died holding it. The file is rewritten whole, so the worst an abandoned
                 // lock leaves behind is a record this sweep is about to reconsider anyway.
                 held = true;
+            }
+
+            if (!held)
+            {
+                // Without the lock this would read, edit and rewrite the whole file next to another
+                // writer doing the same, and the loser's records vanish. An exemption whose record
+                // was erased that way is untracked, so the caller has to be told this failed.
+                PackagedLaunchLog.Warn(
+                    "Package recovery journal is locked by another process; no change was made.");
+                return false;
             }
 
             var state = Read();

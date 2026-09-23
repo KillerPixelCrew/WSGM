@@ -26,7 +26,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
 
-        var abandoned = Journal(path, static (_, _) => false).TakeAbandoned();
+        var abandoned = Journal(path, static (_, _) => false).ListAbandoned();
 
         Assert.Equal(Package, Assert.Single(abandoned));
     }
@@ -39,21 +39,43 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
 
-        Assert.Empty(Journal(path, static (_, _) => true).TakeAbandoned());
+        Assert.Empty(Journal(path, static (_, _) => true).ListAbandoned());
     }
 
     [Fact]
-    public void AReplayedRecordIsNotReplayedAgain()
+    public void ARecordSurvivesUntilItsPackageIsActuallyReleased()
     {
-        // Taking the record out and releasing the package are separate steps, so a release that
-        // itself fails cannot make every later sweep retry it forever.
+        // The record is the only thing that could put the package back, so a sweep that listed it
+        // and then failed to release it must still find it next time.
         using TemporaryDirectory temporary = new();
         var path = temporary.GetPath("recovery.json");
         Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
         var journal = Journal(path, static (_, _) => false);
 
-        Assert.Single(journal.TakeAbandoned());
-        Assert.Empty(journal.TakeAbandoned());
+        Assert.Single(journal.ListAbandoned());
+        Assert.Single(journal.ListAbandoned());
+
+        journal.Forget(Package);
+
+        Assert.Empty(journal.ListAbandoned());
+    }
+
+    [Fact]
+    public void APackageThatNeverReleasesIsEventuallyGivenUpOn()
+    {
+        // Kept, but not forever: a journal that grows a permanent entry would retry it on every
+        // launch for the life of the machine.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        Journal(path, static (_, _) => true).Add(Package, 4242, DateTime.UtcNow);
+        var journal = Journal(path, static (_, _) => false);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            Assert.Single(journal.ListAbandoned());
+        }
+
+        Assert.Empty(journal.ListAbandoned());
     }
 
     [Fact]
@@ -65,7 +87,7 @@ public sealed class PackageDebugRecoveryRecordTests
         journal.Add(Package, 4242, DateTime.UtcNow);
         journal.Remove(Package, 4242);
 
-        Assert.Empty(Journal(path, static (_, _) => false).TakeAbandoned());
+        Assert.Empty(Journal(path, static (_, _) => false).ListAbandoned());
     }
 
     [Fact]
@@ -79,7 +101,7 @@ public sealed class PackageDebugRecoveryRecordTests
         journal.Add("Other.Game_1.0.0.0_x64__xyz789", 5353, DateTime.UtcNow);
         journal.Remove(Package, 4242);
 
-        var abandoned = Journal(path, static (_, _) => false).TakeAbandoned();
+        var abandoned = Journal(path, static (_, _) => false).ListAbandoned();
 
         Assert.Equal("Other.Game_1.0.0.0_x64__xyz789", Assert.Single(abandoned));
     }
@@ -99,7 +121,7 @@ public sealed class PackageDebugRecoveryRecordTests
         {
             observed = startedUtc;
             return true;
-        }).TakeAbandoned();
+        }).ListAbandoned();
 
         Assert.Equal(started, observed);
     }
@@ -123,7 +145,7 @@ public sealed class PackageDebugRecoveryRecordTests
     {
         using TemporaryDirectory temporary = new();
 
-        Assert.Empty(Journal(temporary.GetPath("absent.json"), static (_, _) => false).TakeAbandoned());
+        Assert.Empty(Journal(temporary.GetPath("absent.json"), static (_, _) => false).ListAbandoned());
     }
 
     [Fact]
@@ -135,7 +157,7 @@ public sealed class PackageDebugRecoveryRecordTests
         var path = temporary.GetPath("recovery.json");
         File.WriteAllText(path, "{ not json");
 
-        Assert.Empty(Journal(path, static (_, _) => false).TakeAbandoned());
+        Assert.Empty(Journal(path, static (_, _) => false).ListAbandoned());
     }
 
     [Fact]
@@ -154,7 +176,7 @@ public sealed class PackageDebugRecoveryRecordTests
                                 }
                                 """);
 
-        var abandoned = Journal(path, static (_, _) => false).TakeAbandoned();
+        var abandoned = Journal(path, static (_, _) => false).ListAbandoned();
 
         Assert.Equal("Kept_x__y", Assert.Single(abandoned));
     }

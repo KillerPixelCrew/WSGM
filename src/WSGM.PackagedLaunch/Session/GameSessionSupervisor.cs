@@ -41,11 +41,12 @@ internal sealed class GameSessionSupervisor(
 
     private readonly HashSet<int> _known = [];
 
-    /// <summary>How many processes the job actually accepted.</summary>
+    /// <summary>How many of the processes seen the job actually accepted.</summary>
     /// <remarks>
-    ///     Assignment is allowed to fail, and a job that never accepted one reports zero active
-    ///     processes exactly like a game that has exited. Without this the wrapper would exit on
-    ///     the first observation after a refused assignment, releasing Steam while the game runs.
+    ///     Assignment is allowed to fail. A job that holds only some of the game's processes
+    ///     reports zero active as soon as the ones it does hold exit, which looks exactly like the
+    ///     game ending; the wrapper would then release Steam while the game is still running. Only
+    ///     a job that holds everything seen can be trusted to answer that question.
     /// </remarks>
     private int _containedCount;
 
@@ -113,9 +114,11 @@ internal sealed class GameSessionSupervisor(
                 return true;
             }
 
-            // Zero active processes is the normal exit, but a job that accepted nothing reports the
-            // same zero, so that case falls through to a real look instead.
-            if (_containedCount > 0)
+            // Zero active processes is the normal exit only if the job holds everything that was
+            // seen. A refused assignment — legal, and normal for a packaged app already in a
+            // system job — leaves a running process the kernel is not counting, so its absence
+            // from the count proves nothing and the machine is looked at instead.
+            if (_containedCount == _known.Count)
             {
                 return false;
             }

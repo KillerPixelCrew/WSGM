@@ -362,11 +362,11 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
 
             // Re-read immediately before each write: the user may have added or removed something
             // in Steam since the scan, and acting on stale state is how the wrong entry is changed.
+            // This re-checks Steam, not the user's decision: rebuilding the whole plan here would
+            // derive the action from the recorded mode again and quietly discard the route they
+            // just chose, and would read a removal's placeholder as a discovered title.
             var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
-            var current = ImportPlan.Build(
-                [entry.Game], _store.Entries(), existing, launcher, _defaultMode(),
-                _includeUnknownRuntime()).FirstOrDefault();
-            if (current is null || !current.Selectable)
+            if (Revalidate(entry, existing, launcher) is not { } current)
             {
                 Note(generation, $"{entry.Plan.Name} changed since the scan and was left alone.");
                 continue;
@@ -392,8 +392,11 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 ImportAction.Adopt => new ShortcutWriteResult(current.AppId, true, null),
                 ImportAction.Update => await writer.UpdateAsync(current.AppId, fields, cancellationToken)
                     .ConfigureAwait(false),
-                ImportAction.Remove => await writer.RemoveAsync(current.AppId, cancellationToken)
-                    .ConfigureAwait(false),
+                // A record whose shortcut Steam no longer has: there is nothing to ask the client
+                // to delete, so nothing is asked, and only the record and its override go.
+                ImportAction.Remove => existing.All(shortcut => shortcut.AppId != current.AppId)
+                    ? new ShortcutWriteResult(current.AppId, true, null)
+                    : await writer.RemoveAsync(current.AppId, cancellationToken).ConfigureAwait(false),
                 _ => new ShortcutWriteResult(0, false, "Nothing to do.")
             };
 
@@ -466,6 +469,42 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                           : string.Empty);
             Publish();
         }
+    }
+
+    /// <summary>Re-checks one selected entry against the library as it is right now.</summary>
+    /// <param name="entry">The entry the user selected.</param>
+    /// <param name="existing">The shortcuts Steam holds as of a moment ago.</param>
+    /// <param name="launcher">The launcher a generated entry points at.</param>
+    /// <returns>What to do now, or null when Steam has moved and it should be left alone.</returns>
+    /// <remarks>
+    ///     The user's chosen action is kept; only its premise is rechecked. An Add whose entry has
+    ///     appeared in the meantime becomes an Update rather than a duplicate, and anything that
+    ///     names a live entry has to still find it, and still own it.
+    /// </remarks>
+    private static ImportPlanEntry? Revalidate(
+        Entry entry, IReadOnlyList<ExistingShortcut> existing, string launcher)
+    {
+        var plan = entry.Plan;
+        if (entry.Action is ImportAction.Add)
+        {
+            return existing.FirstOrDefault(shortcut => ImportPlan.Ours(shortcut, launcher, entry.Game.Key))
+                is { } appeared
+                ? plan with { Action = ImportAction.Update, AppId = appeared.AppId }
+                : plan with { Action = ImportAction.Add, AppId = 0 };
+        }
+
+        var live = existing.FirstOrDefault(shortcut => shortcut.AppId == plan.AppId);
+
+        // A removal whose entry Steam no longer has still has a record and an override to clear,
+        // and there is nothing left there to change under us.
+        if (live is null)
+        {
+            return entry.Action is ImportAction.Remove ? plan : null;
+        }
+
+        return ImportPlan.Ours(live, launcher, entry.Game.Key)
+            ? plan with { Action = entry.Action }
+            : null;
     }
 
     /// <summary>Applies the catalog artwork and the controller override for one written entry.</summary>

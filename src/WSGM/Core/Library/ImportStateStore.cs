@@ -126,13 +126,19 @@ public sealed class ImportStateStore
         // not become a launch command or a removal target.
         _state.Entries =
         [
+            // Every string is matched through a property pattern, which is null-safe. A state file
+            // with a JSON null in any of them would otherwise throw out of the scan, and every
+            // later scan too, until the user found and deleted the file by hand.
             .. _state.Entries
-                .Where(entry => entry is { Source.Length: > 0 and <= 32, Key.Length: > 0 and <= 512 }
-                                && entry.Name.Length <= 256
-                                && entry.Target.Length <= 1024
-                                && entry.LaunchOptions.Length <= 2048
-                                && (entry.Mode == nameof(ImportMode.ControllerOnly)
-                                    || entry.Mode == nameof(ImportMode.SteamIntegration)))
+                .Where(entry => entry is
+                {
+                    Source.Length: > 0 and <= 32,
+                    Key.Length: > 0 and <= 512,
+                    Name.Length: <= 256,
+                    Target.Length: <= 1024,
+                    LaunchOptions.Length: <= 2048
+                } && (entry.Mode == nameof(ImportMode.ControllerOnly)
+                      || entry.Mode == nameof(ImportMode.SteamIntegration)))
                 .Take(MaximumEntries)
         ];
         return _state;
