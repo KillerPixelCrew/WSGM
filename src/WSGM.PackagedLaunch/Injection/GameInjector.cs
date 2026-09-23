@@ -35,8 +35,9 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
     /// <summary>How long the small environment stub may take.</summary>
     private const uint EnvironmentBudgetMs = 10_000;
 
-    private readonly HashSet<int> _latched = [];
     private readonly HashSet<string> _attempted = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly HashSet<int> _latched = [];
 
     /// <summary>Whether remote work on this process has been latched off by an uncertain result.</summary>
     /// <param name="processId">The process to ask about.</param>

@@ -109,12 +109,14 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void AnUninstalledTitleIsOfferedForRemovalButNeverPreselected()
+    public void AnUninstalledTitleIsOfferedForRemoval()
     {
+        // Selectable, because a removal nobody can tick never happens. Whether it starts ticked is
+        // the page backend's decision, and it does not.
         var entry = Single([], [Record()], [Shortcut()]);
 
         Assert.Equal(ImportAction.Remove, entry.Action);
-        Assert.False(entry.Selectable);
+        Assert.True(entry.Selectable);
     }
 
     [Fact]
@@ -166,9 +168,15 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void SomethingNeitherSourceCallsAGameIsNotOffered()
+    public void SomethingNeitherSourceCallsAGameIsOfferedWithThatSaidPlainly()
     {
-        Assert.Equal(ImportAction.Skip, Single([Game(isGame: false)]).Action);
+        // Not hidden and not refused: nothing in a UWP manifest says "game", so an offline or
+        // incomplete Store lookup makes every one of them look like an ordinary application.
+        var entry = Single([Game(isGame: false)]);
+
+        Assert.Equal(ImportAction.Add, entry.Action);
+        Assert.True(entry.Selectable);
+        Assert.Contains("Store", entry.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -224,5 +232,57 @@ public sealed class ImportPlanTests
 
         Assert.All(plan, entry => Assert.False(string.IsNullOrWhiteSpace(entry.Reason)));
         Assert.Equal(4, plan.Count);
+    }
+
+    [Fact]
+    public void AnEntryWhoseAumidMerelyStartsWithOursIsNotOurs()
+    {
+        // A prefix match would let the next sync overwrite, or delete, a shortcut the user had
+        // pointed at a different application.
+        ExistingShortcut other = new(
+            7, Launcher, "--aumid Publisher.Game_abc!AppTwo --mode controller-only");
+
+        Assert.False(ImportPlan.Ours(other, Launcher, "Publisher.Game_abc!App"));
+        Assert.True(ImportPlan.Ours(
+            new ExistingShortcut(7, Launcher, "--aumid Publisher.Game_abc!App --mode controller-only"),
+            Launcher,
+            "Publisher.Game_abc!App"));
+    }
+
+    [Fact]
+    public void ATitleThatIsGoneCanStillBeTickedForRemoval()
+    {
+        // An entry nobody can select is a removal that never happens, so the shortcut and the
+        // record would stay forever while the scan kept reporting them.
+        ImportedEntry record = new()
+        {
+            Source = "xbox", Key = "Publisher.Gone_abc!App", Name = "Gone", AppId = 42,
+            Target = Launcher, LaunchOptions = "--aumid Publisher.Gone_abc!App --mode controller-only"
+        };
+
+        var entry = Assert.Single(ImportPlan.Build(
+            [],
+            [record],
+            [new ExistingShortcut(42, Launcher, record.LaunchOptions)],
+            Launcher,
+            ImportMode.SteamIntegration,
+            false));
+
+        Assert.Equal(ImportAction.Remove, entry.Action);
+        Assert.True(entry.Selectable);
+    }
+
+    [Fact]
+    public void AdoptingAnEntryKeepsTheRouteItAlreadyLaunchesWith()
+    {
+        // Taking over a shortcut must not quietly change how the game starts.
+        ExistingShortcut orphan = new(
+            9, Launcher, "--aumid Publisher.Game_abc!App --mode controller-only");
+
+        var entry = Assert.Single(ImportPlan.Build(
+            [Game()], [], [orphan], Launcher, ImportMode.SteamIntegration, false));
+
+        Assert.Equal(ImportAction.Adopt, entry.Action);
+        Assert.Equal(ImportMode.ControllerOnly, entry.Mode);
     }
 }

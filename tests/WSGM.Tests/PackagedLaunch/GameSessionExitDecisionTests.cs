@@ -67,7 +67,7 @@ public sealed class GameSessionExitDecisionTests
     public void NothingAppearingWithinTheSettleWindowIsItsOwnOutcome()
     {
         var outcome = GameSessionExitDecision.Decide(Facts(
-            sawGame: false,
+            false,
             elapsedSeconds: GameSessionExitDecision.Settle.TotalSeconds));
 
         Assert.Equal(GameSessionOutcome.NeverAppeared, outcome);
@@ -77,7 +77,7 @@ public sealed class GameSessionExitDecisionTests
     public void AGameStillStartingKeepsTheSessionOpenUntilTheSettleWindowIsSpent()
     {
         Assert.Equal(GameSessionOutcome.Running,
-            GameSessionExitDecision.Decide(Facts(sawGame: false, elapsedSeconds: 5)));
+            GameSessionExitDecision.Decide(Facts(false, elapsedSeconds: 5)));
     }
 
     [Fact]

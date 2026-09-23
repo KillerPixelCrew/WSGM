@@ -197,6 +197,10 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                                                                           && owner.Actions is not null)
                     .SelectMany(instance => instance.Registration!.Actions!.SteamPages)
                     .Where(Admissible)
+                    // Deduplicate before the cap, not after. A package that declares the same path
+                    // repeatedly would otherwise spend the whole quota on routes the host is about
+                    // to drop as collisions, and a later package's valid page would never arrive.
+                    .DistinctBy(page => page.Path, StringComparer.OrdinalIgnoreCase)
                     .Take(MaximumPluginPages)
             ];
         }

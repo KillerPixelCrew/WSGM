@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -35,9 +36,10 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     /// <summary>The prefix every WSGM-owned entry carries.</summary>
     private const string ReservedPrefix = "wsgm.";
 
-    private readonly CommonPluginSteamUiSource? _pluginSteamUi;
-    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<uint, string>? _artworkRoute;
+    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
+
+    private readonly CommonPluginSteamUiSource? _pluginSteamUi;
 
     /// <summary>Creates the menu over WSGM's artwork browser and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
@@ -72,7 +74,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
 
             // The route travels in the payload the gate reads, the same shape a plugin action's
             // answer takes, so the menu opens a page through one contract.
-            return new SteamUiCommandResult(true, null, System.Text.Json.JsonSerializer.SerializeToElement(
+            return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
                 new Dictionary<string, string> { ["route"] = _artworkRoute(appId) }));
         }
 

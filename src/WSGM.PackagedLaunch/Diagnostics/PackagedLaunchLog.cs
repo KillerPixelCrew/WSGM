@@ -28,6 +28,7 @@ internal static class PackagedLaunchLog
     private static readonly string[] ArchiveSuffixes = [".1", ".2", ".3"];
     private static readonly Lock Gate = new();
     private static readonly Dictionary<string, string> LastByKey = new(StringComparer.Ordinal);
+
     private static readonly string Path = System.IO.Path.Combine(
         // wsgm-allow-live-data-path: the launcher is a WSGM component and logs beside WSGM's own
         // diagnostics, exactly as the launch wrapper does.

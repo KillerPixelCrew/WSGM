@@ -12,19 +12,19 @@ public sealed class StoreCatalogClientTests
     private static string Response(string attributes, string productType = "Game", string images = "")
     {
         return $$"""
-            {
-              "Products": [
-                {
-                  "ProductId": "9NBLGGH1234",
-                  "ProductType": "{{productType}}",
-                  "LocalizedProperties": [
-                    { "ProductTitle": "Washer", "Images": [ {{images}} ] }
-                  ],
-                  "Properties": { "Attributes": [ {{attributes}} ] }
-                }
-              ]
-            }
-            """;
+                 {
+                   "Products": [
+                     {
+                       "ProductId": "9NBLGGH1234",
+                       "ProductType": "{{productType}}",
+                       "LocalizedProperties": [
+                         { "ProductTitle": "Washer", "Images": [ {{images}} ] }
+                       ],
+                       "Properties": { "Attributes": [ {{attributes}} ] }
+                     }
+                   ]
+                 }
+                 """;
     }
 
     [Fact]

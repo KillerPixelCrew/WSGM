@@ -10,18 +10,18 @@ namespace WSGM.Tests.Core;
 public sealed class MicrosoftGameConfigTests
 {
     private const string Config = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <Game configVersion="1">
-          <Identity Name="Publisher.Washer" Publisher="CN=Publisher" Version="1.0.286.0" />
-          <ExecutableList>
-            <Executable Name="Washer.exe" Id="Game" />
-          </ExecutableList>
-          <ShellVisuals DefaultDisplayName="Washer" PublisherDisplayName="Publisher" />
-          <StoreId>9NBLGGH1234</StoreId>
-          <TitleId>1A2B3C4D</TitleId>
-          <DesktopRegistration><Something /></DesktopRegistration>
-        </Game>
-        """;
+                                  <?xml version="1.0" encoding="utf-8"?>
+                                  <Game configVersion="1">
+                                    <Identity Name="Publisher.Washer" Publisher="CN=Publisher" Version="1.0.286.0" />
+                                    <ExecutableList>
+                                      <Executable Name="Washer.exe" Id="Game" />
+                                    </ExecutableList>
+                                    <ShellVisuals DefaultDisplayName="Washer" PublisherDisplayName="Publisher" />
+                                    <StoreId>9NBLGGH1234</StoreId>
+                                    <TitleId>1A2B3C4D</TitleId>
+                                    <DesktopRegistration><Something /></DesktopRegistration>
+                                  </Game>
+                                  """;
 
     [Fact]
     public void AConfigReadsItsExecutableNameAndIds()
@@ -70,10 +70,10 @@ public sealed class MicrosoftGameConfigTests
     public void AnExternalEntityIsNotExpanded()
     {
         var config = """
-            <?xml version="1.0"?>
-            <!DOCTYPE Game [<!ENTITY secret SYSTEM "file:///C:/Windows/win.ini">]>
-            <Game><StoreId>&secret;</StoreId></Game>
-            """;
+                     <?xml version="1.0"?>
+                     <!DOCTYPE Game [<!ENTITY secret SYSTEM "file:///C:/Windows/win.ini">]>
+                     <Game><StoreId>&secret;</StoreId></Game>
+                     """;
 
         Assert.False(MicrosoftGameConfig.Parse(config).Readable);
     }

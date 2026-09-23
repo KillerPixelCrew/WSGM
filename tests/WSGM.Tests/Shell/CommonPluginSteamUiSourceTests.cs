@@ -157,7 +157,7 @@ public sealed class CommonPluginSteamUiSourceTests
             [
                 new SteamPage("good", "/wsgm/plugin", "Plugin", Template: "plugin-page"),
                 // Overriding a Valve route is a host decision, not a package's.
-                new SteamPage("override", "/library", "Library", Override: true, Template: "plugin-page"),
+                new SteamPage("override", "/library", "Library", true, "plugin-page"),
                 // No renderer: Valve's default would render the route as an empty page.
                 new SteamPage("default", "/wsgm/default", "Default"),
                 new SteamPage("relative", "wsgm/relative", "Relative", Template: "plugin-page"),

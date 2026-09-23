@@ -37,8 +37,17 @@ internal sealed class GameSessionSupervisor(
     /// <summary>How long a game stays in discovery after its first process appears.</summary>
     private static readonly TimeSpan DiscoveryWindow = TimeSpan.FromSeconds(30);
 
-    private readonly HashSet<int> _known = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
+
+    private readonly HashSet<int> _known = [];
+
+    /// <summary>How many processes the job actually accepted.</summary>
+    /// <remarks>
+    ///     Assignment is allowed to fail, and a job that never accepted one reports zero active
+    ///     processes exactly like a game that has exited. Without this the wrapper would exit on
+    ///     the first observation after a refused assignment, releasing Steam while the game runs.
+    /// </remarks>
+    private int _containedCount;
 
     /// <summary>Whether the session could not do what the user asked of it.</summary>
     internal bool Degraded { get; set; }
@@ -55,7 +64,8 @@ internal sealed class GameSessionSupervisor(
 
         while (true)
         {
-            var running = Observe(seedProcessId, ref sawGame, ref firstSeen);
+            var discoveryOpen = firstSeen is null || _clock.Elapsed - firstSeen < DiscoveryWindow;
+            var running = Observe(seedProcessId, discoveryOpen, ref sawGame, ref firstSeen);
             if (running)
             {
                 goneSince = null;
@@ -83,20 +93,29 @@ internal sealed class GameSessionSupervisor(
     }
 
     /// <summary>Whether any of the game's processes is running, contained and reported as it appears.</summary>
-    private bool Observe(int seedProcessId, ref bool sawGame, ref TimeSpan? firstSeen)
+    /// <param name="seedProcessId">The process activation returned.</param>
+    /// <param name="discoveryOpen">Whether the discovery window is still open.</param>
+    /// <param name="sawGame">Whether a process carrying the game's identity has ever been seen.</param>
+    /// <param name="firstSeen">When the first one appeared.</param>
+    /// <returns>Whether the game is running.</returns>
+    private bool Observe(
+        int seedProcessId, bool discoveryOpen, ref bool sawGame, ref TimeSpan? firstSeen)
     {
         // Once the game is established the kernel's own count answers this, and the machine does not
-        // have to be enumerated at all.
-        if (sawGame && job.ActiveProcesses() is { } active)
+        // have to be enumerated at all. Not while discovery is open, though: the GDK path's first
+        // match is the launch helper, and the real game appears after it. Returning early there
+        // would mean the game itself is never found, never contained, and the helper's exit alone
+        // releases Steam while the game is still running.
+        if (sawGame && !discoveryOpen && job.ActiveProcesses() is { } active)
         {
             if (active > 0)
             {
                 return true;
             }
 
-            // Zero contained processes is the normal exit, but a job that never accepted an
-            // assignment also reports zero, so fall through to a real look in that case.
-            if (_known.Count > 0)
+            // Zero active processes is the normal exit, but a job that accepted nothing reports the
+            // same zero, so that case falls through to a real look instead.
+            if (_containedCount > 0)
             {
                 return false;
             }
@@ -134,7 +153,11 @@ internal sealed class GameSessionSupervisor(
                     $"+{Seconds(_clock.Elapsed)}s game process {facts.Name} ({facts.Id}), "
                     + $"{(facts.IsAppContainer == true ? "AppContainer" : "full trust")} at "
                     + $"{(facts.Integrity.Length > 0 ? facts.Integrity : "unreadable")} integrity.");
-                job.Contain(facts.Id, facts.Name);
+                if (job.Contain(facts.Id, facts.Name))
+                {
+                    _containedCount++;
+                }
+
                 onGameProcess?.Invoke(facts);
             }
         }

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -35,16 +37,17 @@ internal sealed class OverlayObjectBroker : IDisposable
     /// <summary>A refusal storm is one line plus a count, not one line per refusal.</summary>
     private const int RefusalsLogged = 3;
 
-    private readonly int pid;
-    private readonly string gameId;
     private readonly OverlayObjectAllowList _allowed;
-    private int _refusals;
+    private readonly string gameId;
     private readonly List<IntPtr> owned = [];
+
+    private readonly int pid;
+    private int _refusals;
     private IntPtr process;
-    private IntPtr view;
     private IntPtr requestEvent;
     private IntPtr responseEvent;
     private IntPtr stopEvent;
+    private IntPtr view;
     private Thread? worker;
 
     private OverlayObjectBroker(int pid, string gameId)
@@ -52,6 +55,30 @@ internal sealed class OverlayObjectBroker : IDisposable
         this.pid = pid;
         this.gameId = gameId;
         _allowed = new OverlayObjectAllowList(pid, gameId);
+    }
+
+    public void Dispose()
+    {
+        if (stopEvent != IntPtr.Zero)
+        {
+            Api.SetEvent(stopEvent);
+        }
+
+        worker?.Join();
+        worker = null;
+        if (view != IntPtr.Zero)
+        {
+            Api.UnmapViewOfFile(view);
+            view = IntPtr.Zero;
+        }
+
+        for (var index = owned.Count - 1; index >= 0; index--)
+        {
+            NativeMethods.CloseHandle(owned[index]);
+        }
+
+        owned.Clear();
+        stopEvent = IntPtr.Zero;
     }
 
     internal static OverlayObjectBroker? Start(int pid, IReadOnlyList<string> environment, GameInjector injector)
@@ -78,10 +105,16 @@ internal sealed class OverlayObjectBroker : IDisposable
         var broker = new OverlayObjectBroker(pid, gameId);
         try
         {
-            broker.process = broker.Own(NativeMethods.OpenProcess(NativeMethods.ProcessDupHandle | NativeMethods.Synchronize, false, (uint)pid));
+            broker.process =
+                broker.Own(NativeMethods.OpenProcess(NativeMethods.ProcessDupHandle | NativeMethods.Synchronize, false,
+                    (uint)pid));
             var mapping = broker.Own(Api.CreateFileMappingW(new IntPtr(-1), IntPtr.Zero, 4, 0, RequestSize, null));
-            broker.view = Api.MapViewOfFile(mapping, 6, 0, 0, (UIntPtr)RequestSize);
-            if (broker.view == IntPtr.Zero) { throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()); }
+            broker.view = Api.MapViewOfFile(mapping, 6, 0, 0, RequestSize);
+            if (broker.view == IntPtr.Zero)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
             Marshal.WriteInt32(broker.view, 0, 1);
             broker.requestEvent = broker.Own(Api.CreateEventW(IntPtr.Zero, false, false, null));
             broker.responseEvent = broker.Own(Api.CreateEventW(IntPtr.Zero, false, false, null));
@@ -90,14 +123,18 @@ internal sealed class OverlayObjectBroker : IDisposable
             var remoteRequest = broker.Duplicate(broker.requestEvent);
             var remoteResponse = broker.Duplicate(broker.responseEvent);
             if (!injector.SetEnvironment(pid,
-                [$"WSGM_UWP_BRIDGE_MAPPING={remoteMapping:X}", $"WSGM_UWP_BRIDGE_REQUEST={remoteRequest:X}", $"WSGM_UWP_BRIDGE_RESPONSE={remoteResponse:X}"]))
+                [
+                    $"WSGM_UWP_BRIDGE_MAPPING={remoteMapping:X}", $"WSGM_UWP_BRIDGE_REQUEST={remoteRequest:X}",
+                    $"WSGM_UWP_BRIDGE_RESPONSE={remoteResponse:X}"
+                ]))
             {
                 throw new InvalidOperationException("Could not pass the bridge's handles to the game.");
             }
 
             broker.worker = new Thread(broker.Run) { IsBackground = true, Name = "UWP overlay object broker" };
             broker.worker.Start();
-            PackagedLaunchLog.Info($"IPC broker: ready for pid {pid}; transport handles duplicated without named transport objects.");
+            PackagedLaunchLog.Info(
+                $"IPC broker: ready for pid {pid}; transport handles duplicated without named transport objects.");
             return broker;
         }
         catch (Exception ex)
@@ -110,7 +147,11 @@ internal sealed class OverlayObjectBroker : IDisposable
 
     private IntPtr Own(IntPtr handle)
     {
-        if (handle == IntPtr.Zero) { throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()); }
+        if (handle == IntPtr.Zero)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
         owned.Add(handle);
         return handle;
     }
@@ -119,7 +160,7 @@ internal sealed class OverlayObjectBroker : IDisposable
     {
         if (!Api.DuplicateHandle(Api.GetCurrentProcess(), handle, process, out var remote, 0, false, 2))
         {
-            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            throw new Win32Exception(Marshal.GetLastWin32Error());
         }
 
         return remote.ToInt64();
@@ -130,7 +171,10 @@ internal sealed class OverlayObjectBroker : IDisposable
         var handles = new[] { stopEvent, process, requestEvent };
         while (Api.WaitForMultipleObjects((uint)handles.Length, handles, false, uint.MaxValue) == 2)
         {
-            try { Respond(); }
+            try
+            {
+                Respond();
+            }
             catch (Exception ex)
             {
                 PackagedLaunchLog.Error($"IPC broker request failed: {ex.Message}");
@@ -182,13 +226,21 @@ internal sealed class OverlayObjectBroker : IDisposable
             6 => Api.OpenEventW(access, false, name),
             7 when rendererLog => Api.CreateFileW(RendererLogPath(pid),
                 access, high | 1, IntPtr.Zero, unchecked((uint)flags), low, IntPtr.Zero),
-            _ => IntPtr.Zero,
+            _ => IntPtr.Zero
         };
         var error = Marshal.GetLastPInvokeError();
         try
         {
-            if (handle == new IntPtr(-1)) { handle = IntPtr.Zero; }
-            if (handle != IntPtr.Zero) { Marshal.WriteInt64(view, 24, Duplicate(handle)); }
+            if (handle == new IntPtr(-1))
+            {
+                handle = IntPtr.Zero;
+            }
+
+            if (handle != IntPtr.Zero)
+            {
+                Marshal.WriteInt64(view, 24, Duplicate(handle));
+            }
+
             Marshal.WriteInt32(view, 32, error);
             PackagedLaunchLog.Change(
                 $"broker:{name}",
@@ -197,7 +249,10 @@ internal sealed class OverlayObjectBroker : IDisposable
         }
         finally
         {
-            if (handle != IntPtr.Zero) { NativeMethods.CloseHandle(handle); }
+            if (handle != IntPtr.Zero)
+            {
+                NativeMethods.CloseHandle(handle);
+            }
         }
     }
 
@@ -208,51 +263,55 @@ internal sealed class OverlayObjectBroker : IDisposable
     /// </remarks>
     private static string RendererLogPath(int processId)
     {
-        return System.IO.Path.Combine(
+        return Path.Combine(
             // wsgm-allow-live-data-path: a diagnostic beside WSGM's own log, only when asked for.
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WSGM",
             $"packaged-launch.renderer-{processId}.log");
     }
 
-    public void Dispose()
-    {
-        if (stopEvent != IntPtr.Zero) { Api.SetEvent(stopEvent); }
-        worker?.Join();
-        worker = null;
-        if (view != IntPtr.Zero) { Api.UnmapViewOfFile(view); view = IntPtr.Zero; }
-        for (var index = owned.Count - 1; index >= 0; index--) { NativeMethods.CloseHandle(owned[index]); }
-        owned.Clear();
-        stopEvent = IntPtr.Zero;
-    }
-
     private static class Api
     {
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern IntPtr CreateFileMappingW(IntPtr file, IntPtr attributes, uint protect, uint high, uint low, string? name);
+        internal static extern IntPtr CreateFileMappingW(IntPtr file, IntPtr attributes, uint protect, uint high,
+            uint low, string? name);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern IntPtr OpenFileMappingW(uint access, bool inherit, string name);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         internal static extern IntPtr MapViewOfFile(IntPtr mapping, uint access, uint high, uint low, UIntPtr size);
+
         [DllImport("kernel32.dll")]
         internal static extern bool UnmapViewOfFile(IntPtr address);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern IntPtr CreateEventW(IntPtr attributes, bool manual, bool initial, string? name);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern IntPtr OpenEventW(uint access, bool inherit, string name);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern IntPtr CreateMutexW(IntPtr attributes, bool owner, string name);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         internal static extern IntPtr OpenMutexW(uint access, bool inherit, string name);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr attributes, uint disposition, uint flags, IntPtr templateFile);
+        internal static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr attributes,
+            uint disposition, uint flags, IntPtr templateFile);
+
         [DllImport("kernel32.dll")]
         internal static extern bool SetEvent(IntPtr handle);
+
         [DllImport("kernel32.dll")]
         internal static extern uint WaitForMultipleObjects(uint count, IntPtr[] handles, bool all, uint milliseconds);
+
         [DllImport("kernel32.dll")]
         internal static extern IntPtr GetCurrentProcess();
+
         [DllImport("kernel32.dll", SetLastError = true)]
-        internal static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
+        internal static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess,
+            out IntPtr target, uint access, bool inherit, uint options);
     }
 }

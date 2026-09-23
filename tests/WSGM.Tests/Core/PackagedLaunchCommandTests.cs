@@ -32,7 +32,7 @@ public sealed class PackagedLaunchCommandTests
         PackagedLaunchRequest original = new(
             Aumid, PackagedLaunchMode.SteamOverlay, true, true, "-windowed");
 
-        var parsed = Parsed(PackagedLaunchCommand.Compose(original).Split(' ', StringSplitOptions.None));
+        var parsed = Parsed(PackagedLaunchCommand.Compose(original).Split(' '));
 
         Assert.Equal(original.Aumid, parsed.Aumid);
         Assert.Equal(original.Mode, parsed.Mode);
@@ -75,7 +75,7 @@ public sealed class PackagedLaunchCommandTests
         // The refusal belongs on both sides: a shortcut that cannot launch is worse than one that
         // was never created, because the user only finds out when they press play.
         Assert.Throws<ArgumentException>(() => PackagedLaunchCommand.Compose(
-            new PackagedLaunchRequest(Aumid, PackagedLaunchMode.SteamOverlay, Multiplayer: true)));
+            new PackagedLaunchRequest(Aumid, PackagedLaunchMode.SteamOverlay, true)));
     }
 
     [Fact]

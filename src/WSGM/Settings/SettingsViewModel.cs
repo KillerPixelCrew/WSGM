@@ -1814,7 +1814,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ApplyLaunchTo(config.GameModeLaunch);
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
-        // The tab layout is not edited here, so it is left exactly as the running shell holds it.
+        // Only the four provider fields. The tab layout is restored from the running shell in
+        // ApplyCapturedValues, because this object is a snapshot taken when the window opened.
         config.Artwork.SteamGridDbApiKey = ArtworkSteamGridDbApiKey;
         config.Artwork.ScreenscraperEnabled = ArtworkScreenscraperEnabled;
         config.Artwork.ScreenscraperUser = ArtworkScreenscraperUser;
@@ -2295,6 +2296,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.LibraryTabOrder = fresh.LibraryTabOrder;
         config.HiddenNativeTabs = fresh.HiddenNativeTabs;
         config.KnownNativeTabs = fresh.KnownNativeTabs;
+
+        // The artwork page owns its own tab layout and rewrites it while this window is open, so
+        // start from what the shell holds and keep only the four provider fields Settings edits.
+        var artwork = fresh.Artwork;
+        artwork.SteamGridDbApiKey = config.Artwork.SteamGridDbApiKey;
+        artwork.ScreenscraperEnabled = config.Artwork.ScreenscraperEnabled;
+        artwork.ScreenscraperUser = config.Artwork.ScreenscraperUser;
+        artwork.ScreenscraperUserPassword = config.Artwork.ScreenscraperUserPassword;
+        config.Artwork = artwork;
         config.LaunchWrappers = fresh.LaunchWrappers;
         config.SteamDelayMs = fresh.SteamDelayMs;
         config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;

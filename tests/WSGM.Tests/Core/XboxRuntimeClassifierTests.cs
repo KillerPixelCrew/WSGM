@@ -35,21 +35,21 @@ public sealed class XboxRuntimeClassifierTests
     {
         // The PowerWash Simulator 2 shape.
         Assert.Equal(XboxRuntime.PackagedWin32Gdk, Runtime(Facts(
-            entryPoint: "Windows.FullTrustApplication", gameConfig: true)));
+            "Windows.FullTrustApplication", gameConfig: true)));
     }
 
     [Fact]
     public void AFullTrustTitleActivatingTheLaunchHelperIsPackagedWin32()
     {
         Assert.Equal(XboxRuntime.PackagedWin32Gdk, Runtime(Facts(
-            entryPoint: "Windows.FullTrustApplication", executable: "gamelaunchhelper.exe")));
+            "Windows.FullTrustApplication", "gamelaunchhelper.exe")));
     }
 
     [Fact]
     public void AFullTrustTitleDependingOnGamingServicesIsPackagedWin32()
     {
         Assert.Equal(XboxRuntime.PackagedWin32Gdk, Runtime(Facts(
-            entryPoint: "Windows.FullTrustApplication",
+            "Windows.FullTrustApplication",
             dependencies: ["Microsoft.GamingServices"])));
     }
 
@@ -57,7 +57,7 @@ public sealed class XboxRuntimeClassifierTests
     public void TheRunFullTrustCapabilityCountsAsFullTrust()
     {
         Assert.Equal(XboxRuntime.PackagedWin32Gdk, Runtime(Facts(
-            entryPoint: "Windows.FullTrustApplication", runFullTrust: true, gameConfig: true)));
+            "Windows.FullTrustApplication", runFullTrust: true, gameConfig: true)));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class XboxRuntimeClassifierTests
     {
         // A packaged Win32 application that is not a GDK title. The demonstrated route works by
         // setting Steam up in the launch helper, and this has none.
-        Assert.Equal(XboxRuntime.Unknown, Runtime(Facts(entryPoint: "Windows.FullTrustApplication")));
+        Assert.Equal(XboxRuntime.Unknown, Runtime(Facts("Windows.FullTrustApplication")));
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public sealed class XboxRuntimeClassifierTests
     [Fact]
     public void AMissingEntryPointIsUnknown()
     {
-        Assert.Equal(XboxRuntime.Unknown, Runtime(Facts(entryPoint: "")));
+        Assert.Equal(XboxRuntime.Unknown, Runtime(Facts("")));
     }
 
     [Fact]
@@ -120,8 +120,8 @@ public sealed class XboxRuntimeClassifierTests
         XboxPackageFacts[] cases =
         [
             Facts(),
-            Facts(entryPoint: "Windows.FullTrustApplication", gameConfig: true),
-            Facts(entryPoint: "Windows.FullTrustApplication"),
+            Facts("Windows.FullTrustApplication", gameConfig: true),
+            Facts("Windows.FullTrustApplication"),
             Facts(applications: 3),
             Facts(readable: false)
         ];

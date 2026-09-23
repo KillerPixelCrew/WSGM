@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 
 namespace WSGM.PackagedLaunch;
@@ -50,6 +51,13 @@ internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposa
     /// <summary>The bridge, beside this executable.</summary>
     private static string BridgePath =>
         Path.Combine(AppContext.BaseDirectory, "WsgmUwpBridge.dll");
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _broker?.Dispose();
+        _broker = null;
+    }
 
     /// <summary>Sets the game up before Steam's renderer is loaded into it.</summary>
     /// <param name="gameProcessId">The game process activation returned.</param>
@@ -183,13 +191,6 @@ internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposa
 
     private static string Describe(uint? result)
     {
-        return result?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "no answer";
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _broker?.Dispose();
-        _broker = null;
+        return result?.ToString(CultureInfo.InvariantCulture) ?? "no answer";
     }
 }

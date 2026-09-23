@@ -74,6 +74,16 @@ internal sealed class GameSessionJob : IDisposable
     /// <summary>Whether a job exists to contain anything.</summary>
     internal bool Available => _job != IntPtr.Zero;
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_job != IntPtr.Zero)
+        {
+            NativeMethods.CloseHandle(_job);
+            _job = IntPtr.Zero;
+        }
+    }
+
     /// <summary>Whether this process belongs to the game rather than to shared infrastructure.</summary>
     /// <param name="facts">The process to judge.</param>
     /// <param name="packageFamilyName">The game's package family.</param>
@@ -102,16 +112,17 @@ internal sealed class GameSessionJob : IDisposable
     /// <summary>Adds one of the game's processes to the job.</summary>
     /// <param name="processId">The process to contain.</param>
     /// <param name="name">Its image name, for the log.</param>
+    /// <returns>Whether the process is now in the job.</returns>
     /// <remarks>
     ///     Assignment can legitimately fail: a packaged app already lives in a system-managed job,
     ///     and nesting is permitted but not guaranteed. The failure is recorded rather than
     ///     swallowed, because it changes what stopping the shortcut will do.
     /// </remarks>
-    internal void Contain(int processId, string name)
+    internal bool Contain(int processId, string name)
     {
         if (_job == IntPtr.Zero || !_contained.Add(processId))
         {
-            return;
+            return false;
         }
 
         var process = NativeMethods.OpenProcess(
@@ -120,7 +131,7 @@ internal sealed class GameSessionJob : IDisposable
         {
             PackagedLaunchLog.Warn(
                 $"Cannot contain {name} ({processId}): access denied (error {Marshal.GetLastWin32Error()}).");
-            return;
+            return false;
         }
 
         try
@@ -128,16 +139,54 @@ internal sealed class GameSessionJob : IDisposable
             if (NativeMethods.AssignProcessToJobObject(_job, process))
             {
                 PackagedLaunchLog.Info($"Contained {name} ({processId}).");
+                return true;
             }
-            else
-            {
-                PackagedLaunchLog.Warn(
-                    $"Could not contain {name} ({processId}): error {Marshal.GetLastWin32Error()}.");
-            }
+
+            PackagedLaunchLog.Warn(
+                $"Could not contain {name} ({processId}): error {Marshal.GetLastWin32Error()}.");
+            return false;
         }
         finally
         {
             NativeMethods.CloseHandle(process);
+        }
+    }
+
+    /// <summary>Gives up the contained processes so closing the job does not end them.</summary>
+    /// <remarks>
+    ///     The job is kill-on-close, which is what makes Steam's Stop button end the whole game
+    ///     tree. A managed cancellation promises the opposite — the log says the game is left
+    ///     running — so the limit has to come off before the handle closes, or the promise is a lie
+    ///     and Ctrl+C kills the game.
+    /// </remarks>
+    internal void Abandon()
+    {
+        if (_job == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var information = default(NativeMethods.JobObjectExtendedLimitInformationData);
+        information.BasicLimitInformation.LimitFlags = 0;
+        var size = Marshal.SizeOf<NativeMethods.JobObjectExtendedLimitInformationData>();
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(information, buffer, false);
+            if (!NativeMethods.SetInformationJobObject(
+                    _job, NativeMethods.JobObjectExtendedLimitInformation, buffer, (uint)size))
+            {
+                PackagedLaunchLog.Warn(
+                    "Could not release the containment job; the game may be ended when this exits "
+                    + $"(error {Marshal.GetLastWin32Error()}).");
+                return;
+            }
+
+            PackagedLaunchLog.Info("Containment released; the game keeps running.");
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
         }
     }
 
@@ -169,16 +218,6 @@ internal sealed class GameSessionJob : IDisposable
         finally
         {
             Marshal.FreeHGlobal(buffer);
-        }
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_job != IntPtr.Zero)
-        {
-            NativeMethods.CloseHandle(_job);
-            _job = IntPtr.Zero;
         }
     }
 }

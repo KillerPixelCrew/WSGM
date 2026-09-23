@@ -88,9 +88,10 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <param name="packageFullName">The package being exempted.</param>
     /// <param name="launcherProcessId">This launcher.</param>
     /// <param name="launcherStartedUtc">When this launcher started.</param>
-    public void Add(string packageFullName, int launcherProcessId, DateTime? launcherStartedUtc)
+    /// <returns>Whether the record was written. False means no exemption may be requested.</returns>
+    public bool Add(string packageFullName, int launcherProcessId, DateTime? launcherStartedUtc)
     {
-        Mutate(state =>
+        return Mutate(state =>
         {
             state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId));
             state.Records.Add(new PackageDebugRecord
@@ -109,8 +110,7 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
     /// <param name="launcherProcessId">This launcher.</param>
     public void Remove(string packageFullName, int launcherProcessId)
     {
-        Mutate(state => state.Records.RemoveAll(
-            record => Same(record, packageFullName, launcherProcessId)) > 0);
+        Mutate(state => state.Records.RemoveAll(record => Same(record, packageFullName, launcherProcessId)) > 0);
     }
 
     /// <summary>Every package whose owning launcher is gone, and which should be released now.</summary>
@@ -168,7 +168,10 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
             : null;
     }
 
-    private void Mutate(Func<PackageDebugRecoveryState, bool> change)
+    /// <summary>Applies one change under the cross-process lock.</summary>
+    /// <param name="change">The edit, returning whether anything needs writing.</param>
+    /// <returns>Whether the journal on disk now reflects the caller's intent.</returns>
+    private bool Mutate(Func<PackageDebugRecoveryState, bool> change)
     {
         using Mutex gate = new(false, MutexName);
         var held = false;
@@ -190,13 +193,16 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
             {
                 Write(state);
             }
+
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            // A journal that cannot be read or written must not stop a game launching. The exemption
-            // it would have recorded is released by this launcher's own normal exit in every case
-            // except a kill, and a kill with no journal is exactly where this started.
+            // Reported rather than swallowed. A caller about to request an exemption has to know
+            // that nothing recorded it: an exemption with no record survives every restart of this
+            // machine, because only a record can tell a later sweep to put the package back.
             PackagedLaunchLog.Warn($"Package recovery journal unavailable: {ex.Message}");
+            return false;
         }
         finally
         {
@@ -219,9 +225,12 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
 
         state ??= new PackageDebugRecoveryState();
         state.Records ??= [];
-        state.Records = [.. state.Records
-            .Where(record => record is { PackageFullName.Length: > 0 and <= 512, LauncherProcessId: > 0 })
-            .Take(MaximumRecords)];
+        state.Records =
+        [
+            .. state.Records
+                .Where(record => record is { PackageFullName.Length: > 0 and <= 512, LauncherProcessId: > 0 })
+                .Take(MaximumRecords)
+        ];
         return state;
     }
 

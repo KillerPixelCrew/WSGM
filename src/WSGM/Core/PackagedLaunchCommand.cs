@@ -101,24 +101,24 @@ internal static class PackagedLaunchCommand
 
     /// <summary>The usage text, printed for <c>--help</c> and for a refused command line.</summary>
     internal const string Usage = """
-        WSGM.PackagedLaunch - launches an Xbox/MSIX game and keeps Steam's session alive.
+                                  WSGM.PackagedLaunch - launches an Xbox/MSIX game and keeps Steam's session alive.
 
-          --aumid <family!app>     The packaged application to activate. Required.
-          --mode <m>               steam-overlay | controller-only. Required.
-          --multiplayer            The title carries a multiplayer tag.
-          --acknowledge-ban-risk   The user accepted the risk of the overlay route for a
-                                   multiplayer title. Required to combine --multiplayer
-                                   with --mode steam-overlay.
-          --args <text>            Arguments handed to the game.
-          --diagnostics            Attended-only extra diagnostics. Not for normal use.
-          --report-privileges      Report the access the game grants, once, then continue.
-          --recover                Release package-lifetime exemptions left by a killed
-                                   launcher, then exit. Takes no other option.
-          --help                   Show this text.
+                                    --aumid <family!app>     The packaged application to activate. Required.
+                                    --mode <m>               steam-overlay | controller-only. Required.
+                                    --multiplayer            The title carries a multiplayer tag.
+                                    --acknowledge-ban-risk   The user accepted the risk of the overlay route for a
+                                                             multiplayer title. Required to combine --multiplayer
+                                                             with --mode steam-overlay.
+                                    --args <text>            Arguments handed to the game.
+                                    --diagnostics            Attended-only extra diagnostics. Not for normal use.
+                                    --report-privileges      Report the access the game grants, once, then continue.
+                                    --recover                Release package-lifetime exemptions left by a killed
+                                                             launcher, then exit. Takes no other option.
+                                    --help                   Show this text.
 
-        The launch route is decided from the activated process, not from this command line:
-        a package can be updated after its shortcut was written.
-        """;
+                                  The launch route is decided from the activated process, not from this command line:
+                                  a package can be updated after its shortcut was written.
+                                  """;
 
     /// <summary>Builds the Launch Arguments for a generated non-Steam shortcut.</summary>
     /// <param name="request">The request to encode.</param>
@@ -170,6 +170,87 @@ internal static class PackagedLaunchCommand
         }
 
         return composed.ToString();
+    }
+
+    /// <summary>Reads the AUMID out of a composed launch-options string.</summary>
+    /// <param name="arguments">A shortcut's launch options, as Steam stores them.</param>
+    /// <param name="aumid">The AUMID the options name, when this returns true.</param>
+    /// <returns>Whether the options carry an AUMID.</returns>
+    /// <remarks>
+    ///     Ownership of a shortcut is decided on this value, so it is read as the flag's argument
+    ///     rather than searched for anywhere in the string. A title whose AUMID merely contains
+    ///     another as a prefix would otherwise be claimed by it, and the next sync would overwrite
+    ///     or delete a shortcut the user had pointed somewhere else.
+    /// </remarks>
+    internal static bool TryReadAumid(string arguments, out string aumid)
+    {
+        aumid = TryDescribe(arguments, out var request) ? request.Aumid : string.Empty;
+        return aumid.Length > 0;
+    }
+
+    /// <summary>Reads back a launch request this composed.</summary>
+    /// <param name="arguments">A shortcut's launch options, as Steam stores them.</param>
+    /// <param name="request">What those options ask for, when this returns true.</param>
+    /// <returns>Whether the options are a launch request this understands.</returns>
+    /// <remarks>
+    ///     The same parser the launcher runs, so what a shortcut is read as here is exactly what it
+    ///     will do. That matters for adoption: an entry already in Steam has to be taken over as
+    ///     what it currently launches, not as what the current default would have written.
+    /// </remarks>
+    internal static bool TryDescribe(string arguments, out PackagedLaunchRequest request)
+    {
+        request = new PackagedLaunchRequest(string.Empty, PackagedLaunchMode.ControllerOnly);
+        if (!TryParse(Tokenize(arguments), out var command, out _)
+            || command.Action is not PackagedLaunchAction.Launch
+            || command.Request is null)
+        {
+            return false;
+        }
+
+        request = command.Request;
+        return true;
+    }
+
+    /// <summary>Splits a command-line string the way <see cref="Append" /> quotes one.</summary>
+    /// <param name="arguments">The raw string.</param>
+    /// <returns>The tokens, with surrounding quotes removed.</returns>
+    private static List<string> Tokenize(string arguments)
+    {
+        List<string> tokens = [];
+        StringBuilder current = new();
+        var quoted = false;
+        var started = false;
+        foreach (var character in arguments)
+        {
+            if (character == '"')
+            {
+                quoted = !quoted;
+                started = true;
+                continue;
+            }
+
+            if (!quoted && char.IsWhiteSpace(character))
+            {
+                if (started)
+                {
+                    tokens.Add(current.ToString());
+                    current.Clear();
+                    started = false;
+                }
+
+                continue;
+            }
+
+            current.Append(character);
+            started = true;
+        }
+
+        if (started)
+        {
+            tokens.Add(current.ToString());
+        }
+
+        return tokens;
     }
 
     /// <summary>Parses one command line.</summary>

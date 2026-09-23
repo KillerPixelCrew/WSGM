@@ -155,6 +155,7 @@ internal static class Program
                 degraded = true;
             }
         }
+
         AppContainerOverlayRoute? appContainer = null;
         GameForegroundProxy? proxy = null;
         if (decision.Route is LaunchRoute.AppContainerOverlay)
@@ -192,8 +193,16 @@ internal static class Program
             // Observation, not repair. Whether Steam's handoff reached the process that owns the
             // swap chain is the one thing this route cannot assume, and a game without the renderer
             // is reported rather than written to.
+            // The one reconciliation SetTarget does can land before the game's CoreWindow is inside
+            // the foreground frame, and attaching it raises no further foreground event. Without
+            // this, Steam Input keeps following ApplicationFrameHost until the user alt-tabs.
+            if (decision.Route is LaunchRoute.AppContainerOverlay)
+            {
+                proxy?.SetTarget(facts.Id);
+            }
+
             if (decision.Route is LaunchRoute.PackagedWin32Overlay && !rendererChecked
-                && !GameSessionJob.IsLaunchHelper(facts))
+                                                                   && !GameSessionJob.IsLaunchHelper(facts))
             {
                 rendererChecked = true;
                 if (PackagedWin32OverlayRoute.RendererReached(facts))
@@ -218,6 +227,12 @@ internal static class Program
         try
         {
             var outcome = supervisor.Run(activation.SeedProcessId, cancellation.Token);
+            if (outcome is GameSessionOutcome.Cancelled)
+            {
+                // The job is kill-on-close and this method is about to close it. A cancellation
+                // says the game is left running, so the containment has to be let go first.
+                job.Abandon();
+            }
 
             // While the game is still alive: the bridge's own counters live in its address space.
             if (outcome is not GameSessionOutcome.Completed and not GameSessionOutcome.Degraded)

@@ -73,7 +73,7 @@ dotnet publish "$root\src\WSGM.Launch\WSGM.Launch.csproj" -c Release -r win-x64 
 if ($LASTEXITCODE -ne 0) { throw "WSGM.Launch publish failed" }
 
 Write-Host "== Building the packaged-game overlay bridge (C++/MinHook) ==" -ForegroundColor Cyan
-& "$root\enguild-uwp-bridge.ps1" -Validate
+& "$root\eng\build-uwp-bridge.ps1" -Validate
 if ($LASTEXITCODE -ne 0) { throw "Overlay bridge build failed" }
 
 # The packaged-game launcher Steam starts for an imported Xbox, UWP or MSIX title. It stays alive

@@ -95,6 +95,12 @@ if (-not $SkipBuild) {
 
     # The packaged-game launcher is swapped in below for the same reason: a generated Xbox shortcut
     # points at a fixed path, so an older build left there would be what the attended test runs.
+    # The bridge first, as the release build does. The project compiles happily without it, so
+    # skipping this deploys a launcher whose UWP route degrades at launch - which is exactly the
+    # thing the attended test is trying to measure.
+    & (Join-Path $root 'enguild-uwp-bridge.ps1')
+    if ($LASTEXITCODE -ne 0) { throw 'Overlay bridge build failed' }
+
     dotnet publish (Join-Path $root 'src\WSGM.PackagedLaunch\WSGM.PackagedLaunch.csproj') -c Release -r win-x64 `
         -o $appPublish "/p:Version=$($Matches[1])" -m:1
     if ($LASTEXITCODE -ne 0) { throw 'WSGM.PackagedLaunch publish failed' }

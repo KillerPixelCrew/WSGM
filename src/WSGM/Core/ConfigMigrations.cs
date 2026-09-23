@@ -97,8 +97,8 @@ internal static class ConfigMigrations
             return false;
         }
 
-        var entry = configurations.OfType<JsonObject>().FirstOrDefault(
-            candidate => candidate["PluginId"]?.GetValue<string>() == RetiredArtworkPluginId);
+        var entry = configurations.OfType<JsonObject>().FirstOrDefault(candidate =>
+            candidate["PluginId"]?.GetValue<string>() == RetiredArtworkPluginId);
         if (entry is null)
         {
             return false;

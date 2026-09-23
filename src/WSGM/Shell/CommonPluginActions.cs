@@ -113,8 +113,8 @@ internal sealed class CommonPluginActions
     private static IReadOnlyList<SteamPage> CaptureSteamPages(IReadOnlyList<SteamPage> pages)
     {
         if (pages is null || pages.Count > 16 || pages.Any(page => page is null
-                                                                  || !PluginConfigurationRules.ValidKey(page.Id)
-                                                                  || !Label(page.Title)))
+                                                                   || !PluginConfigurationRules.ValidKey(page.Id)
+                                                                   || !Label(page.Title)))
         {
             throw new ArgumentException("Invalid plugin Steam page declaration.");
         }

@@ -168,9 +168,11 @@ public static class ImportPlan
                 continue;
             }
 
+            // Selectable, but the caller never pre-selects a removal: deleting somebody's shortcut
+            // is a thing they ask for, and an entry they cannot tick is one they can never ask for.
             plan.Add(new ImportPlanEntry(record.Key, record.Name, ImportAction.Remove,
                 "This title is no longer installed.",
-                ParseMode(record.Mode), false, false, record.AppId, false));
+                ParseMode(record.Mode), false, false, record.AppId, true));
         }
 
         return plan;
@@ -208,9 +210,13 @@ public static class ImportPlan
 
         if (!game.IsGame && record is null)
         {
-            return new ImportPlanEntry(game.Key, game.Name, ImportAction.Skip,
-                "Neither the package nor the Store says this is a game.",
-                mode, canIntegrate, requiresAcknowledgement, 0, false);
+            // Selectable but not pre-selected. The Store is the only thing that can call a UWP
+            // title a game, so an offline or incomplete lookup makes every one of them look like an
+            // ordinary application; discovery keeps them listed precisely so the user can say
+            // otherwise, and refusing the tick would take that back.
+            return new ImportPlanEntry(game.Key, game.Name, ImportAction.Add,
+                "Neither the package nor the Store says this is a game. Import it anyway if it is.",
+                mode, canIntegrate, requiresAcknowledgement, 0, true);
         }
 
         if (record is { AppId: > 0 } && byId.TryGetValue(record.AppId, out var live))
@@ -238,9 +244,16 @@ public static class ImportPlan
         var orphan = existing.FirstOrDefault(shortcut => Ours(shortcut, launcherTarget, game.Key));
         if (orphan is not null)
         {
+            // Adopted as what it currently launches, not as what the current default would write.
+            // Taking over an entry must not quietly change how the game starts.
+            var adopted = PackagedLaunchCommand.TryDescribe(orphan.LaunchOptions, out var request)
+                ? request.Mode is PackagedLaunchMode.SteamOverlay
+                    ? ImportMode.SteamIntegration
+                    : ImportMode.ControllerOnly
+                : mode;
             return new ImportPlanEntry(game.Key, game.Name, ImportAction.Adopt,
                 "Steam already has an entry for this title.",
-                mode, canIntegrate, requiresAcknowledgement, orphan.AppId, true);
+                adopted, canIntegrate, requiresAcknowledgement, orphan.AppId, true);
         }
 
         return new ImportPlanEntry(game.Key, game.Name, ImportAction.Add,
@@ -254,13 +267,16 @@ public static class ImportPlan
     /// <param name="key">The title's identity.</param>
     /// <remarks>
     ///     Both halves must agree. A Target alone would match every title WSGM imported, and an
-    ///     identity alone would match an entry somebody wrote by hand.
+    ///     identity alone would match an entry somebody wrote by hand. The identity is read as the
+    ///     <c>--aumid</c> argument rather than searched for in the string, so a title whose AUMID
+    ///     contains another as a prefix cannot claim it.
     /// </remarks>
     public static bool Ours(ExistingShortcut shortcut, string launcherTarget, string key)
     {
         ArgumentNullException.ThrowIfNull(shortcut);
         return Same(shortcut.Target, launcherTarget)
-               && shortcut.LaunchOptions.Contains(key, StringComparison.OrdinalIgnoreCase);
+               && PackagedLaunchCommand.TryReadAumid(shortcut.LaunchOptions, out var aumid)
+               && string.Equals(aumid, key, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Whether two Target values name the same program, ignoring the quoting.</summary>

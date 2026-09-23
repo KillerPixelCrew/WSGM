@@ -35,18 +35,18 @@ internal sealed class GameForegroundProxy : IDisposable
 {
     private const string ClassName = "WsgmPackagedLaunchForegroundProxy";
     private const uint ReconcileForegroundMessage = 0x8001;
-
-    private readonly ManualResetEventSlim ready = new(false);
-    private readonly Thread thread;
+    private readonly WinEventProc foregroundChanged;
 
     // The delegate has to outlive the window: the class keeps only a raw function pointer.
     private readonly NativeMethods.WindowProc procedure;
-    private readonly WinEventProc foregroundChanged;
 
-    private IntPtr window;
-    private int targetPid;
+    private readonly ManualResetEventSlim ready = new(false);
+    private readonly Thread thread;
     private IntPtr foregroundHook;
     private int reconciliationPending;
+    private int targetPid;
+
+    private IntPtr window;
 
     internal GameForegroundProxy()
     {
@@ -55,7 +55,7 @@ internal sealed class GameForegroundProxy : IDisposable
         thread = new Thread(Pump)
         {
             IsBackground = true,
-            Name = "packaged-launch-foreground-proxy",
+            Name = "packaged-launch-foreground-proxy"
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
@@ -63,6 +63,18 @@ internal sealed class GameForegroundProxy : IDisposable
     }
 
     internal bool Available => window != IntPtr.Zero;
+
+    public void Dispose()
+    {
+        if (window != IntPtr.Zero)
+        {
+            NativeMethods.PostMessageW(window, NativeMethods.WmClose, IntPtr.Zero, IntPtr.Zero);
+            window = IntPtr.Zero;
+        }
+
+        thread.Join(TimeSpan.FromSeconds(2));
+        ready.Dispose();
+    }
 
     /// Points the proxy at the process whose window should receive the foreground.
     internal void SetTarget(int pid)
@@ -77,7 +89,11 @@ internal sealed class GameForegroundProxy : IDisposable
     internal void ReconcileForeground()
     {
         var proxyWindow = window;
-        if (proxyWindow == IntPtr.Zero || Interlocked.Exchange(ref reconciliationPending, 1) != 0) { return; }
+        if (proxyWindow == IntPtr.Zero || Interlocked.Exchange(ref reconciliationPending, 1) != 0)
+        {
+            return;
+        }
+
         if (!NativeMethods.PostMessageW(proxyWindow, ReconcileForegroundMessage, IntPtr.Zero, IntPtr.Zero))
         {
             Interlocked.Exchange(ref reconciliationPending, 0);
@@ -98,7 +114,8 @@ internal sealed class GameForegroundProxy : IDisposable
 
             if (NativeMethods.RegisterClassExW(ref windowClass) == 0)
             {
-                PackagedLaunchLog.Warn($"foreground proxy: RegisterClassEx failed (error {Marshal.GetLastWin32Error()}); "
+                PackagedLaunchLog.Warn(
+                    $"foreground proxy: RegisterClassEx failed (error {Marshal.GetLastWin32Error()}); "
                     + "resuming from Steam will not raise the game.");
                 ready.Set();
                 return;
@@ -114,7 +131,8 @@ internal sealed class GameForegroundProxy : IDisposable
 
             if (window == IntPtr.Zero)
             {
-                PackagedLaunchLog.Warn($"foreground proxy: CreateWindowEx failed (error {Marshal.GetLastWin32Error()}); "
+                PackagedLaunchLog.Warn(
+                    $"foreground proxy: CreateWindowEx failed (error {Marshal.GetLastWin32Error()}); "
                     + "resuming from Steam will not raise the game.");
                 ready.Set();
                 return;
@@ -125,9 +143,12 @@ internal sealed class GameForegroundProxy : IDisposable
             foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, foregroundChanged, 0, 0, 0);
             if (foregroundHook == IntPtr.Zero)
             {
-                PackagedLaunchLog.Warn($"foreground proxy: foreground event hook failed ({Marshal.GetLastWin32Error()}).");
+                PackagedLaunchLog.Warn(
+                    $"foreground proxy: foreground event hook failed ({Marshal.GetLastWin32Error()}).");
             }
-            PackagedLaunchLog.Info($"foreground proxy: window 0x{window.ToInt64():X} is up; activating it raises the game.");
+
+            PackagedLaunchLog.Info(
+                $"foreground proxy: window 0x{window.ToInt64():X} is up; activating it raises the game.");
             ready.Set();
 
             while (NativeMethods.GetMessageW(out var message, IntPtr.Zero, 0, 0) > 0)
@@ -138,41 +159,72 @@ internal sealed class GameForegroundProxy : IDisposable
         }
         finally
         {
-            if (foregroundHook != IntPtr.Zero) { UnhookWinEvent(foregroundHook); }
+            if (foregroundHook != IntPtr.Zero)
+            {
+                UnhookWinEvent(foregroundHook);
+            }
+
             ready.Set();
             Marshal.FreeHGlobal(classNamePointer);
         }
     }
 
-    private void ForegroundChanged(IntPtr hook, uint eventId, IntPtr foreground, int objectId, int childId, uint eventThread, uint eventTime)
+    private void ForegroundChanged(IntPtr hook, uint eventId, IntPtr foreground, int objectId, int childId,
+        uint eventThread, uint eventTime)
     {
         var pid = Volatile.Read(ref targetPid);
-        if (pid == 0 || foreground == IntPtr.Zero || foreground != GetForegroundWindow()) { return; }
+        if (pid == 0 || foreground == IntPtr.Zero || foreground != GetForegroundWindow())
+        {
+            return;
+        }
+
         var className = new StringBuilder(128);
         GetClassNameW(foreground, className, className.Capacity);
-        if (!className.ToString().Equals("ApplicationFrameWindow", StringComparison.Ordinal)) { return; }
+        if (!className.ToString().Equals("ApplicationFrameWindow", StringComparison.Ordinal))
+        {
+            return;
+        }
+
         var coreWindow = CoreWindowIn(foreground, pid);
-        if (coreWindow == IntPtr.Zero || foreground != GetForegroundWindow()) { return; }
+        if (coreWindow == IntPtr.Zero || foreground != GetForegroundWindow())
+        {
+            return;
+        }
+
         var raised = NativeMethods.SetForegroundWindow(coreWindow);
-        PackagedLaunchLog.Info($"foreground proxy: game frame 0x{foreground.ToInt64():X} -> CoreWindow 0x{coreWindow.ToInt64():X} pid {pid}; SetForegroundWindow={raised}");
+        PackagedLaunchLog.Info(
+            $"foreground proxy: game frame 0x{foreground.ToInt64():X} -> CoreWindow 0x{coreWindow.ToInt64():X} pid {pid}; SetForegroundWindow={raised}");
     }
 
     private static IntPtr CoreWindowIn(IntPtr parent, int pid)
     {
         var found = IntPtr.Zero;
+
         bool Inspect(IntPtr candidate, IntPtr ignored)
         {
             NativeMethods.GetWindowThreadProcessId(candidate, out var owner);
-            if (owner != (uint)pid) { return true; }
+            if (owner != (uint)pid)
+            {
+                return true;
+            }
+
             var className = new StringBuilder(128);
             GetClassNameW(candidate, className, className.Capacity);
-            if (!className.ToString().Equals("Windows.UI.Core.CoreWindow", StringComparison.Ordinal)) { return true; }
+            if (!className.ToString().Equals("Windows.UI.Core.CoreWindow", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             found = candidate;
             return false;
         }
 
         Inspect(parent, IntPtr.Zero);
-        if (found == IntPtr.Zero) { EnumChildWindows(parent, Inspect, IntPtr.Zero); }
+        if (found == IntPtr.Zero)
+        {
+            EnumChildWindows(parent, Inspect, IntPtr.Zero);
+        }
+
         return found;
     }
 
@@ -214,7 +266,8 @@ internal sealed class GameForegroundProxy : IDisposable
         var target = MainWindowOf(pid);
         if (target == IntPtr.Zero)
         {
-            PackagedLaunchLog.Warn($"foreground proxy: activated (message 0x{message:X}) but pid {pid} has no window to raise.");
+            PackagedLaunchLog.Warn(
+                $"foreground proxy: activated (message 0x{message:X}) but pid {pid} has no window to raise.");
             return;
         }
 
@@ -223,11 +276,14 @@ internal sealed class GameForegroundProxy : IDisposable
             NativeMethods.ShowWindow(target, NativeMethods.SwRestore);
         }
 
-        if (target == GetForegroundWindow()) { return; }
+        if (target == GetForegroundWindow())
+        {
+            return;
+        }
 
         var raised = NativeMethods.SetForegroundWindow(target);
         PackagedLaunchLog.Info($"foreground proxy: activation (message 0x{message:X}) forwarded to pid {pid} "
-            + $"window 0x{target.ToInt64():X}; SetForegroundWindow={raised}");
+                               + $"window 0x{target.ToInt64():X}; SetForegroundWindow={raised}");
     }
 
     /// The game's most plausible main window: visible, titled, and not the proxy itself.
@@ -242,7 +298,10 @@ internal sealed class GameForegroundProxy : IDisposable
             }
 
             var coreWindow = CoreWindowIn(candidate.Handle, pid);
-            if (coreWindow != IntPtr.Zero) { return coreWindow; }
+            if (coreWindow != IntPtr.Zero)
+            {
+                return coreWindow;
+            }
 
             if (best == IntPtr.Zero)
             {
@@ -253,28 +312,24 @@ internal sealed class GameForegroundProxy : IDisposable
         return best;
     }
 
-    private delegate void WinEventProc(IntPtr hook, uint eventId, IntPtr window, int objectId, int childId, uint thread, uint time);
-    private delegate bool EnumChildProc(IntPtr window, IntPtr parameter);
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWinEventHook(uint minimum, uint maximum, IntPtr module, WinEventProc callback, uint process, uint thread, uint flags);
+    private static extern IntPtr SetWinEventHook(uint minimum, uint maximum, IntPtr module, WinEventProc callback,
+        uint process, uint thread, uint flags);
+
     [DllImport("user32.dll")]
     private static extern bool UnhookWinEvent(IntPtr hook);
+
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassNameW(IntPtr window, StringBuilder name, int count);
+
     [DllImport("user32.dll")]
     private static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr parameter);
 
-    public void Dispose()
-    {
-        if (window != IntPtr.Zero)
-        {
-            NativeMethods.PostMessageW(window, NativeMethods.WmClose, IntPtr.Zero, IntPtr.Zero);
-            window = IntPtr.Zero;
-        }
+    private delegate void WinEventProc(IntPtr hook, uint eventId, IntPtr window, int objectId, int childId, uint thread,
+        uint time);
 
-        thread.Join(TimeSpan.FromSeconds(2));
-        ready.Dispose();
-    }
+    private delegate bool EnumChildProc(IntPtr window, IntPtr parameter);
 }

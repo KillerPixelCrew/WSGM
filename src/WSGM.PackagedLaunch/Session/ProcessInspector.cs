@@ -67,8 +67,7 @@ internal static class ProcessInspector
                     (int)entry.th32ProcessID,
                     (int)entry.th32ParentProcessID,
                     entry.szExeFile ?? string.Empty));
-            }
-            while (NativeMethods.Process32NextW(snapshot, ref entry));
+            } while (NativeMethods.Process32NextW(snapshot, ref entry));
 
             return entries;
         }
@@ -249,7 +248,7 @@ internal static class ProcessInspector
     {
         // The integrity level is the last sub-authority of the label SID, and the well-known values
         // are the only ones worth naming; anything else is reported as its number.
-        var level = TokenValue<uint>(process, NativeMethods.TokenIntegrityLevel, 64, buffer =>
+        var level = TokenValue(process, NativeMethods.TokenIntegrityLevel, 64, buffer =>
         {
             var sid = Marshal.ReadIntPtr(buffer);
             if (sid == IntPtr.Zero)

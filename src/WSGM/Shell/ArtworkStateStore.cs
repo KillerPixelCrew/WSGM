@@ -126,13 +126,35 @@ internal sealed class ArtworkStateStore
     }
 
     /// <summary>Where the retired bundled package kept its state, or null when it never ran.</summary>
+    /// <remarks>
+    ///     The host gave each plugin instance its own directory, named by a hash of the instance id,
+    ///     so the file sat one level below the package's own folder. The hash is not recomputed here
+    ///     because the id that produced it no longer exists anywhere; the directory is searched
+    ///     instead, and the most recent file wins if somehow there is more than one.
+    /// </remarks>
     private static string? RetiredPluginStatePath()
     {
         try
         {
-            return Path.Combine(Log.Directory, "PluginState", "wsgm.artwork", "artwork.json");
+            var root = Path.Combine(Log.Directory, "PluginState", "wsgm.artwork");
+            var direct = Path.Combine(root, "artwork.json");
+            if (File.Exists(direct))
+            {
+                return direct;
+            }
+
+            if (!Directory.Exists(root))
+            {
+                return null;
+            }
+
+            return Directory.EnumerateDirectories(root)
+                .Select(instance => Path.Combine(instance, "artwork.json"))
+                .Where(File.Exists)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {
             return null;
         }

@@ -11,14 +11,17 @@ namespace WSGM.Tests.Shell;
 /// </summary>
 public sealed class SteamLibraryImportSourceTests
 {
+    private const string Launcher = @"C:\WSGM\WSGM.PackagedLaunch.exe";
+
     private static DiscoveredGame Game(
         string key = "Publisher.Game_abc!App",
         XboxRuntime runtime = XboxRuntime.NativeUwp,
         MultiplayerVerdict multiplayer = MultiplayerVerdict.SinglePlayer,
-        string name = "Moonlit")
+        string name = "Moonlit",
+        bool isGame = true)
     {
         return new DiscoveredGame("xbox", key, name, @"C:\WindowsApps\Game", runtime,
-            "Evidence.", multiplayer, "Evidence.", true, [], []);
+            "Evidence.", multiplayer, "Evidence.", isGame, [], []);
     }
 
     private static SteamLibraryImportSource Source(
@@ -172,6 +175,86 @@ public sealed class SteamLibraryImportSourceTests
         await source.ToggleEntryAsync(entry.Id, CancellationToken.None);
 
         Assert.True(source.ReadState().Revision > before);
+    }
+
+    [Fact]
+    public async Task RerouteingAnAlreadyImportedTitleMakesItSomethingTheUserCanApply()
+    {
+        // The plan calls it a Skip, so without this the page shows the new mode, refuses the tick
+        // and never rewrites the shortcut.
+        using TemporaryDirectory temporary = new();
+        var game = Game();
+        const string options = "--aumid Publisher.Game_abc!App --mode steam-overlay";
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = game.Key, Name = game.Name, AppId = 77,
+            Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.SteamIntegration)
+        });
+
+        using SteamLibraryImportSource source = new(
+            new FakeSource([game]),
+            store,
+            () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>(
+                [new ExistingShortcut(77, Launcher, options)]),
+            () => ImportMode.SteamIntegration,
+            () => false,
+            resolveLauncher: () => Launcher);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        Assert.Equal("Skip", entry.Action);
+
+        Assert.True((await source.SetModeAsync(
+            entry.Id, nameof(ImportMode.ControllerOnly), false, CancellationToken.None)).Succeeded);
+
+        var updated = Assert.Single(source.ReadState().Entries);
+        Assert.Equal("Update", updated.Action);
+        Assert.True(updated.Selectable);
+    }
+
+    [Fact]
+    public async Task AnAcknowledgementTheUserAlreadyGaveSurvivesAScan()
+    {
+        // Losing it is not cosmetic: composing an update for an acknowledged multiplayer title
+        // without the acknowledgement throws, so the update could never be applied.
+        using TemporaryDirectory temporary = new();
+        var game = Game(multiplayer: MultiplayerVerdict.Multiplayer);
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = game.Key, Name = game.Name, AppId = 77,
+            Target = Launcher, LaunchOptions = "--aumid Publisher.Game_abc!App --mode steam-overlay",
+            Mode = nameof(ImportMode.SteamIntegration), Acknowledged = true
+        });
+
+        using SteamLibraryImportSource source = new(
+            new FakeSource([game]),
+            store,
+            () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>(
+                [new ExistingShortcut(77, Launcher, "--aumid Publisher.Game_abc!App --mode controller-only")]),
+            () => ImportMode.SteamIntegration,
+            () => false,
+            resolveLauncher: () => Launcher);
+
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.Equal(nameof(ImportMode.SteamIntegration), entry.Mode);
+        Assert.True(entry.Acknowledged);
+    }
+
+    [Fact]
+    public async Task NothingTheSourcesCouldNotVouchForIsTickedForTheUser()
+    {
+        using TemporaryDirectory temporary = new();
+        using var source = Source(temporary, Game(isGame: false));
+
+        var state = await ScannedAsync(source);
+
+        var entry = Assert.Single(state.Entries);
+        Assert.True(entry.Selectable);
+        Assert.False(entry.Selected);
+        Assert.Equal(0, state.SelectedCount);
     }
 
     private sealed class FakeSource(IReadOnlyList<DiscoveredGame> games) : ILibrarySource

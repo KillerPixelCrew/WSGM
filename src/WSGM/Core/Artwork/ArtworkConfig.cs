@@ -9,6 +9,9 @@ namespace WSGM.Core;
 /// </remarks>
 public sealed class ArtworkConfig
 {
+    /// <summary>Every tab id, in the order a configuration that names none falls back to.</summary>
+    public const string DefaultTabOrder = "grid,wide,hero,logo,icon,manage";
+
     /// <summary>The user's SteamGridDB bearer key. Empty means the provider is not configured.</summary>
     public string SteamGridDbApiKey { get; set; } = "";
 
@@ -44,7 +47,4 @@ public sealed class ArtworkConfig
 
     /// <summary>Whether the Manage tab is offered.</summary>
     public bool ShowManage { get; set; } = true;
-
-    /// <summary>Every tab id, in the order a configuration that names none falls back to.</summary>
-    public const string DefaultTabOrder = "grid,wide,hero,logo,icon,manage";
 }

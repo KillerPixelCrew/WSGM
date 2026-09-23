@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -523,7 +524,7 @@ public sealed class ShellSession : IAsyncDisposable
                 }
 
                 _steamUi?.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
-                _steamUi?.ApplyPluginSteamUi(_config.Cef.Enabled);
+                _steamUi?.ApplyHostSteamUi(_config.Cef.Enabled);
                 _steamUi?.ApplySurfaceObservation(_config.Cef.Enabled);
                 _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
                 ApplySteamUiSurfacePreferences();
@@ -995,6 +996,8 @@ public sealed class ShellSession : IAsyncDisposable
         // applies to the next search rather than the next session.
         _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
 
+        ReleaseAbandonedPackageExemptions();
+
         // The importer talks to the same running Steam client everything else here does, and reads
         // the machine's installed packages through WinRT. Every seam is injected so the discovery
         // and planning rules stay testable without a live Steam or a real package.
@@ -1079,6 +1082,45 @@ public sealed class ShellSession : IAsyncDisposable
     {
         var suffix = Path.GetExtension(new Uri(url).AbsolutePath).TrimStart('.').ToLowerInvariant();
         return suffix is "jpg" or "jpeg" or "png" or "webp" ? suffix : "png";
+    }
+
+    /// <summary>Puts packages a killed launcher left exempt back under lifetime management.</summary>
+    /// <remarks>
+    ///     <para>
+    ///         Steam's Stop button terminates the launcher outright, so its own release never runs
+    ///         and the package stays exempt. Nothing else ever puts it back: the next launcher only
+    ///         sweeps when the user happens to start another imported game, so without this a single
+    ///         Stop leaves a package outside lifetime management for the life of the machine.
+    ///     </para>
+    ///     <para>
+    ///         The launcher owns the COM interop for this, so it does the work and WSGM just asks.
+    ///         Fire and forget, off the startup path: a sweep that cannot run is not a reason to
+    ///         hold up a session.
+    ///     </para>
+    /// </remarks>
+    private static void ReleaseAbandonedPackageExemptions()
+    {
+        if (PackagedLauncherShortcut.ResolveLauncher() is not { } launcher)
+        {
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo(launcher, "--recover")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException
+                                           or ObjectDisposedException or IOException)
+            {
+                Log.Warn($"Packaged launcher recovery sweep did not run: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>Reads the non-Steam shortcuts Steam currently has, with what each one runs.</summary>
@@ -1346,7 +1388,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _artwork,
                 _libraryImport);
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
-            _steamUi.ApplyPluginSteamUi(_config.Cef.Enabled);
+            _steamUi.ApplyHostSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
             if (_deviceCoordinator is { } handoffDevice)
             {
@@ -1948,7 +1990,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </summary>
     private void ApplySteamUiSurfacePreferences()
     {
-        _steamUi?.ApplyPluginSteamUi(_config.Cef.Enabled);
+        _steamUi?.ApplyHostSteamUi(_config.Cef.Enabled);
         _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
         _steamUi?.ApplyLibraryBadge(_libraryBadgeEnabled);
         _steamUi?.ApplyHomeCarousel(_homeCarouselEnabled, _carouselShowUninstalled);
@@ -2720,7 +2762,7 @@ public sealed class ShellSession : IAsyncDisposable
                         ApplyDeviceConfig(config);
                         ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
-                        _steamUi?.ApplyPluginSteamUi(config.Cef.Enabled);
+                        _steamUi?.ApplyHostSteamUi(config.Cef.Enabled);
                         if (config.Cef.Enabled)
                         {
                             _steamUi?.Apply(config.Cef.NativeQuickAccess);

@@ -9,33 +9,33 @@ namespace WSGM.Tests.Core;
 public sealed class XboxManifestTests
 {
     private const string Uwp = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
-          <Identity Name="Publisher.Game" Publisher="CN=Publisher" Version="1.0.0.0" />
-          <Properties><DisplayName>Moonlit</DisplayName></Properties>
-          <Applications>
-            <Application Id="App" Executable="game.exe" EntryPoint="Game.App" />
-          </Applications>
-          <Capabilities><Capability Name="internetClient" /></Capabilities>
-        </Package>
-        """;
+                               <?xml version="1.0" encoding="utf-8"?>
+                               <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+                                 <Identity Name="Publisher.Game" Publisher="CN=Publisher" Version="1.0.0.0" />
+                                 <Properties><DisplayName>Moonlit</DisplayName></Properties>
+                                 <Applications>
+                                   <Application Id="App" Executable="game.exe" EntryPoint="Game.App" />
+                                 </Applications>
+                                 <Capabilities><Capability Name="internetClient" /></Capabilities>
+                               </Package>
+                               """;
 
     private const string FullTrust = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-                 xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
-          <Identity Name="Publisher.Washer" Publisher="CN=Publisher" Version="1.0.286.0" />
-          <Properties><DisplayName>Washer</DisplayName></Properties>
-          <Dependencies>
-            <PackageDependency Name="Microsoft.GamingServices" MinVersion="1.0.0.0" />
-          </Dependencies>
-          <Applications>
-            <Application Id="Game" Executable="gamelaunchhelper.exe"
-                         EntryPoint="Windows.FullTrustApplication" />
-          </Applications>
-          <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
-        </Package>
-        """;
+                                     <?xml version="1.0" encoding="utf-8"?>
+                                     <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                                              xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+                                       <Identity Name="Publisher.Washer" Publisher="CN=Publisher" Version="1.0.286.0" />
+                                       <Properties><DisplayName>Washer</DisplayName></Properties>
+                                       <Dependencies>
+                                         <PackageDependency Name="Microsoft.GamingServices" MinVersion="1.0.0.0" />
+                                       </Dependencies>
+                                       <Applications>
+                                         <Application Id="Game" Executable="gamelaunchhelper.exe"
+                                                      EntryPoint="Windows.FullTrustApplication" />
+                                       </Applications>
+                                       <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
+                                     </Package>
+                                     """;
 
     [Fact]
     public void AUwpManifestReadsAsItsApplicationAndCapabilities()
@@ -65,12 +65,12 @@ public sealed class XboxManifestTests
     public void AnExecutableWithAPathReadsAsItsFileName()
     {
         var manifest = """
-            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
-              <Applications>
-                <Application Id="App" Executable="bin/win64/game.exe" EntryPoint="Game.App" />
-              </Applications>
-            </Package>
-            """;
+                       <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+                         <Applications>
+                           <Application Id="App" Executable="bin/win64/game.exe" EntryPoint="Game.App" />
+                         </Applications>
+                       </Package>
+                       """;
 
         Assert.Equal("game.exe", XboxManifest.ParseAppxManifest(manifest).Executable);
     }
@@ -101,10 +101,10 @@ public sealed class XboxManifestTests
         // A manifest is a file out of somebody's package. An entity in one must not become a read
         // of something else on this machine.
         var manifest = """
-            <?xml version="1.0"?>
-            <!DOCTYPE Package [<!ENTITY secret SYSTEM "file:///C:/Windows/win.ini">]>
-            <Package><Applications><Application Id="&secret;" /></Applications></Package>
-            """;
+                       <?xml version="1.0"?>
+                       <!DOCTYPE Package [<!ENTITY secret SYSTEM "file:///C:/Windows/win.ini">]>
+                       <Package><Applications><Application Id="&secret;" /></Applications></Package>
+                       """;
 
         Assert.False(XboxManifest.ParseAppxManifest(manifest).ManifestReadable);
     }
@@ -127,10 +127,10 @@ public sealed class XboxManifestTests
     {
         // Showing it literally would put "ms-resource:AppName" in somebody's Steam library.
         var manifest = """
-            <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
-              <Properties><DisplayName>ms-resource:AppName</DisplayName></Properties>
-            </Package>
-            """;
+                       <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+                         <Properties><DisplayName>ms-resource:AppName</DisplayName></Properties>
+                       </Package>
+                       """;
 
         Assert.Equal(string.Empty, XboxManifest.ParseDisplayName(manifest));
     }

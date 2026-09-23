@@ -35,6 +35,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     private readonly Lock _gate = new();
     private readonly Func<bool> _includeUnknownRuntime;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
+    private readonly Func<string?> _resolveLauncher;
     private readonly Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? _setControllerTarget;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ILibrarySource _source;
@@ -60,6 +61,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     /// <param name="includeUnknownRuntime">Whether unclassified titles may be selected.</param>
     /// <param name="applyArtwork">Applies catalog images to a confirmed app id, or null to skip.</param>
     /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
+    /// <param name="resolveLauncher">Finds the packaged-game launcher, or null for the real one.</param>
     internal SteamLibraryImportSource(
         ILibrarySource source,
         ImportStateStore store,
@@ -68,7 +70,8 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         Func<ImportMode> defaultMode,
         Func<bool> includeUnknownRuntime,
         Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
-        Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null)
+        Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null,
+        Func<string?>? resolveLauncher = null)
     {
         _source = source;
         _store = store;
@@ -78,6 +81,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         _includeUnknownRuntime = includeUnknownRuntime;
         _applyArtwork = applyArtwork;
         _setControllerTarget = setControllerTarget;
+        _resolveLauncher = resolveLauncher ?? PackagedLauncherShortcut.ResolveLauncher;
     }
 
     /// <inheritdoc />
@@ -140,10 +144,10 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 return Task.FromResult(new SteamUiCommandResult(false, "That entry is no longer listed."));
             }
 
-            if (!entry.Plan.Selectable)
+            if (!entry.Selectable)
             {
                 return Task.FromResult(new SteamUiCommandResult(
-                    false, entry.Plan.Reason));
+                    false, entry.Reason));
             }
 
             entry.Selected = !entry.Selected;
@@ -159,7 +163,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            foreach (var entry in _entries.Values.Where(entry => entry.Plan.Selectable))
+            foreach (var entry in _entries.Values.Where(entry => entry.Selectable))
             {
                 entry.Selected = selected;
             }
@@ -225,14 +229,14 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 return Task.FromResult(new SteamUiCommandResult(false, "Something is already running."));
             }
 
-            if (PackagedLauncherShortcut.ResolveLauncher() is null)
+            if (_resolveLauncher() is null)
             {
                 return Task.FromResult(new SteamUiCommandResult(false,
                     "The packaged-game launcher is missing from this install, so an imported entry "
                     + "would point at nothing."));
             }
 
-            var selected = _entries.Values.Where(entry => entry.Selected && entry.Plan.Selectable).ToList();
+            var selected = _entries.Values.Where(entry => entry.Selected && entry.Selectable).ToList();
             if (selected.Count == 0)
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Nothing is selected."));
@@ -254,7 +258,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     {
         lock (_gate)
         {
-            var launcher = PackagedLauncherShortcut.ResolveLauncher();
+            var launcher = _resolveLauncher();
             var entries = _entries.Values.OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
                 .Select(Project).ToList();
 
@@ -286,9 +290,10 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
     {
         var discovered = await _source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
         var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
-        var launcher = PackagedLauncherShortcut.ResolveLauncher() ?? string.Empty;
+        var launcher = _resolveLauncher() ?? string.Empty;
+        var recorded = _store.Entries();
         var plan = ImportPlan.Build(
-            discovered, _store.Entries(), existing, launcher, _defaultMode(), _includeUnknownRuntime());
+            discovered, recorded, existing, launcher, _defaultMode(), _includeUnknownRuntime());
 
         lock (_gate)
         {
@@ -307,10 +312,22 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
                 // Opaque per-publication ids, so a page rendered against an older scan cannot
                 // address an entry by guessing a title's identity.
                 var id = index++.ToString(CultureInfo.InvariantCulture);
+
+                // An acknowledgement the user already gave is theirs, and losing it here is not
+                // cosmetic: an acknowledged multiplayer title whose launch fields changed becomes an
+                // Update, and composing that update without the acknowledgement throws.
+                var record = recorded.FirstOrDefault(saved =>
+                    string.Equals(saved.Key, entry.Key, StringComparison.OrdinalIgnoreCase));
                 _entries[id] = new Entry(id, entry, game ?? Placeholder(entry))
                 {
                     Mode = entry.Mode,
-                    Selected = entry.Selectable && entry.Action is ImportAction.Add or ImportAction.Update
+                    Acknowledged = entry.Mode is ImportMode.SteamIntegration
+                                   && (record?.Acknowledged ?? false),
+
+                    // Never pre-tick something the sources could not vouch for, or a deletion.
+                    Selected = entry.Selectable
+                               && entry.Action is ImportAction.Add or ImportAction.Update
+                               && (game?.IsGame ?? false)
                 };
             }
 
@@ -331,7 +348,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             return;
         }
 
-        var launcher = PackagedLauncherShortcut.ResolveLauncher();
+        var launcher = _resolveLauncher();
         if (launcher is null)
         {
             Fail(generation, "The packaged-game launcher is missing from this install.");
@@ -358,6 +375,15 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             var fields = PackagedLauncherShortcut.Compose(
                 launcher, entry.Game.Key, entry.Mode,
                 entry.Game.Multiplayer is MultiplayerVerdict.Multiplayer, entry.Acknowledged);
+
+            // Adoption writes nothing, so it must record what the shortcut actually says. Recording
+            // freshly composed fields instead would make the very next scan report that somebody
+            // had changed the command.
+            if (current.Action is ImportAction.Adopt
+                && existing.FirstOrDefault(shortcut => shortcut.AppId == current.AppId) is { } adopted)
+            {
+                fields = fields with { Target = adopted.Target, LaunchOptions = adopted.LaunchOptions };
+            }
 
             var result = current.Action switch
             {
@@ -602,7 +628,7 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
 
     private int Count(ImportAction action)
     {
-        return _entries.Values.Count(entry => entry.Plan.Action == action);
+        return _entries.Values.Count(entry => entry.Action == action);
     }
 
     private void Publish()
@@ -633,10 +659,10 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
             entry.Plan.CanUseSteamIntegration,
             entry.Plan.RequiresAcknowledgement,
             entry.Acknowledged,
-            entry.Plan.Action.ToString(),
-            entry.Plan.Reason,
+            entry.Action.ToString(),
+            entry.Reason,
             entry.Selected,
-            entry.Plan.Selectable,
+            entry.Selectable,
             entry.Game.Notes);
     }
 
@@ -648,5 +674,23 @@ internal sealed class SteamLibraryImportSource : ISteamLibraryImportBackend, IDi
         internal ImportMode Mode { get; set; }
         internal bool Acknowledged { get; set; }
         internal bool Selected { get; set; }
+
+        /// <summary>Whether the user has moved this entry off the mode the plan recorded.</summary>
+        private bool Rerouted => Mode != Plan.Mode && Plan.AppId > 0;
+
+        /// <summary>What applying this entry would now do.</summary>
+        /// <remarks>
+        ///     An already imported title is a Skip until the user changes its route, at which point
+        ///     the shortcut really does need rewriting. Without this the page would show the new
+        ///     mode, refuse the tick, and quietly never apply it.
+        /// </remarks>
+        internal ImportAction Action =>
+            Plan.Action is ImportAction.Skip && Rerouted ? ImportAction.Update : Plan.Action;
+
+        /// <summary>Whether the user may tick this entry.</summary>
+        internal bool Selectable => Plan.Selectable || (Plan.Action is ImportAction.Skip && Rerouted);
+
+        /// <summary>Why it cannot be ticked, when it cannot.</summary>
+        internal string Reason => Plan.Reason;
     }
 }
