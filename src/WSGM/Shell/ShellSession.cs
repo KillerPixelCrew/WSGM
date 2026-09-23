@@ -1031,7 +1031,8 @@ public sealed class ShellSession : IAsyncDisposable
             ApplyCatalogArtworkAsync,
             (id, name, target, token) => _profiles is null
                 ? Task.CompletedTask
-                : _profiles.SetApplicationControllerTargetAsync(id, name, target, token));
+                : _profiles.SetApplicationControllerTargetAsync(id, name, target, token),
+            openArtwork: _artwork.OpenAsync);
     }
 
     /// <summary>Applies a title's Store artwork to the shortcut that was just created for it.</summary>

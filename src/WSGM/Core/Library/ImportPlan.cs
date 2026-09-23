@@ -68,6 +68,9 @@ public sealed class ImportedEntry
 
     /// <summary>When its id was confirmed by a library read, or empty while unconfirmed.</summary>
     public string ConfirmedUtc { get; set; } = "";
+
+    /// <summary>How many of the Store's images were applied when it was imported.</summary>
+    public int ArtworkApplied { get; set; }
 }
 
 /// <summary>What the user decided about one title, kept across scans.</summary>

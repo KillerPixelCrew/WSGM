@@ -136,19 +136,40 @@ const renderImportDetailModal = (entry: any, close: () => void) => {
     void sendImportCommand(command, { id: entry.id });
     close();
   };
+  // The artwork stage. The host opens the page for this entry's shortcut first and answers with its
+  // route, exactly as the game menu's Change Artwork does; Steam's own back returns here.
+  const openArtwork = () => {
+    close();
+    void sendImportCommand("openArtwork", { id: entry.id }).then(
+      (answer: any) => {
+        if (answer?.route) navigateSteamRoute(answer.route);
+      },
+      () => {},
+    );
+  };
   const actions = [
+    entry.appId > 0 && entry.action !== "Remove"
+      ? { label: "Change artwork…", command: "", run: openArtwork }
+      : null,
     entry.excluded
       ? { label: "Offer again", command: "include" }
       : entry.action === "Add" || entry.action === "Adopt"
         ? { label: "Don't import", command: "exclude" }
         : null,
-  ].filter((action) => action !== null) as { label: string; command: string }[];
+  ].filter((action) => action !== null) as { label: string; command: string; run?: () => void }[];
   const rows: [string, string][] = [
     ["Launch route", entry.launchLabel],
     ["Why", entry.launchEvidence],
     ["Multiplayer", entry.multiplayer],
     ["Why", entry.multiplayerEvidence],
     ["This sync would", `${importActionLabels[entry.action] ?? entry.action}: ${entry.reason}`],
+    [
+      "Store artwork",
+      `${entry.artworkOffered ?? 0} offered` +
+        (entry.artworkApplied === null || entry.artworkApplied === undefined
+          ? ""
+          : `, ${entry.artworkApplied} applied`),
+    ],
     ["Identity", entry.identity],
     ["Installed at", entry.installPath || "unknown"],
   ];
@@ -169,7 +190,11 @@ const renderImportDetailModal = (entry: any, close: () => void) => {
           ...actions.map((action) =>
             react.createElement(
               importUi.dialogButton,
-              { key: action.command, onActivate: () => act(action.command), onClick: () => act(action.command) },
+              {
+                key: action.label,
+                onActivate: action.run ?? (() => act(action.command)),
+                onClick: action.run ?? (() => act(action.command)),
+              },
               action.label,
             ),
           ),

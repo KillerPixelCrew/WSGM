@@ -19,7 +19,7 @@ public static class SteamLibraryImportSurface
 
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } =
-        ["scan", "cancel", "toggleEntry", "selectAll", "setMode", "exclude", "include", "apply"];
+        ["scan", "cancel", "toggleEntry", "selectAll", "setMode", "exclude", "include", "openArtwork", "apply"];
 
     /// <summary>Installs the import renderer and its state subscription.</summary>
     /// <remarks>
@@ -87,6 +87,8 @@ public static class SteamLibraryImportSurface
                     backend.ExcludeAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "include", TryReadId,
                     backend.IncludeAsync, "The import selection payload is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "openArtwork", TryReadId,
+                    backend.OpenArtworkAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command(PatchId, "apply", backend.ApplyAsync)
             ]);
     }

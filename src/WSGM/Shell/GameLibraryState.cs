@@ -25,6 +25,12 @@ namespace WSGM.Shell;
 /// <param name="Selected">Whether the user has it selected.</param>
 /// <param name="Selectable">Whether it may be selected at all.</param>
 /// <param name="Excluded">Whether the user said not to import it.</param>
+/// <param name="AppId">
+///     Its Steam app id: the one its record names, or the one this run's write was confirmed with.
+///     Zero until it has one, and the page offers "Change artwork" only once it does.
+/// </param>
+/// <param name="ArtworkOffered">How many images the source's catalog offered.</param>
+/// <param name="ArtworkApplied">How many of them were applied, or null before an import.</param>
 /// <param name="Notes">Anything else worth showing.</param>
 public sealed record GameLibraryEntry(
     string Id,
@@ -46,7 +52,10 @@ public sealed record GameLibraryEntry(
     bool Selected,
     bool Selectable,
     bool Excluded,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    uint AppId,
+    int ArtworkOffered,
+    int? ArtworkApplied);
 
 /// <summary>Everything either surface renders: the Steam page and the overlay view alike.</summary>
 /// <param name="Sources">The names of the sources a scan reads, in order.</param>
@@ -115,6 +124,9 @@ public interface IGameLibraryBackend
 
     /// <summary>Offers a left-out title again.</summary>
     Task<SteamUiCommandResult> IncludeAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Opens the artwork page for an entry's shortcut, answering with the route to show.</summary>
+    Task<SteamUiCommandResult> OpenArtworkAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Applies the selected entries.</summary>
     Task<SteamUiCommandResult> ApplyAsync(CancellationToken cancellationToken);

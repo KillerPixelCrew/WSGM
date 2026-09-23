@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -39,6 +40,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
     private readonly Lock _gate = new();
+    private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
     private readonly Func<bool> _includeUnknownRuntime;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
     private readonly Func<string?> _resolveLauncher;
@@ -68,6 +70,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="applyArtwork">Applies catalog images to a confirmed app id, or null to skip.</param>
     /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
     /// <param name="resolveLauncher">Finds the packaged-game launcher, or null for the real one.</param>
+    /// <param name="openArtwork">Opens the artwork page for an app id and title, or null without one.</param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
         ImportStateStore store,
@@ -77,7 +80,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         Func<bool> includeUnknownRuntime,
         Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
         Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null,
-        Func<string?>? resolveLauncher = null)
+        Func<string?>? resolveLauncher = null,
+        Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null)
     {
         _sources = sources;
         _store = store;
@@ -88,6 +92,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         _applyArtwork = applyArtwork;
         _setControllerTarget = setControllerTarget;
         _resolveLauncher = resolveLauncher ?? PackagedLauncherShortcut.ResolveLauncher;
+        _openArtwork = openArtwork;
     }
 
     /// <inheritdoc />
@@ -226,6 +231,50 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     The artwork stage of the pipeline. Store art is applied when a write is confirmed; this is
+    ///     where the user picks something else, per entry, with the entry's own title as the search
+    ///     so a shortcut Steam has not listed yet is not searched for as "App N".
+    /// </remarks>
+    public async Task<SteamUiCommandResult> OpenArtworkAsync(string id, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        uint appId;
+        string title;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(id, out var entry))
+            {
+                return new SteamUiCommandResult(false, "That entry is no longer listed.");
+            }
+
+            appId = entry.AppId;
+            title = entry.Plan.Name;
+            if (appId == 0 || entry.Action is ImportAction.Remove)
+            {
+                return new SteamUiCommandResult(false,
+                    "This title is not in Steam yet. Import it first, then change its artwork.");
+            }
+        }
+
+        if (_openArtwork is null)
+        {
+            return new SteamUiCommandResult(false, "Artwork is unavailable in this session.");
+        }
+
+        var opened = await _openArtwork(appId, title, cancellationToken).ConfigureAwait(false);
+        if (!opened.Succeeded)
+        {
+            return opened;
+        }
+
+        // The route travels in the answer, the same contract the game menu's Change Artwork uses,
+        // so the page follows it the way every other page-opening action is followed.
+        return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+            new Dictionary<string, string> { ["route"] = SteamArtworkBrowserSurface.RouteFor(appId) }));
+    }
+
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ApplyAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -336,7 +385,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 {
                     Mode = entry.Mode,
                     Acknowledged = entry.Mode is ImportMode.SteamIntegration
-                                   && (record?.Acknowledged ?? false)
+                                   && (record?.Acknowledged ?? false),
+                    ArtworkApplied = record is { AppId: > 0 } ? record.ArtworkApplied : null
                 };
 
                 // The user's own decisions, laid over what the plan derived. A picked mode the plan
@@ -449,7 +499,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 return;
             }
 
-            _store.Save(new ImportedEntry
+            ImportedEntry saved = new()
             {
                 Source = entry.Game.SourceId,
                 Key = entry.Game.Key,
@@ -463,7 +513,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 ConfirmedUtc = result.Confirmed
                     ? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                     : string.Empty
-            });
+            };
+            _store.Save(saved);
 
             // The record now says what Steam has, so a choice for this title would only be a second,
             // stale answer to the same question.
@@ -482,8 +533,18 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             // Everything past the confirmed shortcut is decoration or policy the user can redo by
             // hand, so a failure here is noted and the run carries on. Losing the whole import over
             // a capsule that would not download is not a trade worth making.
-            await FinishEntryAsync(generation, entry, result.AppId, cancellationToken)
+            var artwork = await FinishEntryAsync(generation, entry, result.AppId, cancellationToken)
                 .ConfigureAwait(false);
+            saved.ArtworkApplied = artwork;
+            _store.Save(saved);
+
+            // The entry now has the id Steam gave it, so the review can offer its artwork without a
+            // rescan - which is the point of choosing art after the write rather than before it.
+            lock (_gate)
+            {
+                entry.AppliedAppId = result.AppId;
+                entry.ArtworkApplied = artwork;
+            }
 
             applied++;
             Progress(generation, applied);
@@ -499,8 +560,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             _phase = "done";
             _notice = $"Applied {applied} of {selected.Count} selected entry/entries."
                       + (_artworkMissing
-                          ? " Some titles had no Store artwork; open a game's menu and choose Change"
-                            + " Artwork to set its capsule."
+                          ? " Some titles got no Store artwork; open one's details and choose Change"
+                            + " artwork to pick some."
                           : string.Empty);
             Publish();
         }
@@ -626,7 +687,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="entry">The entry that was written.</param>
     /// <param name="appId">Its confirmed app id.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    private async Task FinishEntryAsync(
+    /// <returns>How many Store images were applied.</returns>
+    private async Task<int> FinishEntryAsync(
         long generation, Entry entry, uint appId, CancellationToken cancellationToken)
     {
         try
@@ -648,27 +710,27 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
         if (_applyArtwork is null)
         {
-            return;
+            return 0;
         }
 
         if (entry.Game.Artwork.Count == 0)
         {
             _artworkMissing = true;
-            return;
+            return 0;
         }
 
         try
         {
-            if (await _applyArtwork(appId, entry.Game.Artwork, cancellationToken)
-                    .ConfigureAwait(false) == 0)
-            {
-                _artworkMissing = true;
-            }
+            var applied = await _applyArtwork(appId, entry.Game.Artwork, cancellationToken)
+                .ConfigureAwait(false);
+            _artworkMissing |= applied == 0;
+            return applied;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _artworkMissing = true;
             Note(generation, $"{entry.Plan.Name} was added, but its Store artwork did not apply.");
+            return 0;
         }
     }
 
@@ -828,7 +890,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             entry.Selected,
             entry.Selectable,
             entry.Excluded,
-            entry.Game.Notes);
+            entry.Game.Notes,
+            entry.AppId,
+            entry.Game.Artwork.Count,
+            entry.ArtworkApplied);
     }
 
     private sealed class Entry(string id, ImportPlanEntry plan, DiscoveredGame game)
@@ -842,6 +907,15 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
         /// <summary>Whether the user said not to import this title.</summary>
         internal bool Excluded { get; set; }
+
+        /// <summary>The id this run's write was confirmed with, or zero.</summary>
+        internal uint AppliedAppId { get; set; }
+
+        /// <summary>How many Store images were applied, or null before an import.</summary>
+        internal int? ArtworkApplied { get; set; }
+
+        /// <summary>The entry's Steam app id, once it has one.</summary>
+        internal uint AppId => AppliedAppId > 0 ? AppliedAppId : Plan.AppId;
 
         /// <summary>Whether the user has moved this entry off the mode Steam's entry launches with.</summary>
         private bool Rerouted => Mode != Plan.Mode && Plan.AppId > 0;

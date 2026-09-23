@@ -25,6 +25,14 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
     private readonly object _gate = new();
+
+    /// <summary>What a caller said a game is called, for games Steam's list does not name yet.</summary>
+    /// <remarks>
+    ///     The Game Library opens this page for a shortcut it created seconds earlier, which Steam's
+    ///     library listing does not carry yet. Without a hint the page names it "App N" and searches
+    ///     SteamGridDB for exactly that.
+    /// </remarks>
+    private readonly Dictionary<uint, string> _titleHints = [];
     private readonly Func<ArtworkConfig> _readConfiguration;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ArtworkStateStore _store;
@@ -432,6 +440,16 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
 
     internal Task<SteamUiCommandResult> OpenAsync(uint appId, CancellationToken cancellationToken)
     {
+        return OpenAsync(appId, null, cancellationToken);
+    }
+
+    /// <summary>Opens the page for one game, naming it when Steam cannot yet.</summary>
+    /// <param name="appId">The game's Steam app id.</param>
+    /// <param name="titleHint">What the caller calls it, or null to rely on Steam's list.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Whether the page could be opened.</returns>
+    internal Task<SteamUiCommandResult> OpenAsync(uint appId, string? titleHint, CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         if (appId == 0)
         {
@@ -448,6 +466,11 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             : tabs[0].Id;
         lock (_gate)
         {
+            if (!string.IsNullOrWhiteSpace(titleHint))
+            {
+                _titleHints[appId] = titleHint.Trim();
+            }
+
             _load?.Cancel();
             _load?.Dispose();
             _load = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
@@ -471,7 +494,7 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
                 : null;
             _state = new SteamArtworkBrowserState(
                 appId,
-                $"App {appId.ToString(CultureInfo.InvariantCulture)}",
+                FallbackName(appId),
                 tabs,
                 initialTab,
                 [],
@@ -550,6 +573,14 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
         }
     }
 
+    /// <summary>What to call a game Steam's list does not name. Call under the gate.</summary>
+    private string FallbackName(uint appId)
+    {
+        return _titleHints.TryGetValue(appId, out var hint)
+            ? hint
+            : $"App {appId.ToString(CultureInfo.InvariantCulture)}";
+    }
+
     private async Task LoadAsync(
         uint appId, string tab, int page, bool append, long generation, CancellationToken cancellationToken)
     {
@@ -571,8 +602,13 @@ internal sealed class SteamArtworkBrowserSource : ISteamArtworkBrowserBackend, I
             }
 
             var games = await gamesTask.ConfigureAwait(false);
-            var name = games.FirstOrDefault(game => unchecked((uint)game.AppId) == appId)?.Name
-                       ?? $"App {appId.ToString(CultureInfo.InvariantCulture)}";
+            string fallback;
+            lock (_gate)
+            {
+                fallback = FallbackName(appId);
+            }
+
+            var name = games.FirstOrDefault(game => unchecked((uint)game.AppId) == appId)?.Name ?? fallback;
             if (selected is null && SteamApps.IsShortcutAppId(appId) && page == 0)
             {
                 selected = (await ArtworkSearch.SearchGamesAsync(name, config, cancellationToken)

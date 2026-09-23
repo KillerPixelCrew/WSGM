@@ -353,6 +353,98 @@ public sealed class GameLibraryServiceTests
         Assert.Equal("Update", Assert.Single(source.ReadState().Entries).Action);
     }
 
+    [Fact]
+    public async Task ATitleNotInSteamYetCannotOpenTheArtworkPage()
+    {
+        using TemporaryDirectory temporary = new();
+        var opened = 0;
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], new ImportStateStore(temporary.GetPath("import.json")), () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false,
+            openArtwork: (_, _, _) =>
+            {
+                opened++;
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            });
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.False((await source.OpenArtworkAsync(entry.Id, CancellationToken.None)).Succeeded);
+        Assert.Equal(0, opened);
+    }
+
+    [Fact]
+    public async Task AnImportedTitleOpensTheArtworkPageUnderItsOwnName()
+    {
+        // The title travels with the request, because a shortcut created moments ago is not in
+        // Steam's list yet and would otherwise be searched for as "App 77".
+        using TemporaryDirectory temporary = new();
+        const string options = "--aumid Publisher.Game_abc!App --mode steam-overlay";
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = "Publisher.Game_abc!App", Name = "Moonlit", AppId = 77,
+            Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.SteamIntegration)
+        });
+        (uint AppId, string Title)? asked = null;
+        using GameLibraryService source = new(
+            [new FakeSource([Game()])], store, () => null,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
+            () => ImportMode.SteamIntegration, () => false, resolveLauncher: () => Launcher,
+            openArtwork: (appId, title, _) =>
+            {
+                asked = (appId, title);
+                return Task.FromResult(SteamUiCommandResult.Applied);
+            });
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        var answer = await source.OpenArtworkAsync(entry.Id, CancellationToken.None);
+
+        Assert.True(answer.Succeeded);
+        Assert.Equal((77u, "Moonlit"), asked);
+        Assert.Equal("/wsgm/artwork/77", answer.Payload?.GetProperty("route").GetString());
+    }
+
+    [Fact]
+    public async Task AnAddedTitleLearnsItsAppIdSoItsArtworkCanBeChangedWithoutARescan()
+    {
+        // Choosing artwork happens after the write, when Steam has given the entry an id. If the
+        // entry never learned it, every title just imported would be the one title the page could
+        // not offer artwork for.
+        using TemporaryDirectory temporary = new();
+        const uint created = 2147483651u;
+        Queue<IReadOnlyList<uint>> listings = new([[], [created]]);
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult(listings.Count > 0 ? listings.Dequeue() : [created]),
+            (_, _, _, _, _) => Task.FromResult(created),
+            (_, _, _, _) => Task.FromResult(true),
+            (_, _) => Task.FromResult(true));
+        var game = Game() with
+        {
+            Artwork = [new DiscoveredArtwork(ArtworkAsset.Grid, "https://store/a.png"),
+                new DiscoveredArtwork(ArtworkAsset.Hero, "https://store/b.png")]
+        };
+        using GameLibraryService source = new(
+            [new FakeSource([game])], new ImportStateStore(temporary.GetPath("import.json")), () => writer,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false,
+            applyArtwork: (_, images, _) => Task.FromResult(images.Count),
+            resolveLauncher: () => Launcher);
+        await ScannedAsync(source);
+
+        Assert.True((await source.ApplyAsync(CancellationToken.None)).Succeeded);
+        for (var attempt = 0; attempt < 300 && source.ReadState().Phase != "done"; attempt++)
+        {
+            await Task.Delay(20);
+        }
+
+        var entry = Assert.Single(source.ReadState().Entries);
+        Assert.Equal("done", source.ReadState().Phase);
+        Assert.Equal(created, entry.AppId);
+        Assert.Equal(2, entry.ArtworkOffered);
+        Assert.Equal(2, entry.ArtworkApplied);
+    }
+
     private sealed class FakeSource(IReadOnlyList<DiscoveredGame> games) : ILibrarySource
     {
         public string Id => "xbox";
