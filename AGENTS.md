@@ -87,6 +87,12 @@ repository guidance, plans and skills, including branch and pull-request instruc
   name where each one now lives or why it is gone. A file that is dissolved rather than moved is
   where the losses hide: the artwork fold dropped eight of twelve settings and the configuration-
   changed hook that way, and both shipped because nothing compared the two surfaces.
+- A plan records the scope and the finished product before it lists any edits: what the feature is
+  for, which surfaces reach it, its components and who owns each, and what a user can do with it
+  when it is complete. A list of file moves and changes is not a plan, because nothing can be
+  checked against it. Before calling the work done, compare the code against that description
+  point by point - every component at its named home, every surface reaching every stage, every
+  lifecycle hook wired - and report each gap. Compiling and passing tests is not that check.
 - Rider's formatter is the C# layout authority. Its Full Cleanup profile (the same ReSharper
   engine that `jb cleanupcode` and `jb inspectcode` run) defines the layout, including
   expanded braces and the JetBrains recommended style: `var` for locals, no trailing commas in
