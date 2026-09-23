@@ -433,6 +433,8 @@ public static class ConfigStore
         NormalizeProfiles(config.Profiles, config.DeviceIntegration);
         config.Artwork ??= new ArtworkConfig();
         NormalizeArtwork(config.Artwork);
+        config.GameLibrary ??= new GameLibraryConfig();
+        NormalizeGameLibrary(config.GameLibrary);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -692,6 +694,16 @@ public static class ConfigStore
                 .ToList();
             game.Values ??= new ProfileValues();
             NormalizeProfileValues(game.Values, authored);
+        }
+    }
+
+    /// <summary>Repairs a Game Library section a hand edit left naming no mode that exists.</summary>
+    /// <param name="library">The section to repair in place.</param>
+    internal static void NormalizeGameLibrary(GameLibraryConfig library)
+    {
+        if (!Enum.IsDefined(library.DefaultMode))
+        {
+            library.DefaultMode = ImportMode.SteamIntegration;
         }
     }
 

@@ -160,6 +160,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ArtworkScreenscraperEnabled = _config.Artwork.ScreenscraperEnabled;
         ArtworkScreenscraperUser = _config.Artwork.ScreenscraperUser;
         ArtworkScreenscraperPassword = _config.Artwork.ScreenscraperUserPassword;
+        GameLibraryDefaultModeIndex = _config.GameLibrary.DefaultMode is ImportMode.ControllerOnly ? 1 : 0;
+        GameLibraryImportUnroutable = _config.GameLibrary.ImportUnroutable;
         LoadArtworkTabs();
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
@@ -591,6 +593,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     reordering edit and nothing else has to be kept in step.
     /// </remarks>
     public ObservableCollection<ArtworkTabRow> ArtworkTabs { get; } = [];
+
+    /// <summary>Gets the launch modes a new Game Library title can start on, in index order.</summary>
+    public IReadOnlyList<string> GameLibraryModes { get; } = ["Steam overlay", "Controller only"];
+
+    /// <summary>Gets or sets which mode a newly found single-player title starts on.</summary>
+    public int GameLibraryDefaultModeIndex
+    {
+        get;
+        set => SetField(ref field, value, nameof(GameLibraryDefaultModeIndex));
+    }
+
+    /// <summary>Gets or sets whether titles with no validated launch route are offered.</summary>
+    public bool GameLibraryImportUnroutable
+    {
+        get;
+        set => SetField(ref field, value, nameof(GameLibraryImportUnroutable));
+    }
 
     /// <summary>Gets or sets which tab the artwork page opens on, as an index into the strip.</summary>
     public int ArtworkDefaultTabIndex
@@ -1941,6 +1960,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Artwork.ShowLogo = IsArtworkTabChecked("logo");
         config.Artwork.ShowIcon = IsArtworkTabChecked("icon");
         config.Artwork.ShowManage = IsArtworkTabChecked("manage");
+        config.GameLibrary.DefaultMode = GameLibraryDefaultModeIndex == 1
+            ? ImportMode.ControllerOnly
+            : ImportMode.SteamIntegration;
+        config.GameLibrary.ImportUnroutable = GameLibraryImportUnroutable;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
         // Same rule as the three below, for the same reason: only settings this window actually

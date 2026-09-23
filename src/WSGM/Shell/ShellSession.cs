@@ -1026,8 +1026,8 @@ public sealed class ShellSession : IAsyncDisposable
                 async (appId, token) =>
                     (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
             async token => [.. await ReadShortcutsAsync(token).ConfigureAwait(false)],
-            () => ImportMode.SteamIntegration,
-            () => false,
+            () => _config.GameLibrary.DefaultMode,
+            () => _config.GameLibrary.ImportUnroutable,
             ApplyCatalogArtworkAsync,
             (id, name, target, token) => _profiles is null
                 ? Task.CompletedTask

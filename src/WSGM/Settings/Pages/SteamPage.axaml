@@ -175,6 +175,33 @@
         </ItemsControl>
 
         <Border Classes="section-header">
+          <TextBlock Text="GAME LIBRARY" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="New titles launch with" Classes="setting-title" />
+              <TextBlock Text="A multiplayer title always starts controller only. You can change any title on its own."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryModes}"
+                      SelectedIndex="{Binding GameLibraryDefaultModeIndex}" VerticalAlignment="Center"
+                      AutomationProperties.Name="Launch mode for new Game Library titles" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Offer titles with no launch route" Classes="setting-title" />
+              <TextBlock Text="Packages WSGM cannot give the Steam overlay. They can only be imported as controller only."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GameLibraryImportUnroutable}"
+                          VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+
+        <Border Classes="section-header">
           <TextBlock Text="WINDOWS POLICIES" />
         </Border>
         <Border Classes="setting-row alt">

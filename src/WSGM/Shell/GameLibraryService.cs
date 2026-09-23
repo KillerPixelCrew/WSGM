@@ -41,7 +41,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
     private readonly Lock _gate = new();
     private readonly Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
-    private readonly Func<bool> _includeUnknownRuntime;
+    private readonly Func<bool> _includeUnroutable;
     private readonly Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> _readLibrary;
     private readonly Func<string?> _resolveLauncher;
     private readonly Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? _setControllerTarget;
@@ -66,7 +66,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="writer">Opens a shortcut writer over the live client, or null when unreachable.</param>
     /// <param name="readLibrary">Reads the shortcuts Steam currently holds.</param>
     /// <param name="defaultMode">The mode an entry starts on.</param>
-    /// <param name="includeUnknownRuntime">Whether unclassified titles may be selected.</param>
+    /// <param name="includeUnroutable">Whether titles with no validated launch route are offered.</param>
     /// <param name="applyArtwork">Applies catalog images to a confirmed app id, or null to skip.</param>
     /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
     /// <param name="resolveLauncher">Finds the packaged-game launcher, or null for the real one.</param>
@@ -77,7 +77,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         Func<SteamShortcutWriter?> writer,
         Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
         Func<ImportMode> defaultMode,
-        Func<bool> includeUnknownRuntime,
+        Func<bool> includeUnroutable,
         Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
         Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null,
         Func<string?>? resolveLauncher = null,
@@ -88,7 +88,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         _writer = writer;
         _readLibrary = readLibrary;
         _defaultMode = defaultMode;
-        _includeUnknownRuntime = includeUnknownRuntime;
+        _includeUnroutable = includeUnroutable;
         _applyArtwork = applyArtwork;
         _setControllerTarget = setControllerTarget;
         _resolveLauncher = resolveLauncher ?? PackagedLauncherShortcut.ResolveLauncher;
@@ -355,7 +355,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         var recorded = _store.Entries();
         var choices = _store.Choices();
         var plan = ImportPlan.Build(
-            discovered, recorded, existing, launcher, _defaultMode(), _includeUnknownRuntime());
+            discovered, recorded, existing, launcher, _defaultMode(), _includeUnroutable());
 
         lock (_gate)
         {
