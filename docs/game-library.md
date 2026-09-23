@@ -99,17 +99,21 @@ write is never retried, because it may well have succeeded and asking again is h
 made.
 
 - **Update** rewrites the launch fields in place, never remove-and-re-add, which would lose the id
-  and its artwork. Changing the mode of an imported or adopted title makes it an update.
+  and its artwork. It only happens because the user changed an imported or adopted title's mode.
 - **Adopt** takes over an unrecorded entry as what it currently launches, and records its live
   fields.
-- **Conflict** means the entry was edited by hand; it is never touched.
+- **Conflict** means the entry was edited by hand: its Target is no longer ours, or its fields
+  differ from what was written even with our Target and key still in them. It is never touched,
+  because restoring the recorded command would silently undo the user's own change.
 - **Remove** needs the record, the live entry, our Target and our key to agree, and is never
   pre-selected. A record whose shortcut is already gone is cleaned up without a client call.
 
 While an apply runs the list is read-only: a mode changed between composing a shortcut and recording
 it would be pinned while the shortcut still launched the old way. Each applied title is deselected,
 so when more are selected than one run takes, the next apply carries on with the rest. A controller
-override that could not be written is reported as an error when the run ends.
+override that could not be written is reported as an error when the run ends, and so is a
+controller-only title applied while controller management is off, since nothing would switch the
+controller for it. An update or an adoption keeps the artwork the entry already has.
 
 Each entry is re-checked against Steam immediately before its own write, keeping the user's chosen
 action and rechecking only its premise. Applies are capped per run; a failure stops and reports how
@@ -118,7 +122,7 @@ than being read as "not ours", which would add a duplicate.
 
 ## The artwork stage
 
-When a write is confirmed, the Store's images are applied to the new shortcut, each to the capsule
+When a new shortcut's write is confirmed, the Store's images are applied to it, each to the capsule
 whose shape it fills, and the count is recorded. The entry learns its app id at that moment, so
 "Change artwork…" is offered straight away. It opens the artwork page for that shortcut exactly as
 the game menu does - the host opens the artwork source for the title and answers with the route -

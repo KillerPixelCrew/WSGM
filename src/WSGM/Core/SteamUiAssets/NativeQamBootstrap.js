@@ -9028,14 +9028,14 @@
           { className: "wsgm-import-bar", "flow-children": "row" },
           react.createElement(
             importUi.dialogButton,
-            { disabled: busy, onActivate: () => void sendImportCommand("scan") },
+            { disabled: busy, onClick: () => void sendImportCommand("scan") },
             busy && state.phase === "scanning" ? "Scanning…" : "Scan",
           ),
           react.createElement(
             importUi.dialogButton,
             {
               disabled: !entries.length || busy,
-              onActivate: () =>
+              onClick: () =>
                 void sendImportCommand("selectAll", { selected: !state.selectedCount }),
             },
             state.selectedCount ? "Clear" : "Select all",
@@ -9044,7 +9044,7 @@
             importUi.dialogButtonPrimary,
             {
               disabled: !state.selectedCount || busy || !state.launcherAvailable,
-              onActivate: () => void sendImportCommand("apply"),
+              onClick: () => void sendImportCommand("apply"),
             },
             state.phase === "applying"
               ? `Applying ${state.progress ?? 0}/${state.progressTotal ?? 0}…`
@@ -9053,7 +9053,7 @@
           busy
             ? react.createElement(
                 importUi.dialogButton,
-                { onActivate: () => void sendImportCommand("cancel") },
+                { onClick: () => void sendImportCommand("cancel") },
                 "Stop",
               )
             : null,

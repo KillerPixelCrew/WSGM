@@ -48,6 +48,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <summary>Titles whose controller override could not be written in this run.</summary>
     private readonly List<string> _controllerFailures = [];
 
+    private readonly Func<bool> _controllerManaged;
+
+    /// <summary>Controller-only titles applied while nothing manages the controller.</summary>
+    private readonly List<string> _controllerUnmanaged = [];
+
     private readonly Func<ImportMode> _defaultMode;
 
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
@@ -84,6 +89,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="setControllerTarget">Writes the per-game controller override, or null to skip.</param>
     /// <param name="resolveLauncher">Finds the packaged-game launcher, or null for the real one.</param>
     /// <param name="openArtwork">Opens the artwork page for an app id and title, or null without one.</param>
+    /// <param name="controllerManaged">Whether anything switches the controller for a running title.</param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
         ImportStateStore store,
@@ -94,7 +100,8 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         Func<uint, IReadOnlyList<DiscoveredArtwork>, CancellationToken, Task<int>>? applyArtwork = null,
         Func<string, string, ManagedControllerTarget?, CancellationToken, Task>? setControllerTarget = null,
         Func<string?>? resolveLauncher = null,
-        Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null)
+        Func<uint, string, CancellationToken, Task<SteamUiCommandResult>>? openArtwork = null,
+        Func<bool>? controllerManaged = null)
     {
         _sources = sources;
         _store = store;
@@ -106,6 +113,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
         _setControllerTarget = setControllerTarget;
         _resolveLauncher = resolveLauncher ?? PackagedLauncherShortcut.ResolveLauncher;
         _openArtwork = openArtwork;
+        _controllerManaged = controllerManaged ?? (() => true);
     }
 
     /// <inheritdoc />
@@ -225,7 +233,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
                 return Task.FromResult(new SteamUiCommandResult(false, "That entry is no longer listed."));
             }
 
-            if (!Enum.TryParse<ImportMode>(mode, true, out var wanted))
+            if (!Enum.TryParse<ImportMode>(mode, true, out var wanted) || !Enum.IsDefined(wanted))
             {
                 return Task.FromResult(new SteamUiCommandResult(false, $"'{mode}' is not a launch mode."));
             }
@@ -450,6 +458,7 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     {
         _artworkMissing = false;
         _controllerFailures.Clear();
+        _controllerUnmanaged.Clear();
         var writer = _writer();
         if (writer is null)
         {
@@ -567,7 +576,10 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             // Everything past the confirmed shortcut is decoration or policy the user can redo by
             // hand, so a failure here is noted and the run carries on. Losing the whole import over
             // a capsule that would not download is not a trade worth making.
-            var artwork = await FinishEntryAsync(generation, entry, result.AppId, cancellationToken)
+            // Store art only for a shortcut this run created. An update or an adoption keeps the
+            // artwork the entry already has, which may well be something the user chose.
+            var artwork = await FinishEntryAsync(generation, entry, result.AppId,
+                    current.Action is ImportAction.Add, cancellationToken)
                 .ConfigureAwait(false);
             saved.ArtworkApplied = artwork;
             _store.Save(saved);
@@ -607,10 +619,22 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
             // A controller-only title with no override has no working controller route, and nothing
             // on a rescan would show it: its record and shortcut say controller-only. So it is an
             // error the user sees, not a note the completion message replaces.
-            _error = _controllerFailures.Count == 0
-                ? null
-                : $"The controller override could not be written for {string.Join(", ", _controllerFailures)}. "
-                  + "Set Xbox 360 on its per-game profile in Quick Access, or apply it again.";
+            List<string> problems = [];
+            if (_controllerFailures.Count > 0)
+            {
+                problems.Add($"The controller override could not be written for "
+                             + $"{string.Join(", ", _controllerFailures)}. Set Xbox 360 on its per-game "
+                             + "profile in Quick Access, or apply it again.");
+            }
+
+            if (_controllerUnmanaged.Count > 0)
+            {
+                problems.Add($"{string.Join(", ", _controllerUnmanaged)} launch controller only, but "
+                             + "controller management is off, so nothing will switch the controller. Turn on "
+                             + "Device Integration and controller management in Settings.");
+            }
+
+            _error = problems.Count == 0 ? null : string.Join(" ", problems);
             Publish();
         }
     }
@@ -740,11 +764,22 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
     /// <param name="generation">The run this belongs to.</param>
     /// <param name="entry">The entry that was written.</param>
     /// <param name="appId">Its confirmed app id.</param>
+    /// <param name="applyArtwork">Whether to apply Store art: only for a shortcut this run created.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>How many Store images were applied.</returns>
+    /// <returns>How many Store images were applied, or the count the entry already had.</returns>
     private async Task<int> FinishEntryAsync(
-        long generation, Entry entry, uint appId, CancellationToken cancellationToken)
+        long generation, Entry entry, uint appId, bool applyArtwork, CancellationToken cancellationToken)
     {
+        if (entry.Mode is ImportMode.ControllerOnly && !_controllerManaged())
+        {
+            // The override is still written, so it takes effect as soon as management is on, but
+            // until then nothing switches the controller and the title has no controller route.
+            lock (_gate)
+            {
+                _controllerUnmanaged.Add(entry.Plan.Name);
+            }
+        }
+
         try
         {
             if (_setControllerTarget is not null)
@@ -765,6 +800,11 @@ internal sealed class GameLibraryService : IGameLibraryBackend, IDisposable
 
             Note(generation,
                 $"{entry.Plan.Name} was added, but its controller override could not be written.");
+        }
+
+        if (!applyArtwork)
+        {
+            return entry.ArtworkApplied ?? 0;
         }
 
         if (_applyArtwork is null)

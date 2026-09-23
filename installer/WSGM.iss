@@ -188,6 +188,10 @@ Filename: "{app}\WSGM.exe"; Flags: nowait; Check: WasSettingsRunning
 Filename: "{app}\WSGM.exe"; Description: "Open WSGM settings"; Flags: nowait postinstall skipifsilent; Check: WasNothingRunning
 
 [UninstallRun]
+; Release any packaged game a killed launcher left outside lifetime management, while the launcher
+; and its journal still exist. [UninstallDelete] removes both, and after that nothing could ever
+; put such a package back.
+Filename: "{app}\WSGM.PackagedLaunch.exe"; Parameters: "--recover"; RunOnceId: "ReleasePackageExemptions"; Flags: runhidden skipifdoesntexist
 ; Remove the Steam Input shim from STEAM's directory before anything else — it is
 ; the only file WSGM puts outside its own install, it needs {app}\WSGM.exe to
 ; still exist, and only WSGM can tell its own copy from a same-named file another

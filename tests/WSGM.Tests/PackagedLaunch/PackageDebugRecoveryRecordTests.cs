@@ -194,4 +194,20 @@ public sealed class PackageDebugRecoveryRecordTests
 
         Assert.Equal("Kept_x__y", Assert.Single(abandoned));
     }
+
+    [Fact]
+    public void AnotherRunningLauncherIsSeenAsAnOwnerAndThisOneIsNot()
+    {
+        // A normal exit asks this before releasing a package-wide exemption.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("recovery.json");
+        var writer = Journal(path, static (_, _) => true);
+        writer.Add(Package, 1111, DateTime.UtcNow);
+
+        Assert.False(Journal(path, static (_, _) => true).HasOtherLiveOwner(Package, 1111));
+
+        writer.Add(Package, 2222, DateTime.UtcNow);
+        Assert.True(Journal(path, static (_, _) => true).HasOtherLiveOwner(Package, 1111));
+        Assert.False(Journal(path, static (pid, _) => pid == 1111).HasOtherLiveOwner(Package, 1111));
+    }
 }

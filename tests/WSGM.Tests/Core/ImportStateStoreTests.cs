@@ -131,4 +131,17 @@ public sealed class ImportStateStoreTests
 
         Assert.Equal("B_y!App", Assert.Single(store.Choices()).Key);
     }
+
+    [Fact]
+    public void ANumericModeThatNamesNothingIsDroppedOnLoad()
+    {
+        // Numeric strings parse as an enum whether or not they name a value.
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        File.WriteAllText(path, """
+                                {"Entries":[],"Choices":[{"Source":"xbox","Key":"A_x!App","Mode":"999"}]}
+                                """);
+
+        Assert.Empty(new ImportStateStore(path).Choices());
+    }
 }

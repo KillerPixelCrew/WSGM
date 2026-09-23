@@ -176,6 +176,24 @@ public sealed class PackageDebugRecoveryRecord(string path, Func<int, DateTime?,
         return abandoned;
     }
 
+    /// <summary>Whether another launcher that is still running holds an exemption for a package.</summary>
+    /// <param name="packageFullName">The package.</param>
+    /// <param name="launcherProcessId">This launcher, which does not count.</param>
+    /// <returns>True when releasing the package would take the exemption from a running game.</returns>
+    public bool HasOtherLiveOwner(string packageFullName, int launcherProcessId)
+    {
+        var owned = false;
+        Mutate(state =>
+        {
+            owned = state.Records.Any(record =>
+                record.LauncherProcessId != launcherProcessId
+                && string.Equals(record.PackageFullName, packageFullName, StringComparison.OrdinalIgnoreCase)
+                && isOwnerAlive(record.LauncherProcessId, Parse(record.LauncherStartedUtc)));
+            return false;
+        });
+        return owned;
+    }
+
     /// <summary>Drops every record for a package that has now been released.</summary>
     /// <param name="packageFullName">The package that is back under lifetime management.</param>
     public void Forget(string packageFullName)

@@ -157,6 +157,8 @@ internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposa
             PackagedLaunchLog.Warn(
                 $"The gamepad activation bridge did not initialize (result {Describe(input)}). The "
                 + "overlay is unaffected; this game's engine may not be one the bridge covers.");
+            return new RouteOutcome(true,
+                $"The overlay bridge is active in process {gameProcessId}, without Steam Input.", true);
         }
 
         return new RouteOutcome(true, $"The overlay bridge is active in process {gameProcessId}.");

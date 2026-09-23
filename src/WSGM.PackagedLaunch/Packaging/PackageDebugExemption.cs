@@ -26,26 +26,42 @@ internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) 
     {
         if (_settings is not null && _packageFullName is { } packageFullName)
         {
-            try
+            if (journal.HasOtherLiveOwner(packageFullName, Environment.ProcessId))
             {
-                var result = ((NativeMethods.IPackageDebugSettings)_settings).DisableDebugging(packageFullName);
-                if (result < 0)
-                {
-                    PackagedLaunchLog.Warn(
-                        $"Could not release the package lifetime exemption: 0x{result:X8}");
-                }
-                else
-                {
-                    journal.Remove(packageFullName, Environment.ProcessId);
-                }
+                // Releasing is package-wide. Another imported title from this package is still
+                // running, and taking its exemption away would let it be suspended on the next
+                // Alt-Tab. The last launcher out releases it; this one only drops its own record.
+                PackagedLaunchLog.Info(
+                    $"Package lifetime: {packageFullName} stays exempt for another running launcher.");
+                journal.Remove(packageFullName, Environment.ProcessId);
             }
-            catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
+            else
             {
-                PackagedLaunchLog.Warn($"Could not release the package lifetime exemption: {ex.Message}");
+                ReleaseExemption(packageFullName);
             }
         }
 
         Release();
+    }
+
+    private void ReleaseExemption(string packageFullName)
+    {
+        try
+        {
+            var result = ((NativeMethods.IPackageDebugSettings)_settings!).DisableDebugging(packageFullName);
+            if (result < 0)
+            {
+                PackagedLaunchLog.Warn($"Could not release the package lifetime exemption: 0x{result:X8}");
+            }
+            else
+            {
+                journal.Remove(packageFullName, Environment.ProcessId);
+            }
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or NotSupportedException)
+        {
+            PackagedLaunchLog.Warn($"Could not release the package lifetime exemption: {ex.Message}");
+        }
     }
 
     /// <summary>Exempts one package, recording it first so a kill cannot lose it.</summary>

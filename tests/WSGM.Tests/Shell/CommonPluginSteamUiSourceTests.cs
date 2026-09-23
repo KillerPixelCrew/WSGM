@@ -161,7 +161,11 @@ public sealed class CommonPluginSteamUiSourceTests
                 // No renderer: Valve's default would render the route as an empty page.
                 new SteamPage("default", "/wsgm/default", "Default"),
                 new SteamPage("relative", "wsgm/relative", "Relative", Template: "plugin-page"),
-                new SteamPage("root", "/", "Root", Template: "plugin-page")
+                new SteamPage("root", "/", "Root", Template: "plugin-page"),
+                // A package can hand back null whatever the annotations say. It must be refused, not
+                // dereferenced in the publication every host Steam surface rides on.
+                new SteamPage("null-path", null!, "Null path", Template: "plugin-page"),
+                new SteamPage("null-template", "/wsgm/null-template", "Null template", Template: null!)
             ]
         };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),

@@ -210,11 +210,11 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
     private static bool Admissible(SteamPage page)
     {
-        return page is not null
+        // Property patterns are null-safe. A package can hand back null for either string whatever
+        // the annotations say, and dereferencing it would throw out of the publication that every
+        // host Steam surface rides on, not just this package's page.
+        return page is { Path.Length: > 1 and <= 256, Template.Length: > 0, Override: false }
                && page.Path.StartsWith('/')
-               && page.Path.Length is > 1 and <= 256
-               && !page.Override
-               && page.Template.Length > 0
                && !string.Equals(page.Template, "default", StringComparison.OrdinalIgnoreCase);
     }
 

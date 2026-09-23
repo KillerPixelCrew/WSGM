@@ -166,6 +166,7 @@ internal static class Program
             appContainer = new AppContainerOverlayRoute(injector);
             var prepared = appContainer.Prepare(activation.SeedProcessId, request.Diagnostics);
             PackagedLaunchLog.Info(prepared.Detail);
+            degraded |= prepared.Degraded;
             if (prepared.Succeeded)
             {
                 // Only for this route. The frame a UWP title renders into belongs to

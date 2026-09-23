@@ -123,4 +123,18 @@ public sealed class StoreCatalogClientTests
         Assert.False(string.IsNullOrWhiteSpace(market));
         Assert.False(string.IsNullOrWhiteSpace(language));
     }
+
+    [Fact]
+    public void AnImageWithNoFormatTheApplyPathKnowsIsNotOffered()
+    {
+        // It would be named by a guess and handed to Steam as whatever that guess was.
+        var entry = StoreCatalogClient.Parse("""
+                                             {"Products":[{"ProductId":"9N","ProductType":"Game","LocalizedProperties":[{"ProductTitle":"G",
+                                               "Images":[{"ImagePurpose":"Poster","Uri":"//store/poster","Width":1,"Height":1},
+                                                         {"ImagePurpose":"Logo","Uri":"//store/logo.png","Width":1,"Height":1}]}],
+                                               "Properties":{"Attributes":[]}}]}
+                                             """);
+
+        Assert.Equal("Logo", Assert.Single(entry!.Images).Purpose);
+    }
 }

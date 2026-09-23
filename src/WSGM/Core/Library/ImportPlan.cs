@@ -108,7 +108,8 @@ public sealed class ImportChoice
     /// <returns>The mode, or null when the user has not picked one.</returns>
     public ImportMode? PickedMode()
     {
-        return Enum.TryParse<ImportMode>(Mode, false, out var mode) ? mode : null;
+        // Numeric strings parse too, whether or not they name a mode.
+        return Enum.TryParse<ImportMode>(Mode, false, out var mode) && Enum.IsDefined(mode) ? mode : null;
     }
 }
 
@@ -288,12 +289,16 @@ public static class ImportPlan
                     ParseMode(record.Mode), canIntegrate, requiresAcknowledgement, record.AppId, false);
             }
 
+            // Steam's fields differing from what was written can only mean somebody edited them,
+            // even with our Target and key left in place - a mode switched by hand, a diagnostic
+            // flag added. Restoring the recorded command would silently undo that, so it is left
+            // alone. A route the user changes here is an update through the entry, not this.
             var wanted = record.Mode.Length > 0 ? ParseMode(record.Mode) : mode;
-            var changed = !string.Equals(live.Target, record.Target, StringComparison.Ordinal)
-                          || !string.Equals(live.LaunchOptions, record.LaunchOptions, StringComparison.Ordinal);
-            return changed
-                ? Entry(game, ImportAction.Update, "This entry's launch command has changed.",
-                    wanted, canIntegrate, requiresAcknowledgement, record.AppId, true)
+            var edited = !string.Equals(live.Target, record.Target, StringComparison.Ordinal)
+                         || !string.Equals(live.LaunchOptions, record.LaunchOptions, StringComparison.Ordinal);
+            return edited
+                ? Entry(game, ImportAction.Conflict, "This entry has been changed by hand, so it is left alone.",
+                    wanted, canIntegrate, requiresAcknowledgement, record.AppId, false)
                 : Entry(game, ImportAction.Skip, "Already imported.",
                     wanted, canIntegrate, requiresAcknowledgement, record.AppId, false);
         }

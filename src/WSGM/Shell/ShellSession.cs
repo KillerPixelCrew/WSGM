@@ -1032,7 +1032,8 @@ public sealed class ShellSession : IAsyncDisposable
             (id, name, target, token) => _profiles is null
                 ? Task.CompletedTask
                 : _profiles.SetApplicationControllerTargetAsync(id, name, target, token),
-            openArtwork: _artwork.OpenAsync);
+            openArtwork: _artwork.OpenAsync,
+            controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true });
     }
 
     /// <summary>Opens a Game Library page inside Steam for the overlay's hand-off.</summary>

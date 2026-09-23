@@ -526,6 +526,84 @@ public sealed class GameLibraryServiceTests
         Assert.Contains("Moonlit", source.ReadState().Error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ANumericModeThatNamesNothingIsRefused()
+    {
+        using TemporaryDirectory temporary = new();
+        using var source = Source(temporary, Game());
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.False((await source.SetModeAsync(entry.Id, "999", true, CancellationToken.None)).Succeeded);
+    }
+
+    [Fact]
+    public async Task ReroutingAnImportedTitleKeepsItsArtwork()
+    {
+        // Store art is for a shortcut the run created. An update may be a title whose capsule the
+        // user already chose, and a launch-mode change must not replace it.
+        using TemporaryDirectory temporary = new();
+        const string options = "--aumid Publisher.Game_abc!App --mode steam-overlay";
+        ImportStateStore store = new(temporary.GetPath("import.json"));
+        store.Save(new ImportedEntry
+        {
+            Source = "xbox", Key = "Publisher.Game_abc!App", Name = "Moonlit", AppId = 77,
+            Target = Launcher, LaunchOptions = options, Mode = nameof(ImportMode.SteamIntegration),
+            ArtworkApplied = 2
+        });
+        var applied = 0;
+        using GameLibraryService source = new(
+            [new FakeSource([Game() with { Artwork = [new DiscoveredArtwork(ArtworkAsset.Grid, "https://s/a.png")] }])],
+            store,
+            () => new SteamShortcutWriter(_ => Task.FromResult<IReadOnlyList<uint>>([77]),
+                (_, _, _, _, _) => Task.FromResult(0u), (_, _, _, _) => Task.FromResult(true),
+                (_, _) => Task.FromResult(true)),
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([new ExistingShortcut(77, Launcher, options)]),
+            () => ImportMode.SteamIntegration, () => false,
+            (_, images, _) =>
+            {
+                applied++;
+                return Task.FromResult(images.Count);
+            },
+            resolveLauncher: () => Launcher);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+        await source.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false, CancellationToken.None);
+        await source.ToggleEntryAsync(entry.Id, CancellationToken.None);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.Equal(0, applied);
+        Assert.Equal(2, Assert.Single(source.ReadState().Entries).ArtworkApplied);
+    }
+
+    [Fact]
+    public async Task AControllerOnlyImportWithNothingManagingTheControllerIsReported()
+    {
+        // The override is written, but nothing will switch the controller while management is off.
+        using TemporaryDirectory temporary = new();
+        const uint created = 2147483651u;
+        Queue<IReadOnlyList<uint>> listings = new([[], [created]]);
+        SteamShortcutWriter writer = new(
+            _ => Task.FromResult(listings.Count > 0 ? listings.Dequeue() : [created]),
+            (_, _, _, _, _) => Task.FromResult(created),
+            (_, _, _, _) => Task.FromResult(true),
+            (_, _) => Task.FromResult(true));
+        using GameLibraryService source = new(
+            [new FakeSource([Game(multiplayer: MultiplayerVerdict.Multiplayer)])],
+            new ImportStateStore(temporary.GetPath("import.json")), () => writer,
+            _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>([]),
+            () => ImportMode.SteamIntegration, () => false,
+            setControllerTarget: (_, _, _, _) => Task.CompletedTask,
+            resolveLauncher: () => Launcher,
+            controllerManaged: () => false);
+        await ScannedAsync(source);
+
+        await source.ApplyAsync(CancellationToken.None);
+        await DoneAsync(source);
+
+        Assert.Contains("controller management is off", source.ReadState().Error, StringComparison.Ordinal);
+    }
+
     private static async Task DoneAsync(GameLibraryService source)
     {
         for (var attempt = 0; attempt < 300 && source.ReadState().Phase != "done"; attempt++)

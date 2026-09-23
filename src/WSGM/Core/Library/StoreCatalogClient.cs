@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
@@ -283,6 +284,15 @@ public sealed class StoreCatalogClient
             }
 
             if (!uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // The apply path names the file by its suffix. An image with none it recognises would be
+            // handed to Steam as whatever the guess was, so it is not offered at all.
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
+                || Path.GetExtension(parsed.AbsolutePath).ToLowerInvariant() is not (".png" or ".jpg" or ".jpeg"
+                    or ".webp"))
             {
                 continue;
             }

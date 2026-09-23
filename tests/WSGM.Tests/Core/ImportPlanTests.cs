@@ -80,13 +80,15 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void AChangedCommandLineIsAnUpdateRatherThanASecondEntry()
+    public void ACommandEditedInSteamIsLeftAloneRatherThanRestored()
     {
-        // Re-adding would lose the appid and every piece of artwork attached to it.
+        // Our Target and key are still there, but the mode was switched by hand. Restoring the
+        // recorded command would silently undo that, and re-adding would lose the id and its art.
         var entry = Single([Game()], [Record(options: "--aumid " + Aumid + " --mode steam-overlay")],
             [Shortcut()]);
 
-        Assert.Equal(ImportAction.Update, entry.Action);
+        Assert.Equal(ImportAction.Conflict, entry.Action);
+        Assert.False(entry.Selectable);
         Assert.Equal(2147483650u, entry.AppId);
     }
 

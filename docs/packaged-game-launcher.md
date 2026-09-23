@@ -105,13 +105,16 @@ away again.
 - Every package-lifetime exemption is journalled before it is requested. Windows keeps a package out
   of lifetime management until something puts it back, so an exemption with no record is a game that
   is never suspended again for the rest of the machine's life. The journal is replayed at launcher
-  startup and at WSGM's session start through `--recover`.
+  startup, at WSGM's session start and on uninstall, before the journal is deleted, through
+  `--recover`.
 - Every payload a route loads is x64. A route refuses a process that is not native x64 rather than
   writing into it, and the Game Library does not offer the overlay route for a package whose
   identity declares another architecture.
 - A journal record stays until its package's release actually succeeds, however many sweeps that
-  takes, and a package another live launcher still runs under is never released.
-- A session whose package could not be exempted reports degraded, not complete.
+  takes. Releasing is package-wide, so neither a sweep nor a launcher's own exit releases a package
+  another running launcher still owns; the last one out does.
+- A session reports degraded, not complete, when its package could not be exempted or when the
+  bridge installed the overlay but not the Steam Input route.
 - Containment covers the target package family only, never `RuntimeBroker`, `ApplicationFrameHost`
   or `dllhost`.
 - A mid-session failure records once, marks the session degraded and keeps supervising. Foreground

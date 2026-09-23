@@ -5,7 +5,8 @@ namespace WSGM.PackagedLaunch;
 /// <summary>What a route managed to do, and what to tell the user if it could not.</summary>
 /// <param name="Succeeded">Whether the route did what it set out to do.</param>
 /// <param name="Detail">One sentence for the log, naming the deciding step.</param>
-public sealed record RouteOutcome(bool Succeeded, string Detail);
+/// <param name="Degraded">Whether it worked only in part, so the session must not report a clean result.</param>
+public sealed record RouteOutcome(bool Succeeded, string Detail, bool Degraded = false);
 
 /// <summary>
 ///     The overlay route for a full-trust packaged title: set Steam up in the launch helper that
