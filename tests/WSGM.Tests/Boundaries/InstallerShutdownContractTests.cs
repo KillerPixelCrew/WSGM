@@ -303,6 +303,9 @@ public sealed class InstallerShutdownContractTests
             "Type: files; Name: \"{app}\\VIIPER-LICENSE.txt\"",
             StringComparison.Ordinal));
         Assert.True(installDelete.Contains(
+            "Type: files; Name: \"{app}\\USBip-0.9.8.0-x64.exe\"",
+            StringComparison.Ordinal));
+        Assert.True(installDelete.Contains(
             "Type: files; Name: \"{app}\\USBip-0.9.7.7-x64.exe\"",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
@@ -322,7 +325,7 @@ public sealed class InstallerShutdownContractTests
             + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
         Assert.True(source.Contains(
-            "Source: \"{#AppPublishDir}\\USBip-0.9.7.7-x64.exe\"; DestDir: \"{app}\"; "
+            "Source: \"{#AppPublishDir}\\USBip-0.9.8.0-x64.exe\"; DestDir: \"{app}\"; "
             + "Flags: ignoreversion; Components: controller",
             StringComparison.Ordinal));
         Assert.True(source.Contains(

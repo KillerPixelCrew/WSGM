@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "reviewedAtUtc": "2026-08-29T00:00:00Z",
+  "reviewedAtUtc": "2026-09-24T00:00:00Z",
   "controllerManagementApproved": true,
   "policy": "controller-backend-viiper",
   "approvalNotes": [
@@ -17,13 +17,13 @@
     {
       "id": "usbip-win2",
       "repository": "https://github.com/vadimgrn/usbip-win2",
-      "tag": "v.0.9.7.7",
-      "commit": "7c219953101cc5d0ec9a0bcb3eb87259cf72bedd",
-      "version": "0.9.7.7",
-      "asset": "USBip-0.9.7.7-x64.exe",
-      "assetUrl": "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.7.7/USBip-0.9.7.7-x64.exe",
-      "assetSha256": "51620FA5F9F8BE5932BC9D786DEEE557CE06D5407A99CAB490DCFAC71F185FEA",
-      "versionPinReason": "0.9.7.8 is newer and identically signed, but carries two open kernel-pool-corruption reports (usbip-win2#180, #181) filed against Windows 11 build 26200 — the build the reference Claw runs. Neither reproducer is on WSGM's path (#180 is a vendor-class WinUSB device, #181 a USB-audio pin close on a composite DualSense; VIIPER's steamdeck target is HID-class with no audio endpoint), but 'BSOD on every attach' is not a risk to take on a handheld for no gain. Revisit when both are closed.",
+      "tag": "v.0.9.8.0",
+      "commit": "83bd1f781d57ed6efdf15530c55710cf5d4482bc",
+      "version": "0.9.8.0",
+      "asset": "USBip-0.9.8.0-x64.exe",
+      "assetUrl": "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.0/USBip-0.9.8.0-x64.exe",
+      "assetSha256": "81F426741F7EE2ED991FEBE24A22DACA8400B6AE2F171054E3FB404897E15D39",
+      "versionPinReason": "0.9.8.0 replaces the earlier 0.9.7.7 pin. Its release fixes a filter-driver memory corruption it calls critical for 0.9.7.8, and usbip-win2#180 (pool corruption on every attach of a vendor-class device, Windows 11 26200) is closed as fixed. #181, a usbaudio pin-close race, is still open, but no device WSGM emulates exposes an audio interface: steamdeck and dualshock4 are HID-class and xbox360 is vendor-class. WSGM requests the WSK event (low-latency) receive mode 0.9.8.0 adds. VIIPER still negotiates the 0.9.7.7 and 0.9.7.8 attach layouts, so a machine that has not upgraded keeps working.",
       "installerKind": "InnoSetup",
       "silentArguments": ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCANCEL", "/SP-"],
       "uninstallDisplayNamePattern": "USBip version*",

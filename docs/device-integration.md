@@ -276,7 +276,7 @@ Attach records the driver-assigned port, and removal issues `IOCTL_PLUGOUT_HARDW
 before deleting the server device. Otherwise the closed stream remains as a stale Windows attachment
 and the next target is not a true live replacement. This is the focused backport of Handheld
 Companion's bundled VIIPER commit `679f7e0`, carried as a downstream commit on the
-`KillerPixelCrew/VIIPER` fork over the `corando98/VIIPER@024aef3a` baseline.
+`KillerPixelCrew/VIIPER` fork, which now tracks `Alia5/VIIPER` upstream.
 
 The managed feedback route closes and the backend target becomes unavailable before plugout. VIIPER
 then removes its reverse callback registration, drains callbacks already in flight, and releases its

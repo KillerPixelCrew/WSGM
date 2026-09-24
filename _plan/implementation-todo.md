@@ -494,6 +494,9 @@ stops here rather than at zero:
   `4d2bd52`, the patch files are gone, and every rejected variant change has a stated reason in
   `external\controller\viiper.md`. The earlier `fe726ce` baseline was validated on the
   reference Claw; the new endpoint-idle optimization awaits manual validation.
+- #164 is implemented, pending the attended controller pass. The fork follows `Alia5/VIIPER` now
+  (merged at `41c66b1`, KillerPixelCrew/VIIPER#1), and WSGM pins usbip-win2 0.9.8.0 with the
+  low-latency receive mode. The pass covers xbox360, dualshock4 and steamdeck on 0.9.7.7 and 0.9.8.0.
 
 - Background CPU optimization is implemented and build-checked, pending manual testing: motion
   acquisition uses a dedicated sleeping worker, RTSS background checks run every five seconds,
