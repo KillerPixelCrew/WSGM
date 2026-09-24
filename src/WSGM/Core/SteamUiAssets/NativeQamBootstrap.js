@@ -2712,6 +2712,12 @@
     };
     const QamToken = "QuickAccessMenuBrowserView";
     const MaximumItems = 64;
+    // The tab's identity in Steam's strip. Valve keys its tabs by number (Notifications 0, Friends 3,
+    // Settings 4, Perf 5, Help 6, Music 7) and the strip's activeTab is that number, so a string key
+    // was never selected: clicking the tab fell through to Friends (2026-09-24). decky-loader uses
+    // 999; this stays clear of both so the two can coexist.
+    const ExtensionsTabId = 1010;
+    const ExtensionsTabTitle = "Extensions";
     // Element depth within one render pass, reset at every wrapped component. Measured on the
     // 2026-09-24 client: from the component carrying onFocusNavDeactivated to the element holding
     // the tab list is nineteen component-typed levels behind context providers and host elements,
@@ -2785,8 +2791,10 @@
           return element;
         }
         const tab = {
-          key: "steam-ui.extensions-tab",
-          title: null,
+          key: ExtensionsTabId,
+          // Valve's tabs carry both: the element the header draws and the string it is named by.
+          title: react.createElement("div", null, ExtensionsTabTitle),
+          strTitle: ExtensionsTabTitle,
           tab: createIconRenderer(react)("plug", 22),
           steamUiExtensionsTab: true,
           initialVisibility: !!visible,
