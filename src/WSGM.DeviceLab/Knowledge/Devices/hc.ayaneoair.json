@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.ayaneoair",
+  "displayName": "AYANEOAIR",
+  "status": "Extracted",
+  "hcClass": "AYANEOAIR",
+  "hcBaseClasses": ["AYANEODeviceCEc", "AYANEODevice"],
+  "identity": [
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "AIR"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "AIR"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "AIR"
+    }
+  ],
+  "power": {
+    "nominalWatts": [12, 12, 15],
+    "configurableWatts": [3, 15],
+    "gpuClockMhz": [100, 1600],
+    "cpuClockMhz": 4000
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "DynamicLightingSecondLEDColor",
+    "FanControl"
+  ],
+  "lightingModes": ["SolidColor"],
+  "buttons": [
+    {
+      "name": "Custom Key Big",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F12"],
+      "releaseKeys": ["F12", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEOAIR.cs:36"
+      }
+    },
+    {
+      "name": "Custom Key Small",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEOAIR.cs:50"
+      }
+    },
+    {
+      "name": "Custom Key Top Left",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F11"],
+      "releaseKeys": ["F11", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEOAIR.cs:66"
+      }
+    },
+    {
+      "name": "Custom Key Top Right",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F10"],
+      "releaseKeys": ["F10", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEOAIR.cs:82"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AYANEOAIR.json"
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "100"
+      },
+      "note": "ECDetails with HC\u0027s default SetFanDuty: duty = percent * (max - min) / 100 \u002B min; control register 1 = manual, 0 = auto.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:40"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "AYANEODevice.Close",
+    "AYANEODevice.GetGlyph",
+    "AYANEODevice.SetLedBrightness",
+    "AYANEODevice.SetLedColor",
+    "AYANEODevice.SetLedStatus",
+    "AYANEODevice.SystemManager_Initialized",
+    "AYANEODevice.SystemManager_PowerLineStatusChanged",
+    "AYANEODeviceCEc.Close",
+    "AYANEODeviceCEc.Open",
+    "AYANEODeviceCEc.OpenEvents",
+    "AYANEODeviceCEc.QuerySettings",
+    "AYANEODeviceCEc.SetLedBrightness",
+    "AYANEODeviceCEc.SetLedColor",
+    "AYANEODeviceCEc.SetLedStatus",
+    "AYANEODeviceCEc.SettingsManager_SettingValueChanged"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEOAIR.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

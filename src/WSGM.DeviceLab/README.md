@@ -25,6 +25,7 @@ installed at all.
 # 1. What is this machine?
 wsgm-device doctor    --out-dir diagnostics
 wsgm-device inventory --out-dir inventory --shareable
+wsgm-device candidates --from inventory/inventory.json # which known device is this?
 
 # 2. Capture it, then read what you captured.
 wsgm-device capture    run --recipe recipe.json --out-dir captures # attended; you approve its scope
@@ -47,6 +48,30 @@ wsgm-device pack my-plugin --out plugin.wsgmpkg
 
 `inventory --shareable` is the form meant for a bug report: it keeps the device facts and drops the
 identifying ones.
+
+## Known devices
+
+`candidates` compares the inventory against the knowledge base compiled into Device Lab and lists
+every record whose identity rules match, with the fields that matched. A tester confirms the match;
+Device Lab never assumes it.
+
+The records live in `Knowledge/Devices` and come in two kinds:
+
+- **Extracted** (`hc.*.json`) are generated from the decompiled Handheld Companion source by
+  `eng/extract-hc-devices.ps1`. They hold what HC states declaratively: its device switch, power
+  ranges, capability flags, OEM key chords, EC fan registers and the IMU axis map HC actually
+  applies. Behaviour HC implements inside methods is listed as overridden members, not guessed.
+  Nothing in an extracted record is hardware-verified, and HC's own mistakes are recorded as hazards
+  rather than corrected.
+- **Curated** (`wsgm.*.json`) are written by hand from a WSGM plugin, a lab run or reviewed HC
+  source, with the evidence for each fact. Only a curated record carries button mappings, write
+  mechanisms with readback, or can supersede an extracted record.
+
+Regenerate the extracted records after updating the reference, and review the diff:
+
+```powershell
+.\eng\extract-hc-devices.ps1
+```
 
 ## Attended versus unattended
 

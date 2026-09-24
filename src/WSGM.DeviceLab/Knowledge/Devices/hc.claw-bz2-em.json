@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.claw-bz2-em",
+  "displayName": "Claw BZ2 EM",
+  "status": "Extracted",
+  "hcClass": "ClawBZ2EM",
+  "hcBaseClasses": ["ClawA1M"],
+  "identity": [
+    {
+      "baseboardManufacturer": "MICRO-STAR INTERNATIONAL CO., LTD.",
+      "baseboardProduct": "MS-1T8K"
+    }
+  ],
+  "power": {
+    "nominalWatts": [20, 20, 33],
+    "configurableWatts": [15, 35],
+    "gpuClockMhz": [100, 2900],
+    "cpuClockMhz": 5000
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "FanControl",
+    "FanOverride",
+    "OEMCPU"
+  ],
+  "lightingModes": ["Ambilight", "SolidColor"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "0DB0",
+      "productIds": ["1901"],
+      "usagePage": 65440,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:282"
+      }
+    },
+    {
+      "role": "vendor",
+      "vendorId": "0DB0",
+      "productIds": ["1902"],
+      "usagePage": 65520,
+      "usage": 64,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:282"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "CLAW",
+      "hcFlag": "OEM1",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:343",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "QS",
+      "hcFlag": "OEM2",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:344",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "M1",
+      "hcFlag": "OEM3",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:345",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "M2",
+      "hcFlag": "OEM4",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:346",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "LButton",
+      "hcFlag": "None",
+      "source": "KeyboardChord",
+      "pressKeys": ["0xFF"],
+      "releaseKeys": ["0xFF"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:356"
+      }
+    },
+    {
+      "name": "QS",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "G"],
+      "releaseKeys": ["G", "LWin"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:370"
+      }
+    },
+    {
+      "name": "QS, Long-press",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "Tab"],
+      "releaseKeys": ["Tab", "LWin"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:384"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/ClawBZ2EM.json"
+    }
+  },
+  "hcOverrides": [
+    "ClawA1M.Close",
+    "ClawA1M.Device_Inserted",
+    "ClawA1M.Device_Removed",
+    "ClawA1M.GetGlyph",
+    "ClawA1M.IsReady",
+    "ClawA1M.Open",
+    "ClawA1M.PowerProfileManager_Applied",
+    "ClawA1M.QuerySettings",
+    "ClawA1M.SetFanControl",
+    "ClawA1M.SetLedBrightness",
+    "ClawA1M.SetLedColor",
+    "ClawA1M.SettingsManager_SettingValueChanged",
+    "ClawA1M.set_long_limit",
+    "ClawA1M.set_short_limit",
+    "ClawBZ2EM.set_short_limit"
+  ],
+  "hazards": [
+    "HC\u0027s Open() writes PL1/PL2 as a side effect (35/35 W, then 30/37 W on A2VM/CG3EM). Never replay it as a probe. Source: HandheldCompanion.Devices/ClawA1M.cs."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawBZ2EM.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

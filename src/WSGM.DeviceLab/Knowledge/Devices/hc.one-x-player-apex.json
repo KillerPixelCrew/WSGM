@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.one-x-player-apex",
+  "displayName": "One X Player Apex",
+  "status": "Extracted",
+  "hcClass": "OneXPlayerApex",
+  "hcBaseClasses": ["OneXPlayerX1AMD", "OneXPlayerX1", "OneXAOKZOE"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ONE-NETBOOK TECHNOLOGY CO., LTD.",
+      "baseboardProduct": "ONEXPLAYER APEX"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK TECHNOLOGY CO., LTD.",
+      "baseboardProduct": "ONEXPLAYERAPEX"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK",
+      "baseboardProduct": "ONEXPLAYER APEX"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK",
+      "baseboardProduct": "ONEXPLAYERAPEX"
+    }
+  ],
+  "power": {
+    "nominalWatts": [25, 35, 65],
+    "configurableWatts": [25, 65],
+    "gpuClockMhz": [100, 2900],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": [
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "DynamicLightingSecondLEDColor",
+    "FanControl"
+  ],
+  "lightingModes": ["LEDPreset", "SolidColor"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "1A86",
+      "productIds": ["FE00"],
+      "usagePage": 65280,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:76"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LAlt", "LWin"],
+      "releaseKeys": ["LWin", "LAlt", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:38"
+      }
+    },
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:54"
+      }
+    },
+    {
+      "name": "Orange",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "G"],
+      "releaseKeys": ["G", "LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:68"
+      }
+    },
+    {
+      "name": "Keyboard \u002B Orange",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "RMenu", "Delete"],
+      "releaseKeys": ["Delete", "RMenu", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:84"
+      }
+    },
+    {
+      "name": "Turbo \u002B Orange",
+      "hcFlag": "OEM5",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "PrintScreen"],
+      "releaseKeys": ["PrintScreen", "LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:98"
+      }
+    },
+    {
+      "name": "Orange, Long-press",
+      "hcFlag": "OEM6",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["D", "LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:112"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "Y",
+        "Y": "X",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "Y",
+        "Y": "X",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/OneXPlayerApex.json"
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "184"
+      },
+      "note": "ECDetails as declared; OneXAOKZOE.SetFanControl and OneXAOKZOE.SetFanDuty replace the default write, so check them before trusting this.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:121"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "OneXAOKZOE.Close",
+    "OneXAOKZOE.Open",
+    "OneXAOKZOE.SetFanControl",
+    "OneXAOKZOE.SetFanDuty",
+    "OneXPlayerApex.BuildRemapPage1",
+    "OneXPlayerApex.BuildRemapPage2",
+    "OneXPlayerApex.ConfigureController",
+    "OneXPlayerApex.GetGlyph",
+    "OneXPlayerApex.MapVendorButton",
+    "OneXPlayerX1.Close",
+    "OneXPlayerX1.Device_Inserted",
+    "OneXPlayerX1.Device_Removed",
+    "OneXPlayerX1.GetGlyph",
+    "OneXPlayerX1.IsReady",
+    "OneXPlayerX1.Open",
+    "OneXPlayerX1.QuerySettings",
+    "OneXPlayerX1.SetLEDPreset",
+    "OneXPlayerX1.SetLedBrightness",
+    "OneXPlayerX1.SetLedColor",
+    "OneXPlayerX1.SetLedStatus",
+    "OneXPlayerX1.SettingsManager_SettingValueChanged",
+    "OneXPlayerX1AMD.IsBatteryProtectionSupported"
+  ],
+  "hazards": [
+    "HC\u0027s gyrometer axis swap sends two raw axes to the same output (X-\u003EY, Y-\u003EX, Z-\u003EY); one axis is lost.",
+    "HC\u0027s accelerometer axis swap sends two raw axes to the same output (X-\u003EY, Y-\u003EX, Z-\u003EY); one axis is lost.",
+    "The X1 opens its own CH340 serial port (115200) for LED control. Do not probe it as a serial IMU."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

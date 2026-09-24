@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.ayaneonext-lite",
+  "displayName": "AYANEONEXT Lite",
+  "status": "Extracted",
+  "hcClass": "AYANEONEXTLite",
+  "hcBaseClasses": ["AYANEONEXT"],
+  "identity": [
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "NEXT Lite",
+      "fallback": true
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "NEXT Lite",
+      "fallback": true
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "NEXT Lite",
+      "fallback": true
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [3, 25],
+    "gpuClockMhz": [100, 1750],
+    "cpuClockMhz": 4200
+  },
+  "buttons": [
+    {
+      "name": "Custom key BIG",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F12"],
+      "releaseKeys": ["F12", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEONEXT.cs:34"
+      }
+    },
+    {
+      "name": "Custom key Small",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEONEXT.cs:48"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AYANEONEXT.json",
+      "note": "Inherited from AYANEONEXT.json through HC\u0027s parent lookup."
+    }
+  },
+  "hcOverrides": ["AYANEONEXT.GetGlyph"],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEONEXTLite.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

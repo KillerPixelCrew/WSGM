@@ -73,6 +73,18 @@ untrusted evidence; use static validation until plugin code has been deliberatel
   retained-input evidence, and preview/count/hash consistency.
 - Treat correlation as bounded candidate evidence, never proof of causation.
 
+## Knowledge records
+
+- `Knowledge/Devices/hc.*.json` is generated output of `eng/extract-hc-devices.ps1` from
+  `_ref/HandheldCompanion`. Never edit those files by hand; change `tools/HcDeviceExtract` and
+  regenerate. The extractor reads declarations only and records HC's mistakes as hazards.
+- `Knowledge/Devices/wsgm.*.json` is curated. Every fact carries provenance naming the plugin file,
+  lab run or HC line it came from. Keep a curated record in step with the plugin it cites.
+- A record is evidence, not a driver. Only curated records may carry wizard button mappings,
+  readback claims or supersede an extracted record; the loader and tests enforce that.
+- The parser rejects unknown members. Extend `DeviceKnowledge.cs` and bump the schema version rather
+  than loosening it.
+
 ## Package and scaffold rules
 
 - Package validation is static and must never load plugin code. Keep manifest/layout, managed-x64 PE, entry-count,

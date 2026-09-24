@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.steam-machine",
+  "displayName": "Steam Machine",
+  "status": "Extracted",
+  "hcClass": "SteamMachine",
+  "identity": [
+    {
+      "baseboardManufacturer": "VALVE",
+      "baseboardProduct": "Fremont"
+    }
+  ],
+  "power": {
+    "nominalWatts": [35, 35, 45],
+    "configurableWatts": [35, 45],
+    "gpuClockMhz": [800, 2800],
+    "cpuClockMhz": 4800
+  },
+  "hcOverrides": [
+    "SteamMachine.Close",
+    "SteamMachine.SetLedBrightness",
+    "SteamMachine.SetLedColor",
+    "SteamMachine.SetLedStatus"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/SteamMachine.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.ayaneonext",
+  "displayName": "AYANEONEXT",
+  "status": "Extracted",
+  "hcClass": "AYANEONEXT",
+  "identity": [
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "NEXT"
+    },
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "NEXT Advance"
+    },
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "NEXT Pro"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "NEXT"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "NEXT Advance"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "NEXT Pro"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "NEXT"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "NEXT Advance"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "NEXT Pro"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [10, 25],
+    "gpuClockMhz": [100, 2000],
+    "cpuClockMhz": 4500
+  },
+  "buttons": [
+    {
+      "name": "Custom key BIG",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F12"],
+      "releaseKeys": ["F12", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEONEXT.cs:34"
+      }
+    },
+    {
+      "name": "Custom key Small",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEONEXT.cs:48"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AYANEONEXT.json"
+    }
+  },
+  "hcOverrides": ["AYANEONEXT.GetGlyph"],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEONEXT.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

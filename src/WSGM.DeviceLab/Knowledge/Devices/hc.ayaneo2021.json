@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.ayaneo2021",
+  "displayName": "AYANEO2021",
+  "status": "Extracted",
+  "hcClass": "AYANEO2021",
+  "identity": [
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "AYA NEO FOUNDER"
+    },
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "AYANEO 2021"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "AYA NEO FOUNDER"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "AYANEO 2021"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "AYA NEO FOUNDER"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "AYANEO 2021"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [3, 25],
+    "gpuClockMhz": [100, 1500],
+    "cpuClockMhz": 4000
+  },
+  "buttons": [
+    {
+      "name": "WIN key",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin"],
+      "releaseKeys": ["LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEO2021.cs:28"
+      }
+    },
+    {
+      "name": "ESC key",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["Escape"],
+      "releaseKeys": ["Escape"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEO2021.cs:38"
+      }
+    },
+    {
+      "name": "KB key",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEO2021.cs:54"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AYANEO2021.json"
+    }
+  },
+  "hcOverrides": ["AYANEO2021.GetGlyph"],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEO2021.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

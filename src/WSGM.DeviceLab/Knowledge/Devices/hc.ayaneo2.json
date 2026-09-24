@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.ayaneo2",
+  "displayName": "AYANEO2",
+  "status": "Extracted",
+  "hcClass": "AYANEO2",
+  "hcBaseClasses": ["AYANEODeviceCEc", "AYANEODevice"],
+  "identity": [
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "GEEK"
+    },
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "AYANEO 2"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "GEEK"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "AYANEO 2"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "GEEK"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "AYANEO 2"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [3, 33],
+    "gpuClockMhz": [100, 2200],
+    "cpuClockMhz": 4700
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "DynamicLightingSecondLEDColor",
+    "FanControl"
+  ],
+  "lightingModes": ["SolidColor"],
+  "buttons": [
+    {
+      "name": "Custom Key Big",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F17"],
+      "releaseKeys": ["F17", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:64"
+      }
+    },
+    {
+      "name": "Custom Key Small",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:78"
+      }
+    },
+    {
+      "name": "Custom Key Top Left",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F15"],
+      "releaseKeys": ["F15", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:94"
+      }
+    },
+    {
+      "name": "Custom Key Top Right",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F16"],
+      "releaseKeys": ["F16", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:110"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AYANEO2.json"
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "100"
+      },
+      "note": "ECDetails with HC\u0027s default SetFanDuty: duty = percent * (max - min) / 100 \u002B min; control register 1 = manual, 0 = auto.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:40"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "AYANEODevice.Close",
+    "AYANEODevice.GetGlyph",
+    "AYANEODevice.SetLedBrightness",
+    "AYANEODevice.SetLedColor",
+    "AYANEODevice.SetLedStatus",
+    "AYANEODevice.SystemManager_Initialized",
+    "AYANEODevice.SystemManager_PowerLineStatusChanged",
+    "AYANEODeviceCEc.Close",
+    "AYANEODeviceCEc.Open",
+    "AYANEODeviceCEc.OpenEvents",
+    "AYANEODeviceCEc.QuerySettings",
+    "AYANEODeviceCEc.SetLedBrightness",
+    "AYANEODeviceCEc.SetLedColor",
+    "AYANEODeviceCEc.SetLedStatus",
+    "AYANEODeviceCEc.SettingsManager_SettingValueChanged"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEO2.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

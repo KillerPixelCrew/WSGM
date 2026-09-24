@@ -10,6 +10,7 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Fixtures;
 using WSGM.DeviceLab.Inventory;
+using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
@@ -29,6 +30,9 @@ internal sealed record DeviceLabCandidateResult
 
     /// <summary>Reviewed read-only probes available only after an exact known-device match.</summary>
     public IReadOnlyList<ReadProbeMetadata> ReadOnlyProbes { get; init; } = [];
+
+    /// <summary>Knowledge records whose identity rules match, for the tester to confirm.</summary>
+    public IReadOnlyList<DeviceKnowledgeMatch> KnowledgeMatches { get; init; } = [];
 }
 
 /// <summary>Correlation findings and the limits that constrain their meaning.</summary>
@@ -129,7 +133,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             Candidates = [assessment],
             ReadOnlyProbes = assessment.ExactMatch
                 ? [.. fingerprint.ReadProbes.OrderBy(probe => probe.Id, StringComparer.Ordinal)]
-                : []
+                : [],
+            KnowledgeMatches = DeviceKnowledgeMatcher.Match(
+                DeviceKnowledgeBase.Default,
+                DeviceKnowledgeIdentity.From(inventory))
         };
     }
 

@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.gpd-win5",
+  "displayName": "GPD Win5",
+  "status": "Extracted",
+  "hcClass": "GPDWin5",
+  "identity": [
+    {
+      "baseboardManufacturer": "GPD",
+      "baseboardProduct": "G1618-05"
+    }
+  ],
+  "power": {
+    "nominalWatts": [55, 55, 75],
+    "configurableWatts": [8, 85]
+  },
+  "capabilities": ["FanControl"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "2F24",
+      "productIds": ["0137", "0135"],
+      "usagePage": 65280,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:40"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM5",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:90"
+      }
+    },
+    {
+      "name": "Home",
+      "hcFlag": "OEM6",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["D", "LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:104"
+      }
+    },
+    {
+      "name": "L4",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LShift", "F14"],
+      "releaseKeys": ["F14", "LControl", "LShift"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:120"
+      }
+    },
+    {
+      "name": "R4",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F3", "F15"],
+      "releaseKeys": ["F15", "F3"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:134"
+      }
+    },
+    {
+      "name": "Gamepad",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["F13"],
+      "releaseKeys": ["F13"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:144"
+      }
+    },
+    {
+      "name": "Menu",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["0x07"],
+      "releaseKeys": ["0x07"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs:154"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "Y",
+        "Y": "Z",
+        "Z": "X"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/GPDWin5.json"
+    }
+  },
+  "hcOverrides": [
+    "GPDWin5.Close",
+    "GPDWin5.Device_Inserted",
+    "GPDWin5.Device_Removed",
+    "GPDWin5.GetGlyph",
+    "GPDWin5.IsReady",
+    "GPDWin5.Open",
+    "GPDWin5.ReadFanDuty",
+    "GPDWin5.SetFanControl",
+    "GPDWin5.SetFanDuty"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin5.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

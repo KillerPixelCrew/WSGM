@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.ayaneo-flip1-sds",
+  "displayName": "AYANEO Flip1 SDS",
+  "status": "Extracted",
+  "hcClass": "AYANEOFlip1SDS",
+  "hcBaseClasses": ["AYANEOFlipDS", "AYANEOFlipKB", "AYANEODeviceCEc", "AYANEODevice"],
+  "identity": [
+    {
+      "baseboardManufacturer": "AYA",
+      "baseboardProduct": "FLIP 1S DS"
+    },
+    {
+      "baseboardManufacturer": "AYANEO",
+      "baseboardProduct": "FLIP 1S DS"
+    },
+    {
+      "baseboardManufacturer": "AYADEVICE",
+      "baseboardProduct": "FLIP 1S DS"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [3, 28],
+    "gpuClockMhz": [100, 2900],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "DynamicLightingSecondLEDColor",
+    "FanControl"
+  ],
+  "lightingModes": ["SolidColor"],
+  "buttons": [
+    {
+      "name": "Custom Key Big",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F17"],
+      "releaseKeys": ["F17", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:64"
+      }
+    },
+    {
+      "name": "Custom Key Small",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:78"
+      }
+    },
+    {
+      "name": "Custom Key Top Left",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F15"],
+      "releaseKeys": ["F15", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:94"
+      }
+    },
+    {
+      "name": "Custom Key Top Right",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F16"],
+      "releaseKeys": ["F16", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:110"
+      }
+    },
+    {
+      "name": "Custom Key Screen",
+      "hcFlag": "OEM5",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "F18"],
+      "releaseKeys": ["F18", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AYANEOFlipDS.cs:40"
+      }
+    },
+    {
+      "name": "Custom Key Big",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["F23"],
+      "releaseKeys": ["F23"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEOFlip1SDS.cs:24"
+      }
+    },
+    {
+      "name": "Custom Key Small",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F24"],
+      "releaseKeys": ["F24"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEOFlip1SDS.cs:34"
+      }
+    },
+    {
+      "name": "Custom Key Top Left",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F21"],
+      "releaseKeys": ["F21"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEOFlip1SDS.cs:44"
+      }
+    },
+    {
+      "name": "Custom Key Top Right",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["F22"],
+      "releaseKeys": ["F22"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEOFlip1SDS.cs:54"
+      }
+    },
+    {
+      "name": "Custom Key Screen",
+      "hcFlag": "OEM5",
+      "source": "KeyboardChord",
+      "pressKeys": ["F18"],
+      "releaseKeys": ["F18"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEOFlip1SDS.cs:64"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AYANEOFlip1SDS.json"
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "100"
+      },
+      "note": "ECDetails with HC\u0027s default SetFanDuty: duty = percent * (max - min) / 100 \u002B min; control register 1 = manual, 0 = auto.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEODeviceCEc.cs:40"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "AYANEODevice.Close",
+    "AYANEODevice.GetGlyph",
+    "AYANEODevice.SetLedBrightness",
+    "AYANEODevice.SetLedColor",
+    "AYANEODevice.SetLedStatus",
+    "AYANEODevice.SystemManager_Initialized",
+    "AYANEODevice.SystemManager_PowerLineStatusChanged",
+    "AYANEODeviceCEc.Close",
+    "AYANEODeviceCEc.Open",
+    "AYANEODeviceCEc.OpenEvents",
+    "AYANEODeviceCEc.QuerySettings",
+    "AYANEODeviceCEc.SetLedBrightness",
+    "AYANEODeviceCEc.SetLedColor",
+    "AYANEODeviceCEc.SetLedStatus",
+    "AYANEODeviceCEc.SettingsManager_SettingValueChanged",
+    "AYANEOFlip1SDS.Initialize",
+    "AYANEOFlipDS.Close",
+    "AYANEOFlipDS.GetGlyph",
+    "AYANEOFlipDS.Initialize",
+    "AYANEOFlipDS.OpenEvents",
+    "AYANEOFlipDS.QuerySettings",
+    "AYANEOFlipDS.SettingsManager_SettingValueChanged"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.AYANEO/AYANEOFlip1SDS.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

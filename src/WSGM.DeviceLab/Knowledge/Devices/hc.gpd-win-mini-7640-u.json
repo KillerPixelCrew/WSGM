@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.gpd-win-mini-7640-u",
+  "displayName": "GPD Win Mini 7640 U",
+  "status": "Extracted",
+  "hcClass": "GPDWinMini_7640U",
+  "hcBaseClasses": ["GPDWinMini"],
+  "identity": [
+    {
+      "baseboardManufacturer": "GPD",
+      "baseboardProduct": "G1617-01",
+      "processorName": "AMD Ryzen 5 7640U w/ Radeon 760M Graphics"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 18],
+    "configurableWatts": [5, 18],
+    "gpuClockMhz": [200, 2600],
+    "cpuClockMhz": 4900
+  },
+  "capabilities": ["FanControl"],
+  "buttons": [
+    {
+      "name": "Menu",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["0x07"],
+      "releaseKeys": ["0x07"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWinMini.cs:39"
+      }
+    },
+    {
+      "name": "L4",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F11", "L"],
+      "releaseKeys": ["F11", "L"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWinMini.cs:53"
+      }
+    },
+    {
+      "name": "R4",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F12", "R"],
+      "releaseKeys": ["F12", "R"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWinMini.cs:67"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "Z",
+        "Y": "X",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "Z",
+        "Y": "X",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/GPDWinMini.json",
+      "note": "Inherited from GPDWinMini.json through HC\u0027s parent lookup."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x47A",
+        "dutyRegister": "0x47A",
+        "dutyMinimum": "0",
+        "dutyMaximum": "244"
+      },
+      "note": "ECDetails with HC\u0027s default SetFanDuty: duty = percent * (max - min) / 100 \u002B min; control register 1 = manual, 0 = auto.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWinMini.cs:21"
+      }
+    }
+  ],
+  "hcOverrides": ["GPDWinMini.GetGlyph", "GPDWinMini.ReadFanDuty"],
+  "hazards": [
+    "HC\u0027s ReadFanDuty reads raw I/O ports 0x78/0x79, not EC registers; its fan readback is not evidence."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWinMini_7640U.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

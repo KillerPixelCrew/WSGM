@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.steam-deck",
+  "displayName": "Steam Deck",
+  "status": "Extracted",
+  "hcClass": "SteamDeck",
+  "identity": [
+    {
+      "baseboardManufacturer": "VALVE",
+      "baseboardProduct": "Jupiter"
+    },
+    {
+      "baseboardManufacturer": "VALVE",
+      "baseboardProduct": "Galileo"
+    }
+  ],
+  "power": {
+    "nominalWatts": [10, 10, 15],
+    "configurableWatts": [4, 15],
+    "gpuClockMhz": [200, 2500],
+    "cpuClockMhz": 3500
+  },
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/SteamDeck.json"
+    }
+  },
+  "hcOverrides": [
+    "SteamDeck.Close",
+    "SteamDeck.Open",
+    "SteamDeck.QuerySettings",
+    "SteamDeck.ReadFanDuty",
+    "SteamDeck.SetFanControl",
+    "SteamDeck.SetFanDuty",
+    "SteamDeck.SettingsManager_SettingValueChanged",
+    "SteamDeck.set_long_limit",
+    "SteamDeck.set_max_gfxclk_freq",
+    "SteamDeck.set_min_gfxclk_freq",
+    "SteamDeck.set_short_limit"
+  ],
+  "hazards": [
+    "HC\u0027s OEM TDP path passes watts where VangoghGPU expects milliwatts, so every value clamps to 3 W. Never replay it."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/SteamDeck.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

@@ -144,6 +144,7 @@ internal static partial class WindowsInventoryCollector
             SystemProduct = Text(system, "Model"),
             SystemSku = Text(system, "SystemSKUNumber"),
             SystemFamily = Text(system, "SystemFamily"),
+            BaseboardManufacturer = Text(board, "Manufacturer"),
             BaseboardProduct = Text(board, "Product"),
             BaseboardVersion = Text(board, "Version"),
             BiosVersion = Text(bios, "SMBIOSBIOSVersion"),

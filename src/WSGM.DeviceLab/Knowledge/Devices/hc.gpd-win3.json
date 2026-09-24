@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.gpd-win3",
+  "displayName": "GPD Win3",
+  "status": "Extracted",
+  "hcClass": "GPDWin3",
+  "identity": [
+    {
+      "baseboardManufacturer": "GPD",
+      "baseboardProduct": "G1618-03"
+    }
+  ],
+  "power": {
+    "nominalWatts": [20, 20, 25],
+    "configurableWatts": [7, 25],
+    "gpuClockMhz": [100, 1400],
+    "cpuClockMhz": 5000
+  },
+  "buttons": [
+    {
+      "name": "Bottom button left",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["F11", "L"],
+      "releaseKeys": ["F11", "L"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin3.cs:31"
+      }
+    },
+    {
+      "name": "Bottom button right",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F12", "R"],
+      "releaseKeys": ["F12", "R"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin3.cs:45"
+      }
+    }
+  ],
+  "hcOverrides": ["GPDWin3.GetGlyph"],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin3.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

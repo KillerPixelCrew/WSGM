@@ -4,6 +4,30 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and five deferred issues. Follow the branch ownership and publishing rules in
 AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
+## Device Lab attended wizard (2026-09-24, in progress)
+
+Device Lab becomes the one tool a tester runs on any handheld: an attended wizard that checks for
+interfering programs and HidHide, identifies the device against a knowledge base, dumps ACPI, the
+device tree, HID and sensors, maps buttons, motion and rumble, tests power, fan and lighting, and
+exports a project that can be reopened to redo single segments. AllyXLab is retired once the wizard
+covers it. The knowledge base is seeded from a decompiled Handheld Companion 1.3.1.6 build in
+`_ref/HandheldCompanion`. Button capture records every input from every device and attributes it
+afterwards. Delivered as stacked PRs ending at `feat/devicelab-attended-wizard`.
+
+- [x] PR 1 (`feat/devicelab-knowledge-base`): knowledge-base schema, loader and matcher,
+      `tools/HcDeviceExtract` with `eng/extract-hc-devices.ps1` (89 extracted records), curated
+      Claw 8 A2VM, ROG Ally X and Xbox Ally X records, `candidates` knowledge matches, baseboard
+      manufacturer in the inventory, Windows 10 SDK target framework. Smoke-checked with a live
+      inventory and a synthetic RC73XA identity; test suites deferred to after manual testing.
+- [ ] PR 2: wizard shell, project model with segment redo, self-elevation, preflight (conflicts,
+      HidHide, PawnIO install), identity confirmation, export with privacy preview.
+- [ ] PR 3: system dump (ACPI without MSDM/SLIC, SMBIOS redaction, device tree, HID, sensors, EC,
+      WMI, display, battery, CPU).
+- [ ] PR 4: button capture across all devices, analog, chords, init and restore.
+- [ ] PR 5: motion (four sources) and rumble with live sliders and pulse lengths.
+- [ ] PR 6: power, fan, lighting and charge-limit transports, sleep and resume.
+- [ ] PR 7: scaffold from a project and retire AllyXLab.
+
 ## Overlay glass library (2026-09-24, issue 183)
 
 The intended overlay glass is one live desktop blur shared by its translucent panels, with readable

@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- The Windows 10 SDK version exposes Windows.Gaming.Input and Windows.Devices.Sensors to the wizard. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>wsgm-device</AssemblyName>
@@ -33,6 +34,10 @@
              Link="Shared\NativePathIdentity.cs"/>
   </ItemGroup>
   <ItemGroup>
+    <!-- Knowledge records: extracted ones come from eng/extract-hc-devices.ps1, curated ones are hand-written. -->
+    <EmbeddedResource Include="Knowledge\Devices\*.json">
+      <LogicalName>WSGM.DeviceLab.Knowledge.Devices.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
     <!-- The scaffold's LICENSE.txt is a checked-in template, not WSGM's own licence file. A
          generated plugin links only the MIT SDK, so stamping it with the application's GPL-3 (and
          with this project's copyright holder) claimed something untrue about someone else's work. -->

@@ -70,6 +70,14 @@ original repositories; these identifiers record the exact source baseline for th
 Only `external/steam-input-lease`, `external/steam-ui-toolkit`, `external/viiper`, and
 `external/windows-device-control` remain Git submodules. There are no nested SDK pins to advance.
 
+## Device knowledge base
+
+Device Lab compiles in a knowledge base of known handhelds under
+`src/WSGM.DeviceLab/Knowledge/Devices`, which `candidates` matches against an inventory. Extracted
+records come from the decompiled Handheld Companion source through `eng/extract-hc-devices.ps1` and
+the development-only `tools/HcDeviceExtract`, which is not in `WSGM.slnx`. Curated records are
+written by hand from the plugins and lab runs. The Device Lab README describes both.
+
 ## Portable Ally X tester
 
 [Ally X Lab](../tools/AllyXLab/README.md) is a separate developer tool for an attended remote
