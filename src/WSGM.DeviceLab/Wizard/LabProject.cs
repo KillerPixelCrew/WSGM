@@ -267,12 +267,19 @@ internal sealed class LabProject
     /// <summary>Writes one new JSON evidence file into an attempt directory.</summary>
     /// <typeparam name="T">Value type.</typeparam>
     /// <param name="attemptDirectory">Directory from <see cref="BeginAttempt" />.</param>
-    /// <param name="name">File name without extension.</param>
+    /// <param name="name">File name without extension: lower-case letters, digits and hyphens.</param>
     /// <param name="value">Value to write.</param>
     /// <returns>The file path.</returns>
     public string WriteEvidence<T>(string attemptDirectory, string name, T value)
     {
-        var path = Path.Combine(attemptDirectory, DeviceLabPaths.SafeName(name, false) + ".json");
+        // Names come from wizard code, not from the tester, so they are checked rather than rewritten:
+        // a hashed name would let a repeated write create a second file instead of failing.
+        if (name.Contains('/') || ValidateSegmentId(name) != name)
+        {
+            throw new ArgumentException($"Invalid evidence name '{name}'.", nameof(name));
+        }
+
+        var path = Path.Combine(attemptDirectory, name + ".json");
         if (!Path.GetFullPath(path)
                 .StartsWith(Directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
