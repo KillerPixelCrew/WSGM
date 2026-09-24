@@ -389,10 +389,17 @@ function ArtworkLogoModal({ closeModal }) {
   );
 }
 
-function renderArtworkBrowserPage(react: any, _page: any) {
-  const h = react.createElement;
+// Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
+// resolved on a cold start.
+let artworkReact: any = null;
 
-  function ArtworkBrowserPage() {
+// One component for the life of the asset. The page host draws it on every router render, and a
+// component declared inside the renderer would be a new type each time: React would remount the
+// page and drop the loaded assets and the controller's focus.
+function ArtworkBrowserPage() {
+  const react = artworkReact;
+  const h = react.createElement;
+  {
     const [state, setState] = react.useState(artworkDesired);
     const [actionError, setActionError] = react.useState("");
     const [cardSize, setCardSize] = react.useState(170);
@@ -402,17 +409,13 @@ function renderArtworkBrowserPage(react: any, _page: any) {
       return () => artworkListeners.delete(listener);
     }, []);
 
-    // Steam's controls are read when the page draws, never when its route is built. The page host
-    // builds every route the moment WSGM publishes them, which is before this gate has resolved on
-    // a cold start; reading artworkUi up there threw inside Steam's router, its error boundary
-    // unmounted the router, and the whole client showed "Something went wrong" (2026-09-24).
-    if (!artworkUi) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
+    // After the hooks, so a render before the gate resolves calls the same ones as one after.
+    if (!artworkUi || !state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
     const Focusable = artworkUi.focusable;
     const Button = artworkUi.dialogButton;
     const SliderField = artworkUi.sliderField;
     const Tabs = artworkUi.tabs;
 
-    if (!state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
     const activate = (command: string, payload: any = {}) =>
       sendArtworkCommand(command, payload).catch((error) => {
         setActionError(String(error?.message || error));
@@ -642,7 +645,11 @@ function renderArtworkBrowserPage(react: any, _page: any) {
     );
   }
 
-  return h(ArtworkBrowserPage);
+}
+
+function renderArtworkBrowserPage(react: any, _page: any) {
+  artworkReact ??= react;
+  return react.createElement(ArtworkBrowserPage);
 }
 
 const artworkBrowserStyles = `

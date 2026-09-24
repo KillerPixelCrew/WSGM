@@ -291,6 +291,14 @@
     (value.kind === "steam-ui-property-snapshot-v1" ||
       value.kind === "wsgm-property-snapshot-v1") &&
     typeof value.hadOwn === "boolean";
+  // What a claimed member displaced, or the value itself when it is not ours. For code that has to
+  // recognise a component by its source while the gate may already hold it: a probe or a re-resolve
+  // that tests the live value sees the wrapper, and a wrapper carries none of the original's tokens.
+  const unclaimedValue = (value, keys) => {
+    if (!claimed(value, keys)) return value;
+    const stored = storedOriginal(value, keys);
+    return isPropertySnapshot(stored) ? stored.value : stored;
+  };
   // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
   // store's computed flag — and the only safe way to change it is through its own setter.
   // Redefining or deleting the accessor destroys the store's bookkeeping while leaving the getter in
@@ -936,9 +944,11 @@
   // copy with mapped children is a portal to it.
   const PortalType = Symbol.for("react.portal");
   const isPortal = (value) => !!value && typeof value === "object" && value.$$typeof === PortalType;
-  const mapPortalChildren = (react, portal, map) => {
-    const kids = react.Children.toArray(portal.children);
-    if (!kids.length) return portal;
+  // Maps a child list; answers the new list, or null when no child changed. A child mapped to null
+  // is dropped. Shared by element and portal mapping so the two cannot drift on those rules.
+  const mapEach = (react, children, map, maximum = Infinity) => {
+    const kids = react.Children.toArray(children);
+    if (!kids.length || kids.length > maximum) return null;
     let changed = false;
     const next = [];
     for (const kid of kids) {
@@ -946,21 +956,17 @@
       changed ||= replacement !== kid;
       if (replacement !== null) next.push(replacement);
     }
-    return changed ? { ...portal, children: next } : portal;
+    return changed ? next : null;
   };
-  // Maps an element's children and clones it only when one changed; a child mapped to null is
-  // dropped. An element with no children, or with more than `maximum`, is returned as it is.
+  const mapPortalChildren = (react, portal, map) => {
+    const next = mapEach(react, portal.children, map);
+    return next ? { ...portal, children: next } : portal;
+  };
+  // Maps an element's children and clones it only when one changed. An element with no children, or
+  // with more than `maximum`, is returned as it is.
   const mapChildren = (react, element, map, maximum = Infinity) => {
-    const kids = react.Children.toArray(element.props?.children);
-    if (!kids.length || kids.length > maximum) return element;
-    let changed = false;
-    const next = [];
-    for (const kid of kids) {
-      const replacement = map(kid);
-      changed ||= replacement !== kid;
-      if (replacement !== null) next.push(replacement);
-    }
-    return changed ? react.cloneElement(element, {}, ...next) : element;
+    const next = mapEach(react, element.props?.children, map, maximum);
+    return next ? react.cloneElement(element, {}, ...next) : element;
   };
   // Renders a plain function component through a wrapper, so what it returns can be changed as well:
   // a component's children do not exist until it renders. The wrapper `wrap` builds is cached against
@@ -968,15 +974,19 @@
   // memo and forwardRef objects are left alone, since they cannot be called directly and wrapping
   // them would change identity for refs; for those, and for anything that is not an element of a
   // function type, this answers null.
-  const descendInto = (react, element, cache, wrap) => {
-    const type = element.type;
-    if (typeof type !== "function" || type.prototype?.isReactComponent) return null;
+  // The wrapper built for a type, once: a fresh identity on every render would remount the subtree.
+  const cachedWrapper = (cache, type, wrap) => {
     let wrapper = cache.get(type);
     if (!wrapper) {
       wrapper = wrap(type);
       cache.set(type, wrapper);
     }
-    return react.createElement(wrapper, keyed(element));
+    return wrapper;
+  };
+  const descendInto = (react, element, cache, wrap) => {
+    const type = element.type;
+    if (typeof type !== "function" || type.prototype?.isReactComponent) return null;
+    return react.createElement(cachedWrapper(cache, type, wrap), keyed(element));
   };
   // Runs a gate's resolution. A throw is handed to `failed` to record under the gate's own wording; a
   // resolution that answers false has already recorded why.
@@ -1001,10 +1011,9 @@
   // the root's `current` is the tree on screen, and after the first commit that is not always the
   // fiber the container key was written with.
   const reactRootFibers = () => {
-    const hosts = [];
-    // A page always has a document; an emitted-asset check may not, and then there is simply
-    // nothing mounted to adopt.
+    // A page always has a document; an emitted-asset check may not, and then nothing is mounted.
     if (typeof document === "undefined") return [];
+    const hosts = [];
     const root = document.getElementById("root");
     if (root) hosts.push(root);
     for (const child of Array.from(document.body?.children ?? [])) {
@@ -1066,105 +1075,162 @@
     }
     return false;
   };
+  // The three writes that bring a claim to a fiber already on screen, each to a plain field:
+  //   - `type` on the fiber and its alternate, so the next render calls the replacement. The
+  //     replacement must add no hooks of its own: the fiber keeps the hook list the original built,
+  //     and React refuses a render that ends with more hooks than the last.
+  //   - `memoizedProps` swapped for an object that shallow-compares unequal to the real props, so
+  //     React's memo bail-out cannot skip the render. React writes the real props back when it
+  //     renders; until then they stay reachable under AdoptedPropsKey.
+  //   - a render requested from the nearest class ancestor (requestRender), so it happens now.
+  const invalidateFiberProps = (fiber) => {
+    for (const side of [fiber, fiber.alternate]) {
+      if (side) side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
+    }
+  };
+  const retargetFiber = (fiber, type) => {
+    for (const side of [fiber, fiber.alternate]) {
+      if (side) side.type = type;
+    }
+  };
+  // Whether a fiber has a parent link on either side; a fiber sitting directly under a React root
+  // never had one, so only one that had a parent and lost it has been detached.
+  const fiberAttached = (fiber) => !!(fiber.return || fiber.alternate?.return);
   // Brings a claim on a component's `type` to the instances already on screen.
   //
   // A claim on a memo's `type` reaches the next mount only: when React mounts a memo it resolves the
   // function once and caches it on the fiber as `type`, and every later render of that fiber reads
-  // the cache, not the memo. On the September 2026 client Big Picture mounts its router and Home in
-  // the same commit, the moment its services report initialized, so Home is always on screen by the
-  // time the route list can be found; the claim alone left the carousel Steam's until the user left
-  // Home and came back (2026-09-22).
-  //
-  // Three writes, each to a plain field of the mounted fiber, make the claim current:
-  //   1. `type` on the fiber and its alternate, so the next render calls the replacement. The
-  //      replacement must add no hooks of its own: the fiber keeps the hook list the original built,
-  //      and React refuses a render that ends with more hooks than the last.
-  //   2. `memoizedProps` swapped for an object that shallow-compares unequal to the real props, so
-  //      React's memo bail-out cannot skip that render. React writes the real props back when it
-  //      renders, and the real props stay reachable under AdoptedPropsKey until then.
-  //   3. A render requested from the nearest class ancestor, so it happens now rather than on the
-  //      next navigation.
-  // Answers how many instances were adopted and whether a render was requested. Without a class
-  // ancestor the adoption still holds and takes effect on the instance's next render; `staleFibers`
-  // says whether one is still waiting.
+  // the cache, not the memo. Big Picture mounts its router, Home, the Quick Access view and the menu
+  // at boot and keeps them, so a claim alone is inert until the user happens to remount one; the
+  // carousel (2026-09-22) and every page gate (2026-09-24) shipped that way. Answers the fibers
+  // adopted and whether a render was requested; without a class ancestor the adoption still holds
+  // and takes effect on the instance's next render.
   const adoptMountedType = (roots, elementType, replacement, bound) => {
-    let adopted = 0;
+    const fibers = [];
     let scheduled = false;
     for (const fiber of mountedFibersOf(roots, elementType, bound)) {
       if (fiber.type === replacement) continue;
-      for (const side of [fiber, fiber.alternate]) {
-        if (!side) continue;
-        side.type = replacement;
-        side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
-      }
-      adopted++;
+      retargetFiber(fiber, replacement);
+      invalidateFiberProps(fiber);
+      fibers.push(fiber);
       scheduled = requestRender(fiber) || scheduled;
     }
-    return { adopted, scheduled };
+    return { fibers, adopted: fibers.length, scheduled };
   };
-  // Asks every adopted instance to render again, now. A publication that arrives after the install
-  // changes what the wrapper will draw, but nothing tells React: the wrapper reads the gate's state
-  // from its closure, the props have not changed, and a memo with equal props bails out exactly as it
-  // did before adoption. So the same two writes adoption made: props that cannot compare equal, then
-  // a render requested from the nearest class ancestor. Without this a page or tab published a moment
-  // after install stayed absent until the user navigated (2026-09-24). Answers how many were asked.
-  const renderMountedType = (roots, elementType, replacement, bound) => {
-    let asked = 0;
-    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
-      if (fiber.type !== replacement) continue;
-      for (const side of [fiber, fiber.alternate]) {
-        if (side) side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
-      }
-      if (requestRender(fiber)) asked++;
-    }
-    return asked;
-  };
-  // The node bound every gate walks mounted trees under. The router sits about a hundred levels down
-  // the live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
+  // The node bound mounted trees are walked under. The router sits about a hundred levels down the
+  // live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
   // pathological tree, not to limit a legitimate search.
   const MaximumMountedNodes = 60000;
-  // Adopts mounted instances of a component that has no public handle at all, found by what its
-  // source says rather than by any export.
+  // One claimed component's mounted instances, for the life of a gate's install.
+  //
+  // Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that
+  // list rather than the tree: a publication asks them to render again (the wrapper reads the gate's
+  // state from a closure, so the props have not changed and a memo with equal props bails out exactly
+  // as it did before adoption); status counts them; release hands them back. Publications arrive
+  // several times a second while a user browses artwork and status is read on every verify, so a
+  // tree walk on either was a full 60000-node pass on the UI thread for a number that never changed.
+  // A fiber React has since unmounted is dropped when next seen; the claim on the memo's `type`
+  // reaches any instance mounted after adoption on its own.
+  const createMountedAdoption = (bound = MaximumMountedNodes) => {
+    // Each adopted fiber with whether it had a parent when adopted; see fiberAttached.
+    let entries = [];
+    let replacement = null;
+    let scheduled = false;
+    const live = () => {
+      entries = entries.filter(({ fiber, hadParent }) => !hadParent || fiberAttached(fiber));
+      return entries.map(({ fiber }) => fiber);
+    };
+    return {
+      adopt: (elementType, wrapper) => {
+        replacement = wrapper;
+        const result = adoptMountedType(reactRootFibers(), elementType, wrapper, bound);
+        entries = result.fibers.map((fiber) => ({ fiber, hadParent: fiberAttached(fiber) }));
+        scheduled = result.scheduled;
+        return result;
+      },
+      rerender: () => {
+        let asked = 0;
+        for (const fiber of live()) {
+          invalidateFiberProps(fiber);
+          if (requestRender(fiber)) asked++;
+        }
+        return asked;
+      },
+      release: (original) => {
+        for (const { fiber } of entries) {
+          if (fiber.type === replacement) retargetFiber(fiber, original);
+        }
+        entries = [];
+        replacement = null;
+        scheduled = false;
+      },
+      // `stale` is an adopted instance still drawing something other than the wrapper: a render
+      // that has not happened yet, or a type React reset underneath us.
+      status: () => {
+        const fibers = live();
+        return {
+          adopted: fibers.length,
+          scheduled,
+          stale: fibers.filter((fiber) => fiber.type !== replacement).length,
+        };
+      },
+    };
+  };
+  // Whether every token is in a function's source. The source is taken once per function: a walk
+  // over a mounted tree meets the same few component types thousands of times.
+  const sourceTexts = new WeakMap();
+  const sourceMatches = (fn, tokens) => {
+    if (typeof fn !== "function") return false;
+    let source = sourceTexts.get(fn);
+    if (source === undefined) {
+      source = String(fn);
+      sourceTexts.set(fn, source);
+    }
+    return tokens.every((token) => source.includes(token));
+  };
+  // The mounted instances of a component that has no public handle at all, kept by the fiber.
   //
   // Steam's main-menu popup host is such a component: a module-local function the popup mounts
   // directly under a React root, exported nowhere, with the menu's memo export absent from that
-  // render path entirely. A claim on the memo's `type` is correct and never reached (2026-09-24). The
-  // only handle is the mounted fiber itself, which decky-loader's tabs hook adopts the same way, so
-  // each matching fiber's `type` becomes the wrapper `wrapFor` builds for its original. Idempotent: a
-  // fiber already carrying one of our wrappers is skipped, so this can run on every publication to
-  // catch a host Steam has since recreated. Answers the adoptions made, for release.
-  const adoptMountedBySource = (roots, tokens, wrapFor, ownedName, bound) => {
-    const adopted = [];
-    let scheduled = false;
-    walkFibers(roots, bound, (fiber) => {
-      const type = fiber.type;
-      if (typeof type !== "function" || type.name === ownedName) return false;
-      const source = String(type);
-      if (!tokens.every((token) => source.includes(token))) return false;
-      const wrapper = wrapFor(type);
-      for (const side of [fiber, fiber.alternate]) {
-        if (!side) continue;
-        side.type = wrapper;
-        side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
+  // render path entirely. The only handle is the mounted fiber, which decky-loader's tabs hook adopts
+  // the same way: each fiber whose source carries the tokens has its `type` swapped for the wrapper
+  // `wrapFor` builds for its original. `adopt` walks only while no adopted host is still mounted, so
+  // running it on every publication catches a host Steam recreated without paying a tree walk for
+  // the one it did not.
+  const createSourceAdoption = (tokens, wrapFor, bound = MaximumMountedNodes) => {
+    // Each adopted fiber's original and whether it had a parent when adopted; see fiberAttached.
+    const adopted = new Map();
+    const prune = () => {
+      for (const [fiber, { hadParent }] of [...adopted]) {
+        if (hadParent && !fiberAttached(fiber)) adopted.delete(fiber);
       }
-      adopted.push({ fiber, original: type });
-      scheduled = requestRender(fiber) || scheduled;
-      return false;
-    });
-    return { adopted, scheduled };
-  };
-  // Hands fibers adopted by source back to their originals.
-  const releaseAdoptedFibers = (adopted) => {
-    let released = 0;
-    for (const { fiber, original } of adopted) {
-      for (const side of [fiber, fiber.alternate]) {
-        if (side && side.type !== original) {
-          side.type = original;
-          released++;
-        }
-      }
-    }
-    return released;
+    };
+    return {
+      adopt: () => {
+        prune();
+        if (adopted.size > 0) return 0;
+        let count = 0;
+        walkFibers(reactRootFibers(), bound, (fiber) => {
+          const type = fiber.type;
+          if (adopted.has(fiber) || !sourceMatches(type, tokens)) return false;
+          adopted.set(fiber, { original: type, hadParent: fiberAttached(fiber) });
+          retargetFiber(fiber, wrapFor(type));
+          invalidateFiberProps(fiber);
+          requestRender(fiber);
+          count++;
+          return false;
+        });
+        return count;
+      },
+      release: () => {
+        for (const [fiber, { original }] of adopted) retargetFiber(fiber, original);
+        adopted.clear();
+      },
+      count: () => {
+        prune();
+        return adopted.size;
+      },
+    };
   };
   // Hands adopted instances back to the function the claim displaced. No render is requested: the
   // original draws again whenever the page next renders, and a wrapper left on screen until then
@@ -1173,9 +1239,7 @@
     let released = 0;
     for (const fiber of mountedFibersOf(roots, elementType, bound)) {
       if (fiber.type !== replacement) continue;
-      for (const side of [fiber, fiber.alternate]) {
-        if (side) side.type = original;
-      }
+      retargetFiber(fiber, original);
       released++;
     }
     return released;
@@ -2712,18 +2776,18 @@
     };
     const QamToken = "QuickAccessMenuBrowserView";
     const MaximumItems = 64;
-    // The tab's identity in Steam's strip. Valve keys its tabs by number (Notifications 0, Friends 3,
-    // Settings 4, Perf 5, Help 6, Music 7) and the strip's activeTab is that number, so a string key
-    // was never selected: clicking the tab fell through to Friends (2026-09-24). decky-loader uses
-    // 999; this stays clear of both so the two can coexist.
+    // The tab's identity in Steam's strip, a number like Valve's own (Notifications 0, Friends 3,
+    // Settings 4, Perf 5, Help 6, Music 7): the strip's activeTab is compared to it. Clear of Valve's
+    // and of decky-loader's 999 so the two can coexist.
     const ExtensionsTabId = 1010;
     const ExtensionsTabTitle = "Extensions";
-    // Steam's own record of the selected tab, by the names Valve gives its stores. The component
-    // that draws the strip and the content validates the store's value against a tab list it built
-    // itself and falls back to the first entry when the value is absent; that list is the one our
-    // tab is pushed into, but whether it survives a render is the client's business, not ours. So
-    // the strip and the content are told our tab is active whenever the store says so, and the
-    // fallback never reaches them. Null when the store is not where Valve keeps it today.
+    // How the tab is both drawn and selected, in two steps that are each necessary:
+    //   - it is pushed into Valve's own tab array in place, as decky-loader does, which is what the
+    //     strip and the content draw from;
+    //   - the component rendering those two validates the store's active tab against a list it built
+    //     itself and falls back to the first entry when ours is absent from it, so whenever Steam's
+    //     store names our tab, the strip and the content are handed it as the active one directly.
+    // The store is read by the names Valve gives it; null when it is not where Valve keeps it today.
     const activeQuickAccessTab = () => {
       try {
         return window.SteamUIStore?.ActiveWindowInstance?.MenuStore?.GetQuickAccessTab?.() ?? null;
@@ -2736,9 +2800,8 @@
         ? react.cloneElement(element, { activeTab: ExtensionsTabId })
         : element;
     // Element depth within one render pass, reset at every wrapped component. Measured on the
-    // 2026-09-24 client: from the component carrying onFocusNavDeactivated to the element holding
-    // the tab list is nineteen component-typed levels behind context providers and host elements,
-    // so twelve stopped short of it.
+    // 2026-09-24 client at nineteen component-typed levels from the component carrying
+    // onFocusNavDeactivated to the element holding the tab list.
     const MaximumDescent = 32;
     let runtime;
     let react;
@@ -2750,6 +2813,9 @@
     let lastOutcome = "never rendered";
     let lastError = "";
     const descenderCache = new Map();
+    const mounted = createMountedAdoption();
+    // Valve's tab array the tab was last pushed into, so removal can take it out again.
+    let insertedInto = null;
     const validAction = (action) =>
       action &&
       typeof action.id === "string" &&
@@ -2792,22 +2858,20 @@
       Number.isSafeInteger(item.configurationRevision ?? 0) &&
       (item.configurationRevision ?? 0) >= 0 &&
       (item.detail === undefined || item.detail === null || typeof item.detail === "string");
-    // Steam's QAM tab view is private. This bounded traversal finds the first element whose own
-    // props carry the tab list, matching what the live client renders rather than indexing its tree.
-    const replaceTabs = (element, depth, visible) => {
-      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+    // An element whose own props carry the tab list, with our tab in it; null for any other element.
+    // Steam's tab view is private, so the list is matched by content rather than by a path into the
+    // tree. The strip and the content each carry the same array, so the second visit finds the tab
+    // already present.
+    const insertTab = (element, visible) => {
       const tabs = element.props?.tabs;
-      if (Array.isArray(tabs)) {
-        const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
-        if (existing.length === 1) {
-          lastOutcome = `tabs=${tabs.length} extensions=present`;
-          return withOurTabActive(element);
-        }
-        if (existing.length > 1) {
-          lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
-          return element;
-        }
-        const tab = {
+      if (!Array.isArray(tabs)) return null;
+      const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
+      if (existing.length > 1) {
+        lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
+        return element;
+      }
+      if (existing.length === 0) {
+        tabs.push({
           key: ExtensionsTabId,
           // Valve's tabs carry both: the element the header draws and the string it is named by.
           title: react.createElement("div", null, ExtensionsTabTitle),
@@ -2816,19 +2880,11 @@
           steamUiExtensionsTab: true,
           initialVisibility: !!visible,
           panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
-        };
-        // Into Valve's own array, in place, never a copy. The menu root builds this list once and
-        // keeps it across renders, and it validates the store's active tab against THAT array:
-        // `tabs.some(t => t.key === active) ? active : tabs[0].key`. A copy handed to the strip and
-        // the content drew our tab, but the root never saw it in the list it checks, so selecting the
-        // tab fell back to the first entry and focus landed on Friends (2026-09-24). decky-loader
-        // pushes into the same array for the same reason. The "present" branch above is what keeps a
-        // second visit to the same array from adding it twice.
-        tabs.push(tab);
-        lastOutcome = `tabs=${tabs.length} extensions=added`;
-        return withOurTabActive(element);
+        });
+        insertedInto = tabs;
       }
-      return mapChildren(react, element, (child) => replaceTabs(child, depth + 1, visible));
+      lastOutcome = `tabs=${tabs.length} extensions=${existing.length ? "present" : "added"}`;
+      return withOurTabActive(element);
     };
     function ExtensionsTabPanel() {
       const [, setRevision] = react.useState(0);
@@ -3105,21 +3161,17 @@
       function SteamUiExtensionsTabDescend(props) {
         return descend(type(props), 0, props?.visible);
       };
+    // One traversal: the tab list stops it, a function component is entered through a wrapper that
+    // keeps descending, and anything else — a context provider, a host element, the portal the
+    // menu's body is drawn through — is descended through its children.
     const descend = (element, depth, visible) => {
       if (depth > MaximumDescent) return element;
-      // The menu's body is drawn through a portal into the popup window; see mapPortalChildren.
       if (isPortal(element)) {
         return mapPortalChildren(react, element, (kid) => descend(kid, depth + 1, visible));
       }
       if (!react.isValidElement(element)) return element;
-      const replaced = replaceTabs(element, depth, visible);
-      if (replaced !== element) return replaced;
-      // A render whose root is not a plain function component — a context provider, a host div — is
-      // descended through its children, the way the navigation panel already does. Stopping at such
-      // a root left the descender one level deep on the 2026-09-24 client, where the tab list sits
-      // twenty-three component levels down behind alternating providers and function components,
-      // so the tab was never inserted while every status flag read true.
       return (
+        insertTab(element, visible) ??
         descendInto(react, element, descenderCache, tabDescender) ??
         mapChildren(react, element, (kid) => descend(kid, depth + 1, visible))
       );
@@ -3142,16 +3194,13 @@
         return false;
       }
       const exports = runtime(qam[0]);
+      // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
       const candidates = Object.keys(exports).filter((name) => {
         const value = exports[name];
-        const stored =
-          value?.type?.[claimKeys.marker] === true ? value.type[claimKeys.original] : value?.type;
-        const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
         return (
           value &&
           typeof value === "object" &&
-          typeof original === "function" &&
-          String(original).includes(QamToken)
+          sourceMatches(unclaimedValue(value.type, claimKeys), [QamToken])
         );
       });
       if (candidates.length !== 1) {
@@ -3161,8 +3210,6 @@
       memo = exports[candidates[0]];
       return true;
     };
-    // What the last install's adoption of already-mounted Quick Access views reached; see install().
-    let lastAdoption = { adopted: 0, scheduled: false };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       if (
@@ -3185,20 +3232,16 @@
       }
       installed = true;
       lastError = "";
-      // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept,
-      // so without this the tab never appeared: status said claimed, lastOutcome said never rendered,
-      // and opening the menu drew Steam's own cached function (2026-09-24). Adoption swaps the mounted
-      // instances over and defeats the memo bail-out; see adoptMountedType.
-      lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
+      // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept.
+      mounted.adopt(memo, memo.type);
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items)
           ? state.items.filter(validItem).slice(0, MaximumItems)
           : [];
         desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
         // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-        // see. Ask the mounted views to draw again, or a tab published after install waits for the
-        // next navigation.
-        renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
+        // see on its own.
+        mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -3206,16 +3249,18 @@
     // leaves the claim live while every later remove() answers `absent` and never retries it.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      // Read before the release hands `type` back, so the adopted instances can be matched by it.
-      const wrapper = memo?.type;
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "Extensions tab release failed";
         return { ok: false, error: lastError };
       }
-      // Every mounted view this install adopted, handed back to what the claim displaced.
-      releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
-      lastAdoption = { adopted: 0, scheduled: false };
+      mounted.release(memo.type);
+      // Out of Valve's array again: removal restores exactly what was displaced.
+      if (insertedInto) {
+        const at = insertedInto.findIndex((tab) => tab && tab.steamUiExtensionsTab === true);
+        if (at >= 0) insertedInto.splice(at, 1);
+        insertedInto = null;
+      }
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       desired = { items: [], revision: 0 };
@@ -3231,12 +3276,8 @@
       claimed: memberClaimed(memo, "type", claimKeys),
       items: desired.items.length,
       revision: desired.revision,
-      // Whether the claim reached the views already on screen, and whether one is still drawing
-      // Steam's own. A claim that adopted nothing is inert until Steam mounts a new view.
-      mounted: {
-        ...lastAdoption,
-        stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
-      },
+      // Whether the claim reached the views already on screen; a claim that adopted nothing is inert.
+      mounted: mounted.status(),
       lastOutcome,
       lastError,
     });
@@ -3920,7 +3961,13 @@
       }
       installed = true;
       lastError = "";
-      lastAdoption = adoptMountedType(reactRootFibers(), home, home.type, MaximumNodesVisited);
+      const { adopted, scheduled } = adoptMountedType(
+        reactRootFibers(),
+        home,
+        home.type,
+        MaximumNodesVisited,
+      );
+      lastAdoption = { adopted, scheduled };
       unsubscribe = subscribe(patchId, (published) => {
         const ids = Array.isArray(published?.disconnectedAppIds)
           ? published.disconnectedAppIds
@@ -4767,11 +4814,7 @@
       panelCache.set(original, wrapped);
       return wrapped;
     };
-    const isPanelRoot = (type) => {
-      if (typeof type !== "function") return false;
-      const source = String(type);
-      return PanelRootTokens.every((token) => source.includes(token));
-    };
+    const isPanelRoot = (type) => sourceMatches(type, PanelRootTokens);
     // Descends the rendered tree to the panel root. Function components on the way down are replaced
     // by wrappers that render the original and keep descending (descendInto); anything else is
     // descended through its children.
@@ -4806,13 +4849,13 @@
       // The one export whose memo renders the outer container. Selected by what its component draws,
       // never by its minified export name: those are right for today's build and nothing more.
       const exports = runtime(menuFactory[0]);
+      // Through the gate's own claim, or a re-resolve while the claim is held finds no memo.
       const candidates = Object.keys(exports).filter((name) => {
         const value = exports[name];
         return (
           value &&
           typeof value === "object" &&
-          typeof value.type === "function" &&
-          String(value.type).includes(OuterToken)
+          sourceMatches(unclaimedValue(value.type, claimKeys), [OuterToken])
         );
       });
       if (candidates.length !== 1) {
@@ -4822,36 +4865,16 @@
       memo = exports[candidates[0]];
       return true;
     };
-    // What the last install's adoption of already-mounted panels reached; see install().
-    let lastAdoption = { adopted: 0, scheduled: false };
-    // The popup's menu host, which has no public handle. On the 2026-09-24 client Big Picture's
-    // main menu is a popup whose host is a module-local function mounted directly under a React
-    // root; it is exported nowhere, and the memo this gate claims is not in its render path at all.
-    // The claim was correct and never reached. The host is recognised by three prop names its author
-    // destructures, and the mounted fiber is adopted directly, the way decky-loader adopts the
-    // Quick Access view. It persists while the menu is closed and re-renders when `open` flips, so
-    // an adoption made once shows on the next open.
+    const mounted = createMountedAdoption();
+    // The popup's menu host, which has no public handle: a module-local function the popup mounts
+    // directly under a React root, exported nowhere, with the memo this gate claims absent from its
+    // render path. Recognised by three prop names its author destructures and adopted by the fiber,
+    // as decky-loader adopts the Quick Access view. It persists while the menu is closed and
+    // re-renders when `open` flips, so an adoption shows on the next open.
     const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"];
-    let adoptedHosts = [];
-    const hostWrapper = (type) => {
-      let wrapper = descendCache.get(type);
-      if (!wrapper) {
-        wrapper = navigationDescender(type);
-        descendCache.set(type, wrapper);
-      }
-      return wrapper;
-    };
-    const adoptHosts = () => {
-      const result = adoptMountedBySource(
-        reactRootFibers(),
-        MenuHostTokens,
-        hostWrapper,
-        "SteamUiNavigationDescend",
-        MaximumMountedNodes,
-      );
-      adoptedHosts.push(...result.adopted);
-      return result.adopted.length;
-    };
+    const hosts = createSourceAdoption(MenuHostTokens, (type) =>
+      cachedWrapper(descendCache, type, navigationDescender),
+    );
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       const resolved = attemptResolution(resolve, (error) => {
@@ -4872,12 +4895,9 @@
       }
       installed = true;
       lastError = "";
-      // The claim reaches the next mount only, and the main menu's root is mounted at boot and
-      // kept, so a claimed panel that was already on screen kept drawing Steam's own cached
-      // function: status said claimed, lastOutcome said never rendered (2026-09-24). Adoption
-      // swaps the mounted instances over and defeats the memo bail-out; see adoptMountedType.
-      lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
-      adoptHosts();
+      // The claim reaches the next mount only; what is already on screen is adopted.
+      mounted.adopt(memo, memo.type);
+      hosts.adopt();
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items) ? state.items : [];
         const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
@@ -4890,21 +4910,16 @@
           items: routable.slice(0, MaximumEntries),
           hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
         };
-        // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-        // see, and a panel already on screen would keep showing the previous entries. Ask the
-        // mounted panels to draw again; a menu not yet open draws through the claim when it is.
-        renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
-        // A host Steam has recreated since install is adopted here; one already adopted is
-        // skipped. It sits directly under a React root with no class above it, so no render can
-        // be requested: the entries show when the menu next opens, which re-renders the host.
-        adoptHosts();
+        // The wrappers read `desired` from their closure, so a publication changes nothing React
+        // can see on its own. A host Steam has recreated since install is adopted here; it sits
+        // under a React root with no class above it, so its entries show when the menu next opens.
+        mounted.rerender();
+        hosts.adopt();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      // Read before the release hands `type` back, so the adopted instances can be matched by it.
-      const wrapper = memo?.type;
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       desired = { items: [], hidden: [] };
@@ -4915,11 +4930,8 @@
         lastError = released.error ?? "navigation panel release failed";
         return { ok: false, error: lastError };
       }
-      // Every mounted panel this install adopted, handed back to what the claim displaced.
-      releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
-      lastAdoption = { adopted: 0, scheduled: false };
-      releaseAdoptedFibers(adoptedHosts);
-      adoptedHosts = [];
+      mounted.release(memo.type);
+      hosts.release();
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -4932,14 +4944,9 @@
       // insertion depends on the tree Steam rendered. This is the part that says what happened.
       entries: observed,
       items: desired.items.length,
-      // Whether the claim reached the panels already on screen, and whether one is still drawing
-      // Steam's own. A claim that adopted nothing is inert until Steam mounts a new panel.
-      mounted: {
-        ...lastAdoption,
-        stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
-        // Popup menu hosts adopted by source, the path the memo claim never reaches.
-        hosts: adoptedHosts.length,
-      },
+      // Whether the claim reached the panels already on screen, and how many popup menu hosts are
+      // adopted by source, the path the memo claim never reaches. Nothing adopted is inert.
+      mounted: { ...mounted.status(), hosts: hosts.count() },
       rejectedRoutes,
       hidden: desired.hidden.length,
       lastOutcome,
@@ -5180,66 +5187,45 @@
     // The router, unique on this pair. "Settings.Root()" alone matches six modules and
     // "TopLevelTransition" is the switch's own; together they name exactly one.
     const RouterTokens = ["Settings.Root()", "TopLevelTransition"];
-    const BackstackToken = "router-backstack";
-    // Steam's back-stack Route, named by two tokens Valve wrote — the JSX prop the export fills in and
-    // the optional member access it fills it from — rather than by the shape of the minified code
-    // between them. The fingerprint this replaced was decky-loader's, and it spelled that minified
-    // local out as a single-character wildcard: `routePath:.\.match\?\.path.`. It stopped matching on
-    // 2026-09-24, when the client began emitting two-character names (`routePath:be.match?.path`), and
-    // the gate registered no route at all. A fingerprint may not describe a minified identifier; only
-    // what its author typed is stable across a client build.
-    //
-    // This lookup is now the fallback rather than the answer. The Route the gate builds with is taken
-    // from the route list Steam is currently rendering (see `applyPages`), which is the same component
-    // by construction and cannot be renamed out from under us. What remains here covers the one case
-    // that borrowing does not: a client whose route list holds something other than plain Route
-    // elements. Because it is a fallback, failing to find it is no longer a reason to refuse a client.
+    // What Steam's back-stack Route reads, in its author's words: the JSX prop it fills in and the
+    // optional member access it fills it from. Used to verify the Route borrowed from the route list,
+    // never to find one; a fingerprint names what an author typed, not how a minifier spelled it.
     const BackstackRouteMarkers = ["routePath:", ".match?.path"];
-    const isBackstackRoute = (value) =>
-      typeof value === "function" &&
-      BackstackRouteMarkers.every((marker) => String(value).includes(marker));
-    // Whether a route element's type can be used as a component. React elements hold a string type for
-    // host elements like "div", which a page must not be built with.
-    const isUsableRoute = (type) =>
-      typeof type === "function" || (typeof type === "object" && type !== null);
     // A path every build of the client has and no consumer would register, used to recognise the
     // route list among the router's children.
     const KnownRoute = "/library/home";
     const MaximumPages = 32;
     const MaximumDescent = 8;
-    // The router sits about a hundred levels down the live tree, so the bound is generous; it exists
-    // to stop a cyclic or pathological tree, not to limit a legitimate search.
-    const MaximumNodesVisited = 60000;
+    const PageKeyPrefix = "steam-ui-page-";
     let runtime;
     let react;
-    // The fallback, resolved from the registry. `borrowedRoute` is the one Steam handed us.
-    let RouteComponent = null;
+    // Steam's own Route, taken off the `/library/home` element in the route list Steam is rendering:
+    // the component itself rather than a description of it, so no client build can rename it away.
     let borrowedRoute = null;
-    let routeSource = "none";
-    let routeLookupError = "";
+    let routeVerified = false;
     let memo = null;
     let routeSwitchFiber = null;
     let routeSwitchWrapper = null;
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
-    // What the last install's adoption of already-mounted routers reached; see install().
-    let lastAdoption = { adopted: 0, scheduled: false };
+    const mounted = createMountedAdoption();
     let pages = [];
     let lastOutcome = "never rendered";
     let observedRoutes = [];
     const descendCache = new Map();
-    // One registered page. The content is described by the host rather than supplied as a component:
-    // a consumer's React lives in its own process, not in this asset, so what crosses the bridge is
-    // data. A page renders its title and asks the host for its body, which is the same shape the
-    // Quick Access rows already use.
-    const renderPage = (page) => {
+    // One registered page's body. The content is described by the host rather than supplied as a
+    // component: a consumer's React lives in its own process, so what crosses the bridge is data,
+    // and a renderer registered under the page's template draws it.
+    //
+    // The renderer runs here, when Steam draws the page, not when the route is built. Routes are
+    // built the moment pages are published, which on a cold start is before the gate a renderer
+    // needs has resolved; calling it then either baked a null child into the route or threw inside
+    // Steam's router render, whose error boundary replaces the whole client. A renderer that throws
+    // now costs its own page, falls open to the heading, and names its template.
+    function SteamUiPageBody({ page }) {
       const renderer = steamPageRenderers.get(page.template);
       if (renderer) {
-        // A renderer runs inside Steam's router render. One that throws would reach Steam's error
-        // boundary, which unmounts the router and replaces the whole client with "Something went
-        // wrong" — a page that cannot draw yet must cost that page, never the client. Fail open to
-        // the heading-only page and say which template did it.
         try {
           return renderer(react, page);
         } catch (error) {
@@ -5248,22 +5234,16 @@
       }
       return react.createElement(
         "div",
-        {
-          className: "steam-ui-page",
-          role: "region",
-          "aria-label": page.title,
-        },
+        { className: "steam-ui-page", role: "region", "aria-label": page.title },
         react.createElement("h1", null, page.title),
         react.createElement("div", { id: `steam-ui-page-body-${page.id}` }),
       );
-    };
-    // Steam's own Route, preferring the one it is rendering with over the one the registry named.
-    const activeRoute = () => borrowedRoute ?? RouteComponent;
+    }
     const buildRoute = (page) =>
       react.createElement(
-        activeRoute(),
-        { path: page.path, key: `steam-ui-page-${page.id}` },
-        renderPage(page),
+        borrowedRoute,
+        { path: page.path, key: `${PageKeyPrefix}${page.id}` },
+        react.createElement(SteamUiPageBody, { page }),
       );
     // Whether an array of elements is the router's route list.
     const isRouteList = (value) =>
@@ -5277,39 +5257,39 @@
     // the first match. Both keep their relative order, so two overrides of the same path resolve in
     // registration order rather than arbitrarily.
     const applyPages = (routes) => {
-      observedRoutes = routes
+      // Idempotent: the route list is reached twice per render, once in the router's output and once
+      // by the mounted switch, and a page inserted by the first pass must not be inserted again.
+      const own = routes.filter(
+        (route) => typeof route?.key === "string" && route.key.startsWith(PageKeyPrefix),
+      );
+      const steam = routes.filter((route) => !own.includes(route));
+      observedRoutes = steam
         .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
         .map((route) => route.props.path);
-      // Steam's Route, borrowed from the element Steam is rendering `/library/home` with. This is the
-      // component itself rather than something that matched a description of it, so no client build
-      // can rename it away; the registry lookup above exists only for a list this cannot be read from.
-      const known = routes.find(
+      if (own.length) return routes;
+      // A host element would be a string type and cannot be built with; anything else is what Steam
+      // renders that route with, verified against the Route's own markers for the status only.
+      const known = steam.find(
         (route) => react.isValidElement(route) && route.props?.path === KnownRoute,
       );
-      if (known && isUsableRoute(known.type)) {
-        const disagrees = RouteComponent && RouteComponent !== known.type;
+      if (known && typeof known.type !== "string") {
         borrowedRoute = known.type;
-        routeSource = disagrees ? "borrowed (lookup differs)" : "borrowed";
-      } else if (RouteComponent) {
-        routeSource = "lookup";
+        routeVerified = sourceMatches(known.type, BackstackRouteMarkers);
       }
       const wanted = pages.slice(0, MaximumPages);
       if (!wanted.length) {
-        lastOutcome = `routes=${routes.length} pages=0 route=${routeSource}`;
+        lastOutcome = `routes=${steam.length} pages=0`;
         return routes;
       }
-      // Loud rather than empty: a page that cannot be built is the one failure this gate can reach
-      // while otherwise holding the router, and a surface that silently draws nothing is a defect.
-      if (!activeRoute()) {
-        lastOutcome = `routes=${routes.length} pages=${wanted.length} route=unavailable`;
+      // Loud rather than empty: a surface that silently draws nothing is a defect.
+      if (!borrowedRoute) {
+        lastOutcome = `routes=${steam.length} pages=${wanted.length} route=unavailable`;
         return routes;
       }
       const overrides = wanted.filter((page) => page.override === true).map(buildRoute);
       const additions = wanted.filter((page) => page.override !== true).map(buildRoute);
-      lastOutcome =
-        `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}` +
-        ` route=${routeSource}`;
-      return [...overrides, ...routes, ...additions];
+      lastOutcome = `routes=${steam.length} overrides=${overrides.length} additions=${additions.length}`;
+      return [...overrides, ...steam, ...additions];
     };
     // Finds the route list in the router's returned element tree and replaces it.
     //
@@ -5344,20 +5324,6 @@
         return false;
       }
       react = resolvedReact;
-      // Through the shared resolver rather than a raw require and a local scan of the export names:
-      // it counts aliases of one value once, so a re-export cannot read as ambiguity, and it says
-      // which of "module absent", "module ambiguous" and "export absent" actually happened.
-      //
-      // Recorded rather than fatal. The gate builds with the Route it borrows from Steam's own route
-      // list, so a client this lookup cannot resolve is not a client the gate has to refuse. Refusing
-      // one is what took every custom page down on 2026-09-24 while the client was otherwise fine.
-      try {
-        RouteComponent = runtime.exported([BackstackToken], isBackstackRoute);
-        routeLookupError = "";
-      } catch (error) {
-        RouteComponent = null;
-        routeLookupError = String(error);
-      }
       // The router module is confirmed to exist and to be unique, but it exports nothing that
       // reaches the router: the memo is built locally inside the module. Verified against the live
       // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
@@ -5386,53 +5352,28 @@
     // recursive walk nests a frame for every sibling, so a long sibling chain could exhaust the stack
     // before the node bound was ever reached.
     const findRouterMemo = () => {
-      const host = document.getElementById("root");
-      if (!host) return null;
-      const key = Object.keys(host).find((name) => name.startsWith("__reactContainer$"));
-      if (!key) return null;
-      const seen = new Set();
-      const queue = [host[key]];
-      let visited = 0;
-      for (let head = 0; head < queue.length && visited <= MaximumNodesVisited; head++) {
-        const node = queue[head];
-        if (!node || seen.has(node)) continue;
-        seen.add(node);
-        visited++;
-        const current = node.elementType?.type;
-        const stored = current?.[claimKeys.marker] === true ? current[claimKeys.original] : current;
-        const original = stored?.kind === "steam-ui-property-snapshot-v1" ? stored.value : stored;
-        if (
-          typeof original === "function" &&
-          String(original).includes(RouterTokens[0]) &&
-          node.elementType &&
-          typeof node.elementType === "object"
-        ) {
-          return node.elementType;
+      let found = null;
+      walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
+        const elementType = node.elementType;
+        if (!elementType || typeof elementType !== "object") return false;
+        // Through the gate's own claim, or a re-resolve while the claim is held finds no router.
+        if (!sourceMatches(unclaimedValue(elementType.type, claimKeys), [RouterTokens[0]])) {
+          return false;
         }
-        queue.push(node.child, node.sibling);
-      }
-      return null;
+        found = elementType;
+        return true;
+      });
+      return found;
     };
     const findRouteSwitchFiber = () => {
-      const host = document.getElementById("root");
-      const key = host
-        ? Object.keys(host).find((name) => name.startsWith("__reactContainer$"))
-        : null;
-      const queue = key ? [host[key]] : [];
-      for (
-        let head = 0, visited = 0;
-        head < queue.length && visited <= MaximumNodesVisited;
-        head++, visited++
-      ) {
-        const node = queue[head];
-        if (!node) continue;
-        const current = node.type;
-        const original = current?.__steamUiPageSwitchOriginal ?? current;
-        const source = typeof original === "function" ? String(original) : "";
-        if (source.includes("computedMatch") && source.includes("TopLevelTransition")) return node;
-        queue.push(node.child, node.sibling);
-      }
-      return null;
+      let found = null;
+      walkFibers(reactRootFibers(), MaximumMountedNodes, (node) => {
+        const original = node.type?.__steamUiPageSwitchOriginal ?? node.type;
+        if (!sourceMatches(original, ["computedMatch", "TopLevelTransition"])) return false;
+        found = node;
+        return true;
+      });
+      return found;
     };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
@@ -5473,20 +5414,9 @@
       });
       routeSwitchFiber.type = routeSwitchWrapper;
       if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
-      // The memo object is now patched globally, but an already mounted fiber keeps its resolved
-      // function in `type`, so the claim reaches the next mount only. This gate used to swap that one
-      // fiber and call forceUpdate on the nearest class ancestor, which cannot work: Steam's router is
-      // a React.memo with the default comparison, so re-rendering the parent produces the same element
-      // with the same props and React bails out at the memo without ever calling what we installed.
-      // The result was a claim that was correct and inert — status said claimed, lastOutcome said
-      // never rendered, and no page existed until the user navigated and changed the props by hand.
-      //
-      // adoptMountedType is the shared answer the Home carousel already used for the same bail-out:
-      // it swaps `type` on every mounted instance across every React root, replaces `memoizedProps`
-      // with an object that cannot shallow-compare equal, and only then asks for a render. It also
-      // covers the menu and Quick Access popups, which have React roots of their own that this gate's
-      // single walk of `#root` never saw.
-      lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
+      // The claim reaches the next mount only; the router already on screen is adopted, or the claim
+      // is correct and inert until the user happens to remount it. See createMountedAdoption.
+      mounted.adopt(memo, memo.type);
       installed = true;
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
@@ -5504,11 +5434,9 @@
               page.path !== "/",
           )
           .slice(0, MaximumPages);
-        // The switch wrapper reads `pages` from its closure, so a publication changes nothing React
-        // can see. The install's own render happened before WSGM's pages arrived, which left
-        // lastOutcome at pages=0 with three published and nothing registered until the next
-        // navigation (2026-09-24). Ask the adopted routers to draw again now.
-        renderMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
+        // The wrappers read `pages` from their closure, so a publication changes nothing React can
+        // see on its own.
+        mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -5517,17 +5445,12 @@
     // `absent`, so a failed cleanup could never be retried.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
-      // Read before the release hands `type` back, so the adopted instances can be matched by it.
-      const wrapper = memo?.type;
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "page host release failed";
         return { ok: false, error: lastError };
       }
-      // Every router this install adopted, handed back to the function the claim displaced. No render
-      // is requested: Steam's own draws again the next time the page renders.
-      releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumNodesVisited);
-      lastAdoption = { adopted: 0, scheduled: false };
+      mounted.release(memo.type);
       if (routeSwitchFiber && routeSwitchWrapper) {
         const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
         if (routeSwitchFiber.type === routeSwitchWrapper) routeSwitchFiber.type = originalSwitch;
@@ -5542,7 +5465,7 @@
       pages = [];
       // Borrowed from a render that is about to be undone, so it is not carried into the next install.
       borrowedRoute = null;
-      routeSource = "none";
+      routeVerified = false;
       descendCache.clear();
       lastOutcome = "removed";
       return { ok: true, removed: true };
@@ -5551,20 +5474,15 @@
       ok: true,
       installed,
       resolved: !!memo,
-      routeResolved: !!activeRoute(),
-      // Which of the two the pages are built with, so a client where the registry lookup has drifted
-      // is visible as "borrowed" long before anyone has to debug an empty page.
-      routeSource,
-      routeLookupError,
+      routeResolved: !!borrowedRoute,
+      // "borrowed (unverified)" is a Route whose source lacks the back-stack markers: it draws, and
+      // back navigation may be the thing it lost.
+      routeSource: borrowedRoute ? (routeVerified ? "borrowed" : "borrowed (unverified)") : "none",
       claimed: memberClaimed(memo, "type", claimKeys),
       pages: pages.length,
       // Whether the claim reached the routers already on screen, and whether one is still drawing
-      // something else. A claim that adopted nothing is inert until Steam mounts a new router, which
-      // is the difference between "claimed" and "actually running".
-      mounted: {
-        ...lastAdoption,
-        stale: staleFibers(reactRootFibers(), memo, MaximumNodesVisited),
-      },
+      // something else: the difference between "claimed" and "actually running".
+      mounted: mounted.status(),
       // What the last render actually saw. Everything above can be true while no page is reachable,
       // because insertion depends on finding the route list in the tree Steam rendered.
       routeCount: observedRoutes.length,
@@ -9153,9 +9071,16 @@
       ),
     );
   }
-  function renderArtworkBrowserPage(react, _page) {
+  // Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
+  // resolved on a cold start.
+  let artworkReact = null;
+  // One component for the life of the asset. The page host draws it on every router render, and a
+  // component declared inside the renderer would be a new type each time: React would remount the
+  // page and drop the loaded assets and the controller's focus.
+  function ArtworkBrowserPage() {
+    const react = artworkReact;
     const h = react.createElement;
-    function ArtworkBrowserPage() {
+    {
       const [state, setState] = react.useState(artworkDesired);
       const [actionError, setActionError] = react.useState("");
       const [cardSize, setCardSize] = react.useState(170);
@@ -9164,16 +9089,12 @@
         artworkListeners.add(listener);
         return () => artworkListeners.delete(listener);
       }, []);
-      // Steam's controls are read when the page draws, never when its route is built. The page host
-      // builds every route the moment WSGM publishes them, which is before this gate has resolved on
-      // a cold start; reading artworkUi up there threw inside Steam's router, its error boundary
-      // unmounted the router, and the whole client showed "Something went wrong" (2026-09-24).
-      if (!artworkUi) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
+      // After the hooks, so a render before the gate resolves calls the same ones as one after.
+      if (!artworkUi || !state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
       const Focusable = artworkUi.focusable;
       const Button = artworkUi.dialogButton;
       const SliderField = artworkUi.sliderField;
       const Tabs = artworkUi.tabs;
-      if (!state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
       const activate = (command, payload = {}) =>
         sendArtworkCommand(command, payload).catch((error) => {
           setActionError(String(error?.message || error));
@@ -9397,7 +9318,10 @@
         }),
       );
     }
-    return h(ArtworkBrowserPage);
+  }
+  function renderArtworkBrowserPage(react, _page) {
+    artworkReact ??= react;
+    return react.createElement(ArtworkBrowserPage);
   }
   const artworkBrowserStyles = `
 #sgdb-wrap{--asset-size:170px;margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));background:var(--gpSystemDarkestGrey,#0e141b);color:#fff}
@@ -9779,13 +9703,15 @@
       ),
     );
   };
-  // React comes from the router when the gate has not resolved yet, so the route always carries a
-  // component: one built with a null child stays null until the routes are rebuilt, and the page
-  // opened blank when the gate resolved a second after the routes did (2026-09-24).
-  function renderLibraryImportPage(routerReact) {
-    const react = importUi?.react ?? routerReact;
-    if (!react) return null;
-    const Page = () => {
+  // Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
+  // resolved on a cold start.
+  let importReact = null;
+  // One component for the life of the asset. The page host draws it on every router render, and a
+  // component declared inside the renderer would be a new type each time: React would remount the
+  // page and drop its selection and the controller's focus.
+  function LibraryImportPage() {
+    const react = importReact;
+    {
       const [, setRevision] = react.useState(0);
       react.useEffect(() => {
         const listener = () => setRevision((value) => value + 1);
@@ -9868,8 +9794,11 @@
           ...entries.map((entry) => renderImportRow(entry)),
         ),
       );
-    };
-    return react.createElement(Page, {});
+    }
+  }
+  function renderLibraryImportPage(react) {
+    importReact ??= react;
+    return react.createElement(LibraryImportPage, {});
   }
   function createLibraryImport() {
     let installed = false;
@@ -9976,11 +9905,8 @@
       onAction: () => {},
     });
   }
-  // Always the component, never null. The page host builds every route the moment WSGM publishes
-  // them, which on a cold start is a second before this gate has resolved; a route built with a null
-  // child kept it, and the page opened blank until something rebuilt the routes (2026-09-24). The
-  // component draws nothing until the gate is there and re-renders on its first publication. React
-  // comes from the router when the gate has not supplied it yet: Steam has exactly one.
+  // Always the component, never null: it draws nothing until the gate is there and re-renders on its
+  // first publication. React comes from the page host before the gate has supplied it; Steam has one.
   function renderWsgmSettingsPage(react) {
     wsgmSettingsReact ??= react;
     return wsgmSettingsReact.createElement(WsgmSettingsPage, {});

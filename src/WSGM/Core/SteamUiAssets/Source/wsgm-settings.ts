@@ -48,11 +48,8 @@ function WsgmSettingsPage() {
   });
 }
 
-// Always the component, never null. The page host builds every route the moment WSGM publishes
-// them, which on a cold start is a second before this gate has resolved; a route built with a null
-// child kept it, and the page opened blank until something rebuilt the routes (2026-09-24). The
-// component draws nothing until the gate is there and re-renders on its first publication. React
-// comes from the router when the gate has not supplied it yet: Steam has exactly one.
+// Always the component, never null: it draws nothing until the gate is there and re-renders on its
+// first publication. React comes from the page host before the gate has supplied it; Steam has one.
 function renderWsgmSettingsPage(react: any) {
   wsgmSettingsReact ??= react;
   return wsgmSettingsReact.createElement(WsgmSettingsPage, {});

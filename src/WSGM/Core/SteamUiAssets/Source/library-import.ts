@@ -283,14 +283,16 @@ const renderImportRow = (entry: any) => {
   );
 };
 
-// React comes from the router when the gate has not resolved yet, so the route always carries a
-// component: one built with a null child stays null until the routes are rebuilt, and the page
-// opened blank when the gate resolved a second after the routes did (2026-09-24).
-function renderLibraryImportPage(routerReact: any) {
-  const react = importUi?.react ?? routerReact;
-  if (!react) return null;
+// Steam's React, from the page host: Steam has exactly one, and the page draws before this gate has
+// resolved on a cold start.
+let importReact: any = null;
 
-  const Page = () => {
+// One component for the life of the asset. The page host draws it on every router render, and a
+// component declared inside the renderer would be a new type each time: React would remount the
+// page and drop its selection and the controller's focus.
+function LibraryImportPage() {
+  const react = importReact;
+  {
     const [, setRevision] = react.useState(0);
     react.useEffect(() => {
       const listener = () => setRevision((value: number) => value + 1);
@@ -375,9 +377,12 @@ function renderLibraryImportPage(routerReact: any) {
         ...entries.map((entry: any) => renderImportRow(entry)),
       ),
     );
-  };
+  }
+}
 
-  return react.createElement(Page, {});
+function renderLibraryImportPage(react: any) {
+  importReact ??= react;
+  return react.createElement(LibraryImportPage, {});
 }
 
 function createLibraryImport() {
