@@ -138,6 +138,17 @@
               <ToggleSwitch Grid.Column="1" IsChecked="{Binding VerboseLogging}" VerticalAlignment="Center" />
             </Grid>
           </Border>
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="AutoTDP trace" Classes="setting-title" />
+                <TextBlock
+                  Text="Writes a CSV of every AutoTDP window, decision and power write to the autotdp-traces folder beside the log. Each AutoTDP session gets its own file. Recording does not change what AutoTDP decides."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoTdpTrace}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
         </StackPanel>
       </Grid>
     </Grid>

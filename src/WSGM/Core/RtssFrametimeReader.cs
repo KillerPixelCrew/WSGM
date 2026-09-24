@@ -12,12 +12,22 @@ namespace WSGM.Core;
 /// <param name="MeanFrametimeMs">Mean frametime across RTSS's own averaging window.</param>
 /// <param name="Frames">Frames in that window.</param>
 /// <param name="AgeMs">How long ago the window ended.</param>
+/// <param name="WindowStartTicks">RTSS's <c>dwTime0</c>: low 32 bits of the tick count the window started at.</param>
+/// <param name="WindowEndTicks">RTSS's <c>dwTime1</c>: low 32 bits of the tick count the window ended at.</param>
+/// <param name="FrameTimeRaw">RTSS's <c>dwFrameTime</c>, unscaled. Its unit is not live-verified.</param>
+/// <remarks>
+///     The raw window bounds identify the measurement itself. Two reads that return the same bounds read the
+///     same window twice, which the AutoTDP trace records instead of letting it pass as fresh evidence.
+/// </remarks>
 internal sealed record RtssFrametimeSample(
     uint ProcessId,
     string ExecutablePath,
     double MeanFrametimeMs,
     uint Frames,
-    long AgeMs);
+    long AgeMs,
+    uint WindowStartTicks = 0,
+    uint WindowEndTicks = 0,
+    uint FrameTimeRaw = 0);
 
 /// <summary>The frametime feed AutoTDP consumes.</summary>
 internal interface IFrametimeSource
@@ -89,6 +99,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     private const int EntryTime0Offset = 268;
     private const int EntryTime1Offset = 272;
     private const int EntryFramesOffset = 276;
+    private const int EntryFrameTimeOffset = 280;
     private const int MinimumEntrySize = 284;
 
     /// <summary>Entries whose last frame is older than this are treated as not rendering.</summary>
@@ -217,7 +228,10 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
                 DecodeName(name),
                 (time1 - time0) / (double)frames,
                 frames,
-                age));
+                age,
+                time0,
+                time1,
+                region.ReadUInt32(entry + EntryFrameTimeOffset)));
         }
 
         return live;

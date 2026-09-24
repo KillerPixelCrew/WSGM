@@ -796,8 +796,15 @@ public sealed class ShellSession : IAsyncDisposable
                         CapabilityCommandOrigin.AutomaticControl,
                         power.Projection.State.CycleGeneration,
                         power.Projection.State.DescriptorGeneration, pair, token),
-                TargetFrametimeMs);
+                TargetFrametimeMs,
+                new AutoTdpTraceRecorder(
+                    AutoTdpTraceRecorder.DefaultDirectory,
+                    () => deviceCoordinator.InstalledPackage?.Manifest is { } manifest
+                        ? (manifest.Id, manifest.Version)
+                        : (null, null),
+                    new AutoTdpTraceSystemContext()));
             var autoTdp = _autoTdp;
+            autoTdp.SetTraceEnabled(_config.AutoTdpTraceEnabled);
             deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
             deviceCoordinator.PowerPresets.AutomaticPowerOwner = () => autoTdp.OwnsPower;
             // A power limit the user set by hand pauses control permanently and is persisted to
@@ -3718,6 +3725,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         // AutoTDP is applied before the coordinator: turning Device Integration off must stop
         // AutoTDP and restore the previous power limit while the capability is still writable.
+        _autoTdp?.SetTraceEnabled(config.AutoTdpTraceEnabled);
         _autoTdp?.Apply(ShouldRunAutoTdp(config.DeviceIntegration));
         Log.Observe(ApplyDeviceConfigAndTargetAsync(coordinator, config), "Device cycle config apply", true);
     }

@@ -69,6 +69,39 @@ internal sealed record AutoTdpDecision(AutoTdpAction Action, int Watts, string R
     internal bool RequiresWrite => Action is not AutoTdpAction.Hold;
 }
 
+/// <summary>A read-only view of the controller's evidence and learning, for the AutoTDP trace.</summary>
+/// <param name="ContextKey">The context the controller is judging.</param>
+/// <param name="Watts">The limit the controller believes is in effect.</param>
+/// <param name="LastGood">The limit found before the current probe.</param>
+/// <param name="IsPaused">Whether a manual change suspended control.</param>
+/// <param name="IsProbing">Whether a downward probe is being judged.</param>
+/// <param name="MissedWindows">Consecutive missed windows counted toward a raise.</param>
+/// <param name="ComfortableWindows">Consecutive comfortable windows counted toward a probe.</param>
+/// <param name="ProbeWindows">Windows the current probe has passed.</param>
+/// <param name="SettlingWindows">Windows still ignored after the last write.</param>
+/// <param name="LearnedFloor">The remembered starting limit for the context, when one exists.</param>
+/// <param name="FailedProbeFloor">The failed-probe boundary for the context, when one exists.</param>
+/// <param name="Judged">Whether the last window reached the frametime judgement.</param>
+/// <param name="Ratio">Frametime over deadline for the last judged window, or NaN.</param>
+/// <param name="Missed">Whether the last judged window counted as a miss.</param>
+/// <param name="Comfortable">Whether the last judged window counted as headroom.</param>
+internal readonly record struct AutoTdpControllerSnapshot(
+    string ContextKey,
+    int Watts,
+    int LastGood,
+    bool IsPaused,
+    bool IsProbing,
+    int MissedWindows,
+    int ComfortableWindows,
+    int ProbeWindows,
+    int SettlingWindows,
+    int? LearnedFloor,
+    int? FailedProbeFloor,
+    bool Judged,
+    double Ratio,
+    bool Missed,
+    bool Comfortable);
+
 /// <summary>
 ///     The one deterministic AutoTDP control policy.
 /// </summary>
@@ -117,6 +150,10 @@ internal sealed class AutoTdpController
     private readonly Dictionary<string, int> _learnedFloor = new(StringComparer.Ordinal);
     private int _comfortable;
     private string _contextKey = string.Empty;
+    private bool _lastComfortable;
+    private bool _lastJudged;
+    private bool _lastMissed;
+    private double _lastRatio = double.NaN;
     private int _misses;
     private int _probeElapsed;
     private int _settling;
@@ -209,6 +246,10 @@ internal sealed class AutoTdpController
     {
         ArgumentNullException.ThrowIfNull(sample);
         ArgumentNullException.ThrowIfNull(limits);
+        _lastJudged = false;
+        _lastRatio = double.NaN;
+        _lastMissed = false;
+        _lastComfortable = false;
         if (IsPaused)
         {
             return Hold("paused-manual");
@@ -249,6 +290,10 @@ internal sealed class AutoTdpController
         var ratio = sample.FrametimeMs / sample.TargetFrametimeMs;
         var missed = ratio > MissRatio;
         var comfortable = ratio <= ComfortRatio || (sample.Capped && !missed);
+        _lastJudged = true;
+        _lastRatio = ratio;
+        _lastMissed = missed;
+        _lastComfortable = comfortable;
 
         if (IsProbing)
         {
@@ -295,6 +340,64 @@ internal sealed class AutoTdpController
     internal int? LearnedFloor(string contextKey)
     {
         return _learnedFloor.TryGetValue(contextKey, out var watts) ? watts : null;
+    }
+
+    /// <summary>The failed-probe boundary for a context, when one is known.</summary>
+    /// <param name="contextKey">The context to look up.</param>
+    /// <returns>The boundary, or null.</returns>
+    internal int? FailedProbeFloor(string contextKey)
+    {
+        return _failedProbeFloor.TryGetValue(contextKey, out var watts) ? watts : null;
+    }
+
+    /// <summary>Sets what the controller remembers about a context.</summary>
+    /// <param name="contextKey">The context.</param>
+    /// <param name="learnedFloor">The remembered starting limit, or null for none.</param>
+    /// <param name="failedProbeFloor">The failed-probe boundary, or null for none.</param>
+    /// <remarks>
+    ///     Replay only. Learning outlives a control generation, so a trace file starts with whatever an
+    ///     earlier generation learned; the trace records it and replay seeds it here before the first
+    ///     window, which is what lets a recorded file reproduce its decisions exactly.
+    /// </remarks>
+    internal void RestoreLearning(string contextKey, int? learnedFloor, int? failedProbeFloor)
+    {
+        Set(_learnedFloor, learnedFloor);
+        Set(_failedProbeFloor, failedProbeFloor);
+        return;
+
+        void Set(Dictionary<string, int> floors, int? watts)
+        {
+            if (watts is { } value)
+            {
+                floors[contextKey] = value;
+            }
+            else
+            {
+                floors.Remove(contextKey);
+            }
+        }
+    }
+
+    /// <summary>Captures the controller's evidence and learning without changing either.</summary>
+    /// <returns>The current snapshot.</returns>
+    internal AutoTdpControllerSnapshot Snapshot()
+    {
+        return new AutoTdpControllerSnapshot(
+            _contextKey,
+            Watts,
+            LastGood,
+            IsPaused,
+            IsProbing,
+            _misses,
+            _comfortable,
+            _probeElapsed,
+            _settling,
+            _learnedFloor.TryGetValue(_contextKey, out var learned) ? learned : null,
+            _failedProbeFloor.TryGetValue(_contextKey, out var failed) ? failed : null,
+            _lastJudged,
+            _lastRatio,
+            _lastMissed,
+            _lastComfortable);
     }
 
     private AutoTdpDecision JudgeProbe(bool missed)

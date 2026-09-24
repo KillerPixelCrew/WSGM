@@ -26,6 +26,27 @@ header and every consumer use the same snapshot. The retired stored model is wip
       reset and inheritance behave as in `docs\profiles.md`.
 - [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
 
+## AutoTDP loading-stall escalation (2026-09-24, issue 181, in progress)
+
+AutoTDP climbed to 35 W and stayed there in Cult of the Lamb at a 60 FPS cap, where 18 W held 60 FPS
+by hand. The issue's work order is instrumentation first: capture what the current controller sees
+and decides, explain the failure from the trace, then design and replay a revised controller before
+tuning it on hardware. The trace is described in `docs\rtss.md` under "AutoTDP trace".
+
+- [x] AutoTDP trace: Settings, System, "AutoTDP trace" writes one CSV per control generation to
+      `autotdp-traces` beside the log, with raw RTSS window bounds, controller evidence and learning,
+      decisions, write outcomes and readback, timing, Windows power state and sensors. Recording does
+      not change a decision.
+- [x] Replay: `AutoTdpTraceReplay` in the tests feeds a trace through a controller and pairs each
+      recorded decision with the replayed one.
+- [ ] Attended: baseline traces of the current controller (Cult of the Lamb at 60 FPS through loading
+      screens, high starting TDP, manual 18 W reference, sustained load, isolated stutters, repeated
+      loading cycles, another target rate).
+- [ ] Trace-backed comparison of current and required behaviour; revised signal model and state
+      machine documented before implementation.
+- [ ] Revised controller replayed against the baseline traces, then validated on hardware.
+- [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
+
 ## WSGM in Steam's main menu (2026-09-24, issue 170)
 
 A WSGM row in Big Picture's main menu, before Power, opening a page of WSGM's global settings laid out

@@ -817,6 +817,13 @@ public sealed class AppConfig
     /// </remarks>
     public LogVerbosity LogVerbosity { get; set; } = LogVerbosity.Normal;
 
+    /// <summary>Whether AutoTDP writes a CSV trace of every control window.</summary>
+    /// <remarks>
+    ///     A diagnostic for reproducing an AutoTDP problem. Each control session gets its own file under
+    ///     <c>autotdp-traces</c> beside <c>wsgm.log</c>. Recording never changes a control decision.
+    /// </remarks>
+    public bool AutoTdpTraceEnabled { get; set; }
+
     /// <summary>Which revision of the first-run Quick Setup this device has completed.</summary>
     /// <remarks>
     ///     An int rather than a bool so a later build that adds a setting needing an
