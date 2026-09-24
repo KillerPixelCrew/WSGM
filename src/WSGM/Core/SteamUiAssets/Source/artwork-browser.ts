@@ -391,10 +391,6 @@ function ArtworkLogoModal({ closeModal }) {
 
 function renderArtworkBrowserPage(react: any, _page: any) {
   const h = react.createElement;
-  const Focusable = artworkUi.focusable;
-  const Button = artworkUi.dialogButton;
-  const SliderField = artworkUi.sliderField;
-  const Tabs = artworkUi.tabs;
 
   function ArtworkBrowserPage() {
     const [state, setState] = react.useState(artworkDesired);
@@ -405,6 +401,16 @@ function renderArtworkBrowserPage(react: any, _page: any) {
       artworkListeners.add(listener);
       return () => artworkListeners.delete(listener);
     }, []);
+
+    // Steam's controls are read when the page draws, never when its route is built. The page host
+    // builds every route the moment WSGM publishes them, which is before this gate has resolved on
+    // a cold start; reading artworkUi up there threw inside Steam's router, its error boundary
+    // unmounted the router, and the whole client showed "Something went wrong" (2026-09-24).
+    if (!artworkUi) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
+    const Focusable = artworkUi.focusable;
+    const Button = artworkUi.dialogButton;
+    const SliderField = artworkUi.sliderField;
+    const Tabs = artworkUi.tabs;
 
     if (!state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
     const activate = (command: string, payload: any = {}) =>

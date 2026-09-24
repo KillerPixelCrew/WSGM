@@ -5086,7 +5086,17 @@
     // Quick Access rows already use.
     const renderPage = (page) => {
       const renderer = steamPageRenderers.get(page.template);
-      if (renderer) return renderer(react, page);
+      if (renderer) {
+        // A renderer runs inside Steam's router render. One that throws would reach Steam's error
+        // boundary, which unmounts the router and replaces the whole client with "Something went
+        // wrong" — a page that cannot draw yet must cost that page, never the client. Fail open to
+        // the heading-only page and say which template did it.
+        try {
+          return renderer(react, page);
+        } catch (error) {
+          lastError = `page renderer '${page.template}' threw: ${String(error)}`;
+        }
+      }
       return react.createElement(
         "div",
         {
@@ -8996,10 +9006,6 @@
   }
   function renderArtworkBrowserPage(react, _page) {
     const h = react.createElement;
-    const Focusable = artworkUi.focusable;
-    const Button = artworkUi.dialogButton;
-    const SliderField = artworkUi.sliderField;
-    const Tabs = artworkUi.tabs;
     function ArtworkBrowserPage() {
       const [state, setState] = react.useState(artworkDesired);
       const [actionError, setActionError] = react.useState("");
@@ -9009,6 +9015,15 @@
         artworkListeners.add(listener);
         return () => artworkListeners.delete(listener);
       }, []);
+      // Steam's controls are read when the page draws, never when its route is built. The page host
+      // builds every route the moment WSGM publishes them, which is before this gate has resolved on
+      // a cold start; reading artworkUi up there threw inside Steam's router, its error boundary
+      // unmounted the router, and the whole client showed "Something went wrong" (2026-09-24).
+      if (!artworkUi) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
+      const Focusable = artworkUi.focusable;
+      const Button = artworkUi.dialogButton;
+      const SliderField = artworkUi.sliderField;
+      const Tabs = artworkUi.tabs;
       if (!state) return h("div", { className: "sgdb-loading" }, "Loading artwork…");
       const activate = (command, payload = {}) =>
         sendArtworkCommand(command, payload).catch((error) => {
