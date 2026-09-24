@@ -13,18 +13,18 @@ findings describes, check it again on the device before trusting the change.
 
 ## Start here
 
-| Read                   | When you want to understand                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `boot-and-shell.md`    | boot, Explorer takeover, Desktop Mode, Game Mode entry, Steam autostart takeover, install modes |
-| `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrappers                    |
-| `steam-input.md`       | how the overlay takes the controller from Steam and gives it back, and the OEM button handoff   |
-| `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                   |
-| `overlay-surfaces.md`  | in-window utility panels, credentials, keyboard and power-menu ownership                        |
-| `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                       |
-| `logging.md`           | what wsgm.log must and must not contain                                                         |
-| `decisions.md`         | standing product decisions in one page                                                          |
-| `profiles.md`          | Global and per-game profiles: what they hold, how values fall back, Steam's toggle and reset    |
-| `plugin-system.md`     | common plugin contracts, widgets, session automation and the Game Mode entry transaction        |
+| Read                   | When you want to understand                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `boot-and-shell.md`    | boot, Explorer takeover, Desktop Mode, Game Mode entry, Steam autostart takeover, setup       |
+| `elevation.md`         | why WSGM runs elevated, how it de-elevates, and the per-game launch wrappers                  |
+| `steam-input.md`       | how the overlay takes the controller from Steam and gives it back, and the OEM button handoff |
+| `overlay-and-input.md` | the quick access sheet, gamepad navigation, touch edge swipes                                 |
+| `overlay-surfaces.md`  | in-window utility panels, credentials, keyboard and power-menu ownership                      |
+| `ui.md`                | Avalonia styling, headless UI tests and the splash engine                                     |
+| `logging.md`           | what wsgm.log must and must not contain                                                       |
+| `decisions.md`         | standing product decisions in one page                                                        |
+| `profiles.md`          | Global and per-game profiles: what they hold, how values fall back, Steam's toggle and reset  |
+| `plugin-system.md`     | common plugin contracts, widgets, session automation and the Game Mode entry transaction      |
 
 ## Steam
 

@@ -107,8 +107,8 @@ It does not prove live shell, Steam, device, controller, or hardware behavior.
 
 `./eng/verify.ps1 -Fix` writes formatting changes. Use it only when the resulting tree is within the
 task and every change will be reviewed. `./build.ps1` stages native components, all applications,
-device/controller payloads, and the Inno installer; run it only for an explicitly requested release
-or installer handoff.
+the plugin bundle and controller payload, and the WSGM setup; run it only for an explicitly
+requested release or setup handoff.
 
 Before commit/push:
 

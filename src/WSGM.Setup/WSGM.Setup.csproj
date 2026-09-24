@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>WSGM.Setup</AssemblyName>
+    <RootNamespace>WSGM.Setup</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- One version source: the product's own csproj. -->
+    <Version>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\WSGM\WSGM.csproj')), '&lt;Version&gt;([^&lt;]+)&lt;/Version&gt;').Groups[1].Value)</Version>
+    <Product>WSGM</Product>
+    <Description>WSGM setup: install, update, repair and uninstall.</Description>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2"/>
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2"/>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Install\WSGM.Install.csproj"/>
+    <InternalsVisibleTo Include="WSGM.Tests"/>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- WSGM's own colour tokens and text styles, linked rather than copied. -->
+    <AvaloniaResource Include="..\WSGM\Themes\Palette.axaml" Link="Themes\Palette.axaml"/>
+    <AvaloniaResource Include="..\WSGM\Themes\Typography.axaml" Link="Themes\Typography.axaml"/>
+  </ItemGroup>
+  <ItemGroup Condition="'$(SetupPayload)' != ''">
+    <!-- build.ps1 passes -p:SetupPayload=<payload.zip>: the app, controller stack, plugins and bundle.json. -->
+    <EmbeddedResource Include="$(SetupPayload)" LogicalName="WSGM.Setup.Payload.zip"/>
+  </ItemGroup>
+</Project>

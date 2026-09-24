@@ -1,6 +1,7 @@
-# WSGM release build: self-contained publish + Inno Setup installer.
-# Output: publish\WSGM-Setup-<version>.exe (the one-file installer — the only
-# shipped artifact; the logon service requires a real install)
+# WSGM release build: self-contained publish, plugin bundle and the WSGM setup.
+# Output: publish\WSGM-Setup-<version>.exe (the one-file setup, which carries the application,
+# the virtual-controller stack and every bundled plugin; the only shipped artifact) and
+# publish\bundle.json.
 #
 # -BundleFrom takes the plugin bundle (Packages, bundle.json, Tools) from a directory that
 # eng\build-bundle.ps1 produced elsewhere. The release workflow builds the bundle in a job without
@@ -12,12 +13,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
-# The csproj <Version> is the single source of truth; the installer gets it via /D.
+# The csproj <Version> is the single source of truth; WSGM.Setup reads it from there too.
 $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
 if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found in WSGM.csproj" }
 $version = $Matches[1]
-# The manifest identity and the direct-ISCC fallback must name the same version, or a hand-built
-# installer ships metadata that disagrees with itself.
+# The app manifest identity must name the same version, or a hand-built setup ships metadata that
+# disagrees with itself.
 & "$root\eng\check-version-sync.ps1"
 
 # This check rebuilds the asset from its TypeScript source and compares, so stale generated Steam
@@ -111,30 +112,65 @@ Write-Host "== Staging controller driver installers ==" -ForegroundColor Cyan
 & "$root\eng\acquire-controller-dependencies.ps1" -Destination $appPublish
 
 if ([string]::IsNullOrWhiteSpace($BundleFrom)) {
-    Write-Host "== Building the plugin bundle and device tools ==" -ForegroundColor Cyan
+    Write-Host "== Building the plugin bundle ==" -ForegroundColor Cyan
     & "$root\eng\build-bundle.ps1" `
         -OutputRoot "$root\publish" `
         -Configuration Release `
         -RuntimeIdentifier win-x64 `
+        -SkipTools `
         -NoRestore
 }
 else {
     Write-Host "== Taking the plugin bundle from $BundleFrom ==" -ForegroundColor Cyan
-    foreach ($component in @("Packages", "bundle.json", "Tools")) {
+    foreach ($component in @("Packages", "bundle.json")) {
         Copy-Item -LiteralPath (Join-Path $BundleFrom $component) -Destination "$root\publish" -Recurse
     }
 }
-& "$root\eng\assert-component-staging.ps1" -OutputRoot "$root\publish"
 
-$iscc = @(
-    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $iscc) { throw "Inno Setup 6 not found (winget install JRSoftware.InnoSetup)" }
+# The setup payload is an explicit allowlist, the same one the Inno installer shipped: App is what
+# every install gets, Controller is what setup adds only when the installed plugin declares a
+# controller role (VIIPER, the USB/IP driver and HidHide), Packages and bundle.json are every
+# bundled plugin. Anything else in publish\App stays out.
+Write-Host "== Assembling the setup payload ==" -ForegroundColor Cyan
+$payload = "$root\publish\Payload"
+$payloadApp = "$payload\App"
+$payloadController = "$payload\Controller"
+New-Item -ItemType Directory -Path $payloadApp, $payloadController | Out-Null
+$appFiles = @(
+    "WSGM.exe", "WSGM.deps.json", "WSGM.runtimeconfig.json", "WSGM.Launch.exe",
+    "WSGM.PackagedLaunch.exe", "WsgmUwpBridge.dll", "MinHook-LICENSE.txt", "WSGM.LogonService.exe",
+    "LICENSE.txt", "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
+    "Avalonia.LiveBackdrop.ThirdParty.txt"
+)
+foreach ($file in $appFiles) {
+    Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadApp
+}
+# The Explorer recovery owner is the same image under a distinct name, so a force stop of WSGM.exe
+# never ends the process that must restore Explorer.
+Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.ShellAnchor.exe"
+Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
+    ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
+} | Copy-Item -Destination $payloadApp
+foreach ($file in @("libviiper.dll", "libviiper.h", "VIIPER-LICENSE.txt", "VIIPER-NOTICE.md",
+        "USBip-0.9.8.0-x64.exe", "HidHide_1.5.230_x64.exe")) {
+    Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadController
+}
+Copy-Item -LiteralPath "$root\src\WSGM.Setup\Install-UsbipDriver.ps1" -Destination $payloadController
+Copy-Item -LiteralPath "$root\external\controller\licenses\usbip-win2-BSD-2-Clause.txt" -Destination $payloadController
+Copy-Item -LiteralPath "$root\external\controller\licenses\HidHide-MIT.txt" -Destination $payloadController
+Copy-Item -LiteralPath "$root\publish\Packages" -Destination "$payload\Packages" -Recurse
+Copy-Item -LiteralPath "$root\publish\bundle.json" -Destination $payload
+& "$root\eng\assert-component-staging.ps1" -OutputRoot $payload
 
-Write-Host "== Compiling installer ==" -ForegroundColor Cyan
-& $iscc "/DAppVersion=$version" "$root\installer\WSGM.iss"
-if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+$payloadZip = "$root\publish\payload.zip"
+[IO.Compression.ZipFile]::CreateFromDirectory($payload, $payloadZip, [IO.Compression.CompressionLevel]::Optimal, $false)
+
+Write-Host "== Publishing WSGM.Setup ==" -ForegroundColor Cyan
+$setupOut = "$root\publish\SetupOut"
+dotnet publish "$root\src\WSGM.Setup\WSGM.Setup.csproj" -c Release -r win-x64 `
+    -o $setupOut --no-restore "-p:SetupPayload=$payloadZip" -m:1
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Setup publish failed" }
+Copy-Item -LiteralPath "$setupOut\WSGM.Setup.exe" -Destination "$root\publish\WSGM-Setup-$version.exe"
 
 Get-ChildItem "$root\publish\WSGM-Setup-*.exe" |
     Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}

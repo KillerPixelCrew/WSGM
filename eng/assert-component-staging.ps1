@@ -29,15 +29,17 @@ function Assert-NoLinks([string]$Directory) {
 }
 
 Require-File "App\WSGM.exe"
+Require-File "App\WSGM.ShellAnchor.exe"
 Require-File "App\WSGM.Launch.exe"
 Require-File "App\WSGM.LogonService.exe"
 Require-File "App\LICENSE.txt"
-Require-File "Tools\DeviceLab\wsgm-device.exe"
-Require-File "Tools\DeviceLab\THIRD_PARTY_NOTICES.md"
-Require-File "Tools\DeviceLab\DotNetRuntime-LICENSE.txt"
-Require-File "Tools\DeviceLab\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
+Require-File "Controller\libviiper.dll"
+Require-File "Controller\Install-UsbipDriver.ps1"
+Require-File "Controller\USBip-0.9.8.0-x64.exe"
+Require-File "Controller\HidHide_1.5.230_x64.exe"
+Require-File "bundle.json"
 
-foreach ($directory in @("App", "Tools", "Packages")) {
+foreach ($directory in @("App", "Controller", "Packages")) {
     Assert-NoLinks (Join-Path $outputFull $directory)
 }
 
@@ -107,16 +109,15 @@ function Assert-NoDeveloperMaterial([IO.FileInfo]$File, [string]$Label) {
     }
 }
 
-# The installer copies Tools recursively, so everything in it ships.
-foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $outputFull "Tools") -File -Recurse)) {
-    Assert-NoDeveloperMaterial $file "Tools staging"
-    Assert-NoLeaks $file "Tools staging"
-}
-
-# App is shipped by an explicit allowlist in installer\WSGM.iss (the executables, *.dll and named
-# notices), so a publish-only .pdb there never reaches a user; its text files still must not leak.
-foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $outputFull "App") -File -Recurse)) {
-    Assert-NoLeaks $file "App staging"
+# The setup payload ships everything in App and Controller; build.ps1 fills them from an explicit
+# allowlist, so nothing else should be there.
+foreach ($directory in @("App", "Controller")) {
+    foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $outputFull $directory) -File -Recurse)) {
+        if ($file.Extension -ne ".ps1") {
+            Assert-NoDeveloperMaterial $file "$directory payload"
+        }
+        Assert-NoLeaks $file "$directory payload"
+    }
 }
 
 # The package ships as one file; check its contents through a throwaway expansion.

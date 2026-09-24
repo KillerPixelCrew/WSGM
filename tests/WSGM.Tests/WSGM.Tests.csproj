@@ -28,6 +28,7 @@
     <ProjectReference Include="../../src/WSGM.PackagedLaunch/WSGM.PackagedLaunch.csproj"/>
     <ProjectReference Include="../../src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
     <ProjectReference Include="../../src/WSGM/WSGM.csproj"/>
+    <ProjectReference Include="../../src/WSGM.Setup/WSGM.Setup.csproj"/>
     <ProjectReference Include="../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj"/>
   </ItemGroup>
   <ItemGroup>

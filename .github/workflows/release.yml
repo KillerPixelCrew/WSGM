@@ -37,7 +37,7 @@ jobs:
 
       - name: Build the plugin bundle
         shell: pwsh
-        run: ./eng/build-bundle.ps1 -OutputRoot publish/bundle
+        run: ./eng/build-bundle.ps1 -OutputRoot publish/bundle -SkipTools
 
       - name: Upload the bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -86,9 +86,9 @@ jobs:
           $ver = $env:REF_NAME -replace '^v', ''
           "version=$ver" >> $env:GITHUB_OUTPUT
 
-      # Keep exe metadata, manifest identity and installer name in sync with the
-      # tag. Stamping the csproj covers the installer too: build.ps1 reads the
-      # csproj <Version> and passes it to ISCC via /DAppVersion.
+      # Keep exe metadata, manifest identity and setup name in sync with the
+      # tag. Stamping the csproj covers the setup too: WSGM.Setup.csproj reads
+      # the csproj <Version>.
       - name: Stamp version from tag
         shell: pwsh
         env:
@@ -106,9 +106,6 @@ jobs:
           while ($parts.Count -lt 4) { $parts += '0' }
           $mver = $parts -join '.'
           (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
-          # The direct-ISCC fallback too, which eng/check-version-sync.ps1 in the verify step
-          # below requires to match the csproj.
-          (Get-Content installer/WSGM.iss) -replace '#define\s+AppVersion\s+"[^"]*"', "#define AppVersion `"$ver`"" | Set-Content installer/WSGM.iss
 
       # A tag is not allowed to bypass the same source, generated-asset, Rust clippy, build, and
       # test gate used for ordinary pushes. build.ps1 repeats its release-specific staging checks.
@@ -116,15 +113,15 @@ jobs:
         shell: pwsh
         run: ./eng/verify.ps1
 
-      # windows-latest ships the .NET SDK, native build tools, and Inno Setup 6 —
-      # exactly what build.ps1 expects locally.
+      # windows-latest ships the .NET SDK and native build tools, which is what
+      # build.ps1 expects locally.
       - name: Download the plugin bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: bundle
           path: bundle
 
-      - name: Build (self-contained publish + installer)
+      - name: Build (self-contained publish + setup)
         shell: pwsh
         run: .\build.ps1 -BundleFrom bundle
 

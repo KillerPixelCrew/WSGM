@@ -16,7 +16,7 @@ Related:
 The Start Menu shortcut runs `WSGM.exe --shell --activate`; the installer optionally creates the
 same shortcut on the Desktop. With Explorer running, this starts the resident Desktop session. A
 repeat launch signals the existing mutex owner to open the Overlay, including requests queued during
-startup. No arguments still open Settings. Shortcuts are updated and removed by Inno Setup.
+startup. No arguments still open Settings. WSGM setup creates, updates and removes the shortcuts.
 
 Two independent settings decide what a sign-in produces: `StartAtSignIn` and `StartMode` (`Desktop`
 or `Game`). Starting with Windows and taking the screen over are separate choices, so a desktop PC
@@ -445,35 +445,36 @@ WinForms uses `WM_USER + 1024` and Qt an even higher `WM_APP` value.
 
 ## Install, update and uninstall
 
-The installer (`installer\WSGM.iss`) is `PrivilegesRequired=admin` because the machine service
-demands it, while the app stays per-user: `{localappdata}` and HKCU belong to the elevating account.
-This is the single-user-device design.
+`WSGM.Setup.exe` (`src\WSGM.Setup`) is one elevated process, because the logon service and the
+drivers demand it. The product lives under `%ProgramFiles%\WSGM`: `App` holds WSGM and its
+executables, `Plugins` the installed `.wsgmpkg` files, and `Setup` a copy of the setup with its
+bundled packages, so repair and uninstall work offline and when WSGM itself cannot start. User state
+stays per-user in `%LOCALAPPDATA%\WSGM` and HKCU, which belong to the elevating account. This is the
+single-user-device design. Setup keeps its own machine records in `%ProgramData%\WSGM`:
+`components.json` (the drivers it installed), `bundle.json` (the installed bundle) and `setup.log`.
 
-### Install modes
+The setup carries everything: the application, the controller stack (VIIPER, the USB/IP driver,
+HidHide) and every bundled plugin. It needs no network. The approved screen design is
+`src\WSGM.Setup\docs\mockup.html`.
 
-Setup offers three modes plus Custom, named for the machine they suit rather than for the components
-they carry:
+### What gets installed
 
-| Mode                | Components               | A fresh install starts       |
-| ------------------- | ------------------------ | ---------------------------- |
-| Minimal (default)   | core                     | Game Mode, integration off   |
-| MSI Claw 8 AI+ A2VM | core, device, controller | Game Mode, integration on    |
-| Desktop first       | core                     | Desktop session, off         |
-| Custom              | chosen by hand           | the configuration's defaults |
+Setup reads the machine identity (SMBIOS, CPU) and matches it against the hardware rules of every
+bundled device plugin (`PluginOffers`). A match installs that plugin and switches Device Integration
+on; exact rules rank above fallbacks, and remaining ties are shown for the user to pick one. No
+match installs plain WSGM with integration off. The installed plugin's declared capabilities decide
+the components (`SetupComponents`): a controller role (`ControllerSource`, `MotionSource`,
+`HapticSink`) brings VIIPER, USB/IP and HidHide. Bundled common plugins are offered as checkboxes.
 
-A mode decides which bytes install (Inno's `[Types]`/`[Components]`). The first-run choices no
-longer ride on it: the custom setup that replaces Inno asks them and passes them as setup answers
-(`--setup --answers=<file>`, `Core\SetupAnswers.cs`), starting an upgrade or repair from the
-exported current values, so it never silently undoes Settings. Inno's `--profile=` is ignored.
+The profile page asks every first-run choice once: Full or Minimal, Steam first or Desktop first,
+start at sign-in, and Customize for each integration including the Steam autostart takeover. Setup
+passes them as setup answers (`--setup --answers=<file>`, `Core\SetupAnswers.cs`). An update or
+repair starts from the values WSGM exports (`--export-setup-answers`), so it never silently undoes
+Settings. A quiet fresh install never takes over Steam's autostart; a quiet update keeps an accepted
+takeover. Quick Setup is retired, and WSGM Settings changes the choices afterwards.
 
-The Claw mode is the one that switches Device Integration on, because naming a device in setup is
-the explicit choice the integration otherwise waits for, and installing the package without it would
-read as a broken install. The package still refuses any machine whose SMBIOS identity does not match
-it, so the mode cannot make a non-Claw pretend to be one. Chosen from Custom instead, the same bytes
-install and stay inert until Settings enables them.
-
-Quick Setup is retired: the custom setup asks every first-run question once, and WSGM Settings
-changes them afterwards.
+A WSGM 1.0 install is removed first through its own Inno uninstaller (`/VERYSILENT`), and setup
+stops when that fails. Nothing from 1.0 is carried over.
 
 ### A device package on an install that has no room for it
 
@@ -495,70 +496,75 @@ USB 3.0 hub, which drops the built-in controller, the touch digitiser and the ke
 running Game Mode that leaves a person with no input and no way back, so it happens only while setup
 is on screen. For that half the banner says to re-run setup and warns that a reboot follows.
 
-### Order on update
+### Order on install and update
 
 1. Record whether the shell is running (mutex `Local\WSGM.Shell`), so WSGM can be restarted in the
    same mode afterwards. The temporary stopped state is never classified as the previous mode.
-2. Stop the logon service (`sc stop WSGMLogonService`). A live watchdog would see the killed WSGM
-   and start Explorer mid-update, flipping the restart into desktop mode. Stopping it also frees the
-   Program Files binary, including an abandoned preview's, which uses the same service name.
+2. Stop the logon service. A live watchdog would see the stopped WSGM and start Explorer mid-update,
+   flipping the restart into desktop mode. Stopping it also frees the service binary. When the
+   service state cannot be read, setup stops without changing anything.
 3. Signal `Local\WSGM.ExitForUpdate`. One SetEvent releases every WSGM instance, elevated ones
    included. WSGM asks Steam and the launch wrappers to exit under a bounded 10 s pre-stop, then
    runs its own 10 s cleanup, because the mapped Steam Input payload must be replaceable. Setup
-   waits for both plus handoff margin (44 half-second iterations) before force-stop. A failed Steam
+   waits for both plus handoff margin (44 half-second polls) before force-stop. A failed Steam
    pre-stop still starts WSGM cleanup.
-4. Force-stop fallback: `taskkill` only primary `WSGM.exe` images in the installer's Terminal
-   Services session.
-5. Retire the shell anchor. Restart Manager excludes `WSGM.ShellAnchor.exe`
-   (`CloseApplicationsFilterExcludes`), so the anchor gets its owner-loss recovery window and is
-   ended only after it publishes `Local\WSGM.ShellAnchor.RecoverySettled`, through the same
-   current-session filter, while setup holds that event open so a new anchor cannot enter the
-   image-name kill. Without the acknowledgement, setup defers the companion's replacement rather
-   than kill the only remaining desktop-recovery owner; a silent update skips the locked file
-   instead of taking the automatic reboot `restartreplace` would cause.
+4. Force-stop fallback: `taskkill` only primary `WSGM.exe` images in setup's own session.
+5. Retire the shell anchor. It gets its owner-loss recovery window and is ended only after it
+   publishes `Local\WSGM.ShellAnchor.RecoverySettled`, through the same current-session filter.
+   Without the acknowledgement it stays alive as the only remaining desktop-recovery owner; the
+   `App` swap then fails on its locked image and setup rolls back.
 6. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
    the retired `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never
-   terminates either tree, and a failed inspection counts as blocked.
-7. `[Run]`: `WSGM.exe --setup` (per-user files, migrate off any legacy shell registration, the
-   Xbox-FSE guard, the boot manifest), then `WSGM.LogonService.exe --install`
-   (create-or-reconfigure, failure actions, start), then the USB/IP driver if its task was selected,
-   then WSGM in its previous mode (`--shell` or Settings).
+   terminates either tree.
+7. Reserve `Global\WSGM.DeviceOwner`, so no WSGM or Device Lab runs plugin code during the change.
+8. Extract the new application to `App.staging`, move `App` to `App.previous` and the new one into
+   place, copy the setup and its packages to `Setup`, and replace the installed plugins with the
+   chosen ones.
+9. `WSGM.exe --setup --answers=<file>` (per-user files, migrate off any legacy shell registration,
+   the Xbox-FSE guard, the boot manifest, the answers), then `WSGM.LogonService.exe --install`
+   (create-or-reconfigure, failure actions, start), then the USB/IP driver and HidHide when the
+   plugin needs them, then shortcuts and the Installed apps entry.
+10. Start WSGM in its previous mode (`--shell`, or Settings), or the session on a fresh install.
 
-A refusal, retry or cancellation before file mutation releases the device-package reservations and
-restores the old service through its installer-tagged start in the recorded runtime mode.
+A failed step before step 9 puts `App.previous` back, restores the service when it was running and
+restarts WSGM in the recorded mode. `App.previous` is deleted after success.
 
 ### Uninstall
 
-`Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam. Removing an
-older build falls back to the update event. `[UninstallRun]` order: service `--uninstall` (stop and
-delete), `--unregister-shell` (a no-op on service installs, kept as the legacy restore),
-`--uninstall-restore`, all before files are deleted. `--uninstall-restore` first shows every device
-WSGM hid with HidHide again and takes WSGM's own executable off HidHide's allowlist
+`WSGM.Setup.exe /uninstall` from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry points
+at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam; an
+older build falls back to the update event. Then, in order and before any file is deleted: the Steam
+Input shim removal, the service `--uninstall` (stop and delete), `--unregister-shell` (a no-op on
+service installs, kept as the legacy restore), and `--uninstall-restore`. That last step first shows
+every device WSGM hid with HidHide again and takes WSGM's own executable off HidHide's allowlist
 (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself is removed
-afterwards; it exits 3 when HidHide did not read back clean, keeps the ownership ledger, and never
-retries. `[UninstallDelete]` also removes `{autopf}\WSGM` and `{commonappdata}\WSGM`. The
-uninstaller holds the same global package and owner reservations through `[UninstallDelete]`;
-cancellation before mutation restores the service and the prior runtime.
+afterwards. It exits 3 when HidHide did not read back clean, keeps the ownership ledger, and never
+retries; setup then names the still-hidden device paths.
+
+The uninstall options: **Keep my settings and data** (on by default) keeps `%LOCALAPPDATA%\WSGM` and
+the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it
+stays for another application. A driver that was present before WSGM is never offered.
+`%ProgramFiles%\WSGM` is always deleted; the running setup's own folder goes last, through a
+detached `cmd` after it exits or at the next restart.
 
 ### The exit events are a cross-version contract
 
-A newer installer must still release an older running build. The event names, their access grant
-(user SID plus Administrators `EVENT_MODIFY_STATE | SYNCHRONIZE`, `0x00100002`), the medium
-mandatory label and the startup reset therefore stay compatible (`Core\UpdateExitWatcher.cs`). The
-unelevated Settings instance needs the same grant to wait and reset, so narrowing it breaks ordinary
-update shutdown.
+A newer setup must still release an older running build. The event names, their access grant (user
+SID plus Administrators `EVENT_MODIFY_STATE | SYNCHRONIZE`, `0x00100002`), the medium mandatory
+label and the startup reset therefore stay compatible (`Core\UpdateExitWatcher.cs`). The unelevated
+Settings instance needs the same grant to wait and reset, so narrowing it breaks ordinary update
+shutdown.
 
 Session end is a separate path. The resident shell holds a shared `WTSRegisterSessionNotification`
 lease; `WTS_SESSION_LOGOFF` requests the five-second session-end shutdown before Avalonia exits.
 Display-mute owns its own lease for unlock recovery, so toggling that feature cannot deregister the
 shell's logoff signal.
 
-### NeedRestart follows the USB/IP driver only
+### Restart follows the USB/IP driver only
 
-`NeedRestart` is true only when the USB/IP driver task was selected and the driver either reported a
+Setup asks for a restart only when it installed the USB/IP driver and the driver either reported a
 reboot or reported nothing (stay conservative when the bounded status file is missing). Ordinary
-upgrades are not marked for reboot. Silent setup always returns `False`, because `/VERYSILENT` could
-otherwise reboot automatically.
+updates never ask. A quiet run never restarts; it only logs the need.
 
 ## Desktop start at sign-in
 

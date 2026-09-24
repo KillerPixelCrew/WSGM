@@ -17,6 +17,7 @@
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj"/>
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj"/>
     <Project Path="src/WSGM.PackagedLaunch/WSGM.PackagedLaunch.csproj"/>
+    <Project Path="src/WSGM.Setup/WSGM.Setup.csproj"/>
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Avalonia.LiveBackdrop.Tests/Avalonia.LiveBackdrop.Tests.csproj"/>

@@ -1,0 +1,135 @@
+<!-- Setup's layout styles over WSGM's palette: glass rail and content, touch-sized rows and buttons,
+     2 px accent focus, uppercase accent section headers. Matches the approved mockup
+     (src\WSGM.Setup\docs\mockup.html). -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="Window">
+    <Setter Property="FontFamily" Value="Inter, Segoe UI" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+  </Style>
+
+  <Style Selector="Border.rail">
+    <Setter Property="Background" Value="#8C282828" />
+    <Setter Property="BorderBrush" Value="#0FFFFFFF" />
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
+    <Setter Property="Padding" Value="28,36,28,28" />
+  </Style>
+  <Style Selector="Border.hints">
+    <Setter Property="Background" Value="#D9161616" />
+    <Setter Property="BorderBrush" Value="#0DFFFFFF" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="Padding" Value="28,0" />
+  </Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="#B82C2C2C" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="20,18" />
+  </Style>
+  <Style Selector="Border.banner">
+    <Setter Property="Background" Value="#0AFFFFFF" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16,14" />
+  </Style>
+  <Style Selector="Border.banner.warn">
+    <Setter Property="BorderBrush" Value="#6B5730" />
+    <Setter Property="Background" Value="#12FFC66D" />
+  </Style>
+  <Style Selector="Border.banner.bad">
+    <Setter Property="BorderBrush" Value="#6B3A3A" />
+    <Setter Property="Background" Value="#12FFA0A0" />
+  </Style>
+  <Style Selector="Border.banner.good">
+    <Setter Property="BorderBrush" Value="#3F5C3F" />
+    <Setter Property="Background" Value="#12A3DCA3" />
+  </Style>
+
+  <Style Selector="TextBlock.eyebrow">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="2" />
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="30" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.lead">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxWidth" Value="720" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="TextBlock.section">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="1.5" />
+    <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="Margin" Value="2,4,0,0" />
+  </Style>
+  <Style Selector="TextBlock.row-title">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.muted">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.badges">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
+  </Style>
+
+  <Style Selector="Button">
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="22,0" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource HcOnAccentBrush}" />
+  </Style>
+  <Style Selector="Button.danger">
+    <Setter Property="Background" Value="#5A2A2A" />
+    <Setter Property="Foreground" Value="#FFE0E0" />
+  </Style>
+  <Style Selector=":is(Control)">
+    <Setter Property="FocusAdorner">
+      <FocusAdornerTemplate>
+        <Border BorderBrush="{DynamicResource HcAccentBrush}" BorderThickness="2" CornerRadius="6" Margin="-4" />
+      </FocusAdornerTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="CheckBox, RadioButton, ToggleSwitch">
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="FontSize" Value="15" />
+  </Style>
+  <Style Selector="RadioButton.choice">
+    <Setter Property="Padding" Value="14,10" />
+    <Setter Property="Background" Value="#B82C2C2C" />
+    <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="RadioButton.choice:checked">
+    <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+</Styles>

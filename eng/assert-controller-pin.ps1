@@ -3,7 +3,7 @@
     Fails when the driver installer's pinned identity disagrees with the reviewed lock file.
 
 .DESCRIPTION
-    `installer/Install-UsbipDriver.ps1` runs on the user's machine, where the repository does not
+    `src/WSGM.Setup/Install-UsbipDriver.ps1` runs on the user's machine, where the repository does not
     exist, so it cannot read `external/controller/controller-components.lock.json` at runtime and
     has to carry the pinned version, URL, digest, signer thumbprint and silent arguments itself.
     That is the only copy, and this check is what keeps it honest: bumping the lock without bumping
@@ -22,7 +22,7 @@ param(
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$ScriptPath = (Join-Path $PSScriptRoot '..\installer\Install-UsbipDriver.ps1')
+    [string]$ScriptPath = (Join-Path $PSScriptRoot '..\src\WSGM.Setup\Install-UsbipDriver.ps1')
 )
 
 Set-StrictMode -Version Latest
@@ -99,10 +99,10 @@ else {
     Assert-Equal -Label 'staged asset name' -Expected $entry.asset -Actual $defaultPath.Groups[1].Value
 }
 
-$issPath = Join-Path $PSScriptRoot '..\installer\WSGM.iss'
-$iss = Get-Content -LiteralPath $issPath -Raw
-if ($iss -notmatch [regex]::Escape($entry.asset)) {
-    $failures.Add("WSGM.iss does not ship '$($entry.asset)'.")
+$buildPath = Join-Path $PSScriptRoot '..\build.ps1'
+$build = Get-Content -LiteralPath $buildPath -Raw
+if ($build -notmatch [regex]::Escape($entry.asset)) {
+    $failures.Add("build.ps1 does not put '$($entry.asset)' in the setup payload.")
 }
 
 # The silent switches decide whether setup installs quietly or stalls on an interactive installer
