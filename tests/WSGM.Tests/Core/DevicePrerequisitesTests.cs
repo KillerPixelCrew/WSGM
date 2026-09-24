@@ -56,7 +56,7 @@ public sealed class DevicePrerequisitesTests
         var advice = DevicePrerequisites.Describe(State(library: false));
 
         Assert.True(advice.NeedsSetup);
-        Assert.Contains("Re-run the WSGM setup", advice.Detail, StringComparison.Ordinal);
+        Assert.Contains("Run Repair", advice.Detail, StringComparison.Ordinal);
         Assert.Contains("needs a reboot", advice.Detail, StringComparison.Ordinal);
     }
 
@@ -67,7 +67,7 @@ public sealed class DevicePrerequisitesTests
 
         Assert.True(advice.CanEnableIntegration);
         Assert.False(advice.NeedsSetup);
-        Assert.DoesNotContain("Re-run the WSGM setup", advice.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Run Repair", advice.Detail, StringComparison.Ordinal);
     }
 
     [Theory]
