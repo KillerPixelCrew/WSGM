@@ -7,6 +7,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
+using WSGM.Device.Sdk.Packaging;
 using WSGM.Plugin.Sdk;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 using CommonManifestReader = WSGM.Plugin.Sdk.PluginManifestReader;
@@ -297,6 +298,14 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         }
 
         var read = DeviceManifestReader.Read(bytes);
+        // A package built for another API is still a readable device package: the catalog reports it as
+        // api-incompatible so the overlay can say which package it is, instead of a bare folder error.
+        if (read.Manifest is not null
+            && read.Errors.All(error => error.Code is ManifestValidationCode.InvalidApiVersion))
+        {
+            return (read.Manifest, null);
+        }
+
         if (!read.IsValid || read.Manifest is null)
         {
             throw new InvalidDataException(string.Join("; ", read.Errors.Select(error => error.Message)));

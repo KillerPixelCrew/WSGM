@@ -1,10 +1,9 @@
-using System.IO.Compression;
-using System.Text;
 using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
@@ -105,18 +104,6 @@ public sealed class CommonPluginPackageTests
 
     private static string WritePackage(string path, string manifest, string assembly, string entryName)
     {
-        using var stream = File.Create(path);
-        using ZipArchive archive = new(stream, ZipArchiveMode.Create);
-        using (var entry = archive.CreateEntry("plugin.wsgm.json").Open())
-        {
-            entry.Write(Encoding.UTF8.GetBytes(manifest));
-        }
-
-        using (var entry = archive.CreateEntry(entryName).Open())
-        {
-            entry.Write(File.ReadAllBytes(assembly));
-        }
-
-        return path;
+        return PluginPackageBuilders.Write(path, manifest, (entryName, File.ReadAllBytes(assembly)));
     }
 }
