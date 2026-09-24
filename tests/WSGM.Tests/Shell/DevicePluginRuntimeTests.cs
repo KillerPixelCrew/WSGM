@@ -10,6 +10,7 @@ using WSGM.Device.Sdk.Settings;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using PluginManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
 namespace WSGM.Tests.Shell;
@@ -284,24 +285,30 @@ public sealed class DevicePluginRuntimeTests
         TemporaryDirectory temporary,
         long cycleGeneration)
     {
-        var packageDirectory = temporary.GetPath("package");
-        Directory.CreateDirectory(packageDirectory);
         var sourceAssembly = typeof(RuntimeFixturePlugin).Assembly.Location;
         var entryAssembly = Path.GetFileName(sourceAssembly);
-        File.Copy(sourceAssembly, Path.Combine(packageDirectory, entryAssembly));
+        PluginManifest manifest = new()
+        {
+            Id = RuntimeFixturePlugin.PackageIdValue,
+            Name = "Runtime fixture",
+            Version = "1.0.0",
+            ApiVersion = DeviceApi.Version,
+            EntryAssembly = entryAssembly,
+            EntryType = typeof(RuntimeFixturePlugin).FullName!,
+            WsgmVersion = PluginPackageBuilders.Host,
+            Capabilities = [CapabilityRole.LightingZoneColor]
+        };
+        var packagePath = PluginPackageBuilders.Write(temporary.GetPath("runtime.wsgmpkg"), $$"""
+              {"id":"{{manifest.Id}}","name":"{{manifest.Name}}","version":"{{manifest.Version}}",
+               "apiVersion":{{manifest.ApiVersion}},"entryAssembly":"{{manifest.EntryAssembly}}",
+               "entryType":"{{manifest.EntryType}}","wsgmVersion":"{{manifest.WsgmVersion}}",
+               "hardware":[],"capabilities":["LightingZoneColor"]}
+              """, (entryAssembly, File.ReadAllBytes(sourceAssembly)));
         InstalledDevicePackage package = new()
         {
-            PackagePath = packageDirectory,
+            PackagePath = packagePath,
             Valid = true,
-            Manifest = new PluginManifest
-            {
-                Id = RuntimeFixturePlugin.PackageIdValue,
-                Name = "Runtime fixture",
-                Version = "1.0.0",
-                ApiVersion = DeviceApi.Version,
-                EntryAssembly = entryAssembly,
-                EntryType = typeof(RuntimeFixturePlugin).FullName!
-            }
+            Manifest = manifest
         };
         return DevicePluginRuntime.StartAsync(
             package,

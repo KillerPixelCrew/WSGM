@@ -1,10 +1,9 @@
-using System.IO.Compression;
-using System.Text;
 using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
@@ -89,31 +88,21 @@ public sealed class CommonPluginPackageTests
     {
         using TemporaryDirectory temporary = new();
         var oversized = WritePackage(temporary.GetPath("oversized.wsgmpkg"),
-            new string(' ', PluginManifestReader.MaximumBytes + 1) + "{}", typeof(CommonPluginFixture).Assembly.Location,
+            new string(' ', PluginManifestReader.MaximumBytes + 1) + "{}",
+            typeof(CommonPluginFixture).Assembly.Location,
             "Fixture.dll");
         Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(oversized).Dispose());
         var device = WritePackage(temporary.GetPath("device.wsgmpkg"), """
-                                                                      {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
-                                                                       "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-                                                                      """, typeof(CommonPluginFixture).Assembly.Location,
+                                                                       {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
+                                                                        "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                                                                       """,
+            typeof(CommonPluginFixture).Assembly.Location,
             "Fixture.dll");
         Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(device).Dispose());
     }
 
     private static string WritePackage(string path, string manifest, string assembly, string entryName)
     {
-        using var stream = File.Create(path);
-        using ZipArchive archive = new(stream, ZipArchiveMode.Create);
-        using (var entry = archive.CreateEntry("plugin.wsgm.json").Open())
-        {
-            entry.Write(Encoding.UTF8.GetBytes(manifest));
-        }
-
-        using (var entry = archive.CreateEntry(entryName).Open())
-        {
-            entry.Write(File.ReadAllBytes(assembly));
-        }
-
-        return path;
+        return PluginPackageBuilders.Write(path, manifest, (entryName, File.ReadAllBytes(assembly)));
     }
 }

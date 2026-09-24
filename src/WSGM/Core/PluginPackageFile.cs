@@ -7,10 +7,12 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
-using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
-using DeviceManifestReader = WSGM.Device.Sdk.Packaging.PluginManifestReader;
+using WSGM.Device.Sdk.Packaging;
+using WSGM.Plugin.Sdk;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 using CommonManifestReader = WSGM.Plugin.Sdk.PluginManifestReader;
+using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
+using DeviceManifestReader = WSGM.Device.Sdk.Packaging.PluginManifestReader;
 
 namespace WSGM.Core;
 
@@ -305,7 +307,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
                 throw new InvalidDataException(string.Join(" ", errors));
             }
 
-            if (common!.Category == WSGM.Plugin.Sdk.PluginCategories.Device)
+            if (common!.Category == PluginCategories.Device)
             {
                 throw new InvalidDataException("Device packages use the device manifest, not a common category.");
             }
@@ -314,6 +316,14 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         }
 
         var read = DeviceManifestReader.Read(bytes);
+        // A package built for another API is still a readable device package: the catalog reports it as
+        // api-incompatible so the overlay can say which package it is, instead of a bare folder error.
+        if (read.Manifest is not null
+            && read.Errors.All(error => error.Code is ManifestValidationCode.InvalidApiVersion))
+        {
+            return (read.Manifest, null);
+        }
+
         if (!read.IsValid || read.Manifest is null)
         {
             throw new InvalidDataException(string.Join("; ", read.Errors.Select(error => error.Message)));
