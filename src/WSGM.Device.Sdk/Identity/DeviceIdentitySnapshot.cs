@@ -8,9 +8,9 @@ namespace WSGM.Device.Sdk.Identity;
 /// </summary>
 /// <remarks>
 ///     This is the observed half of identity: a manifest's <see cref="HardwareMatchRule" /> list and the
-///     plugin's own detection are the predicates, this records what the machine actually reports. Producing it is platform work owned by Device Lab and WSGM's runtime;
-///     the contract only fixes which facts exist and how they compare, so both sides agree on what
-///     "matched" means.
+///     plugin's own detection are the predicates, this records what the machine actually reports.
+///     Producing it is platform work owned by Device Lab and WSGM's runtime; the contract only fixes which
+///     facts exist and how they compare, so both sides agree on what "matched" means.
 ///     <para>
 ///         Every value arrives already normalized through <see cref="IdentityText" />. Comparison is ordinal
 ///         and case-insensitive on the normalized form, so a vendor that changes casing or padding between

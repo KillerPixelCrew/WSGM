@@ -1268,7 +1268,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             Process.Start(new ProcessStartInfo(InstallLayout.SetupExe, "/repair") { UseShellExecute = true });
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        catch (Exception ex) when (ex is Win32Exception or IOException)
         {
             Log.Warn("Plugins: starting setup's repair failed: " + ex.Message);
         }

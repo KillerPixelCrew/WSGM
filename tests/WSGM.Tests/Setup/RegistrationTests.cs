@@ -5,7 +5,8 @@ namespace WSGM.Tests.Setup;
 public sealed class RegistrationTests
 {
     [Theory]
-    [InlineData("\"C:\\Program Files\\WSGM\\unins000.exe\" /SILENT", "C:\\Program Files\\WSGM\\unins000.exe", "/SILENT")]
+    [InlineData("\"C:\\Program Files\\WSGM\\unins000.exe\" /SILENT", "C:\\Program Files\\WSGM\\unins000.exe",
+        "/SILENT")]
     [InlineData("\"C:\\WSGM\\unins000.exe\"", "C:\\WSGM\\unins000.exe", "")]
     [InlineData("C:\\WSGM\\unins000.exe /x", "C:\\WSGM\\unins000.exe", "/x")]
     [InlineData("\"C:\\unterminated", "C:\\unterminated", "")]

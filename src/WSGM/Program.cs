@@ -32,6 +32,9 @@ public enum RunMode
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
 {
+    /// <summary>Exit code of <c>--uninstall-restore</c> when HidHide cleanup was not verified.</summary>
+    internal const int UninstallHidHideUnverifiedExitCode = 3;
+
     private static Mutex? _shellMutex;
 
     /// <summary>Gets the mode selected from the current command line.</summary>
@@ -500,9 +503,6 @@ public static class Program
             : RunMode.Settings;
     }
 
-    /// <summary>Exit code of <c>--uninstall-restore</c> when HidHide cleanup was not verified.</summary>
-    internal const int UninstallHidHideUnverifiedExitCode = 3;
-
     /// <summary>Returns the value of a <c>--name=value</c> argument, or null when it is absent.</summary>
     /// <param name="args">Process arguments.</param>
     /// <param name="prefix">The argument name including its <c>=</c>.</param>
@@ -527,7 +527,10 @@ public static class Program
             IReadOnlyList<string> entries = [];
             try
             {
-                entries = [.. SteamAutostartService.Scan().Where(source => source.Enabled).Select(source => source.Describe())];
+                entries =
+                [
+                    .. SteamAutostartService.Scan().Where(source => source.Enabled).Select(source => source.Describe())
+                ];
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {

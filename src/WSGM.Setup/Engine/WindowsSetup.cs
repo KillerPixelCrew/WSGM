@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -273,7 +274,7 @@ internal static class WindowsSetup
     {
         // WSGM.Deelevate and steam-input-lease are the wrappers' retired names; a 1.0 install may still run them.
         string[] wrappers = ["WSGM.Launch", "WSGM.PackagedLaunch", "WSGM.Deelevate", "steam-input-lease"];
-        string[] names = includeSteam ? ["steam", .. wrappers] : wrappers;
+        var names = includeSteam ? ["steam", .. wrappers] : wrappers;
         using var self = Process.GetCurrentProcess();
         var session = self.SessionId;
         List<string> found = [];
@@ -289,7 +290,7 @@ internal static class WindowsSetup
                         found.Add(process.ProcessName);
                     }
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
                 {
                     // Exited while enumerating.
                 }
@@ -341,7 +342,7 @@ internal static class WindowsSetup
             SetupLog.Info($"{Path.GetFileName(file)} {arguments} exited {process.ExitCode}.");
             return process.ExitCode;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        catch (Exception ex) when (ex is Win32Exception or IOException)
         {
             SetupLog.Error($"Could not start {file}", ex);
             return -1;
@@ -355,7 +356,7 @@ internal static class WindowsSetup
         {
             Process.Start(new ProcessStartInfo(file, arguments) { UseShellExecute = true })?.Dispose();
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        catch (Exception ex) when (ex is Win32Exception or IOException)
         {
             SetupLog.Error($"Could not start {file}", ex);
         }

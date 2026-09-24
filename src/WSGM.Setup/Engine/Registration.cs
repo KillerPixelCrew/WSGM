@@ -139,7 +139,8 @@ internal static class Registration
         try
         {
             return Directory.Exists(path)
-                ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length)
+                ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                    .Sum(file => new FileInfo(file).Length)
                 : 0;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -211,6 +212,7 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
             .Select(line => line.Split('=', 2))
             .GroupBy(pair => pair[0].Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First()[1].Trim(), StringComparer.OrdinalIgnoreCase);
+
         string Value(string key, string fallback = "")
         {
             return values.TryGetValue(key, out var value) ? value : fallback;
@@ -230,7 +232,9 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
         {
             "installed" or "already-present" => new UsbipOutcome(outcome, reboot, detail),
             "failed" or "blocked-newer-version" => new UsbipOutcome(outcome, reboot,
-                (message.Length > 0 ? message[..Math.Min(512, message.Length)] : "The USB/IP driver was not made available.")
+                (message.Length > 0
+                    ? message[..Math.Min(512, message.Length)]
+                    : "The USB/IP driver was not made available.")
                 + $" ({detail})"),
             _ => new UsbipOutcome("failed", reboot, $"The USB/IP driver returned an incomplete result ({detail}).")
         };

@@ -13,6 +13,10 @@ internal static partial class NativeMethods
     internal const uint ServiceStopped = 0x00000001;
     internal const uint ServiceRunning = 0x00000004;
 
+    internal const uint MoveFileDelayUntilReboot = 0x4;
+
+    internal static readonly Guid ShellLinkClsid = new("00021401-0000-0000-C000-000000000046");
+
     [LibraryImport("advapi32.dll", EntryPoint = "OpenSCManagerW", SetLastError = true,
         StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint OpenSCManagerW(string? lpMachineName, string? lpDatabaseName, uint dwDesiredAccess);
@@ -38,7 +42,9 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool MoveFileExW(string lpExistingFileName, string? lpNewFileName, uint dwFlags);
 
-    internal const uint MoveFileDelayUntilReboot = 0x4;
+    [LibraryImport("ole32.dll")]
+    internal static partial int CoCreateInstance(in Guid rclsid, nint pUnkOuter, uint dwClsContext, in Guid riid,
+        out nint ppv);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct ServiceStatus
@@ -88,14 +94,11 @@ internal static partial class NativeMethods
         int IsDirty();
 
         void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, uint dwMode);
-        void Save([MarshalAs(UnmanagedType.LPWStr)] string? pszFileName, [MarshalAs(UnmanagedType.Bool)] bool fRemember);
+
+        void Save([MarshalAs(UnmanagedType.LPWStr)] string? pszFileName,
+            [MarshalAs(UnmanagedType.Bool)] bool fRemember);
+
         void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);
         void GetCurFile(out nint ppszFileName);
     }
-
-    internal static readonly Guid ShellLinkClsid = new("00021401-0000-0000-C000-000000000046");
-
-    [LibraryImport("ole32.dll")]
-    internal static partial int CoCreateInstance(in Guid rclsid, nint pUnkOuter, uint dwClsContext, in Guid riid,
-        out nint ppv);
 }

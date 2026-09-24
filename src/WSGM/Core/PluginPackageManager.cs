@@ -134,7 +134,8 @@ internal static class PluginPackageManager
             plugin.Version, "Not for this hardware", Badges(plugin), "", PluginPackageAction.None, "")));
         rows.AddRange(bundle.Outdated.Select(outdated => new PluginPackageRowState(outdated.Id, outdated.Id, "",
             "Outdated", "Community",
-            $"No build for WSGM {bundle.WsgmVersion}." + (outdated.Contact is null ? "" : $" Developer: {outdated.Contact}"),
+            $"No build for WSGM {bundle.WsgmVersion}." +
+            (outdated.Contact is null ? "" : $" Developer: {outdated.Contact}"),
             PluginPackageAction.None, "")));
         return rows;
     }
@@ -196,7 +197,7 @@ internal static class PluginPackageManager
     private static string Badges(BundledPlugin plugin)
     {
         return (plugin.Community ? "Community" : "First-party") + " · "
-                                                               + (plugin.HardwareTested ? "Hardware-tested" : "Blind");
+                                                                + (plugin.HardwareTested ? "Hardware-tested" : "Blind");
     }
 
     private static string Contact(BundledPlugin plugin)
@@ -208,7 +209,8 @@ internal static class PluginPackageManager
     {
         try
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             return Convert.ToHexString(SHA256.HashData(stream));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -230,7 +232,8 @@ internal static class PendingPluginRemovals
         {
             var file = path ?? InstallLayout.PendingPluginRemovals;
             return File.Exists(file)
-                ? JsonSerializer.Deserialize(File.ReadAllText(file), PendingRemovalsJsonContext.Default.StringArray) ?? []
+                ? JsonSerializer.Deserialize(File.ReadAllText(file), PendingRemovalsJsonContext.Default.StringArray) ??
+                  []
                 : [];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -302,7 +305,8 @@ internal static class PendingPluginRemovals
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            File.WriteAllText(file, JsonSerializer.Serialize(entries.ToArray(), PendingRemovalsJsonContext.Default.StringArray));
+            File.WriteAllText(file,
+                JsonSerializer.Serialize(entries.ToArray(), PendingRemovalsJsonContext.Default.StringArray));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

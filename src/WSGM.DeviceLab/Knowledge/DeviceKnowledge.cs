@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-
 using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.DeviceLab.Knowledge;

@@ -22,6 +22,11 @@ internal enum SetupMode
 /// <summary>Parsed command line. Unknown arguments are refused, not ignored.</summary>
 internal sealed record SetupOptions
 {
+    /// <summary>The usage text.</summary>
+    public const string Usage =
+        "WSGM.Setup.exe [/quiet] [/update | /repair | /uninstall] [/answers=<file>] [/plugin=<id>|none] "
+        + "[/removedata] [/keepcomponents] [/payload=<dir>]";
+
     /// <summary>No window: take defaults or the given answers and report through the exit code and log.</summary>
     public bool Quiet { get; init; }
 
@@ -104,11 +109,6 @@ internal sealed record SetupOptions
 
         return options;
     }
-
-    /// <summary>The usage text.</summary>
-    public const string Usage =
-        "WSGM.Setup.exe [/quiet] [/update | /repair | /uninstall] [/answers=<file>] [/plugin=<id>|none] "
-        + "[/removedata] [/keepcomponents] [/payload=<dir>]";
 
     /// <summary>Whether any argument asks for a window-less run.</summary>
     public static bool WantsQuiet(string[] args)

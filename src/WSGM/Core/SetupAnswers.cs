@@ -155,7 +155,7 @@ public sealed record SetupAnswers
                 DownloadKeepAwake = config.Cef.DownloadKeepAwake,
                 DownloadQueueSort = config.Cef.DownloadQueueSort,
                 EdgeGestures = config.Gestures.TopEdge || config.Gestures.LeftEdgeSteamMenu
-                               || config.Gestures.RightEdgeSteamQuickAccess,
+                                                       || config.Gestures.RightEdgeSteamQuickAccess,
                 Hotkey = config.Hotkey.Enabled,
                 GamepadChord = config.GamepadChord.Enabled,
                 BootSplash = config.BootSplashEnabled

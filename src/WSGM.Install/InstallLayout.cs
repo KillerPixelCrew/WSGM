@@ -34,7 +34,8 @@ public static class InstallLayout
     public static string SetupPackages => Path.Combine(Setup, "Packages");
 
     /// <summary>Machine-wide installation records and logs, <c>%ProgramData%\WSGM</c>.</summary>
-    public static string MachineData => Path.Combine(KnownFolder(Environment.SpecialFolder.CommonApplicationData), "WSGM");
+    public static string MachineData =>
+        Path.Combine(KnownFolder(Environment.SpecialFolder.CommonApplicationData), "WSGM");
 
     /// <summary>The manifest of the bundle this install came from.</summary>
     public static string InstalledBundle => Path.Combine(MachineData, "bundle.json");
