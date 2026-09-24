@@ -187,6 +187,13 @@ internal sealed record PluginPackageCatalog
             try
             {
                 using var package = PluginPackageFile.Open(file);
+                if (!PluginPackageFile.IsForThisHost(package.WsgmVersion))
+                {
+                    errors.Add($"{Path.GetFileName(file)}: {package.Id} {package.Version} was built for WSGM "
+                               + $"{package.WsgmVersion ?? "(unstamped)"}, not {PluginPackageFile.HostVersion.ToString(3)}.");
+                    continue;
+                }
+
                 candidates.Add(new Candidate(package.Path, package.Id, ParseVersion(package.Version),
                     package.DeviceManifest, package.CommonManifest, package.EntryIsX64Assembly));
             }

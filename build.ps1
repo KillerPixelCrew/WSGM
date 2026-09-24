@@ -1,6 +1,13 @@
 # WSGM release build: self-contained publish + Inno Setup installer.
 # Output: publish\WSGM-Setup-<version>.exe (the one-file installer — the only
 # shipped artifact; the logon service requires a real install)
+#
+# -BundleFrom takes the plugin bundle (Packages, bundle.json, Tools) from a directory that
+# eng\build-bundle.ps1 produced elsewhere. The release workflow builds the bundle in a job without
+# secrets, because it compiles community plugin source, and hands it to this build.
+param(
+    [string]$BundleFrom = ""
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -103,12 +110,20 @@ if (-not (Test-Path "$appPublish\libviiper.dll")) { throw "VIIPER controller lib
 Write-Host "== Staging controller driver installers ==" -ForegroundColor Cyan
 & "$root\eng\acquire-controller-dependencies.ps1" -Destination $appPublish
 
-Write-Host "== Publishing device tools and package ==" -ForegroundColor Cyan
-& "$root\eng\stage-device-components.ps1" `
-    -OutputRoot "$root\publish" `
-    -Configuration Release `
-    -RuntimeIdentifier win-x64 `
-    -NoRestore
+if ([string]::IsNullOrWhiteSpace($BundleFrom)) {
+    Write-Host "== Building the plugin bundle and device tools ==" -ForegroundColor Cyan
+    & "$root\eng\build-bundle.ps1" `
+        -OutputRoot "$root\publish" `
+        -Configuration Release `
+        -RuntimeIdentifier win-x64 `
+        -NoRestore
+}
+else {
+    Write-Host "== Taking the plugin bundle from $BundleFrom ==" -ForegroundColor Cyan
+    foreach ($component in @("Packages", "bundle.json", "Tools")) {
+        Copy-Item -LiteralPath (Join-Path $BundleFrom $component) -Destination "$root\publish" -Recurse
+    }
+}
 & "$root\eng\assert-component-staging.ps1" -OutputRoot "$root\publish"
 
 $iscc = @(

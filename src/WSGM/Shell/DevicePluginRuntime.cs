@@ -51,6 +51,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     internal long CycleGeneration { get; private set; }
     internal string PackageId => Plugin.PackageId;
+
+    /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
+    internal IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
+        _package.Package.DeviceManifest?.Capabilities ?? [];
     internal string StateDirectory => Path.Combine(_pluginStateRoot ?? DefaultPluginStateRoot(), PackageId);
 
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;

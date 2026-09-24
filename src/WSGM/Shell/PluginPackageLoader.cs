@@ -57,7 +57,12 @@ internal sealed class PluginPackageLoader : IDisposable
         // Discovery closed its handle, so the file is opened again and must still be the package
         // that was admitted: a replacement dropped in between is refused, not loaded.
         var file = PluginPackageFile.Open(package.PackagePath);
-        if (file.DeviceManifest != package.Manifest)
+        if (file.DeviceManifest is not { } reopened
+            || reopened.Id != package.Manifest.Id
+            || reopened.Version != package.Manifest.Version
+            || reopened.EntryAssembly != package.Manifest.EntryAssembly
+            || reopened.EntryType != package.Manifest.EntryType
+            || reopened.WsgmVersion != package.Manifest.WsgmVersion)
         {
             file.Dispose();
             throw new InvalidDataException("The device package changed between discovery and loading.");

@@ -15,9 +15,9 @@ public sealed class CommonPluginPackageTests
     public async Task RealIrPackageLoadsAlongsideDeviceCategoryAndPersistsLibraryWithoutHardware()
     {
         using TemporaryDirectory temporary = new();
-        var path = WritePackage(temporary.GetPath("ir.wsgmpkg"), """
+        var path = WritePackage(temporary.GetPath("ir.wsgmpkg"), $$"""
                                                                    {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
-                                                                    "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
+                                                                    "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin","wsgmVersion":"{{PluginPackageFile.HostVersion.ToString(3)}}"}
                                                                    """, typeof(IrPlugin).Assembly.Location, "WSGM.Plugin.Ir.dll");
         var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
         var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
@@ -56,7 +56,7 @@ public sealed class CommonPluginPackageTests
         var name = Path.GetFileName(assembly);
         var path = WritePackage(temporary.GetPath("fixture.wsgmpkg"), $$"""
                                                                         {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
-                                                                         "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture"}
+                                                                         "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture","wsgmVersion":"{{PluginPackageFile.HostVersion.ToString(3)}}"}
                                                                         """, assembly, name);
         var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
         var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);

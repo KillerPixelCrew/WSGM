@@ -2,7 +2,11 @@
   "id": "wsgm.device.asus.rog-ally-x",
   "name": "ASUS ROG Ally X (scaffold)",
   "version": "0.1.0",
-  "apiVersion": 5,
+  "apiVersion": 6,
   "entryAssembly": "WSGM.Device.Asus.RogAllyX.dll",
-  "entryType": "WSGM.Device.Asus.RogAllyX.DevicePlugin"
+  "entryType": "WSGM.Device.Asus.RogAllyX.DevicePlugin",
+  "hardware": [
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC72LA" },
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC72L" }
+  ]
 }

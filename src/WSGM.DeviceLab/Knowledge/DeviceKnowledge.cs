@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+using WSGM.Device.Sdk.Identity;
+
 namespace WSGM.DeviceLab.Knowledge;
 
 /// <summary>How much of a knowledge record a person has reviewed against hardware or a plugin.</summary>
@@ -73,7 +75,7 @@ internal sealed record DeviceKnowledgeRecord
     public IReadOnlyList<string> Supersedes { get; init; } = [];
 
     /// <summary>Alternative identity rules; any one matching identifies the device.</summary>
-    public IReadOnlyList<DeviceIdentityRule> Identity { get; init; } = [];
+    public IReadOnlyList<HardwareMatchRule> Identity { get; init; } = [];
 
     /// <summary>Power ranges the vendor or HC declares.</summary>
     public DevicePowerKnowledge? Power { get; init; }
@@ -104,42 +106,6 @@ internal sealed record DeviceKnowledgeRecord
 
     /// <summary>Evidence for the record as a whole.</summary>
     public IReadOnlyList<DeviceKnowledgeProvenance> Provenance { get; init; } = [];
-}
-
-/// <summary>
-///     One way to recognise a device from SMBIOS and processor identity.
-/// </summary>
-/// <remarks>
-///     Mirrors HC's device switch: the baseboard manufacturer selects a vendor, then the baseboard
-///     product, system model, processor name or baseboard version selects the model. Every field
-///     that is set must match. A fallback rule is HC's <c>default</c> branch and ranks below an exact
-///     rule.
-/// </remarks>
-internal sealed record DeviceIdentityRule
-{
-    /// <summary>Win32_BaseBoard.Manufacturer, compared case-insensitively.</summary>
-    public string? BaseboardManufacturer { get; init; }
-
-    /// <summary>Win32_BaseBoard.Product.</summary>
-    public string? BaseboardProduct { get; init; }
-
-    /// <summary>Win32_ComputerSystem.Model.</summary>
-    public string? SystemModel { get; init; }
-
-    /// <summary>Win32_ComputerSystem.SystemSKUNumber.</summary>
-    public string? SystemSku { get; init; }
-
-    /// <summary>Win32_Processor.Name, trimmed.</summary>
-    public string? ProcessorName { get; init; }
-
-    /// <summary>A substring Win32_Processor.Name must contain.</summary>
-    public string? ProcessorNameContains { get; init; }
-
-    /// <summary>Win32_BaseBoard.Version.</summary>
-    public string? BaseboardVersion { get; init; }
-
-    /// <summary>Whether the rule is a vendor-wide default rather than an exact model.</summary>
-    public bool Fallback { get; init; }
 }
 
 /// <summary>Power ranges in watts and clocks in MHz.</summary>

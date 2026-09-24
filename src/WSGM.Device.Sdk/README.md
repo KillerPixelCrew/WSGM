@@ -14,9 +14,9 @@ would inherit.
 
 The common identity and lifecycle contracts shared with non-device plugins live in a separate MIT
 assembly at [ `../WSGM.Plugin.Sdk`](../WSGM.Plugin.Sdk/README.md). The resident common host admits
-this Device runtime through a compatibility adapter. Device API 5 adds presentation hints and
-retains value types for high-rate controller and motion samples so publishing a frame does not
-allocate contract objects.
+this Device runtime through a compatibility adapter. Device API 6 adds the manifest's hardware rules
+and declared capability roles, which setup reads without loading code, and keeps API 5's
+presentation hints and allocation-free controller and motion samples.
 
 ## What a plugin is
 

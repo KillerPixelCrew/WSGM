@@ -132,6 +132,13 @@ public static class PluginManifestReader
             errors.Add("Invalid permission declarations.");
         }
 
+        if (manifest.WsgmVersion is { } wsgmVersion
+            && (!Version.TryParse(wsgmVersion, out var parsed)
+                || parsed.ToString(parsed.Revision >= 0 ? 4 : parsed.Build >= 0 ? 3 : 2) != wsgmVersion))
+        {
+            errors.Add("The WSGM version must be a canonical dotted numeric version.");
+        }
+
         return errors;
     }
 

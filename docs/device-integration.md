@@ -39,9 +39,11 @@ second location, and WSGM never loads plugin code from a user-writable discovery
 device packages there refuse device integration instead of choosing one. A package is replaced only
 while WSGM is closed, because a loaded file is held open (`device-plugin-system.md` §3–§7).
 
-The manifest is deliberately minimal: id, name, version, exact API version, entry assembly and entry
-type. Hardware identity, dependencies, capabilities and policy are published by plugin code, so the
-manifest cannot disagree with what the plugin does.
+The manifest carries id, name, version, exact API version and entry point, plus two lists that let
+setup decide without loading code: the `hardware` rules the package is for and the capability roles
+it may publish. The runtime keeps the plugin honest about the second list by refusing any descriptor
+whose role is not declared; the plugin's own detection confirms the first. Dependencies and policy
+stay in plugin code.
 
 ## Runtime topology and the in-process tradeoff
 

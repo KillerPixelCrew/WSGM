@@ -27,7 +27,23 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
       - [ ] Manual test with `eng\dev-deploy.ps1` on the Claw. After that, the focused suites
             `PluginPackageCatalogTests`, `CommonPluginPackageTests` and
             `DeviceCoordinatorConcurrencyTests`.
-- [ ] PR 2: manifest `hardware`, `capabilities` and `wsgmVersion`; curated status; bundle build.
+- [ ] PR 2 (`feat/plugin-bundle`, stacked on PR 1), implemented, awaiting the manual test:
+      - [x] SDK API 6: `HardwareMatchRule` and `HardwareMatcher` (Device Lab's knowledge matcher now
+            uses them) and the manifest `hardware`, `capabilities` and `wsgmVersion`.
+            `DeviceIdentitySnapshot` gains the baseboard manufacturer and processor name, which the
+            host reads from the registry.
+      - [x] The host refuses a package built for another WSGM version, and the capability router
+            refuses a descriptor set with an undeclared role. The Claw manifest declares its board
+            and the 17 roles it publishes.
+      - [x] `plugins/curated`: Claw (first-party, hardware-tested), IR (first-party, blind until the
+            maintainer decides) and Ally X (not bundled). There is a submission issue template and
+            `plugins/README.md`.
+      - [x] `eng/build-bundle.ps1` replaces `stage-device-components.ps1` and writes `bundle.json`.
+            The packers stamp `wsgmVersion` and strip host-supplied assemblies, taking the Claw
+            package from 27 MB to 1.3 MB. The release workflow builds the bundle in a job without
+            secrets and publishes the setup's SHA-256, and CI builds the bundle on every push.
+      - [ ] Manual test: `eng\dev-deploy.ps1` on the Claw (every capability still appears). After
+            that, the SDK, Device Lab knowledge and catalog suites.
 - [ ] PR 3: `WSGM.Install` library, setup answers, HidHide cleanup at uninstall, Plugins page, Quick
       Setup retired.
 - [ ] PR 4: `WSGM.Setup` replaces Inno.

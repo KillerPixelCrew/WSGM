@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Shared Device Lab publication for publish-device-lab.ps1 and stage-device-components.ps1.
+# Shared Device Lab publication for publish-device-lab.ps1 and build-bundle.ps1.
 
 function Publish-DeviceLab {
     <#

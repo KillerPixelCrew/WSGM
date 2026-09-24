@@ -1,0 +1,71 @@
+name: Plugin submission
+description: Ask for a community plugin to be reviewed and bundled with WSGM.
+title: "[Plugin] "
+labels: ["plugin submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        WSGM bundles accepted community plugins in its setup, built by WSGM's own CI from the exact
+        commit that was reviewed. Send source, never a binary. Read `plugins/README.md` first: it
+        explains the review, how to build against the SDK of a WSGM version, and what happens when
+        a later WSGM version no longer builds your plugin.
+  - type: input
+    id: plugin-id
+    attributes:
+      label: Plugin id
+      description: The `id` in your `plugin.wsgm.json`.
+      placeholder: community.device.ayaneo-kun
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: Source repository
+      description: A public Git repository WSGM's CI can clone.
+      placeholder: https://github.com/example/wsgm-ayaneo-kun
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit to review
+      description: The full 40-character commit SHA. Only this commit is reviewed and built.
+    validations:
+      required: true
+  - type: input
+    id: project
+    attributes:
+      label: Project directory
+      description:
+        The directory inside the repository that holds the plugin project and its
+        `plugin.wsgm.json`.
+      placeholder: src/AyaneoKun
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Target hardware
+      description: The devices the plugin is for, and the `hardware` rules in its manifest.
+    validations:
+      required: true
+  - type: textarea
+    id: testing
+    attributes:
+      label: How it was tested
+      description:
+        On which hardware you ran it and what you checked. A plugin built only from reference
+        material is listed as blind.
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Developer contact
+      description:
+        Shown in WSGM wherever it warns about your plugin, for example when a new WSGM version
+        cannot build it. Use a contact you are comfortable seeing there.
+      placeholder: https://github.com/example
+    validations:
+      required: true

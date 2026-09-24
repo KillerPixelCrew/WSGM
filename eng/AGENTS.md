@@ -41,10 +41,16 @@ codes, and safe to rerun.
 - Device packers share `device-package-output.ps1` for archive publication. Keep staging on the
   destination volume, replace owned archives atomically, and use create-new semantics otherwise.
   Never delete the previous archive before its replacement commits.
-- `publish-device-lab.ps1` and `stage-device-components.ps1` publish Device Lab through
+- `publish-device-lab.ps1` and `build-bundle.ps1` publish Device Lab through
   `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
   unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in
   identity, entry assembly, glyph and extracted-tree checks.
+- `build-bundle.ps1` is the only producer of `Packages\*.wsgmpkg` and `bundle.json`. It reads
+  `plugins/curated`, packs first-party plugins from this checkout and community plugins from their
+  pinned commit against a local SDK feed. It records a community build failure as outdated instead
+  of failing. Run its community step only where no secret is available.
+- Both packers stamp `wsgmVersion` from `src/WSGM/WSGM.csproj` and strip the assemblies WSGM
+  supplies itself (`Remove-HostProvidedFiles`); never ship a package without either step.
 - `device-lab-publish.ps1` runs `acquire-pawnio.ps1` first, which downloads the installer pinned in
   `external/pawnio/pawnio.lock.json` into `artifacts/pawnio` and refuses a wrong digest or signer.
   Device Lab embeds it when present. Offline, the installer tree only warns and that build reports

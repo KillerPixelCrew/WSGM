@@ -82,6 +82,37 @@ public sealed class PluginPackageCatalogTests
         Assert.Equal("api-incompatible", package.RejectionCode);
     }
 
+    [Theory]
+    [InlineData("1.0.0")]
+    [InlineData(null)]
+    public void PackageBuiltForAnotherWsgmVersion_IsRefusedWithTheVersionItNames(string? builtFor)
+    {
+        using TemporaryDirectory temporary = new();
+        var manifest = builtFor is null
+            ? DeviceManifestJson("test.device", "1.0.0").Replace($",\"wsgmVersion\":\"{Host}\"", "",
+                StringComparison.Ordinal)
+            : DeviceManifestJson("test.device", "1.0.0", wsgmVersion: builtFor);
+        WritePackage(temporary.Root, "old.wsgmpkg", manifest, ("plugin.dll", EntryImage()));
+
+        var catalog = PluginPackageCatalog.Discover(temporary.Root);
+
+        Assert.Null(catalog.Device.InstalledPackage);
+        Assert.Contains(builtFor ?? "(unstamped)", Assert.Single(catalog.Errors), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeviceManifest_CarriesItsHardwareRulesAndDeclaredRoles()
+    {
+        using TemporaryDirectory temporary = new();
+        WriteDevicePackage(temporary.Root, "claw.wsgmpkg", "test.device", "1.0.0");
+
+        var manifest = PluginPackageCatalog.Discover(temporary.Root).Device.InstalledPackage?.Manifest;
+
+        Assert.NotNull(manifest);
+        Assert.Equal("MS-1T52", Assert.Single(manifest.Hardware).BaseboardProduct);
+        Assert.Equal(WSGM.Device.Sdk.Capabilities.CapabilityRole.FanMode, Assert.Single(manifest.Capabilities));
+    }
+
     [Fact]
     public void CommonManifest_IsRoutedByItsCategoryAndDeviceCategoryIsRefused()
     {
@@ -191,11 +222,15 @@ public sealed class PluginPackageCatalogTests
         }
     }
 
-    private static string DeviceManifestJson(string id, string version, int apiVersion = DeviceApi.Version)
+    private static string Host => PluginPackageFile.HostVersion.ToString(3);
+
+    private static string DeviceManifestJson(string id, string version, int apiVersion = DeviceApi.Version,
+        string? wsgmVersion = null)
     {
         return $$"""
                  {"id":"{{id}}","name":"Fixture","version":"{{version}}","apiVersion":{{apiVersion}},
-                  "entryAssembly":"plugin.dll","entryType":"Fixture.Plugin"}
+                  "entryAssembly":"plugin.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{wsgmVersion ?? Host}}",
+                  "hardware":[{"baseboardProduct":"MS-1T52"}],"capabilities":["FanMode"]}
                  """;
     }
 
@@ -203,7 +238,7 @@ public sealed class PluginPackageCatalogTests
     {
         return $$"""
                  {"id":"{{id}}","name":"Fixture","version":"1.0.0","category":"{{category}}",
-                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}"}
                  """;
     }
 

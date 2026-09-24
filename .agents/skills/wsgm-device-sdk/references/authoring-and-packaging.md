@@ -50,7 +50,7 @@ never install a driver, edit machine policy, restart a device, or run an install
 - Prefer the existing `CapabilityRole`, value kind, unit, display key, reason code, and persistence
   vocabulary. Closed vocabularies keep the host, not plugin text or UI code, in control of
   rendering.
-- Publish a complete `CapabilityDescriptorSet`, including its sections, categories, API 5 layout
+- Publish a complete `CapabilityDescriptorSet`, including its sections, categories, API 6 layout
   hints (`Prominence`, `LayoutPair`), power presets and power pair. Any changed descriptor or layout
   requires a new descriptor generation.
 - A value record is a tagged union by contract; constructors do not enforce that exactly one field
@@ -100,12 +100,12 @@ device project under `publish`.
 Every route here changes the live machine, so run one only when the maintainer directs it:
 
 - `eng/dev-deploy.ps1` publishes WSGM, restarts WSGM and Steam, and rebuilds the Claw package
-  through `eng/stage-device-components.ps1`. It copies the `.wsgmpkg` into
-  `%ProgramFiles%\WSGM\Plugins` behind one elevation prompt and deletes other builds of the same id.
-  It refuses to run unless the baseboard is `MS-1T52`, or `MS-7E16` with `-Desktop`, which also
-  implies `-SkipPlugin`. Use `-SkipPlugin` only for pure WSGM changes. After an SDK change, a
-  skipped plugin refresh leaves an API-incompatible package that the host rejects. The staging
-  script is hard-wired to the Claw project.
+  through `eng/build-bundle.ps1 -Only`. It copies the `.wsgmpkg` into `%ProgramFiles%\WSGM\Plugins`
+  behind one elevation prompt and deletes other builds of the same id. It refuses to run unless the
+  baseboard is `MS-1T52`, or `MS-7E16` with `-Desktop`, which also implies `-SkipPlugin`. Use
+  `-SkipPlugin` only for pure WSGM changes. After an SDK change, a skipped plugin refresh leaves an
+  API-incompatible package that the host rejects. The staging script is hard-wired to the Claw
+  project.
 - For any other package, close WSGM and copy the `.wsgmpkg` into `%ProgramFiles%\WSGM\Plugins`
   (`docs/device-plugin-authoring.md`, section 5).
 

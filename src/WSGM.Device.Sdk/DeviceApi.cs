@@ -22,6 +22,11 @@ public static class DeviceApi
     ///         normal, unpaired defaults. The new descriptor setters require an exact API match so older
     ///         hosts reject incompatible plugin binaries before loading them.
     ///     </para>
+    ///     <para>
+    ///         Version 6 adds the manifest's <c>hardware</c>, <c>capabilities</c> and <c>wsgmVersion</c>
+    ///         members. Hosts refuse a descriptor whose role the manifest does not declare, so a version 5
+    ///         plugin would lose every capability; the exact match turns that into a clear refusal.
+    ///     </para>
     /// </remarks>
-    public const int Version = 5;
+    public const int Version = 6;
 }
