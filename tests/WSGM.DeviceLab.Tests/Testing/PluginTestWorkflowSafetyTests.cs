@@ -29,7 +29,9 @@ public sealed class PluginTestWorkflowSafetyTests
             "bin",
             typeof(PluginTestWorkflowSafetyTests).Assembly
                 .GetCustomAttributes<AssemblyConfigurationAttribute>().Single().Configuration,
-            "net10.0-windows",
+            // Device Lab targets the same framework as this test project, so the test's own output
+            // folder names it. A literal went stale when that target changed and ran an old worker.
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)),
             "win-x64",
             "wsgm-device.exe");
     }

@@ -1,13 +1,16 @@
-using System.IO.Compression;
 using System.Text;
 using WSGM.Core;
 using WSGM.Device.Sdk;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Core;
 
 public sealed class PluginPackageCatalogTests
 {
+    private static string Host => PluginPackageFile.HostVersion.ToString(3);
+
     [Fact]
     public void MissingPluginsFolder_IsAValidInstallWithoutPlugins()
     {
@@ -110,7 +113,7 @@ public sealed class PluginPackageCatalogTests
 
         Assert.NotNull(manifest);
         Assert.Equal("MS-1T52", Assert.Single(manifest.Hardware).BaseboardProduct);
-        Assert.Equal(WSGM.Device.Sdk.Capabilities.CapabilityRole.FanMode, Assert.Single(manifest.Capabilities));
+        Assert.Equal(CapabilityRole.FanMode, Assert.Single(manifest.Capabilities));
     }
 
     [Fact]
@@ -194,35 +197,18 @@ public sealed class PluginPackageCatalogTests
         Assert.False(File.Exists(path));
     }
 
+    private static string WritePackage(string directory, string fileName, string manifest,
+        params (string Name, byte[] Bytes)[] files)
+    {
+        return PluginPackageBuilders.Write(Path.Combine(directory, fileName), manifest, files);
+    }
+
     private static string WriteDevicePackage(string directory, string fileName, string id, string version,
         int apiVersion = DeviceApi.Version)
     {
         return WritePackage(directory, fileName, DeviceManifestJson(id, version, apiVersion),
             ("plugin.dll", EntryImage()));
     }
-
-    private static string WritePackage(string directory, string fileName, string manifest,
-        params (string Name, byte[] Bytes)[] files)
-    {
-        var path = Path.Combine(directory, fileName);
-        using var stream = File.Create(path);
-        using ZipArchive archive = new(stream, ZipArchiveMode.Create);
-        Write(archive, "plugin.wsgm.json", Encoding.UTF8.GetBytes(manifest));
-        foreach (var (name, bytes) in files)
-        {
-            Write(archive, name, bytes);
-        }
-
-        return path;
-
-        static void Write(ZipArchive archive, string name, byte[] bytes)
-        {
-            using var entry = archive.CreateEntry(name).Open();
-            entry.Write(bytes);
-        }
-    }
-
-    private static string Host => PluginPackageFile.HostVersion.ToString(3);
 
     private static string DeviceManifestJson(string id, string version, int apiVersion = DeviceApi.Version,
         string? wsgmVersion = null)

@@ -19,7 +19,8 @@ public sealed class HardwareMatcherTests
     [Fact]
     public void ExactRule_WinsOverAnEarlierFallback()
     {
-        HardwareMatchRule fallback = new() { BaseboardManufacturer = "Micro-Star International Co., Ltd.", Fallback = true };
+        HardwareMatchRule fallback = new()
+            { BaseboardManufacturer = "Micro-Star International Co., Ltd.", Fallback = true };
         HardwareMatchRule exact = new() { BaseboardProduct = " ms-1t52 ", SystemSku = "1T52.1" };
 
         var match = HardwareMatcher.Match([fallback, exact], Claw);
@@ -46,7 +47,8 @@ public sealed class HardwareMatcherTests
     public void EmptyRuleAndMismatchedField_NeverMatch()
     {
         Assert.Null(HardwareMatcher.Match([new HardwareMatchRule()], Claw));
-        Assert.Null(HardwareMatcher.Match([new HardwareMatchRule { BaseboardProduct = "MS-1T52", SystemSku = "1T52.2" }],
+        Assert.Null(HardwareMatcher.Match(
+            [new HardwareMatchRule { BaseboardProduct = "MS-1T52", SystemSku = "1T52.2" }],
             Claw));
     }
 
