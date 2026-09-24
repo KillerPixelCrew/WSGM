@@ -70,8 +70,11 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - When a maintainer has approved a requested implementation and an applicable design or plan already
   exists, begin implementation immediately. Treat that approval as sufficient for the execution
   method; continue without asking for another plan review or execution-choice prompt.
-- Preserve the task branch and use the branch/PR workflow below. These rules also apply to nested
-  repositories and dependency pin-only updates; verify dependency commits are already pushed.
+- Preserve the task branch and use the branch/PR workflow below, in nested repositories as well.
+- Dependency pin-only updates are the exception: commit and push them directly to the default
+  branch, with no branch or pull request, including in nested repositories. Verify the target
+  commits are already pushed and merged, follow the dependency order below, and keep unrelated
+  changes out of those commits.
 - Do not create tags, releases, or compatibility layers unless the maintainer asks for them.
 - Write documentation, command examples, issues, commit messages, and pull requests in natural,
   concise language. Avoid canned AI phrasing, filler, and em dashes.
@@ -128,7 +131,8 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - Before every commit and push, verify that the checked-out branch and explicit push destination
   match the task branch. A request to "push" or "create a PR" means publish that branch and open or
   update its PR; it does not authorize merging or writing to the default branch. Direct commits or
-  pushes to the default branch require an explicit maintainer instruction for the current task.
+  pushes to the default branch require an explicit maintainer instruction for the current task,
+  except dependency pin-only updates, which always go there directly.
 - Before creating a PR, verify its head, intended base and actual diff. If the change is already on
   the base branch, report that state and obtain repair direction before changing branches or
   history. Do not manufacture review-base branches or substitute a different base to produce a PR.
