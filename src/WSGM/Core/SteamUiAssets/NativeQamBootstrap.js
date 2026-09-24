@@ -1104,6 +1104,49 @@
   // the live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
   // pathological tree, not to limit a legitimate search.
   const MaximumMountedNodes = 60000;
+  // Adopts mounted instances of a component that has no public handle at all, found by what its
+  // source says rather than by any export.
+  //
+  // Steam's main-menu popup host is such a component: a module-local function the popup mounts
+  // directly under a React root, exported nowhere, with the menu's memo export absent from that
+  // render path entirely. A claim on the memo's `type` is correct and never reached (2026-09-24). The
+  // only handle is the mounted fiber itself, which decky-loader's tabs hook adopts the same way, so
+  // each matching fiber's `type` becomes the wrapper `wrapFor` builds for its original. Idempotent: a
+  // fiber already carrying one of our wrappers is skipped, so this can run on every publication to
+  // catch a host Steam has since recreated. Answers the adoptions made, for release.
+  const adoptMountedBySource = (roots, tokens, wrapFor, ownedName, bound) => {
+    const adopted = [];
+    let scheduled = false;
+    walkFibers(roots, bound, (fiber) => {
+      const type = fiber.type;
+      if (typeof type !== "function" || type.name === ownedName) return false;
+      const source = String(type);
+      if (!tokens.every((token) => source.includes(token))) return false;
+      const wrapper = wrapFor(type);
+      for (const side of [fiber, fiber.alternate]) {
+        if (!side) continue;
+        side.type = wrapper;
+        side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
+      }
+      adopted.push({ fiber, original: type });
+      scheduled = requestRender(fiber) || scheduled;
+      return false;
+    });
+    return { adopted, scheduled };
+  };
+  // Hands fibers adopted by source back to their originals.
+  const releaseAdoptedFibers = (adopted) => {
+    let released = 0;
+    for (const { fiber, original } of adopted) {
+      for (const side of [fiber, fiber.alternate]) {
+        if (side && side.type !== original) {
+          side.type = original;
+          released++;
+        }
+      }
+    }
+    return released;
+  };
   // Hands adopted instances back to the function the claim displaced. No render is requested: the
   // original draws again whenever the page next renders, and a wrapper left on screen until then
   // passes Steam's tree through once its gate is removed.
@@ -3010,7 +3053,15 @@
       if (depth > MaximumDescent || !react.isValidElement(element)) return element;
       const replaced = replaceTabs(element, depth, visible);
       if (replaced !== element) return replaced;
-      return descendInto(react, element, descenderCache, tabDescender) ?? element;
+      // A render whose root is not a plain function component — a context provider, a host div — is
+      // descended through its children, the way the navigation panel already does. Stopping at such
+      // a root left the descender one level deep on the 2026-09-24 client, where the tab list sits
+      // twenty-three component levels down behind alternating providers and function components,
+      // so the tab was never inserted while every status flag read true.
+      return (
+        descendInto(react, element, descenderCache, tabDescender) ??
+        mapChildren(react, element, (kid) => descend(kid, depth + 1, visible))
+      );
     };
     const resolve = () => {
       runtime = getWebpackRuntime("extensions-tab");
@@ -4712,6 +4763,34 @@
     };
     // What the last install's adoption of already-mounted panels reached; see install().
     let lastAdoption = { adopted: 0, scheduled: false };
+    // The popup's menu host, which has no public handle. On the 2026-09-24 client Big Picture's
+    // main menu is a popup whose host is a module-local function mounted directly under a React
+    // root; it is exported nowhere, and the memo this gate claims is not in its render path at all.
+    // The claim was correct and never reached. The host is recognised by three prop names its author
+    // destructures, and the mounted fiber is adopted directly, the way decky-loader adopts the
+    // Quick Access view. It persists while the menu is closed and re-renders when `open` flips, so
+    // an adoption made once shows on the next open.
+    const MenuHostTokens = ["MainNavMenuContainer", "onFocusNavDeactivated", "popup:"];
+    let adoptedHosts = [];
+    const hostWrapper = (type) => {
+      let wrapper = descendCache.get(type);
+      if (!wrapper) {
+        wrapper = navigationDescender(type);
+        descendCache.set(type, wrapper);
+      }
+      return wrapper;
+    };
+    const adoptHosts = () => {
+      const result = adoptMountedBySource(
+        reactRootFibers(),
+        MenuHostTokens,
+        hostWrapper,
+        "SteamUiNavigationDescend",
+        MaximumMountedNodes,
+      );
+      adoptedHosts.push(...result.adopted);
+      return result.adopted.length;
+    };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       const resolved = attemptResolution(resolve, (error) => {
@@ -4737,6 +4816,7 @@
       // function: status said claimed, lastOutcome said never rendered (2026-09-24). Adoption
       // swaps the mounted instances over and defeats the memo bail-out; see adoptMountedType.
       lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
+      adoptHosts();
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items) ? state.items : [];
         const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
@@ -4753,6 +4833,10 @@
         // see, and a panel already on screen would keep showing the previous entries. Ask the
         // mounted panels to draw again; a menu not yet open draws through the claim when it is.
         renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
+        // A host Steam has recreated since install is adopted here; one already adopted is
+        // skipped. It sits directly under a React root with no class above it, so no render can
+        // be requested: the entries show when the menu next opens, which re-renders the host.
+        adoptHosts();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -4773,6 +4857,8 @@
       // Every mounted panel this install adopted, handed back to what the claim displaced.
       releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
       lastAdoption = { adopted: 0, scheduled: false };
+      releaseAdoptedFibers(adoptedHosts);
+      adoptedHosts = [];
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -4790,6 +4876,8 @@
       mounted: {
         ...lastAdoption,
         stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
+        // Popup menu hosts adopted by source, the path the memo claim never reaches.
+        hosts: adoptedHosts.length,
       },
       rejectedRoutes,
       hidden: desired.hidden.length,
