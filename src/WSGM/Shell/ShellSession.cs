@@ -1014,7 +1014,8 @@ public sealed class ShellSession : IAsyncDisposable
             () => _pluginSteamUi?.ReadSettings() ?? [],
             (id, key, value, revision, token) => _pluginSteamUi is { } source
                 ? source.ConfigureAsync(id, key, value, revision, token)
-                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")));
+                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")),
+            DevicePackagePolicy.InstalledPluginId);
 
         ReleaseAbandonedPackageExemptions();
 

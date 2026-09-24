@@ -18,8 +18,10 @@ A limited set of WSGM's global settings, every one of which configures WSGM itse
 Turning the CEF master switch off asks first, in Steam's own destructive confirm: it removes this
 page and every WSGM feature in Steam, which come back only from WSGM's overlay or WSGM Settings.
 Turning the native Quick Access bridge off asks too, but the page stays: WSGM's pages follow CEF
-itself, not the bridge. A plugin's secret is never sent to Steam. Its row says whether one is set
-and takes a new one.
+itself, not the bridge. A plugin's secret is never sent to Steam. Its row says whether one is set,
+takes a new one, and clears it when emptied. Two instances of one plugin are named by instance, and
+device plugin settings come only from the plugin installed now, never a declaration a removed one
+left in configuration.
 
 Windows and other external state are not here, as they are not in WSGM Settings; they are on the
 overlay and in Quick Access. Artwork credentials and the Game Library defaults stay in WSGM

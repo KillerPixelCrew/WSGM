@@ -133,6 +133,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         _configurePlugin;
 
     private readonly Lock _gate = new();
+    private readonly Func<string?> _installedDevicePlugin;
     private readonly Func<IReadOnlyList<InstalledCommonPlugin>> _installedPlugins;
     private readonly Func<IReadOnlyList<CommonPluginSettingsView>> _pluginSettings;
     private readonly Func<SteamInputShimStatus> _shimStatus;
@@ -140,6 +141,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     // One shim apply at a time, and always of the latest save: two quick toggles would otherwise run
     // in either order and could leave the shim matching the older one.
     private readonly SemaphoreSlim _steamInputGate = new(1, 1);
+    private string? _devicePluginId;
+    private bool _devicePluginRead;
     private AppConfig? _pendingSteamInput;
     private long _revision = 1;
     private AppConfig? _written;
@@ -155,6 +158,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <param name="installedPlugins">The installed common plugin packages.</param>
     /// <param name="pluginSettings">Every running plugin's declared settings.</param>
     /// <param name="configurePlugin">Changes one running plugin's setting, or null without plugins.</param>
+    /// <param name="installedDevicePlugin">The installed device plugin's id, or null when none is installed.</param>
     internal WsgmSteamSettingsService(
         Func<AppConfig> config,
         Func<Action<AppConfig>, bool, AppConfig> commit,
@@ -163,8 +167,10 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Func<IReadOnlyList<InstalledCommonPlugin>>? installedPlugins = null,
         Func<IReadOnlyList<CommonPluginSettingsView>>? pluginSettings = null,
         Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>? configurePlugin =
-            null)
+            null,
+        Func<string?>? installedDevicePlugin = null)
     {
+        _installedDevicePlugin = installedDevicePlugin ?? (() => null);
         _config = config;
         _commit = commit;
         _applySteamInput = applySteamInput;
@@ -245,6 +251,9 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         lock (_gate)
         {
             _written = null;
+            // A package change is not a config change, but it comes with one: the device cycle that
+            // follows it rewrites the cached declaration. Read the slot again then.
+            _devicePluginRead = false;
             _revision++;
         }
 
@@ -323,7 +332,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     {
         List<SteamSettingsSection> sections = [];
         var running = _pluginSettings();
-        foreach (var (pluginId, instanceId, name, enabled) in PluginInstances(config))
+        var instances = PluginInstances(config).ToArray();
+        foreach (var (pluginId, instanceId, name, enabled) in instances)
         {
             List<SteamSettingsRow> rows =
             [
@@ -336,7 +346,12 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                 rows.AddRange(view.Settings.Select(setting => ProjectPluginSetting(view.Id, setting)));
             }
 
-            sections.Add(new SteamSettingsSection(name, rows));
+            // Named by instance as well when one package has several, since they share a display name
+            // and each switch and setting belongs to one of them.
+            var title = instances.Count(other => other.PluginId == pluginId) > 1 || instanceId != "default"
+                ? $"{name} ({instanceId})"
+                : name;
+            sections.Add(new SteamSettingsSection(title, rows));
         }
 
         sections.AddRange(DeviceSections(config));
@@ -408,17 +423,46 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         ];
     }
 
-    /// <summary>The active device plugin's scope: the one whose declaration is cached.</summary>
+    /// <summary>The installed device plugin's scope, when it has a cached declaration.</summary>
     /// <remarks>
-    ///     Only the active scope keeps a declaration, so this is the device plugin the machine is
-    ///     running, or ran last. With none cached there is nothing to draw, as in WSGM Settings.
+    ///     A declaration is cached in configuration and outlives its package: removing the plugin, or a
+    ///     replacement failing before it publishes, leaves the old one behind. So the scope is the one
+    ///     belonging to the plugin in the package slot, as in WSGM Settings, and with none installed
+    ///     there is nothing to draw or accept.
     /// </remarks>
-    private static PluginSettingsScope? ActiveDeviceScope(AppConfig config)
+    private PluginSettingsScope? ActiveDeviceScope(AppConfig config)
     {
-        return config.DeviceIntegration.PluginSettings.FirstOrDefault(scope => scope.Declaration is not null);
+        if (InstalledDevicePlugin() is not { } pluginId)
+        {
+            return null;
+        }
+
+        return config.DeviceIntegration.PluginSettings.LastOrDefault(scope =>
+            scope.Declaration is not null && string.Equals(scope.PluginId, pluginId, StringComparison.Ordinal));
     }
 
-    private static IEnumerable<SteamSettingsSection> DeviceSections(AppConfig config)
+    /// <summary>The installed device plugin's id, read from the package slot once per configuration.</summary>
+    private string? InstalledDevicePlugin()
+    {
+        lock (_gate)
+        {
+            if (_devicePluginRead)
+            {
+                return _devicePluginId;
+            }
+        }
+
+        var pluginId = _installedDevicePlugin();
+        lock (_gate)
+        {
+            _devicePluginId = pluginId;
+            _devicePluginRead = true;
+        }
+
+        return pluginId;
+    }
+
+    private IEnumerable<SteamSettingsSection> DeviceSections(AppConfig config)
     {
         if (ActiveDeviceScope(config) is not { Declaration: { } declaration } scope)
         {

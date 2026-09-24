@@ -313,6 +313,76 @@ public sealed class WsgmSteamSettingsServiceTests
         Assert.Equal("From 0 to 1.", row.Description);
     }
 
+    [Fact]
+    public void ADeviceDeclarationLeftBehindByARemovedPluginIsNotOffered()
+    {
+        // Removing a device plugin leaves its cached declaration in configuration.
+        Harness harness = new() { InstalledDevicePlugin = null };
+        harness.Stored.DeviceIntegration.PluginSettings =
+        [
+            new PluginSettingsScope
+            {
+                DeviceDefinitionId = "device", PluginId = "plugin",
+                Declaration = new PluginSettingsManifest
+                {
+                    Settings =
+                    [
+                        new PluginSettingDescriptor
+                        {
+                            SettingId = "flag", ValueKind = CapabilityValueKind.Boolean,
+                            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
+                            Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false }
+                        }
+                    ]
+                }
+            }
+        ];
+
+        var removed = harness.Create().ReadState();
+        harness.InstalledDevicePlugin = "another.plugin";
+        var replaced = harness.Create().ReadState();
+        harness.InstalledDevicePlugin = "plugin";
+        var installed = harness.Create().ReadState();
+
+        static bool Offers(WsgmSteamSettingsState state)
+        {
+            return state.Pages.SelectMany(page => page.Sections).SelectMany(section => section.Rows)
+                .Any(row => row.Key == "device.setting:flag");
+        }
+
+        Assert.False(Offers(removed));
+        Assert.False(Offers(replaced));
+        Assert.True(Offers(installed));
+    }
+
+    [Fact]
+    public void InstancesOfOnePackageAreToldApart()
+    {
+        Harness harness = new();
+        harness.Installed = [new InstalledCommonPlugin("vendor.plugin", "Vendor")];
+        harness.Stored.PluginInstances =
+        [
+            new CommonPluginInstanceConfig { PluginId = "vendor.plugin", InstanceId = "default" },
+            new CommonPluginInstanceConfig { PluginId = "vendor.plugin", InstanceId = "second" }
+        ];
+
+        var titles = harness.Create().ReadState().Pages.Single(page => page.Id == "plugins").Sections
+            .Select(section => section.Title);
+
+        Assert.Equal(["Vendor (default)", "Vendor (second)"], titles);
+    }
+
+    [Fact]
+    public void TheLongestEnableKeyThePagePublishesIsAccepted()
+    {
+        // A plugin id and an instance id of 128 characters each, behind the prefix.
+        var key = "plugins.enabled:" + new string('a', 128) + "/" + new string('b', 128);
+
+        Assert.True(SteamWsgmSettingsSurface.TryReadSet(
+            Json($$"""{"key":"{{key}}","value":true}"""), out var request));
+        Assert.Equal(key, request.Key);
+    }
+
     [Theory]
     [InlineData("""{"key":"cef.enabled","value":true}""", true)]
     [InlineData("""{"key":"order","value":["a","b"]}""", true)]
@@ -332,6 +402,7 @@ public sealed class WsgmSteamSettingsServiceTests
         internal readonly List<(string Id, string Key, string Value, long Revision)> PluginWrites = [];
         internal readonly List<AppConfig> SteamInputApplied = [];
         internal List<InstalledCommonPlugin> Installed = [];
+        internal string? InstalledDevicePlugin = "plugin";
         internal List<CommonPluginSettingsView> Running = [];
         internal AppConfig Stored = ConfigStore.Normalize(new AppConfig());
 
@@ -356,7 +427,8 @@ public sealed class WsgmSteamSettingsServiceTests
                 {
                     PluginWrites.Add((id, key, value.GetRawText(), revision));
                     return Task.FromResult(SteamUiCommandResult.Applied);
-                });
+                },
+                () => InstalledDevicePlugin);
         }
     }
 }

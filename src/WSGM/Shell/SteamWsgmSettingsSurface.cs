@@ -18,6 +18,13 @@ internal static class SteamWsgmSettingsSurface
     /// <summary>The renderer that draws it.</summary>
     public const string Template = "wsgm-settings";
 
+    /// <summary>The longest key the page publishes, with room to spare.</summary>
+    /// <remarks>
+    ///     A plugin enable key carries a plugin id and an instance id of up to 128 characters each
+    ///     behind its prefix, 273 in all; a smaller bound would refuse that toggle on every press.
+    /// </remarks>
+    internal const int MaximumKeyLength = 320;
+
     /// <summary>The exact command vocabulary the page emits.</summary>
     public static IReadOnlyList<string> Commands { get; } = ["set"];
 
@@ -86,7 +93,7 @@ internal static class SteamWsgmSettingsSurface
     {
         value = default;
         if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadBoundedString(payload, "key", 256, out var key)
+            || !SteamUiPayload.TryReadBoundedString(payload, "key", MaximumKeyLength, out var key)
             || !payload.TryGetProperty("value", out var setting)
             || setting.ValueKind is JsonValueKind.Undefined or JsonValueKind.Object or JsonValueKind.Null)
         {

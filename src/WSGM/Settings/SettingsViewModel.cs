@@ -1449,20 +1449,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private static string? ReadInstalledPluginId()
     {
-        try
-        {
-            var package = DevicePackagePolicy
-                .Discover(DeviceInstallationPaths.InstalledPackageRoot)
-                .InstalledPackage;
-            return package is { Valid: true, Manifest: { } manifest }
-                ? manifest.Id
-                : null;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Plugin settings unavailable: installed package could not be inspected ({ex.Message}).");
-            return null;
-        }
+        return DevicePackagePolicy.InstalledPluginId();
     }
 
     private void LoadDeviceProfiles(PluginSettingsScope scope)
