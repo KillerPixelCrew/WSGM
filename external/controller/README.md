@@ -23,7 +23,7 @@ input, the Steam Input lease and the rest of Device Integration keep working.
 
 Decided 2026-08-29. VIIPER creates virtual USB devices in userspace over USBIP, and it wins on both
 halves of the gate. WSGM builds it from the `KillerPixelCrew/VIIPER` fork, whose `wsgm` branch
-carries the downstream commits on top of the `corando98/VIIPER` `viiper-controller` baseline;
+carries the downstream changes on top of `Alia5/VIIPER` `main`;
 `viiper.md` has the pin, the commit list and the rebase procedure.
 
 **Nothing is missing.** Its `device/steamdeck` carries the whole Neptune frame natively, including
@@ -106,27 +106,23 @@ than assumed.
 ### What is on the branch
 
 `viiper.md` is the record of what WSGM carries on top of the pinned revision, and it must
-stay the only one. In short: the two `Valkirie/VIIPER` fixes that branch lacks (#3 stick clamp, #2
-placeholder endpoints kept pending) travel in `0001`, along with a stale quaternion test assertion;
-the SDL3 `ucLength` fix (#4) is already upstream; and `0002` through `0006` are ours, being the
-usbip-win2 attach layouts, add-without-attach, port plug-out on remove, feedback quiescence before
-detach, and the credible Deck identity that makes Steam send rumble. `eng\build-viiper.ps1
+stay the only one. In short: the C library WSGM binds (add without attach, port plug-out on remove,
+fast input paths, drained feedback callbacks), the server's idle and pacing work, the usbip-win2
+attach layouts, and the Steam Deck device with the credible identity that makes Steam send rumble. `eng\build-viiper.ps1
 -Validate` builds the `external\viiper` submodule and runs the Deck device tests before every release build.
 
 ## Pinned primary sources
 
-**[usbip-win2 v.0.9.7.7](https://github.com/vadimgrn/usbip-win2/releases/tag/v.0.9.7.7)**, commit
-`7c219953101cc5d0ec9a0bcb3eb87259cf72bedd`. WSGM stays on 0.9.7.7 for the same reason HIDMaestro
-does, which I checked directly rather than taking second-hand: usbip-win2 issues
-[#180](https://github.com/vadimgrn/usbip-win2/issues/180) and
-[#181](https://github.com/vadimgrn/usbip-win2/issues/181) are still open against 0.9.7.8, and #180
-reports a pool-corruption BSOD on every attach on Windows 11 build 26200, which is the build the
-reference Claw runs. Neither reproducer is on WSGM's path (#180 needs a vendor-class WinUSB device,
-#181 a USB-audio pin close on a composite DualSense, while the `steamdeck` target is HID-class with
-no audio endpoint), so this is caution rather than a known hit. But 0.9.7.8 offers WSGM nothing it
-needs, so there is no reason to take the risk. Revisit when both issues close. Checked on
-2026-08-29: the 0.9.7.7 asset is an Inno Setup installer whose SHA-256 matches the locked digest and
-whose EV signature matches the locked thumbprint.
+**[usbip-win2 v.0.9.8.0](https://github.com/vadimgrn/usbip-win2/releases/tag/v.0.9.8.0)**, commit
+`83bd1f781d57ed6efdf15530c55710cf5d4482bc`. WSGM held 0.9.7.7 while
+[#180](https://github.com/vadimgrn/usbip-win2/issues/180), a pool-corruption BSOD on every attach on
+Windows 11 build 26200, was open against 0.9.7.8. It is closed as fixed, and 0.9.8.0 also fixes a
+filter-driver memory corruption its release notes call critical.
+[#181](https://github.com/vadimgrn/usbip-win2/issues/181), a USB-audio pin-close race, is still open,
+but no device WSGM emulates has an audio interface. 0.9.8.0 adds a WSK event receive mode for small,
+frequent reports, which VIIPER requests on attach; VIIPER still negotiates the older attach layouts
+for machines that have not upgraded. Checked on 2026-09-24: the asset's SHA-256 matches the locked
+digest, and its EV signature matches the locked thumbprint, which is unchanged from 0.9.7.7.
 
 **[HidHide v1.5.230.0](https://github.com/nefarius/HidHide/releases/tag/v1.5.230.0)**, commit
 `722d997ce75db58f5aa36e40ca920f99022c020a`. WSGM's adapter uses the published `\\.\HidHide` IOCTL

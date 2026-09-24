@@ -8,33 +8,70 @@ how to move the pin. Why VIIPER rather than HIDMaestro is in `README.md`.
 ## Pinned revision
 
 - Repository: [`KillerPixelCrew/VIIPER`](https://github.com/KillerPixelCrew/VIIPER), branch `wsgm`
-- Commit: `4d2bd5298c08350dd62700779ee137f08abe97ca`, the `external\viiper` gitlink
-- Baseline: `corando98/VIIPER@024aef3a5659fb54d9675929d05f155f47049c4c` (`viiper-controller`)
+- Commit: the `external\viiper` gitlink
+- Upstream: [`Alia5/VIIPER`](https://github.com/Alia5/VIIPER) `main`, merged at `41c66b1`
 
 The downstream changes used to live here as `.patch` files applied at build time. They are commits
 on the fork now, which is what this repository's contributor guide asks of any dependency we have to
-keep changed: the diff is reviewable where it applies, `git log` attributes each change, and a
-rebase onto a newer baseline is an ordinary rebase rather than six patches to re-fit by hand. The
-build script no longer applies anything, it builds the submodule as checked out.
+keep changed: the diff is reviewable where it applies, `git log` attributes each change, and taking
+upstream is an ordinary merge rather than patches to re-fit by hand. The build script no longer
+applies anything, it builds the submodule as checked out.
 
-`viiper-controller` is the baseline because it is well ahead of `Valkirie/VIIPER` on the performance
-work this integration depends on: opt-in NAK-idle interrupt-IN endpoints, hardware-paced
-completions, a type-agnostic clib fast path, value-typed input state, and a `GOMAXPROCS` cap.
+Until 2026-09 the fork was based on `corando98/VIIPER`'s `viiper-controller`, which was well ahead on
+the performance work this integration depends on. corando98's repository is itself a fork of
+Alia5's, and most VIIPER work lands in Alia5's, so the fork now follows Alia5 directly (WSGM#164).
+corando98's fork and Handheld Companion's `Valkirie/VIIPER` are cherry-pick sources only: a commit
+from either is taken on its own, with attribution, when WSGM needs it, and neither is merged as a
+baseline.
 
 ## The fork's branches
 
 | Branch | What it is |
 | --- | --- |
-| `viiper-controller` | Untouched mirror of the upstream baseline. Never commit to it; fast-forward it from `upstream` and rebase `wsgm` onto it. |
-| `wsgm` | The baseline plus the downstream commits below. This is what WSGM pins. |
-| `main`, `sd-controller-output`, `gh-pages` | Mirrored from upstream at fork time, unused by WSGM. |
+| `main` | Untouched mirror of `Alia5/VIIPER` `main`. Never commit to it; fast-forward it from `upstream`. |
+| `wsgm` | Upstream plus the downstream changes. The fork's default branch, and what WSGM pins. |
+| `viiper-controller` | The former corando98 baseline, frozen. Kept for history; nothing merges into it. |
+| `sd-controller-output`, `gh-pages` | Mirrored at fork time, unused by WSGM. |
 
-The GitHub fork relationship records `corando98/VIIPER` as parent, so a fresh clone already has the
-right `upstream`.
+GitHub still records `corando98/VIIPER` as the fork's parent, and that cannot be changed, so `gh pr
+create` defaults to the wrong repository. Always pass `--repo KillerPixelCrew/VIIPER --base wsgm`.
+
+## What the fork carries
+
+`NOTICE.md` on the branch lists the changes against upstream; in short:
+
+- `clib`, the C library WSGM binds: add and attach as separate calls, port plug-out on remove,
+  per-type input fast paths, raw feedback callbacks drained before removal, panic recovery at the
+  cgo boundary, a `GOMAXPROCS` cap, and the device-type aliases.
+- `internal/server/usb`: persistent per-endpoint interrupt-IN workers, hardware-paced completions and
+  per-device NAK-idle endpoints, in place of upstream's per-URB completion goroutines.
+- Windows attach: a cancellable overlapped `plugin_hardware` IOCTL that negotiates three driver
+  layouts, and does not retry an attach whose outcome is uncertain.
+- `device/steamdeck`, which upstream does not have, and the input gate that `xbox360`, `keyboard`,
+  `mouse` and `dualshock4` use so updates do not allocate.
+- Devices WSGM never creates: `steamcontroller`, `switchpro`, `xboxelite2`, `xboxgip` and
+  `cmd/gip_probe`. They are candidates for removal.
+
+### What would let the fork go away
+
+WSGM builds `clib`, not upstream's own C library in `lib/viiper`. That library lacks add without
+attach, a returned attach port and plug-out on remove, a raw-bytes input path, raw feedback
+callbacks (the Deck needs them) and callback draining. Upstream has no Steam Deck device and none of
+the server idle or pacing work. Until those exist upstream, moving to patch files would mean
+re-fitting the `server.go` and attach rewrites on every sync, which is the churn the commits
+replaced. The route that shrinks the fork is upstreaming instead:
+
+- Bug fixes that stand alone: the attach layout negotiation (41c66b1 matches English error text, has
+  no 0.9.7.8 layout and misplaces the new fields), plug-out on remove, the cancellable IOCTL, the
+  `xbox360` secondary-endpoint resubmit loop, accept backoff and panic recovery.
+- The Steam Deck device, once it uses upstream's input pattern instead of the fork's input gate.
+- The idle and pacing work, proposed as an `IdleMode` option with measured CPU numbers.
+- The `lib/viiper` features above, which would let WSGM bind upstream's library.
 
 ## Downstream commits
 
-Oldest first, which is the order they sit on the baseline.
+The history of the commits WSGM added on the corando98 baseline, oldest first. They stay on `wsgm`
+through the Alia5 merge; where upstream has since landed the same fix, the merge took upstream's.
 
 | Commit | Change |
 | --- | --- |
@@ -66,9 +103,9 @@ returns no data.
 
 ### `f29a4b2`, the attach layouts
 
-Ours, and without it `viiper_device_attach` cannot succeed against usbip-win2 0.9.7.8. The whole
-story is under "The attach ABI break" below. It was found by running the call, not by reading the
-code.
+Ours, and without it `viiper_device_attach` cannot succeed against usbip-win2 0.9.7.8. The Alia5
+merge extended it to the 0.9.8.0 layout. The whole story is under "The attach ABI break" below. It
+was found by running the call, not by reading the code.
 
 ### `8179541` and `935eacb`, add no longer attaches
 
@@ -139,6 +176,9 @@ continuous reports, and explicit idle-mode overrides still win. The DLL and regr
 compile; execution and live CPU and controller validation still need a manual check.
 
 ## Audit of the other VIIPER variants
+
+Written against the corando98 baseline, before the fork moved to Alia5. The Alia5 entries below are
+merged now; the Valkirie and hbashton entries still describe cherry-pick candidates.
 
 I compared `Valkirie/VIIPER` and `hbashton/VIIPER` against the baseline commit by commit. Both are
 measured against the merge base `904bef3`, the fork point on `main`, because neither shares
@@ -212,31 +252,31 @@ against this baseline with attribution, never merged as a branch.
 
 ## Keeping the fork current
 
-The fork keeps `viiper-controller` as an untouched mirror and `wsgm` as the patch set, so refreshing
-against upstream is one rebase:
+`main` mirrors Alia5, and `wsgm` takes it by merge. `wsgm` is published and pinned, so it is never
+rebased.
 
 ```
 cd external/viiper
-git remote add upstream https://github.com/corando98/VIIPER.git
+git remote add upstream https://github.com/Alia5/VIIPER.git
 git fetch upstream
-git checkout viiper-controller
-git merge --ff-only upstream/viiper-controller
-git push origin viiper-controller
-git rebase viiper-controller wsgm
+git push origin upstream/main:main
+git switch -c sync/<topic> origin/wsgm
+git merge origin/main
 ```
 
-Then, before the pin moves:
+Resolve the conflicts, follow any upstream API change through `clib` and the fork-only devices, then
+open a PR with `gh pr create --repo KillerPixelCrew/VIIPER --base wsgm`. Before the pin moves:
 
-1. `go build ./...` succeeds for the whole tree.
-2. `go test ./...` fails in exactly the three places named under "Build baseline" and nowhere else.
-3. `eng\build-viiper.ps1 -Validate` runs end to end from the new revision.
-4. WSGM's controller tests pass, and a controller is created, attached, driven and removed on real
-   hardware. `WSGM.DeviceLab` is the tool for that last part. The pin does not move on a green build
-   alone, because every fault the commits above exist for was found by running the thing.
-5. Drop any downstream commit whose fix has landed upstream, and say so in this file.
+1. `eng\build-viiper.ps1 -Validate` runs end to end from the new revision, including the check that
+   `libviiper.h` matches the library's exports.
+2. `go test ./...` fails only in the places named under "Build baseline".
+3. WSGM's controller tests pass, and a controller is created, attached, driven and removed on real
+   hardware. The pin does not move on a green build alone, because every fault the commits above
+   exist for was found by running the thing.
+4. Record here any downstream change upstream has made unnecessary.
 
-Push `wsgm` to the fork first, then advance the `external\viiper` gitlink and update the revision and
-commit table above in the same WSGM change.
+Merge the fork PR first, then advance the `external\viiper` gitlink in the same WSGM change that
+updates this file.
 
 ## How WSGM builds and binds it
 
@@ -255,15 +295,14 @@ needed.
 
 ## Build baseline
 
-Checked with Go 1.27.0 and WinLibs GCC on the reference Claw on 2026-09-11, at the pinned fork
-revision. `go build ./...` succeeds for the whole tree, `go test ./device/steamdeck/...` passes, and
-`eng\build-viiper.ps1 -Validate` runs the whole sequence end to end and stages `libviiper.dll`.
+Checked with Go 1.27.0 and WinLibs GCC 16.1 on 2026-09-24, after the Alia5 merge.
+`eng\build-viiper.ps1 -Validate` runs `go vet ./...`, the Deck and `clib` tests and the build, and
+stages `libviiper.dll` with the same 19 exports as before the merge.
 
-`go test ./...` fails in exactly three places, all present before any downstream commit and none of
-them on WSGM's path: `device/xboxelite2` (paddle bit ordering), `device/xboxgip` (LEB128 fragment
-length), and `internal/server/api` (its test file has not followed `HandleTransfer`'s context
-parameter, so the test binary does not compile). A fourth failure appearing is a regression worth
-investigating.
+`go test ./...` fails in exactly two places, both present before the merge and neither on WSGM's path:
+`device/xboxelite2` (paddle bit ordering and profile button layouts) and `device/xboxgip` (LEB128
+fragment length). The `internal/server/api` test build that used to fail is fixed by the merge. A
+new failure is a regression worth investigating.
 
 **The binding is verified end to end against the real library and the real driver.** Every entry
 point WSGM uses returns success: `viiper_init`, `viiper_bus_create`,
@@ -295,12 +334,23 @@ sizes: 1100 returned `122 ERROR_INSUFFICIENT_BUFFER`, and 1116 got through to
 the fallback fails with `executable file not found in %PATH%`. It is not a fallback WSGM can rely
 on, and the answer is not to start editing `PATH`.
 
-So the 0.9.7.7 pin has a functional reason on top of the open BSOD reports: it is the version
-VIIPER's ABI actually matches. `f29a4b2` makes the backend work on both, by declaring the newer
+So the 0.9.7.7 pin had a functional reason on top of the then-open BSOD reports: it was the
+version VIIPER's ABI actually matched. WSGM now pins 0.9.8.0. `f29a4b2` makes the backend work on both, by declaring the newer
 structure and trying the two known sizes newest-first. That retry is safe rather than a repeated
 attach: a size rejection happens before the driver acts, is reported with its own specific error
 code, and any other failure stops immediately instead of being retried against a layout the driver
 has already refused.
+
+**usbip-win2 0.9.8.0 changed it again.** The structure gained `bool wsk_events`, which selects a
+receive path built on WSK event callbacks that usbip-win2 recommends for small, frequent reports. In
+C++ it is `struct plugin_hardware : base, imported_device_location`, so the location base is padded
+to 1096 bytes on its own before the serial: the serial sits at offset 1100, `wsk_events` at 1116,
+and the whole structure is 1120 bytes. Alia5's `41c66b1` flattens those fields and puts both three
+bytes early, which only works because it leaves them zero. The fork lays the structure out with
+explicit padding, pins the offsets at compile time, and sets `wsk_events`. 0.9.8.0 rejects a size
+mismatch with `STATUS_INVALID_BUFFER_SIZE`, which arrives as `ERROR_INVALID_USER_BUFFER` (1784)
+rather than 0.9.7.x's `ERROR_INSUFFICIENT_BUFFER`, still before acting, so the loop now tries 1120,
+1116 and 1100 and treats either error as a layout rejection.
 
 **Do not simplify that loop to a single size, and do not replace it with a version probe.** The
 driver's own rejection is the authority on which layout it wants. A version number read from
@@ -314,7 +364,7 @@ user-approved, elevated step that verifies the locked component identity first.
 
 1. **usbip-win2**, which supplies the generic signed kernel-mode USB/IP driver and the client device
    VIIPER attaches to. Pinned and signature-verified in `controller-components.lock.json`
-   (`USBip-0.9.7.7-x64.exe`, publisher thumbprint `9AC56B6C…`). This is the one kernel component, it
+   (`USBip-0.9.8.0-x64.exe`, publisher thumbprint `9AC56B6C…`). This is the one kernel component, it
    is generic, and it never needs to know about specific device types, which is the whole reason
    this approach avoids shipping a driver per controller.
 2. **`libviiper`**, the VIIPER server built as a shared library from `clib/`. It runs in userspace,
