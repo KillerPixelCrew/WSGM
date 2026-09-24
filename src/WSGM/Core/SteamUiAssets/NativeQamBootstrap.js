@@ -2800,8 +2800,16 @@
           initialVisibility: !!visible,
           panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
         };
+        // Into Valve's own array, in place, never a copy. The menu root builds this list once and
+        // keeps it across renders, and it validates the store's active tab against THAT array:
+        // `tabs.some(t => t.key === active) ? active : tabs[0].key`. A copy handed to the strip and
+        // the content drew our tab, but the root never saw it in the list it checks, so selecting the
+        // tab fell back to the first entry and focus landed on Friends (2026-09-24). decky-loader
+        // pushes into the same array for the same reason. The "present" branch above is what keeps a
+        // second visit to the same array from adding it twice.
+        tabs.push(tab);
         lastOutcome = `tabs=${tabs.length} extensions=added`;
-        return react.cloneElement(element, { tabs: [...tabs, tab] });
+        return element;
       }
       return mapChildren(react, element, (child) => replaceTabs(child, depth + 1, visible));
     };
