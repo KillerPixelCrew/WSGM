@@ -100,14 +100,14 @@ device project under `publish`.
 Every route here changes the live machine, so run one only when the maintainer directs it:
 
 - `eng/dev-deploy.ps1` publishes WSGM, restarts WSGM and Steam, and rebuilds the Claw package
-  through `eng/stage-device-components.ps1`. It swaps the package into `installed\<id>` behind one
-  elevation prompt. It refuses to run unless the baseboard is `MS-1T52`, or `MS-7E16` with
-  `-Desktop`, which also implies `-SkipPlugin`. Use `-SkipPlugin` only for pure WSGM changes. After
-  an SDK change, a skipped plugin refresh leaves an API-incompatible package that the host rejects.
-  The staging script is hard-wired to the Claw project.
-- For any other package, expand the `.wsgmpkg` into a new directory and run
-  `WSGM.exe --install-device-plugin <dir>` with the shell closed (`docs/device-plugin-authoring.md`,
-  section 5).
+  through `eng/stage-device-components.ps1`. It copies the `.wsgmpkg` into
+  `%ProgramFiles%\WSGM\Plugins` behind one elevation prompt and deletes other builds of the same id.
+  It refuses to run unless the baseboard is `MS-1T52`, or `MS-7E16` with `-Desktop`, which also
+  implies `-SkipPlugin`. Use `-SkipPlugin` only for pure WSGM changes. After an SDK change, a
+  skipped plugin refresh leaves an API-incompatible package that the host rejects. The staging
+  script is hard-wired to the Claw project.
+- For any other package, close WSGM and copy the `.wsgmpkg` into `%ProgramFiles%\WSGM\Plugins`
+  (`docs/device-plugin-authoring.md`, section 5).
 
 ## Tests
 

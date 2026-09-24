@@ -400,14 +400,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var discovery = _coordinator.PackageDiscovery;
         if (discovery.Inventory.Cardinality is DevicePackageCardinality.Multiple)
         {
-            capabilities.AddRange(discovery.Inventory.PackageRoots.Take(16)
-                .Select(packageRoot => new DeviceOverlayCapability(
-                    $"wsgm.package.multiple.{Path.GetFileName(packageRoot)}",
+            capabilities.AddRange(discovery.Inventory.PackageFiles.Take(16)
+                .Select(packageFile => new DeviceOverlayCapability(
+                    $"wsgm.package.multiple.{Path.GetFileName(packageFile)}",
                     null,
                     DeviceOverlaySection.Diagnostics,
                     DescriptorStatus.Unsupported,
-                    Path.GetFileName(packageRoot),
-                    $"{discovery.Detail} Path: {packageRoot}",
+                    Path.GetFileName(packageFile),
+                    $"{discovery.Detail} Path: {packageFile}",
                     discovery.ErrorCode ?? "MULTIPLE",
                     false)));
         }

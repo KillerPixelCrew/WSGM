@@ -41,12 +41,16 @@ foreach ($directory in @("App", "Tools", "Packages")) {
     Assert-NoLinks (Join-Path $outputFull $directory)
 }
 
-$packageRoots = @(
-    Get-ChildItem -LiteralPath (Join-Path $outputFull "Packages") -Directory |
+$packagesDirectory = Join-Path $outputFull "Packages"
+if (@(Get-ChildItem -LiteralPath $packagesDirectory -Directory).Count -ne 0) {
+    throw "Plugin packages are staged as .wsgmpkg files, never as unpacked directories."
+}
+$packageFiles = @(
+    Get-ChildItem -LiteralPath $packagesDirectory -File -Filter "*.wsgmpkg" |
     Sort-Object FullName
 )
-if ($packageRoots.Count -ne 1) {
-    throw "Exactly one plugin package must be staged; found $($packageRoots.Count)."
+if ($packageFiles.Count -ne 1) {
+    throw "Exactly one plugin package must be staged; found $($packageFiles.Count)."
 }
 
 $forbiddenExtensions = @(
@@ -99,22 +103,26 @@ foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $outputFull "App") -Fi
     Assert-NoLeaks $file "App staging"
 }
 
-foreach ($packageRoot in $packageRoots) {
-    Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "plugin.wsgm.json")))
-    foreach ($noticeName in @("LICENSE.txt", "PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
-        Require-File ([IO.Path]::GetRelativePath(
-            $outputFull,
-            (Join-Path $packageRoot.FullName $noticeName)))
+# The package ships as one file; check its contents through a throwaway expansion.
+$expansionRoot = Join-Path ([IO.Path]::GetTempPath()) ("WSGM-PackageCheck-{0}" -f [Guid]::NewGuid().ToString("N"))
+try {
+foreach ($packageFile in $packageFiles) {
+    $packageRoot = Get-Item -LiteralPath (New-Item -ItemType Directory -Path (Join-Path $expansionRoot $packageFile.BaseName)).FullName
+    [IO.Compression.ZipFile]::ExtractToDirectory($packageFile.FullName, $packageRoot.FullName)
+    foreach ($required in @("plugin.wsgm.json", "LICENSE.txt", "PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $packageRoot.FullName $required) -PathType Leaf)) {
+            throw "Plugin package $($packageFile.Name) is missing $required."
+        }
     }
 
     $manifest = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "plugin.wsgm.json") -Raw |
         ConvertFrom-Json -Depth 32
-    if ($packageRoot.Name -cne [string]$manifest.id) {
-        throw "Plugin package path does not match its manifest identity: $($packageRoot.FullName)"
+    if ($packageFile.Name -cne ("{0}-{1}.wsgmpkg" -f [string]$manifest.id, [string]$manifest.version)) {
+        throw "Plugin package file name does not match its manifest identity and version: $($packageFile.Name)"
     }
-    Require-File ([IO.Path]::GetRelativePath(
-        $outputFull,
-        (Join-Path $packageRoot.FullName ([string]$manifest.entryAssembly))))
+    if (-not (Test-Path -LiteralPath (Join-Path $packageRoot.FullName ([string]$manifest.entryAssembly)) -PathType Leaf)) {
+        throw "Plugin package $($packageFile.Name) is missing its entry assembly."
+    }
 
     $files = @(Get-ChildItem -LiteralPath $packageRoot.FullName -File -Recurse | Sort-Object FullName)
     foreach ($file in $files) {
@@ -129,7 +137,12 @@ foreach ($packageRoot in $packageRoots) {
         }
         Assert-NoLeaks $file "Plugin package"
     }
-
+}
+}
+finally {
+    if (Test-Path -LiteralPath $expansionRoot) {
+        Remove-Item -LiteralPath $expansionRoot -Recurse -Force
+    }
 }
 
 Write-Host "Component isolation and package staging assertions passed."

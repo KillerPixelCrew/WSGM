@@ -109,10 +109,12 @@ Dotted numeric versions compare with omitted build/revision components treated a
 A temporary non-device package fixture exercises actual collectible loading, configuration, a named
 action with file readback, declarative contributions, resident mode changes and cleanup.
 
-`CommonPluginCatalog` reads `%ProgramFiles%\WSGM\Plugins\<plugin-id>` without executing code. The
-directory name must match the manifest ID and the entry assembly must exist. Discovery is
-independent of Device Integration and does not enable a package. `AppConfig.PluginInstances`
-contains explicit `PluginId`, `InstanceId` and `Enabled` choices; its default is empty.
+`PluginPackageCatalog` reads the `.wsgmpkg` files in `%ProgramFiles%\WSGM\Plugins` without executing
+code; a manifest with a `category` member is a common package. The entry assembly must exist in the
+package, and for one id the highest version wins while the others are reported as superseded. The
+package format, budgets and loading are in `device-plugin-system.md` §2–§7. Discovery is independent
+of Device Integration and does not enable a package. `AppConfig.PluginInstances` contains explicit
+`PluginId`, `InstanceId` and `Enabled` choices; its default is empty.
 
 `CommonPluginManager` starts selected instances in dependency order and retains them across resident
 mode changes. Config reload applies only a newly saved preference revision; an unconfirmed revision
@@ -125,12 +127,13 @@ Activation requests carry increasing host revisions. Disabling an instance cance
 immediately; an obsolete enable cannot start it later. A rapid explicit re-enable waits for
 confirmed cleanup before creating the replacement.
 
-Install or replace trusted packages only while their instances are stopped. Settings' Plugin tab
-discovers metadata without loading code and exposes activation for installed and configured
-instances. Save merges only edited instance choices into a fresh configuration. A package with no
-configured instances offers a disabled `default` instance. Additional stable instance IDs can be
-configured in `PluginInstances`; every configured instance appears separately. Missing packages
-remain visible so their activation can be disabled without discarding preferences.
+Install or replace trusted packages only while WSGM is closed: a loaded package file is held open,
+and a change applies at the next start. Settings' Plugin tab discovers metadata without loading code
+and exposes activation for installed and configured instances. Save merges only edited instance
+choices into a fresh configuration. A package with no configured instances offers a disabled
+`default` instance. Additional stable instance IDs can be configured in `PluginInstances`; every
+configured instance appears separately. Missing packages remain visible so their activation can be
+disabled without discarding preferences.
 
 Loading inherits the application's current authority; this host neither elevates itself nor grants
 access based on manifest declarations.
@@ -146,7 +149,7 @@ From a source checkout, create a new output directory with a harmless common plu
 
 ```powershell
 .\eng\new-plugin.ps1 -Id example.counter -Output C:\work\CounterPlugin
-.\eng\package-plugin.ps1 -Project C:\work\CounterPlugin\Plugin.csproj -Archive C:\work\counter-0.1.0.zip
+.\eng\package-plugin.ps1 -Project C:\work\CounterPlugin\Plugin.csproj -Archive C:\work\example.counter-0.1.0.wsgmpkg
 ```
 
 The template references this checkout's MIT common SDK, takes its API version from it, and
@@ -155,14 +158,13 @@ demonstrates lifecycle, effective state, a named action and declarative status/b
 specialization. Device packages keep the existing Device Lab scaffold, validation and hardware
 harness.
 
-Packaging runs the project's build, validates the manifest with this checkout's
-`PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file and output, and
-creates a new ZIP. It does not execute the plugin entry type, install, enable or replace a package.
-Full common manifest, dependency and UI/action validation remains authoritative in the host. Trust
-build inputs before publishing; MSBuild is executable code. Extract an approved archive into the
-protected `%ProgramFiles%\WSGM\Plugins\<plugin-id>` directory while the instance is stopped, then
-enable it in Settings. Updating follows explicit disable, confirmed cleanup, replacement and
-re-enable.
+Packaging publishes the project for `win-x64`, validates the manifest with this checkout's
+`PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, refuses native
+images, and creates a new `.wsgmpkg`. It does not execute the plugin entry type, install, enable or
+replace a package. Full common manifest, dependency and UI/action validation remains authoritative
+in the host. Trust build inputs before publishing; MSBuild is executable code. Copy an approved
+package file into the protected `%ProgramFiles%\WSGM\Plugins` folder while WSGM is closed, then
+enable it in Settings. To update, close WSGM and replace the file.
 
 The existing `CommonPluginPackageTests` fixture is an offline example harness covering
 configuration, actions, state and lifecycle without external hardware. Use the same contract pattern

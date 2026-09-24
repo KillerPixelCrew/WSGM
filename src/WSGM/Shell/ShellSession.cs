@@ -598,7 +598,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // Installed packages only. WSGM bundles none, and the application directory is
                 // user-writable, so scanning it would load plugin code from a path the installed
                 // root is administrator-protected precisely to avoid.
-                _commonPlugins = new CommonPluginManager(_pluginHost, CommonPluginCatalog.InstalledRoot,
+                _commonPlugins = new CommonPluginManager(_pluginHost, DeviceInstallationPaths.PluginsRoot,
                     Path.Combine(Log.Directory, "PluginState"));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
@@ -1008,14 +1008,14 @@ public sealed class ShellSession : IAsyncDisposable
             () => SteamInputShim.LastStatus,
             () =>
             [
-                .. (_commonPlugins?.Catalog.Packages ?? []).Select(package =>
+                .. (_commonPlugins?.Catalog.Common ?? []).Select(package =>
                     new InstalledCommonPlugin(package.Manifest.Id, package.Manifest.Name))
             ],
             () => _pluginSteamUi?.ReadSettings() ?? [],
             (id, key, value, revision, token) => _pluginSteamUi is { } source
                 ? source.ConfigureAsync(id, key, value, revision, token)
                 : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")),
-            DevicePackagePolicy.InstalledPluginId);
+            PluginPackageCatalog.InstalledDevicePluginId);
 
         ReleaseAbandonedPackageExemptions();
 
@@ -2422,24 +2422,19 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>
     ///     What this install has, of the things a device package needs.
-    ///     Read live rather than cached: the protected slot is a directory an administrator can copy
-    ///     into while WSGM is running, which is the whole case this exists for.
+    ///     Read live rather than cached: the Plugins folder is one an administrator can copy a
+    ///     package into while WSGM is running, which is the whole case this exists for. An unreadable
+    ///     folder is not evidence of a package, so the banner does not guess.
     /// </summary>
     private DevicePrerequisiteState ReadDevicePrerequisiteState()
     {
-        bool package;
-        try
+        var catalog = PluginPackageCatalog.DiscoverInstalled();
+        foreach (var error in catalog.Errors)
         {
-            package = DevicePackageStager.InventoryEffectiveInstalledPackage(
-                DeviceInstallationPaths.InstalledPackageRoot).PackageRoots.Count > 0;
+            Log.Warn("Reading the Plugins folder for the overlay banner: " + error);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or DirectoryNotFoundException or ArgumentException)
-        {
-            // An unreadable slot is not evidence of a package, and a banner must not guess.
-            Log.Warn("Reading the device package slot for the overlay banner failed: " + ex.Message);
-            package = false;
-        }
+
+        var package = catalog.Device.Inventory.PackageFiles.Count > 0;
 
         return new DevicePrerequisiteState(
             package,

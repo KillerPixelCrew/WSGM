@@ -35,7 +35,7 @@ public sealed class DevicePrerequisitesTests
     public void APackageDroppedOntoAMinimalInstallReportsBothHalves()
     {
         // The case setup's Minimal mode creates: no controller bytes, integration seeded off, and
-        // then someone copies a package into the protected slot.
+        // then someone copies a package into the Plugins folder.
         var advice = DevicePrerequisites.Describe(
             State(integration: false, library: false, hidHide: false));
 

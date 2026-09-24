@@ -5,7 +5,8 @@
 .DESCRIPTION
     Device Lab is published self-contained for the optional tools component. The plugin packer
     assembles, validates, and packs its framework-dependent package with that exact Device Lab
-    build; WSGM then expands and validates the exact package tree handed to the installer.
+    build. The staged package is that exact .wsgmpkg file, which WSGM loads without unpacking; this
+    script expands a copy only to check its contents.
 
     All device projects share the SDK source in this repository. This script performs no downloads and
     no hardware access.
@@ -126,7 +127,7 @@ try {
         }
     }
 
-    $packageDestination = Join-Path $temporaryRoot "Packages\$packageId"
+    $packageDestination = Join-Path $temporaryRoot "Expanded\$packageId"
     New-Item -ItemType Directory -Path $packageDestination -Force | Out-Null
     & tar -xf $archive -C $packageDestination
     if ($LASTEXITCODE -ne 0) {
@@ -151,6 +152,10 @@ try {
         throw ("Offline package validation failed for {0}: {1}" -f
             $packageId, ($validationOutput -join [Environment]::NewLine))
     }
+
+    $packagesDestination = Join-Path $temporaryRoot "Packages"
+    New-Item -ItemType Directory -Path $packagesDestination | Out-Null
+    Copy-Item -LiteralPath $archive -Destination $packagesDestination
 
     foreach ($component in @("Tools", "Packages")) {
         $destination = Join-Path $outputFull $component

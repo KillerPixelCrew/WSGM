@@ -427,7 +427,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <remarks>
     ///     A declaration is cached in configuration and outlives its package: removing the plugin, or a
     ///     replacement failing before it publishes, leaves the old one behind. So the scope is the one
-    ///     belonging to the plugin in the package slot, as in WSGM Settings, and with none installed
+    ///     belonging to the installed device plugin, as in WSGM Settings, and with none installed
     ///     there is nothing to draw or accept.
     /// </remarks>
     private PluginSettingsScope? ActiveDeviceScope(AppConfig config)
@@ -441,7 +441,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             scope.Declaration is not null && string.Equals(scope.PluginId, pluginId, StringComparison.Ordinal));
     }
 
-    /// <summary>The installed device plugin's id, read from the package slot once per configuration.</summary>
+    /// <summary>The installed device plugin's id, read from the Plugins folder once per configuration.</summary>
     private string? InstalledDevicePlugin()
     {
         lock (_gate)

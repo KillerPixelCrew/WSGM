@@ -3,7 +3,7 @@
 The public contract in `WSGM.Device.Sdk`, type by type, with every rule and limit the host applies
 to what a plugin publishes. The XML documentation on each member is the authoritative wording; this
 document lets the contract be read as a whole, in the order a plugin experiences it. How WSGM hosts
-a plugin (discovery, the package slot, the load context, deadlines, the overlay, profiles and the
+a plugin (discovery, package files, the load context, deadlines, the overlay, profiles and the
 controller path) is not covered here.
 
 Related:

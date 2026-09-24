@@ -133,7 +133,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public SettingsViewModel()
         : this(ConfigStore.Load(), ReadInstalledPluginId(), true)
     {
-        LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
+        LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
     }
 
     internal SettingsViewModel(
@@ -1255,14 +1255,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     internal static SettingsViewModel FromLoadedConfig(AppConfig config)
     {
         var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true);
-        viewModel.LoadCommonPlugins(CommonPluginCatalog.Discover(CommonPluginCatalog.InstalledRoot));
+        viewModel.LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
         return viewModel;
     }
 
-    private void LoadCommonPlugins(CommonPluginCatalog catalog)
+    private void LoadCommonPlugins(PluginPackageCatalog catalog)
     {
         CommonPlugins.Clear();
-        foreach (var package in catalog.Packages)
+        foreach (var package in catalog.Common)
         {
             var configured = _config.PluginInstances.Where(entry => entry.PluginId == package.Manifest.Id).ToArray();
             if (configured.Length == 0)
@@ -1279,7 +1279,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         foreach (var instance in _config.PluginInstances.Where(entry =>
-                     catalog.Packages.All(package => package.Manifest.Id != entry.PluginId)))
+                     catalog.Common.All(package => package.Manifest.Id != entry.PluginId)))
         {
             CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, instance.PluginId,
                 instance.Enabled, false));
@@ -1466,7 +1466,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private static string? ReadInstalledPluginId()
     {
-        return DevicePackagePolicy.InstalledPluginId();
+        return PluginPackageCatalog.InstalledDevicePluginId();
     }
 
     private void LoadDeviceProfiles(PluginSettingsScope scope)

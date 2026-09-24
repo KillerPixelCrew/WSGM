@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
 using WSGM.Core;
-using WSGM.Interop;
 using WSGM.Shell;
 
 namespace WSGM;
@@ -28,14 +27,6 @@ public enum RunMode
 
     /// <summary>Runs the manual overlay smoke-test session.</summary>
     OverlayTest
-}
-
-internal enum DevicePluginMaintenanceMode
-{
-    None,
-    Install,
-    Remove,
-    Invalid
 }
 
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
@@ -137,14 +128,6 @@ public static class Program
             ShellRegistration.Uninstall();
             SteamInputBlocker.ReleaseBestEffort("unregister-shell");
             return 0;
-        }
-
-        var pluginMaintenance = ParseDevicePluginMaintenance(args);
-        if (pluginMaintenance is not DevicePluginMaintenanceMode.None)
-        {
-            Log.Init();
-            return await RunDevicePluginMaintenanceAsync(pluginMaintenance, args)
-                .ConfigureAwait(false);
         }
 
         Log.Init();
@@ -274,51 +257,6 @@ public static class Program
             ShellRegistration.ApplyGamingHomeGuard(config);
             BootManifestWriter.WriteCurrent(config);
             return 0;
-        }
-
-        if (ShouldEnforceDevicePackageCardinality(args))
-        {
-            DevicePackageInventory? inventory;
-            try
-            {
-                inventory = InventoryDevicePackagesForStartup(
-                    DeviceInstallationPaths.InstalledPackageRoot,
-                    TimeSpan.FromSeconds(5));
-            }
-            catch (Exception ex) when (IsDevicePackageSlotGateFailure(ex))
-            {
-                Log.Error("Device plugin startup inventory failed", ex);
-                ShowDevicePackageStartupRefusal(
-                    "WSGM could not inspect the protected Device Plugin slot. "
-                    + "Use setup or --remove-device-plugin to repair it.\n\n"
-                    + ex.Message);
-                return 2;
-            }
-
-            if (inventory is null)
-            {
-                const string detail = "The protected Device Plugin slot remained busy during "
-                                      + "startup. Close Device Plugin maintenance and start WSGM again.";
-                Log.Error(detail);
-                ShowDevicePackageStartupRefusal(detail);
-                return 2;
-            }
-
-            Log.Info($"Device plugin startup inventory: {inventory.Cardinality}, "
-                     + $"roots={inventory.PackageRoots.Count}.");
-            if (inventory.Cardinality is DevicePackageCardinality.Multiple)
-            {
-                var packages = string.Join(
-                    Environment.NewLine,
-                    inventory.PackageRoots.Select(path => $"- {Path.GetFileName(path)}: {path}"));
-                var detail = "WSGM found more than one Device Plugin package root and refused "
-                             + "normal startup. No package was opened or selected. Remove the extra package "
-                             + "with setup or --remove-device-plugin, then start WSGM again."
-                             + Environment.NewLine + Environment.NewLine + packages;
-                Log.Error(detail);
-                ShowDevicePackageStartupRefusal(detail);
-                return 2;
-            }
         }
 
         ServiceBoot = IsServiceBoot(args);
@@ -547,150 +485,6 @@ public static class Program
         return args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
     }
 
-    private static async Task<int> RunDevicePluginMaintenanceAsync(
-        DevicePluginMaintenanceMode mode,
-        string[] args)
-    {
-        if (mode is DevicePluginMaintenanceMode.Invalid)
-        {
-            Log.Error("Device plugin maintenance: use exactly "
-                      + "--install-device-plugin <expanded-package-directory> or "
-                      + "--remove-device-plugin, without other arguments.");
-            return 1;
-        }
-
-        string? sourceDirectory = null;
-        var elevatedArguments = "--remove-device-plugin";
-        var operation = "removal";
-        if (mode is DevicePluginMaintenanceMode.Install)
-        {
-            try
-            {
-                sourceDirectory = Path.GetFullPath(args[1]);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
-            {
-                Log.Error("Device plugin maintenance: source path is invalid", ex);
-                return 1;
-            }
-
-            elevatedArguments = "--install-device-plugin "
-                                + SelfElevation.Quote(sourceDirectory);
-            operation = "installation";
-        }
-
-        var elevated = ElevationCheck.IsCurrentProcessElevated();
-        switch (elevated)
-        {
-            case false:
-                return SelfElevation.RunElevatedAction(
-                    elevatedArguments,
-                    $"Device plugin {operation}",
-                    Timeout.Infinite)
-                    ? 0
-                    : 1;
-            case null:
-                Log.Error($"Device plugin maintenance: current elevation could not be verified; {operation} refused.");
-                return 1;
-        }
-
-        DevicePackageSlotGate? slotGate;
-        try
-        {
-            slotGate = await DevicePackageSlotGate.TryAcquireAsync(TimeSpan.FromSeconds(5))
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (IsDevicePackageSlotGateFailure(ex))
-        {
-            Log.Error($"Device plugin maintenance: package-slot ownership could not be verified; {operation} refused.",
-                ex);
-            return 1;
-        }
-
-        if (slotGate is null)
-        {
-            Log.Error($"Device plugin maintenance: package-slot startup activity did not settle; {operation} refused.");
-            return 1;
-        }
-
-        await using (slotGate)
-        {
-            return await RunDevicePluginMaintenanceUnderGateAsync(
-                mode,
-                sourceDirectory,
-                operation).ConfigureAwait(false);
-        }
-    }
-
-    private static Task<int> RunDevicePluginMaintenanceUnderGateAsync(
-        DevicePluginMaintenanceMode mode,
-        string? sourceDirectory,
-        string operation)
-    {
-        return RunDevicePluginMaintenanceWithOwnerReservationAsync(
-            DeviceCoordinator.ProductionOwnerName,
-            operation,
-            () => RunDevicePluginMaintenanceUnderOwnerAsync(mode, sourceDirectory, operation));
-    }
-
-    /// <summary>
-    ///     Runs one package-slot mutation while holding the machine-wide device-owner
-    ///     marker, so plugin code can never load beside a slot that is being replaced.
-    /// </summary>
-    /// <remarks>
-    ///     The reservation is held for the WHOLE operation rather than taken per step: a stage that
-    ///     released it between validation and the swap would let a coordinator start against a slot
-    ///     that is halfway replaced. Separated from the maintenance body so that "held throughout"
-    ///     can be proven against a private marker name instead of the production one.
-    /// </remarks>
-    internal static async Task<int> RunDevicePluginMaintenanceWithOwnerReservationAsync(
-        string ownerName,
-        string operation,
-        Func<Task<int>> maintenance)
-    {
-        ArgumentNullException.ThrowIfNull(maintenance);
-        using var ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(ownerName);
-        if (ownerReservation is not null)
-        {
-            return await maintenance().ConfigureAwait(false);
-        }
-
-        Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
-                  + $"could not be reserved; {operation} refused.");
-        return 1;
-    }
-
-    private static async Task<int> RunDevicePluginMaintenanceUnderOwnerAsync(
-        DevicePluginMaintenanceMode mode,
-        string? sourceDirectory,
-        string operation)
-    {
-        try
-        {
-            if (mode is DevicePluginMaintenanceMode.Remove)
-            {
-                DevicePackageStager.RemoveInstalledPackage(
-                    DeviceInstallationPaths.InstalledPackageRoot);
-                Log.Info("Device plugin maintenance: installed slot removed.");
-                return 0;
-            }
-
-            var installed = await DevicePackageStager.StageAsync(
-                sourceDirectory!,
-                DeviceInstallationPaths.InstalledPackageRoot).ConfigureAwait(false);
-            Log.Info("Device plugin maintenance: installed "
-                     + $"{installed.Manifest?.Id ?? Path.GetFileName(installed.PackagePath)} "
-                     + $"into the protected slot at {installed.PackagePath}.");
-            return 0;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or InvalidDataException)
-        {
-            Log.Error($"Device plugin maintenance: {operation} failed", ex);
-            return 1;
-        }
-    }
-
     /// <summary>Reports whether this run was asked for verbose logging on the command line.</summary>
     /// <param name="args">Process arguments.</param>
     /// <returns>True when <c>--verbose</c> is present.</returns>
@@ -728,104 +522,6 @@ public static class Program
         }
 
         Log.SetVerbosity(verbosity);
-    }
-
-    internal static DevicePluginMaintenanceMode ParseDevicePluginMaintenance(string[] args)
-    {
-        ArgumentNullException.ThrowIfNull(args);
-        var hasInstall = args.Contains("--install-device-plugin", StringComparer.OrdinalIgnoreCase);
-        var hasRemove = args.Contains("--remove-device-plugin", StringComparer.OrdinalIgnoreCase);
-        if (!hasInstall && !hasRemove)
-        {
-            return DevicePluginMaintenanceMode.None;
-        }
-
-        return args.Length switch
-        {
-            1 when string.Equals(args[0], "--remove-device-plugin", StringComparison.OrdinalIgnoreCase)
-                => DevicePluginMaintenanceMode.Remove,
-            2 when string.Equals(args[0], "--install-device-plugin", StringComparison.OrdinalIgnoreCase)
-                   && !string.IsNullOrWhiteSpace(args[1])
-                   && !args[1].StartsWith("--", StringComparison.Ordinal)
-                => DevicePluginMaintenanceMode.Install,
-            _ => DevicePluginMaintenanceMode.Invalid
-        };
-    }
-
-    private static DevicePackageInventory? InventoryDevicePackagesForStartup(
-        string packageRoot,
-        TimeSpan timeout)
-    {
-        return DevicePackageSlotGate.TryRunSynchronously(
-            timeout,
-            () => DevicePackageStager.InventoryEffectiveInstalledPackage(packageRoot));
-    }
-
-    /// <summary>
-    ///     Returns whether startup must fail closed for a named-object, filesystem, or
-    ///     ambiguous/unsafe recovery-slot inspection error.
-    /// </summary>
-    internal static bool IsDevicePackageSlotGateFailure(Exception exception)
-    {
-        ArgumentNullException.ThrowIfNull(exception);
-        return exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException
-            or WaitHandleCannotBeOpenedException;
-    }
-
-    /// <summary>
-    ///     Returns whether this invocation is a normal startup that must enforce the one-plugin slot.
-    ///     Recovery, setup, update/uninstall helpers, and the simulated overlay test never start device
-    ///     code and therefore bypass the refusal.
-    /// </summary>
-    internal static bool ShouldEnforceDevicePackageCardinality(string[] args)
-    {
-        // Overlay test is the only simulated UI root, and it bypasses package discovery only when
-        // it is the whole invocation. A mixed command such as --shell --overlay-test resolves to
-        // the real shell and must not smuggle that startup past the hard one-plugin gate.
-        if (args.Length == 1
-            && string.Equals(args[0], "--overlay-test", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        string[] bypass =
-        [
-            "--restore-shell",
-            "--unregister-shell",
-            "--set-uac-silent",
-            "--restore-uac",
-            "--disable-lock-on-wake",
-            "--restore-lock-on-wake",
-            SteamAutostartService.DisableArgument,
-            SteamAutostartService.RestoreArgument,
-            "--apply-steam-input-shim",
-            "--remove-steam-input-shim",
-            "--radio-probe",
-            "--uninstall-restore",
-            "--setup",
-            "--install-device-plugin",
-            "--remove-device-plugin"
-        ];
-        return !args.Any(argument => bypass.Contains(argument, StringComparer.OrdinalIgnoreCase));
-    }
-
-    private static void ShowDevicePackageStartupRefusal(string detail)
-    {
-        try
-        {
-            _ = NativeMethods.MessageBoxW(
-                0,
-                detail,
-                "WSGM Device Plugin startup refused",
-                NativeMethods.MbOk | NativeMethods.MbIconError);
-        }
-        catch
-        {
-            // The full refusal and absolute paths are already in wsgm.log. A service-boot desktop
-            // may not yet permit an interactive user32 surface, but that must not weaken the gate.
-        }
     }
 
     private static bool AcquireShellMutex()

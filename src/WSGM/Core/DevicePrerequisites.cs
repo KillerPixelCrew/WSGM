@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace WSGM.Core;
 
 /// <summary>What a machine has, of the things a device package needs.</summary>
-/// <param name="PackageInstalled">Whether a device package occupies the protected slot.</param>
+/// <param name="PackageInstalled">Whether a device package is in the protected Plugins folder.</param>
 /// <param name="IntegrationEnabled">Whether Device Integration is switched on.</param>
 /// <param name="ControllerLibraryInstalled">Whether the virtual controller library is beside WSGM.</param>
 /// <param name="HidHideInstalled">Whether the HidHide control device answers.</param>
@@ -30,7 +30,7 @@ public sealed record DevicePrerequisiteAdvice(string Detail, bool CanEnableInteg
 /// <summary>
 ///     Explains a device package that cannot do its job on this install.
 ///     Setup's Minimal and Desktop modes install no controller support, and a device package can arrive
-///     afterwards: the protected slot is a directory an administrator can copy into. That combination
+///     afterwards: an administrator can copy a package file into the Plugins folder. That combination
 ///     is otherwise silent — the package loads, controller management reports itself unavailable, and
 ///     nothing says why or what would fix it.
 ///     The split between the two halves is not cosmetic. Device Integration is WSGM's own setting and

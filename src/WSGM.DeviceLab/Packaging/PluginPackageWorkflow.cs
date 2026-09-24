@@ -110,6 +110,12 @@ internal static class PluginPackageWorkflow
                 continue;
             }
 
+            if (IsImagePath(relative) && !IsManagedPe(file))
+            {
+                issues.Add(Issue("native-image", relative,
+                    "WSGM loads packages from memory, so a package may carry managed assemblies only."));
+            }
+
             files.Add(file);
         }
 
@@ -536,6 +542,29 @@ internal static class PluginPackageWorkflow
         }
 
         return PluginManifestReader.Read(bytes);
+    }
+
+    private static bool IsImagePath(string relativePath)
+    {
+        return relativePath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+               || relativePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+               || relativePath.EndsWith(".sys", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsManagedPe(DeviceLabPackageFile file)
+    {
+        try
+        {
+            file.Rewind();
+            using PEReader pe = new(file.Stream, PEStreamOptions.LeaveOpen);
+            return pe.PEHeaders.CorHeader is not null && pe.HasMetadata;
+        }
+        catch (Exception exception) when (exception is IOException
+                                              or UnauthorizedAccessException
+                                              or BadImageFormatException)
+        {
+            return false;
+        }
     }
 
     private static bool IsX64Pe(DeviceLabPackageFile file)

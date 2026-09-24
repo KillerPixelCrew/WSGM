@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using System.Text;
+using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
@@ -12,16 +15,12 @@ public sealed class CommonPluginPackageTests
     public async Task RealIrPackageLoadsAlongsideDeviceCategoryAndPersistsLibraryWithoutHardware()
     {
         using TemporaryDirectory temporary = new();
-        var root = temporary.GetPath("ir-package");
-        Directory.CreateDirectory(root);
-        var assembly = typeof(IrPlugin).Assembly.Location;
-        File.Copy(assembly, Path.Combine(root, "WSGM.Plugin.Ir.dll"));
-        await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), """
-                                                                             {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
-                                                                              "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
-                                                                             """);
-        var manifest = CommonPluginPackage.ReadManifest(root);
-        var package = await CommonPluginPackage.LoadAsync(root, manifest, CancellationToken.None);
+        var path = WritePackage(temporary.GetPath("ir.wsgmpkg"), """
+                                                                   {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
+                                                                    "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin"}
+                                                                   """, typeof(IrPlugin).Assembly.Location, "WSGM.Plugin.Ir.dll");
+        var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
+        var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var deviceState = temporary.GetPath("device-state");
         var irState = temporary.GetPath("ir-state");
@@ -53,17 +52,14 @@ public sealed class CommonPluginPackageTests
     public async Task ACollectibleNonDevicePackageRunsConfigurationActionsAndResidentTransitions()
     {
         using TemporaryDirectory temporary = new();
-        var root = temporary.GetPath("package");
-        Directory.CreateDirectory(root);
         var assembly = typeof(CommonPluginFixture).Assembly.Location;
         var name = Path.GetFileName(assembly);
-        File.Copy(assembly, Path.Combine(root, name));
-        await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
-                                                                               {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
-                                                                                "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture"}
-                                                                               """);
-        var manifest = CommonPluginPackage.ReadManifest(root);
-        var package = await CommonPluginPackage.LoadAsync(root, manifest, CancellationToken.None);
+        var path = WritePackage(temporary.GetPath("fixture.wsgmpkg"), $$"""
+                                                                        {"id":"test.common-fixture","name":"Fixture","version":"1.0.0","category":"example.status",
+                                                                         "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture"}
+                                                                        """, assembly, name);
+        var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
+        var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var state = temporary.GetPath("state");
         Directory.CreateDirectory(state);
@@ -89,18 +85,35 @@ public sealed class CommonPluginPackageTests
     }
 
     [Fact]
-    public async Task CommonPackageAdmissionRejectsOversizedMetadataAndDeviceCategory()
+    public void CommonPackageAdmissionRejectsOversizedMetadataAndDeviceCategory()
     {
         using TemporaryDirectory temporary = new();
-        var root = temporary.GetPath("package");
-        Directory.CreateDirectory(root);
-        var path = Path.Combine(root, "plugin.wsgm.json");
-        await File.WriteAllTextAsync(path, new string(' ', PluginManifestReader.MaximumBytes + 1));
-        Assert.Throws<InvalidDataException>(() => CommonPluginPackage.ReadManifest(root));
-        await File.WriteAllTextAsync(path, """
-                                           {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
-                                            "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-                                           """);
-        Assert.Throws<InvalidDataException>(() => CommonPluginPackage.ReadManifest(root));
+        var oversized = WritePackage(temporary.GetPath("oversized.wsgmpkg"),
+            new string(' ', PluginManifestReader.MaximumBytes + 1) + "{}", typeof(CommonPluginFixture).Assembly.Location,
+            "Fixture.dll");
+        Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(oversized).Dispose());
+        var device = WritePackage(temporary.GetPath("device.wsgmpkg"), """
+                                                                      {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
+                                                                       "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                                                                      """, typeof(CommonPluginFixture).Assembly.Location,
+            "Fixture.dll");
+        Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(device).Dispose());
+    }
+
+    private static string WritePackage(string path, string manifest, string assembly, string entryName)
+    {
+        using var stream = File.Create(path);
+        using ZipArchive archive = new(stream, ZipArchiveMode.Create);
+        using (var entry = archive.CreateEntry("plugin.wsgm.json").Open())
+        {
+            entry.Write(Encoding.UTF8.GetBytes(manifest));
+        }
+
+        using (var entry = archive.CreateEntry(entryName).Open())
+        {
+            entry.Write(File.ReadAllBytes(assembly));
+        }
+
+        return path;
     }
 }

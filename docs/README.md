@@ -49,7 +49,7 @@ that evidence is in `packaged-game-launcher.md`.
 | Read                                       | When you want to understand                                                                                                      |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | `device-integration.md`                    | why the device plugin runtime is shaped the way it is, controller management, authored profiles, HidHide                         |
-| `device-plugin-system.md`                  | the runtime mechanism: package slot, validation, load, cycle, publications, commands, glyphs                                     |
+| `device-plugin-system.md`                  | the runtime mechanism: package files, validation, load, cycle, publications, commands, glyphs                                    |
 | `device-plugin-authoring.md`               | writing, testing, packing and installing a plugin                                                                                |
 | `device-security.md`                       | the one-page boundary checklist                                                                                                  |
 | `..\src\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract                                                                                                          |

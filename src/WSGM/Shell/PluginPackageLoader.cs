@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Loader;
+using System.Threading;
 using Windows.Foundation;
 using WinRT;
 using WSGM.Core;
@@ -19,14 +20,19 @@ internal sealed class PluginPackageLoader : IDisposable
     private bool _disposed;
 
     private PluginPackageLoader(
+        PluginPackageFile package,
         PluginLoadContext loadContext,
         IDevicePlugin plugin)
     {
+        Package = package;
         _loadContext = loadContext;
         Plugin = plugin;
     }
 
     internal IDevicePlugin Plugin { get; }
+
+    /// <summary>The open package, which also serves the plugin's glyph files.</summary>
+    internal PluginPackageFile Package { get; }
 
     public void Dispose()
     {
@@ -37,6 +43,7 @@ internal sealed class PluginPackageLoader : IDisposable
 
         _disposed = true;
         _loadContext.Unload();
+        Package.Dispose();
     }
 
     internal static PluginPackageLoader Load(InstalledDevicePackage package)
@@ -47,31 +54,20 @@ internal sealed class PluginPackageLoader : IDisposable
             throw new InvalidDataException("The installed device package is not valid.");
         }
 
-        var root = Path.GetFullPath(package.PackagePath);
-        if (!Directory.Exists(root))
+        // Discovery closed its handle, so the file is opened again and must still be the package
+        // that was admitted: a replacement dropped in between is refused, not loaded.
+        var file = PluginPackageFile.Open(package.PackagePath);
+        if (file.DeviceManifest != package.Manifest)
         {
-            throw new DirectoryNotFoundException("The plugin package directory is missing.");
+            file.Dispose();
+            throw new InvalidDataException("The device package changed between discovery and loading.");
         }
 
-        var entryPath = ConstrainPackagePath(root, package.Manifest.EntryAssembly);
-        if (!File.Exists(entryPath))
-        {
-            throw new FileNotFoundException("The plugin entry point is missing.", entryPath);
-        }
-
-        PluginLoadContext context = new(root, entryPath);
+        PluginLoadContext context = new(file);
         IDevicePlugin? plugin = null;
         try
         {
-            Assembly assembly;
-            using (var entry = File.OpenRead(entryPath))
-            {
-                // Loading the entry image from a stream avoids pinning the installed DLL for the
-                // lifetime of the collectible context. The plugin can therefore be replaced as
-                // soon as its lifecycle is quiescent; dependencies still resolve package-locally.
-                assembly = context.LoadFromStream(entry);
-            }
-
+            var assembly = context.LoadEntry(package.Manifest.EntryAssembly);
             var entryType = assembly.GetType(
                                 package.Manifest.EntryType,
                                 false,
@@ -102,7 +98,7 @@ internal sealed class PluginPackageLoader : IDisposable
                     "The plugin code and manifest package identifiers differ.");
             }
 
-            return new PluginPackageLoader(context, plugin);
+            return new PluginPackageLoader(file, context, plugin);
         }
         catch (Exception loadFailure)
         {
@@ -122,6 +118,7 @@ internal sealed class PluginPackageLoader : IDisposable
             try
             {
                 context.Unload();
+                file.Dispose();
             }
             catch (Exception unloadFailure)
             {
@@ -139,6 +136,7 @@ internal sealed class PluginPackageLoader : IDisposable
         }
     }
 
+    /// <summary>Resolves a relative path below a host-owned root, refusing escapes.</summary>
     internal static string ConstrainPackagePath(string packageRoot, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
@@ -175,14 +173,20 @@ internal sealed class PluginPackageLoader : IDisposable
                 typeof(Point).Assembly
         };
 
-        private readonly string _packageRoot;
-        private readonly AssemblyDependencyResolver _resolver;
+        private readonly Lock _gate = new();
+        private readonly PluginPackageFile _package;
 
-        internal PluginLoadContext(string packageRoot, string entryPath)
-            : base($"WSGM.Plugin:{Path.GetFileName(packageRoot)}", true)
+        internal PluginLoadContext(PluginPackageFile package)
+            : base($"WSGM.Plugin:{package.Id}", true)
         {
-            _packageRoot = packageRoot;
-            _resolver = new AssemblyDependencyResolver(entryPath);
+            _package = package;
+        }
+
+        /// <summary>Loads the package's entry assembly from memory.</summary>
+        internal Assembly LoadEntry(string entryAssembly)
+        {
+            return TryLoadFromPackage(entryAssembly)
+                   ?? throw new FileNotFoundException("The plugin entry point is missing.", entryAssembly);
         }
 
         protected override Assembly? Load(AssemblyName assemblyName)
@@ -207,7 +211,7 @@ internal sealed class PluginPackageLoader : IDisposable
             // for. A version the host cannot satisfy also falls through to the package copy, so
             // a plugin carrying a newer library than WSGM still loads; that duplicate is logged
             // once because it is the case that can bite later.
-            var path = _resolver.ResolveAssemblyToPath(assemblyName);
+            var fileName = PackageFileName(assemblyName);
             try
             {
                 return Default.LoadFromAssemblyName(assemblyName);
@@ -218,44 +222,45 @@ internal sealed class PluginPackageLoader : IDisposable
             }
             catch (FileLoadException ex)
             {
-                if (path is not null)
+                if (fileName is not null)
                 {
                     Log.Warn($"Plugin dependency {assemblyName.Name} {assemblyName.Version} loads "
                              + $"from the package because the host's copy does not satisfy it ({ex.Message}).");
                 }
             }
 
-            if (path is null)
+            return fileName is null ? null : TryLoadFromPackage(fileName);
+        }
+
+        // Native resolution is not overridden: packages carry no native images (PluginPackageFile
+        // refuses them), so it stays with the system search path, where plugins' system DLLs live.
+
+        private Assembly? TryLoadFromPackage(string fileName)
+        {
+            lock (_gate)
+            {
+                if (!_package.TryOpenAssembly(fileName, out var image, out var symbols))
+                {
+                    return null;
+                }
+
+                using (image)
+                using (symbols)
+                {
+                    return symbols is null ? LoadFromStream(image) : LoadFromStream(image, symbols);
+                }
+            }
+        }
+
+        private static string? PackageFileName(AssemblyName assemblyName)
+        {
+            if (string.IsNullOrEmpty(assemblyName.Name))
             {
                 return null;
             }
 
-            EnsurePackagePath(path);
-            return LoadFromAssemblyPath(path);
-        }
-
-        protected override nint LoadUnmanagedDll(string unmanagedDllName)
-        {
-            var path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
-            if (path is null)
-            {
-                return nint.Zero;
-            }
-
-            EnsurePackagePath(path);
-            return LoadUnmanagedDllFromPath(path);
-        }
-
-        private void EnsurePackagePath(string path)
-        {
-            var rootPrefix = _packageRoot.TrimEnd(Path.DirectorySeparatorChar)
-                             + Path.DirectorySeparatorChar;
-            var fullPath = Path.GetFullPath(path);
-            if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException(
-                    "A resolved dependency escaped the package directory.");
-            }
+            var file = assemblyName.Name + ".dll";
+            return string.IsNullOrEmpty(assemblyName.CultureName) ? file : assemblyName.CultureName + "/" + file;
         }
     }
 }
