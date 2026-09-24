@@ -142,7 +142,7 @@ Source: "Install-UsbipDriver.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; release machine and verified again by the script before it is run. Carrying both installers means
 ; a freshly imaged handheld can install the controller stack before its Wi-Fi is configured. The
 ; release build requires them; they ship under the controller component only.
-Source: "{#AppPublishDir}\USBip-0.9.7.7-x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "{#AppPublishDir}\USBip-0.9.8.0-x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 Source: "{#AppPublishDir}\HidHide_1.5.230_x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 Source: "..\external\controller\licenses\usbip-win2-BSD-2-Clause.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 Source: "..\external\controller\licenses\HidHide-MIT.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
@@ -229,6 +229,8 @@ Type: files; Name: "{app}\libviiper.dll"
 Type: files; Name: "{app}\libviiper.h"
 Type: files; Name: "{app}\VIIPER-LICENSE.txt"
 Type: files; Name: "{app}\VIIPER-NOTICE.md"
+Type: files; Name: "{app}\USBip-0.9.8.0-x64.exe"
+; Left by releases that pinned usbip-win2 0.9.7.7.
 Type: files; Name: "{app}\USBip-0.9.7.7-x64.exe"
 Type: files; Name: "{app}\HidHide_1.5.230_x64.exe"
 Type: files; Name: "{app}\usbip-win2-BSD-2-Clause.txt"

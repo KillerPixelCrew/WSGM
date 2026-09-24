@@ -52,15 +52,14 @@
     - The release asset is an INNO SETUP installer, not NSIS. VIIPER's own `scripts/install.ps1`
       passes `/S`, which Inno Setup does not recognise, so that script pops the full interactive
       installer instead of installing silently. The switches used below are the correct ones.
-    - `USBip-0.9.7.7-x64.exe` carries a valid GlobalSign EV code-signing signature issued to
+    - `USBip-0.9.8.0-x64.exe` carries a valid GlobalSign EV code-signing signature issued to
       Cloudyne Systems (Scheibling Consulting AB) — the operator of the Open Source Codesigning
       Initiative. Its drivers land in the driver store signed by the Microsoft Windows Hardware
       Compatibility Publisher, marked Universal and Attested. Current releases therefore need no
       Windows test-signing mode, and the warning in VIIPER's documentation about a test-signing CA
       being added as a trusted root is stale.
-    - The pin is 0.9.7.7 and not the newer 0.9.7.8 deliberately. See `versionPinReason` in the lock
-      file: 0.9.7.8 has two open kernel-pool-corruption reports against the Windows build the
-      reference handheld runs.
+    - The pin is 0.9.8.0, which fixes the kernel-pool corruption reported against 0.9.7.8 on the
+      Windows build the reference handheld runs. See `versionPinReason` in the lock file.
     - The package installs `usbip2_ude.sys` and its companion filter `usbip2_filter.sys`, registers
       the root device `ROOT\USBIP_WIN2\UDE`, and places `usbip.exe` in `%ProgramFiles%\USBip`.
       VIIPER attaches through the driver's device interface by IOCTL and falls back to that
@@ -74,7 +73,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$InstallerPath = (Join-Path $PSScriptRoot 'USBip-0.9.7.7-x64.exe'),
+    [string]$InstallerPath = (Join-Path $PSScriptRoot 'USBip-0.9.8.0-x64.exe'),
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
@@ -91,9 +90,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$RequiredVersion = [Version]'0.9.7.7'
-$InstallerUrl = 'https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.7.7/USBip-0.9.7.7-x64.exe'
-$InstallerSha256 = '51620FA5F9F8BE5932BC9D786DEEE557CE06D5407A99CAB490DCFAC71F185FEA'
+$RequiredVersion = [Version]'0.9.8.0'
+$InstallerUrl = 'https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.0/USBip-0.9.8.0-x64.exe'
+$InstallerSha256 = '81F426741F7EE2ED991FEBE24A22DACA8400B6AE2F171054E3FB404897E15D39'
 $SignerThumbprint = '9AC56B6C76141395D74FFF6652818376E80B9C95'
 $SilentArguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOCANCEL', '/SP-')
 
@@ -388,8 +387,8 @@ try {
     $driverRegistered = [bool]$state.DriverRegistered
     if ($null -ne $installed -and $installed -gt $RequiredVersion) {
         # A newer build than the reviewed pin. Not silently accepted, and not silently replaced
-        # either: 0.9.7.8 is excluded here for open kernel-pool-corruption reports (see the header),
-        # and forcing a downgrade under another product's installed driver is its own hazard. Say
+        # either: a build nobody has reviewed may change the attach ABI VIIPER negotiates, and
+        # forcing a downgrade under another product's installed driver is its own hazard. Say
         # what is installed, leave it alone, and leave controller management unavailable until a
         # human decides.
         $outcome = 'blocked-newer-version'
@@ -397,7 +396,7 @@ try {
         Write-Step "installed $installed is newer than the reviewed $RequiredVersion; not replaced"
         Write-Warning ("usbip-win2 $installed is installed, which is newer than the reviewed " +
             "$RequiredVersion that WSGM pins. It was neither used as a match nor overwritten: " +
-            "0.9.7.8 has open kernel-pool-corruption reports, and forcing a downgrade under " +
+            "an unreviewed build may change the attach ABI, and forcing a downgrade under " +
             "another product's driver is its own hazard. Uninstall it and re-run this step to get " +
             "the reviewed build. See '$LogPath'.")
         # Exit 0 like every other outcome here: a driver state WSGM will not touch is still a
