@@ -4996,12 +4996,13 @@
     let routeSource = "none";
     let routeLookupError = "";
     let memo = null;
-    let routerFiber = null;
     let routeSwitchFiber = null;
     let routeSwitchWrapper = null;
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
+    // What the last install's adoption of already-mounted routers reached; see install().
+    let lastAdoption = { adopted: 0, scheduled: false };
     let pages = [];
     let lastOutcome = "never rendered";
     let observedRoutes = [];
@@ -5174,7 +5175,6 @@
           node.elementType &&
           typeof node.elementType === "object"
         ) {
-          routerFiber = node;
           return node.elementType;
         }
         queue.push(node.child, node.sibling);
@@ -5242,18 +5242,19 @@
       routeSwitchFiber.type = routeSwitchWrapper;
       if (routeSwitchFiber.alternate) routeSwitchFiber.alternate.type = routeSwitchWrapper;
       // The memo object is now patched globally, but an already mounted fiber keeps its resolved
-      // function in `type`. Swap that live instance too, then ask the nearest class owner to
-      // reconcile. Without this late-install step, a bridge installed after Steam boot reports a
-      // successful claim while the router continues running the old function until a full reload.
-      routerFiber.type = memo.type;
-      if (routerFiber.alternate) routerFiber.alternate.type = memo.type;
-      let owner = routerFiber.return;
-      for (let depth = 0; owner && depth < 200; depth++, owner = owner.return) {
-        if (typeof owner.stateNode?.forceUpdate === "function") {
-          owner.stateNode.forceUpdate();
-          break;
-        }
-      }
+      // function in `type`, so the claim reaches the next mount only. This gate used to swap that one
+      // fiber and call forceUpdate on the nearest class ancestor, which cannot work: Steam's router is
+      // a React.memo with the default comparison, so re-rendering the parent produces the same element
+      // with the same props and React bails out at the memo without ever calling what we installed.
+      // The result was a claim that was correct and inert — status said claimed, lastOutcome said
+      // never rendered, and no page existed until the user navigated and changed the props by hand.
+      //
+      // adoptMountedType is the shared answer the Home carousel already used for the same bail-out:
+      // it swaps `type` on every mounted instance across every React root, replaces `memoizedProps`
+      // with an object that cannot shallow-compare equal, and only then asks for a render. It also
+      // covers the menu and Quick Access popups, which have React roots of their own that this gate's
+      // single walk of `#root` never saw.
+      lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
       installed = true;
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
@@ -5279,15 +5280,17 @@
     // `absent`, so a failed cleanup could never be retried.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
+      // Read before the release hands `type` back, so the adopted instances can be matched by it.
+      const wrapper = memo?.type;
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "page host release failed";
         return { ok: false, error: lastError };
       }
-      if (routerFiber) {
-        routerFiber.type = memo.type;
-        if (routerFiber.alternate) routerFiber.alternate.type = memo.type;
-      }
+      // Every router this install adopted, handed back to the function the claim displaced. No render
+      // is requested: Steam's own draws again the next time the page renders.
+      releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumNodesVisited);
+      lastAdoption = { adopted: 0, scheduled: false };
       if (routeSwitchFiber && routeSwitchWrapper) {
         const originalSwitch = routeSwitchWrapper.__steamUiPageSwitchOriginal;
         if (routeSwitchFiber.type === routeSwitchWrapper) routeSwitchFiber.type = originalSwitch;
@@ -5318,6 +5321,13 @@
       routeLookupError,
       claimed: memberClaimed(memo, "type", claimKeys),
       pages: pages.length,
+      // Whether the claim reached the routers already on screen, and whether one is still drawing
+      // something else. A claim that adopted nothing is inert until Steam mounts a new router, which
+      // is the difference between "claimed" and "actually running".
+      mounted: {
+        ...lastAdoption,
+        stale: staleFibers(reactRootFibers(), memo, MaximumNodesVisited),
+      },
       // What the last render actually saw. Everything above can be true while no page is reachable,
       // because insertion depends on finding the route list in the tree Steam rendered.
       routeCount: observedRoutes.length,
