@@ -799,10 +799,18 @@
     const dialogButtonPrimary = uniqueSteamExport(fields, (value) =>
       sourceOfSteamComponent(value).includes('"DialogButton","_DialogLayout","Primary"'),
     );
+    // The class that DEFINES the validators, not one that merely inherits them. A class extending
+    // TextField answers `typeof validateUrl === "function"` through its prototype chain, and the
+    // 2026-09-24 client exports such a subclass beside the base: two fits, no unique match, no
+    // textField, and every settings page that needs one went Degraded. Own properties name the base.
     const textField = uniqueSteamExport(
       fields,
       (value) =>
-        typeof value?.validateUrl === "function" && typeof value?.validateEmail === "function",
+        typeof value === "function" &&
+        Object.prototype.hasOwnProperty.call(value, "validateUrl") &&
+        Object.prototype.hasOwnProperty.call(value, "validateEmail") &&
+        typeof value.validateUrl === "function" &&
+        typeof value.validateEmail === "function",
     );
     return {
       react,
@@ -975,6 +983,9 @@
   // fiber the container key was written with.
   const reactRootFibers = () => {
     const hosts = [];
+    // A page always has a document; an emitted-asset check may not, and then there is simply
+    // nothing mounted to adopt.
+    if (typeof document === "undefined") return [];
     const root = document.getElementById("root");
     if (root) hosts.push(root);
     for (const child of Array.from(document.body?.children ?? [])) {
@@ -1072,6 +1083,27 @@
     }
     return { adopted, scheduled };
   };
+  // Asks every adopted instance to render again, now. A publication that arrives after the install
+  // changes what the wrapper will draw, but nothing tells React: the wrapper reads the gate's state
+  // from its closure, the props have not changed, and a memo with equal props bails out exactly as it
+  // did before adoption. So the same two writes adoption made: props that cannot compare equal, then
+  // a render requested from the nearest class ancestor. Without this a page or tab published a moment
+  // after install stayed absent until the user navigated (2026-09-24). Answers how many were asked.
+  const renderMountedType = (roots, elementType, replacement, bound) => {
+    let asked = 0;
+    for (const fiber of mountedFibersOf(roots, elementType, bound)) {
+      if (fiber.type !== replacement) continue;
+      for (const side of [fiber, fiber.alternate]) {
+        if (side) side.memoizedProps = { [AdoptedPropsKey]: side.memoizedProps };
+      }
+      if (requestRender(fiber)) asked++;
+    }
+    return asked;
+  };
+  // The node bound every gate walks mounted trees under. The router sits about a hundred levels down
+  // the live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
+  // pathological tree, not to limit a legitimate search.
+  const MaximumMountedNodes = 60000;
   // Hands adopted instances back to the function the claim displaced. No render is requested: the
   // original draws again whenever the page next renders, and a wrapper left on screen until then
   // passes Steam's tree through once its gate is removed.
@@ -3017,6 +3049,8 @@
       memo = exports[candidates[0]];
       return true;
     };
+    // What the last install's adoption of already-mounted Quick Access views reached; see install().
+    let lastAdoption = { adopted: 0, scheduled: false };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       if (
@@ -3039,11 +3073,20 @@
       }
       installed = true;
       lastError = "";
+      // The claim reaches the next mount only, and the Quick Access view is mounted at boot and kept,
+      // so without this the tab never appeared: status said claimed, lastOutcome said never rendered,
+      // and opening the menu drew Steam's own cached function (2026-09-24). Adoption swaps the mounted
+      // instances over and defeats the memo bail-out; see adoptMountedType.
+      lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items)
           ? state.items.filter(validItem).slice(0, MaximumItems)
           : [];
         desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+        // The wrapper reads `desired` from its closure, so a publication changes nothing React can
+        // see. Ask the mounted views to draw again, or a tab published after install waits for the
+        // next navigation.
+        renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -3051,11 +3094,16 @@
     // leaves the claim live while every later remove() answers `absent` and never retries it.
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
+      // Read before the release hands `type` back, so the adopted instances can be matched by it.
+      const wrapper = memo?.type;
       const released = releaseMember(memo, "type", claimKeys);
       if (!released.ok) {
         lastError = released.error ?? "Extensions tab release failed";
         return { ok: false, error: lastError };
       }
+      // Every mounted view this install adopted, handed back to what the claim displaced.
+      releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
+      lastAdoption = { adopted: 0, scheduled: false };
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       desired = { items: [], revision: 0 };
@@ -3071,6 +3119,12 @@
       claimed: memberClaimed(memo, "type", claimKeys),
       items: desired.items.length,
       revision: desired.revision,
+      // Whether the claim reached the views already on screen, and whether one is still drawing
+      // Steam's own. A claim that adopted nothing is inert until Steam mounts a new view.
+      mounted: {
+        ...lastAdoption,
+        stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
+      },
       lastOutcome,
       lastError,
     });
@@ -4656,6 +4710,8 @@
       memo = exports[candidates[0]];
       return true;
     };
+    // What the last install's adoption of already-mounted panels reached; see install().
+    let lastAdoption = { adopted: 0, scheduled: false };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
       const resolved = attemptResolution(resolve, (error) => {
@@ -4676,6 +4732,11 @@
       }
       installed = true;
       lastError = "";
+      // The claim reaches the next mount only, and the main menu's root is mounted at boot and
+      // kept, so a claimed panel that was already on screen kept drawing Steam's own cached
+      // function: status said claimed, lastOutcome said never rendered (2026-09-24). Adoption
+      // swaps the mounted instances over and defeats the memo bail-out; see adoptMountedType.
+      lastAdoption = adoptMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items) ? state.items : [];
         const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
@@ -4688,14 +4749,17 @@
           items: routable.slice(0, MaximumEntries),
           hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
         };
-        // Nothing re-renders the menu on its own, so a change published while it is closed shows the
-        // next time Steam draws it. That is the whole of the reapply story: the claim is on the type,
-        // so every future render already runs through it.
+        // The wrapper reads `desired` from its closure, so a publication changes nothing React can
+        // see, and a panel already on screen would keep showing the previous entries. Ask the
+        // mounted panels to draw again; a menu not yet open draws through the claim when it is.
+        renderMountedType(reactRootFibers(), memo, memo.type, MaximumMountedNodes);
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
     const remove = () => {
       if (!installed) return { ok: true, absent: true };
+      // Read before the release hands `type` back, so the adopted instances can be matched by it.
+      const wrapper = memo?.type;
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       desired = { items: [], hidden: [] };
@@ -4706,6 +4770,9 @@
         lastError = released.error ?? "navigation panel release failed";
         return { ok: false, error: lastError };
       }
+      // Every mounted panel this install adopted, handed back to what the claim displaced.
+      releaseMountedType(reactRootFibers(), memo, wrapper, memo.type, MaximumMountedNodes);
+      lastAdoption = { adopted: 0, scheduled: false };
       lastOutcome = "removed";
       return { ok: true, removed: true };
     };
@@ -4718,6 +4785,12 @@
       // insertion depends on the tree Steam rendered. This is the part that says what happened.
       entries: observed,
       items: desired.items.length,
+      // Whether the claim reached the panels already on screen, and whether one is still drawing
+      // Steam's own. A claim that adopted nothing is inert until Steam mounts a new panel.
+      mounted: {
+        ...lastAdoption,
+        stale: staleFibers(reactRootFibers(), memo, MaximumMountedNodes),
+      },
       rejectedRoutes,
       hidden: desired.hidden.length,
       lastOutcome,
@@ -5272,6 +5345,11 @@
               page.path !== "/",
           )
           .slice(0, MaximumPages);
+        // The switch wrapper reads `pages` from its closure, so a publication changes nothing React
+        // can see. The install's own render happened before WSGM's pages arrived, which left
+        // lastOutcome at pages=0 with three published and nothing registered until the next
+        // navigation (2026-09-24). Ask the adopted routers to draw again now.
+        renderMountedType(reactRootFibers(), memo, memo.type, MaximumNodesVisited);
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
