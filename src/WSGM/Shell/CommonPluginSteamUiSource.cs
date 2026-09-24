@@ -25,7 +25,9 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         SteamExtensionsTabSurface.PatchId,
         SteamGameContextMenuSurface.PatchId,
         SteamArtworkBrowserSurface.PatchId,
-        SteamLibraryImportSurface.PatchId
+        SteamLibraryImportSurface.PatchId,
+        SteamWsgmSettingsSurface.PatchId,
+        SteamNavigationPanelSurface.PatchId
     };
 
     private readonly Dictionary<string, Command> _commands = new(StringComparer.Ordinal);
@@ -151,6 +153,44 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                         settings,
                         owner.Settings?.Desired?.Revision ?? 0);
                 }).ToArray(), _revision);
+        }
+    }
+
+    /// <summary>Every running plugin's declared settings, for WSGM's settings page in Steam.</summary>
+    /// <returns>One entry per plugin that declares settings, with the values in force.</returns>
+    /// <remarks>
+    ///     The same owners and ids the Quick Access tab uses, so a change made through either goes
+    ///     through <see cref="ConfigureAsync" /> and answers the same way. A secret's value is carried
+    ///     here only so the caller can say whether one is set; it must never be published.
+    /// </remarks>
+    internal IReadOnlyList<CommonPluginSettingsView> ReadSettings()
+    {
+        lock (_gate)
+        {
+            Refresh();
+            var instances = _manager.Snapshot();
+            return
+            [
+                .. _settingsOwners
+                    .Where(pair => pair.Value.Settings is { Schema.Count: > 0 })
+                    .Select(pair => (pair.Key, Owner: pair.Value,
+                        Instance: instances.FirstOrDefault(candidate =>
+                            ReferenceEquals(candidate.Registration, pair.Value))))
+                    .Where(entry => entry.Instance is not null)
+                    .Select(entry => new CommonPluginSettingsView(
+                        entry.Key,
+                        entry.Instance!.Identity,
+                        entry.Instance.Manifest.Name,
+                        entry.Owner.Settings!.Desired?.Revision ?? 0,
+                        [
+                            .. entry.Owner.Settings.Schema.Select(setting => new CommonPluginSettingValue(
+                                setting,
+                                entry.Owner.Settings.Desired is { } desired
+                                && desired.Values.TryGetValue(setting.Key, out var saved)
+                                    ? saved
+                                    : setting.Default))
+                        ]))
+            ];
         }
     }
 
@@ -430,3 +470,21 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         string Name,
         string Version);
 }
+
+/// <summary>One running plugin's declared settings.</summary>
+/// <param name="Id">The opaque id <see cref="CommonPluginSteamUiSource.ConfigureAsync" /> takes.</param>
+/// <param name="Identity">The instance the settings belong to.</param>
+/// <param name="Name">The package's display name.</param>
+/// <param name="Revision">The revision a change must be made against.</param>
+/// <param name="Settings">Each declared setting with the value in force.</param>
+internal sealed record CommonPluginSettingsView(
+    string Id,
+    PluginInstanceIdentity Identity,
+    string Name,
+    long Revision,
+    IReadOnlyList<CommonPluginSettingValue> Settings);
+
+/// <summary>One declared setting and the value in force.</summary>
+/// <param name="Setting">What the plugin declared.</param>
+/// <param name="Value">The saved value, or the declared default.</param>
+internal sealed record CommonPluginSettingValue(PluginSetting Setting, PluginValue Value);

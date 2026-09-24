@@ -12,6 +12,9 @@ state is not.
   requires it; do not hide controls to satisfy an arbitrary no-scroll rule.
 - A save operation reads fresh configuration, applies the page's owned fields, validates, and commits through
   ConfigStore. Do not overwrite fields owned by another page or hold the config lock while doing external work.
+- WSGM's page in Steam writes some of the same fields while this window may be open. Those are listed in
+  `SettingsViewModel.SharedFields`; a save writes one only when the user changed it here, measured against what the
+  window last loaded or saved, and keeps the saved value otherwise. A field that page gains goes on that list.
 - Write dependent sidecars or manifests atomically and keep them consistent with the committed configuration.
 - Display edits use stable display identities and must handle a disconnected or stale target explicitly.
 - Quick Setup uses an integer revision, disables the settings pages while modal, and applies nothing until Continue.

@@ -122,6 +122,26 @@ internal static class DevicePackagePolicy
         return new DevicePackageInventory { PackageRoots = sortedPackages };
     }
 
+    /// <summary>The id of the device plugin installed in the one package slot, or null when there is none.</summary>
+    /// <returns>The installed, valid package's id; null when the slot is empty, invalid or unreadable.</returns>
+    /// <remarks>
+    ///     A settings declaration is cached in configuration and outlives its package, so every surface
+    ///     that draws device plugin settings keeps to the scope of the plugin actually installed.
+    /// </remarks>
+    public static string? InstalledPluginId()
+    {
+        try
+        {
+            var package = Discover(DeviceInstallationPaths.InstalledPackageRoot).InstalledPackage;
+            return package is { Valid: true, Manifest: { } manifest } ? manifest.Id : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Plugin settings unavailable: installed package could not be inspected ({ex.Message}).");
+            return null;
+        }
+    }
+
     /// <summary>
     ///     Validates the sole installed package. Multiple roots are all rejected without reading any
     ///     manifest, and an empty slot returns no package.

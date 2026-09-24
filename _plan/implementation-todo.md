@@ -26,6 +26,27 @@ header and every consumer use the same snapshot. The retired stored model is wip
       reset and inheritance behave as in `docs\profiles.md`.
 - [ ] Focused tests and `eng/verify.ps1` after the maintainer's manual test.
 
+## WSGM in Steam's main menu (2026-09-24, issue 170)
+
+A WSGM row in Big Picture's main menu, before Power, opening a page of WSGM's global settings laid out
+like Steam's own Settings: Steam integration, Startup, Steam Input, Plugins. Everything drawn is
+Steam's own UI; the reusable parts are in the toolkit (toolkit PR 12). The finished shape is in
+`docs/wsgm-in-steam.md`.
+
+- [x] Toolkit: added menu entries drawn by Valve's own route and action entries, with a route and a
+      host glyph; the settings renderer over Steam's routed sidebar, sections, fields, small buttons
+      and confirm modal. Fingerprints checked against the live client on 2026-09-24.
+- [x] Backend: one field per change through the store, boot.json with the start settings, the shim
+      reconciled through the helper shared with Settings, plugins through their existing paths.
+- [x] Page and menu row declared by the host and gated on CEF itself.
+- [x] Settings keeps a shared field it did not change rather than reverting a change made in Steam.
+- [ ] Attended: the row appears before Power and looks like its neighbours; the controller reaches
+      it, A opens the page, B returns.
+- [ ] Attended: each page's controls change config and the change shows in Settings and the overlay;
+      turning CEF off from the page removes it, and turning it on from the overlay restores it.
+- [ ] Attended: start mode reaches boot.json; the shim's state line; a plugin setting round-trips; a
+      Settings window saved afterwards keeps the change made in Steam.
+
 ## Game Library (2026-09-23, issues 47 and 48)
 
 WSGM's own Steam ROM Manager: bring other launchers' games into Steam from both the overlay and

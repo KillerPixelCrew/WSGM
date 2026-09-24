@@ -191,6 +191,15 @@ Page registration is now host-owned and plugins declare routes for the host to m
 pages are the artwork browser and the Game Library. The plugin SDK, `src/WSGM.Plugin.Ir` and the
 installed third-party path are unchanged.
 
+**WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
+opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it
+starts, Steam Input, and the installed plugins' settings. It is a second place to reach settings
+that configure WSGM itself, not a second owner: each change is one field written through the config
+store, applied by the shell's reload exactly as a save from WSGM Settings, and an open Settings
+window keeps any shared field it did not change itself rather than writing back what it loaded.
+Everything on the page is Steam's own UI; an element Steam does not have would go into the toolkit,
+reusable and in Steam's exact style. See [WSGM in Steam](wsgm-in-steam.md).
+
 **The Game Library is one feature, and Xbox is its first source (2026-09-23).** Bringing other
 launchers' games into Steam is WSGM's own Steam ROM Manager: one backend with a source for each
 launcher, a plan, the user's per-title choices kept across scans, a review, an apply, and artwork as
