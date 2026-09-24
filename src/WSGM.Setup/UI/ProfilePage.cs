@@ -13,27 +13,30 @@ internal sealed class ProfilePage : Page
 {
     // Label, description and parent for each feature WSGM exports. An unknown feature still appears,
     // under its own key, so a newer WSGM never has a switch setup cannot show.
-    private static readonly Dictionary<string, (string Label, string Description, string? Parent, string Group)> Known = new()
-    {
-        ["steamInputManagement"] = ("Manage Steam Input",
-            "WSGM hands controllers to Steam in games and takes them back for its own menus.", null, "Steam Input"),
-        ["steamInputLease"] = ("Steam Input lease for WSGM's menus",
-            "Keeps Steam from turning the controller into a mouse while WSGM is in front.", null, "Steam Input"),
-        ["steamUi"] = ("Steam UI integration", "WSGM adds its own rows and tabs inside Steam's Big Picture.", null,
-            "Steam UI integration"),
-        ["libraryTabs"] = ("Library tabs per SD card", "", "steamUi", "Steam UI integration"),
-        ["cardManager"] = ("Card manager", "", "steamUi", "Steam UI integration"),
-        ["connectedLibraryCarousel"] = ("Connected-library carousel on Home", "", "steamUi", "Steam UI integration"),
-        ["sdFormat"] = ("Format SD cards from Steam", "", "steamUi", "Steam UI integration"),
-        ["wifiIndicator"] = ("Wi-Fi indicator in the header", "", "steamUi", "Steam UI integration"),
-        ["nativeQuickAccess"] = ("WSGM rows in Quick Access", "", "steamUi", "Steam UI integration"),
-        ["downloadKeepAwake"] = ("Stay awake while downloading", "", "steamUi", "Steam UI integration"),
-        ["downloadQueueSort"] = ("Download queue sorting", "", "steamUi", "Steam UI integration"),
-        ["edgeGestures"] = ("Edge swipes", "Swipe in from the top edge to open the overlay.", null, "Getting to WSGM"),
-        ["hotkey"] = ("Keyboard shortcut", "", null, "Getting to WSGM"),
-        ["gamepadChord"] = ("Gamepad chord", "", null, "Getting to WSGM"),
-        ["bootSplash"] = ("Boot splash", "Covers the desktop while Game Mode starts.", null, "Start")
-    };
+    private static readonly Dictionary<string, (string Label, string Description, string? Parent, string Group)> Known =
+        new()
+        {
+            ["steamInputManagement"] = ("Manage Steam Input",
+                "WSGM hands controllers to Steam in games and takes them back for its own menus.", null, "Steam Input"),
+            ["steamInputLease"] = ("Steam Input lease for WSGM's menus",
+                "Keeps Steam from turning the controller into a mouse while WSGM is in front.", null, "Steam Input"),
+            ["steamUi"] = ("Steam UI integration", "WSGM adds its own rows and tabs inside Steam's Big Picture.", null,
+                "Steam UI integration"),
+            ["libraryTabs"] = ("Library tabs per SD card", "", "steamUi", "Steam UI integration"),
+            ["cardManager"] = ("Card manager", "", "steamUi", "Steam UI integration"),
+            ["connectedLibraryCarousel"] =
+                ("Connected-library carousel on Home", "", "steamUi", "Steam UI integration"),
+            ["sdFormat"] = ("Format SD cards from Steam", "", "steamUi", "Steam UI integration"),
+            ["wifiIndicator"] = ("Wi-Fi indicator in the header", "", "steamUi", "Steam UI integration"),
+            ["nativeQuickAccess"] = ("WSGM rows in Quick Access", "", "steamUi", "Steam UI integration"),
+            ["downloadKeepAwake"] = ("Stay awake while downloading", "", "steamUi", "Steam UI integration"),
+            ["downloadQueueSort"] = ("Download queue sorting", "", "steamUi", "Steam UI integration"),
+            ["edgeGestures"] = ("Edge swipes", "Swipe in from the top edge to open the overlay.", null,
+                "Getting to WSGM"),
+            ["hotkey"] = ("Keyboard shortcut", "", null, "Getting to WSGM"),
+            ["gamepadChord"] = ("Gamepad chord", "", null, "Getting to WSGM"),
+            ["bootSplash"] = ("Boot splash", "Covers the desktop while Game Mode starts.", null, "Start")
+        };
 
     private readonly JsonObject _presets;
     private bool _customize;
@@ -64,7 +67,8 @@ internal sealed class ProfilePage : Page
             var (label, description, parent, group) = Known.TryGetValue(key, out var known)
                 ? known
                 : (key, "", null, "Other");
-            FeatureOption option = new(key, label, description, value?.GetValue<bool>() == true, parent) { Group = group };
+            FeatureOption option = new(key, label, description, value?.GetValue<bool>() == true, parent)
+                { Group = group };
             option.PropertyChanged += (_, _) => Changed();
             Features.Add(option);
         }
@@ -177,7 +181,8 @@ internal sealed class ProfilePage : Page
             if (_presets[name] is JsonObject preset && preset["features"] is JsonObject features
                                                     && Features.All(feature =>
                                                         features[feature.Key]?.GetValue<bool>() == feature.On)
-                                                    && (preset["steamAutostartTakeover"]?.GetValue<bool>() ?? false) == Takeover)
+                                                    && (preset["steamAutostartTakeover"]?.GetValue<bool>() ?? false) ==
+                                                    Takeover)
             {
                 return name;
             }

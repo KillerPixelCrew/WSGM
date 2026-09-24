@@ -106,7 +106,8 @@ internal sealed class LegacyPage(string legacyVersion, Version version) : Page
     public override string Back => "";
 }
 
-internal sealed class UpdatePage(IReadOnlyList<string> changes, IReadOnlyList<string> outdated, string from, string to) : Page
+internal sealed class UpdatePage(IReadOnlyList<string> changes, IReadOnlyList<string> outdated, string from, string to)
+    : Page
 {
     public override string Eyebrow => $"WSGM {from} → {to}";
     public override string Title => "Update WSGM";
@@ -138,8 +139,12 @@ internal sealed class CandidateOption(PluginOffer offer) : Observable
 
     public string Badges =>
         (Offer.Plugin.Community ? "Community" : "First-party") + " · "
-                                                               + (Offer.Plugin.HardwareTested ? "Hardware-tested" : "Blind")
-                                                               + " · " + (Offer.Match?.Fallback == true ? "Family match" : "Exact match");
+                                                               + (Offer.Plugin.HardwareTested
+                                                                   ? "Hardware-tested"
+                                                                   : "Blind")
+                                                               + " · " + (Offer.Match?.Fallback == true
+                                                                   ? "Family match"
+                                                                   : "Exact match");
 
     public bool Selected
     {
@@ -172,7 +177,8 @@ internal sealed class HardwarePage : Page
         Identity = identity;
         foreach (var offer in offers.DeviceCandidates)
         {
-            CandidateOption option = new(offer) { Selected = offer == (offers.RecommendedDevice ?? offers.DeviceCandidates[0]) };
+            CandidateOption option = new(offer)
+                { Selected = offer == (offers.RecommendedDevice ?? offers.DeviceCandidates[0]) };
             option.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(CandidateOption.Selected) && option.Selected)
@@ -280,7 +286,10 @@ internal sealed class DriversPage : Page
 {
     public override string Eyebrow => "Drivers";
     public override string Title => "Your controls will drop out for a moment";
-    public override string Lead => "The virtual controller needs two drivers. Installing one of them restarts every USB hub.";
+
+    public override string Lead =>
+        "The virtual controller needs two drivers. Installing one of them restarts every USB hub.";
+
     public override string Primary => "Install";
 }
 
@@ -315,14 +324,20 @@ internal sealed class ProgressPage(bool uninstall) : Page
     private string _running = "";
     public ObservableCollection<StepRow> Steps { get; } = [];
     public override string Eyebrow => uninstall ? "Uninstalling" : "Installing";
-    public override string Title => _running.Length > 0 ? _running + "…" : uninstall ? "Removing WSGM" : "Installing WSGM";
+
+    public override string Title =>
+        _running.Length > 0 ? _running + "…" : uninstall ? "Removing WSGM" : "Installing WSGM";
 
     public override string Lead =>
-        Steps.FirstOrDefault(row => row.Step.State is StepState.Running)?.Step.Hint ?? "Keep the device on and plugged in.";
+        Steps.FirstOrDefault(row => row.Step.State is StepState.Running)?.Step.Hint ??
+        "Keep the device on and plugged in.";
 
     public override string Primary => "";
     public override string Back => "";
-    public double Percent => Steps.Count == 0 ? 0 : 100.0 * Steps.Count(row => row.Step.State is not (StepState.Waiting or StepState.Running)) / Steps.Count;
+
+    public double Percent => Steps.Count == 0
+        ? 0
+        : 100.0 * Steps.Count(row => row.Step.State is not (StepState.Waiting or StepState.Running)) / Steps.Count;
 
     public void Update()
     {
@@ -338,8 +353,14 @@ internal sealed class ProgressPage(bool uninstall) : Page
     }
 }
 
-internal sealed class SummaryPage(string eyebrow, string title, string lead, IReadOnlyList<StepRow> steps, string problem,
-    string primary, string back) : Page
+internal sealed class SummaryPage(
+    string eyebrow,
+    string title,
+    string lead,
+    IReadOnlyList<StepRow> steps,
+    string problem,
+    string primary,
+    string back) : Page
 {
     public override string Eyebrow { get; } = eyebrow;
     public override string Title { get; } = title;

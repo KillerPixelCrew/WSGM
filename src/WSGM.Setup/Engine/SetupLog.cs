@@ -34,7 +34,8 @@ internal static class SetupLog
             lock (Gate)
             {
                 Directory.CreateDirectory(InstallLayout.MachineData);
-                File.AppendAllText(Path, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {level} {message}{Environment.NewLine}");
+                File.AppendAllText(Path,
+                    $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {level} {message}{Environment.NewLine}");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

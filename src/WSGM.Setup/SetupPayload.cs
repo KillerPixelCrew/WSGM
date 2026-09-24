@@ -58,7 +58,8 @@ internal sealed class SetupPayload : IDisposable
         }
 
         ZipArchive archive = new(stream, ZipArchiveMode.Read, false);
-        var entry = archive.GetEntry("bundle.json") ?? throw new InvalidDataException("The payload has no bundle.json.");
+        var entry = archive.GetEntry("bundle.json") ??
+                    throw new InvalidDataException("The payload has no bundle.json.");
         using var bundleStream = entry.Open();
         using MemoryStream buffer = new();
         bundleStream.CopyTo(buffer);
@@ -128,7 +129,8 @@ internal sealed class SetupPayload : IDisposable
                      entry.FullName.StartsWith(prefix, StringComparison.Ordinal) && !entry.FullName.EndsWith('/')))
         {
             var captured = entry;
-            yield return (captured.FullName[prefix.Length..].Replace('/', Path.DirectorySeparatorChar), () => captured.Open());
+            yield return (captured.FullName[prefix.Length..].Replace('/', Path.DirectorySeparatorChar),
+                () => captured.Open());
         }
     }
 }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using WSGM.Install;
@@ -43,8 +44,8 @@ internal sealed class RailStep(int number, string label) : Observable
 /// </summary>
 internal sealed class SetupViewModel : Observable
 {
-    private readonly SetupOptions _options;
     private readonly List<string> _flow = [];
+    private readonly SetupOptions _options;
     private JsonObject? _answers;
     private Task<JsonObject>? _answersTask;
     private SetupEngine? _engine;
@@ -57,7 +58,8 @@ internal sealed class SetupViewModel : Observable
     public SetupViewModel(SetupOptions options)
     {
         _options = options;
-        _page = new MessagePage("WSGM Setup", "Checking this PC…", "Looking at what is installed and which hardware this is.", "");
+        _page = new MessagePage("WSGM Setup", "Checking this PC…",
+            "Looking at what is installed and which hardware this is.", "");
         PrimaryCommand = new Command(OnPrimary);
         BackCommand = new Command(OnBack);
         _ = DetectAsync();
@@ -289,12 +291,14 @@ internal sealed class SetupViewModel : Observable
             if (bundle.Plugins.All(plugin => plugin.Id != old.Id))
             {
                 var contact = bundle.Outdated.FirstOrDefault(entry => entry.Id == old.Id)?.Contact ?? old.Contact;
-                outdated.Add($"{old.Name} has no build for WSGM {engine.ThisVersion.ToString(3)} and stops loading after this update."
-                             + (contact is null ? "" : $" Its developer: {contact}."));
+                outdated.Add(
+                    $"{old.Name} has no build for WSGM {engine.ThisVersion.ToString(3)} and stops loading after this update."
+                    + (contact is null ? "" : $" Its developer: {contact}."));
             }
         }
 
-        return new UpdatePage(changes, outdated, engine.InstalledVersion?.ToString(3) ?? "", engine.ThisVersion.ToString(3));
+        return new UpdatePage(changes, outdated, engine.InstalledVersion?.ToString(3) ?? "",
+            engine.ThisVersion.ToString(3));
     }
 
     private InstallChoices Choices()
@@ -322,9 +326,9 @@ internal sealed class SetupViewModel : Observable
 
     private bool NeedsDrivers()
     {
-        return _answers is not null && _engine!.NeedsDrivers(Choices())
-               || _hardware?.Chosen?.Offer.Components.Contains(SetupComponent.ControllerStack) == true
-               && (!InstalledComponents.UsbipPresent() || !InstalledComponents.HidHidePresent());
+        return (_answers is not null && _engine!.NeedsDrivers(Choices()))
+               || (_hardware?.Chosen?.Offer.Components.Contains(SetupComponent.ControllerStack) == true
+                   && (!InstalledComponents.UsbipPresent() || !InstalledComponents.HidHidePresent()));
     }
 
     private async Task RunAsync()
@@ -396,7 +400,9 @@ internal sealed class SetupViewModel : Observable
 
         var problem = string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}"));
         var title = _flow.Contains("update") ? $"WSGM {engine.ThisVersion.ToString(3)} is installed" : "WSGM is ready";
-        var lead = engine.RestartRequired ? "Restart Windows to turn on the virtual controller. Everything else works now." : "";
+        var lead = engine.RestartRequired
+            ? "Restart Windows to turn on the virtual controller. Everything else works now."
+            : "";
         Page = new SummaryPage(problem.Length > 0 ? "Done, with a problem" : "Done", title, lead, rows, problem,
             engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "");
     }
@@ -457,7 +463,7 @@ internal sealed class SetupViewModel : Observable
     /// <summary>Closes the window through the desktop lifetime.</summary>
     internal static void Shutdown()
     {
-        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.Shutdown();
         }

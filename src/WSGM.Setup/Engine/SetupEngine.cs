@@ -59,7 +59,10 @@ internal sealed class SetupStep(string label, string doneLabel, bool fatal, Func
 /// <param name="DevicePluginId">The device plugin to install, or null for none.</param>
 /// <param name="CommonPluginIds">Common plugins to install.</param>
 /// <param name="Answers">The setup answers to apply, as exported by WSGM and edited by the pages.</param>
-internal sealed record InstallChoices(string? DevicePluginId, IReadOnlyList<string> CommonPluginIds, JsonObject Answers);
+internal sealed record InstallChoices(
+    string? DevicePluginId,
+    IReadOnlyList<string> CommonPluginIds,
+    JsonObject Answers);
 
 /// <summary>What the user chose for uninstall.</summary>
 internal sealed record UninstallChoices(bool KeepData, bool RemoveUsbip, bool RemoveHidHide);
@@ -140,7 +143,8 @@ internal sealed class SetupEngine : IDisposable
         if (engine.Payload is { } payload)
         {
             engine.InstalledPluginIds = InstalledIds(payload.Bundle);
-            engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(), engine.InstalledPluginIds);
+            engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(),
+                engine.InstalledPluginIds);
         }
 
         SetupLog.Info($"Setup {engine.ThisVersion}: kind={engine.Kind}, installed={engine.InstalledVersion}, "
@@ -204,12 +208,13 @@ internal sealed class SetupEngine : IDisposable
         if (Legacy is { } legacy)
         {
             steps.Add(new SetupStep("Removing WSGM " + legacy.Version, "WSGM " + legacy.Version + " removed", true,
-                step => Fail(step, Registration.RunInnoUninstaller(legacy.Command, () => Registration.LegacyInstall() is not null),
+                step => Fail(step,
+                    Registration.RunInnoUninstaller(legacy.Command, () => Registration.LegacyInstall() is not null),
                     "The WSGM 1.0 uninstaller did not finish. Remove WSGM 1.0 from Windows Settings, then run setup again.")));
         }
 
         steps.Add(new SetupStep("Closing WSGM and Steam", "WSGM and Steam closed", true,
-            step => StopRuntime(step, forUninstall: false)));
+            step => StopRuntime(step, false)));
         steps.Add(new SetupStep("Copying WSGM", $"WSGM {ThisVersion} installed", true,
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
@@ -224,7 +229,8 @@ internal sealed class SetupEngine : IDisposable
         steps.Add(new SetupStep("Applying your profile", "Profile applied", true,
             step => ApplyAnswers(step, choices.Answers)));
         steps.Add(new SetupStep("Registering the sign-in service", "Sign-in service registered", true,
-            step => Fail(step, WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install") == 0,
+            step => Fail(step,
+                WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install") == 0,
                 "The sign-in service could not be registered; see setup.log.")));
         if (controller)
         {
@@ -245,7 +251,7 @@ internal sealed class SetupEngine : IDisposable
         var app = InstallLayout.AppExe;
         List<SetupStep> steps =
         [
-            new("Closing WSGM and Steam", "WSGM and Steam closed", true, step => StopRuntime(step, forUninstall: true)),
+            new("Closing WSGM and Steam", "WSGM and Steam closed", true, step => StopRuntime(step, true)),
             new("Removing the Steam Input shim", "Steam Input shim removed", false,
                 _ => !File.Exists(app) || WindowsSetup.Run(app, "--remove-steam-input-shim") == 0),
             new("Removing the sign-in service", "Sign-in service removed", false,
@@ -266,13 +272,15 @@ internal sealed class SetupEngine : IDisposable
 
         if (choices.RemoveHidHide && Components.HidHide)
         {
-            steps.Add(new SetupStep("Removing HidHide", "HidHide removed", false, step => RemoveComponent(step, "HidHide")));
+            steps.Add(new SetupStep("Removing HidHide", "HidHide removed", false,
+                step => RemoveComponent(step, "HidHide")));
         }
 
         steps.Add(new SetupStep("Deleting program files", "Program files deleted", false, _ => DeleteProgramFiles()));
         if (!choices.KeepData)
         {
-            steps.Add(new SetupStep("Deleting settings and data", "Settings and data deleted", false, _ => DeleteUserData()));
+            steps.Add(new SetupStep("Deleting settings and data", "Settings and data deleted", false,
+                _ => DeleteUserData()));
         }
 
         return steps;
@@ -347,7 +355,7 @@ internal sealed class SetupEngine : IDisposable
         _shutdownApplied = true;
 
         var existing = File.Exists(InstallLayout.AppExe);
-        var blockers = WindowsSetup.Blockers(includeSteam: !forUninstall && existing);
+        var blockers = WindowsSetup.Blockers(!forUninstall && existing);
         if (blockers.Count > 0)
         {
             step.Note = $"{string.Join(" and ", blockers)} is still running. Close it normally, then run setup again. "
@@ -356,7 +364,8 @@ internal sealed class SetupEngine : IDisposable
         }
 
         if (forUninstall && File.Exists(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"))
-                         && WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"), "--recover") != 0)
+                         && WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.PackagedLaunch.exe"), "--recover") !=
+                         0)
         {
             step.Note = "An imported Xbox or Store game is still exempt from Windows suspending it, and WSGM could "
                         + "not put it back. packaged-launch.log in %LOCALAPPDATA%\\WSGM names the game.";
@@ -387,8 +396,9 @@ internal sealed class SetupEngine : IDisposable
             var controllerStage = Path.Combine(Path.GetTempPath(), $"wsgm-controller-{Guid.NewGuid():N}");
             payload.Extract("Controller", controllerStage);
             foreach (var file in Directory.EnumerateFiles(controllerStage)
-                         .Where(file => Path.GetFileName(file).StartsWith("libviiper", StringComparison.OrdinalIgnoreCase)
-                                        || Path.GetFileName(file).StartsWith("VIIPER", StringComparison.OrdinalIgnoreCase)))
+                         .Where(file =>
+                             Path.GetFileName(file).StartsWith("libviiper", StringComparison.OrdinalIgnoreCase)
+                             || Path.GetFileName(file).StartsWith("VIIPER", StringComparison.OrdinalIgnoreCase)))
             {
                 File.Copy(file, Path.Combine(AppStaging, Path.GetFileName(file)), true);
             }
@@ -430,7 +440,8 @@ internal sealed class SetupEngine : IDisposable
     {
         Directory.CreateDirectory(InstallLayout.Setup);
         var self = Environment.ProcessPath!;
-        if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(InstallLayout.SetupExe), StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(InstallLayout.SetupExe),
+                StringComparison.OrdinalIgnoreCase))
         {
             File.Copy(self, InstallLayout.SetupExe, true);
         }
@@ -585,7 +596,8 @@ internal sealed class SetupEngine : IDisposable
             return true;
         }
 
-        return Fail(step, Registration.RunInnoUninstaller(command, () => Registration.FindUninstallCommand(displayName) is not null),
+        return Fail(step,
+            Registration.RunInnoUninstaller(command, () => Registration.FindUninstallCommand(displayName) is not null),
             $"{displayName} could not be removed; remove it from Windows Settings, Apps.");
     }
 
@@ -698,7 +710,8 @@ internal sealed class SetupEngine : IDisposable
             return;
         }
 
-        if (_service is { Exists: true, Running: true } && File.Exists(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe")))
+        if (_service is { Exists: true, Running: true } &&
+            File.Exists(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe")))
         {
             WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install");
         }
