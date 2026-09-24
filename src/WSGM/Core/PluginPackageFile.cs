@@ -8,10 +8,10 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Plugin.Sdk;
-using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
-using DeviceManifestReader = WSGM.Device.Sdk.Packaging.PluginManifestReader;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 using CommonManifestReader = WSGM.Plugin.Sdk.PluginManifestReader;
+using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
+using DeviceManifestReader = WSGM.Device.Sdk.Packaging.PluginManifestReader;
 
 namespace WSGM.Core;
 

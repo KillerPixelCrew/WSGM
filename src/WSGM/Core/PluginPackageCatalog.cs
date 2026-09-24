@@ -4,8 +4,8 @@ using System.IO;
 using System.Linq;
 using WSGM.Device.Sdk;
 using WSGM.Plugin.Sdk;
-using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
+using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
 namespace WSGM.Core;
 
