@@ -13,6 +13,9 @@ Device Lab redistributes the following third-party components:
   and .NET Foundation contributors. Licensed under the MIT License.
 - The self-contained Microsoft .NET 10 runtime and framework assemblies. Copyright .NET Foundation
   contributors. Licensed under the MIT License.
+- The PawnIO 2.2.0 installer (`PawnIO_setup.exe`), embedded unmodified when the build acquired it.
+  Copyright namazso. The installer states it may be redistributed unmodified; PawnIO's own licence
+  terms are upstream at <https://github.com/namazso/PawnIO.Setup>.
 - `av_libglesv2.dll` from the ANGLE Project. Copyright 2018 The ANGLE Project Authors. Licensed
   under the BSD 3-Clause terms reproduced below.
 

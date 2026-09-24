@@ -32,12 +32,20 @@
              Link="Shared\NativePackageSource.cs"/>
     <Compile Include="..\WSGM\Interop\NativePathIdentity.cs"
              Link="Shared\NativePathIdentity.cs"/>
+    <Compile Include="..\WSGM\Interop\NativeHidHide.cs"
+             Link="Shared\NativeHidHide.cs"/>
   </ItemGroup>
   <ItemGroup>
     <!-- Knowledge records: extracted ones come from eng/extract-hc-devices.ps1, curated ones are hand-written. -->
     <EmbeddedResource Include="Knowledge\Devices\*.json">
       <LogicalName>WSGM.DeviceLab.Knowledge.Devices.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
+    <!-- The PawnIO pin is always embedded; the installer only when eng/acquire-pawnio.ps1 ran first. -->
+    <EmbeddedResource Include="..\..\external\pawnio\pawnio.lock.json"
+                      LogicalName="WSGM.DeviceLab.PawnIO.lock.json"/>
+    <EmbeddedResource Include="..\..\artifacts\pawnio\PawnIO_setup.exe"
+                      Condition="Exists('..\..\artifacts\pawnio\PawnIO_setup.exe')"
+                      LogicalName="WSGM.DeviceLab.PawnIO.setup.exe"/>
     <!-- The scaffold's LICENSE.txt is a checked-in template, not WSGM's own licence file. A
          generated plugin links only the MIT SDK, so stamping it with the application's GPL-3 (and
          with this project's copyright holder) claimed something untrue about someone else's work. -->

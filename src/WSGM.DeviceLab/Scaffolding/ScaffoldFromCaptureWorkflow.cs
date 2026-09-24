@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -301,6 +302,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
     ///     inside a checkout, so its scaffold instead records the absolute path of the exact SDK assembly
     ///     shipped beside it. An unresolved MSBuild property is never emitted.
     /// </remarks>
+    [UnconditionalSuppressMessage("SingleFile", "IL3000",
+        Justification =
+            "The portable single-file build has no SDK assembly on disk; the empty location is refused below with an explanation, and a checkout still scaffolds through the project reference.")]
     internal static string SdkReferenceXml(DeviceLabPathBoundaries boundaries)
     {
         ArgumentNullException.ThrowIfNull(boundaries);

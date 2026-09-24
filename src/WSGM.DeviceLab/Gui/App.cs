@@ -16,7 +16,7 @@ internal sealed class App : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            desktop.MainWindow = DeviceLabGui.Wizard is { } wizard ? new WizardWindow(wizard) : new MainWindow();
         }
 
         base.OnFrameworkInitializationCompleted();

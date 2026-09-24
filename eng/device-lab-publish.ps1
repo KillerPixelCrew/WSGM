@@ -28,8 +28,24 @@ function Publish-DeviceLab {
         # Passed to MSBuild when set; otherwise the project's own version applies.
         [string]$Version = "",
 
-        [switch]$NoRestore
+        [switch]$NoRestore,
+
+        # One self-extracting executable for testers, instead of the installer's folder.
+        [switch]$Portable
     )
+
+    # The wizard embeds the pinned PawnIO installer when it is present. A portable tester build exists
+    # to be sent to someone, so it must carry it; the installer tree only warns when the download is
+    # unavailable, and that Device Lab then reports PawnIO as unavailable instead of installing it.
+    try {
+        & (Join-Path $Root "eng\acquire-pawnio.ps1")
+    }
+    catch {
+        if ($Portable) {
+            throw
+        }
+        Write-Warning "PawnIO installer not acquired ($($_.Exception.Message)); this Device Lab build cannot install PawnIO."
+    }
 
     $deviceLabRoot = Join-Path $Root "src\WSGM.DeviceLab"
     $arguments = @(
@@ -43,10 +59,20 @@ function Publish-DeviceLab {
     if (-not [string]::IsNullOrWhiteSpace($Version)) {
         $arguments += "/p:Version=$Version"
     }
+    # A portable tester build is one self-extracting file, native libraries included.
+    $arguments += if ($Portable) {
+        @(
+            "/p:PublishSingleFile=true",
+            "/p:IncludeNativeLibrariesForSelfExtract=true",
+            "/p:EnableCompressionInSingleFile=true"
+        )
+    }
+    else {
+        @("/p:PublishSingleFile=false")
+    }
     # No symbols: the installer copies this tree recursively, and a .pdb carries build-machine
     # paths to users.
     $arguments += @(
-        "/p:PublishSingleFile=false",
         "/p:TreatWarningsAsErrors=true",
         "/p:DebugType=none",
         "/p:CopyOutputSymbolsToPublishDirectory=false",
