@@ -572,13 +572,20 @@ installed. Each is gated on CEF itself, not on native Quick Access, and each rep
 backend raises `Changed`; the host subscribes to both page backends for exactly that reason, since
 their commands answer at once and finish in the background.
 
-| Patch id                     | Backend                        | Republished on                               | On config reload         |
-| ---------------------------- | ------------------------------ | -------------------------------------------- | ------------------------ |
-| `steam-ui.pages`             | `SteamUiSessionHost.ReadPages` | the host's page set                          | nothing                  |
-| `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`    | plugin changes, `GameLibraryService.Changed` | nothing                  |
-| `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`  | plugin changes                               | nothing                  |
-| `steam-ui.artwork-browser`   | `SteamArtworkBrowserSource`    | its `Changed`                                | `ConfigurationChanged()` |
-| `steam-ui.library-import`    | `GameLibraryService`           | its `Changed`                                | reads `AppConfig` live   |
+| Patch id                     | Backend                             | Republished on                               | On config reload         |
+| ---------------------------- | ----------------------------------- | -------------------------------------------- | ------------------------ |
+| `steam-ui.pages`             | `SteamUiSessionHost.ReadPages`      | the host's page set                          | nothing                  |
+| `steam-ui.extensions-tab`    | `SteamExtensionsTabBackend`         | plugin changes, `GameLibraryService.Changed` | nothing                  |
+| `steam-ui.game-context-menu` | `SteamGameContextMenuBackend`       | plugin changes                               | nothing                  |
+| `steam-ui.artwork-browser`   | `SteamArtworkBrowserSource`         | its `Changed`                                | `ConfigurationChanged()` |
+| `steam-ui.library-import`    | `GameLibraryService`                | its `Changed`                                | reads `AppConfig` live   |
+| `steam-ui.wsgm-settings`     | `WsgmSteamSettingsService`          | its `Changed`, plugin changes                | `ConfigurationChanged()` |
+| `steam-ui.navigation-panel`  | `WsgmSteamSettingsService.ReadMenu` | nothing: one fixed row                       | nothing                  |
+
+The main menu's WSGM row, before Power, is drawn by Valve's own route entry and navigates to
+`/wsgm/settings` with Valve's own action; the host is never asked. That page is drawn by the
+toolkit's settings renderer with Steam's own Settings components; see
+[WSGM in Steam](wsgm-in-steam.md).
 
 One route change starts on the host side: the overlay's Game Library hands the user to a page in
 Steam through the toolkit's `SteamRouteNavigation`, a single bounded push rather than a request left

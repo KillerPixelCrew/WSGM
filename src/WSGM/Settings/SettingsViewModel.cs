@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
@@ -34,6 +33,45 @@ public sealed partial class SettingsViewModel : ObservableObject
         ["manage"] = "Manage"
     };
 
+    /// <summary>
+    ///     The fields WSGM's settings page in Steam can also write, each with how to read it and how to
+    ///     take the saved value over.
+    /// </summary>
+    /// <remarks>
+    ///     The window saves by writing its whole snapshot back, so without this a change made in Steam
+    ///     while it was open would be reverted by its next save, as the overlay's AutoTDP switch once
+    ///     was. Plugin instances and the device plugin's settings already merge only what was edited.
+    /// </remarks>
+    private static readonly SharedField[] SharedFields =
+    [
+        new("Cef.Enabled", config => config.Cef.Enabled, (to, from) => to.Cef.Enabled = from.Cef.Enabled),
+        new("Cef.LibraryTabs", config => config.Cef.LibraryTabs,
+            (to, from) => to.Cef.LibraryTabs = from.Cef.LibraryTabs),
+        new("Cef.CardManager", config => config.Cef.CardManager,
+            (to, from) => to.Cef.CardManager = from.Cef.CardManager),
+        new("Cef.SdFormat", config => config.Cef.SdFormat, (to, from) => to.Cef.SdFormat = from.Cef.SdFormat),
+        new("Cef.ConnectedLibraryCarousel", config => config.Cef.ConnectedLibraryCarousel,
+            (to, from) => to.Cef.ConnectedLibraryCarousel = from.Cef.ConnectedLibraryCarousel),
+        new("Cef.CarouselShowUninstalled", config => config.Cef.CarouselShowUninstalled,
+            (to, from) => to.Cef.CarouselShowUninstalled = from.Cef.CarouselShowUninstalled),
+        new("Cef.WifiIndicator", config => config.Cef.WifiIndicator,
+            (to, from) => to.Cef.WifiIndicator = from.Cef.WifiIndicator),
+        new("Cef.NativeQuickAccess", config => config.Cef.NativeQuickAccess,
+            (to, from) => to.Cef.NativeQuickAccess = from.Cef.NativeQuickAccess),
+        new("Cef.DownloadKeepAwake", config => config.Cef.DownloadKeepAwake,
+            (to, from) => to.Cef.DownloadKeepAwake = from.Cef.DownloadKeepAwake),
+        new("Cef.DownloadQueueSort", config => config.Cef.DownloadQueueSort,
+            (to, from) => to.Cef.DownloadQueueSort = from.Cef.DownloadQueueSort),
+        new("SteamStorageFormatEnabled", config => config.SteamStorageFormatEnabled,
+            (to, from) => to.SteamStorageFormatEnabled = from.SteamStorageFormatEnabled),
+        new("StartAtSignIn", config => config.StartAtSignIn, (to, from) => to.StartAtSignIn = from.StartAtSignIn),
+        new("StartMode", config => config.StartMode, (to, from) => to.StartMode = from.StartMode),
+        new("SteamInputLeaseEnabled", config => config.SteamInputLeaseEnabled,
+            (to, from) => to.SteamInputLeaseEnabled = from.SteamInputLeaseEnabled),
+        new("SteamInputManagementEnabled", config => config.SteamInputManagementEnabled,
+            (to, from) => to.SteamInputManagementEnabled = from.SteamInputManagementEnabled)
+    ];
+
     private readonly AppConfig _config;
 
     /// <summary>Edits made on the plugin page, applied at save. Empty until the user changes one.</summary>
@@ -41,6 +79,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         new(StringComparer.Ordinal);
 
     private readonly SettingsServices _services;
+
+    /// <summary>
+    ///     The shared fields' values this window last loaded or saved: what "the user changed this
+    ///     here" is measured against. Moved forward on each save, so a field saved once is not taken
+    ///     as edited for the rest of the window's life.
+    /// </summary>
+    private readonly Dictionary<string, object> _sharedBaseline = new(StringComparer.Ordinal);
+
     private GamepadChordConfig _chord = new();
     private bool _chordRecording;
     private DisplayLayout? _desktopLayout;
@@ -137,6 +183,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         // Normalize so an injected bare AppConfig gets the same non-null nested
         // sections (and clamped splash numbers) the load path guarantees.
         _config = ConfigStore.Normalize(config);
+        RecordSharedBaseline(_config);
         LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
@@ -711,30 +758,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     Gets a plain-language description of the shim deployment, naming the
     ///     file so a pasted screenshot is diagnostic on its own.
     /// </summary>
-    public string SteamInputShimStatusText
-    {
-        get
-        {
-            var status = SteamInputShim.LastStatus;
-            var name = SteamInputShim.FileNameFor(status.Vector);
-            return status.State switch
-            {
-                SteamInputShimState.SteamNotInstalled =>
-                    "Steam was not found on this PC, so nothing was installed.",
-                SteamInputShimState.Disabled =>
-                    "Off. WSGM's file is parked next to Steam and does nothing; turning this back on restores it instantly.",
-                SteamInputShimState.Deployed when SteamInputShim.LoadedVector is not null =>
-                    $"Active - installed as {name} and loaded by the running Steam.",
-                SteamInputShimState.Deployed =>
-                    $"Installed as {name}. It takes effect the next time Steam starts.",
-                SteamInputShimState.UpdatePending =>
-                    "An update is waiting: Steam is using the old copy right now. WSGM replaces it the next time it starts Steam.",
-                SteamInputShimState.Blocked =>
-                    "Could not install: XInput1_4.dll and dinput8.dll in Steam's folder both belong to another program (ValvePlug or Special K, for example). WSGM will not overwrite them.",
-                _ => "Could not write to Steam's folder. Run WSGM setup again, or start WSGM as administrator once."
-            };
-        }
-    }
+    public string SteamInputShimStatusText => SteamInputManagement.Describe(SteamInputShim.LastStatus);
 #pragma warning restore CA1822
 
     /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
@@ -1518,21 +1542,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         var scope = FindOrAddScope(config);
         foreach (var (settingId, value) in _pluginSettingEdits)
         {
-            var entry = scope.Values.FirstOrDefault(candidate =>
-                string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
-            if (entry is null)
-            {
-                entry = new PluginSettingValue { SettingId = settingId };
-                scope.Values.Add(entry);
-            }
-
-            // Only the field matching the kind is written and the rest are cleared, so a setting
-            // whose declared kind changed cannot leave a stale value of the old shape behind it.
-            entry.Boolean = value.Kind is CapabilityValueKind.Boolean ? value.BooleanValue : null;
-            entry.Integer = value.Kind is CapabilityValueKind.Integer ? value.IntegerValue : null;
-            entry.Choice = value.Kind is CapabilityValueKind.Choice ? value.ChoiceValue : null;
-            entry.Color = value.Kind is CapabilityValueKind.Color ? value.ColorValue : null;
-            entry.Text = value.Kind is CapabilityValueKind.Text ? value.TextValue : null;
+            PluginSettingsResolver.Store(scope, settingId, value);
         }
     }
 
@@ -2374,6 +2384,11 @@ public sealed partial class SettingsViewModel : ObservableObject
             _deviceGlyphSelectionEdited,
             QuickSetupAnswered)
         {
+            SharedEdits =
+            [
+                .. SharedFields.Where(field => !Equals(field.Read(values), _sharedBaseline[field.Name]))
+                    .Select(field => field.Name)
+            ],
             ForgottenDisplays = [.. _forgottenDisplays],
             CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())]
         };
@@ -2485,6 +2500,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.PreviousConsoleLockPolicyKeyExisted = fresh.PreviousConsoleLockPolicyKeyExisted;
         config.PreviousConsoleLockPolicyAc = fresh.PreviousConsoleLockPolicyAc;
         config.PreviousConsoleLockPolicyDc = fresh.PreviousConsoleLockPolicyDc;
+
+        // WSGM's page in Steam writes these too, while this window may be open. A field the user did
+        // not change here keeps whatever is saved now, rather than the value this window loaded.
+        foreach (var field in SharedFields.Where(field => !request.SharedEdits.Contains(field.Name)))
+        {
+            field.Copy(config, fresh);
+        }
 
         foreach (var edit in request.CommonPluginEdits)
         {
@@ -2683,6 +2705,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void CompletePersistedSave(SaveResult result)
     {
+        RecordSharedBaseline(result.Config);
         foreach (var row in CommonPlugins)
         {
             row.AcceptSaved();
@@ -2717,30 +2740,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </remarks>
     private static void ApplySteamInputManagementAfterSave(AppConfig config)
     {
-        SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
-        var status = SteamInputShim.Reconcile("settings-save");
-        if (status is { State: SteamInputShimState.Failed, Detail: "access denied" }
-            // Tri-state: only retry when we KNOW we are unelevated. Unknown stays
-            // put rather than throwing a UAC prompt at a user who may not need one.
-            && ElevationCheck.IsCurrentProcessElevated() == false)
-        {
-            // Steam normally lives under Program Files, which a desktop-mode Settings
-            // process cannot write. Without this the toggle would appear to do nothing
-            // at all on most machines.
-            Log.Warn("Steam Input shim write refused - retrying elevated.");
-            SelfElevation.RunElevatedAction(
-                config.SteamInputManagementEnabled
-                    ? "--apply-steam-input-shim"
-                    : "--remove-steam-input-shim",
-                "Steam Input shim");
-            SteamInputShim.Probe();
-        }
-
-        if (!config.SteamInputManagementEnabled)
-        {
-            WarnAboutShimOnlyLaunchFixes(config);
-        }
-
+        SteamInputManagement.Apply(config, "settings-save");
         ApplySteamAutostartAfterSave(config);
     }
 
@@ -2775,30 +2775,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             Log.Warn($"Steam autostart takeover failed: {ex.Message}");
         }
-    }
-
-    /// <summary>Names the games whose stored launch fix just stopped blocking.</summary>
-    /// <remarks>
-    ///     Turning Steam Input Management off changes what an already-written
-    ///     <c>--input-lease</c> does: there is no resident shim left for it to use, so it
-    ///     fails open. One log line is what makes "why did my controller fix stop working"
-    ///     answerable from a pasted log instead of a bisect.
-    /// </remarks>
-    private static void WarnAboutShimOnlyLaunchFixes(AppConfig config)
-    {
-        var affected = config.LaunchWrappers
-            .Where(wrapper => wrapper.Mode.HasFlag(LaunchWrapperMode.InputLease))
-            .Select(wrapper => wrapper.AppId.ToString(CultureInfo.InvariantCulture))
-            .ToList();
-        if (affected.Count == 0)
-        {
-            return;
-        }
-
-        Log.Warn(
-            $"Steam Input Management off - {affected.Count} game(s) still carry the shim-only " +
-            $"launch fix (appids: {string.Join(", ", affected)}); re-apply the launch fix to " +
-            "switch them to injection.");
     }
 
     private static bool Failed(IReadOnlyList<string> failedSlots, string slot)
@@ -2944,6 +2920,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         return ConfigStore.CloneJson(snapshot, ConfigJsonContext.Default.AppConfig);
     }
 
+    private void RecordSharedBaseline(AppConfig config)
+    {
+        foreach (var field in SharedFields)
+        {
+            _sharedBaseline[field.Name] = field.Read(config);
+        }
+    }
+
     /// <summary>One action a running plugin instance offers, for the action lists.</summary>
     /// <param name="Identity">The plugin instance.</param>
     /// <param name="Action">The declared action.</param>
@@ -3023,6 +3007,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>One field another surface can write while this window is open.</summary>
+    /// <param name="Name">Its name in the save request.</param>
+    /// <param name="Read">Reads it, boxed so fields of any kind compare alike.</param>
+    /// <param name="Copy">Copies it from the saved configuration to the one being written.</param>
+    private sealed record SharedField(string Name, Func<AppConfig, object> Read, Action<AppConfig, AppConfig> Copy);
+
     internal sealed record SaveRequest(
         AppConfig Values,
         SplashConfig Splash,
@@ -3036,6 +3026,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         bool QuickSetupWasAnswered)
     {
         internal IReadOnlyList<DisplayTargetIdentity> ForgottenDisplays { get; init; } = [];
+
+        /// <summary>The shared fields the user changed in this window; the rest keep the saved value.</summary>
+        internal IReadOnlyList<string> SharedEdits { get; init; } = [];
+
         internal IReadOnlyList<CommonPluginInstanceConfig> CommonPluginEdits { get; init; } = [];
     }
 

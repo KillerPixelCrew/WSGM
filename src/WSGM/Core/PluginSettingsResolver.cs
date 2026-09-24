@@ -119,6 +119,34 @@ public static class PluginSettingsResolver
         return new PluginSettingsResolution(effective, orphans);
     }
 
+    /// <summary>Stores one value in a scope, replacing whatever was stored for that setting.</summary>
+    /// <param name="scope">The plugin's stored settings.</param>
+    /// <param name="settingId">The setting.</param>
+    /// <param name="value">The value, already validated against the declaration.</param>
+    /// <remarks>
+    ///     Only the field matching the kind is written and the rest are cleared, so a setting whose
+    ///     declared kind changed cannot leave a stale value of the old shape behind it. This is the
+    ///     inverse of the read below, and every surface that edits a plugin setting writes through it.
+    /// </remarks>
+    public static void Store(PluginSettingsScope scope, string settingId, CapabilityValue value)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(value);
+        var entry = scope.Values.FirstOrDefault(candidate =>
+            string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
+        if (entry is null)
+        {
+            entry = new PluginSettingValue { SettingId = settingId };
+            scope.Values.Add(entry);
+        }
+
+        entry.Boolean = value.Kind is CapabilityValueKind.Boolean ? value.BooleanValue : null;
+        entry.Integer = value.Kind is CapabilityValueKind.Integer ? value.IntegerValue : null;
+        entry.Choice = value.Kind is CapabilityValueKind.Choice ? value.ChoiceValue : null;
+        entry.Color = value.Kind is CapabilityValueKind.Color ? value.ColorValue : null;
+        entry.Text = value.Kind is CapabilityValueKind.Text ? value.TextValue : null;
+    }
+
     /// <summary>
     ///     Reads a stored entry into the value shape the declaration expects.
     /// </summary>

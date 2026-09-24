@@ -211,6 +211,7 @@ public sealed class ShellSession : IAsyncDisposable
     private PerformanceService? _performance;
     private PerformanceOverlayBridge? _performanceOverlay;
     private CommonPluginOverlaySource? _pluginOverlaySource;
+    private CommonPluginSteamUiSource? _pluginSteamUi;
     private ProfileFanOut? _profileFanOut;
 
     /// <summary>
@@ -256,6 +257,7 @@ public sealed class ShellSession : IAsyncDisposable
     // Live Wi-Fi-indicator gate: the applied state, so a reload can tell an
     // on->off transition from a repeat of the same value.
     private bool _wifiIndicatorEnabled;
+    private WsgmSteamSettingsService? _wsgmSettings;
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
     /// <param name="config">The configuration to apply when the session starts.</param>
@@ -996,6 +998,24 @@ public sealed class ShellSession : IAsyncDisposable
         // applies to the next search rather than the next session.
         _artwork = new SteamArtworkBrowserSource(() => _config.Artwork, new ArtworkStateStore());
 
+        // WSGM's own settings, from its row in Steam's main menu. Reads the session's live config and
+        // writes one field at a time through the store; the config reload then applies it. Plugins
+        // are read through the same source the Quick Access tab uses, created with the Steam host.
+        _wsgmSettings = new WsgmSteamSettingsService(
+            () => _config,
+            CommitWsgmSetting,
+            config => SteamInputManagement.Apply(config, "steam-settings"),
+            () => SteamInputShim.LastStatus,
+            () =>
+            [
+                .. (_commonPlugins?.Catalog.Packages ?? []).Select(package =>
+                    new InstalledCommonPlugin(package.Manifest.Id, package.Manifest.Name))
+            ],
+            () => _pluginSteamUi?.ReadSettings() ?? [],
+            (id, key, value, revision, token) => _pluginSteamUi is { } source
+                ? source.ConfigureAsync(id, key, value, revision, token)
+                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")));
+
         ReleaseAbandonedPackageExemptions();
 
         // The importer talks to the same running Steam client everything else here does, and reads
@@ -1034,6 +1054,29 @@ public sealed class ShellSession : IAsyncDisposable
                 : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
             openArtwork: _artwork.OpenAsync,
             controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true });
+    }
+
+    /// <summary>Saves one change from WSGM's settings page in Steam.</summary>
+    /// <param name="change">The field to write, applied to a fresh strict load.</param>
+    /// <param name="boot">Whether boot.json follows the change, as it does for the start settings.</param>
+    /// <returns>What was persisted.</returns>
+    /// <remarks>
+    ///     One transaction, as WSGM Settings saves: the store's lock is held across the write and the
+    ///     boot manifest, so the service never starts WSGM from a manifest older than the config. The
+    ///     store's own lock nests on the same thread.
+    /// </remarks>
+    private static AppConfig CommitWsgmSetting(Action<AppConfig> change, bool boot)
+    {
+        using (ConfigStore.AcquireLock())
+        {
+            var persisted = ConfigStore.Mutate(change);
+            if (boot)
+            {
+                BootManifestWriter.WriteCurrent(persisted);
+            }
+
+            return persisted;
+        }
     }
 
     /// <summary>Opens a Game Library page inside Steam for the overlay's hand-off.</summary>
@@ -1427,11 +1470,20 @@ public sealed class ShellSession : IAsyncDisposable
                 _steamStorage,
                 _overlayTestOnly ? null : _displayTimeouts,
                 _audioProfiles,
-                _commonPlugins is null ? null : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost),
+                _pluginSteamUi = _commonPlugins is null
+                    ? null
+                    : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost),
                 _profiles,
                 // Null in overlay-test, which has no Steam client to read artwork for or write it to.
                 _artwork,
-                _libraryImport);
+                _libraryImport,
+                _wsgmSettings);
+            if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
+            {
+                // A plugin starting, stopping or taking a setting changes the Plugins page.
+                _pluginSteamUi.Changed += wsgmSettings.Refresh;
+            }
+
             _steamUi.Apply(_config.Cef is { Enabled: true, NativeQuickAccess: true });
             _steamUi.ApplyHostSteamUi(_config.Cef.Enabled);
             _steamUi.ApplySurfaceObservation(_config.Cef.Enabled);
@@ -2862,6 +2914,7 @@ public sealed class ShellSession : IAsyncDisposable
                         // but a page already open still shows the old tabs, and a response the old
                         // key earned is still cached against the new one.
                         _artwork?.ConfigurationChanged();
+                        _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);

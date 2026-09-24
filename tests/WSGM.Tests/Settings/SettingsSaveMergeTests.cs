@@ -54,7 +54,11 @@ public sealed class SettingsSaveMergeTests
             false,
             false,
             false,
-            false);
+            false)
+        {
+            // The window changed this one itself, so its value is written over the saved one.
+            SharedEdits = ["SteamStorageFormatEnabled"]
+        };
 
         var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
         var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
@@ -76,6 +80,35 @@ public sealed class SettingsSaveMergeTests
         Assert.Equal(
             DeviceGlyphSelection.ManualReviewedProfile,
             merged.DeviceIntegration.GlyphSelection);
+    }
+
+    [Fact]
+    public void ASettingChangedInSteamWhileTheWindowWasOpenIsNotRevertedByItsSave()
+    {
+        // WSGM's page in Steam writes these fields too. The window still holds what it loaded, and
+        // writing that back would silently undo the change made in Steam.
+        var values = ConfigStore.Normalize(new AppConfig());
+        values.Cef.WifiIndicator = true;
+        values.StartMode = SessionStartMode.Game;
+        values.SteamInputLeaseEnabled = true;
+        var fresh = ConfigStore.Normalize(new AppConfig());
+        fresh.Cef.WifiIndicator = false;
+        fresh.StartMode = SessionStartMode.Desktop;
+        fresh.SteamInputLeaseEnabled = false;
+
+        var request = new SettingsViewModel.SaveRequest(
+            values, values.Splash, new Dictionary<string, CapabilityValue>(), null, "", "", false, false, false,
+            false)
+        {
+            // Only the start mode was changed in the window.
+            SharedEdits = ["StartMode"]
+        };
+
+        var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
+
+        Assert.False(merged.Cef.WifiIndicator);
+        Assert.False(merged.SteamInputLeaseEnabled);
+        Assert.Equal(SessionStartMode.Game, merged.StartMode);
     }
 
     [Fact]

@@ -44,6 +44,9 @@ internal sealed class CommonPluginManager
                     .ConfigureAwait(false));
     }
 
+    /// <summary>The installed packages as of the last reconcile, read without touching the disk.</summary>
+    internal CommonPluginCatalog Catalog => _catalog;
+
     /// <summary>Raised after the admitted-plugin projection may have changed.</summary>
     internal event Action? Changed;
 

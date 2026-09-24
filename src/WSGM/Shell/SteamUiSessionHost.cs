@@ -123,6 +123,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
+    private readonly WsgmSteamSettingsService? _wsgmSettings;
     private volatile bool _carouselShowUninstalled;
     private volatile bool _disposed;
     private volatile bool _downloadSortEnabled;
@@ -172,6 +173,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="profiles">The profile owner Steam's per-game toggle and reset write to.</param>
     /// <param name="artwork">The artwork browser behind Steam's Change Artwork page, or null in overlay-test.</param>
     /// <param name="libraryImport">The Game Library behind Steam's import page, or null in overlay-test.</param>
+    /// <param name="wsgmSettings">
+    ///     WSGM's settings behind its page in Steam and its row in Steam's main menu, or null in
+    ///     overlay-test.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -192,7 +197,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         CommonPluginSteamUiSource? pluginSteamUi = null,
         ProfileService? profiles = null,
         SteamArtworkBrowserSource? artwork = null,
-        GameLibraryService? libraryImport = null)
+        GameLibraryService? libraryImport = null,
+        WsgmSteamSettingsService? wsgmSettings = null)
     {
         _storage = storage;
         _displayTimeouts = displayTimeouts;
@@ -203,6 +209,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // source the way it was while artwork was a package.
         _artwork = artwork;
         _libraryImport = libraryImport;
+        _wsgmSettings = wsgmSettings;
         _gameContextMenu = new SteamGameContextMenuBackend(
             pluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
@@ -317,6 +324,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _libraryImport.Changed += QueueStatePublication;
         }
 
+        if (_wsgmSettings is not null)
+        {
+            _wsgmSettings.Changed += QueueStatePublication;
+        }
+
         if (_audio is not null)
         {
             _audio.StateChanged += OnSemanticStateChanged;
@@ -349,6 +361,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_libraryImport is not null)
         {
             _libraryImport.Changed -= QueueStatePublication;
+        }
+
+        if (_wsgmSettings is not null)
+        {
+            _wsgmSettings.Changed -= QueueStatePublication;
         }
 
         if (_ownsBrightness)
@@ -958,6 +975,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 libraryImport));
         }
 
+        // WSGM's settings page, and the WSGM row in Steam's main menu that opens it. The row carries
+        // the page's route, so Valve's own entry navigates and the backend is never asked.
+        if (_wsgmSettings is { } wsgmSettings)
+        {
+            modules.Add(SteamWsgmSettingsSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<WsgmSteamSettingsState?>(wsgmSettings.ReadState()),
+                wsgmSettings));
+            modules.Add(SteamNavigationPanelSurface.Module(
+                HostSteamUiEnabled,
+                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu()),
+                wsgmSettings));
+        }
+
         // The plugin tab. Declared unconditionally: WSGM's own tools are on it whether or not any
         // package is installed, which is the state every install was actually in.
         modules.Add(SteamExtensionsTabSurface.Module(
@@ -1072,6 +1103,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamLibraryImportSurface.Template));
         }
 
+        if (_wsgmSettings is not null)
+        {
+            pages.Add(new SteamPage(
+                "wsgm-settings",
+                SteamWsgmSettingsSurface.Route,
+                "WSGM",
+                Template: SteamWsgmSettingsSurface.Template));
+        }
+
         if (_hostSteamUiEnabled && _pluginSteamUi is { } pluginSteamUi)
         {
             HashSet<string> claimed = new(pages.Select(page => page.Path), StringComparer.OrdinalIgnoreCase);
@@ -1169,7 +1209,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 // user still wants the artwork page and the plugin tab.
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamArtworkBrowserSurface.PatchId
-                    or SteamLibraryImportSurface.PatchId => _hostSteamUiEnabled,
+                    or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
+                    or SteamNavigationPanelSurface.PatchId => _hostSteamUiEnabled,
                 _ when _pluginPatchIds.Contains(patch.Id) => _hostSteamUiEnabled,
                 _ => components
             };

@@ -1,6 +1,6 @@
 # Steam UI bootstrap source
 
-This is WSGM's half of the injected asset, and right now it is empty.
+This is WSGM's half of the injected asset: the renderers for WSGM's own pages in Steam.
 
 `eng/build-steam-assets.mjs` takes the bridge, the ownership and RPC primitives, the module
 resolver, the row and section glyphs (`icons.ts`), every revived Valve surface (`gates/`) and the
@@ -19,15 +19,18 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 A fragment lives here only when it is WSGM's own feature and no other host could possibly want it.
-Nothing qualifies today: the library tabs and download sorting are resident scripts and patches of
-their own, and the card badge became a toolkit surface (`gates/library-badge.ts`) that WSGM only
-feeds data into.
+Three qualify, each a page registered with `registerSteamPageRenderer` and a gate of its own:
 
-If something did qualify:
+- `artwork-browser.ts`, the Change Artwork page.
+- `library-import.ts`, the Game Library's import page.
+- `wsgm-settings.ts`, WSGM's settings page, opened from WSGM's row in Steam's main menu. It is only
+  the page's data and commands: the toolkit's `renderSteamSettings` draws it with Steam's own
+  Settings components, because any host could want a settings page that looks like Steam's.
 
-- `gates/` would hold WSGM-only, independently reversible service and store integrations, one file
-  per gate, each registering itself with `registerGate(name, gate)`.
-- A fragment beside this file would extend the row host or add a surface of its own.
+The library tabs and download sorting are resident scripts and patches of their own, and the card
+badge became a toolkit surface (`gates/library-badge.ts`) that WSGM only feeds data into. A new
+fragment that would draw its own imitation of a Steam element does not belong here: the element goes
+into the toolkit, resolved from Steam's own components, and the fragment uses it.
 
 ## Adding one is a new file here and nothing else
 

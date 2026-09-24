@@ -37,6 +37,7 @@ that evidence is in `packaged-game-launcher.md`.
 | `..\external\steam-ui-toolkit\docs\reference.md` | the toolkit the mechanism is built on                                                                                                     |
 | `packaged-game-launcher.md`                      | how an imported Xbox, UWP or MSIX game gets Steam's overlay and Steam Input, and the two routes that work                                 |
 | `game-library.md`                                | bringing other launchers' games into Steam from the overlay or Steam: the pipeline, its parts, and what a second run does                 |
+| `wsgm-in-steam.md`                               | WSGM's row in Steam's main menu and the settings page it opens: what is on it, how a change is saved, and what is drawn with what         |
 | `sd-cards.md`                                    | the card manager and the format flow                                                                                                      |
 
 ## Hardware

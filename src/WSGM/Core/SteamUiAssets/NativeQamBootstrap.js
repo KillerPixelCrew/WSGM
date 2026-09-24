@@ -873,15 +873,15 @@
       return false;
     }
   };
+  // An absolute route other than the root, short enough to be a route rather than a payload.
+  const isNavigableRoute = (route) =>
+    typeof route === "string" && route.startsWith("/") && route !== "/" && route.length <= 256;
   // Only a route returned by a successful host command is followed. Publications cannot inject a
-  // target, and the bounds keep this a router operation rather than an open-ended navigation API.
+  // target, and the bounds keep this a router operation rather than an open-ended navigation API. A
+  // navigation entry's published route is the one exception, and it is followed by Valve's own entry
+  // only when the user selects that row.
   const navigateSteamRoute = (route) => {
-    if (
-      typeof route !== "string" ||
-      !route.startsWith("/") ||
-      route === "/" ||
-      route.length > 256
-    ) {
+    if (!isNavigableRoute(route)) {
       return false;
     }
     const history = window.tempNavStore?.m_history;
@@ -1453,6 +1453,32 @@
       return element;
     };
   };
+  // A glyph the host supplies as SVG path data on a 24x24 grid: one path, filled with `currentColor`,
+  // holes cut with `fill-rule="evenodd"`. That is Valve's own convention for the main menu's icons -
+  // inline SVG with no size of its own, sized by the row's icon box - so a host's mark sits beside
+  // Home and Library as one of them. Only path commands and numbers are accepted, bounded, so a
+  // publication can describe a shape and nothing else. Cached per path; null when the data is not a
+  // path.
+  const SteamGlyphPattern = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\-\s]{1,4096}$/u;
+  const steamGlyphCache = new Map();
+  const renderSteamGlyph = (react, d) => {
+    if (typeof d !== "string" || !SteamGlyphPattern.test(d)) return null;
+    const cached = steamGlyphCache.get(d);
+    if (cached) return cached;
+    const element = react.createElement(
+      "svg",
+      {
+        xmlns: "http://www.w3.org/2000/svg",
+        viewBox: "0 0 24 24",
+        fill: "none",
+        "aria-hidden": true,
+        focusable: false,
+      },
+      react.createElement("path", { d, fill: "currentColor", fillRule: "evenodd" }),
+    );
+    if (steamGlyphCache.size < 32) steamGlyphCache.set(d, element);
+    return element;
+  };
   // Keep this fragment valid JavaScript: the same bytes are embedded for standalone C# probes
   // and composed into the bridge. Features supply fingerprints, never their own registry scan.
   function createSteamUiModuleResolver(scope) {
@@ -1542,6 +1568,279 @@
     return requirePresent;
   }
   // @steam-ui-module-resolver-end
+  // A host's own settings, drawn as Steam draws its Settings page.
+  //
+  // Every element here is one of Steam's: the routed sidebar its Settings page is built on, its
+  // settings sections, and its toggle, dropdown, slider, text and value fields, buttons and confirm
+  // modal. Nothing is styled by this file, so a host's page looks and navigates exactly like
+  // Settings - and a component Steam no longer ships makes the page unavailable rather than
+  // replacing it with an imitation.
+  //
+  // Mapped against the live client on 2026-09-24:
+  //
+  //   module with `disableRouteReporting`   one export: the routed sidebar. Props { pages }, each page
+  //                                          { title, route, icon, content, visible }. It switches
+  //                                          pages with history.replace, so B leaves the whole page.
+  //   the field module (FieldTokens)         `DialogSettingsSection` (a titled section), the name/value
+  //                                          field (`inlineWrap:"shift-children-below"`, focusable),
+  //                                          and the small button (`DialogButton _DialogLayout Small`),
+  //                                          beside the toggle, dropdown, slider and text fields.
+  //   module with strMiddleButtonText,       one export: the generic confirm modal. Props { strTitle,
+  //     bProgressDialog and bAlertDialog     strDescription, strOKButtonText, bDestructiveWarning,
+  //                                          onOK, onCancel }.
+  //
+  // The rows are the host's, described by kind rather than by component, so any host page can
+  // publish them: see SteamSettingsRow on the C# side.
+  // The routed sidebar Steam's Settings page renders, by the one prop only it takes.
+  const SteamRoutedPagesTokens = ["disableRouteReporting"];
+  // The generic confirm modal, by three props only its module names together.
+  const SteamConfirmModalTokens = ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"];
+  const resolveSteamSettingsComponents = (runtime) => {
+    const ui = resolveSteamUiComponents(runtime);
+    const fieldsFactory = runtime.findUnique(FieldTokens);
+    if (!ui || !fieldsFactory) return null;
+    const fields = runtime(fieldsFactory[0]);
+    const settingsSection = uniqueSteamExport(fields, (value) =>
+      sourceOfSteamComponent(value).includes('"DialogSettingsSection"'),
+    );
+    const valueField = uniqueSteamExport(fields, (value) => {
+      const source = sourceOfSteamComponent(value);
+      return (
+        source.includes('inlineWrap:"shift-children-below"') && source.includes("focusable:!0")
+      );
+    });
+    const smallButton = uniqueSteamExport(fields, (value) =>
+      sourceOfSteamComponent(value).includes('"DialogButton _DialogLayout Small"'),
+    );
+    const routedPages = optionalSteamExport(
+      runtime,
+      [...SteamRoutedPagesTokens],
+      (value) =>
+        typeof value === "function" &&
+        String(value).includes("disableRouteReporting") &&
+        String(value).includes("pages"),
+    );
+    const confirmModal = optionalSteamExport(runtime, [...SteamConfirmModalTokens], (value) => {
+      const source = sourceOfSteamComponent(value);
+      return SteamConfirmModalTokens.every((token) => source.includes(token));
+    });
+    return { ...ui, settingsSection, valueField, smallButton, routedPages, confirmModal };
+  };
+  // What a page needs from the resolution above to draw every row kind.
+  const SteamSettingsRequired = [
+    "react",
+    "focusable",
+    "toggleField",
+    "dropdown",
+    "sliderField",
+    "textField",
+    "dialogButton",
+    "smallButton",
+    "valueField",
+    "settingsSection",
+    "routedPages",
+    "confirmModal",
+    "showModal",
+  ];
+  // Asks before a change the host marked as needing it, in Steam's own confirm modal. Cancelling
+  // sends nothing, so the row keeps showing what the host last published.
+  const confirmSteamSetting = (ui, confirmation, proceed) => {
+    const h = ui.react.createElement;
+    ui.showModal(
+      h(ui.confirmModal, {
+        strTitle: confirmation.title,
+        strDescription: confirmation.description,
+        strOKButtonText: confirmation.confirmLabel,
+        bDestructiveWarning: confirmation.destructive !== false,
+        onOK: proceed,
+        onCancel: () => {},
+      }),
+      window,
+      { strTitle: confirmation.title },
+    );
+  };
+  // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
+  // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
+  // the value; `action` asks the host to run a row's action.
+  const renderSteamSettingRow = (ui, row, draft, change, action) => {
+    const h = ui.react.createElement;
+    const key = `steam-setting-${row.key}`;
+    const common = { label: row.label, description: row.description, disabled: !!row.disabled };
+    const send = (value) => {
+      const confirmation = row.confirm;
+      if (confirmation && value === confirmation.when) {
+        confirmSteamSetting(ui, confirmation, () => change(row, value));
+      } else {
+        change(row, value);
+      }
+    };
+    switch (row.kind) {
+      case "boolean":
+        return h(ui.toggleField, {
+          key,
+          ...common,
+          controlled: true,
+          checked: draft !== undefined ? draft : !!row.checked,
+          onChange: (value) => send(!!value),
+        });
+      case "choice":
+        return h(ui.dropdown, {
+          key,
+          ...common,
+          rgOptions: (row.choices ?? []).map((choice) => ({
+            data: choice.value,
+            label: choice.label,
+          })),
+          selectedOption: draft !== undefined ? draft : row.text,
+          onChange: (option) => send(option?.data),
+        });
+      case "range":
+        return h(ui.sliderField, {
+          key,
+          ...common,
+          value: draft !== undefined ? draft : (row.number ?? 0),
+          min: row.minimum ?? 0,
+          max: row.maximum ?? 100,
+          step: row.step ?? 1,
+          showValue: true,
+          valueSuffix: row.suffix ?? undefined,
+          // Every step while the slider moves only redraws it; the value is sent once, when it
+          // settles, so a sweep across the range is one write rather than dozens.
+          onChange: (value) => change(row, value, false),
+          onChangeComplete: (value) => send(value),
+        });
+      case "text":
+      case "secret": {
+        const secret = row.kind === "secret";
+        return h(ui.textField, {
+          key,
+          ...common,
+          // A secret is never published, so its box starts empty and says only whether one is set.
+          value: draft !== undefined ? draft : secret ? "" : (row.text ?? ""),
+          type: secret ? "password" : "text",
+          placeholder: secret ? row.text : undefined,
+          maxLength: row.maximumLength ?? undefined,
+          onChange: (event) => change(row, event?.target?.value ?? "", false),
+          onBlur: () => {
+            if (
+              draft === undefined ||
+              (secret && draft === "") ||
+              (!secret && draft === row.text)
+            ) {
+              return;
+            }
+            send(draft);
+          },
+        });
+      }
+      case "order": {
+        const values = draft !== undefined ? draft : (row.order ?? []);
+        const labelOf = (value) =>
+          row.choices?.find((choice) => choice.value === value)?.label ?? value;
+        const move = (index, offset) => {
+          const next = values.slice();
+          const [moved] = next.splice(index, 1);
+          next.splice(index + offset, 0, moved);
+          send(next);
+        };
+        return h(
+          ui.react.Fragment,
+          { key },
+          h(ui.valueField, {
+            name: row.label,
+            value: null,
+            description: row.description,
+            focusable: false,
+          }),
+          ...values.map((value, index) =>
+            h(ui.valueField, {
+              key: `${key}-${value}`,
+              name: labelOf(value),
+              indentLevel: 1,
+              focusable: false,
+              value: h(
+                ui.focusable,
+                { "flow-children": "row" },
+                h(
+                  ui.smallButton,
+                  { disabled: row.disabled || index === 0, onClick: () => move(index, -1) },
+                  "Move up",
+                ),
+                h(
+                  ui.smallButton,
+                  {
+                    disabled: row.disabled || index === values.length - 1,
+                    onClick: () => move(index, 1),
+                  },
+                  "Move down",
+                ),
+              ),
+            }),
+          ),
+        );
+      }
+      case "action":
+        return h(ui.valueField, {
+          key,
+          name: row.label,
+          description: row.description,
+          focusable: false,
+          value: h(
+            ui.dialogButton,
+            { disabled: !!row.disabled, onClick: () => action(row) },
+            row.buttonLabel ?? row.label,
+          ),
+        });
+      case "note":
+        return h(ui.valueField, {
+          key,
+          name: row.label,
+          value: row.text ?? "",
+          description: row.description,
+        });
+      default:
+        // A kind this build does not know is shown as its label and nothing else, never as a
+        // control that would send a value the host did not describe.
+        return h(ui.valueField, { key, name: row.label, value: "", description: row.description });
+    }
+  };
+  // The whole page: Steam's routed sidebar, one page per host page, each a list of Steam sections.
+  // `route` is the page's own registered route; each page sits below it, so Steam's router keeps
+  // the sidebar's selection in the address and the page's registration covers all of them.
+  function SteamSettingsView(props) {
+    const { ui, route, pages, revision, onChange, onAction } = props;
+    const react = ui.react;
+    const h = react.createElement;
+    const [drafts, setDrafts] = react.useState({});
+    // A new publication is the host's word on every row, so drafts typed against the last one go.
+    react.useEffect(() => setDrafts({}), [revision]);
+    const change = (row, value, commit = true) => {
+      setDrafts((previous) => ({ ...previous, [row.key]: value }));
+      if (commit) onChange(row, value);
+    };
+    return h(ui.routedPages, {
+      pages: (pages ?? []).map((page) => ({
+        title: page.title,
+        route: `${route}/${page.id}`,
+        icon: page.glyph ? renderSteamGlyph(react, page.glyph) : undefined,
+        content: h(
+          react.Fragment,
+          null,
+          ...(page.sections ?? []).map((section, index) =>
+            h(
+              ui.settingsSection,
+              { key: `${page.id}-${index}`, label: section.title ?? undefined },
+              ...(section.rows ?? []).map((row) =>
+                renderSteamSettingRow(ui, row, drafts[row.key], change, onAction),
+              ),
+            ),
+          ),
+        ),
+      })),
+    });
+  }
+  const renderSteamSettings = (ui, props) =>
+    ui.react.createElement(SteamSettingsView, { ui, ...props });
   // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
   // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
   // object is the entire gate — there is nothing to patch and nothing to hide.
@@ -4080,6 +4379,12 @@
   //         Ie      the panel root, props { loggedIn, menuOpen }   <- local, not exported
   //           d.Z   role "menu", aria-label #MainMenu_Title, flow-children "column"
   //             Ae  one route entry, props { route, active, label, icon, onGamepadFocus }
+  //             me  one action entry, props { label, action, active, icon, onGamepadFocus }
+  //
+  // Re-read on 2026-09-24: `Ae` maps its route to `me` through the router, so both draw the same row -
+  // Valve's Focusable with the menu's own Item, ItemIcon and ItemLabel classes, the active dot, and
+  // mouse and gamepad activation. `Ae` also gives the row its active state and navigates with Valve's
+  // own route action; `me` calls `action`. Power is an action entry, Library a route entry.
   //
   // `Ie` builds its list from `ve(loggedIn)` and maps it to entry elements keyed by the descriptor's
   // own `key`. Neither `Ie` nor `ve` is exported, and `ve` calls hooks — calling the module's own
@@ -4146,25 +4451,76 @@
       const identity = identify(element);
       return identity.route === anchor || identity.key === anchor;
     };
-    // One added entry. Rendered as Valve's own row would be if it could take arbitrary props: a
-    // menuitem div carrying the same role and accessible name, so the panel's keyboard and controller
-    // flow treats it as one of its own. It deliberately does not reuse Valve's route entry component —
-    // that one resolves its own active state from the router, and an entry pointing at a toolkit
-    // consumer's surface has no route in Steam's router to resolve.
-    const renderItem = (item) =>
-      react.createElement(
-        "div",
-        {
-          key: `steam-ui-nav-${item.id}`,
-          role: "menuitem",
-          "aria-label": item.label,
-          onClick: () => {
-            request(patchId, "activate", { id: item.id }).catch(() => {});
-          },
+    // Valve's own entry components, taken from the entries this render already holds. Both are local
+    // to the menu module, so a rendered sibling is the only place they can be had - and drawing an
+    // added row with them is what makes it Steam's row rather than a copy of one: the same focus
+    // bar, active dot, icon box and label, and the same gamepad activation. `onGamepadFocus` is the
+    // panel's own handler, which clears the focused running app the way every native entry does.
+    const nativeEntries = (children) => {
+      let route = null;
+      let action = null;
+      let onGamepadFocus;
+      for (const child of children) {
+        if (!react.isValidElement(child) || typeof child.type !== "function") continue;
+        const props = child.props ?? {};
+        if (!route && typeof props.route === "string") {
+          route = child.type;
+        } else if (
+          !action &&
+          typeof props.action === "function" &&
+          !("route" in props) &&
+          !("app" in props) &&
+          !("stream" in props)
+        ) {
+          action = child.type;
+        }
+        if (!onGamepadFocus && typeof props.onGamepadFocus === "function") {
+          onGamepadFocus = props.onGamepadFocus;
+        }
+      }
+      return { route, action, onGamepadFocus };
+    };
+    // The row's glyph: the host's own path data, or a toolkit glyph by name, or none.
+    const iconOf = (item) =>
+      (item.glyph ? renderSteamGlyph(react, item.glyph) : null) ??
+      (item.icon && icon ? icon(item.icon) : null);
+    const activate = (id) => {
+      void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
+        (answer) => {
+          // An action may answer with a page to open. The menu is a side panel, so it is
+          // closed first; a page opened behind it is, on a controller, a dead button.
+          if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
         },
-        item.icon && icon ? icon(item.icon) : null,
-        react.createElement("span", null, item.label),
+        () => {
+          // The host's refusal is already logged; a rejected press must not break the menu.
+        },
       );
+    };
+    // One added entry, drawn by Valve's own component. An entry with a route uses the route entry,
+    // which matches the route for its active state and navigates with Valve's own action exactly as
+    // Library does; the route is held to the bounds navigateSteamRoute applies, and is only followed
+    // when the user selects the row. Anything else uses the action entry and asks the host.
+    // Without the component it needs there is no row: an imitation would be a control that looks
+    // like Steam's and behaves like something else, so it is counted instead.
+    const renderItem = (item, native) => {
+      const common = {
+        key: `steam-ui-nav-${item.id}`,
+        label: item.label,
+        icon: iconOf(item),
+        onGamepadFocus: native.onGamepadFocus,
+      };
+      if (item.route && isNavigableRoute(item.route) && native.route) {
+        return react.createElement(native.route, {
+          ...common,
+          route: item.route,
+          active: "if-within-route",
+        });
+      }
+      if (!item.route && native.action) {
+        return react.createElement(native.action, { ...common, action: () => activate(item.id) });
+      }
+      return null;
+    };
     // Applies the host's list to the panel's own children.
     //
     // Order of operations matters and is fixed: hide first, then insert. Anchoring an insertion to an
@@ -4189,27 +4545,27 @@
         kept.push(child);
       }
       const pending = desired.items.slice(0, MaximumEntries);
+      // From every child, hidden ones included: hiding Power must not cost the action entry.
+      const native = nativeEntries(children);
       const placed = new Set();
       const result = [];
+      let unrendered = 0;
+      const place = (item) => {
+        placed.add(item.id);
+        const row = renderItem(item, native);
+        if (row) result.push(row);
+        else unrendered++;
+      };
       for (const item of pending) {
-        if (item.position === "start") {
-          result.push(renderItem(item));
-          placed.add(item.id);
-        }
+        if (item.position === "start") place(item);
       }
       for (const child of kept) {
         for (const item of pending) {
-          if (!placed.has(item.id) && matchesAnchor(child, item.before)) {
-            result.push(renderItem(item));
-            placed.add(item.id);
-          }
+          if (!placed.has(item.id) && matchesAnchor(child, item.before)) place(item);
         }
         result.push(child);
         for (const item of pending) {
-          if (!placed.has(item.id) && matchesAnchor(child, item.after)) {
-            result.push(renderItem(item));
-            placed.add(item.id);
-          }
+          if (!placed.has(item.id) && matchesAnchor(child, item.after)) place(item);
         }
       }
       // Anything left over goes at the end, including an entry whose anchor is not in this panel.
@@ -4219,9 +4575,11 @@
       for (const item of pending) {
         if (placed.has(item.id)) continue;
         if (item.before || item.after) orphaned++;
-        result.push(renderItem(item));
+        place(item);
       }
-      lastOutcome = `entries=${observed.length} hidden=${hidden} added=${pending.length} orphaned=${orphaned}`;
+      lastOutcome =
+        `entries=${observed.length} hidden=${hidden} added=${pending.length - unrendered} ` +
+        `orphaned=${orphaned} unrendered=${unrendered}`;
       return result;
     };
     // Wraps the panel root so its OUTPUT can be changed. Cached against the original, because a fresh
@@ -4323,6 +4681,7 @@
         desired = {
           items: items
             .filter((item) => item && typeof item.id === "string" && typeof item.label === "string")
+            .filter((item) => item.route == null || isNavigableRoute(item.route))
             .slice(0, MaximumEntries),
           hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
         };
@@ -9259,6 +9618,93 @@
   }
   registerSteamPageRenderer("library-import", renderLibraryImportPage);
   registerGate("libraryImport", createLibraryImport());
+  // WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
+  //
+  // Thin on purpose. The toolkit's settings renderer draws every row with Steam's own Settings
+  // components - the routed sidebar, sections, fields and confirm modal - so the page looks and
+  // navigates exactly like Steam's Settings. WSGM owns the rows and every decision about them.
+  const WsgmSettingsPatchId = "steam-ui.wsgm-settings";
+  const WsgmSettingsRoute = "/wsgm/settings";
+  let wsgmSettingsUi = null;
+  let wsgmSettingsState = null;
+  const wsgmSettingsListeners = new Set();
+  function renderWsgmSettingsPage() {
+    const react = wsgmSettingsUi?.react;
+    if (!react) return null;
+    const Page = () => {
+      const [, setPublished] = react.useState(0);
+      // A refused change is not republished, so the page counts refusals itself: each one is a new
+      // revision for the renderer, which drops the draft and shows the host's value again.
+      const [refusals, setRefusals] = react.useState(0);
+      react.useEffect(() => {
+        const listener = () => setPublished((value) => value + 1);
+        wsgmSettingsListeners.add(listener);
+        return () => wsgmSettingsListeners.delete(listener);
+      }, []);
+      const state = wsgmSettingsState ?? {};
+      return renderSteamSettings(wsgmSettingsUi, {
+        route: WsgmSettingsRoute,
+        pages: state.pages ?? [],
+        revision: `${state.revision ?? 0}:${refusals}`,
+        onChange: (row, value) => {
+          request(
+            WsgmSettingsPatchId,
+            "set",
+            { key: row.key, value },
+            nextActionGeneration(WsgmSettingsPatchId),
+          ).catch(() => setRefusals((count) => count + 1));
+        },
+        // No row on this page is an action.
+        onAction: () => {},
+      });
+    };
+    return react.createElement(Page, {});
+  }
+  function createWsgmSettings() {
+    let installed = false;
+    let unsubscribe = null;
+    let lastError = "";
+    const resolve = () => {
+      wsgmSettingsUi = resolveSteamSettingsComponents(getWebpackRuntime("wsgm-settings"));
+      const missing = SteamSettingsRequired.filter((name) => !wsgmSettingsUi?.[name]);
+      if (missing.length) {
+        lastError = `Native Steam components unavailable: ${missing.join(", ")}`;
+        wsgmSettingsUi = null;
+        return false;
+      }
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (!attemptResolution(resolve, (error) => (lastError = String(error)))) {
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(WsgmSettingsPatchId, (state) => {
+        wsgmSettingsState = state;
+        wsgmSettingsListeners.forEach((listener) => listener());
+      });
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      wsgmSettingsState = null;
+      wsgmSettingsUi = null;
+      return { ok: true };
+    };
+    const status = () => ({
+      installed,
+      resolved: !!wsgmSettingsUi,
+      subscribed: !!unsubscribe,
+      pages: wsgmSettingsState?.pages?.length ?? 0,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerSteamPageRenderer("wsgm-settings", renderWsgmSettingsPage);
+  registerGate("wsgmSettings", createWsgmSettings());
   // The last fragment in the bundle, and the only thing in it.
   //
   // bridge.ts opens the IIFE and every other fragment is concatenated into it, so the value the
