@@ -929,6 +929,25 @@
   // dropping it would re-key the node inside its parent's child list on every render.
   const keyed = (element, props = element.props) =>
     element.key === null ? props : { ...props, key: element.key };
+  // A portal is not an element: isValidElement answers false, and its children sit on the portal
+  // itself rather than under props. Steam's Quick Access menu draws its whole body through one into
+  // the popup window, so a descent that treats a portal as a leaf never reaches the tab list beneath
+  // it (2026-09-24). React reads a portal by `$$typeof`, `children` and `containerInfo`, so a shallow
+  // copy with mapped children is a portal to it.
+  const PortalType = Symbol.for("react.portal");
+  const isPortal = (value) => !!value && typeof value === "object" && value.$$typeof === PortalType;
+  const mapPortalChildren = (react, portal, map) => {
+    const kids = react.Children.toArray(portal.children);
+    if (!kids.length) return portal;
+    let changed = false;
+    const next = [];
+    for (const kid of kids) {
+      const replacement = map(kid);
+      changed ||= replacement !== kid;
+      if (replacement !== null) next.push(replacement);
+    }
+    return changed ? { ...portal, children: next } : portal;
+  };
   // Maps an element's children and clones it only when one changed; a child mapped to null is
   // dropped. An element with no children, or with more than `maximum`, is returned as it is.
   const mapChildren = (react, element, map, maximum = Infinity) => {
@@ -2693,7 +2712,11 @@
     };
     const QamToken = "QuickAccessMenuBrowserView";
     const MaximumItems = 64;
-    const MaximumDescent = 12;
+    // Element depth within one render pass, reset at every wrapped component. Measured on the
+    // 2026-09-24 client: from the component carrying onFocusNavDeactivated to the element holding
+    // the tab list is nineteen component-typed levels behind context providers and host elements,
+    // so twelve stopped short of it.
+    const MaximumDescent = 32;
     let runtime;
     let react;
     let focusable;
@@ -3050,7 +3073,12 @@
         return descend(type(props), 0, props?.visible);
       };
     const descend = (element, depth, visible) => {
-      if (depth > MaximumDescent || !react.isValidElement(element)) return element;
+      if (depth > MaximumDescent) return element;
+      // The menu's body is drawn through a portal into the popup window; see mapPortalChildren.
+      if (isPortal(element)) {
+        return mapPortalChildren(react, element, (kid) => descend(kid, depth + 1, visible));
+      }
+      if (!react.isValidElement(element)) return element;
       const replaced = replaceTabs(element, depth, visible);
       if (replaced !== element) return replaced;
       // A render whose root is not a plain function component — a context provider, a host div — is
@@ -9718,8 +9746,11 @@
       ),
     );
   };
-  function renderLibraryImportPage() {
-    const react = importUi?.react;
+  // React comes from the router when the gate has not resolved yet, so the route always carries a
+  // component: one built with a null child stays null until the routes are rebuilt, and the page
+  // opened blank when the gate resolved a second after the routes did (2026-09-24).
+  function renderLibraryImportPage(routerReact) {
+    const react = importUi?.react ?? routerReact;
     if (!react) return null;
     const Page = () => {
       const [, setRevision] = react.useState(0);
@@ -9728,6 +9759,8 @@
         importListeners.add(listener);
         return () => importListeners.delete(listener);
       }, []);
+      // After the hooks, so a render before the gate resolves calls the same ones as one after.
+      if (!importUi) return react.createElement("div", { className: "sgdb-loading" }, "Loading…");
       const state = importDesired ?? {};
       const entries = state.entries ?? [];
       const busy = !!state.loading;
@@ -9910,8 +9943,14 @@
       onAction: () => {},
     });
   }
-  function renderWsgmSettingsPage() {
-    return wsgmSettingsUi ? wsgmSettingsReact.createElement(WsgmSettingsPage, {}) : null;
+  // Always the component, never null. The page host builds every route the moment WSGM publishes
+  // them, which on a cold start is a second before this gate has resolved; a route built with a null
+  // child kept it, and the page opened blank until something rebuilt the routes (2026-09-24). The
+  // component draws nothing until the gate is there and re-renders on its first publication. React
+  // comes from the router when the gate has not supplied it yet: Steam has exactly one.
+  function renderWsgmSettingsPage(react) {
+    wsgmSettingsReact ??= react;
+    return wsgmSettingsReact.createElement(WsgmSettingsPage, {});
   }
   function createWsgmSettings() {
     let installed = false;

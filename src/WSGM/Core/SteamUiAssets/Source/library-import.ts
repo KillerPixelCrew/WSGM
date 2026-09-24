@@ -283,8 +283,11 @@ const renderImportRow = (entry: any) => {
   );
 };
 
-function renderLibraryImportPage() {
-  const react = importUi?.react;
+// React comes from the router when the gate has not resolved yet, so the route always carries a
+// component: one built with a null child stays null until the routes are rebuilt, and the page
+// opened blank when the gate resolved a second after the routes did (2026-09-24).
+function renderLibraryImportPage(routerReact: any) {
+  const react = importUi?.react ?? routerReact;
   if (!react) return null;
 
   const Page = () => {
@@ -294,6 +297,9 @@ function renderLibraryImportPage() {
       importListeners.add(listener);
       return () => importListeners.delete(listener);
     }, []);
+
+    // After the hooks, so a render before the gate resolves calls the same ones as one after.
+    if (!importUi) return react.createElement("div", { className: "sgdb-loading" }, "Loading…");
 
     const state = importDesired ?? {};
     const entries = state.entries ?? [];
