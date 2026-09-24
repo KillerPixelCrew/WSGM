@@ -250,7 +250,7 @@ internal sealed record PluginPackageCatalog
             ? ("api-incompatible", "Package API version does not equal this runtime.")
             : !device.EntryIsX64Assembly
                 ? ("architecture-unsupported", "Plugin entry point is not an x64 managed assembly.")
-                : ((string?)null, (string?)null);
+                : (null, null);
         return new InstalledDevicePackage
         {
             PackagePath = device.Path,
@@ -263,7 +263,7 @@ internal sealed record PluginPackageCatalog
 
     private static Version ParseVersion(string version)
     {
-        return System.Version.TryParse(version, out var parsed) ? parsed : new Version(0, 0);
+        return Version.TryParse(version, out var parsed) ? parsed : new Version(0, 0);
     }
 
     private sealed record Candidate(

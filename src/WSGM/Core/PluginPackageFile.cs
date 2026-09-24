@@ -7,6 +7,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
+using WSGM.Plugin.Sdk;
 using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 using DeviceManifestReader = WSGM.Device.Sdk.Packaging.PluginManifestReader;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
@@ -287,7 +288,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
                 throw new InvalidDataException(string.Join(" ", errors));
             }
 
-            if (common!.Category == WSGM.Plugin.Sdk.PluginCategories.Device)
+            if (common!.Category == PluginCategories.Device)
             {
                 throw new InvalidDataException("Device packages use the device manifest, not a common category.");
             }
