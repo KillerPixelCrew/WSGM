@@ -1,6 +1,7 @@
 using System.Text;
 using WSGM.Core;
 using WSGM.Device.Sdk;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Tests;
 using WSGM.Tests.Builders;
 
@@ -8,6 +9,8 @@ namespace WSGM.Tests.Core;
 
 public sealed class PluginPackageCatalogTests
 {
+    private static string Host => PluginPackageFile.HostVersion.ToString(3);
+
     [Fact]
     public void MissingPluginsFolder_IsAValidInstallWithoutPlugins()
     {
@@ -110,7 +113,7 @@ public sealed class PluginPackageCatalogTests
 
         Assert.NotNull(manifest);
         Assert.Equal("MS-1T52", Assert.Single(manifest.Hardware).BaseboardProduct);
-        Assert.Equal(WSGM.Device.Sdk.Capabilities.CapabilityRole.FanMode, Assert.Single(manifest.Capabilities));
+        Assert.Equal(CapabilityRole.FanMode, Assert.Single(manifest.Capabilities));
     }
 
     [Fact]
@@ -206,8 +209,6 @@ public sealed class PluginPackageCatalogTests
         return WritePackage(directory, fileName, DeviceManifestJson(id, version, apiVersion),
             ("plugin.dll", EntryImage()));
     }
-
-    private static string Host => PluginPackageFile.HostVersion.ToString(3);
 
     private static string DeviceManifestJson(string id, string version, int apiVersion = DeviceApi.Version,
         string? wsgmVersion = null)

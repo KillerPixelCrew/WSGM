@@ -17,7 +17,8 @@ public sealed class CommonPluginPackageTests
         var path = WritePackage(temporary.GetPath("ir.wsgmpkg"), $$"""
                                                                    {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
                                                                     "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin","wsgmVersion":"{{PluginPackageFile.HostVersion.ToString(3)}}"}
-                                                                   """, typeof(IrPlugin).Assembly.Location, "WSGM.Plugin.Ir.dll");
+                                                                   """, typeof(IrPlugin).Assembly.Location,
+            "WSGM.Plugin.Ir.dll");
         var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
         var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
