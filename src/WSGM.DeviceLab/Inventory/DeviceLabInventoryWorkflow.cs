@@ -62,7 +62,7 @@ internal static class DeviceLabInventoryWorkflow
     /// <summary>Canonical inventory filename inside the explicit output directory.</summary>
     private const string InventoryFileName = "inventory.json";
 
-    private static readonly (string Namespace, string ClassName)[] ProbedWmiClasses =
+    internal static readonly (string Namespace, string ClassName)[] ProbedWmiClasses =
     [
         ("root\\WMI", "MSI_ACPI"),
         ("root\\WMI", "MSI_Event"),

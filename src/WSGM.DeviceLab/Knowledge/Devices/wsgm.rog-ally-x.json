@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 1,
+  "id": "wsgm.rog-ally-x",
+  "displayName": "ASUS ROG Ally X (RC72LA)",
+  "status": "Curated",
+  "hcClass": "ROGAllyX",
+  "hcBaseClasses": ["ROGAlly", "ASUS"],
+  "supersedes": ["hc.rog-ally-x"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ASUSTeK COMPUTER INC.",
+      "baseboardProduct": "RC72LA"
+    },
+    {
+      "baseboardManufacturer": "ASUSTeK COMPUTER INC.",
+      "baseboardProduct": "RC72L"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [5, 30]
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "FanControl",
+    "OEMCPU"
+  ],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "0B05",
+      "productIds": ["1B4C"],
+      "usagePage": 65329,
+      "usage": 128,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/Hid.cs",
+        "note": "The FF31:0080 collection AllyXLab gates on; HC finds it as the interface where feature report 0x5A is readable."
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Command Center",
+      "wizardButton": "OemLeft",
+      "hcFlag": "OEM1",
+      "source": "HidReport",
+      "reportId": 90,
+      "byteOffset": 1,
+      "mask": 166,
+      "matchesValue": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:485",
+        "note": "Input report 0x5A, key code 0xA6. On the Xbox Ally X the same button arrived as F21 instead."
+      }
+    },
+    {
+      "name": "Armoury Crate",
+      "wizardButton": "OemRight",
+      "hcFlag": "OEM2",
+      "source": "HidReport",
+      "reportId": 90,
+      "byteOffset": 1,
+      "mask": 56,
+      "matchesValue": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:485",
+        "note": "Key code 0x38. On the Xbox Ally X the same button arrived as F22 instead."
+      }
+    },
+    {
+      "name": "M1",
+      "wizardButton": "BackLeft1",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F18"],
+      "releaseKeys": ["F18"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:660",
+        "note": "Only after HC's M1F18M2F17 remap. The firmware default is unrecorded, and the remap persists after HC exits."
+      }
+    },
+    {
+      "name": "M2",
+      "wizardButton": "BackRight1",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["F17"],
+      "releaseKeys": ["F17"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:660",
+        "note": "Only after HC's M1F18M2F17 remap."
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": { "X": "X", "Y": "Z", "Z": "Y" },
+      "sign": { "X": -1, "Y": -1, "Z": 1 }
+    },
+    "accelerometer": {
+      "swap": { "X": "X", "Y": "Z", "Z": "Y" },
+      "sign": { "X": -1, "Y": -1, "Z": 1 }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/ROGAllyX.json"
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "tdp",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "set": "DEVS",
+        "get": "DSTS",
+        "sustainedId": "0x001200A3",
+        "slowId": "0x001200A0",
+        "fastId": "0x001200C1",
+        "minimumWatts": "5",
+        "maximumWatts": "25"
+      },
+      "hasReadback": true,
+      "note": "AllyXLab bounds tests to 5-25 W and restores limits in a safe order (AsusControl.Restore).",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/AsusControl.cs",
+        "note": "Transport cross-checked against HHD and HC; no remote hardware result is recorded."
+      }
+    },
+    {
+      "feature": "power-profile",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "id": "0x00120075",
+        "values": "0 balanced, 1 performance, 2 silent"
+      },
+      "hasReadback": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/AsusControl.cs"
+      }
+    },
+    {
+      "feature": "fan",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "cpuCurveId": "0x00110024",
+        "gpuCurveId": "0x00110025",
+        "cpuSpeedId": "0x00110013",
+        "gpuSpeedId": "0x00110014",
+        "curve": "16 bytes: 8 temperatures then 8 duties (0-99)"
+      },
+      "hasReadback": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/AsusControl.cs"
+      }
+    },
+    {
+      "feature": "charge-limit",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "id": "0x00120057",
+        "range": "0-100"
+      },
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.ASUS/AsusACPI.cs"
+      }
+    },
+    {
+      "feature": "lighting",
+      "transport": "hid-output",
+      "parameters": {
+        "vendorId": "0B05",
+        "productId": "1B4C",
+        "usagePage": "0xFF31",
+        "usage": "0x0080",
+        "init": "5A 'ASUS Tech.Inc.'",
+        "brightness": "5A BA C5 C4 <0-3>",
+        "color": "5A B3 <zone> ... (64 bytes)",
+        "apply": "5A B5, 5A B4"
+      },
+      "note": "Write-only; the prior colour cannot be read, so restoring means the tester confirms the result. HC sends Aura as report 0x5D instead.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/Worker.cs"
+      }
+    },
+    {
+      "feature": "rumble",
+      "transport": "hid-output",
+      "parameters": {
+        "vendorId": "0B05",
+        "productId": "1B4C",
+        "report": "0D 0F 00 00 <left%> <right%> FF 00 EB"
+      },
+      "note": "HHD's output report. XInput and Windows.Gaming.Input are the alternative routes.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/Motors.cs"
+      }
+    },
+    {
+      "feature": "button-init",
+      "transport": "hid-feature",
+      "parameters": {
+        "vendorId": "0B05",
+        "reportId": "0x5A",
+        "reportLength": "64",
+        "gamepadMode": "5A D1 01 01 01",
+        "commit": "5A D1 0F 20; 5A D1 06 02 64 64; 5A D1 04 04 00 64 00 64; 5A D1 05 04 00 64 00 64"
+      },
+      "note": "HC's ConfigureController writes the default button tables and optionally remaps M1/M2 to F18/F17. The tables are not readable, so the wizard never sends this without the tester's consent.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:652"
+      }
+    }
+  ],
+  "hazards": [
+    "HC's M1/M2 remap is a persistent firmware write. A device that has run HC reports F18/F17 whatever the factory default is."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "tools/AllyXLab 0.3.2 and _ref/HandheldCompanion 1.3.1.6",
+      "note": "Curated from AllyXLab's ASUS code and HC's ROGAlly class. Nothing here has a recorded hardware pass."
+    }
+  ]
+}

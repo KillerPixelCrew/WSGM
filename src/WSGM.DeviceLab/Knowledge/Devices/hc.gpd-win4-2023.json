@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.gpd-win4-2023",
+  "displayName": "GPD Win4 2023",
+  "status": "Extracted",
+  "hcClass": "GPDWin4_2023",
+  "identity": [
+    {
+      "baseboardManufacturer": "GPD",
+      "baseboardProduct": "G1618-04",
+      "processorName": "AMD Ryzen 7 7840U w/ Radeon 780M Graphics"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 28],
+    "configurableWatts": [5, 30],
+    "gpuClockMhz": [200, 2700],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": ["FanControl"],
+  "buttons": [
+    {
+      "name": "Bottom button left",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F11", "L"],
+      "releaseKeys": ["F11", "L"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2023.cs:42"
+      }
+    },
+    {
+      "name": "Bottom button right",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F12", "R"],
+      "releaseKeys": ["F12", "R"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2023.cs:56"
+      }
+    }
+  ],
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x275",
+        "dutyRegister": "0x1809",
+        "dutyMinimum": "0",
+        "dutyMaximum": "184"
+      },
+      "note": "ECDetails with HC\u0027s default SetFanDuty: duty = percent * (max - min) / 100 \u002B min; control register 1 = manual, 0 = auto.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2023.cs:20"
+      }
+    }
+  ],
+  "hcOverrides": ["GPDWin4_2023.Close", "GPDWin4_2023.GetGlyph"],
+  "hazards": [
+    "HC ships Resources/Devices/GPDWin4-2023.json for this device but never loads it (it looks up GPDWin4_2023.json), so HC runs with identity axes."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2023.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

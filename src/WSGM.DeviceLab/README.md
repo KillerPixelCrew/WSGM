@@ -8,6 +8,38 @@ only a real machine can answer.
 
 It is a GUI and a CLI over the same code. The executable is `wsgm-device`.
 
+## The tester wizard
+
+Started with no arguments (or `wsgm-device wizard`), Device Lab opens a step-by-step test meant for
+someone who is not a developer. It asks for administrator rights once, then:
+
+1. **Get ready.** Holds WSGM's device-owner lock for the session, so WSGM's device integration
+   cannot run beside the test. Lists other controller software that would hide or change the device
+   and offers to close it (a close request only; services are never stopped). Adds itself to
+   HidHide's allowed programs and removes exactly that entry when the test finishes or the window
+   closes. Installs the pinned PawnIO driver when it is missing, and asks before replacing an older
+   one.
+2. **Your device.** Reads the board, BIOS, EC and processor identity, matches it against the known
+   devices and asks the tester to confirm, or to type the product name and exact model.
+3. The later stages (system details, buttons, motion, rumble, power and fans, sleep) are listed and
+   arrive in later builds.
+4. **Finish and share.** Shows every file that will be shared, what was replaced (account names,
+   user folders, device instance paths, network addresses) and what stays on the computer, then
+   writes one `.wsgmlab` file, a ZIP of the redacted test folder.
+
+Each test is a folder under `Documents\WSGM Device Lab`. Selecting a stage in the list shows its
+result; "Run again" starts a new attempt, and every attempt is kept, so a wrongly read button does
+not mean repeating the whole test. Changes the wizard makes to the machine are also recorded in
+`%LOCALAPPDATA%\WSGM Device Lab\wizard`, so a session that was killed is cleaned up the next time
+the wizard starts.
+
+`wsgm-device gui` opens the developer tabs described below instead. For a remote tester, publish one
+self-contained file:
+
+```powershell
+.\eng\publish-device-lab.ps1 -Portable -OutputRoot publish/DeviceLabPortable
+```
+
 ## Why it is a separate tool
 
 Writing a device plugin means answering questions about a specific machine that no documentation
@@ -25,6 +57,7 @@ installed at all.
 # 1. What is this machine?
 wsgm-device doctor    --out-dir diagnostics
 wsgm-device inventory --out-dir inventory --shareable
+wsgm-device candidates --from inventory/inventory.json # which known device is this?
 
 # 2. Capture it, then read what you captured.
 wsgm-device capture    run --recipe recipe.json --out-dir captures # attended; you approve its scope
@@ -47,6 +80,30 @@ wsgm-device pack my-plugin --out plugin.wsgmpkg
 
 `inventory --shareable` is the form meant for a bug report: it keeps the device facts and drops the
 identifying ones.
+
+## Known devices
+
+`candidates` compares the inventory against the knowledge base compiled into Device Lab and lists
+every record whose identity rules match, with the fields that matched. A tester confirms the match;
+Device Lab never assumes it.
+
+The records live in `Knowledge/Devices` and come in two kinds:
+
+- **Extracted** (`hc.*.json`) are generated from the decompiled Handheld Companion source by
+  `eng/extract-hc-devices.ps1`. They hold what HC states declaratively: its device switch, power
+  ranges, capability flags, OEM key chords, EC fan registers and the IMU axis map HC actually
+  applies. Behaviour HC implements inside methods is listed as overridden members, not guessed.
+  Nothing in an extracted record is hardware-verified, and HC's own mistakes are recorded as hazards
+  rather than corrected.
+- **Curated** (`wsgm.*.json`) are written by hand from a WSGM plugin, a lab run or reviewed HC
+  source, with the evidence for each fact. Only a curated record carries button mappings, write
+  mechanisms with readback, or can supersede an extracted record.
+
+Regenerate the extracted records after updating the reference, and review the diff:
+
+```powershell
+.\eng\extract-hc-devices.ps1
+```
 
 ## Attended versus unattended
 
@@ -112,6 +169,11 @@ That is what stops you building a plugin against a contract the host does not ha
 
 MIT, see `LICENSE`. Third-party components it redistributes keep their own licences, see
 `THIRD_PARTY_NOTICES.md`.
+
+Device Lab compiles in four interop sources from WSGM itself (`Kernel32.cs`,
+`NativePackageSource.cs`, `NativePathIdentity.cs` and `NativeHidHide.cs` under `src/WSGM/Interop`),
+and parts of the wizard are ported from the AllyXLab tool. Their copyright holder licenses those
+copies to Device Lab under its MIT licence; the originals in WSGM stay under WSGM's GPL.
 
 Capability publications can include SDK prominence and companion hints. Device Lab checks them with
 `CapabilityLayout.TryValidate` before an attended capability action; these hints describe host

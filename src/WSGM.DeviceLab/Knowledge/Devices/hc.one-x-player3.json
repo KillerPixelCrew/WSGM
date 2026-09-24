@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.one-x-player3",
+  "displayName": "One X Player3",
+  "status": "Extracted",
+  "hcClass": "OneXPlayer3",
+  "hcBaseClasses": ["OneXPlayerX2", "OneXPlayerX1", "OneXAOKZOE"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ONE-NETBOOK TECHNOLOGY CO., LTD.",
+      "baseboardProduct": "ONEXPLAYER 3"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK TECHNOLOGY CO., LTD.",
+      "baseboardProduct": "ONEXPLAYER-3"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK",
+      "baseboardProduct": "ONEXPLAYER 3"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK",
+      "baseboardProduct": "ONEXPLAYER-3"
+    }
+  ],
+  "power": {
+    "nominalWatts": [25, 25, 35],
+    "configurableWatts": [3, 35],
+    "gpuClockMhz": [100, 2300],
+    "cpuClockMhz": 4700
+  },
+  "capabilities": [
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "DynamicLightingSecondLEDColor",
+    "FanControl"
+  ],
+  "lightingModes": ["Breathing", "LEDPreset", "SolidColor"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "1A86",
+      "productIds": ["FE00"],
+      "usagePage": 65280,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayer3.cs:18"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "LAlt"],
+      "releaseKeys": ["LAlt", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:145"
+      }
+    },
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:161"
+      }
+    },
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "LAlt"],
+      "releaseKeys": ["LAlt", "LWin", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:81"
+      }
+    },
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "LAlt"],
+      "releaseKeys": ["LAlt", "LControl", "LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:97"
+      }
+    },
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "LAlt"],
+      "releaseKeys": ["LControl", "LWin", "LAlt"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:113"
+      }
+    },
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:130"
+      }
+    },
+    {
+      "name": "Home",
+      "hcFlag": "OEM3",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:131",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "G-Key",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["LButton", "XButton2"],
+      "releaseKeys": ["LButton", "XButton2"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:146"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "Y",
+        "Y": "Z",
+        "Z": "X"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "Y",
+        "Y": "Z",
+        "Z": "X"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/OneXPlayerX2.json",
+      "note": "Inherited from OneXPlayerX2.json through HC\u0027s parent lookup."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "184"
+      },
+      "note": "ECDetails as declared; OneXAOKZOE.SetFanControl and OneXAOKZOE.SetFanDuty and OneXPlayerX2.SetFanControl and OneXPlayerX2.SetFanDuty replace the default write, so check them before trusting this.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX2.cs:37"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "OneXAOKZOE.Close",
+    "OneXAOKZOE.Open",
+    "OneXAOKZOE.SetFanControl",
+    "OneXAOKZOE.SetFanDuty",
+    "OneXPlayer3.IsBatteryProtectionSupported",
+    "OneXPlayer3.MapVendorButton",
+    "OneXPlayer3.SetLedBrightness",
+    "OneXPlayer3.SetLedColor",
+    "OneXPlayerX1.Close",
+    "OneXPlayerX1.Device_Inserted",
+    "OneXPlayerX1.Device_Removed",
+    "OneXPlayerX1.GetGlyph",
+    "OneXPlayerX1.IsReady",
+    "OneXPlayerX1.Open",
+    "OneXPlayerX1.QuerySettings",
+    "OneXPlayerX1.SetLEDPreset",
+    "OneXPlayerX1.SetLedBrightness",
+    "OneXPlayerX1.SetLedColor",
+    "OneXPlayerX1.SetLedStatus",
+    "OneXPlayerX1.SettingsManager_SettingValueChanged",
+    "OneXPlayerX2.Close",
+    "OneXPlayerX2.ConfigureController",
+    "OneXPlayerX2.CreateController",
+    "OneXPlayerX2.GetGlyph",
+    "OneXPlayerX2.HandleEvent",
+    "OneXPlayerX2.IsBatteryProtectionSupported",
+    "OneXPlayerX2.MapVendorButton",
+    "OneXPlayerX2.Open",
+    "OneXPlayerX2.ReadCPUTemperature",
+    "OneXPlayerX2.ReadFanDuty",
+    "OneXPlayerX2.SetFanControl",
+    "OneXPlayerX2.SetFanDuty",
+    "OneXPlayerX2.SetTurboButtonTakeover"
+  ],
+  "hazards": [
+    "The X1 opens its own CH340 serial port (115200) for LED control. Do not probe it as a serial IMU."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayer3.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.legion-go-sz2",
+  "displayName": "Legion Go SZ2",
+  "status": "Extracted",
+  "hcClass": "LegionGoSZ2",
+  "hcBaseClasses": ["LegionGoSZ1", "LegionGo"],
+  "identity": [
+    {
+      "baseboardManufacturer": "LENOVO",
+      "systemModel": "83L3"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [5, 30],
+    "gpuClockMhz": [100, 2700],
+    "cpuClockMhz": 5000
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "FanControl",
+    "FanOverride",
+    "OEMCPU"
+  ],
+  "lightingModes": ["Breathing", "Rainbow", "SolidColor", "Wheel"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "1A86",
+      "productIds": ["E310", "E311"],
+      "usagePage": 65440,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:20"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "LegionR",
+      "hcFlag": "OEM1",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.Lenovo/LegionGo.cs:256",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "LegionL",
+      "hcFlag": "OEM2",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.Lenovo/LegionGo.cs:257",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    }
+  ],
+  "hcOverrides": [
+    "LegionGo.Close",
+    "LegionGo.Device_Inserted",
+    "LegionGo.Device_Removed",
+    "LegionGo.GetGlyph",
+    "LegionGo.IsReady",
+    "LegionGo.Open",
+    "LegionGo.PowerProfileManager_Applied",
+    "LegionGo.QuerySettings",
+    "LegionGo.SettingsManager_SettingValueChanged",
+    "LegionGo.set_long_limit",
+    "LegionGo.set_short_limit",
+    "LegionGoSZ1.Device_Inserted",
+    "LegionGoSZ1.IsReady",
+    "LegionGoSZ1.SetLedBrightness",
+    "LegionGoSZ1.SetLedColor",
+    "LegionGoSZ1.SetLedStatus",
+    "LegionGoSZ1.SetPassthrough"
+  ],
+  "hazards": [
+    "HC finds no IMU configuration for this class (HandheldCompanion.Devices.Lenovo is outside the namespace its parent lookup searches), so it applies identity axes."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.Lenovo/LegionGoSZ2.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

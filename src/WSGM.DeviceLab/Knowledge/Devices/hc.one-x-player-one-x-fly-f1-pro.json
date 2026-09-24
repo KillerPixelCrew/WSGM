@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.one-x-player-one-x-fly-f1-pro",
+  "displayName": "One X Player One X Fly F1 Pro",
+  "status": "Extracted",
+  "hcClass": "OneXPlayerOneXFlyF1Pro",
+  "hcBaseClasses": ["OneXPlayerOneXFly", "OneXAOKZOE"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ONE-NETBOOK TECHNOLOGY CO., LTD.",
+      "baseboardProduct": "ONEXPLAYER F1Pro"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK",
+      "baseboardProduct": "ONEXPLAYER F1Pro"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [5, 30],
+    "gpuClockMhz": [100, 2900],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": ["DynamicLighting", "DynamicLightingBrightness", "FanControl"],
+  "lightingModes": ["Rainbow", "SolidColor"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "1A2C",
+      "productIds": ["B001"],
+      "usagePage": 65281,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerOneXFly.cs:43"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "LAlt"],
+      "releaseKeys": ["LAlt", "LWin", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerOneXFly.cs:64"
+      }
+    },
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerOneXFly.cs:80"
+      }
+    },
+    {
+      "name": "Home",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerOneXFly.cs:94"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/OneXPlayerOneXFly.json",
+      "note": "Inherited from OneXPlayerOneXFly.json through HC\u0027s parent lookup."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "11",
+        "dutyMaximum": "255"
+      },
+      "note": "ECDetails as declared; OneXAOKZOE.SetFanControl and OneXAOKZOE.SetFanDuty and OneXPlayerOneXFly.SetFanControl and OneXPlayerOneXFly.SetFanDuty replace the default write, so check them before trusting this.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerOneXFly.cs:33"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "OneXAOKZOE.Close",
+    "OneXAOKZOE.Open",
+    "OneXAOKZOE.SetFanControl",
+    "OneXAOKZOE.SetFanDuty",
+    "OneXPlayerOneXFly.GetGlyph",
+    "OneXPlayerOneXFly.IsReady",
+    "OneXPlayerOneXFly.SetFanControl",
+    "OneXPlayerOneXFly.SetFanDuty",
+    "OneXPlayerOneXFly.SetLedBrightness",
+    "OneXPlayerOneXFly.SetLedColor"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerOneXFlyF1Pro.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

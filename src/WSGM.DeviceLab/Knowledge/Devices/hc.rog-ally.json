@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.rog-ally",
+  "displayName": "ROG Ally",
+  "status": "Extracted",
+  "hcClass": "ROGAlly",
+  "hcBaseClasses": ["ASUS"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ASUSTEK COMPUTER INC.",
+      "baseboardProduct": "RC71L"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [5, 30],
+    "gpuClockMhz": [100, 2700],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "FanControl",
+    "OEMCPU"
+  ],
+  "lightingModes": ["Ambilight", "Breathing", "Rainbow", "SolidColor", "Wheel"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "0B05",
+      "productIds": ["1ABE", "1B4C"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:213"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "CC",
+      "hcFlag": "OEM1",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:260",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "AC",
+      "hcFlag": "OEM2",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:261",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "LIB",
+      "hcFlag": "OEM5",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:262",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "M1",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F18"],
+      "releaseKeys": ["F18"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:272"
+      }
+    },
+    {
+      "name": "M2",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["F17"],
+      "releaseKeys": ["F17"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:282"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/ROGAlly.json"
+    }
+  },
+  "hcOverrides": [
+    "ASUS.Open",
+    "ROGAlly.Close",
+    "ROGAlly.Device_Inserted",
+    "ROGAlly.Device_Removed",
+    "ROGAlly.GetFontFamily",
+    "ROGAlly.GetGlyph",
+    "ROGAlly.IsReady",
+    "ROGAlly.PowerProfileManager_Applied",
+    "ROGAlly.QuerySettings",
+    "ROGAlly.ReadFanDuty",
+    "ROGAlly.SetFanControl",
+    "ROGAlly.SetLedBrightness",
+    "ROGAlly.SetLedColor",
+    "ROGAlly.SettingsManager_SettingValueChanged",
+    "ROGAlly.set_long_limit",
+    "ROGAlly.set_short_limit"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

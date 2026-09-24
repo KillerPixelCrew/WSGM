@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.minisforum-v3",
+  "displayName": "Minisforum V3",
+  "status": "Extracted",
+  "hcClass": "MinisforumV3",
+  "identity": [
+    {
+      "baseboardManufacturer": "SHENZHEN MEIGAO ELECTRONIC EQUIPMENT CO.,LTD",
+      "baseboardProduct": "HPPAC"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [3, 28],
+    "gpuClockMhz": [100, 2700],
+    "cpuClockMhz": 5100
+  },
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/MinisforumV3.json"
+    }
+  },
+  "hcOverrides": ["MinisforumV3.ToString"],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/MinisforumV3.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

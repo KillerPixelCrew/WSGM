@@ -98,6 +98,9 @@ internal sealed record FirmwareInventory
     /// <summary>SMBIOS Type 1 family.</summary>
     public string? SystemFamily { get; init; }
 
+    /// <summary>SMBIOS Type 2 baseboard manufacturer, which Handheld Companion's device switch keys on.</summary>
+    public string? BaseboardManufacturer { get; init; }
+
     /// <summary>SMBIOS Type 2 baseboard product — the exact board.</summary>
     public string? BaseboardProduct { get; init; }
 

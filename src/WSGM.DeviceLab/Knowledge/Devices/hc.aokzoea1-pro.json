@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.aokzoea1-pro",
+  "displayName": "AOKZOEA1 Pro",
+  "status": "Extracted",
+  "hcClass": "AOKZOEA1Pro",
+  "hcBaseClasses": ["AOKZOEA1", "OneXAOKZOE"],
+  "identity": [
+    {
+      "baseboardManufacturer": "AOKZOE",
+      "baseboardProduct": "AOKZOE A1 Pro"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [4, 28],
+    "gpuClockMhz": [100, 2700],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": ["DynamicLighting", "DynamicLightingBrightness", "FanControl"],
+  "lightingModes": ["Rainbow", "SolidColor"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "1A2C",
+      "productIds": ["B001"],
+      "usagePage": 65281,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:33"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Home",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "D"],
+      "releaseKeys": ["LWin", "D"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:61"
+      }
+    },
+    {
+      "name": "Home, Long-press",
+      "hcFlag": "OEM6",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "G"],
+      "releaseKeys": ["LWin", "G"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:75"
+      }
+    },
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:91"
+      }
+    },
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LWin", "LAlt"],
+      "releaseKeys": ["LControl", "LWin", "LAlt"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:107"
+      }
+    },
+    {
+      "name": "Home \u002B Keyboard",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["RMenu", "RControl", "Delete"],
+      "releaseKeys": ["Delete", "RControl", "RMenu"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:123"
+      }
+    },
+    {
+      "name": "Home \u002B Turbo",
+      "hcFlag": "OEM5",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "PrintScreen"],
+      "releaseKeys": ["PrintScreen", "LWin"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1.cs:137"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AOKZOEA1.json",
+      "note": "Inherited from AOKZOEA1.json through HC\u0027s parent lookup."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "184"
+      },
+      "note": "ECDetails as declared; AOKZOEA1.SetFanControl and AOKZOEA1.SetFanDuty and OneXAOKZOE.SetFanControl and OneXAOKZOE.SetFanDuty replace the default write, so check them before trusting this.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1Pro.cs:13"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "AOKZOEA1.GetGlyph",
+    "AOKZOEA1.IsReady",
+    "AOKZOEA1.SetFanControl",
+    "AOKZOEA1.SetFanDuty",
+    "AOKZOEA1.SetLedBrightness",
+    "AOKZOEA1.SetLedColor",
+    "OneXAOKZOE.Close",
+    "OneXAOKZOE.Open",
+    "OneXAOKZOE.SetFanControl",
+    "OneXAOKZOE.SetFanDuty"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AOKZOEA1Pro.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "reviewedAtUtc": "2026-09-24T00:00:00Z",
+  "component": {
+    "id": "pawnio",
+    "repository": "https://github.com/namazso/PawnIO.Setup",
+    "tag": "2.2.0",
+    "version": "2.2.0",
+    "asset": "PawnIO_setup.exe",
+    "assetUrl": "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe",
+    "assetSha256": "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032",
+    "signerSubject": "E=admin@namazso.eu, CN=namazso.eu, O=namazso, L=Debrecen, C=HU",
+    "signerThumbprint": "F380DCC9F706E2756A5047B832FFE719E1BC35F5",
+    "installArguments": ["-install", "-silent"],
+    "uninstallArguments": ["-uninstall", "-silent"],
+    "uninstallKey": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PawnIO",
+    "controlDevice": "\\\\.\\PawnIO",
+    "minimumInstalledVersion": "2.0.0",
+    "notes": [
+      "The upstream release asset is byte-identical to the copy Handheld Companion 1.3.1.6 bundles.",
+      "The installer states it may be redistributed unmodified. It refuses to install over an existing copy, so an older version is uninstalled first, and only with the tester's consent.",
+      "-unrestricted disables PawnIO's module signature check and is never passed."
+    ]
+  }
+}

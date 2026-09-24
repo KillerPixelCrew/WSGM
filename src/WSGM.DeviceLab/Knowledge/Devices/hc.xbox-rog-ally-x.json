@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.xbox-rog-ally-x",
+  "displayName": "Xbox ROG Ally X",
+  "status": "Extracted",
+  "hcClass": "XboxROGAllyX",
+  "hcBaseClasses": ["ROGAllyX", "ROGAlly", "ASUS"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ASUSTEK COMPUTER INC.",
+      "baseboardProduct": "RC73XA"
+    }
+  ],
+  "power": {
+    "nominalWatts": [20, 20, 33],
+    "configurableWatts": [15, 35],
+    "gpuClockMhz": [100, 2900],
+    "cpuClockMhz": 5000
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "FanControl",
+    "OEMCPU"
+  ],
+  "lightingModes": ["Ambilight", "Breathing", "Rainbow", "SolidColor", "Wheel"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "0B05",
+      "productIds": ["1ABE", "1B4C"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:213"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "CC",
+      "hcFlag": "OEM1",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:260",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "AC",
+      "hcFlag": "OEM2",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:261",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "LIB",
+      "hcFlag": "OEM5",
+      "source": "Declared",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:262",
+        "note": "HC declares the button with no keys; its real source is read elsewhere in the class."
+      }
+    },
+    {
+      "name": "M1",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F18"],
+      "releaseKeys": ["F18"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:272"
+      }
+    },
+    {
+      "name": "M2",
+      "hcFlag": "OEM4",
+      "source": "KeyboardChord",
+      "pressKeys": ["F17"],
+      "releaseKeys": ["F17"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ROGAlly.cs:282"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/XboxROGAllyX.json"
+    }
+  },
+  "hcOverrides": [
+    "ASUS.Open",
+    "ROGAlly.Close",
+    "ROGAlly.Device_Inserted",
+    "ROGAlly.Device_Removed",
+    "ROGAlly.GetFontFamily",
+    "ROGAlly.GetGlyph",
+    "ROGAlly.IsReady",
+    "ROGAlly.PowerProfileManager_Applied",
+    "ROGAlly.QuerySettings",
+    "ROGAlly.ReadFanDuty",
+    "ROGAlly.SetFanControl",
+    "ROGAlly.SetLedBrightness",
+    "ROGAlly.SetLedColor",
+    "ROGAlly.SettingsManager_SettingValueChanged",
+    "ROGAlly.set_long_limit",
+    "ROGAlly.set_short_limit"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/XboxROGAllyX.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

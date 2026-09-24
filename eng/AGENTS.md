@@ -9,8 +9,8 @@ codes, and safe to rerun.
 - eng/verify.ps1 is the canonical gate. Preserve its checks for optional Prettier formatting, Steam
   asset drift and ownership claims, AGENTS/CLAUDE link integrity, tracked PowerShell syntax,
   live-data path exclusions, version-copy agreement, the Ally X Lab download manifest, controller
-  pins, Steam Input validation, restore, warning-clean Release builds, all solution tests, and
-  main-test coverage.
+  and PawnIO pins, Steam Input validation, restore, warning-clean Release builds, all solution tests,
+  and main-test coverage.
 - -SkipPrettier skips only formatting. It must not skip the generated asset build, claims check,
   compilation, or tests.
 - -Fix may rewrite formatted files. Never hide unrelated changes in that pass; inspect the diff
@@ -45,6 +45,12 @@ codes, and safe to rerun.
   `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
   unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in
   identity, entry assembly, glyph and extracted-tree checks.
+- `device-lab-publish.ps1` runs `acquire-pawnio.ps1` first, which downloads the installer pinned in
+  `external/pawnio/pawnio.lock.json` into `artifacts/pawnio` and refuses a wrong digest or signer.
+  Device Lab embeds it when present. Offline, the installer tree only warns and that build reports
+  PawnIO as unavailable; `publish-device-lab.ps1 -Portable`, the one-file tester build, fails instead.
+  `assert-pawnio-pin.ps1` (run by eng/verify.ps1) checks the lock's shape and, when present, the
+  acquired file; it never downloads.
 - Staging must validate package identity, version, architecture, and required files before copying
   anything into the installer tree.
 - `new-plugin.ps1` and `package-plugin.ps1` take the common API version and manifest validation from

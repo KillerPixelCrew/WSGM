@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.gpd-win4",
+  "displayName": "GPD Win4",
+  "status": "Extracted",
+  "hcClass": "GPDWin4",
+  "identity": [
+    {
+      "baseboardManufacturer": "GPD",
+      "baseboardProduct": "G1618-04",
+      "processorName": "AMD Ryzen 7 6800U with Radeon Graphics"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 28],
+    "configurableWatts": [5, 28],
+    "gpuClockMhz": [100, 2200],
+    "cpuClockMhz": 4700
+  },
+  "capabilities": ["FanControl"],
+  "buttons": [
+    {
+      "name": "Bottom button left",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F11", "L"],
+      "releaseKeys": ["F11", "L"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4.cs:43"
+      }
+    },
+    {
+      "name": "Bottom button right",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F12", "R"],
+      "releaseKeys": ["F12", "R"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4.cs:57"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/GPDWin4.json"
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x2E",
+        "dataPort": "0x2F",
+        "controlRegister": "0xC311",
+        "dutyRegister": "0xC880",
+        "dutyMinimum": "0",
+        "dutyMaximum": "127"
+      },
+      "note": "ECDetails as declared; GPDWin4.SetFanControl and GPDWin4.SetFanDuty replace the default write, so check them before trusting this.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4.cs:21"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "GPDWin4.GetGlyph",
+    "GPDWin4.Open",
+    "GPDWin4.SetFanControl",
+    "GPDWin4.SetFanDuty"
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

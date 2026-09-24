@@ -19,7 +19,10 @@ param(
 
     [string]$RuntimeIdentifier = "win-x64",
 
-    [string]$Version = ""
+    [string]$Version = "",
+
+    # Publish one self-extracting wsgm-device.exe for a remote tester instead of the folder.
+    [switch]$Portable
 )
 
 Set-StrictMode -Version Latest
@@ -132,7 +135,7 @@ try {
     [IO.Directory]::CreateDirectory($staging) | Out-Null
 
     Publish-DeviceLab -Root $root -Destination $staging -Configuration $Configuration `
-        -RuntimeIdentifier $RuntimeIdentifier -Version $Version
+        -RuntimeIdentifier $RuntimeIdentifier -Version $Version -Portable:$Portable
 
 Set-Content -LiteralPath (Join-Path $staging $markerName) `
     -Value $markerValue -NoNewline -Encoding UTF8

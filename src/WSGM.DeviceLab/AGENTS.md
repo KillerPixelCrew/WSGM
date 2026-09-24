@@ -28,7 +28,9 @@ running tool otherwise.
 
 ## Command and application contract
 
-- No arguments and `gui` start the GUI. Normal CLI commands are `doctor`, `inventory`, `candidates`,
+- No arguments and `wizard` start the tester wizard, which relaunches itself elevated once
+  (`--elevated-relaunch` prevents a loop) and opens without elevation if the prompt is declined.
+  `gui` starts the developer tabs as-invoker. Normal CLI commands are `doctor`, `inventory`, `candidates`,
   `probe-read`, `capture`, `inspect`, `compare`, `correlate`, `fixture`, `scaffold`, `glyph`,
   `validate`, `test`, and `pack`.
 - `__read-probe` and `__plugin-test` are authenticated internal worker modes, not public commands.
@@ -61,6 +63,36 @@ untrusted evidence; use static validation until plugin code has been deliberatel
 - Observe-only capture requires hash-bound approval of the local interactive observation scope, then a separate approval
   of the sanitized export preview before publication. Do not merge or bypass those approvals.
 
+## Tester wizard
+
+The wizard (`Wizard/`, `Gui/WizardWindow.cs`) is the one workflow that changes machine state
+without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
+
+- Record every machine change in `LabMachineState` before making it, and clear the record only
+  after a readback shows the change undone. The next wizard start undoes whatever a killed session
+  left. HidHide changes add or remove only the lab's own exact entry; never flip the hiding switch
+  or edit an inverse-mode list.
+- Other managers get a window close request, never a kill; services are never stopped.
+- PawnIO is installed only from the embedded installer, extracted into a new administrators-only
+  folder under the Windows temp directory and held open without write or delete sharing while its
+  SHA-256 and Authenticode signer are checked against the embedded `external/pawnio/pawnio.lock.json`
+  and while it runs. The uninstaller gets the same signer check. Never pass `-unrestricted`.
+- Replace an older PawnIO only on the tester's explicit choice. `LabMachineState` is the one record
+  of what the lab did: removal is offered only for a fresh install the lab made (never for a
+  replacement), and the record is reconciled against what is installed when the wizard starts.
+- Preflight reserves `Global\WSGM.DeviceOwner` and holds it until the window closes. Hardware stages
+  refuse to start without that reservation.
+- A project is a folder of attempts. Never overwrite evidence; a redo creates a new attempt, and the
+  manifest is the only file rewritten (atomically).
+- Input capture records every input from every device and attributes it afterwards. Never filter by
+  device, VID/PID or usage page at capture time; the knowledge base may rank sources, not narrow them.
+- The shared report is built in memory, previewed, and written once. Every JSON string passes through
+  one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
+- The wizard keeps blocking work (files, registry, drivers) off the UI thread and runs one operation
+  at a time; a failure is shown on the page, never swallowed. Selecting a stage only shows it; a new
+  attempt starts only from Start or Run again. Closing waits for the running operation, then undoes
+  the session's HidHide entry and releases the owner reservation.
+
 ## Filesystem and artifact rules
 
 - User-created workflow artifacts use new, non-reparse, owned output targets. The marked publish tree managed by
@@ -72,6 +104,18 @@ untrusted evidence; use static validation until plugin code has been deliberatel
 - Keep private captures separate from shareable redacted output. Preserve deterministic hashing, archive ordering,
   retained-input evidence, and preview/count/hash consistency.
 - Treat correlation as bounded candidate evidence, never proof of causation.
+
+## Knowledge records
+
+- `Knowledge/Devices/hc.*.json` is generated output of `eng/extract-hc-devices.ps1` from
+  `_ref/HandheldCompanion`. Never edit those files by hand; change `tools/HcDeviceExtract` and
+  regenerate. The extractor reads declarations only and records HC's mistakes as hazards.
+- `Knowledge/Devices/wsgm.*.json` is curated. Every fact carries provenance naming the plugin file,
+  lab run or HC line it came from. Keep a curated record in step with the plugin it cites.
+- A record is evidence, not a driver. Only curated records may carry wizard button mappings,
+  readback claims or supersede an extracted record; the loader and tests enforce that.
+- The parser rejects unknown members. Extend `DeviceKnowledge.cs` and bump the schema version rather
+  than loosening it.
 
 ## Package and scaffold rules
 

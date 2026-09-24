@@ -4,6 +4,49 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and five deferred issues. Follow the branch ownership and publishing rules in
 AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
+## Device Lab attended wizard (2026-09-24, in progress)
+
+Device Lab becomes the one tool a tester runs on any handheld: an attended wizard that checks for
+interfering programs and HidHide, identifies the device against a knowledge base, dumps ACPI, the
+device tree, HID and sensors, maps buttons, motion and rumble, tests power, fan and lighting, and
+exports a project that can be reopened to redo single segments. AllyXLab is retired once the wizard
+covers it. The knowledge base is seeded from a decompiled Handheld Companion 1.3.1.6 build in
+`_ref/HandheldCompanion`. Button capture records every input from every device and attributes it
+afterwards. Delivered as stacked PRs ending at `feat/devicelab-attended-wizard`.
+
+- [x] PR 1 (`feat/devicelab-knowledge-base`): knowledge-base schema, loader and matcher,
+      `tools/HcDeviceExtract` with `eng/extract-hc-devices.ps1` (89 extracted records), curated
+      Claw 8 A2VM, ROG Ally X and Xbox Ally X records, `candidates` knowledge matches, baseboard
+      manufacturer in the inventory, Windows 10 SDK target framework. Smoke-checked with a live
+      inventory and a synthetic RC73XA identity; test suites deferred to after manual testing.
+- [ ] PR 2 (`feat/devicelab-wizard-shell`, #188), implemented, awaiting the attended run:
+      - [x] Wizard as the default start, elevated once with a no-loop marker; `gui` keeps the tabs.
+      - [x] Project folders with per-segment attempts; selecting a stage shows it, Run again redoes it.
+      - [x] Preflight: `Global\WSGM.DeviceOwner` reserved and held for the session; other managers
+            get a close request only (tray-only ones are reported at once); HidHide self-allow with
+            exact-entry restore and crash recovery; PawnIO detection and pinned silent install.
+      - [x] PawnIO installer extracted into an administrators-only folder and held open through
+            SHA-256, Authenticode signer check and execution; replacement tracked apart from a fresh
+            install and never offered for removal; the machine record reconciled at start.
+      - [x] Identity: board, BIOS, EC, CPUID family/model/stepping and HID controller firmware
+            (USB release), confirmed against the knowledge base or typed product and model.
+      - [x] Export: redacted in-memory preview, then one `.wsgmlab` file (a ZIP).
+      - [x] `external/pawnio` pin, `eng/acquire-pawnio.ps1`, `eng/assert-pawnio-pin.ps1` in
+            eng/verify.ps1, and `publish-device-lab.ps1 -Portable` (offline installer builds warn).
+      - [x] Decision in `docs/decisions.md`; licence note for the linked WSGM interop sources.
+      - [ ] Attended run on the Claw by the maintainer (it elevates, edits HidHide, installs PawnIO).
+      - Deferred, with reason: the AMD SMU codename needs the PawnIO RyzenSMU module and moves to
+        PR 6; AllyXLab's own tests stay with AllyXLab until PR 7 deletes the tool (the ported code
+        has its own tests here); the export preview is its own bounded record because
+        `CapturePrivacyPreview` is tied to capture bundles; reopening a `.wsgmlab` is the PR 7
+        developer path.
+- [ ] PR 3: system dump (ACPI without MSDM/SLIC, SMBIOS redaction, device tree, HID, sensors, EC,
+      WMI, display, battery, CPU).
+- [ ] PR 4: button capture across all devices, analog, chords, init and restore.
+- [ ] PR 5: motion (four sources) and rumble with live sliders and pulse lengths.
+- [ ] PR 6: power, fan, lighting and charge-limit transports, sleep and resume.
+- [ ] PR 7: scaffold from a project and retire AllyXLab.
+
 ## Overlay glass library (2026-09-24, issue 183)
 
 The intended overlay glass is one live desktop blur shared by its translucent panels, with readable

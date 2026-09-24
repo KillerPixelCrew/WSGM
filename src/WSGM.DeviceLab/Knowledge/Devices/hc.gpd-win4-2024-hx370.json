@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.gpd-win4-2024-hx370",
+  "displayName": "GPD Win4 2024 HX370",
+  "status": "Extracted",
+  "hcClass": "GPDWin4_2024_HX370",
+  "hcBaseClasses": ["GPDWin4_2024"],
+  "identity": [
+    {
+      "baseboardManufacturer": "GPD",
+      "baseboardProduct": "G1618-04",
+      "processorName": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 28],
+    "configurableWatts": [5, 30],
+    "gpuClockMhz": [100, 2900],
+    "cpuClockMhz": 5100
+  },
+  "capabilities": ["FanControl"],
+  "buttons": [
+    {
+      "name": "Bottom button left",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["F11", "L"],
+      "releaseKeys": ["F11", "L"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2024.cs:42"
+      }
+    },
+    {
+      "name": "Bottom button right",
+      "hcFlag": "OEM3",
+      "source": "KeyboardChord",
+      "pressKeys": ["F12", "R"],
+      "releaseKeys": ["F12", "R"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2024.cs:56"
+      }
+    }
+  ],
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x275",
+        "dutyRegister": "0x1809",
+        "dutyMinimum": "0",
+        "dutyMaximum": "184"
+      },
+      "note": "ECDetails with HC\u0027s default SetFanDuty: duty = percent * (max - min) / 100 \u002B min; control register 1 = manual, 0 = auto.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2024.cs:20"
+      }
+    }
+  ],
+  "hcOverrides": ["GPDWin4_2024.Close", "GPDWin4_2024.GetGlyph"],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/GPDWin4_2024_HX370.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

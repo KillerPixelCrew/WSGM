@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "id": "wsgm.claw-8-a2vm",
+  "displayName": "MSI Claw 8 AI+ A2VM",
+  "status": "Curated",
+  "hcClass": "ClawA2VM",
+  "identity": [
+    {
+      "baseboardManufacturer": "Micro-Star International Co., Ltd.",
+      "baseboardProduct": "MS-1T52",
+      "systemSku": "1T52.1"
+    }
+  ],
+  "power": {
+    "configurableWatts": [8, 37]
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "FanControl",
+    "InternalSensor",
+    "OEMCPU"
+  ],
+  "hidEndpoints": [
+    {
+      "role": "controller",
+      "vendorId": "0DB0",
+      "productIds": ["1901"],
+      "usagePage": 65440,
+      "usage": 1,
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawHardware.cs",
+        "note": "XInput mode. The MCU re-enumerates as 1902 in DirectInput mode."
+      }
+    },
+    {
+      "role": "controller",
+      "vendorId": "0DB0",
+      "productIds": ["1902"],
+      "usagePage": 65520,
+      "usage": 64,
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawHardware.cs",
+        "note": "DirectInput mode; the 64-byte report 0x01 carries the rear paddles."
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Claw",
+      "wizardButton": "OemLeft",
+      "hcFlag": "OEM1",
+      "source": "WmiEvent",
+      "eventCode": 41,
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawResources.cs",
+        "note": "root\\WMI MSI_Event, MSIEvt & 0xFF = 0x29."
+      }
+    },
+    {
+      "name": "Quick Settings",
+      "wizardButton": "OemRight",
+      "hcFlag": "OEM2",
+      "source": "WmiEvent",
+      "eventCode": 88,
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawResources.cs",
+        "note": "0x58 on a short press, 0x2A on a long press. HC only knows 0x58."
+      }
+    },
+    {
+      "name": "M1",
+      "wizardButton": "BackLeft1",
+      "hcFlag": "OEM3",
+      "source": "HidReport",
+      "reportId": 1,
+      "byteOffset": 7,
+      "mask": 16,
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs",
+        "note": "DirectInput mode only. Measured on MS-1T52: bit 4 is the left paddle; HC has M1 and M2 reversed."
+      }
+    },
+    {
+      "name": "M2",
+      "wizardButton": "BackRight1",
+      "hcFlag": "OEM4",
+      "source": "HidReport",
+      "reportId": 1,
+      "byteOffset": 7,
+      "mask": 8,
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs",
+        "note": "DirectInput mode only; bit 3 is the right paddle."
+      }
+    },
+    {
+      "name": "Quick Settings (firmware shortcut)",
+      "source": "KeyboardChord",
+      "pressKeys": ["LWin", "G"],
+      "releaseKeys": ["G", "LWin"],
+      "silenced": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs:370",
+        "note": "The firmware also types Win+G (Win+Tab on a long press). The wizard swallows it so the Game Bar does not open."
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": { "X": "X", "Y": "Z", "Z": "Y" },
+      "sign": { "X": 1, "Y": 1, "Z": -1 }
+    },
+    "accelerometer": {
+      "swap": { "X": "X", "Y": "Z", "Z": "Y" },
+      "sign": { "X": 1, "Y": 1, "Z": -1 }
+    },
+    "legacyFields": [
+      {
+        "kind": "gyrometer",
+        "friendlyName": "Physical Gyrometer",
+        "formatId": "b14c764f-07cf-41e8-9d82-ebe3d0776a6f",
+        "propertyIds": [7, 8, 9]
+      },
+      {
+        "kind": "accelerometer",
+        "friendlyName": "Physical Accelerometer",
+        "formatId": "b14c764f-07cf-41e8-9d82-ebe3d0776a6f",
+        "propertyIds": [7, 8, 9]
+      }
+    ],
+    "provenance": {
+      "source": "WsgmPlugin",
+      "reference": "src/WSGM.Device.Msi.Claw8A2Vm/WindowsMotionSource.cs",
+      "note": "LSM6DSO custom sensors on the legacy Sensor API only; the application basis is (X, Z, -Y). Agrees with HC's ClawA2VM.json."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "tdp",
+      "transport": "wmi-method",
+      "parameters": {
+        "namespace": "root\\WMI",
+        "class": "MSI_ACPI",
+        "get": "Get_Data",
+        "set": "Set_Data",
+        "sustainedAddress": "0x50",
+        "boostAddress": "0x51",
+        "minimumWatts": "8",
+        "maximumWatts": "37"
+      },
+      "hasReadback": true,
+      "note": "32-byte package [address, value]. When raising PL1 above the current PL2, write PL2 first.",
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs"
+      }
+    },
+    {
+      "feature": "fan",
+      "transport": "wmi-method",
+      "parameters": {
+        "namespace": "root\\WMI",
+        "class": "MSI_ACPI",
+        "getTable": "Get_Fan",
+        "setTable": "Set_Fan",
+        "getTemperatures": "Get_Temperature",
+        "setTemperatures": "Set_Temperature",
+        "customAddress": "0xD4",
+        "fullSpeedAddress": "0x98"
+      },
+      "hasReadback": true,
+      "note": "Custom curve is bit 7 of 0xD4; full speed is bit 7 of 0x98. RPM comes from Get_Fan channel 0.",
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs"
+      }
+    },
+    {
+      "feature": "charge-limit",
+      "transport": "wmi-method",
+      "parameters": {
+        "namespace": "root\\WMI",
+        "class": "MSI_ACPI",
+        "get": "Get_Data",
+        "set": "Set_Data",
+        "address": "0xD7",
+        "minimumPercent": "60",
+        "maximumPercent": "100"
+      },
+      "hasReadback": true,
+      "note": "Bit 7 enables the limit; the low 7 bits are the percentage.",
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs"
+      }
+    },
+    {
+      "feature": "lighting",
+      "transport": "hid-output",
+      "parameters": {
+        "vendorId": "0DB0",
+        "reportLength": "64",
+        "header": "0F 00 00 3C",
+        "profileAddress": "0x024A"
+      },
+      "hasReadback": true,
+      "note": "MCU profile memory, read back through the same interface. The address is firmware-dependent (HC uses 0x01FA on older firmware).",
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/WindowsHidTransports.cs"
+      }
+    },
+    {
+      "feature": "rumble",
+      "transport": "hid-output",
+      "parameters": {
+        "vendorId": "0DB0",
+        "productId": "1902",
+        "report": "05 01 00 00 <weak> <strong> 00 00 00 00 00"
+      },
+      "note": "DirectInput mode; weak and strong are 0-255.",
+      "provenance": {
+        "source": "WsgmPlugin",
+        "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawInput.cs"
+      }
+    },
+    {
+      "feature": "controller-mode",
+      "transport": "hid-output",
+      "parameters": {
+        "vendorId": "0DB0",
+        "report": "0F 00 00 3C 24 <mode>",
+        "modes": "1 XInput, 2 DirectInput, 3 MSI, 4 Desktop"
+      },
+      "note": "Switching mode re-enumerates the controller. The rear paddles report only in DirectInput mode.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/ClawA1M.cs"
+      }
+    }
+  ],
+  "hazards": [
+    "HC's ClawA1M.Open() writes PL1/PL2 (35/35 W, then 30/37 W) as a side effect. Never replay it.",
+    "HC has M1 and M2 reversed; the plugin's measured assignment is recorded here.",
+    "MSI_Event exists only when the WmiAcpi MOF from MSI's driver is registered. HC repairs a missing class by copying msiapcfg.dll and restarting ACPI\\PNP0C14; the wizard reports the missing class instead."
+  ],
+  "provenance": [
+    {
+      "source": "WsgmPlugin",
+      "reference": "src/WSGM.Device.Msi.Claw8A2Vm",
+      "note": "Hardware-verified on the maintainer's MS-1T52 through the plugin."
+    }
+  ]
+}

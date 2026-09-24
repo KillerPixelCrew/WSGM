@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.loki-max6800-u",
+  "displayName": "Loki Max6800 U",
+  "status": "Extracted",
+  "hcClass": "LokiMax6800U",
+  "hcBaseClasses": ["AynLoki"],
+  "identity": [
+    {
+      "baseboardManufacturer": "AYN",
+      "baseboardProduct": "Loki Max",
+      "processorName": "AMD Ryzen 7 6800U with Radeon Graphics"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 20],
+    "configurableWatts": [5, 28],
+    "gpuClockMhz": [100, 2200],
+    "cpuClockMhz": 4700
+  },
+  "capabilities": ["DynamicLighting", "FanControl"],
+  "lightingModes": ["SolidColor"],
+  "buttons": [
+    {
+      "name": "Guide",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["LButton", "XButton2"],
+      "releaseKeys": ["LButton", "XButton2"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AynLoki.cs:42"
+      }
+    },
+    {
+      "name": "LCC",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["LControl", "LShift", "LAlt", "T"],
+      "releaseKeys": ["T", "LAlt", "LShift", "LControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/AynLoki.cs:60"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "Y",
+        "Y": "Z",
+        "Z": "X"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": -1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": -1,
+        "Y": 1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/AynLoki.json",
+      "note": "Inherited from AynLoki.json through HC\u0027s parent lookup."
+    }
+  },
+  "hcOverrides": [
+    "AynLoki.GetGlyph",
+    "AynLoki.ReadFanDuty",
+    "AynLoki.SetFanControl",
+    "AynLoki.SetFanDuty",
+    "AynLoki.SetLedColor"
+  ],
+  "hazards": [
+    "HC\u0027s ReadFanDuty reads I/O ports 0x20/0x21 (the interrupt controller) and 0xB3; its fan readback is not evidence."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/LokiMax6800U.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}

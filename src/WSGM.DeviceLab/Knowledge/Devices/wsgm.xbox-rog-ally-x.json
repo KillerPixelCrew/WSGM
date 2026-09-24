@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "id": "wsgm.xbox-rog-ally-x",
+  "displayName": "ASUS ROG Xbox Ally X (RC73XA)",
+  "status": "Curated",
+  "hcClass": "XboxROGAllyX",
+  "hcBaseClasses": ["ROGAllyX", "ROGAlly", "ASUS"],
+  "supersedes": ["hc.xbox-rog-ally-x"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ASUSTeK COMPUTER INC.",
+      "baseboardProduct": "RC73XA"
+    }
+  ],
+  "power": {
+    "nominalWatts": [20, 20, 33],
+    "configurableWatts": [15, 35]
+  },
+  "capabilities": [
+    "BatteryChargeLimit",
+    "BatteryChargeLimitPercent",
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "FanControl",
+    "InternalSensor",
+    "OEMCPU"
+  ],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "0B05",
+      "productIds": ["1B4C"],
+      "usagePage": 65329,
+      "usage": 121,
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/001-result.json",
+        "note": "FF31:0079 has 32-byte input, 64-byte output and 64-byte feature reports. It is the only vendor collection with an output report, and it is untested."
+      }
+    },
+    {
+      "role": "vendor",
+      "vendorId": "0B05",
+      "productIds": ["1B4C"],
+      "usagePage": 65329,
+      "usage": 128,
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/001-result.json",
+        "note": "FF31:0080 exists but has no output report, so the RC72LA lighting and rumble path does not apply."
+      }
+    },
+    {
+      "role": "lighting",
+      "vendorId": "0B05",
+      "productIds": ["1B4C"],
+      "usagePage": 89,
+      "usage": 1,
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/001-result.json",
+        "note": "Lighting page 0x59 lamp array (Windows Dynamic Lighting), feature reports only."
+      }
+    },
+    {
+      "role": "keyboard",
+      "vendorId": "0B05",
+      "productIds": ["1B4C"],
+      "usagePage": 1,
+      "usage": 6,
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/001-result.json",
+        "note": "Carries the OEM keys. No HID gamepad collection was present."
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Command Center",
+      "wizardButton": "OemLeft",
+      "source": "KeyboardChord",
+      "pressKeys": ["F21"],
+      "releaseKeys": ["F21"],
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/017-result.json",
+        "note": "VK 0x84, scan 0x6C, on the 0B05:1B4C keyboard collection. HC expects report 0x5A code 0xA6, which the run did not read."
+      }
+    },
+    {
+      "name": "Armoury Crate",
+      "wizardButton": "OemRight",
+      "source": "KeyboardChord",
+      "pressKeys": ["F22"],
+      "releaseKeys": ["F22"],
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/018-result.json",
+        "note": "VK 0x85, scan 0x6D."
+      }
+    },
+    {
+      "name": "M1",
+      "wizardButton": "BackLeft1",
+      "source": "KeyboardChord",
+      "pressKeys": ["F18"],
+      "releaseKeys": ["F18"],
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/019-result.json",
+        "note": "VK 0x81, scan 0x69. Matches HC's remap, so it may be a leftover remap rather than the firmware default."
+      }
+    },
+    {
+      "name": "M2",
+      "wizardButton": "BackRight1",
+      "source": "KeyboardChord",
+      "pressKeys": ["F17"],
+      "releaseKeys": ["F17"],
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/020-result.json",
+        "note": "VK 0x80, scan 0x68."
+      }
+    },
+    {
+      "name": "Volume up",
+      "wizardButton": "VolumeUp",
+      "source": "KeyboardChord",
+      "pressKeys": ["VolumeUp"],
+      "releaseKeys": ["VolumeUp"],
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/021-result.json",
+        "note": "Seen only by the low-level hook; Raw Input was filtered to the ASUS device, so the source device is unknown."
+      }
+    },
+    {
+      "name": "Volume down",
+      "wizardButton": "VolumeDown",
+      "source": "KeyboardChord",
+      "pressKeys": ["VolumeDown"],
+      "releaseKeys": ["VolumeDown"],
+      "provenance": {
+        "source": "LabObserved",
+        "reference": "AllyXLab-20260915-171651-7db7c7/022-result.json",
+        "note": "Seen only by the low-level hook."
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": { "X": "X", "Y": "Z", "Z": "Y" },
+      "sign": { "X": 1, "Y": 1, "Z": -1 }
+    },
+    "accelerometer": {
+      "swap": { "X": "X", "Y": "Z", "Z": "Y" },
+      "sign": { "X": -1, "Y": -1, "Z": 1 }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/XboxROGAllyX.json",
+      "note": "BMI320 accelerometer and gyrometer on the standard legacy motion fields (AllyXLab 001-result.json). The axis maps are HC's and unverified."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "tdp",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "set": "DEVS",
+        "get": "DSTS",
+        "sustainedId": "0x001200A3",
+        "slowId": "0x001200A0",
+        "fastId": "0x001200C1",
+        "minimumWatts": "5",
+        "maximumWatts": "25"
+      },
+      "hasReadback": true,
+      "note": "HC treats RC73XA as an RC72LA subclass. The 0.2.1 run recorded a power baseline but no write.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/AsusControl.cs"
+      }
+    },
+    {
+      "feature": "power-profile",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "id": "0x00120075",
+        "values": "0 balanced, 1 performance, 2 silent"
+      },
+      "hasReadback": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/AsusControl.cs"
+      }
+    },
+    {
+      "feature": "fan",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "cpuCurveId": "0x00110024",
+        "gpuCurveId": "0x00110025",
+        "cpuSpeedId": "0x00110013",
+        "gpuSpeedId": "0x00110014",
+        "curve": "16 bytes: 8 temperatures then 8 duties (0-99)"
+      },
+      "hasReadback": true,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "tools/AllyXLab/AsusControl.cs"
+      }
+    },
+    {
+      "feature": "charge-limit",
+      "transport": "atkacpi",
+      "parameters": {
+        "device": "\\\\.\\ATKACPI",
+        "ioctl": "0x0022240C",
+        "id": "0x00120057",
+        "range": "0-100"
+      },
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices.ASUS/AsusACPI.cs"
+      }
+    }
+  ],
+  "hazards": [
+    "No HID gamepad collection and no XInput slot were present in the 0.2.1 run, so the gamepad route is unknown. Capture every input source.",
+    "Lighting and rumble routes are unknown: FF31:0080 has no output report, and FF31:0079 and the Dynamic Lighting lamp array are untested.",
+    "The power button produced no input event; it needs power notifications."
+  ],
+  "provenance": [
+    {
+      "source": "LabObserved",
+      "reference": "AllyXLab-20260915-171651-7db7c7 (AllyXLab 0.2.1, BIOS RC73XA.317, EC 3.14)",
+      "note": "Buttons and endpoints from the remote run; mechanisms from AllyXLab's ASUS code and HC."
+    }
+  ]
+}

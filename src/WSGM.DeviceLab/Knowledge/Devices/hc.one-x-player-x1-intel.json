@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "id": "hc.one-x-player-x1-intel",
+  "displayName": "One X Player X1 Intel",
+  "status": "Extracted",
+  "hcClass": "OneXPlayerX1Intel",
+  "hcBaseClasses": ["OneXPlayerX1", "OneXAOKZOE"],
+  "identity": [
+    {
+      "baseboardManufacturer": "ONE-NETBOOK TECHNOLOGY CO., LTD.",
+      "baseboardProduct": "ONEXPLAYER X1 i"
+    },
+    {
+      "baseboardManufacturer": "ONE-NETBOOK",
+      "baseboardProduct": "ONEXPLAYER X1 i"
+    }
+  ],
+  "power": {
+    "nominalWatts": [15, 15, 35],
+    "configurableWatts": [6, 35],
+    "gpuClockMhz": [100, 2250],
+    "cpuClockMhz": 4800
+  },
+  "capabilities": [
+    "DynamicLighting",
+    "DynamicLightingBrightness",
+    "DynamicLightingSecondLEDColor",
+    "FanControl"
+  ],
+  "lightingModes": ["LEDPreset", "SolidColor"],
+  "hidEndpoints": [
+    {
+      "role": "vendor",
+      "vendorId": "1A86",
+      "productIds": ["FE00"],
+      "usagePage": 65280,
+      "usage": 1,
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:76"
+      }
+    }
+  ],
+  "buttons": [
+    {
+      "name": "Turbo",
+      "hcFlag": "OEM1",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "LAlt"],
+      "releaseKeys": ["LAlt", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:145"
+      }
+    },
+    {
+      "name": "Keyboard",
+      "hcFlag": "OEM2",
+      "source": "KeyboardChord",
+      "pressKeys": ["RControl", "LWin", "O"],
+      "releaseKeys": ["O", "LWin", "RControl"],
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:161"
+      }
+    }
+  ],
+  "motion": {
+    "gyrometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": 1
+      }
+    },
+    "accelerometer": {
+      "swap": {
+        "X": "X",
+        "Y": "Z",
+        "Z": "Y"
+      },
+      "sign": {
+        "X": 1,
+        "Y": -1,
+        "Z": -1
+      }
+    },
+    "provenance": {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: Resources/Devices/OneXPlayerX1.json",
+      "note": "Inherited from OneXPlayerX1.json through HC\u0027s parent lookup."
+    }
+  },
+  "mechanisms": [
+    {
+      "feature": "fan",
+      "transport": "superio-ec",
+      "parameters": {
+        "indexPort": "0x4E",
+        "dataPort": "0x4F",
+        "controlRegister": "0x44A",
+        "dutyRegister": "0x44B",
+        "dutyMinimum": "0",
+        "dutyMaximum": "184"
+      },
+      "note": "ECDetails as declared; OneXAOKZOE.SetFanControl and OneXAOKZOE.SetFanDuty replace the default write, so check them before trusting this.",
+      "provenance": {
+        "source": "HcDerived",
+        "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1.cs:121"
+      }
+    }
+  ],
+  "hcOverrides": [
+    "OneXAOKZOE.Close",
+    "OneXAOKZOE.Open",
+    "OneXAOKZOE.SetFanControl",
+    "OneXAOKZOE.SetFanDuty",
+    "OneXPlayerX1.Close",
+    "OneXPlayerX1.Device_Inserted",
+    "OneXPlayerX1.Device_Removed",
+    "OneXPlayerX1.GetGlyph",
+    "OneXPlayerX1.IsReady",
+    "OneXPlayerX1.Open",
+    "OneXPlayerX1.QuerySettings",
+    "OneXPlayerX1.SetLEDPreset",
+    "OneXPlayerX1.SetLedBrightness",
+    "OneXPlayerX1.SetLedColor",
+    "OneXPlayerX1.SetLedStatus",
+    "OneXPlayerX1.SettingsManager_SettingValueChanged",
+    "OneXPlayerX1Intel.IsBatteryProtectionSupported"
+  ],
+  "hazards": [
+    "The X1 opens its own CH340 serial port (115200) for LED control. Do not probe it as a serial IMU."
+  ],
+  "provenance": [
+    {
+      "source": "HcDerived",
+      "reference": "_ref/HandheldCompanion 1.3.1.6: HandheldCompanion.Devices/OneXPlayerX1Intel.cs",
+      "note": "Extracted by tools/HcDeviceExtract from constructors and IDevice.GetCurrent; nothing here is hardware-verified."
+    }
+  ]
+}
