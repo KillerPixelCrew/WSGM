@@ -4964,13 +4964,22 @@
     // between them. The fingerprint this replaced was decky-loader's, and it spelled that minified
     // local out as a single-character wildcard: `routePath:.\.match\?\.path.`. It stopped matching on
     // 2026-09-24, when the client began emitting two-character names (`routePath:be.match?.path`), and
-    // because a Route that is absent is an incompatible client rather than a degraded one, the gate
-    // registered no route at all and every custom page rendered as an empty client. A fingerprint may
-    // not describe a minified identifier; only what its author typed is stable across a client build.
+    // the gate registered no route at all. A fingerprint may not describe a minified identifier; only
+    // what its author typed is stable across a client build.
+    //
+    // This lookup is now the fallback rather than the answer. The Route the gate builds with is taken
+    // from the route list Steam is currently rendering (see `applyPages`), which is the same component
+    // by construction and cannot be renamed out from under us. What remains here covers the one case
+    // that borrowing does not: a client whose route list holds something other than plain Route
+    // elements. Because it is a fallback, failing to find it is no longer a reason to refuse a client.
     const BackstackRouteMarkers = ["routePath:", ".match?.path"];
     const isBackstackRoute = (value) =>
       typeof value === "function" &&
       BackstackRouteMarkers.every((marker) => String(value).includes(marker));
+    // Whether a route element's type can be used as a component. React elements hold a string type for
+    // host elements like "div", which a page must not be built with.
+    const isUsableRoute = (type) =>
+      typeof type === "function" || (typeof type === "object" && type !== null);
     // A path every build of the client has and no consumer would register, used to recognise the
     // route list among the router's children.
     const KnownRoute = "/library/home";
@@ -4981,7 +4990,11 @@
     const MaximumNodesVisited = 60000;
     let runtime;
     let react;
+    // The fallback, resolved from the registry. `borrowedRoute` is the one Steam handed us.
     let RouteComponent = null;
+    let borrowedRoute = null;
+    let routeSource = "none";
+    let routeLookupError = "";
     let memo = null;
     let routerFiber = null;
     let routeSwitchFiber = null;
@@ -5011,9 +5024,11 @@
         react.createElement("div", { id: `steam-ui-page-body-${page.id}` }),
       );
     };
+    // Steam's own Route, preferring the one it is rendering with over the one the registry named.
+    const activeRoute = () => borrowedRoute ?? RouteComponent;
     const buildRoute = (page) =>
       react.createElement(
-        RouteComponent,
+        activeRoute(),
         { path: page.path, key: `steam-ui-page-${page.id}` },
         renderPage(page),
       );
@@ -5032,14 +5047,35 @@
       observedRoutes = routes
         .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
         .map((route) => route.props.path);
+      // Steam's Route, borrowed from the element Steam is rendering `/library/home` with. This is the
+      // component itself rather than something that matched a description of it, so no client build
+      // can rename it away; the registry lookup above exists only for a list this cannot be read from.
+      const known = routes.find(
+        (route) => react.isValidElement(route) && route.props?.path === KnownRoute,
+      );
+      if (known && isUsableRoute(known.type)) {
+        const disagrees = RouteComponent && RouteComponent !== known.type;
+        borrowedRoute = known.type;
+        routeSource = disagrees ? "borrowed (lookup differs)" : "borrowed";
+      } else if (RouteComponent) {
+        routeSource = "lookup";
+      }
       const wanted = pages.slice(0, MaximumPages);
       if (!wanted.length) {
-        lastOutcome = `routes=${routes.length} pages=0`;
+        lastOutcome = `routes=${routes.length} pages=0 route=${routeSource}`;
+        return routes;
+      }
+      // Loud rather than empty: a page that cannot be built is the one failure this gate can reach
+      // while otherwise holding the router, and a surface that silently draws nothing is a defect.
+      if (!activeRoute()) {
+        lastOutcome = `routes=${routes.length} pages=${wanted.length} route=unavailable`;
         return routes;
       }
       const overrides = wanted.filter((page) => page.override === true).map(buildRoute);
       const additions = wanted.filter((page) => page.override !== true).map(buildRoute);
-      lastOutcome = `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}`;
+      lastOutcome =
+        `routes=${routes.length} overrides=${overrides.length} additions=${additions.length}` +
+        ` route=${routeSource}`;
       return [...overrides, ...routes, ...additions];
     };
     // Finds the route list in the router's returned element tree and replaces it.
@@ -5078,11 +5114,16 @@
       // Through the shared resolver rather than a raw require and a local scan of the export names:
       // it counts aliases of one value once, so a re-export cannot read as ambiguity, and it says
       // which of "module absent", "module ambiguous" and "export absent" actually happened.
+      //
+      // Recorded rather than fatal. The gate builds with the Route it borrows from Steam's own route
+      // list, so a client this lookup cannot resolve is not a client the gate has to refuse. Refusing
+      // one is what took every custom page down on 2026-09-24 while the client was otherwise fine.
       try {
         RouteComponent = runtime.exported([BackstackToken], isBackstackRoute);
+        routeLookupError = "";
       } catch (error) {
-        lastError = `Steam's back-stack Route was not resolved: ${String(error)}`;
-        return false;
+        RouteComponent = null;
+        routeLookupError = String(error);
       }
       // The router module is confirmed to exist and to be unique, but it exports nothing that
       // reaches the router: the memo is built locally inside the module. Verified against the live
@@ -5259,6 +5300,9 @@
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       pages = [];
+      // Borrowed from a render that is about to be undone, so it is not carried into the next install.
+      borrowedRoute = null;
+      routeSource = "none";
       descendCache.clear();
       lastOutcome = "removed";
       return { ok: true, removed: true };
@@ -5267,7 +5311,11 @@
       ok: true,
       installed,
       resolved: !!memo,
-      routeResolved: !!RouteComponent,
+      routeResolved: !!activeRoute(),
+      // Which of the two the pages are built with, so a client where the registry lookup has drifted
+      // is visible as "borrowed" long before anyone has to debug an empty page.
+      routeSource,
+      routeLookupError,
       claimed: memberClaimed(memo, "type", claimKeys),
       pages: pages.length,
       // What the last render actually saw. Everything above can be true while no page is reachable,
