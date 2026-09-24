@@ -18,9 +18,9 @@ public sealed class PluginOffersTests
     public void ExactTestedDevicePlugin_IsRecommendedWithItsComponents()
     {
         var bundle = Bundle(
-            Device("claw", tested: true, rule: new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
-                roles: [CapabilityRole.ControllerSource, CapabilityRole.FanMode]),
-            Device("ally", tested: true, rule: new HardwareMatchRule { BaseboardProduct = "RC72LA" }),
+            Device("claw", true, new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
+                [CapabilityRole.ControllerSource, CapabilityRole.FanMode]),
+            Device("ally", true, new HardwareMatchRule { BaseboardProduct = "RC72LA" }),
             Common("ir"));
 
         var offers = PluginOffers.Compute(bundle, Claw, []);
@@ -36,11 +36,11 @@ public sealed class PluginOffersTests
     public void ExactMatchOutranksAFamilyFallback_AndTestedOutranksBlind()
     {
         var bundle = Bundle(
-            Device("family", tested: true, rule: new HardwareMatchRule
+            Device("family", true, new HardwareMatchRule
             {
                 BaseboardManufacturer = "Micro-Star International Co., Ltd.", Fallback = true
             }),
-            Device("exact", tested: false, rule: new HardwareMatchRule { BaseboardProduct = "MS-1T52" }));
+            Device("exact", false, new HardwareMatchRule { BaseboardProduct = "MS-1T52" }));
 
         var offers = PluginOffers.Compute(bundle, Claw, []);
 
@@ -52,8 +52,8 @@ public sealed class PluginOffersTests
     public void TwoEquallyGoodDevicePlugins_AskTheUserToChoose()
     {
         var bundle = Bundle(
-            Device("a", tested: true, rule: new HardwareMatchRule { BaseboardProduct = "MS-1T52" }),
-            Device("b", tested: true, rule: new HardwareMatchRule { SystemSku = "1T52.1" }));
+            Device("a", true, new HardwareMatchRule { BaseboardProduct = "MS-1T52" }),
+            Device("b", true, new HardwareMatchRule { SystemSku = "1T52.1" }));
 
         var offers = PluginOffers.Compute(bundle, Claw, []);
 
@@ -64,7 +64,7 @@ public sealed class PluginOffersTests
     [Fact]
     public void UnsupportedHardware_GetsNoDeviceOffer_AndInstalledPluginsAreMarked()
     {
-        var bundle = Bundle(Device("ally", tested: true, rule: new HardwareMatchRule { BaseboardProduct = "RC72LA" }),
+        var bundle = Bundle(Device("ally", true, new HardwareMatchRule { BaseboardProduct = "RC72LA" }),
             Common("ir"));
 
         var offers = PluginOffers.Compute(bundle, Claw, ["ir"]);
@@ -77,8 +77,8 @@ public sealed class PluginOffersTests
     [Fact]
     public void BundleManifest_RoundTripsAndRefusesAnotherSchema()
     {
-        var bundle = Bundle(Device("claw", tested: true, rule: new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
-            roles: [CapabilityRole.HapticSink]));
+        var bundle = Bundle(Device("claw", true, new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
+            [CapabilityRole.HapticSink]));
 
         var read = BundleManifest.Parse(bundle.ToUtf8Json());
 

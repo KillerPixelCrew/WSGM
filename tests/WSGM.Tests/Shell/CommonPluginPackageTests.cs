@@ -1,10 +1,9 @@
-using System.IO.Compression;
-using System.Text;
 using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Ir;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
@@ -18,7 +17,8 @@ public sealed class CommonPluginPackageTests
         var path = WritePackage(temporary.GetPath("ir.wsgmpkg"), $$"""
                                                                    {"id":"wsgm.ir","name":"IR Blaster","version":"0.1.0","category":"wsgm.infrared",
                                                                     "entryAssembly":"WSGM.Plugin.Ir.dll","entryType":"WSGM.Plugin.Ir.IrPlugin","wsgmVersion":"{{PluginPackageFile.HostVersion.ToString(3)}}"}
-                                                                   """, typeof(IrPlugin).Assembly.Location, "WSGM.Plugin.Ir.dll");
+                                                                   """, typeof(IrPlugin).Assembly.Location,
+            "WSGM.Plugin.Ir.dll");
         var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
         var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
@@ -89,31 +89,21 @@ public sealed class CommonPluginPackageTests
     {
         using TemporaryDirectory temporary = new();
         var oversized = WritePackage(temporary.GetPath("oversized.wsgmpkg"),
-            new string(' ', PluginManifestReader.MaximumBytes + 1) + "{}", typeof(CommonPluginFixture).Assembly.Location,
+            new string(' ', PluginManifestReader.MaximumBytes + 1) + "{}",
+            typeof(CommonPluginFixture).Assembly.Location,
             "Fixture.dll");
         Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(oversized).Dispose());
         var device = WritePackage(temporary.GetPath("device.wsgmpkg"), """
-                                                                      {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
-                                                                       "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-                                                                      """, typeof(CommonPluginFixture).Assembly.Location,
+                                                                       {"id":"test.fixture","name":"Fixture","version":"1.0","category":"wsgm.device",
+                                                                        "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                                                                       """,
+            typeof(CommonPluginFixture).Assembly.Location,
             "Fixture.dll");
         Assert.Throws<InvalidDataException>(() => PluginPackageFile.Open(device).Dispose());
     }
 
     private static string WritePackage(string path, string manifest, string assembly, string entryName)
     {
-        using var stream = File.Create(path);
-        using ZipArchive archive = new(stream, ZipArchiveMode.Create);
-        using (var entry = archive.CreateEntry("plugin.wsgm.json").Open())
-        {
-            entry.Write(Encoding.UTF8.GetBytes(manifest));
-        }
-
-        using (var entry = archive.CreateEntry(entryName).Open())
-        {
-            entry.Write(File.ReadAllBytes(assembly));
-        }
-
-        return path;
+        return PluginPackageBuilders.Write(path, manifest, (entryName, File.ReadAllBytes(assembly)));
     }
 }

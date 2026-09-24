@@ -46,7 +46,7 @@ public sealed class DevicePrerequisiteBannerTests
         var detail = UiFixture.Named<TextBlock>(window, "DevicePrerequisiteDetail");
         Assert.True(banner.IsVisible);
         Assert.Contains("Device Integration is switched off", detail.Text!, StringComparison.Ordinal);
-        Assert.Contains("Re-run the WSGM setup", detail.Text!, StringComparison.Ordinal);
+        Assert.Contains("Run Repair", detail.Text!, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]

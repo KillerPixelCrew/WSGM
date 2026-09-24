@@ -2,6 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Shell;
 
@@ -11,11 +12,7 @@ public sealed class CommonPluginSteamUiSourceTests
     public async Task LongAdmittedNamesRemainWithinTheInjectedMenuLimit()
     {
         using TemporaryDirectory temporary = new();
-        var installed = await Catalog(temporary);
-        var manifestPath = Path.Combine(installed, "test.steam-plugin", "plugin.wsgm.json");
-        var manifest = await File.ReadAllTextAsync(manifestPath);
-        await File.WriteAllTextAsync(manifestPath,
-            manifest.Replace("\"name\":\"Fixture\"", "\"name\":\"" + new string('P', 128) + "\""));
+        var installed = await Catalog(temporary, new string('P', 128));
         PluginHost host = new(action => action());
         SteamUiFixturePlugin plugin = new() { MenuLabel = new string('A', 128) };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
@@ -132,19 +129,6 @@ public sealed class CommonPluginSteamUiSourceTests
         return Assert.Single(Assert.Single(source.ReadExtensionsTab().Items).Actions!);
     }
 
-    private static async Task<string> Catalog(TemporaryDirectory temporary)
-    {
-        var installed = temporary.GetPath("plugins");
-        var root = Path.Combine(installed, "test.steam-plugin");
-        Directory.CreateDirectory(root);
-        await File.WriteAllTextAsync(Path.Combine(root, "Fixture.dll"), "Metadata fixture");
-        await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), """
-                                                                             {"id":"test.steam-plugin","name":"Fixture","version":"1.0.0","category":"example.status",
-                                                                              "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-                                                                             """);
-        return installed;
-    }
-
     [Fact]
     public async Task DeclaredPagesAreAdmittedAndMalformedOnesAreNot()
     {
@@ -203,6 +187,13 @@ public sealed class CommonPluginSteamUiSourceTests
 
         Assert.Empty(source.ReadModules());
         await manager.StopAsync(DateTimeOffset.UtcNow.AddSeconds(5));
+    }
+
+    private static Task<string> Catalog(TemporaryDirectory temporary, string name = "Fixture")
+    {
+        var installed = temporary.GetPath("plugins");
+        PluginPackageBuilders.WriteCommonFixture(installed, "test.steam-plugin", name);
+        return Task.FromResult(installed);
     }
 
     private sealed class SteamUiFixturePlugin : IPlugin, IPluginActions, IPluginSteamUi

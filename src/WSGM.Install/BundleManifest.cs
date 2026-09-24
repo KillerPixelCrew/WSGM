@@ -103,7 +103,8 @@ public sealed record BundleManifest
     /// <returns>The plugin, or null when the file is not one this bundle shipped.</returns>
     public BundledPlugin? ByHash(string sha256)
     {
-        return Plugins.FirstOrDefault(plugin => string.Equals(plugin.Sha256, sha256, StringComparison.OrdinalIgnoreCase));
+        return Plugins.FirstOrDefault(plugin =>
+            string.Equals(plugin.Sha256, sha256, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Parses a bundle manifest.</summary>
@@ -142,12 +143,12 @@ public sealed record BundleManifest
     public static BundleManifest? TryRead(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!System.IO.File.Exists(path))
+        if (!File.Exists(path))
         {
             return null;
         }
 
-        using var stream = System.IO.File.OpenRead(path);
+        using var stream = File.OpenRead(path);
         if (stream.Length > MaxBytes)
         {
             throw new InvalidDataException("bundle.json is too large.");
