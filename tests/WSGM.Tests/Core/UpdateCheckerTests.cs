@@ -91,7 +91,10 @@ public sealed class UpdateCheckerTests
             SchemaVersion = 1,
             WsgmVersion = "2.1.0",
             Plugins = [Plugin("kept")],
-            Outdated = [new OutdatedPlugin { Id = "dropped", Contact = "new@example.com", Log = "https://example.com/log" }]
+            Outdated =
+            [
+                new OutdatedPlugin { Id = "dropped", Contact = "new@example.com", Log = "https://example.com/log" }
+            ]
         };
 
         var warnings = UpdateChecker.Warnings(installed, ["kept", "dropped", "first"], next);
@@ -112,7 +115,8 @@ public sealed class UpdateCheckerTests
         {
             LastCheckUtc = new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero),
             Offer = new UpdateOffer(
-                new UpdateRelease("2.1.0", "https://page", "WSGM-Setup-2.1.0.exe", "https://setup", "https://hash", null),
+                new UpdateRelease("2.1.0", "https://page", "WSGM-Setup-2.1.0.exe", "https://setup", "https://hash",
+                    null),
                 [new UpdateWarning("dropped", "Dropped", "dev@example.com", null)])
         };
 

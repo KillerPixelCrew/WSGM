@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -87,7 +88,8 @@ public static class UpdateChecker
         {
             var file = path ?? StatePath;
             return File.Exists(file)
-                ? JsonSerializer.Deserialize(File.ReadAllText(file), UpdateJsonContext.Default.UpdateState) ?? new UpdateState()
+                ? JsonSerializer.Deserialize(File.ReadAllText(file), UpdateJsonContext.Default.UpdateState) ??
+                  new UpdateState()
                 : new UpdateState();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -118,15 +120,17 @@ public static class UpdateChecker
         ArgumentNullException.ThrowIfNull(http);
         try
         {
-            var release = ParseLatestRelease(await GetBytesAsync(http, LatestReleaseUrl, MaxMetadataBytes, cancellationToken)
-                .ConfigureAwait(false));
+            var release = ParseLatestRelease(
+                await GetBytesAsync(http, LatestReleaseUrl, MaxMetadataBytes, cancellationToken)
+                    .ConfigureAwait(false));
             UpdateOffer? offer = null;
             if (release is not null && IsNewer(release.Version, CurrentVersion))
             {
                 var warnings = release.BundleUrl is { } bundleUrl
                     ? Warnings(BundleManifest.TryRead(InstallLayout.InstalledBundle), InstalledPluginIds(),
-                        BundleManifest.Parse(await GetBytesAsync(http, bundleUrl, BundleManifest.MaxBytes, cancellationToken)
-                            .ConfigureAwait(false)))
+                        BundleManifest.Parse(
+                            await GetBytesAsync(http, bundleUrl, BundleManifest.MaxBytes, cancellationToken)
+                                .ConfigureAwait(false)))
                     : [];
                 offer = new UpdateOffer(release, warnings);
                 Log.Info($"Update: WSGM {release.Version} is available ({warnings.Count} plugin warning(s)).");
@@ -154,14 +158,16 @@ public static class UpdateChecker
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(release);
-        var hashText = System.Text.Encoding.UTF8.GetString(
+        var hashText = Encoding.UTF8.GetString(
             await GetBytesAsync(http, release.HashUrl, MaxMetadataBytes, cancellationToken).ConfigureAwait(false));
-        var expected = ParseHash(hashText) ?? throw new InvalidDataException("The release's SHA-256 file is malformed.");
+        var expected = ParseHash(hashText) ??
+                       throw new InvalidDataException("The release's SHA-256 file is malformed.");
 
         Directory.CreateDirectory(DownloadDirectory);
         var target = Path.Combine(DownloadDirectory, Path.GetFileName(release.SetupName));
         var partial = target + ".partial";
-        using (var response = await http.GetAsync(release.SetupUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+        using (var response = await http
+                   .GetAsync(release.SetupUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                    .ConfigureAwait(false))
         {
             response.EnsureSuccessStatusCode();
@@ -195,13 +201,15 @@ public static class UpdateChecker
         string actual;
         await using (var file = File.OpenRead(partial))
         {
-            actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken).ConfigureAwait(false));
+            actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken)
+                .ConfigureAwait(false));
         }
 
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
         {
             File.Delete(partial);
-            throw new InvalidDataException("The downloaded setup does not match the release's SHA-256, so it was deleted.");
+            throw new InvalidDataException(
+                "The downloaded setup does not match the release's SHA-256, so it was deleted.");
         }
 
         File.Move(partial, target, true);
@@ -231,9 +239,9 @@ public static class UpdateChecker
         Dictionary<string, string> urls = new(StringComparer.OrdinalIgnoreCase);
         foreach (var asset in assets.EnumerateArray())
         {
-            if (asset.TryGetProperty("name", out var name) && name.GetString() is { } assetName
-                && asset.TryGetProperty("browser_download_url", out var url) && url.GetString() is { } assetUrl
-                && assetUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            var assetName = Text(asset, "name");
+            var assetUrl = Text(asset, "browser_download_url");
+            if (assetName is not null && assetUrl?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true)
             {
                 urls[assetName] = assetUrl;
             }
@@ -254,14 +262,16 @@ public static class UpdateChecker
     internal static bool IsNewer(string candidate, Version current)
     {
         var core = candidate.Split('-', '+')[0];
-        return Version.TryParse(core.Contains('.') ? core : core + ".0", out var parsed) && Normalize(parsed) > Normalize(current);
+        return Version.TryParse(core.Contains('.') ? core : core + ".0", out var parsed) &&
+               Normalize(parsed) > Normalize(current);
     }
 
     /// <summary>
     ///     The installed community plugins the next release does not carry. Their files stay, but the new
     ///     WSGM refuses them for their <c>wsgmVersion</c>, so the user is told who to ask before updating.
     /// </summary>
-    internal static IReadOnlyList<UpdateWarning> Warnings(BundleManifest? installed, IReadOnlyCollection<string> installedIds,
+    internal static IReadOnlyList<UpdateWarning> Warnings(BundleManifest? installed,
+        IReadOnlyCollection<string> installedIds,
         BundleManifest next)
     {
         if (installed is null)
@@ -301,12 +311,20 @@ public static class UpdateChecker
         ];
     }
 
+    private static string? Text(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
     private static bool Flag(JsonElement root, string name)
     {
         return root.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
     }
 
-    private static async Task<byte[]> GetBytesAsync(HttpClient http, string url, long limit, CancellationToken cancellationToken)
+    private static async Task<byte[]> GetBytesAsync(HttpClient http, string url, long limit,
+        CancellationToken cancellationToken)
     {
         using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
@@ -317,7 +335,9 @@ public static class UpdateChecker
         }
 
         var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        return bytes.Length > limit ? throw new InvalidDataException($"{url} answered with more than {limit} bytes.") : bytes;
+        return bytes.Length > limit
+            ? throw new InvalidDataException($"{url} answered with more than {limit} bytes.")
+            : bytes;
     }
 
     private static Version Normalize(Version? version)

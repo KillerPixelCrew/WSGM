@@ -1,4 +1,6 @@
 using System;
+using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -56,7 +58,8 @@ public sealed partial class SettingsViewModel
     public AsyncRelayCommand CheckForUpdatesNowCommand => field ??= new AsyncRelayCommand(CheckForUpdatesNowAsync);
 
     /// <summary>Asks for confirmation before the update closes Steam and WSGM.</summary>
-    public RelayCommand RequestUpdateCommand => field ??= new RelayCommand(() => UpdateConfirmPending = UpdateAvailable);
+    public RelayCommand RequestUpdateCommand =>
+        field ??= new RelayCommand(() => UpdateConfirmPending = UpdateAvailable);
 
     /// <summary>Withdraws the update request.</summary>
     public RelayCommand CancelUpdateCommand => field ??= new RelayCommand(() => UpdateConfirmPending = false);
@@ -71,7 +74,8 @@ public sealed partial class SettingsViewModel
 
     private void ShowUpdateState(UpdateState state)
     {
-        _updateOffer = state.Offer is { } offer && UpdateChecker.IsNewer(offer.Release.Version, UpdateChecker.CurrentVersion)
+        _updateOffer = state.Offer is { } offer &&
+                       UpdateChecker.IsNewer(offer.Release.Version, UpdateChecker.CurrentVersion)
             ? offer
             : null;
         var checkedText = state.LastCheckUtc is { } last
@@ -122,13 +126,14 @@ public sealed partial class SettingsViewModel
             Progress<double> progress = new(fraction =>
                 UpdateStatusText = $"Downloading WSGM {offer.Release.Version}… {fraction:P0}");
             using var http = UpdateChecker.CreateHttpClient();
-            var setup = await Task.Run(() => UpdateChecker.DownloadAsync(http, offer.Release, progress, CancellationToken.None));
+            var setup = await Task.Run(() =>
+                UpdateChecker.DownloadAsync(http, offer.Release, progress, CancellationToken.None));
             UpdateStatusText = "Starting the update. Steam and WSGM close now and WSGM starts again when it is done.";
             UpdateChecker.RunSetup(setup);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.IO.IOException
-                                       or UnauthorizedAccessException or System.IO.InvalidDataException
-                                       or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException
+                                       or UnauthorizedAccessException or InvalidDataException
+                                       or Win32Exception)
         {
             Log.Warn("Update: " + ex.Message);
             UpdateStatusText = "The update did not start: " + ex.Message;

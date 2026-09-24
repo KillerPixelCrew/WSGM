@@ -14,10 +14,10 @@ internal sealed class UpdateMonitor : IDisposable
     private static readonly TimeSpan FirstCheckDelay = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromDays(1);
     private static readonly TimeSpan Wakeup = TimeSpan.FromHours(1);
-
-    private readonly CancellationTokenSource _stop = new();
     private readonly Func<bool> _enabled;
     private readonly Task _loop;
+
+    private readonly CancellationTokenSource _stop = new();
 
     /// <summary>Starts the loop.</summary>
     /// <param name="enabled">Read on every wakeup, so a config reload takes effect without a rebuild.</param>

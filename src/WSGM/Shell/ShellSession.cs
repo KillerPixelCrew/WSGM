@@ -148,7 +148,6 @@ public sealed class ShellSession : IAsyncDisposable
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
-    private UpdateMonitor? _updates;
 
     private bool _disposed;
 
@@ -253,6 +252,7 @@ public sealed class ShellSession : IAsyncDisposable
     private bool _tookOverFromExplorer;
     private Task? _transportGateWork;
     private TrayHost? _trayHost;
+    private UpdateMonitor? _updates;
 
     private VolumeButtonService? _volumeButtons;
 
