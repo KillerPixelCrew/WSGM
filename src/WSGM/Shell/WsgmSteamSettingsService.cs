@@ -136,6 +136,11 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private readonly Func<IReadOnlyList<InstalledCommonPlugin>> _installedPlugins;
     private readonly Func<IReadOnlyList<CommonPluginSettingsView>> _pluginSettings;
     private readonly Func<SteamInputShimStatus> _shimStatus;
+
+    // One shim apply at a time, and always of the latest save: two quick toggles would otherwise run
+    // in either order and could leave the shim matching the older one.
+    private readonly SemaphoreSlim _steamInputGate = new(1, 1);
+    private AppConfig? _pendingSteamInput;
     private long _revision = 1;
     private AppConfig? _written;
 
@@ -221,11 +226,12 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     internal event Action? Changed;
 
     /// <summary>The main menu row: WSGM, before Power, opening this page.</summary>
+    /// <param name="pageReady">Whether the page can be drawn; without it there is no row.</param>
     /// <returns>The navigation panel's state.</returns>
-    internal static SteamNavigationPanelState ReadMenu()
+    internal static SteamNavigationPanelState ReadMenu(bool pageReady)
     {
         return new SteamNavigationPanelState(
-            [new SteamNavigationItem(MenuItemId, "WSGM", Before: "power", Route: Route, Glyph: Glyph)],
+            pageReady ? [new SteamNavigationItem(MenuItemId, "WSGM", Before: "power", Route: Route, Glyph: Glyph)] : [],
             []);
     }
 
@@ -374,10 +380,12 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         {
             PluginSettingKind.Boolean => new SteamSettingsRow(key, SteamSettingsRowKind.Boolean, setting.Label,
                 Checked: value.Boolean ?? false),
-            PluginSettingKind.Number when setting is { Minimum: { } minimum, Maximum: { } maximum } =>
-                new SteamSettingsRow(key, SteamSettingsRowKind.Range, setting.Label, Number: value.Number ?? minimum,
-                    Minimum: minimum, Maximum: maximum),
+            // Text, bounds or not: the contract allows any finite number, and a slider only reaches
+            // the values its step lands on. The bounds are said, and the plugin checks them.
             PluginSettingKind.Number => new SteamSettingsRow(key, SteamSettingsRowKind.Text, setting.Label,
+                setting is { Minimum: { } minimum, Maximum: { } maximum }
+                    ? string.Create(CultureInfo.InvariantCulture, $"From {minimum} to {maximum}.")
+                    : null,
                 Text: value.Number?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
             PluginSettingKind.Secret => new SteamSettingsRow(key, SteamSettingsRowKind.Secret, setting.Label,
                 Text: value.Text is { Length: > 0 } ? "Set" : "Not set", MaximumLength: MaximumTextLength),
@@ -486,6 +494,13 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         }
 
         var (pluginId, instanceId) = (identity[..separator], identity[(separator + 1)..]);
+        // Reconcile refuses the whole instance list over one malformed identity, so one stored here
+        // would stop every plugin from starting until the file was fixed by hand.
+        if (!PluginConfigurationRules.ValidKey(pluginId) || !PluginConfigurationRules.ValidKey(instanceId))
+        {
+            return Invalid();
+        }
+
         if (_installedPlugins().All(package => package.PluginId != pluginId))
         {
             return Task.FromResult(new SteamUiCommandResult(false, "This plugin is no longer installed."));
@@ -659,23 +674,55 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Changed?.Invoke();
         if (steamInput)
         {
-            // After the save and outside the lock, like WSGM Settings: it may ask for elevation.
-            _ = Task.Run(() =>
+            lock (_gate)
             {
-                try
-                {
-                    _applySteamInput(persisted);
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    Log.Warn($"WSGM settings in Steam: Steam Input management was not applied: {ex.Message}");
-                }
+                _pendingSteamInput = persisted;
+            }
 
-                Refresh();
-            }, CancellationToken.None);
+            // After the save and outside the lock, like WSGM Settings: it may ask for elevation.
+            _ = Task.Run(ApplyLatestSteamInputAsync, CancellationToken.None);
         }
 
         return SteamUiCommandResult.Applied;
+    }
+
+    /// <summary>Applies the latest saved Steam Input setting, if no earlier run already has.</summary>
+    /// <remarks>
+    ///     Every save queues one of these, and each takes whatever is pending when it gets the gate, so
+    ///     the last one to run applies the last save and the others find nothing left to do.
+    /// </remarks>
+    private async Task ApplyLatestSteamInputAsync()
+    {
+        await _steamInputGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            AppConfig? latest;
+            lock (_gate)
+            {
+                latest = _pendingSteamInput;
+                _pendingSteamInput = null;
+            }
+
+            if (latest is null)
+            {
+                return;
+            }
+
+            try
+            {
+                _applySteamInput(latest);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"WSGM settings in Steam: Steam Input management was not applied: {ex.Message}");
+            }
+        }
+        finally
+        {
+            _steamInputGate.Release();
+        }
+
+        Refresh();
     }
 
     private AppConfig CurrentConfig()

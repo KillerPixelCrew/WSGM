@@ -2363,7 +2363,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Captures every UI-owned value into an isolated graph on the UI thread.</summary>
-    private SaveRequest CaptureSaveRequest()
+    internal SaveRequest CaptureSaveRequest()
     {
         var splash = BuildSplashConfig();
         var values = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
@@ -2389,6 +2389,8 @@ public sealed partial class SettingsViewModel : ObservableObject
                 .. SharedFields.Where(field => !Equals(field.Read(values), _sharedBaseline[field.Name]))
                     .Select(field => field.Name)
             ],
+            SharedValues = SharedFields.ToDictionary(field => field.Name, field => field.Read(values),
+                StringComparer.Ordinal),
             ForgottenDisplays = [.. _forgottenDisplays],
             CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())]
         };
@@ -2414,6 +2416,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             importLease = true;
             var request = CaptureSaveRequest();
             var result = await _services.Persist(request);
+            AdvanceSharedBaseline(request);
             CompletePersistedSave(result);
             await _services.ApplySteamInput(result.Config);
             Raise(nameof(SteamInputShimStatusText));
@@ -2705,7 +2708,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void CompletePersistedSave(SaveResult result)
     {
-        RecordSharedBaseline(result.Config);
         foreach (var row in CommonPlugins)
         {
             row.AcceptSaved();
@@ -2920,6 +2922,22 @@ public sealed partial class SettingsViewModel : ObservableObject
         return ConfigStore.CloneJson(snapshot, ConfigJsonContext.Default.AppConfig);
     }
 
+    /// <summary>Moves the baseline to what this window just saved.</summary>
+    /// <param name="request">The save that was persisted.</param>
+    /// <remarks>
+    ///     The window's own values, not the merged result. For a field the user did not change here, the
+    ///     merged result holds what another surface saved while this window kept showing its own; taking
+    ///     that as the baseline would make the unchanged field look edited on the next save, which would
+    ///     then write the window's stale value over the other surface's change.
+    /// </remarks>
+    internal void AdvanceSharedBaseline(SaveRequest request)
+    {
+        foreach (var (name, value) in request.SharedValues)
+        {
+            _sharedBaseline[name] = value;
+        }
+    }
+
     private void RecordSharedBaseline(AppConfig config)
     {
         foreach (var field in SharedFields)
@@ -3029,6 +3047,10 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         /// <summary>The shared fields the user changed in this window; the rest keep the saved value.</summary>
         internal IReadOnlyList<string> SharedEdits { get; init; } = [];
+
+        /// <summary>This window's value of every shared field, the baseline once the save succeeds.</summary>
+        internal IReadOnlyDictionary<string, object> SharedValues { get; init; } =
+            new Dictionary<string, object>(StringComparer.Ordinal);
 
         internal IReadOnlyList<CommonPluginInstanceConfig> CommonPluginEdits { get; init; } = [];
     }

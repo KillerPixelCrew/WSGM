@@ -139,6 +139,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private int _signalPending;
     private volatile bool _surfaceObservationEnabled;
 
+    // Whether WSGM's settings page can be drawn: its route and its renderer both verified. The menu
+    // row is published only while it can, so a Steam update that breaks the page takes the row with
+    // it rather than leaving one that opens onto nothing.
+    private volatile bool _wsgmSettingsReady;
+
     /// <summary>Creates the host and its surface services.</summary>
     /// <param name="transport">The one process-long Steam UI transport.</param>
     /// <param name="toggleQuickAccess">Opens or closes WSGM's overlay.</param>
@@ -785,6 +790,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Interlocked.Exchange(ref _signalPending, 0);
                 await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
                 ReconcileScreensaverReport();
+                ReconcileWsgmSettingsMenu();
                 // Every surface that runs without native Quick Access keeps the bootstrap up. Only
                 // the network indicator used to count here, so with Quick Access off the library
                 // badge, the Home carousel and the screensaver rows were retracted after each pass.
@@ -842,6 +848,32 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _displayTimeouts.ForgetSteam();
         }
+    }
+
+    /// <summary>Publishes WSGM's menu row, or takes it down, as its page becomes drawable or stops being.</summary>
+    private void ReconcileWsgmSettingsMenu()
+    {
+        if (_wsgmSettings is null)
+        {
+            return;
+        }
+
+        var ready = WsgmSettingsPageReady(_patches.GetSnapshots());
+        if (ready != _wsgmSettingsReady)
+        {
+            _wsgmSettingsReady = ready;
+            QueueStatePublication();
+        }
+    }
+
+    /// <summary>Whether WSGM's settings page can be drawn: its route and its renderer both verified.</summary>
+    /// <param name="snapshots">Every patch's state.</param>
+    /// <returns>True only when both patches are enabled and verified.</returns>
+    internal static bool WsgmSettingsPageReady(IReadOnlyList<SteamUiPatchSnapshot> snapshots)
+    {
+        return new[] { SteamPageSurface.PatchId, SteamWsgmSettingsSurface.PatchId }.All(id =>
+            snapshots.Any(snapshot => snapshot is { Enabled: true, State: SteamUiPatchState.Verified }
+                                      && snapshot.Id == id));
     }
 
     /// <summary>Whether a Screensaver settings patch in this state still vouches for Steam's report.</summary>
@@ -985,7 +1017,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 wsgmSettings));
             modules.Add(SteamNavigationPanelSurface.Module(
                 HostSteamUiEnabled,
-                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu()),
+                () => new ValueTask<SteamNavigationPanelState?>(WsgmSteamSettingsService.ReadMenu(_wsgmSettingsReady)),
                 wsgmSettings));
         }
 

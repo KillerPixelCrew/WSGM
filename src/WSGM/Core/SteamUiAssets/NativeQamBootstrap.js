@@ -4427,6 +4427,9 @@
     // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
     let observed = [];
     let lastOutcome = "never rendered";
+    // Published items refused for a route that is not one. Counted where they are refused, because
+    // they never reach a render, and a row the host asked for must not vanish without a trace.
+    let rejectedRoutes = 0;
     // The host's desired additions and hidden entries, replaced whole on each publication.
     let desired = { items: [], hidden: [] };
     const descendCache = new Map();
@@ -4678,11 +4681,13 @@
       unsubscribe = subscribe(patchId, (state) => {
         const items = Array.isArray(state?.items) ? state.items : [];
         const hidden = Array.isArray(state?.hidden) ? state.hidden : [];
+        const named = items.filter(
+          (item) => item && typeof item.id === "string" && typeof item.label === "string",
+        );
+        const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
+        rejectedRoutes = named.length - routable.length;
         desired = {
-          items: items
-            .filter((item) => item && typeof item.id === "string" && typeof item.label === "string")
-            .filter((item) => item.route == null || isNavigableRoute(item.route))
-            .slice(0, MaximumEntries),
+          items: routable.slice(0, MaximumEntries),
           hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
         };
         // Nothing re-renders the menu on its own, so a change published while it is closed shows the
@@ -4715,6 +4720,7 @@
       // insertion depends on the tree Steam rendered. This is the part that says what happened.
       entries: observed,
       items: desired.items.length,
+      rejectedRoutes,
       hidden: desired.hidden.length,
       lastOutcome,
       lastError,
@@ -9626,39 +9632,47 @@
   const WsgmSettingsPatchId = "steam-ui.wsgm-settings";
   const WsgmSettingsRoute = "/wsgm/settings";
   let wsgmSettingsUi = null;
+  // Steam's React, kept past remove(): a mounted page still calls its hooks on the render that finds
+  // the gate removed, and they have to come from the same React that mounted it.
+  let wsgmSettingsReact = null;
   let wsgmSettingsState = null;
   const wsgmSettingsListeners = new Set();
+  // One component for the life of the asset. The page host calls the renderer on every router render,
+  // and a component declared inside it would be a new type each time: React would remount the page
+  // on every page switch and drop its drafts and the controller's focus.
+  function WsgmSettingsPage() {
+    const react = wsgmSettingsReact;
+    const [, setPublished] = react.useState(0);
+    // A refused change is not republished, so the page counts refusals itself: each one is a new
+    // revision for the renderer, which drops the draft and shows the host's value again.
+    const [refusals, setRefusals] = react.useState(0);
+    react.useEffect(() => {
+      const listener = () => setPublished((value) => value + 1);
+      wsgmSettingsListeners.add(listener);
+      return () => wsgmSettingsListeners.delete(listener);
+    }, []);
+    // After the hooks, so a render that finds the gate removed still calls the same ones.
+    const ui = wsgmSettingsUi;
+    if (!ui) return null;
+    const state = wsgmSettingsState ?? {};
+    return renderSteamSettings(ui, {
+      route: WsgmSettingsRoute,
+      pages: state.pages ?? [],
+      revision: `${state.revision ?? 0}:${refusals}`,
+      onChange: (row, value) => {
+        request(
+          WsgmSettingsPatchId,
+          "set",
+          { key: row.key, value },
+          nextActionGeneration(WsgmSettingsPatchId),
+        ).catch(() => setRefusals((count) => count + 1));
+      },
+      // No row on this page is an action.
+      onAction: () => {},
+    });
+  }
   function renderWsgmSettingsPage() {
-    const react = wsgmSettingsUi?.react;
-    if (!react) return null;
-    const Page = () => {
-      const [, setPublished] = react.useState(0);
-      // A refused change is not republished, so the page counts refusals itself: each one is a new
-      // revision for the renderer, which drops the draft and shows the host's value again.
-      const [refusals, setRefusals] = react.useState(0);
-      react.useEffect(() => {
-        const listener = () => setPublished((value) => value + 1);
-        wsgmSettingsListeners.add(listener);
-        return () => wsgmSettingsListeners.delete(listener);
-      }, []);
-      const state = wsgmSettingsState ?? {};
-      return renderSteamSettings(wsgmSettingsUi, {
-        route: WsgmSettingsRoute,
-        pages: state.pages ?? [],
-        revision: `${state.revision ?? 0}:${refusals}`,
-        onChange: (row, value) => {
-          request(
-            WsgmSettingsPatchId,
-            "set",
-            { key: row.key, value },
-            nextActionGeneration(WsgmSettingsPatchId),
-          ).catch(() => setRefusals((count) => count + 1));
-        },
-        // No row on this page is an action.
-        onAction: () => {},
-      });
-    };
-    return react.createElement(Page, {});
+    return wsgmSettingsUi ? wsgmSettingsReact.createElement(WsgmSettingsPage, {}) : null;
   }
   function createWsgmSettings() {
     let installed = false;
@@ -9672,6 +9686,7 @@
         wsgmSettingsUi = null;
         return false;
       }
+      wsgmSettingsReact = wsgmSettingsUi.react;
       return true;
     };
     const install = () => {
@@ -9692,6 +9707,8 @@
       unsubscribe = endSubscription(unsubscribe);
       wsgmSettingsState = null;
       wsgmSettingsUi = null;
+      // A mounted page draws nothing from now on, rather than the rows it last had.
+      wsgmSettingsListeners.forEach((listener) => listener());
       return { ok: true };
     };
     const status = () => ({

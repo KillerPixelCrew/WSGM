@@ -83,6 +83,27 @@ public sealed class SettingsSaveMergeTests
     }
 
     [Fact]
+    public void ASecondUnrelatedSaveStillKeepsTheChangeMadeInSteam()
+    {
+        // The window keeps showing what it loaded. Had the first save taken the merged result as its
+        // baseline, the unchanged field would look edited on the second and write the stale value.
+        var loaded = ConfigStore.Normalize(new AppConfig());
+        loaded.Cef.WifiIndicator = true;
+        SettingsViewModel window = new(loaded);
+        var saved = ConfigStore.Normalize(new AppConfig());
+        saved.Cef.WifiIndicator = false;
+
+        var first = window.CaptureSaveRequest();
+        saved = SettingsViewModel.ApplyCapturedValues(saved, first, first.Splash);
+        window.AdvanceSharedBaseline(first);
+        var second = window.CaptureSaveRequest();
+        saved = SettingsViewModel.ApplyCapturedValues(saved, second, second.Splash);
+
+        Assert.Empty(second.SharedEdits);
+        Assert.False(saved.Cef.WifiIndicator);
+    }
+
+    [Fact]
     public void ASettingChangedInSteamWhileTheWindowWasOpenIsNotRevertedByItsSave()
     {
         // WSGM's page in Steam writes these fields too. The window still holds what it loaded, and

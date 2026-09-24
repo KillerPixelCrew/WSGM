@@ -241,12 +241,76 @@ public sealed class WsgmSteamSettingsServiceTests
     [Fact]
     public void TheMenuRowIsWsgmBeforePowerOpeningThisPage()
     {
-        var item = Assert.Single(WsgmSteamSettingsService.ReadMenu().Items);
+        var item = Assert.Single(WsgmSteamSettingsService.ReadMenu(true).Items);
 
         Assert.Equal("WSGM", item.Label);
         Assert.Equal("power", item.Before);
         Assert.Equal(SteamWsgmSettingsSurface.Route, item.Route);
         Assert.False(string.IsNullOrEmpty(item.Glyph));
+    }
+
+    [Fact]
+    public void ThereIsNoMenuRowWhileItsPageCannotBeDrawn()
+    {
+        // A row that opens onto nothing is worse than no row.
+        Assert.Empty(WsgmSteamSettingsService.ReadMenu(false).Items);
+    }
+
+    [Theory]
+    [InlineData(SteamUiPatchState.Verified, SteamUiPatchState.Verified, true)]
+    [InlineData(SteamUiPatchState.Verified, SteamUiPatchState.Incompatible, false)]
+    [InlineData(SteamUiPatchState.Applied, SteamUiPatchState.Verified, false)]
+    [InlineData(SteamUiPatchState.Verified, SteamUiPatchState.AbsentTarget, false)]
+    public void ThePageIsDrawableOnlyWhenItsRouteAndItsRendererAreBothVerified(
+        SteamUiPatchState pages, SteamUiPatchState settings, bool ready)
+    {
+        SteamUiPatchSnapshot[] snapshots =
+        [
+            new(SteamPageSurface.PatchId, 1, true, pages, null, default, null, DateTimeOffset.UnixEpoch),
+            new(SteamWsgmSettingsSurface.PatchId, 1, true, settings, null, default, null, DateTimeOffset.UnixEpoch)
+        ];
+
+        Assert.Equal(ready, SteamUiSessionHost.WsgmSettingsPageReady(snapshots));
+        Assert.False(SteamUiSessionHost.WsgmSettingsPageReady([snapshots[1]]));
+    }
+
+    [Theory]
+    [InlineData("plugins.enabled:vendor.plugin/")]
+    [InlineData("plugins.enabled:vendor.plugin/Bad Instance")]
+    [InlineData("plugins.enabled:vendor.plugin/a/b")]
+    public async Task AMalformedPluginInstanceIsRefusedBeforeItIsStored(string key)
+    {
+        // Reconcile refuses the whole list over one bad identity, which would stop every plugin.
+        Harness harness = new();
+        harness.Installed = [new InstalledCommonPlugin("vendor.plugin", "Vendor")];
+
+        var result = await harness.Create().SetAsync(key, Json("true"), CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(harness.Stored.PluginInstances);
+    }
+
+    [Fact]
+    public void ABoundedPluginNumberIsTextSoEveryAllowedValueCanBeEntered()
+    {
+        // The contract allows any finite number between the bounds; a slider reaches only its steps.
+        Harness harness = new();
+        harness.Installed = [new InstalledCommonPlugin("vendor.plugin", "Vendor")];
+        harness.Running =
+        [
+            new CommonPluginSettingsView("owner", new PluginInstanceIdentity("vendor.plugin", "default"), "Vendor", 1,
+            [
+                new CommonPluginSettingValue(
+                    new PluginSetting("ratio", "Ratio", PluginSettingKind.Number, new PluginValue(Number: 0.25), 0, 1),
+                    new PluginValue(Number: 0.25))
+            ])
+        ];
+
+        var row = Row(harness.Create().ReadState(), "plugins.setting:owner/ratio");
+
+        Assert.Equal(SteamSettingsRowKind.Text, row.Kind);
+        Assert.Equal("0.25", row.Text);
+        Assert.Equal("From 0 to 1.", row.Description);
     }
 
     [Theory]
