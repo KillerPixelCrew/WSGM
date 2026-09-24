@@ -28,7 +28,9 @@ running tool otherwise.
 
 ## Command and application contract
 
-- No arguments and `gui` start the GUI. Normal CLI commands are `doctor`, `inventory`, `candidates`,
+- No arguments and `wizard` start the tester wizard, which relaunches itself elevated once
+  (`--elevated-relaunch` prevents a loop) and opens without elevation if the prompt is declined.
+  `gui` starts the developer tabs as-invoker. Normal CLI commands are `doctor`, `inventory`, `candidates`,
   `probe-read`, `capture`, `inspect`, `compare`, `correlate`, `fixture`, `scaffold`, `glyph`,
   `validate`, `test`, and `pack`.
 - `__read-probe` and `__plugin-test` are authenticated internal worker modes, not public commands.
@@ -60,6 +62,27 @@ untrusted evidence; use static validation until plugin code has been deliberatel
   before success. An unverified cleanup is a failure.
 - Observe-only capture requires hash-bound approval of the local interactive observation scope, then a separate approval
   of the sanitized export preview before publication. Do not merge or bypass those approvals.
+
+## Tester wizard
+
+The wizard (`Wizard/`, `Gui/WizardWindow.cs`) is the one workflow that changes machine state
+without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
+
+- Record every machine change in `LabMachineState` before making it, and clear the record only
+  after a readback shows the change undone. The next wizard start undoes whatever a killed session
+  left. HidHide changes add or remove only the lab's own exact entry; never flip the hiding switch
+  or edit an inverse-mode list.
+- Other managers get a window close request, never a kill; services are never stopped.
+- PawnIO is installed only from the embedded installer after its SHA-256 matches the embedded
+  `external/pawnio/pawnio.lock.json`. Never pass `-unrestricted`. Replace an older install only on
+  the tester's explicit choice. Offer removal only when the lab installed it.
+- A project is a folder of attempts. Never overwrite evidence; a redo creates a new attempt, and the
+  manifest is the only file rewritten (atomically).
+- Input capture records every input from every device and attributes it afterwards. Never filter by
+  device, VID/PID or usage page at capture time; the knowledge base may rank sources, not narrow them.
+- The shared report is built in memory, previewed, and written once. Every JSON string passes through
+  one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
+- The wizard keeps blocking work off the UI thread and runs one operation at a time.
 
 ## Filesystem and artifact rules
 

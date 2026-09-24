@@ -200,6 +200,18 @@ Page registration is now host-owned and plugins declare routes for the host to m
 pages are the artwork browser and the Game Library. The plugin SDK, `src/WSGM.Plugin.Ir` and the
 installed third-party path are unchanged.
 
+**Device Lab drives hardware for an attended tester (2026-09-24).** Device Lab used to touch
+hardware only through a loaded plugin's `test hardware` action. It is becoming the one tool a
+maintainer sends to people with an unknown handheld, and on such a device there is no plugin yet:
+finding out what a plugin would have to do is the point. The attended wizard may therefore change
+machine state directly: HidHide's allowed-programs list, a PawnIO install, and from later stages the
+device's own power, fan, lighting and controller-mode commands. The rules a plugin must follow still
+apply: every change is recorded before it is made, read back from a real source, restored, confirmed
+by the tester and never retried automatically, and a crashed session is cleaned up on the next
+start. The knowledge records the wizard works from are evidence, not a plugin: nothing WSGM runs
+reads them, and a device only becomes supported through a plugin built from them. AllyXLab is
+retired once the wizard covers it.
+
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it
 starts, Steam Input, and the installed plugins' settings. It is a second place to reach settings

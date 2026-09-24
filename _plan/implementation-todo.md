@@ -19,8 +19,15 @@ afterwards. Delivered as stacked PRs ending at `feat/devicelab-attended-wizard`.
       Claw 8 A2VM, ROG Ally X and Xbox Ally X records, `candidates` knowledge matches, baseboard
       manufacturer in the inventory, Windows 10 SDK target framework. Smoke-checked with a live
       inventory and a synthetic RC73XA identity; test suites deferred to after manual testing.
-- [ ] PR 2: wizard shell, project model with segment redo, self-elevation, preflight (conflicts,
-      HidHide, PawnIO install), identity confirmation, export with privacy preview.
+- [x] PR 2 (`feat/devicelab-wizard-shell`): the tester wizard as the default start, elevated once
+      with a no-loop marker; project folders with per-segment attempts and redo; preflight (other
+      managers with close requests only, HidHide self-allow with exact-entry restore and crash
+      recovery, PawnIO detection and pinned silent install from `external/pawnio`); identity
+      confirmation against the knowledge base or typed product and model; export with a redacted
+      in-memory preview and one ZIP; `publish-device-lab.ps1 -Portable`. Decision recorded in
+      `docs/decisions.md`. Portable publish and CLI smoke-checked; the wizard itself needs the
+      maintainer's attended run (it elevates, edits HidHide and installs PawnIO). Test suites
+      deferred.
 - [ ] PR 3: system dump (ACPI without MSDM/SLIC, SMBIOS redaction, device tree, HID, sensors, EC,
       WMI, display, battery, CPU).
 - [ ] PR 4: button capture across all devices, analog, chords, init and restore.

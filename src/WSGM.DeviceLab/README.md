@@ -8,6 +8,35 @@ only a real machine can answer.
 
 It is a GUI and a CLI over the same code. The executable is `wsgm-device`.
 
+## The tester wizard
+
+Started with no arguments (or `wsgm-device wizard`), Device Lab opens a step-by-step test meant for
+someone who is not a developer. It asks for administrator rights once, then:
+
+1. **Get ready.** Lists other controller software that would hide or change the device and offers to
+   close it (a close request only; services are never stopped). Adds itself to HidHide's allowed
+   programs and removes exactly that entry when the test finishes or the window closes. Installs the
+   pinned PawnIO driver when it is missing, and asks before replacing an older one.
+2. **Your device.** Reads the board, BIOS, EC and processor identity, matches it against the known
+   devices and asks the tester to confirm, or to type the product name and exact model.
+3. The later stages (system details, buttons, motion, rumble, power and fans, sleep) are listed and
+   arrive in later builds.
+4. **Finish and share.** Shows every file that will be shared, what was replaced (account names,
+   user folders, device instance paths, network addresses) and what stays on the computer, then
+   writes one ZIP.
+
+Each test is a folder under `Documents\WSGM Device Lab`. Any stage can be run again from the list,
+and every attempt is kept, so a wrongly read button does not mean repeating the whole test. Changes
+the wizard makes to the machine are also recorded in `%LOCALAPPDATA%\WSGM Device Lab\wizard`, so a
+session that was killed is cleaned up the next time the wizard starts.
+
+`wsgm-device gui` opens the developer tabs described below instead. For a remote tester, publish one
+self-contained file:
+
+```powershell
+.\eng\publish-device-lab.ps1 -Portable -OutputRoot publish/DeviceLabPortable
+```
+
 ## Why it is a separate tool
 
 Writing a device plugin means answering questions about a specific machine that no documentation

@@ -45,6 +45,10 @@ codes, and safe to rerun.
   `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
   unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in
   identity, entry assembly, glyph and extracted-tree checks.
+- `device-lab-publish.ps1` runs `acquire-pawnio.ps1` first, which downloads the installer pinned in
+  `external/pawnio/pawnio.lock.json` into `artifacts/pawnio` and refuses a wrong digest or signer.
+  Device Lab embeds it when present. `publish-device-lab.ps1 -Portable` publishes one self-extracting
+  file for remote testers.
 - Staging must validate package identity, version, architecture, and required files before copying
   anything into the installer tree.
 - `new-plugin.ps1` and `package-plugin.ps1` take the common API version and manifest validation from
