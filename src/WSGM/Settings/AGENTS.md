@@ -17,8 +17,11 @@ state is not.
   window last loaded or saved, and keeps the saved value otherwise. A field that page gains goes on that list.
 - Write dependent sidecars or manifests atomically and keep them consistent with the committed configuration.
 - Display edits use stable display identities and must handle a disconnected or stale target explicitly.
-- Quick Setup uses an integer revision, disables the settings pages while modal, and applies nothing until Continue.
-  Stamp the answered revision only in the successful save, so Skip means off and a failed save asks again.
+- First-run choices are asked by setup, not here. Setup exports and applies them through `Core/SetupAnswers`
+  (`--export-setup-answers`, `--setup --answers`); a field setup asks is added there as well as on its page.
+- The Plugins page (`PluginSettingsPage`) installs a bundled package by copying it into the Plugins folder and removes
+  one by deleting it, or at the next start while it is loaded. It never loads plugin code and never installs drivers:
+  missing components go through setup's repair.
 - Steam Input reconciliation happens after configuration is saved and outside the config lock, with the existing
   elevation and pending-update behavior.
 - Device and Plugin tabs remain available when integration is disabled so users can enable it and manage target, glyph,

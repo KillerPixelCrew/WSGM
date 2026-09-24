@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Install;
 
 namespace WSGM.Tests.Core;
 
@@ -10,7 +11,7 @@ public sealed class DevicePrerequisitesTests
         bool library = true,
         bool hidHide = true)
     {
-        return new DevicePrerequisiteState(package, integration, library, hidHide);
+        return new DevicePrerequisiteState(package, integration, library, hidHide, [SetupComponent.ControllerStack]);
     }
 
     [Fact]
@@ -89,5 +90,14 @@ public sealed class DevicePrerequisitesTests
         Assert.True(advice.HasAdvice);
         Assert.False(advice.CanEnableIntegration);
         Assert.DoesNotContain("switched off", advice.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void APackageThatDeclaresNoControllerRoleNeedsNoController()
+    {
+        var advice = DevicePrerequisites.Describe(
+            new DevicePrerequisiteState(true, true, false, false, []));
+
+        Assert.False(advice.HasAdvice);
     }
 }

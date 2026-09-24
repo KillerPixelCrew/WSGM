@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using WSGM.Device.Sdk;
+using WSGM.Install;
 using WSGM.Plugin.Sdk;
 using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
@@ -107,9 +108,11 @@ internal sealed record PluginPackageCatalog
     };
 
     /// <summary>Reads the production Plugins folder.</summary>
+    /// <remarks>Package files the Plugins page removed while they were loaded are deleted first.</remarks>
     internal static PluginPackageCatalog DiscoverInstalled()
     {
-        return Discover(DeviceInstallationPaths.PluginsRoot);
+        PendingPluginRemovals.Apply(InstallLayout.Plugins);
+        return Discover(InstallLayout.Plugins);
     }
 
     /// <summary>The id of the installed, valid device plugin, or null when there is none.</summary>

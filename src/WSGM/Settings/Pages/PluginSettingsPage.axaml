@@ -11,6 +11,38 @@
   <Border Padding="16,10,16,10">
     <DockPanel>
       <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,16">
+        <!--
+            Installed package files and what the installed release bundles. Installing copies a bundled
+            file into the Plugins folder and removing deletes one; both apply at the next start, because
+            a loaded package is held open. A device plugin is offered only when its hardware rules match.
+        -->
+        <Border Classes="section-header">
+          <TextBlock Text="PACKAGES" />
+        </Border>
+        <TextBlock Classes="caption" TextWrapping="Wrap"
+                   Text="Plugins WSGM has installed, and the ones this release brings for your hardware. Changes apply after WSGM restarts." />
+        <ScrollViewer MaxHeight="220">
+          <ItemsControl ItemsSource="{Binding PluginPackages}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:PluginPackageRow">
+                <Border Classes="setting-row">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel>
+                      <TextBlock Classes="setting-title" Text="{Binding Name}" />
+                      <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Notice}" TextWrapping="Wrap"
+                                 IsVisible="{Binding HasNotice}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="{Binding ActionLabel}" Command="{Binding ActCommand}"
+                            IsVisible="{Binding HasAction}" VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+        <Button Content="Repair installation" Command="{Binding RepairCommand}" IsVisible="{Binding CanRepair}"
+                HorizontalAlignment="Left" />
         <Border Classes="section-header">
           <TextBlock Text="INDEPENDENT PLUGINS" />
         </Border>

@@ -201,12 +201,21 @@ public static class Program
             return RadioProbe.Run();
         }
 
-        // Elevated one-shot for the uninstaller: puts back every machine-level
-        // setting WSGM changed (display scaling, UAC, lock-on-wake).
+        // Elevated one-shot for the uninstaller. The controller comes first: shows every device WSGM
+        // hid with HidHide again, before HidHide may be removed and before user data may be deleted,
+        // then puts back every machine-level setting WSGM changed (display scaling, UAC,
+        // lock-on-wake). Exit code 3 tells setup the HidHide cleanup could not be verified; the
+        // ownership ledger is then kept for another attempt.
         if (flags.Contains("--uninstall-restore"))
         {
+            var hidHide = await RestoreHidHideForUninstallAsync().ConfigureAwait(false);
             Installer.RestoreMachineSettings();
-            return 0;
+            return hidHide ? 0 : UninstallHidHideUnverifiedExitCode;
+        }
+
+        if (ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
+        {
+            return ExportSetupAnswers(exportPath);
         }
 
         if (flags.Contains("--setup"))
@@ -230,17 +239,32 @@ public static class Program
                     ex);
             }
 
-            if (config is not null
-                && InstallProfile.TryParse(InstallProfile.Read(args), out var profile)
-                && InstallProfile.Apply(config, profile, freshInstall))
+            if (config is not null && ArgumentValue(args, "--answers=") is { } answersPath)
             {
-                ConfigStore.Save(config);
-                Log.Info($"Setup: seeded a fresh install from the {profile} mode "
-                         + $"(start at sign-in in {config.StartMode} mode, device integration "
-                         + $"{(config.DeviceIntegration.Enabled ? "on" : "off")}).");
+                try
+                {
+                    var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
+                    answers.ApplyTo(config);
+                    ConfigStore.Save(config);
+                    Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
+                             + $"configuration ({answers.Describe()}).");
+                    if (answers.SteamAutostartTakeover)
+                    {
+                        // The user consented in setup; setup never sets this for a silent fresh install.
+                        var result = SteamAutostartService.Apply(
+                            [.. SteamAutostartService.Scan().Where(source => source.Enabled)], false);
+                        Log.Info($"Setup: Steam autostart takeover disabled {result.Disabled.Count}, "
+                                 + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                    Log.Error("Setup: the setup answers could not be applied", ex);
+                    return 1;
+                }
             }
 
-            Installer.InstallApp();
+            Log.Info($"Setup: installed at {Installer.InstalledExePath}.");
             // Deploy the Steam Input shim only after the payload exists in the
             // install directory. Default-on when config.json is unreadable, because
             // on is the default the property itself carries.
@@ -474,6 +498,80 @@ public static class Program
         return args.Contains("--overlay-test", StringComparer.OrdinalIgnoreCase)
             ? RunMode.OverlayTest
             : RunMode.Settings;
+    }
+
+    /// <summary>Exit code of <c>--uninstall-restore</c> when HidHide cleanup was not verified.</summary>
+    internal const int UninstallHidHideUnverifiedExitCode = 3;
+
+    /// <summary>Returns the value of a <c>--name=value</c> argument, or null when it is absent.</summary>
+    /// <param name="args">Process arguments.</param>
+    /// <param name="prefix">The argument name including its <c>=</c>.</param>
+    internal static string? ArgumentValue(string[] args, string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        return args
+            .Where(argument => argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(argument => argument[prefix.Length..])
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+    }
+
+    /// <summary>Writes the current configuration as setup answers, for setup's profile page.</summary>
+    /// <param name="path">Where to write the answers.</param>
+    /// <returns>Process exit code.</returns>
+    private static int ExportSetupAnswers(string path)
+    {
+        try
+        {
+            var freshInstall = !File.Exists(ConfigStore.ConfigPath);
+            var config = freshInstall ? new AppConfig() : ConfigStore.Load();
+            IReadOnlyList<string> entries = [];
+            try
+            {
+                entries = [.. SteamAutostartService.Scan().Where(source => source.Enabled).Select(source => source.Describe())];
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn("Setup answers: the Steam autostart scan failed: " + ex.Message);
+            }
+
+            File.WriteAllBytes(path, SetupAnswers.Export(config, freshInstall, entries).ToUtf8Json());
+            return 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Error("Setup answers could not be exported", ex);
+            return 1;
+        }
+    }
+
+    /// <summary>Shows every device WSGM hid again and takes WSGM off HidHide's allowlist.</summary>
+    /// <returns>Whether HidHide read back clean.</returns>
+    private static async Task<bool> RestoreHidHideForUninstallAsync()
+    {
+        try
+        {
+            HidHideOwnedDeltaManager manager = new(
+                new WindowsHidHideAdapter(),
+                new FileHidHideOwnershipStore(Path.Combine(Log.Directory, "hidhide-ownership.json")));
+            var result = await manager.CleanupForUninstallAsync(
+                [Environment.ProcessPath ?? Installer.InstalledExePath],
+                CancellationToken.None).ConfigureAwait(false);
+            if (result.Verified)
+            {
+                Log.Info("Uninstall restore: HidHide: " + result.Detail);
+            }
+            else
+            {
+                Log.Warn("Uninstall restore: HidHide cleanup was not verified: " + result.Detail);
+            }
+
+            return result.Verified;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Uninstall restore: HidHide cleanup failed", ex);
+            return false;
+        }
     }
 
     /// <summary>

@@ -13,6 +13,7 @@
     <Project Path="src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
     <Project Path="src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
     <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj"/>
+    <Project Path="src/WSGM.Install/WSGM.Install.csproj"/>
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj"/>
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj"/>
     <Project Path="src/WSGM.PackagedLaunch/WSGM.PackagedLaunch.csproj"/>

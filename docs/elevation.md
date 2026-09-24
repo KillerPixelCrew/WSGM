@@ -202,8 +202,8 @@ Turning Windows' own Steam startup entries off is what makes that ownership real
 scheduled-task parts of it need elevation. They go through the `--disable-steam-autostart` one-shot,
 the same `SelfElevation.RunElevatedAction` pattern the UAC and lock-on-wake toggles use, and it
 rescans rather than trusting a name from its command line. A sign-in never prompts; the elevated
-route is only taken from Quick Setup or the Settings button, where a prompt is expected. The
-uninstaller's existing elevated `--uninstall-restore` puts the entries back.
+route is only taken from setup, which is already elevated, or the Settings button, where a prompt is
+expected. The uninstaller's existing elevated `--uninstall-restore` puts the entries back.
 
 Because WSGM owns the Steam start, `Core\ElevationPolicy` treats "WSGM starts Steam at its own
 integrity" as a reason to run elevated, alongside an already-elevated Steam, elevated startup apps

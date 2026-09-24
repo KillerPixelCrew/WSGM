@@ -53,7 +53,6 @@ public sealed class SettingsSaveMergeTests
             "",
             false,
             false,
-            false,
             false)
         {
             // The window changed this one itself, so its value is written over the saved one.
@@ -118,8 +117,7 @@ public sealed class SettingsSaveMergeTests
         fresh.SteamInputLeaseEnabled = false;
 
         var request = new SettingsViewModel.SaveRequest(
-            values, values.Splash, new Dictionary<string, CapabilityValue>(), null, "", "", false, false, false,
-            false)
+            values, values.Splash, new Dictionary<string, CapabilityValue>(), null, "", "", false, false, false)
         {
             // Only the start mode was changed in the window.
             SharedEdits = ["StartMode"]
@@ -174,8 +172,7 @@ public sealed class SettingsSaveMergeTests
             "plugin",
             true,
             true,
-            true,
-            false);
+            true);
 
         var merged = SettingsViewModel.ApplyCapturedValues(fresh, request, values.Splash);
 

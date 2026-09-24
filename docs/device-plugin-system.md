@@ -70,9 +70,9 @@ A package is one `.wsgmpkg` file, a ZIP archive that WSGM reads without unpackin
 ```
 
 Every installed package, device and common alike, is a file directly in
-`%ProgramFiles%\WSGM\Plugins` (`Core\DeviceInstallationPaths.PluginsRoot`). Installing one means
-copying the file there, which only an administrator can do. A blank Program Files answer from
-Windows throws rather than falling back.
+`%ProgramFiles%\WSGM\Plugins` (`WSGM.Install.InstallLayout.Plugins`). Installing one means copying
+the file there, which only an administrator can do. A blank Program Files answer from Windows throws
+rather than falling back.
 
 Budgets applied when a package is opened (`Core\PluginPackageFile.cs`) and when Device Lab validates
 or packs one (`PluginPackageWorkflow`):
@@ -160,6 +160,14 @@ device package is shown in the overlay's Diagnostics section. Validation never l
 - Replace: close WSGM, copy the new file in (remove the old one, or leave it to be superseded), then
   start WSGM.
 - Remove: close WSGM and delete the file.
+
+WSGM Settings' Plugins page does the same through the UI. Install copies a package that the
+installed release bundles (`%ProgramFiles%\WSGM\Setup\Packages`, checked against the recorded
+`%ProgramData%\WSGM\bundle.json`) into the Plugins folder, and offers a device package only when its
+hardware rules match this machine and no other device package is installed. Remove deletes the file;
+a loaded file cannot be deleted, so it is listed in `%ProgramData%\WSGM\plugin-removals.json` and
+deleted before the next discovery. Both apply at the next start. A package that needs a missing
+system component points to setup's repair, which installs it.
 
 `eng\dev-deploy.ps1` stages the Claw package from this checkout, copies it in from an elevated child
 beside the target, renames it into place and deletes every other build of the same id.

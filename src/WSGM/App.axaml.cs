@@ -67,9 +67,8 @@ public class App : Application
 
                 case RunMode.Settings:
                 default:
-                    // Inno is the only installer, so there is no portable run to offer
-                    // an install for. First-run onboarding is Quick Setup, which the
-                    // Settings window raises over itself.
+                    // Setup is the only installer, so there is no portable run to offer
+                    // an install for, and it asks every first-run question itself.
                     desktop.MainWindow = new SettingsWindow(SettingsViewModel.FromLoadedConfig(config));
                     break;
             }

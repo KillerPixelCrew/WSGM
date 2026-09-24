@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using WSGM.Core;
+using WSGM.Install;
 using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.UiTests.Infrastructure;
@@ -16,7 +17,7 @@ public sealed class DevicePrerequisiteBannerTests
         bool library = false,
         bool hidHide = false)
     {
-        return new DevicePrerequisiteState(package, integration, library, hidHide);
+        return new DevicePrerequisiteState(package, integration, library, hidHide, [SetupComponent.ControllerStack]);
     }
 
     /// <summary>

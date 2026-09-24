@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Install;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Identity;

@@ -39,7 +39,7 @@ internal sealed class UiFixture : IDisposable
     internal List<string> Calls { get; } = [];
 
     internal AppConfig Saved { get; private set; } = new()
-        { AccentColor = "#4CC2FF", QuickSetupRevision = QuickSetup.CurrentRevision };
+        { AccentColor = "#4CC2FF" };
 
     internal Func<SettingsViewModel.SaveRequest, Task<SettingsViewModel.SaveResult>>? Persist { get; set; }
     internal Action<string> ClaimSteamInput { get; set; } = _ => { };

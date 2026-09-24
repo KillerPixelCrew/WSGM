@@ -13,6 +13,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
+using WSGM.Install;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Themes;
@@ -296,6 +297,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Metadata discovery failures; discovery never executes plugin code.</summary>
     public string CommonPluginDiscoveryError { get; private set; } = "";
+
+    /// <summary>Installed package files and the plugins the installed release bundles.</summary>
+    public ObservableCollection<PluginPackageRow> PluginPackages { get; } = [];
+
+    /// <summary>Whether the installed setup is present to run Repair.</summary>
+    public bool CanRepair => File.Exists(InstallLayout.SetupExe);
+
+    /// <summary>Runs the installed setup's repair, which installs what the plugins need.</summary>
+    public RelayCommand RepairCommand => field ??= new RelayCommand(StartRepair);
 
     // --- Commands (bound by the Settings pages; bodies stay on the named methods) ---
     /// <summary>
@@ -744,15 +754,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         get;
         private set => SetField(ref field, value, nameof(DeviceOwnerStatusText));
     } = "No running device coordinator detected.";
-
-    /// <summary>Gets whether first-run Quick Setup still has to be answered.</summary>
-    public bool QuickSetupPending => QuickSetup.ShouldShow(_config);
-
-    /// <summary>
-    ///     Gets or sets whether the Quick Setup panel was answered in this
-    ///     session, so the next save stamps the revision it answered.
-    /// </summary>
-    public bool QuickSetupAnswered { get; set; }
 
 #pragma warning disable CA1822
     /// <summary>
@@ -1259,8 +1260,76 @@ public sealed partial class SettingsViewModel : ObservableObject
         return viewModel;
     }
 
+    private void StartRepair()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(InstallLayout.SetupExe, "/repair") { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        {
+            Log.Warn("Plugins: starting setup's repair failed: " + ex.Message);
+        }
+    }
+
+    /// <summary>Reads the Plugins page: installed files, and what the installed release bundles.</summary>
+    /// <param name="catalog">The installed packages.</param>
+    private void LoadPluginPackages(PluginPackageCatalog catalog)
+    {
+        BundleManifest? bundle = null;
+        PluginOffers? offers = null;
+        try
+        {
+            bundle = BundleManifest.TryRead(InstallLayout.InstalledBundle);
+            if (bundle is not null)
+            {
+                string[] installed =
+                [
+                    .. catalog.Common.Select(package => package.Manifest.Id),
+                    .. catalog.Device.InstalledPackage?.Manifest is { } device ? [device.Id] : Array.Empty<string>()
+                ];
+                offers = PluginOffers.Compute(bundle, DeviceMachineIdentity.Collect(), installed);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
+        }
+
+        PluginPackages.Clear();
+        foreach (var state in PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers))
+        {
+            PluginPackages.Add(new PluginPackageRow(state, row => ActOnPackageAsync(row, bundle)));
+        }
+    }
+
+    private static Task<string> ActOnPackageAsync(PluginPackageRowState row, BundleManifest? bundle)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                return row.Action switch
+                {
+                    PluginPackageAction.Install when bundle is not null => PluginPackageManager.Install(
+                        row.PackagePath, bundle, InstallLayout.Plugins),
+                    PluginPackageAction.Remove => PluginPackageManager.Remove(row.PackagePath, InstallLayout.Plugins),
+                    _ => ""
+                };
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Plugins: {row.Action} {row.Id} failed: {ex.Message}");
+                return ex is UnauthorizedAccessException
+                    ? "Changing the Plugins folder needs administrator rights."
+                    : "That did not work: " + ex.Message;
+            }
+        });
+    }
+
     private void LoadCommonPlugins(PluginPackageCatalog catalog)
     {
+        LoadPluginPackages(catalog);
         CommonPlugins.Clear();
         foreach (var package in catalog.Common)
         {
@@ -2022,13 +2091,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Performance.OsdCustomGpu = Math.Clamp(OsdCustomGpuIndex, 0, 2);
         config.Performance.OsdCustomVram = Math.Clamp(OsdCustomVramIndex, 0, 2);
         config.Performance.OsdCustomBattery = Math.Clamp(OsdCustomBatteryIndex, 0, 2);
-        if (QuickSetupAnswered)
-        {
-            // Stamped only on a save that actually persists the answer, so a failed
-            // save leaves the panel due to appear again rather than silently lost.
-            QuickSetup.MarkCompleted(config);
-        }
-
         config.Cef.Enabled = CefEnabled;
         config.Cef.LibraryTabs = CefLibraryTabs;
         config.Cef.CardManager = CefCardManager;
@@ -2386,8 +2448,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             _pluginSettingsPlugin,
             _deviceAutoTdpEdited,
             _deviceControllerTargetEdited,
-            _deviceGlyphSelectionEdited,
-            QuickSetupAnswered)
+            _deviceGlyphSelectionEdited)
         {
             SharedEdits =
             [
@@ -2485,7 +2546,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.SteamDelayMs = fresh.SteamDelayMs;
         config.SteamAutostartDisabled = fresh.SteamAutostartDisabled;
         config.ExplorerLogonSettleMs = fresh.ExplorerLogonSettleMs;
-        config.QuickSetupRevision = fresh.QuickSetupRevision;
         config.QuickAccessPins = fresh.QuickAccessPins;
         config.PluginWidgetPins = fresh.PluginWidgetPins;
         config.LastSelectedPowerSchemeId = fresh.LastSelectedPowerSchemeId;
@@ -2606,11 +2666,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
                 scope.Profiles = [.. request.DeviceProfiles];
             }
-        }
-
-        if (request.QuickSetupWasAnswered)
-        {
-            QuickSetup.MarkCompleted(config);
         }
 
         config.Splash = preparedSplash;
@@ -3045,8 +3100,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         string PluginId,
         bool AutoTdpEdited,
         bool ControllerTargetEdited,
-        bool GlyphSelectionEdited,
-        bool QuickSetupWasAnswered)
+        bool GlyphSelectionEdited)
     {
         internal IReadOnlyList<DisplayTargetIdentity> ForgottenDisplays { get; init; } = [];
 

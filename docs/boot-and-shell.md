@@ -60,14 +60,13 @@ which rescans and takes no name from its command line. A sign-in never prompts: 
 re-check disables user-scope entries and warns about the rest. `--restore-steam-autostart` runs from
 the elevated uninstall restore.
 
-Quick Setup (revision 2) asks the two sign-in choices and lists what it found. The panel opens
-before its read-only startup scan runs on a worker, so the window stays responsive while Task
-Scheduler answers. Continue waits for the scan; a failed scan offers Try again and leaves Skip
-available. Closing or skipping the panel discards a late scan result. With entries present, Continue
-stays disabled until the takeover is allowed; Skip means off for all of it, as it does for the Steam
-integrations. The takeover itself runs after the save, outside the config lock, because it may
-prompt. Settings > System shows the state and offers "Take over again". That command also scans and
-applies on a worker, and disables itself until the operation finishes.
+Setup asks the sign-in choices and, through `WSGM.exe --export-setup-answers`, lists the enabled
+entries the read-only scan found; the takeover is its own consent line on the profile page. When the
+user consents, `WSGM.exe --setup --answers=<file>` records the choice and disables the entries in
+the same elevated run. A silent fresh install never consents; a silent update keeps the existing
+answer. Every WSGM start re-checks for entries that came back. Settings > System shows the state and
+offers "Take over again". That command also scans and applies on a worker, and disables itself until
+the operation finishes.
 
 `Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
 shell, so no arguments means Settings.
@@ -462,13 +461,10 @@ they carry:
 | Desktop first       | core                     | Desktop session, off         |
 | Custom              | chosen by hand           | the configuration's defaults |
 
-A mode decides two separate things, and they must stay separate. Which bytes install is Inno's
-`[Types]`/`[Components]`. What the first run of those bytes does is passed to `--setup` as
-`--profile=` and applied by `Core\InstallProfile.cs`, **only when the machine has no config.json**.
-Re-running setup is how people repair and upgrade, so a mode that rewrote the start mode and the
-integration switch each time would silently undo Settings; changing an installed machine's mode
-means changing it in Settings, where it is visible. Custom names no mode on purpose: the user picked
-components rather than an intent.
+A mode decides which bytes install (Inno's `[Types]`/`[Components]`). The first-run choices no
+longer ride on it: the custom setup that replaces Inno asks them and passes them as setup answers
+(`--setup --answers=<file>`, `Core\SetupAnswers.cs`), starting an upgrade or repair from the
+exported current values, so it never silently undoes Settings. Inno's `--profile=` is ignored.
 
 The Claw mode is the one that switches Device Integration on, because naming a device in setup is
 the explicit choice the integration otherwise waits for, and installing the package without it would
@@ -476,9 +472,8 @@ read as a broken install. The package still refuses any machine whose SMBIOS ide
 it, so the mode cannot make a non-Claw pretend to be one. Chosen from Custom instead, the same bytes
 install and stay inert until Settings enables them.
 
-A mode seeds Quick Setup's answers rather than replacing them: the panel still appears on first run
-so the start choices are confirmed and the Steam autostart takeover is consented to rather than
-assumed.
+Quick Setup is retired: the custom setup asks every first-run question once, and WSGM Settings
+changes them afterwards.
 
 ### A device package on an install that has no room for it
 
@@ -537,10 +532,13 @@ restores the old service through its installer-tagged start in the recorded runt
 `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam. Removing an
 older build falls back to the update event. `[UninstallRun]` order: service `--uninstall` (stop and
 delete), `--unregister-shell` (a no-op on service installs, kept as the legacy restore),
-`--uninstall-restore`, all before files are deleted. `[UninstallDelete]` also removes
-`{autopf}\WSGM` and `{commonappdata}\WSGM`. The uninstaller holds the same global package and owner
-reservations through `[UninstallDelete]`; cancellation before mutation restores the service and the
-prior runtime.
+`--uninstall-restore`, all before files are deleted. `--uninstall-restore` first shows every device
+WSGM hid with HidHide again and takes WSGM's own executable off HidHide's allowlist
+(`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself is removed
+afterwards; it exits 3 when HidHide did not read back clean, keeps the ownership ledger, and never
+retries. `[UninstallDelete]` also removes `{autopf}\WSGM` and `{commonappdata}\WSGM`. The
+uninstaller holds the same global package and owner reservations through `[UninstallDelete]`;
+cancellation before mutation restores the service and the prior runtime.
 
 ### The exit events are a cross-version contract
 

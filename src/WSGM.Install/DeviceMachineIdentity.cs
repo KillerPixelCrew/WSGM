@@ -4,7 +4,7 @@ using System.Text;
 using Microsoft.Win32;
 using WSGM.Device.Sdk.Identity;
 
-namespace WSGM.Core;
+namespace WSGM.Install;
 
 /// <summary>Read-only machine identity used before plugin code is loaded.</summary>
 public static class DeviceMachineIdentity
