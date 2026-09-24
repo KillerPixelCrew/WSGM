@@ -4959,9 +4959,18 @@
     // "TopLevelTransition" is the switch's own; together they name exactly one.
     const RouterTokens = ["Settings.Root()", "TopLevelTransition"];
     const BackstackToken = "router-backstack";
-    // decky-loader's fingerprint for Steam's back-stack Route, confirmed against this client: the
-    // export whose body threads the match's path into routePath.
-    const RoutePattern = /routePath:.\.match\?\.path./u;
+    // Steam's back-stack Route, named by two tokens Valve wrote — the JSX prop the export fills in and
+    // the optional member access it fills it from — rather than by the shape of the minified code
+    // between them. The fingerprint this replaced was decky-loader's, and it spelled that minified
+    // local out as a single-character wildcard: `routePath:.\.match\?\.path.`. It stopped matching on
+    // 2026-09-24, when the client began emitting two-character names (`routePath:be.match?.path`), and
+    // because a Route that is absent is an incompatible client rather than a degraded one, the gate
+    // registered no route at all and every custom page rendered as an empty client. A fingerprint may
+    // not describe a minified identifier; only what its author typed is stable across a client build.
+    const BackstackRouteMarkers = ["routePath:", ".match?.path"];
+    const isBackstackRoute = (value) =>
+      typeof value === "function" &&
+      BackstackRouteMarkers.every((marker) => String(value).includes(marker));
     // A path every build of the client has and no consumer would register, used to recognise the
     // route list among the router's children.
     const KnownRoute = "/library/home";
@@ -5066,22 +5075,15 @@
         return false;
       }
       react = resolvedReact;
-      const backstack = runtime.findUnique([BackstackToken]);
-      if (!backstack) {
-        lastError = "router-backstack module was not a unique match";
+      // Through the shared resolver rather than a raw require and a local scan of the export names:
+      // it counts aliases of one value once, so a re-export cannot read as ambiguity, and it says
+      // which of "module absent", "module ambiguous" and "export absent" actually happened.
+      try {
+        RouteComponent = runtime.exported([BackstackToken], isBackstackRoute);
+      } catch (error) {
+        lastError = `Steam's back-stack Route was not resolved: ${String(error)}`;
         return false;
       }
-      const backstackExports = runtime(backstack[0]);
-      const routes = Object.keys(backstackExports).filter(
-        (name) =>
-          typeof backstackExports[name] === "function" &&
-          RoutePattern.test(String(backstackExports[name])),
-      );
-      if (routes.length !== 1) {
-        lastError = `Steam's Route export was ${routes.length ? "ambiguous" : "absent"}`;
-        return false;
-      }
-      RouteComponent = backstackExports[routes[0]];
       // The router module is confirmed to exist and to be unique, but it exports nothing that
       // reaches the router: the memo is built locally inside the module. Verified against the live
       // client on 2026-09-10 — every export of that module was inspected and none is a memo whose
