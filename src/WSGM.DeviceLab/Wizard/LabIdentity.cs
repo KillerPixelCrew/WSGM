@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
@@ -32,6 +33,19 @@ internal sealed record LabIdentityFacts
 
     /// <summary>Processor name.</summary>
     public string? Processor { get; init; }
+
+    /// <summary>CPUID family, model and stepping, which identifies the processor generation.</summary>
+    /// <remarks>
+    ///     The AMD SMU codename needs the PawnIO RyzenSMU module and is read by the power stage; CPUID is
+    ///     what identifies the part without a driver.
+    /// </remarks>
+    public string? ProcessorIdentity { get; init; }
+
+    /// <summary>
+    ///     Firmware revision of every HID controller interface, as <c>VID:PID release</c>. The USB release
+    ///     number is the controller firmware version the vendor updates in the field.
+    /// </summary>
+    public IReadOnlyList<string> ControllerFirmware { get; init; } = [];
 }
 
 /// <summary>What the identity stage observed.</summary>
@@ -77,7 +91,19 @@ internal static class LabIdentity
             SystemSku = firmware.SystemSku,
             BiosVersion = firmware.BiosVersion,
             EmbeddedControllerVersion = firmware.EmbeddedControllerVersion,
-            Processor = inventory.Processor?.Name
+            Processor = inventory.Processor?.Name,
+            ProcessorIdentity = inventory.Processor?.NormalizedIdentity,
+            ControllerFirmware =
+            [
+                .. inventory.UsbInterfaces
+                    .Where(usb => usb.Present
+                                  && string.Equals(usb.DeviceClass, "HIDClass", StringComparison.OrdinalIgnoreCase)
+                                  && usb.VendorId is not null
+                                  && usb.ProductId is not null)
+                    .Select(usb => $"{usb.VendorId}:{usb.ProductId} {usb.DeviceRelease ?? "?"}")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.OrdinalIgnoreCase)
+            ]
         };
         return new LabIdentityObservation(
             facts,

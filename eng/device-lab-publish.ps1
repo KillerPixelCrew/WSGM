@@ -34,9 +34,18 @@ function Publish-DeviceLab {
         [switch]$Portable
     )
 
-    # The wizard embeds the pinned PawnIO installer. Acquiring it here keeps every published build
-    # able to install PawnIO; a plain developer build without it only reports PawnIO as unavailable.
-    & (Join-Path $Root "eng\acquire-pawnio.ps1")
+    # The wizard embeds the pinned PawnIO installer when it is present. A portable tester build exists
+    # to be sent to someone, so it must carry it; the installer tree only warns when the download is
+    # unavailable, and that Device Lab then reports PawnIO as unavailable instead of installing it.
+    try {
+        & (Join-Path $Root "eng\acquire-pawnio.ps1")
+    }
+    catch {
+        if ($Portable) {
+            throw
+        }
+        Write-Warning "PawnIO installer not acquired ($($_.Exception.Message)); this Device Lab build cannot install PawnIO."
+    }
 
     $deviceLabRoot = Join-Path $Root "src\WSGM.DeviceLab"
     $arguments = @(

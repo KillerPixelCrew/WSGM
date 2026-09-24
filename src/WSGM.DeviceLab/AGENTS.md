@@ -73,16 +73,25 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   left. HidHide changes add or remove only the lab's own exact entry; never flip the hiding switch
   or edit an inverse-mode list.
 - Other managers get a window close request, never a kill; services are never stopped.
-- PawnIO is installed only from the embedded installer after its SHA-256 matches the embedded
-  `external/pawnio/pawnio.lock.json`. Never pass `-unrestricted`. Replace an older install only on
-  the tester's explicit choice. Offer removal only when the lab installed it.
+- PawnIO is installed only from the embedded installer, extracted into a new administrators-only
+  folder under the Windows temp directory and held open without write or delete sharing while its
+  SHA-256 and Authenticode signer are checked against the embedded `external/pawnio/pawnio.lock.json`
+  and while it runs. The uninstaller gets the same signer check. Never pass `-unrestricted`.
+- Replace an older PawnIO only on the tester's explicit choice. `LabMachineState` is the one record
+  of what the lab did: removal is offered only for a fresh install the lab made (never for a
+  replacement), and the record is reconciled against what is installed when the wizard starts.
+- Preflight reserves `Global\WSGM.DeviceOwner` and holds it until the window closes. Hardware stages
+  refuse to start without that reservation.
 - A project is a folder of attempts. Never overwrite evidence; a redo creates a new attempt, and the
   manifest is the only file rewritten (atomically).
 - Input capture records every input from every device and attributes it afterwards. Never filter by
   device, VID/PID or usage page at capture time; the knowledge base may rank sources, not narrow them.
 - The shared report is built in memory, previewed, and written once. Every JSON string passes through
   one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
-- The wizard keeps blocking work off the UI thread and runs one operation at a time.
+- The wizard keeps blocking work (files, registry, drivers) off the UI thread and runs one operation
+  at a time; a failure is shown on the page, never swallowed. Selecting a stage only shows it; a new
+  attempt starts only from Start or Run again. Closing waits for the running operation, then undoes
+  the session's HidHide entry and releases the owner reservation.
 
 ## Filesystem and artifact rules
 

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -29,25 +28,32 @@ internal sealed record WizardOptions(bool Elevated, string? ElevationNote, strin
 /// </summary>
 /// <remarks>
 ///     Stage logic lives in <c>WSGM.DeviceLab.Wizard</c>; this window only sequences it and asks the
-///     tester. Every blocking call runs off the UI thread, and only one runs at a time.
+///     tester. Selecting a stage shows its result; only an explicit start or "Run again" begins a new
+///     attempt. Every file, registry and driver call runs off the UI thread, one operation at a time, and
+///     closing the window waits for that operation before it undoes the session's machine changes.
 /// </remarks>
 internal sealed class WizardWindow : Window
 {
     private const string FinishId = "finish";
-    private readonly CancellationTokenSource _lifetime = new();
 
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly LabMachineState _machine = LabMachineState.ForCurrentUser;
     private readonly WizardOptions _options;
     private readonly ContentControl _page = new();
+    private readonly LabPawnIo _pawnIo;
     private readonly TextBlock _projectLine = Muted(string.Empty);
     private readonly ListBox _stages = new() { MinWidth = 240 };
-    private bool _busy;
+    private bool _closeReady;
+    private bool _closing;
+    private Task _operation = Task.CompletedTask;
+    private DeviceLabOwnerReservation? _owner;
     private LabProject? _project;
     private bool _refreshing;
 
     public WizardWindow(WizardOptions options)
     {
         _options = options;
+        _pawnIo = LabPawnIo.ForMachine(_machine);
         Title = "WSGM Device Lab";
         Width = 1100;
         Height = 760;
@@ -55,7 +61,11 @@ internal sealed class WizardWindow : Window
         MinHeight = 560;
 
         Grid root = new()
-            { Margin = new Thickness(18), ColumnDefinitions = new ColumnDefinitions("260,*"), ColumnSpacing = 18 };
+        {
+            Margin = new Thickness(18),
+            ColumnDefinitions = new ColumnDefinitions("260,*"),
+            ColumnSpacing = 18
+        };
         StackPanel side = new() { Spacing = 10 };
         side.Children.Add(new TextBlock { Text = "Device Lab", FontSize = 24, FontWeight = FontWeight.SemiBold });
         side.Children.Add(_projectLine);
@@ -73,10 +83,19 @@ internal sealed class WizardWindow : Window
                 ShowStage(id);
             }
         };
-        Closing += (_, _) =>
+        Closing += (_, args) =>
         {
-            _lifetime.Cancel();
-            RestoreHidHide();
+            if (_closeReady)
+            {
+                return;
+            }
+
+            args.Cancel = true;
+            if (!_closing)
+            {
+                _closing = true;
+                _ = CloseAfterCleanupAsync();
+            }
         };
         Opened += (_, _) => Start();
     }
@@ -84,13 +103,23 @@ internal sealed class WizardWindow : Window
     private void Start()
     {
         _stages.IsEnabled = false;
-        if (_options.ProjectPath is { } path)
+        _page.Content = Page("Test your handheld", "Checking what an earlier session left behind...");
+        Run(null, async () =>
         {
-            TryOpen(path);
-            return;
-        }
+            if (_options.Elevated)
+            {
+                await Task.Run(_pawnIo.Reconcile);
+            }
 
-        ShowWelcome();
+            if (_options.ProjectPath is { } path)
+            {
+                await OpenAsync(path);
+            }
+            else
+            {
+                ShowWelcome();
+            }
+        });
     }
 
     private void ShowWelcome()
@@ -106,70 +135,58 @@ internal sealed class WizardWindow : Window
         }
 
         page.Children.Add(Buttons(
-            Action("Start a new test", CreateProject),
-            Action("Continue a saved test", () => _ = OpenProjectAsync())));
+            Action("Start a new test", () => Run(page, CreateProjectAsync)),
+            Action("Continue a saved test", () => Run(page, PickProjectAsync))));
         _page.Content = page;
     }
 
-    private void CreateProject()
+    private async Task CreateProjectAsync()
     {
         var parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "WSGM Device Lab");
         var directory = Path.Combine(parent, $"Device test {DateTime.Now:yyyy-MM-dd HHmmss}");
         var decision = DeviceLabOutputPathPolicy.Evaluate(directory, DeviceLabOutputTargetKind.Directory, Boundaries());
         if (!decision.IsAllowed)
         {
-            ShowError("The test folder could not be created", decision.Reason ?? directory);
-            return;
+            throw new IOException($"The test folder could not be created: {decision.Reason ?? directory}");
         }
 
-        try
+        var project = await Task.Run(() =>
         {
             Directory.CreateDirectory(parent);
-            Load(LabProject.Create(decision.FullPath!, LabStages.Ids, ToolVersion(), DateTimeOffset.UtcNow));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            ShowError("The test folder could not be created", ex.Message);
-        }
+            return LabProject.Create(decision.FullPath!, LabStages.Ids, ToolVersion(), DateTimeOffset.UtcNow);
+        });
+        Load(project);
     }
 
-    private async Task OpenProjectAsync()
+    private async Task PickProjectAsync()
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Select a saved Device Lab test", AllowMultiple = false
+            Title = "Select a saved Device Lab test",
+            AllowMultiple = false
         });
         if (folders.Count > 0)
         {
-            TryOpen(folders[0].Path.LocalPath);
+            await OpenAsync(folders[0].Path.LocalPath);
         }
     }
 
-    private void TryOpen(string path)
+    private async Task OpenAsync(string path)
     {
-        try
-        {
-            Load(LabProject.Open(path));
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-        {
-            ShowError("That folder is not a Device Lab test", ex.Message);
-        }
+        Load(await Task.Run(() => LabProject.Open(path)));
     }
 
     private void Load(LabProject project)
     {
         _project = project;
         _projectLine.Text = project.Directory;
-        RefreshStages();
-        _stages.IsEnabled = true;
         var next = LabStages.All.FirstOrDefault(stage =>
                 stage.Available && project.Segment(stage.Id).Status is LabSegmentStatus.NotStarted)
             ?.Id ?? FinishId;
-        ShowStage(next);
+        ShowStage(next, true);
     }
 
-    private void RefreshStages(string? selected = null)
+    private void RefreshStages(string? selected)
     {
         if (_project is null)
         {
@@ -210,104 +227,186 @@ internal sealed class WizardWindow : Window
         }
     }
 
-    private void ShowStage(string id)
+    // Shows a stage without changing anything: a finished stage shows its result and a "Run again"
+    // button, an unstarted one a "Start" button. Only the finish page does work on selection, and that
+    // work (restoring HidHide, building the preview) changes no evidence.
+    private void ShowStage(string id, bool fromCompletedOperation = false)
     {
-        if (_project is null || _busy)
+        if (_project is not { } project || (!fromCompletedOperation && !_operation.IsCompleted))
         {
             return;
         }
 
         RefreshStages(id);
+        _stages.IsEnabled = true;
+        if (id == FinishId)
+        {
+            var finish = Page("Finish and share", "Preparing the report...");
+            _page.Content = finish;
+            Run(finish, () => ShowFinishAsync(project, finish), fromCompletedOperation);
+            return;
+        }
+
+        var stage = LabStages.All.Single(item => item.Id == id);
+        var page = Page(stage.Title, stage.Description);
+        _page.Content = page;
+        if (!stage.Available)
+        {
+            page.Children.Add(
+                Status("This part is not in this build of Device Lab yet; skip ahead to Finish and share."));
+            return;
+        }
+
+        var state = project.Segment(id);
+        if (state.Status is LabSegmentStatus.NotStarted)
+        {
+            if (state.Attempts > 0)
+            {
+                page.Children.Add(Muted("An earlier run of this step did not finish."));
+            }
+
+            page.Children.Add(Buttons(Action("Start", () => StartStage(id))));
+            return;
+        }
+
+        page.Children.Add(Status(state.Status switch
+        {
+            LabSegmentStatus.Completed => "Done.",
+            LabSegmentStatus.Skipped => "Skipped.",
+            _ => "This step failed."
+        }));
+        if (state.Summary is { } summary)
+        {
+            page.Children.Add(Status(summary));
+        }
+
+        page.Children.Add(Muted($"Run {state.Attempts} time(s), last on {state.UpdatedAt?.ToLocalTime():g}."));
+        page.Children.Add(Buttons(Action("Run again", () => StartStage(id))));
+    }
+
+    private void StartStage(string id, bool fromCompletedOperation = false)
+    {
+        if (_project is not { } project || (!fromCompletedOperation && !_operation.IsCompleted))
+        {
+            return;
+        }
+
+        RefreshStages(id);
+        var page = Page(LabStages.All.Single(stage => stage.Id == id).Title, string.Empty);
+        _page.Content = page;
         switch (id)
         {
             case LabStages.Preflight:
-                _ = RunPreflightAsync(_project);
+                Run(page, () => RunPreflightAsync(project, page), fromCompletedOperation);
                 break;
             case LabStages.Identity:
-                _ = RunIdentityAsync(_project);
-                break;
-            case FinishId:
-                _ = ShowFinishAsync(_project);
-                break;
-            default:
-                var stage = LabStages.All.Single(item => item.Id == id);
-                _page.Content = Page(stage.Title,
-                    stage.Description +
-                    " This part is not in this build of Device Lab yet; skip ahead to Finish and share.");
+                Run(page, () => RunIdentityAsync(project, page), fromCompletedOperation);
                 break;
         }
     }
 
-    private async Task RunPreflightAsync(LabProject project)
+    // Called at the end of an operation, which still counts as running until it returns.
+    private void Next(string after)
     {
-        var page = Page("Get ready",
-            "These checks make sure nothing else hides or changes your controller while the test runs.");
-        _page.Content = page;
-        var attempt = project.BeginAttempt(LabStages.Preflight, DateTimeOffset.UtcNow);
+        var next = LabStages.All.SkipWhile(stage => stage.Id != after).Skip(1)
+            .FirstOrDefault(stage => stage.Available)?.Id;
+        if (next is null)
+        {
+            ShowStage(FinishId, true);
+        }
+        else
+        {
+            StartStage(next, true);
+        }
+    }
+
+    private async Task RunPreflightAsync(LabProject project, StackPanel page)
+    {
+        page.Children.Add(
+            Status("These checks make sure nothing else hides or changes your controller while the test runs."));
+        var attempt = await Task.Run(() => project.BeginAttempt(LabStages.Preflight, DateTimeOffset.UtcNow));
         var allowance = HidHideAllowance.ForMachine(_machine, DeviceLabExecutable.CurrentPath);
         Dictionary<string, object?> evidence = new() { ["elevated"] = _options.Elevated };
 
-        await Busy(async () =>
+        // 1. Undo what an earlier session left behind.
+        if (await Task.Run(() => _machine.Read().HidHideEntry) is not null)
         {
-            // 1. Undo what an earlier session left behind.
-            var leftover = _machine.Read().HidHideEntry;
-            if (leftover is not null)
-            {
-                var problem = await Task.Run(allowance.RestoreRecorded);
-                evidence["recoveredHidHideEntry"] = problem ?? "removed";
-                page.Children.Add(Status(problem is null
-                    ? "Removed the HidHide entry an earlier session left behind."
-                    : $"An earlier session left a HidHide entry that could not be removed: {problem}"));
-            }
+            var problem = await Task.Run(allowance.RestoreRecorded);
+            evidence["recoveredHidHideEntry"] = problem ?? "removed";
+            page.Children.Add(Status(problem is null
+                ? "Removed the HidHide entry an earlier session left behind."
+                : $"An earlier session left a HidHide entry that could not be removed: {problem}"));
+        }
 
-            // 2. Other managers.
-            var managers = await Task.Run(ManagerConflicts.Running);
-            evidence["managers"] = managers;
-            evidence["drivers"] = ManagerConflicts.Drivers();
-            page.Children.Add(Heading("Other controller software"));
-            page.Children.Add(ManagersPanel(managers, evidence));
+        // 2. WSGM's device integration must not run beside the test. The reservation is held until the
+        //    window closes.
+        page.Children.Add(Heading("WSGM"));
+        if (_owner is null)
+        {
+            var reserved = await Task.Run(DeviceLabOwnerInspector.Reserve);
+            evidence["deviceOwner"] = reserved.Inspection.State.ToString();
+            _owner = reserved.Reservation;
+        }
 
-            // 3. HidHide.
-            page.Children.Add(Heading("Hidden devices (HidHide)"));
-            if (!_options.Elevated)
+        page.Children.Add(_owner is not null
+            ? Status("WSGM's device integration is not running; the test holds its place until you close this window.")
+            : Warning(
+                "WSGM's device integration is running or could not be checked. Close WSGM before the hardware steps, then run this step again."));
+
+        // 3. Other managers.
+        var managers = await Task.Run(ManagerConflicts.Running);
+        evidence["managers"] = managers;
+        evidence["drivers"] = await Task.Run(ManagerConflicts.Drivers);
+        page.Children.Add(Heading("Other controller software"));
+        List<ManagerCloseResult> closed = [];
+        evidence["closeRequests"] = closed;
+        page.Children.Add(ManagersPanel(managers, closed));
+
+        // 4. HidHide.
+        page.Children.Add(Heading("Hidden devices (HidHide)"));
+        if (!_options.Elevated)
+        {
+            page.Children.Add(Status("Skipped: changing HidHide needs administrator rights."));
+        }
+        else
+        {
+            var state = await Task.Run(allowance.Read);
+            evidence["hidHide"] = new
+                { state.Available, state.Active, state.Inverse, Entries = state.Applications.Count };
+            if (!state.Available)
             {
-                page.Children.Add(Status("Skipped: changing HidHide needs administrator rights."));
+                page.Children.Add(Status("HidHide is not installed, so no device is hidden from this tool."));
             }
             else
             {
-                var state = await Task.Run(allowance.Read);
-                evidence["hidHide"] = new
-                    { state.Available, state.Active, state.Inverse, Entries = state.Applications.Count };
-                if (!state.Available)
-                {
-                    page.Children.Add(Status("HidHide is not installed, so no device is hidden from this tool."));
-                }
-                else
-                {
-                    var allowed = await Task.Run(allowance.TryAllow);
-                    evidence["hidHideAllow"] = allowed;
-                    page.Children.Add(Status(allowed.Added is not null
-                        ? "This tool was added to HidHide's allowed programs for the test. It is removed again when you finish or close the window."
-                        : allowed.Reason ?? "Nothing to change."));
-                }
+                var allowed = await Task.Run(allowance.TryAllow);
+                evidence["hidHideAllow"] = allowed;
+                page.Children.Add(Status(allowed.Added is not null
+                    ? "This tool was added to HidHide's allowed programs for the test. It is removed again when you finish or close the window."
+                    : allowed.Reason ?? "Nothing to change."));
             }
+        }
 
-            // 4. PawnIO.
-            page.Children.Add(Heading("PawnIO driver"));
-            await PawnIoAsync(project, page, evidence);
-        });
+        // 5. PawnIO.
+        page.Children.Add(Heading("PawnIO driver"));
+        await PawnIoAsync(page, evidence);
 
         page.Children.Add(Buttons(
-            Action("Check again", () => ShowStage(LabStages.Preflight)),
-            Action("Continue", () =>
+            Action("Check again", () => StartStage(LabStages.Preflight)),
+            Action("Continue", () => Run(page, async () =>
             {
-                project.WriteEvidence(attempt, "preflight", evidence);
-                project.Finish(LabStages.Preflight, LabSegmentStatus.Completed, null, DateTimeOffset.UtcNow);
-                ShowStage(LabStages.Identity);
-            })));
+                await Task.Run(() =>
+                {
+                    project.WriteEvidence(attempt, "preflight", evidence);
+                    project.Finish(LabStages.Preflight, LabSegmentStatus.Completed,
+                        _owner is null ? "WSGM was running; the hardware steps will refuse to start." : null,
+                        DateTimeOffset.UtcNow);
+                });
+                Next(LabStages.Preflight);
+            }))));
     }
 
-    private Control ManagersPanel(IReadOnlyList<RunningManager> managers, Dictionary<string, object?> evidence)
+    private StackPanel ManagersPanel(IReadOnlyList<RunningManager> managers, List<ManagerCloseResult> closed)
     {
         StackPanel panel = new() { Spacing = 6 };
         if (managers.Count == 0)
@@ -316,8 +415,6 @@ internal sealed class WizardWindow : Window
             return panel;
         }
 
-        List<ManagerCloseResult> closed = [];
-        evidence["closeRequests"] = closed;
         foreach (var running in managers)
         {
             var manager = running.Manager;
@@ -327,13 +424,13 @@ internal sealed class WizardWindow : Window
             if (manager.Closable)
             {
                 Button close = new() { Content = "Close it" };
-                close.Click += async (_, _) =>
+                close.Click += (_, _) => Run(panel, async () =>
                 {
                     close.IsEnabled = false;
                     var result = await Task.Run(() => ManagerConflicts.Close(running));
                     closed.Add(result);
                     line.Text = result.Exited ? $"{manager.Label}: closed." : $"{manager.Label}: {result.Detail}";
-                };
+                });
                 row.Children.Add(close);
             }
             else
@@ -347,7 +444,7 @@ internal sealed class WizardWindow : Window
         return panel;
     }
 
-    private async Task PawnIoAsync(LabProject project, StackPanel page, Dictionary<string, object?> evidence)
+    private async Task PawnIoAsync(StackPanel page, Dictionary<string, object?> evidence)
     {
         if (!_options.Elevated)
         {
@@ -355,10 +452,15 @@ internal sealed class WizardWindow : Window
             return;
         }
 
-        var status = await Task.Run(PawnIoSetup.Detect);
+        var status = await Task.Run(_pawnIo.Detect);
         var action = PawnIoSetup.Decide(status, PawnIoSetup.Pin, PawnIoSetup.InstallerBundled);
         evidence["pawnIo"] = new
-            { status.InstalledVersion, status.DeviceOpened, status.DeviceError, Action = action.ToString() };
+        {
+            status.InstalledVersion,
+            status.DeviceOpened,
+            status.DeviceError,
+            Action = action.ToString()
+        };
         switch (action)
         {
             case PawnIoAction.None:
@@ -367,14 +469,21 @@ internal sealed class WizardWindow : Window
             case PawnIoAction.Install:
                 page.Children.Add(
                     Status($"Installing PawnIO {PawnIoSetup.Pin.Version}, which the power and fan checks need..."));
-                await InstallPawnIoAsync(project, page, evidence);
+                var installed = await _pawnIo.InstallAsync(_lifetime.Token);
+                evidence["pawnIoInstall"] = installed;
+                page.Children.Add(Outcome(installed));
                 break;
             case PawnIoAction.AskToReplace:
                 StackPanel choice = new() { Spacing = 6 };
                 choice.Children.Add(Status(
-                    $"PawnIO {status.InstalledVersion} is installed but too old. Replace it with {PawnIoSetup.Pin.Version}? Other programs that use PawnIO keep working with the new version."));
+                    $"PawnIO {status.InstalledVersion} is installed but too old. Replace it with {PawnIoSetup.Pin.Version}? Other programs that use PawnIO keep working with the new version, and Device Lab will not remove it afterwards."));
                 choice.Children.Add(Buttons(
-                    Action("Replace it", () => _ = ReplacePawnIoAsync(project, status, choice, evidence)),
+                    Action("Replace it", () => Run(choice, async () =>
+                    {
+                        var replaced = await _pawnIo.ReplaceAsync(status, _lifetime.Token);
+                        evidence["pawnIoReplace"] = replaced;
+                        choice.Children.Add(Outcome(replaced));
+                    })),
                     Action("Leave it",
                         () => choice.Children.Add(
                             Status("Left as it is; the power and fan checks will be skipped.")))));
@@ -391,91 +500,54 @@ internal sealed class WizardWindow : Window
         }
     }
 
-    private async Task ReplacePawnIoAsync(LabProject project, PawnIoStatus status, StackPanel choice,
-        Dictionary<string, object?> evidence)
+    private static TextBlock Outcome(LabPawnIoOutcome outcome)
     {
-        await Busy(async () =>
+        if (outcome.Running)
         {
-            var problem = await PawnIoSetup.UninstallAsync(status, _lifetime.Token);
-            evidence["pawnIoUninstall"] = problem ?? "ok";
-            if (problem is not null)
-            {
-                choice.Children.Add(Warning($"The old PawnIO could not be removed: {problem}"));
-                return;
-            }
+            return Status($"PawnIO {outcome.After.InstalledVersion} is installed and running.");
+        }
 
-            await InstallPawnIoAsync(project, choice, evidence);
-        });
+        var problem = outcome.Problem ?? $"its driver does not answer (error {outcome.After.DeviceError})";
+        return Warning(outcome.LostPrevious
+            ? $"Your earlier PawnIO was removed, but the new one could not be installed: {problem}. Reinstall PawnIO from the program that brought it, or from github.com/namazso/PawnIO.Setup."
+            : $"PawnIO is not available: {problem}. The power and fan checks will be skipped.");
     }
 
-    private async Task InstallPawnIoAsync(LabProject project, StackPanel page, Dictionary<string, object?> evidence)
+    private async Task RunIdentityAsync(LabProject project, StackPanel page)
     {
-        _machine.Update(changes => changes with { PawnIoInstalledByLab = true });
-        var problem = await PawnIoSetup.InstallAsync(_lifetime.Token);
-        var after = await Task.Run(PawnIoSetup.Detect);
-        var installed = problem is null && after.InstalledVersion is not null;
-        if (installed)
-        {
-            project.SetPawnIoInstalledByLab(true);
-        }
-        else
-        {
-            _machine.Update(changes => changes with { PawnIoInstalledByLab = false });
-        }
+        page.Children.Add(Status("Reading the board, BIOS and firmware versions..."));
+        var attempt = await Task.Run(() => project.BeginAttempt(LabStages.Identity, DateTimeOffset.UtcNow));
+        var observed = await Task.Run(() => LabIdentity.Observe(DeviceKnowledgeBase.Default, _lifetime.Token));
+        await Task.Run(() => DurableFile.WriteNewText(
+            Path.Combine(attempt, "inventory.json"),
+            DeviceLabJson.Serialize(observed.Inventory) + "\n"));
 
-        evidence["pawnIoInstall"] = new { Problem = problem, after.InstalledVersion, after.DeviceOpened };
-        page.Children.Add(installed && after.DeviceOpened
-            ? Status($"PawnIO {after.InstalledVersion} installed and running.")
-            : Warning(
-                $"PawnIO could not be installed: {problem ?? $"its driver does not answer (error {after.DeviceError})"}. The power and fan checks will be skipped."));
-    }
-
-    private async Task RunIdentityAsync(LabProject project)
-    {
-        var page = Page("Your device", "Reading the board, BIOS and firmware versions...");
-        _page.Content = page;
-        var attempt = project.BeginAttempt(LabStages.Identity, DateTimeOffset.UtcNow);
-        LabIdentityObservation? observed = null;
-        await Busy(async () =>
-        {
-            observed = await Task.Run(() => LabIdentity.Observe(DeviceKnowledgeBase.Default, _lifetime.Token));
-        });
-        if (observed is null)
-        {
-            project.Finish(LabStages.Identity, LabSegmentStatus.Failed, "The device could not be read.",
-                DateTimeOffset.UtcNow);
-            RefreshStages(LabStages.Identity);
-            return;
-        }
-
-        DurableFile.WriteNewText(Path.Combine(attempt, "inventory.json"),
-            DeviceLabJson.Serialize(observed.Inventory) + "\n");
-        page = Page("Your device", "This is what the device reports about itself. No serial numbers are collected.");
-        _page.Content = page;
+        page.Children.Clear();
+        page.Children.Add(PageTitle("Your device"));
+        page.Children.Add(Status("This is what the device reports about itself. No serial numbers are collected."));
         page.Children.Add(Facts(observed.Facts));
 
         List<RadioButton> choices = [];
-        if (observed.Matches.Count > 0)
+        page.Children.Add(Heading(observed.Matches.Count > 0
+            ? "Is this your device?"
+            : "This device is not in the list yet"));
+        foreach (var match in observed.Matches)
         {
-            page.Children.Add(Heading("Is this your device?"));
-            foreach (var match in observed.Matches)
+            choices.Add(new RadioButton
             {
-                choices.Add(new RadioButton
-                {
-                    GroupName = "device",
-                    Tag = match,
-                    Content = match.Fallback ? $"{match.DisplayName} (close match)" : match.DisplayName,
-                    IsChecked = choices.Count == 0
-                });
-            }
-        }
-        else
-        {
-            page.Children.Add(Heading("This device is not in the list yet"));
+                GroupName = "device",
+                Tag = match,
+                Content = match.Fallback ? $"{match.DisplayName} (close match)" : match.DisplayName,
+                IsChecked = choices.Count == 0
+            });
         }
 
         RadioButton other = new()
-            { GroupName = "device", Content = "None of these", IsChecked = observed.Matches.Count == 0 };
+        {
+            GroupName = "device",
+            Content = "None of these",
+            IsChecked = observed.Matches.Count == 0
+        };
         choices.Add(other);
         foreach (var choice in choices)
         {
@@ -484,12 +556,14 @@ internal sealed class WizardWindow : Window
 
         TextBox product = new()
         {
-            PlaceholderText = "Product name, for example ROG Ally X", Width = 420,
+            PlaceholderText = "Product name, for example ROG Ally X",
+            Width = 420,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         TextBox model = new()
         {
-            PlaceholderText = "Exact model from the label or box, for example RC72LA", Width = 420,
+            PlaceholderText = "Exact model from the label or box, for example RC72LA",
+            Width = 420,
             HorizontalAlignment = HorizontalAlignment.Left
         };
         StackPanel manual = new() { Spacing = 6, IsVisible = other.IsChecked == true };
@@ -512,48 +586,34 @@ internal sealed class WizardWindow : Window
             var device = selected is not null
                 ? new LabDeviceIdentity { RecordId = selected.RecordId, DisplayName = selected.DisplayName }
                 : new LabDeviceIdentity { ProductName = product.Text!.Trim(), Model = model.Text!.Trim() };
-            project.SetDevice(device);
-            project.WriteEvidence(attempt, "identity", new { observed.Facts, observed.Matches, Confirmed = device });
-            project.Finish(LabStages.Identity, LabSegmentStatus.Completed,
-                device.DisplayName ?? $"{device.ProductName} ({device.Model})", DateTimeOffset.UtcNow);
-            var next = LabStages.All.SkipWhile(stage => stage.Id != LabStages.Identity).Skip(1)
-                .FirstOrDefault(stage => stage.Available)?.Id ?? FinishId;
-            ShowStage(next);
+            Run(page, async () =>
+            {
+                await Task.Run(() =>
+                {
+                    project.SetDevice(device);
+                    project.WriteEvidence(attempt, "identity",
+                        new { observed.Facts, observed.Matches, Confirmed = device });
+                    project.Finish(LabStages.Identity, LabSegmentStatus.Completed,
+                        device.DisplayName ?? $"{device.ProductName} ({device.Model})", DateTimeOffset.UtcNow);
+                });
+                Next(LabStages.Identity);
+            });
         })));
     }
 
-    private async Task ShowFinishAsync(LabProject project)
+    private async Task ShowFinishAsync(LabProject project, StackPanel page)
     {
-        var page = Page("Finish and share",
-            "Check what will be sent. Serial numbers, account names, user folders and network addresses are replaced with placeholders.");
-        _page.Content = page;
-        var restore = RestoreHidHide();
-        if (restore is not null)
+        page.Children.Clear();
+        page.Children.Add(PageTitle("Finish and share"));
+        page.Children.Add(Status(
+            "Check what will be sent. Serial numbers, account names, user folders and network addresses are replaced with placeholders."));
+        if (await Task.Run(RestoreHidHide) is { } restore)
         {
             page.Children.Add(Warning(
                 $"The HidHide entry could not be removed: {restore}. Remove Device Lab from HidHide's allowed programs yourself."));
         }
 
-        LabExport? export = null;
-        string? failure = null;
-        await Busy(async () =>
-        {
-            try
-            {
-                export = await Task.Run(() => LabExport.Prepare(project));
-            }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException
-                                           or UnauthorizedAccessException)
-            {
-                failure = ex.Message;
-            }
-        });
-        if (export is null)
-        {
-            page.Children.Add(Warning($"The report could not be prepared: {failure}"));
-            return;
-        }
-
+        var export = await Task.Run(() => LabExport.Prepare(project));
         var preview = export.Preview;
         page.Children.Add(Heading($"{preview.Files.Count} files, {preview.Files.Sum(file => file.Bytes) / 1024} KiB"));
         page.Children.Add(Muted(string.Join(Environment.NewLine,
@@ -572,20 +632,28 @@ internal sealed class WizardWindow : Window
         page.Children.Add(Heading("Test summary"));
         page.Children.Add(new TextBox
         {
-            Text = preview.ProjectManifest, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap,
-            FontFamily = new FontFamily("Consolas, monospace"), MaxHeight = 260
+            Text = preview.ProjectManifest,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily("Consolas, monospace"),
+            MaxHeight = 260
         });
         var saved = Muted(string.Empty);
-        page.Children.Add(Buttons(Action("Save the report", () => _ = SaveReportAsync(export, saved))));
+        page.Children.Add(Buttons(Action("Save the report", () => Run(page, () => SaveReportAsync(export, saved)))));
         page.Children.Add(saved);
 
-        if (project.Manifest.PawnIoInstalledByLab)
+        if (_options.Elevated && await Task.Run(_pawnIo.CanOfferRemoval))
         {
             page.Children.Add(Heading("PawnIO"));
             page.Children.Add(Status(
                 "Device Lab installed the PawnIO driver for this test. You can keep it (other tools use it too) or remove it."));
             var removed = Muted(string.Empty);
-            page.Children.Add(Buttons(Action("Remove PawnIO", () => _ = RemovePawnIoAsync(project, removed))));
+            page.Children.Add(Buttons(Action("Remove PawnIO", () => Run(page, async () =>
+            {
+                var problem = await _pawnIo.RemoveAsync(_lifetime.Token);
+                removed.Text = problem is null ? "PawnIO was removed." : $"PawnIO was not removed: {problem}";
+            }))));
             page.Children.Add(removed);
         }
     }
@@ -595,8 +663,9 @@ internal sealed class WizardWindow : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Save the Device Lab report",
-            SuggestedFileName = $"Device Lab report {DateTime.Now:yyyy-MM-dd HHmm}.zip",
-            DefaultExtension = "zip",
+            SuggestedFileName = $"Device Lab report {DateTime.Now:yyyy-MM-dd HHmm}.wsgmlab",
+            DefaultExtension = "wsgmlab",
+            FileTypeChoices = [new FilePickerFileType("Device Lab report") { Patterns = ["*.wsgmlab"] }],
             SuggestedStartLocation = await StorageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Desktop)
         });
         if (file?.Path.LocalPath is not { } path)
@@ -604,74 +673,93 @@ internal sealed class WizardWindow : Window
             return;
         }
 
-        try
-        {
-            await Task.Run(() => export.Write(path, Boundaries()));
-            saved.Text = $"Saved to {path}. Send this file back.";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            saved.Text = $"The report was not saved: {ex.Message}";
-        }
-    }
-
-    private async Task RemovePawnIoAsync(LabProject project, TextBlock removed)
-    {
-        await Busy(async () =>
-        {
-            var status = await Task.Run(PawnIoSetup.Detect);
-            var problem = await PawnIoSetup.UninstallAsync(status, _lifetime.Token);
-            if (problem is null)
-            {
-                project.SetPawnIoInstalledByLab(false);
-                _machine.Update(changes => changes with { PawnIoInstalledByLab = false });
-            }
-
-            removed.Text = problem is null ? "PawnIO was removed." : $"PawnIO was not removed: {problem}";
-        });
+        await Task.Run(() => export.Write(path, Boundaries()));
+        saved.Text = $"Saved to {path}. Send this file back.";
     }
 
     private string? RestoreHidHide()
     {
-        if (_machine.Read().HidHideEntry is null)
+        return _machine.Read().HidHideEntry is null
+            ? null
+            : HidHideAllowance.ForMachine(_machine, DeviceLabExecutable.CurrentPath).RestoreRecorded();
+    }
+
+    // Runs one operation at a time. The stage list is locked while it runs, and any failure that is not
+    // the window closing is shown on the page instead of ending the process or leaving it half drawn.
+    // An operation that hands over to the next stage passes chained, because it is itself still running.
+    private void Run(Panel? errors, Func<Task> work, bool chained = false)
+    {
+        if (_closing || (!chained && !_operation.IsCompleted))
         {
-            return null;
+            return;
         }
 
-        try
+        _stages.IsEnabled = false;
+        var operation = RunCore(errors, work);
+        if (!chained)
         {
-            return HidHideAllowance.ForMachine(_machine, DeviceLabExecutable.CurrentPath).RestoreRecorded();
+            _operation = operation;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        else
         {
-            return ex.Message;
+            var outer = _operation;
+            _operation = Task.WhenAll(outer, operation);
         }
     }
 
-    private async Task Busy(Func<Task> work)
+    private async Task RunCore(Panel? errors, Func<Task> work)
     {
-        _busy = true;
-        _stages.IsEnabled = false;
         try
         {
             await work();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
             // The window is closing.
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            if (errors is not null)
+            {
+                errors.Children.Add(Warning($"Something went wrong: {ex.Message}"));
+            }
+            else
+            {
+                var page = Page("Something went wrong", ex.Message);
+                page.Children.Add(Buttons(Action("Back", ShowWelcome)));
+                _page.Content = page;
+            }
+        }
         finally
         {
-            _busy = false;
-            _stages.IsEnabled = _project is not null;
+            _stages.IsEnabled = _project is not null && !_closing;
         }
     }
 
-    private void ShowError(string title, string detail)
+    private async Task CloseAfterCleanupAsync()
     {
-        var page = Page(title, detail);
-        page.Children.Add(Buttons(Action("Back", ShowWelcome)));
-        _page.Content = page;
+        await _lifetime.CancelAsync();
+        try
+        {
+            await _operation;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // RunCore reports failures itself; closing only needs the operation to have stopped.
+        }
+
+        try
+        {
+            await Task.Run(RestoreHidHide);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // The record stays, so the next start removes the entry.
+        }
+
+        _owner?.Dispose();
+        _closeReady = true;
+        Close();
     }
 
     private static DeviceLabPathBoundaries Boundaries()
@@ -684,7 +772,7 @@ internal sealed class WizardWindow : Window
         return typeof(WizardWindow).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     }
 
-    private static Control Facts(LabIdentityFacts facts)
+    private static Grid Facts(LabIdentityFacts facts)
     {
         Grid grid = new() { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 16, RowSpacing = 4 };
         (string Label, string? Value)[] rows =
@@ -695,13 +783,16 @@ internal sealed class WizardWindow : Window
             ("Model", facts.SystemModel),
             ("BIOS", facts.BiosVersion),
             ("Embedded controller", facts.EmbeddedControllerVersion),
-            ("Processor", facts.Processor)
+            ("Processor", facts.Processor),
+            ("Processor family", facts.ProcessorIdentity),
+            ("Controller firmware",
+                facts.ControllerFirmware.Count == 0 ? null : string.Join(", ", facts.ControllerFirmware))
         ];
         for (var i = 0; i < rows.Length; i++)
         {
             grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             var label = Muted(rows[i].Label);
-            var value = new TextBlock { Text = rows[i].Value ?? "(not reported)" };
+            var value = new TextBlock { Text = rows[i].Value ?? "(not reported)", TextWrapping = TextWrapping.Wrap };
             Grid.SetRow(label, i);
             Grid.SetRow(value, i);
             Grid.SetColumn(value, 1);
@@ -715,15 +806,29 @@ internal sealed class WizardWindow : Window
     private static StackPanel Page(string title, string description)
     {
         StackPanel page = new() { Spacing = 10, MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
-        page.Children.Add(new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeight.SemiBold });
-        page.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap });
+        page.Children.Add(PageTitle(title));
+        if (description.Length > 0)
+        {
+            page.Children.Add(Status(description));
+        }
+
         return page;
+    }
+
+    private static TextBlock PageTitle(string text)
+    {
+        return new TextBlock { Text = text, FontSize = 22, FontWeight = FontWeight.SemiBold };
     }
 
     private static TextBlock Heading(string text)
     {
         return new TextBlock
-            { Text = text, FontSize = 16, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 8, 0, 0) };
+        {
+            Text = text,
+            FontSize = 16,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
     }
 
     private static TextBlock Status(string text)
@@ -751,7 +856,11 @@ internal sealed class WizardWindow : Window
     private static StackPanel Buttons(params Button[] buttons)
     {
         StackPanel row = new()
-            { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(0, 10, 0, 0) };
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 10,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
         foreach (var button in buttons)
         {
             row.Children.Add(button);

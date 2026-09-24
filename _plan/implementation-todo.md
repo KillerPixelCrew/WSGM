@@ -19,15 +19,27 @@ afterwards. Delivered as stacked PRs ending at `feat/devicelab-attended-wizard`.
       Claw 8 A2VM, ROG Ally X and Xbox Ally X records, `candidates` knowledge matches, baseboard
       manufacturer in the inventory, Windows 10 SDK target framework. Smoke-checked with a live
       inventory and a synthetic RC73XA identity; test suites deferred to after manual testing.
-- [x] PR 2 (`feat/devicelab-wizard-shell`): the tester wizard as the default start, elevated once
-      with a no-loop marker; project folders with per-segment attempts and redo; preflight (other
-      managers with close requests only, HidHide self-allow with exact-entry restore and crash
-      recovery, PawnIO detection and pinned silent install from `external/pawnio`); identity
-      confirmation against the knowledge base or typed product and model; export with a redacted
-      in-memory preview and one ZIP; `publish-device-lab.ps1 -Portable`. Decision recorded in
-      `docs/decisions.md`. Portable publish and CLI smoke-checked; the wizard itself needs the
-      maintainer's attended run (it elevates, edits HidHide and installs PawnIO). Test suites
-      deferred.
+- [ ] PR 2 (`feat/devicelab-wizard-shell`, #188), implemented, awaiting the attended run:
+      - [x] Wizard as the default start, elevated once with a no-loop marker; `gui` keeps the tabs.
+      - [x] Project folders with per-segment attempts; selecting a stage shows it, Run again redoes it.
+      - [x] Preflight: `Global\WSGM.DeviceOwner` reserved and held for the session; other managers
+            get a close request only (tray-only ones are reported at once); HidHide self-allow with
+            exact-entry restore and crash recovery; PawnIO detection and pinned silent install.
+      - [x] PawnIO installer extracted into an administrators-only folder and held open through
+            SHA-256, Authenticode signer check and execution; replacement tracked apart from a fresh
+            install and never offered for removal; the machine record reconciled at start.
+      - [x] Identity: board, BIOS, EC, CPUID family/model/stepping and HID controller firmware
+            (USB release), confirmed against the knowledge base or typed product and model.
+      - [x] Export: redacted in-memory preview, then one `.wsgmlab` file (a ZIP).
+      - [x] `external/pawnio` pin, `eng/acquire-pawnio.ps1`, `eng/assert-pawnio-pin.ps1` in
+            eng/verify.ps1, and `publish-device-lab.ps1 -Portable` (offline installer builds warn).
+      - [x] Decision in `docs/decisions.md`; licence note for the linked WSGM interop sources.
+      - [ ] Attended run on the Claw by the maintainer (it elevates, edits HidHide, installs PawnIO).
+      - Deferred, with reason: the AMD SMU codename needs the PawnIO RyzenSMU module and moves to
+        PR 6; AllyXLab's own tests stay with AllyXLab until PR 7 deletes the tool (the ported code
+        has its own tests here); the export preview is its own bounded record because
+        `CapturePrivacyPreview` is tied to capture bundles; reopening a `.wsgmlab` is the PR 7
+        developer path.
 - [ ] PR 3: system dump (ACPI without MSDM/SLIC, SMBIOS redaction, device tree, HID, sensors, EC,
       WMI, display, battery, CPU).
 - [ ] PR 4: button capture across all devices, analog, chords, init and restore.

@@ -14,8 +14,18 @@ internal sealed record LabMachineChanges
     /// <summary>When the entry was added.</summary>
     public DateTimeOffset? HidHideAddedAt { get; init; }
 
-    /// <summary>Whether the lab installed PawnIO on this machine.</summary>
+    /// <summary>
+    ///     Whether the lab installed PawnIO on a machine that had none. Only then may the lab offer to
+    ///     remove it again. Set before the installer starts, and reconciled against what is installed
+    ///     when the wizard starts, so an install that finished after the window closed is still known.
+    /// </summary>
     public bool PawnIoInstalledByLab { get; init; }
+
+    /// <summary>
+    ///     The version the lab removed to install the pinned one, or null. A replaced driver belonged to
+    ///     the tester, so the lab never offers to remove its successor.
+    /// </summary>
+    public string? PawnIoReplacedVersion { get; init; }
 }
 
 /// <summary>

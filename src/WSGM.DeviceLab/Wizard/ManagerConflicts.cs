@@ -132,7 +132,14 @@ internal static class ManagerConflicts
                 return new ManagerCloseResult(manager.Label, false, "The process ID belongs to something else now.");
             }
 
-            process.CloseMainWindow();
+            // A manager that lives in the tray has no main window, so nothing is sent; say so at once
+            // instead of waiting out the grace period and blaming the manager.
+            if (!process.CloseMainWindow())
+            {
+                return new ManagerCloseResult(manager.Label, false,
+                    "It has no open window to close. Exit it from its icon in the notification area.");
+            }
+
             var exited = process.WaitForExit(CloseGrace);
             return new ManagerCloseResult(manager.Label, exited,
                 exited ? null : "It did not close. Close it yourself.");

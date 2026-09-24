@@ -60,7 +60,7 @@ internal sealed record LabDeviceIdentity
     public string? Model { get; init; }
 }
 
-/// <summary>The project manifest: identity, segment states and what the lab changed on the machine.</summary>
+/// <summary>The project manifest: identity and segment states.</summary>
 internal sealed record LabProjectManifest
 {
     /// <summary>The only schema this build reads.</summary>
@@ -83,9 +83,6 @@ internal sealed record LabProjectManifest
 
     /// <summary>Segment states, in wizard order.</summary>
     public IReadOnlyList<LabSegmentState> Segments { get; init; } = [];
-
-    /// <summary>Whether this lab installed PawnIO, which is what allows it to offer removal.</summary>
-    public bool PawnIoInstalledByLab { get; init; }
 }
 
 /// <summary>
@@ -297,17 +294,6 @@ internal sealed class LabProject
         lock (_gate)
         {
             Manifest = Manifest with { Device = device };
-            Save();
-        }
-    }
-
-    /// <summary>Records that this lab installed PawnIO on the machine.</summary>
-    /// <param name="installed">Whether it did.</param>
-    public void SetPawnIoInstalledByLab(bool installed)
-    {
-        lock (_gate)
-        {
-            Manifest = Manifest with { PawnIoInstalledByLab = installed };
             Save();
         }
     }

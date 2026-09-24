@@ -46,7 +46,19 @@ if (Test-Path -LiteralPath $target -PathType Leaf) {
 
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 $partial = "$target.partial"
-Invoke-WebRequest -Uri $pin.assetUrl -OutFile $partial -UseBasicParsing
+for ($attempt = 1; ; $attempt++) {
+    try {
+        Invoke-WebRequest -Uri $pin.assetUrl -OutFile $partial -UseBasicParsing
+        break
+    }
+    catch {
+        Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+        if ($attempt -ge 3) {
+            throw "Downloading $($pin.assetUrl) failed after $attempt attempts: $($_.Exception.Message)"
+        }
+        Start-Sleep -Seconds (2 * $attempt)
+    }
+}
 try {
     Test-Pinned $partial
     Move-Item -LiteralPath $partial -Destination $target

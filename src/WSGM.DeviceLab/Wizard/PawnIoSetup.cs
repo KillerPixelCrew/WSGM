@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +22,9 @@ internal sealed record PawnIoPin
 
     /// <summary>Installer SHA-256, upper-case hex.</summary>
     public required string AssetSha256 { get; init; }
+
+    /// <summary>SHA-1 thumbprint of the certificate that signs the installer and uninstaller.</summary>
+    public required string SignerThumbprint { get; init; }
 
     /// <summary>Arguments for a silent install.</summary>
     public required string[] InstallArguments { get; init; }
@@ -69,8 +74,11 @@ internal enum PawnIoAction
 /// </summary>
 /// <remarks>
 ///     The installer is embedded only when <c>eng/acquire-pawnio.ps1</c> ran before the build. The lock
-///     file is always embedded, and the extracted installer must match its SHA-256 before it runs. The
-///     lab never passes <c>-unrestricted</c>, which would switch off PawnIO's module signature check.
+///     file is always embedded. The wizard runs elevated, so the installer is extracted into a new
+///     directory under the Windows temp folder that only administrators and SYSTEM can open, and the
+///     file stays open without write or delete sharing from the moment it is hashed until the installer
+///     exits: the bytes checked against the pinned SHA-256 and signer are the bytes that run. The lab
+///     never passes <c>-unrestricted</c>, which would switch off PawnIO's module signature check.
 /// </remarks>
 internal static class PawnIoSetup
 {
@@ -143,6 +151,7 @@ internal static class PawnIoSetup
     /// <param name="status">Current status, for the install location.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <returns>Null on success, or the problem.</returns>
+    /// <remarks>The uninstaller must carry the pinned signature; it is held open while it runs.</remarks>
     public static async Task<string?> UninstallAsync(PawnIoStatus status, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(status);
@@ -157,6 +166,12 @@ internal static class PawnIoSetup
             return $"PawnIO's uninstaller is missing: {uninstaller}";
         }
 
+        await using var held = new FileStream(uninstaller, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (AuthenticodeSignature.Verify(uninstaller, held.SafeFileHandle, Pin.SignerThumbprint) is { } problem)
+        {
+            return $"PawnIO's uninstaller is not signed as expected ({problem}); it was not run.";
+        }
+
         return await RunAsync(uninstaller, Pin.UninstallArguments, cancellationToken).ConfigureAwait(false);
     }
 
@@ -167,8 +182,7 @@ internal static class PawnIoSetup
             return "This build of Device Lab does not include the PawnIO installer.";
         }
 
-        var directory = Path.Combine(Path.GetTempPath(), "WSGM Device Lab", $"pawnio-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        var directory = CreateAdministratorsOnlyDirectory();
         var installer = Path.Combine(directory, "PawnIO_setup.exe");
         try
         {
@@ -178,14 +192,18 @@ internal static class PawnIoSetup
                 await resource.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
             }
 
-            await using (var check = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read))
+            // Held without write or delete sharing until the installer exits, so nothing can replace
+            // the file between the checks and the run.
+            await using var held = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var digest = Convert.ToHexString(await SHA256.HashDataAsync(held, cancellationToken).ConfigureAwait(false));
+            if (!string.Equals(digest, Pin.AssetSha256, StringComparison.OrdinalIgnoreCase))
             {
-                var digest =
-                    Convert.ToHexString(await SHA256.HashDataAsync(check, cancellationToken).ConfigureAwait(false));
-                if (!string.Equals(digest, Pin.AssetSha256, StringComparison.OrdinalIgnoreCase))
-                {
-                    return $"The bundled PawnIO installer does not match its pin ({digest}); it was not run.";
-                }
+                return $"The bundled PawnIO installer does not match its pin ({digest}); it was not run.";
+            }
+
+            if (AuthenticodeSignature.Verify(installer, held.SafeFileHandle, Pin.SignerThumbprint) is { } problem)
+            {
+                return $"The bundled PawnIO installer is not signed as expected ({problem}); it was not run.";
             }
 
             return await RunAsync(installer, arguments, cancellationToken).ConfigureAwait(false);
@@ -198,9 +216,39 @@ internal static class PawnIoSetup
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // A leftover copy of a signed public installer in the temp folder is harmless.
+                // A leftover copy of a signed public installer in an administrators-only folder is harmless.
             }
         }
+    }
+
+    // A random name directly under %SystemRoot%\Temp: users may create folders there but cannot
+    // delete or rename one an administrator created, and the protected ACL keeps them out of it.
+    private static string CreateAdministratorsOnlyDirectory()
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            "Temp",
+            $"wsgm-device-lab-pawnio-{Guid.NewGuid():N}");
+        DirectorySecurity security = new();
+        security.SetAccessRuleProtection(true, false);
+        foreach (var sid in new[] { WellKnownSidType.BuiltinAdministratorsSid, WellKnownSidType.LocalSystemSid })
+        {
+            security.AddAccessRule(new FileSystemAccessRule(
+                new SecurityIdentifier(sid, null),
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+        }
+
+        var directory = new DirectoryInfo(path);
+        if (directory.Exists)
+        {
+            throw new IOException($"The installer folder already exists: {path}");
+        }
+
+        directory.Create(security);
+        return path;
     }
 
     private static async Task<string?> RunAsync(string executable, string[] arguments,
@@ -237,6 +285,7 @@ internal static class PawnIoSetup
         {
             Version = component.GetProperty("version").GetString()!,
             AssetSha256 = component.GetProperty("assetSha256").GetString()!,
+            SignerThumbprint = component.GetProperty("signerThumbprint").GetString()!,
             InstallArguments =
                 [.. component.GetProperty("installArguments").EnumerateArray().Select(item => item.GetString()!)],
             UninstallArguments =

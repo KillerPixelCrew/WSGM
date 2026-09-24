@@ -10,6 +10,9 @@ signer differs. Device Lab embeds the installer when that file is present, and e
 itself, so the running tool checks the extracted installer against the same pin before it runs it.
 
 A build without the acquired installer still works; the wizard then reports PawnIO as unavailable
-instead of installing it.
+instead of installing it. `publish-device-lab.ps1` only warns when the download fails, except for
+the portable tester build, which refuses to publish without it. The running tool also checks the
+installer's Authenticode signer against `signerThumbprint`, and `eng/assert-pawnio-pin.ps1`, run by
+`eng/verify.ps1`, keeps the lock itself well formed.
 
 The installer is redistributable unmodified. Its licence and the driver's are upstream's.
