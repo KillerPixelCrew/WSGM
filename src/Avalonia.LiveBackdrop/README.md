@@ -10,7 +10,8 @@ Transparency Effects preference. It does not capture screenshots or run a video 
 Reference `Avalonia.LiveBackdrop.csproj`. The native DLL and attribution file copy transitively to
 the application's build and publish directory. Build on Windows with .NET 10, PowerShell 7, Visual
 Studio C++ build tools and the Windows SDK. Consumers need no C++ development tools or separate VC
-runtime installation; the backend uses the static runtime.
+runtime installation; the backend uses the static runtime. For compile-only previews,
+`-p:SkipNativeArtifacts=true` omits the native backend and uses the opaque fallback.
 
 Configure your Avalonia window before showing it:
 

@@ -11,7 +11,7 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.2" />
     <None Include="$(NativeOutput)\Avalonia.LiveBackdrop.Native.dll" Link="Avalonia.LiveBackdrop.Native.dll"
-          Condition="'$(OS)' == 'Windows_NT'"
+          Condition="'$(OS)' == 'Windows_NT' and '$(SkipNativeArtifacts)' != 'true'"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="REFERENCE-LICENSE.txt" Link="Avalonia.LiveBackdrop.ThirdParty.txt"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
@@ -19,7 +19,7 @@
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="BuildLiveBackdropNative" BeforeTargets="PrepareForBuild"
-          Condition="'$(DesignTimeBuild)' != 'true' and '$(OS)' == 'Windows_NT'"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(OS)' == 'Windows_NT' and '$(SkipNativeArtifacts)' != 'true'"
           Inputs="$(MSBuildProjectDirectory)\Native\Backdrop.cpp;$(MSBuildProjectDirectory)\Native\build.ps1"
           Outputs="$(NativeOutput)\Avalonia.LiveBackdrop.Native.dll">
     <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildProjectDirectory)\Native\build.ps1&quot; -OutputDirectory &quot;$(NativeOutput)&quot;" />
