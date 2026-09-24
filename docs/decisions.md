@@ -144,6 +144,15 @@ package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships
 12.1.2 pin keep the controls on the same Avalonia line. `Avalonia.Labs.Panels` 12.0.2 supplies the
 production overlay's FlexPanel layout.
 
+**Overlay glass uses one live compositor backdrop (2026-09-24).** A reusable Avalonia attachment
+owns a native companion window behind the Overlay and applies one 8-pixel blur to shared desktop
+visuals. Settings > Quick Access adjusts it from 0 to 60 pixels. Its panels contribute translucent
+tint, so nested groups do not repeat the blur. The Windows Transparency Effects preference does not
+control this path; an unavailable compositor attachment leaves the Overlay opaque and readable. The
+backend's private DWM exports are an explicit compatibility risk. The Claw confirmed the separate
+sample and integrated Overlay over Steam and a game with no noticeable frame-time change. Details
+are in `src\Avalonia.LiveBackdrop\README.md`.
+
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
 actions and never redirect a failed desktop request back into Game Mode. The shell's window owners

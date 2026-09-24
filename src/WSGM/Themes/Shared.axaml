@@ -80,6 +80,14 @@
     <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
     <Setter Property="MinHeight" Value="28" />
   </Style>
+  <!-- The Fluent selector centers the text's line box, whose glyphs sit high in
+       WSGM's font. Move only the closed selection content; keep its hit area,
+       arrow and popup layout unchanged across Settings and the overlay. -->
+  <Style Selector="ComboBox /template/ ContentPresenter#ContentPresenter">
+    <Setter Property="RenderTransform">
+      <TranslateTransform Y="2" />
+    </Setter>
+  </Style>
   <Style Selector="TextBox:focus, ComboBox:focus-within, NumericUpDown:focus-within">
     <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>

@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LiveBackdrop;
 using Avalonia.Threading;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
@@ -46,6 +47,7 @@ public partial class OverlayWindow : Window
     private readonly SessionState _session;
     private readonly AppSwitcherViewModel _switcher;
     private readonly Action _synchronizeTabs;
+    private double _blurRadius = 8;
 
     /// <summary>
     ///     Set once this window instance is gone. Post-action feedback delays
@@ -62,6 +64,7 @@ public partial class OverlayWindow : Window
     private DevicePrerequisiteSource? _devicePrerequisites;
 
     private SdFormatManager? _format;
+    private LiveBackdrop? _glassBackdrop;
     private IDisposable? _glyphInputObservation;
     private HybridCoreSelection? _hybridCoreSelection;
     private int _liveRefreshScheduled;
@@ -131,7 +134,6 @@ public partial class OverlayWindow : Window
         DataContext = viewModel;
         InitializeComponent();
         SurfaceRoot.SizeChanged += OnWorkspaceSizeChanged;
-        PropertyChanged += OnGlassTransparencyChanged;
         ApplyGlassTransparency();
         InitializePowerEditors();
         // Two subtrees bind different objects than the window (compiled bindings:
@@ -213,6 +215,16 @@ public partial class OverlayWindow : Window
     /// </summary>
     internal bool WarmingUp { get; init; }
 
+    /// <summary>Updates the attached backdrop without recreating the Overlay window.</summary>
+    internal void SetBlurRadius(double radius)
+    {
+        _blurRadius = double.IsFinite(radius) ? Math.Clamp(radius, 0, 60) : 8;
+        if (_glassBackdrop is not null)
+        {
+            _glassBackdrop.BlurRadius = _blurRadius;
+        }
+    }
+
     /// <summary>Raised when a nested page is torn down so its auxiliary surface closes too.</summary>
     public event Action? SubViewClosed;
 
@@ -279,6 +291,9 @@ public partial class OverlayWindow : Window
         }
 
         _dock(this);
+        _glassBackdrop = LiveBackdrop.Attach(this, _blurRadius);
+        _glassBackdrop.StateChanged += OnGlassBackdropChanged;
+        ApplyGlassTransparency();
         SelectDestination(_session.Destination);
         RestoreDestinationState(true);
         _synchronizeTabs();
@@ -319,7 +334,13 @@ public partial class OverlayWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         CloseAllSurfaces();
-        PropertyChanged -= OnGlassTransparencyChanged;
+        if (_glassBackdrop is not null)
+        {
+            _glassBackdrop.StateChanged -= OnGlassBackdropChanged;
+            _glassBackdrop.Dispose();
+            _glassBackdrop = null;
+        }
+
         if (DataContext is OverlayViewModel powerState)
         {
             powerState.PropertyChanged -= OnPowerEditorStateChanged;

@@ -1016,6 +1016,19 @@ public sealed class ConfigurationTests
             ConfigStore.Normalize(new AppConfig { AccentColor = "LightGoldenrodYellow" }).AccentColor);
     }
 
+    [Theory]
+    [InlineData(-4, 0)]
+    [InlineData(8, 8)]
+    [InlineData(75, 60)]
+    [InlineData(double.NaN, 8)]
+    [InlineData(double.PositiveInfinity, 8)]
+    public void NormalizeBoundsOverlayBlurForTheNativeBackend(double requested, double expected)
+    {
+        var config = ConfigStore.Normalize(new AppConfig { OverlayBlurRadius = requested });
+
+        Assert.Equal(expected, config.OverlayBlurRadius);
+    }
+
     [Fact]
     public void SourceGeneratedConfigJsonRoundTripsSettingsAndSnapshots()
     {

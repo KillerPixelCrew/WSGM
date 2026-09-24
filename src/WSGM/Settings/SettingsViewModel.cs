@@ -252,6 +252,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         GestureRightSteamQuickAccess = _config.Gestures.RightEdgeSteamQuickAccess;
         GlyphStyleIndex = (int)_config.GlyphStyle;
         AccentColorHex = _config.AccentColor;
+        OverlayBlurRadius = _config.OverlayBlurRadius;
         LoadSplash(_config.Splash);
 
         foreach (var app in _config.StartupApps)
@@ -1107,6 +1108,22 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Gets the controller-glyph family names presented by the settings selector.</summary>
     public List<string> GlyphStyles { get; } = ["Xbox", "PlayStation", "Nintendo"];
+
+    /// <summary>Gaussian blur of the Overlay background in physical pixels.</summary>
+    public double OverlayBlurRadius
+    {
+        get;
+        set
+        {
+            if (SetFieldIfChanged(ref field, value, nameof(OverlayBlurRadius)))
+            {
+                Raise(nameof(OverlayBlurLabel));
+            }
+        }
+    } = 8;
+
+    /// <summary>Text beside the Overlay blur slider.</summary>
+    public string OverlayBlurLabel => $"{OverlayBlurRadius:0} px";
 
     // --- Appearance: accent color ---
 
@@ -2034,6 +2051,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Gestures.RightEdgeSteamQuickAccess = GestureRightSteamQuickAccess;
         config.GlyphStyle = GlyphStyle;
         config.AccentColor = AccentColorHex;
+        config.OverlayBlurRadius = OverlayBlurRadius;
         config.Splash = splash;
         config.StartupApps =
         [

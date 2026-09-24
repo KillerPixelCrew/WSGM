@@ -531,6 +531,9 @@ public static class ConfigStore
 
         config.AccentColor ??= Defaults.AccentColor;
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
+        config.OverlayBlurRadius = double.IsFinite(config.OverlayBlurRadius)
+            ? Math.Clamp(config.OverlayBlurRadius, 0, 60)
+            : Defaults.OverlayBlurRadius;
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
         return config;

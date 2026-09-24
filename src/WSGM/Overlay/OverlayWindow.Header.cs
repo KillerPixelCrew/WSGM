@@ -459,18 +459,14 @@ public partial class OverlayWindow
         return Math.Min(Math.Clamp(uiScale / renderScale, 1.0, 3.0), maximumFit);
     }
 
-    private void OnGlassTransparencyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    private void OnGlassBackdropChanged(object? sender, EventArgs e)
     {
-        if (e.Property == ActualTransparencyLevelProperty)
-        {
-            ApplyGlassTransparency();
-        }
+        ApplyGlassTransparency();
     }
 
     private void ApplyGlassTransparency()
     {
-        GlassCanvas.Background = this.FindResource(ActualTransparencyLevel == WindowTransparencyLevel.None
-            ? "DeckCanvasBrush"
-            : "DeckGlassCanvasBrush") as IBrush;
+        var hasBackdrop = _glassBackdrop?.IsActive == true;
+        GlassCanvas.Background = this.FindResource(hasBackdrop ? "DeckGlassCanvasBrush" : "DeckCanvasBrush") as IBrush;
     }
 }
