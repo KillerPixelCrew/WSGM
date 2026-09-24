@@ -7,11 +7,18 @@ headless rendering are in [UI mechanisms](ui.md); utility, keyboard and power-me
 
 ## The quick access sheet
 
-`OverlayWindow` covers the summoning application's display. Avalonia requests live DWM acrylic or
-blur, and the command-deck palette supplies the glass tint and opaque fallback. The fixed top-right
-Close control is the touch dismissal path. Closing preserves the 150 ms touch-promotion grace and
-synthesized-mouse filter. No exposed game strip or global tap-outside observer remains. Native blur,
-battery-saver behavior and physical touch acceptance need attended validation for issue #114.
+`OverlayWindow` covers the summoning application's display. It requests a transparent Avalonia
+window and owns one `Avalonia.LiveBackdrop` attachment while open. A native companion window
+directly behind it draws the live desktop through DirectComposition with an 8-pixel Gaussian blur by
+default. Settings > Quick Access adjusts the radius from 0 to 60 physical pixels; a config reload
+updates an open sheet without creating another backdrop. The command-deck palette supplies the
+translucent glass tint; a failed or unavailable attachment leaves an opaque canvas. The compositor
+path works with Windows Transparency Effects disabled on the tested Claw. The fixed top-right Close
+control is the touch dismissal path. Closing preserves the 150 ms touch-promotion grace and
+synthesized-mouse filter. No exposed game strip or global tap-outside observer remains. The
+maintainer confirmed the integrated Overlay over Steam and a game on the Claw, including bright/dark
+readability and no noticeable frame-time change. Battery-saver behavior and physical touch still
+need attended validation for issue #114.
 
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
 access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail

@@ -743,6 +743,9 @@ public sealed class AppConfig
     /// </summary>
     public string AccentColor { get; set; } = AccentPalette.DefaultAccent;
 
+    /// <summary>Gaussian blur of the live Overlay backdrop in physical pixels (0 to 60).</summary>
+    public double OverlayBlurRadius { get; set; } = 8;
+
     /// <summary>
     ///     Whether the logon service starts WSGM at sign-in. Projected into boot.json
     ///     (see Core\BootManifest) because the SYSTEM service never parses this file. False leaves

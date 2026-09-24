@@ -23,7 +23,12 @@ public static class PreviewExports
     {
         Directory.CreateDirectory(directory);
         foreach (var page in new[]
-                     { "quick-access", "steam", "tools", "power", "device", "device-power", "power-menu", "keyboard" })
+                 {
+                     "quick-access", "steam", "steam-launch", "tools",
+                     "tools-storage", "tools-display", "tools-controller", "power", "power-idle",
+                     "power-actions", "power-session", "device", "device-power", "device-rgb",
+                     "device-controller", "device-info", "power-menu", "keyboard"
+                 })
         {
             using var device = new FakeDevice();
             using var host = new SimulatedDeviceOverlaySource();
@@ -49,15 +54,38 @@ public static class PreviewExports
             window.AttachDeviceBridge(device);
             var destination = page switch
             {
-                "steam" => 1, "device" or "device-power" => 2, "tools" => 3, "power" => 4, _ => 0
+                _ when page.StartsWith("steam", StringComparison.Ordinal) => 1,
+                _ when page.StartsWith("device", StringComparison.Ordinal) => 2,
+                _ when page.StartsWith("tools", StringComparison.Ordinal) => 3,
+                _ when page.StartsWith("power", StringComparison.Ordinal) && page != "power-menu" => 4,
+                _ => 0
             };
             UiFixture.Tab(window, destination).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            if (page == "device-power")
+            var section = page switch
+            {
+                "steam-launch" => "SteamLaunchFixes",
+                "tools-storage" => "SystemStorage",
+                "tools-display" => "SystemDisplay",
+                "tools-controller" => "SystemController",
+                "power-idle" => "PowerTimeouts",
+                "power-actions" => "PowerActions",
+                "power-session" => "PowerSession",
+                "device-power" => "power",
+                "device-rgb" => "rgb",
+                "device-controller" => "controller",
+                "device-info" => "info",
+                _ => null
+            };
+            if (section is not null)
             {
                 var rail = UiFixture.Named<StackPanel>(window, "SectionRail");
                 var button = rail.Children.OfType<Button>().FirstOrDefault(item =>
-                    item.Tag is string key && key.Contains("power", StringComparison.OrdinalIgnoreCase));
-                button?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                                 item.Tag is string key && key.Contains(section, StringComparison.OrdinalIgnoreCase))
+                             ?? throw new InvalidOperationException($"No {page} section. Available: "
+                                                                    + string.Join(", ",
+                                                                        rail.Children.OfType<Button>()
+                                                                            .Select(button => button.Tag)));
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
 
             if (page == "power-menu")

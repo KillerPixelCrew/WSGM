@@ -159,18 +159,18 @@ public sealed class OverlayLayoutTests
     }
 
     [AvaloniaFact]
-    public void DisabledNativeTransparencyUsesAnOpaqueCanvasAndDistinctControlPlane()
+    public void UnavailableNativeBackdropUsesAnOpaqueCanvasAndDistinctControlPlane()
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        Assert.Equal(WindowTransparencyLevel.None, window.ActualTransparencyLevel);
+        Assert.Equal(WindowTransparencyLevel.Transparent, window.ActualTransparencyLevel);
         var canvas =
             Assert.IsAssignableFrom<ISolidColorBrush>(UiFixture.Named<Border>(window, "GlassCanvas").Background);
         Assert.Equal(byte.MaxValue, canvas.Color.A);
         var controls = Assert.IsType<Border>(UiFixture.Named<ScrollViewer>(window, "ContentScroller").Parent);
         var plane = Assert.IsAssignableFrom<ISolidColorBrush>(controls.Background);
         Assert.NotEqual(canvas.Color, plane.Color);
-        Assert.Equal(new[] { WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur },
+        Assert.Equal(new[] { WindowTransparencyLevel.Transparent },
             window.TransparencyLevelHint);
     }
 

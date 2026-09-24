@@ -13,7 +13,7 @@
         Width="1280"
         Height="800"
         Classes="command-deck"
-        TransparencyLevelHint="AcrylicBlur, Blur"
+        TransparencyLevelHint="Transparent"
         TransparencyBackgroundFallback="{StaticResource DeckCanvasBrush}"
         WindowDecorations="None"
         CanResize="False"
@@ -24,7 +24,7 @@
   <!-- Fullscreen live glass. The fixed close control is always reachable. -->
   <LayoutTransformControl x:Name="RootScale">
     <Grid x:Name="SurfaceRoot">
-      <Border x:Name="GlassCanvas" Background="{StaticResource DeckGlassCanvasBrush}" />
+      <Border x:Name="GlassCanvas" Background="{StaticResource DeckCanvasBrush}" />
       <Grid x:Name="DeckContent" RowDefinitions="Auto,Auto,*,Auto,Auto">
         <Border Grid.Row="0" x:Name="Header" Background="{StaticResource DeckRailBrush}"
                 BorderBrush="{StaticResource DeckDividerBrush}" BorderThickness="0,0,0,1" Padding="24,0" Height="72">
@@ -153,10 +153,10 @@
           <c:TabStrip x:Name="Tabs" Classes="sheet" />
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,2*" ColumnSpacing="16" Margin="24,16"
+        <Grid Grid.Row="2" ColumnDefinitions="*,2*" ColumnSpacing="{StaticResource DeckSectionGap}" Margin="{StaticResource DeckWorkspaceMargin}"
               MaxWidth="{StaticResource DeckContentMaxWidth}" HorizontalAlignment="Stretch">
-          <Border Background="{StaticResource DeckRailBrush}" CornerRadius="6" Padding="12">
-            <Grid RowDefinitions="Auto,*" RowSpacing="16">
+          <Border Background="{StaticResource DeckRailBrush}" CornerRadius="{StaticResource DeckGroupRadius}" Padding="{StaticResource DeckPanePadding}">
+            <Grid RowDefinitions="Auto,*" RowSpacing="{StaticResource DeckSectionGap}">
               <StackPanel Spacing="6" Margin="8,8,8,0">
                 <TextBlock x:Name="WorkspaceTitle" Text="Quick access" FontSize="26" FontWeight="SemiBold" />
                 <TextBlock x:Name="WorkspaceDescription" Text="Your pinned controls and widgets" Classes="caption" TextWrapping="Wrap" />
@@ -166,11 +166,11 @@
               </ScrollViewer>
             </Grid>
           </Border>
-          <Border Grid.Column="1" Background="{StaticResource DeckControlsBrush}" CornerRadius="6">
+          <Border Grid.Column="1" Background="{StaticResource DeckControlsBrush}" CornerRadius="{StaticResource DeckGroupRadius}">
         <ScrollViewer x:Name="ContentScroller"
                       VerticalScrollBarVisibility="Auto"
                       GotFocus="OnContentGotFocus">
-          <StackPanel Margin="20" Spacing="12">
+          <StackPanel Margin="{StaticResource DeckPanePadding}" Spacing="{StaticResource DeckSectionGap}">
             <!-- Panel-level warning: sits above the destination roots, so it
                          is visible on every one. -->
             <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning"

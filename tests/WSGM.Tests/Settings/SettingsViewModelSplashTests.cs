@@ -11,6 +11,21 @@ namespace WSGM.Tests.Settings;
 public sealed class SettingsViewModelSplashTests
 {
     [Fact]
+    public void OverlayBlurSliderIsSavedAndIncludedInTheTestSheetSnapshot()
+    {
+        var viewModel = new SettingsViewModel(new AppConfig { OverlayBlurRadius = 8 });
+        Assert.Equal("8 px", viewModel.OverlayBlurLabel);
+
+        viewModel.OverlayBlurRadius = 21;
+
+        Assert.Equal("21 px", viewModel.OverlayBlurLabel);
+        Assert.Equal(21, viewModel.SnapshotForPreview().OverlayBlurRadius);
+        var request = viewModel.CaptureSaveRequest();
+        var merged = SettingsViewModel.ApplyCapturedValues(new AppConfig(), request, request.Splash);
+        Assert.Equal(21, merged.OverlayBlurRadius);
+    }
+
+    [Fact]
     public void OpeningSettingsDoesNotCountAsEditingTheRuntimeOwnedDeviceValues()
     {
         // AutoTDP, the controller target and the glyph policy are also persisted by the running

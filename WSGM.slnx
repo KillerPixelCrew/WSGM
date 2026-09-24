@@ -4,6 +4,7 @@
     <Project Path="external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj"/>
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj"/>
     <Project Path="src/WSGM/WSGM.csproj"/>
     <Project Path="src/WSGM.Device.Asus.RogAllyX/WSGM.Device.Asus.RogAllyX.csproj"/>
     <Project Path="src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj"/>
@@ -17,6 +18,7 @@
     <Project Path="src/WSGM.PackagedLaunch/WSGM.PackagedLaunch.csproj"/>
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Avalonia.LiveBackdrop.Tests/Avalonia.LiveBackdrop.Tests.csproj"/>
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.HandheldCompanion.Tests/WSGM.Device.HandheldCompanion.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj"/>

@@ -4,6 +4,10 @@ These documents explain how WSGM works and, more importantly, why it works the w
 hold the rules that must not be broken, and the things that only turned up on real hardware or
 against a live Steam client. For everything else, the code is the reference.
 
+The reusable [Avalonia live backdrop library](../src/Avalonia.LiveBackdrop/README.md) records the
+issue #183 compositor spike, API and integration limits. Its separate Avalonia sample and the
+integrated Overlay were both checked on the Claw with Windows Transparency Effects disabled.
+
 Each doc opens with a short lead saying what it covers. If you change behaviour one of these
 findings describes, check it again on the device before trusting the change.
 

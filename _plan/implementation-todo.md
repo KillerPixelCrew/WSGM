@@ -4,6 +4,24 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and five deferred issues. Follow the branch ownership and publishing rules in
 AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
+## Overlay glass library (2026-09-24, issue 183)
+
+The intended overlay glass is one live desktop blur shared by its translucent panels, with readable
+opaque fallback and no capture stream or dependency on Windows' Transparency Effects setting.
+`src/Avalonia.LiveBackdrop` owns the reusable Avalonia attachment and native compositor backend;
+Each WSGM overlay window owns its attachment while open. The default is 8 physical pixels, selected
+by the maintainer after the Claw spike. Settings exposes the 0–60 pixel adjustment on Quick Access.
+API and limits are in the library README.
+
+- [x] Native spike confirmed by the maintainer on ReviOS, including live Steam/game content.
+- [x] Separate Avalonia library, automatic synchronization, adjustable blur and fallback lifecycle.
+- [x] Standalone Avalonia consumer and portable publish; library/sample/test projects compile.
+- [x] Attended Avalonia sample check on the Claw; four focused managed contract tests passed.
+- [x] Overlay attachment, centralized control metrics, page previews at 1080p and revised baselines.
+- [x] Attended integrated Overlay check on the Claw over Steam and a game, with bright/dark
+      readability and no noticeable frame-time regression reported by the maintainer.
+- [x] Attended check of the new Settings blur slider, preview and persisted value on the Claw.
+
 ## Global and per-game profile system (2026-09-22, in progress)
 
 One store (`AppConfig.Profiles`), one resolver (`ProfileLayers`) and one owner (`ProfileService`)

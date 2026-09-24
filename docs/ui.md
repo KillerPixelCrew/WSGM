@@ -16,16 +16,19 @@ The production implementation now follows that layout through `OverlayWindow`, w
 canvas, persistent one-third section rail and two-thirds controls plane. `CommandDeck.axaml` owns
 the shared glass, opaque, spacing and focus tokens. The workspace is capped at 1600 DIPs; scaling is
 bounded so its 980 × 640 DIP floor remains usable. Rail buttons stay 48 DIPs tall with 4-DIP gaps;
-selected sections remain marked when focus enters the controls. Native DWM blur and battery-saver
-fallback still require attended checks.
+selected sections remain marked when focus enters the controls. One shared compositor blur defaults
+to 8 physical pixels and is adjustable in Settings > Quick Access from 0 to 60 pixels. It underlies
+the full window when available, even with Windows Transparency Effects disabled. The deck canvas
+becomes opaque if the backdrop fails. The maintainer confirmed the integrated Overlay over Steam and
+a game on the Claw, with readable bright/dark content and no noticeable frame-time change.
 
 The controls plane uses bordered groups with 12-DIP separation and 12-DIP inner padding. Section
 headings use 18-DIP semibold text above a divider; supporting captions remain distinct from
-headings. Empty descriptions reserve no space. Value labels align at the bottom of their row beside
-36-DIP dropdowns, whose closed and popup surfaces use the deck palette. Fan curves sit directly in
-their group with their presets below the graph. Windows energy plans, power assignments and manual
-power each have their own group. Pinned sections keep their natural height so short sections do not
-leave large empty blocks between controls.
+headings. Empty descriptions reserve no space. Labels and values are centered beside 36-DIP
+dropdowns, whose closed and popup surfaces use the deck palette. Fan curves sit directly in their
+group with their presets below the graph. Windows energy plans, power assignments and manual power
+each have their own group. Pinned sections keep their natural height so short sections do not leave
+large empty blocks between controls.
 
 Game Mode lowers Windows scaling to 100%; the overlay keeps using WSGM's saved desktop-DPI
 preference from `DisplayScale.GetUiScalePercent`. Desktop Mode uses native window DPI without

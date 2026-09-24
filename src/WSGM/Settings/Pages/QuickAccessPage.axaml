@@ -4,7 +4,7 @@
              x:Class="WSGM.Settings.Pages.QuickAccessPage"
              x:DataType="s:SettingsViewModel">
   <!-- Quick access sheet. Element order preserved (controller tab order):
-         sheet test → lease toggle → glyph style → hotkey recorder → chord
+         sheet test → blur slider → lease toggle → glyph style → hotkey recorder → chord
          recorder → top edge → bottom edge → Steam menu edge → Steam QAM edge. -->
   <Border Padding="16,10,16,10">
     <Grid ColumnDefinitions="*,24,*">
@@ -24,6 +24,19 @@
           </Grid>
         </Border>
         <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,160,44" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Background blur" Classes="setting-title" />
+              <TextBlock Text="Adjust the live Overlay glass; 0 leaves the background sharp." Classes="caption" />
+            </StackPanel>
+            <Slider Grid.Column="1" Minimum="0" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True"
+                    Value="{Binding OverlayBlurRadius}" VerticalAlignment="Center"
+                    AutomationProperties.Name="Overlay background blur in pixels" />
+            <TextBlock Grid.Column="2" Text="{Binding OverlayBlurLabel}" VerticalAlignment="Center"
+                       HorizontalAlignment="Right" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Block Steam Input while the sheet is open" Classes="setting-title" />
@@ -34,7 +47,7 @@
             <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputLeaseEnabled}" VerticalAlignment="Center" />
           </Grid>
         </Border>
-        <Border Classes="setting-row alt">
+        <Border Classes="setting-row">
           <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
             <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="Controller button glyphs" Classes="setting-title" />

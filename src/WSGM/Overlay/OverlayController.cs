@@ -548,6 +548,7 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+        _overlay?.SetBlurRadius(config.OverlayBlurRadius);
         _sources.CommonPlugins?.ApplyPins(config.PluginWidgetPins);
         // The master CEF switch is owned by ShellSession, which retracts injected UI
         // before closing it — setting it here as well would cut that retraction off.
@@ -1253,6 +1254,7 @@ public sealed class OverlayController : IDisposable
         var setupDone = Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(explorerRunning),
             WindowCenter(_restoreFocusTo));
+        _overlay.SetBlurRadius(_config.OverlayBlurRadius);
         _overlay.AttachSteamOwnership(SteamOwnership);
         if (_sources.Brightness is { } brightness)
         {

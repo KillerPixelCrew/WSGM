@@ -99,6 +99,7 @@
   <ItemGroup>
     <!-- Plugins are loaded dynamically; the shared SDK preserves type identity
          without making the installed package a production project reference. -->
+    <ProjectReference Include="..\Avalonia.LiveBackdrop\Avalonia.LiveBackdrop.csproj"/>
     <ProjectReference
       Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
     <ProjectReference Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
