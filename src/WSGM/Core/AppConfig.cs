@@ -701,6 +701,12 @@ public sealed class AppConfig
     public bool MuteWhileDisplayOff { get; set; }
 
     /// <summary>
+    ///     Check GitHub once a day for a newer WSGM release (see Core\UpdateChecker). It only
+    ///     notifies; the update runs when the user starts it from Settings.
+    /// </summary>
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>
     ///     Send the handheld back to sleep after a standby wake nothing accounts for (see
     ///     Shell\ModernStandbyGuard). Off by default: it decides on its own to suspend the machine, so
     ///     it is the user's to switch on. WSGM changes no Windows power settings and arms no wake

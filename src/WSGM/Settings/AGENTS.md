@@ -22,6 +22,8 @@ state is not.
 - The Plugins page (`PluginSettingsPage`) installs a bundled package by copying it into the Plugins folder and removes
   one by deleting it, or at the next start while it is loaded. It never loads plugin code and never installs drivers:
   missing components go through setup's repair.
+- The UPDATES section shows what the daily check recorded, read through the injected services. Applying an update is
+  the user's explicit, confirmed action, because setup closes Steam; never start it from a check.
 - Steam Input reconciliation happens after configuration is saved and outside the config lock, with the existing
   elevation and pending-update behavior.
 - Device and Plugin tabs remain available when integration is disabled so users can enable it and manage target, glyph,

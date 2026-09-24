@@ -148,6 +148,7 @@ public sealed class ShellSession : IAsyncDisposable
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
+    private UpdateMonitor? _updates;
 
     private bool _disposed;
 
@@ -671,6 +672,8 @@ public sealed class ShellSession : IAsyncDisposable
         // Reads the flag on every look rather than capturing it, so a runtime config reload takes
         // effect without the guard being rebuilt; _config is replaced wholesale on reload.
         _standbyGuard = new ModernStandbyGuard(_messageWindow!, () => _config.ResuspendUnexplainedWakes);
+        // Reads the flag on every wakeup, like the standby guard, so a config reload needs no rebuild.
+        _updates = new UpdateMonitor(() => _config.CheckForUpdates);
         _displayMute = new DisplayOffMuteService(_messageWindow!);
         _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
         _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
@@ -3611,6 +3614,8 @@ public sealed class ShellSession : IAsyncDisposable
         _standbyGuard = null;
         _displayMute?.Dispose();
         _displayMute = null;
+        _updates?.Dispose();
+        _updates = null;
         _volumeButtons?.Dispose();
         _volumeButtons = null;
         _cardVolumes?.Dispose();
