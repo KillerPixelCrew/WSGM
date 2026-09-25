@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Vortice.DirectInput;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -122,6 +123,7 @@ internal sealed partial class LabInputCapture
                 IDirectInputDevice8? controller = null;
                 try
                 {
+                    LabTrace.Write($"capture directinput {instance.ProductName}: create and acquire");
                     controller = _input.CreateDevice(instance.InstanceGuid);
                     if (controller.SetDataFormat<RawJoystickState>().Failure
                         || controller.SetCooperativeLevel(_window,
@@ -133,6 +135,7 @@ internal sealed partial class LabInputCapture
 
                     JoystickState state = new();
                     controller.GetCurrentJoystickState(ref state);
+                    LabTrace.Write($"capture directinput {instance.ProductName}: acquired");
 
                     var product = BitConverter.ToUInt32(instance.ProductGuid.ToByteArray());
                     var device = _capture.AddDevice(new LabInputDevice(_capture.NextId("dinput"), "directinput",

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Windows.Gaming.Input;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -235,19 +236,25 @@ internal sealed partial class LabInputCapture : IDisposable
     public static LabInputCapture Start(nint windowHandle)
     {
         LabInputCapture capture = new(windowHandle);
+        LabTrace.Write("capture: message thread start");
         capture._messageThread = new Thread(capture.MessageLoop) { IsBackground = true, Name = "Device Lab input" };
         capture._messageThread.SetApartmentState(ApartmentState.STA);
         capture._messageThread.Start();
         if (!capture._ready.Wait(TimeSpan.FromSeconds(10)))
         {
+            LabTrace.Write("capture: message thread did not become ready");
             capture.Dispose();
             throw new InvalidOperationException("The input capture thread did not start.");
         }
 
+        LabTrace.Write("capture: poll thread start (XInput, Windows.Gaming.Input, DirectInput)");
         capture._pollThread = new Thread(capture.PollLoop) { IsBackground = true, Name = "Device Lab controller poll" };
         capture._pollThread.Start();
+        LabTrace.Write("capture: direct HID readers start");
         capture.StartHidCollections();
+        LabTrace.Write("capture: WMI event watchers start");
         capture.StartWmi();
+        LabTrace.Write("capture: all readers started");
         return capture;
     }
 
@@ -483,10 +490,12 @@ internal sealed partial class LabInputCapture : IDisposable
         ManagementEventWatcher? watcher = null;
         try
         {
+            LabTrace.Write($"capture wmi watch {scope}: {query}");
             watcher = new ManagementEventWatcher(new ManagementScope(scope), new WqlEventQuery(query));
             watcher.EventArrived += (_, args) => OnWmiEvent(args.NewEvent);
             watcher.Start();
             _watchers.Add(watcher);
+            LabTrace.Write($"capture wmi watch {scope}: started");
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
         {
@@ -530,9 +539,12 @@ internal sealed partial class LabInputCapture : IDisposable
     private void PollLoop()
     {
         DirectInputReader? directInput = null;
+        var first = true;
         try
         {
+            LabTrace.Write("capture directinput: create");
             directInput = new DirectInputReader(this, _directInputWindow);
+            LabTrace.Write("capture directinput: created");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -549,6 +561,11 @@ internal sealed partial class LabInputCapture : IDisposable
             controllers = [];
         while (!_disposed)
         {
+            if (first)
+            {
+                LabTrace.Write("capture xinput: first poll");
+            }
+
             for (uint slot = 0; slot < 4; slot++)
             {
                 if (!xinputAvailable)
@@ -622,6 +639,11 @@ internal sealed partial class LabInputCapture : IDisposable
                     $"L {pad.ThumbLX},{pad.ThumbLY} R {pad.ThumbRX},{pad.ThumbRY}"), true);
             }
 
+            if (first)
+            {
+                LabTrace.Write("capture windows-gaming-input: first poll");
+            }
+
             try
             {
                 PollGameControllers(controllers);
@@ -633,6 +655,11 @@ internal sealed partial class LabInputCapture : IDisposable
                 Thread.Sleep(1000);
             }
 
+            if (first)
+            {
+                LabTrace.Write("capture directinput: first poll");
+            }
+
             try
             {
                 directInput?.Poll();
@@ -642,6 +669,12 @@ internal sealed partial class LabInputCapture : IDisposable
                 MarkUnavailable("directinput", ex.Message);
                 directInput?.Dispose();
                 directInput = null;
+            }
+
+            if (first)
+            {
+                LabTrace.Write("capture poll thread: first round done");
+                first = false;
             }
 
             Thread.Sleep(4);

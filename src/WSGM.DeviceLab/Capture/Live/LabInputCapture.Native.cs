@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -76,8 +77,10 @@ internal sealed partial class LabInputCapture
             RegisterRawInput();
             _keyboardProc = KeyboardHook;
             _mouseProc = MouseHook;
+            LabTrace.Write("capture hooks: keyboard and mouse");
             _keyboardHook = SetWindowsHookEx(13, _keyboardProc, GetModuleHandle(null), 0);
             _mouseHook = SetWindowsHookEx(14, _mouseProc, GetModuleHandle(null), 0);
+            LabTrace.Write("capture power, suspend and shell notifications");
             if (_keyboardHook == IntPtr.Zero || _mouseHook == IntPtr.Zero)
             {
                 MarkUnavailable("low-level hooks", $"SetWindowsHookEx failed ({Marshal.GetLastWin32Error()})");
@@ -111,6 +114,7 @@ internal sealed partial class LabInputCapture
                     $"RegisterShellHookWindow failed ({Marshal.GetLastWin32Error()})");
             }
 
+            LabTrace.Write("capture message thread: ready");
             _ready.Set();
             while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
             {
@@ -157,6 +161,7 @@ internal sealed partial class LabInputCapture
     // present on the machine page-wide, so no collection is left out.
     private void RegisterRawInput()
     {
+        LabTrace.Write("capture raw input: list devices");
         List<RawInputDeviceRegistration> registrations =
         [
             .. new (ushort Page, ushort Usage)[]
@@ -190,11 +195,15 @@ internal sealed partial class LabInputCapture
         // One refused page must not cost the others, so each is registered on its own after a combined
         // attempt fails.
         var array = registrations.ToArray();
+        LabTrace.Write("capture raw input: register " + string.Join(", ",
+            array.Select(registration => $"{registration.UsagePage:X4}:{registration.Usage:X4}")));
         if (!RegisterRawInputDevices(array, (uint)array.Length, (uint)Marshal.SizeOf<RawInputDeviceRegistration>()))
         {
+            LabTrace.Write("capture raw input: combined registration refused, registering one by one");
             foreach (var registration in array)
             {
                 RawInputDeviceRegistration[] one = [registration];
+                LabTrace.Write($"capture raw input: register {registration.UsagePage:X4}:{registration.Usage:X4}");
                 if (!RegisterRawInputDevices(one, 1, (uint)Marshal.SizeOf<RawInputDeviceRegistration>()))
                 {
                     MarkUnavailable($"raw input {registration.UsagePage:X4}:{registration.Usage:X4}",

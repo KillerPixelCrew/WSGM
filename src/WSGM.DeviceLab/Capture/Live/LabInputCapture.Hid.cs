@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
 using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -58,6 +59,7 @@ internal sealed partial class LabInputCapture
 
         HidpCaps caps;
         HidAttributes attributes = new() { Size = Marshal.SizeOf<HidAttributes>() };
+        LabTrace.Write($"capture hid {ShortPath(path)}: open for caps");
         using (var descriptor = Kernel32.CreateFileW(path, 0,
                    Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0, 0))
         {
@@ -89,6 +91,8 @@ internal sealed partial class LabInputCapture
             return;
         }
 
+        LabTrace.Write($"capture hid {attributes.VendorId:X4}:{attributes.ProductId:X4} " +
+                       $"{caps.UsagePage:X4}:{caps.Usage:X4}: open for reading ({caps.InputReportByteLength} bytes)");
         var handle = Kernel32.CreateFileW(path, Kernel32.GenericRead,
             Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0x40000000, 0);
         if (handle.IsInvalid)
@@ -118,6 +122,9 @@ internal sealed partial class LabInputCapture
             _hidReaders.Add(reader);
             reader.Start();
         }
+
+        LabTrace.Write($"capture hid {attributes.VendorId:X4}:{attributes.ProductId:X4} " +
+                       $"{caps.UsagePage:X4}:{caps.Usage:X4}: reading");
     }
 
     private void QueueHidRescan()
