@@ -5,9 +5,9 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Interop;
-using static WSGM.DeviceLab.Wizard.LabSensorInterop;
+using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 // HID: every collection is looked at once. Sensor-page (0x20) collections are listed for the inventory;
 // their readings reach the stage through the sensor APIs. Collections of controllers HC decodes an IMU

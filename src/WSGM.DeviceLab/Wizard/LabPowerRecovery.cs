@@ -6,6 +6,7 @@ using System.Linq;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Transports;
+using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -89,13 +90,14 @@ internal static class LabPowerRecovery
     ///     thread, elevated, before preflight reserves the device owner.
     /// </summary>
     /// <param name="machine">The machine-change record.</param>
+    /// <param name="worker">The hardware worker every write runs in.</param>
     /// <returns>Null when nothing was recorded; otherwise what happened, for the page.</returns>
     /// <remarks>
     ///     It reserves <c>Global\WSGM.DeviceOwner</c> for the duration of the writes and refuses while WSGM's
     ///     device integration holds it. Each recorded setting is written once, only when it differs, and
     ///     read back; a failure leaves the record for the next start or the power stage's own button.
     /// </remarks>
-    public static LabPowerRecoveryOutcome? RestoreRecorded(LabMachineState machine)
+    public static LabPowerRecoveryOutcome? RestoreRecorded(LabMachineState machine, LabWorkerClient worker)
     {
         ArgumentNullException.ThrowIfNull(machine);
         var recorded = machine.Read().Power;
@@ -124,7 +126,7 @@ internal static class LabPowerRecovery
             {
                 using (reserved.Reservation)
                 {
-                    var outcome = RestorePower(machine, new LabPowerLog());
+                    var outcome = RestorePower(machine, worker, new LabPowerLog());
                     restored = outcome.Restored;
                     messages.Add(outcome.Restored
                         ? "Put back the power and fan settings an earlier test left changed."
@@ -148,14 +150,22 @@ internal static class LabPowerRecovery
 
     /// <summary>
     ///     Puts back every recorded power, fan and charge setting once, reads each back and clears what
-    ///     matches. The caller holds the device owner reservation.
+    ///     matches. The caller holds the device owner reservation. Blocking; call off the UI thread.
     /// </summary>
     /// <param name="machine">The machine-change record.</param>
+    /// <param name="worker">The hardware worker every write runs in.</param>
     /// <param name="log">Where every call is logged.</param>
     /// <returns>What happened.</returns>
-    public static LabPowerRecoveryOutcome RestorePower(LabMachineState machine, LabPowerLog log)
+    /// <remarks>
+    ///     Each transport opens in the worker and takes a checkpoint before its first write. The original is
+    ///     already in the machine record, so the checkpoint only arms the writes; it is released once the
+    ///     readback matches. A lost worker leaves the record for the next start.
+    /// </remarks>
+    public static LabPowerRecoveryOutcome RestorePower(LabMachineState machine, LabWorkerClient worker,
+        LabPowerLog log)
     {
         ArgumentNullException.ThrowIfNull(machine);
+        ArgumentNullException.ThrowIfNull(worker);
         ArgumentNullException.ThrowIfNull(log);
         var recorded = machine.Read().Power;
         if (!LabPowerChanges.PowerPending(recorded))
@@ -168,22 +178,22 @@ internal static class LabPowerRecovery
         List<string> problems = [];
         if (recorded!.AsusPower is not null || recorded.AsusChargeLimit is not null)
         {
-            RestoreAsus(machine, recorded, plan, log, problems);
+            RestoreAsus(machine, worker, recorded, plan, log, problems);
         }
 
         if (recorded.MsiPower is not null || recorded.MsiChargeRaw is not null)
         {
-            RestoreMsi(machine, recorded, plan, log, problems);
+            RestoreMsi(machine, worker, recorded, plan, log, problems);
         }
 
         if (recorded.AmdLimits is { } amd)
         {
-            RestoreAmd(machine, amd, log, problems);
+            RestoreAmd(machine, worker, amd, log, problems);
         }
 
         if (recorded.IntelLimits is { } intel)
         {
-            RestoreIntel(machine, intel, log, problems);
+            RestoreIntel(machine, worker, intel, log, problems);
         }
 
         ClearWhenEmpty(machine);
@@ -195,8 +205,8 @@ internal static class LabPowerRecovery
             : new LabPowerRecoveryOutcome(true, "All changed settings were put back and read back correctly.");
     }
 
-    private static void RestoreAsus(LabMachineState machine, LabPowerChanges recorded, LabPowerPlan plan,
-        LabPowerLog log, List<string> problems)
+    private static void RestoreAsus(LabMachineState machine, LabWorkerClient worker, LabPowerChanges recorded,
+        LabPowerPlan plan, LabPowerLog log, List<string> problems)
     {
         if (plan.Asus is not { } layout)
         {
@@ -216,10 +226,13 @@ internal static class LabPowerRecovery
 
         try
         {
-            using var acpi = LabAtkAcpi.Open(layout, log);
+            using var acpi = worker.Open<ILabAtkAcpi>(LabAtkAcpi.Service.Name, log, layout);
+            var (_, token) = worker.Checkpoint<LabAsusOriginal>(acpi, AlreadyRecorded);
+            var verified = true;
             if (recorded.AsusPower is { } power)
             {
-                if (acpi.Restore(power))
+                verified = acpi.Restore(power);
+                if (verified)
                 {
                     machine.Update(changes => changes with { Power = changes.Power! with { AsusPower = null } });
                 }
@@ -245,8 +258,14 @@ internal static class LabPowerRecovery
                 }
                 else
                 {
+                    verified = false;
                     problems.Add($"The charge limit did not read back as {charge} %.");
                 }
+            }
+
+            if (verified)
+            {
+                worker.Release(acpi, token);
             }
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
@@ -256,8 +275,8 @@ internal static class LabPowerRecovery
         }
     }
 
-    private static void RestoreMsi(LabMachineState machine, LabPowerChanges recorded, LabPowerPlan plan,
-        LabPowerLog log, List<string> problems)
+    private static void RestoreMsi(LabMachineState machine, LabWorkerClient worker, LabPowerChanges recorded,
+        LabPowerPlan plan, LabPowerLog log, List<string> problems)
     {
         if (plan.Msi is not { } layout)
         {
@@ -267,10 +286,13 @@ internal static class LabPowerRecovery
 
         try
         {
-            using var wmi = LabMsiWmi.Open(layout, log);
+            using var wmi = worker.Open<ILabMsiWmi>(LabMsiWmi.Service.Name, log, layout);
+            var (_, token) = worker.Checkpoint<LabMsiOriginal>(wmi, AlreadyRecorded);
+            var verified = true;
             if (recorded.MsiPower is { } power && layout.HasTdp)
             {
-                if (wmi.RestorePower(power))
+                verified = wmi.RestorePower(power);
+                if (verified)
                 {
                     machine.Update(changes => changes with { Power = changes.Power! with { MsiPower = null } });
                 }
@@ -295,8 +317,14 @@ internal static class LabPowerRecovery
                 }
                 else
                 {
+                    verified = false;
                     problems.Add($"The charge limit did not read back as {raw & LabMsiWmi.ChargePercentMask} %.");
                 }
+            }
+
+            if (verified)
+            {
+                worker.Release(wmi, token);
             }
         }
         catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
@@ -306,13 +334,13 @@ internal static class LabPowerRecovery
         }
     }
 
-    private static void RestoreAmd(LabMachineState machine, LabAmdLimits original, LabPowerLog log,
-        List<string> problems)
+    private static void RestoreAmd(LabMachineState machine, LabWorkerClient worker, LabAmdLimits original,
+        LabPowerLog log, List<string> problems)
     {
         try
         {
-            using var smu = LabAmdSmu.Open();
-            var now = smu.ReadLimits();
+            using var smu = worker.Open<ILabAmdSmu>(LabAmdSmu.Service.Name, log);
+            var (now, token) = worker.Checkpoint<LabAmdLimits>(smu, AlreadyRecorded);
             if (!Same(now, original))
             {
                 log.Add("restore-write", new { Feature = "processor-power", Transport = "ryzen-smu", Original = original,
@@ -325,6 +353,7 @@ internal static class LabPowerRecovery
             if (Same(now, original))
             {
                 machine.Update(changes => changes with { Power = changes.Power! with { AmdLimits = null } });
+                worker.Release(smu, token);
             }
             else
             {
@@ -339,19 +368,21 @@ internal static class LabPowerRecovery
         }
     }
 
-    private static void RestoreIntel(LabMachineState machine, LabIntelLimits original, LabPowerLog log,
-        List<string> problems)
+    private static void RestoreIntel(LabMachineState machine, LabWorkerClient worker, LabIntelLimits original,
+        LabPowerLog log, List<string> problems)
     {
         try
         {
-            using var kx = LabIntelKx.Open();
+            using var kx = worker.Open<ILabIntelKx>(LabIntelKx.Service.Name, log, original.PowerUnitWatts);
+            var (_, token) = worker.Checkpoint<LabIntelLimits>(kx, AlreadyRecorded);
             var problem = kx.Restore(original);
-            var now = kx.Read(original.PowerUnitWatts);
+            var now = kx.Read();
             log.Add("restore-readback", new { Feature = "processor-power", Transport = "kx", Expected = original,
-                Observed = now, Problem = problem, kx.Log });
+                Observed = now, Problem = problem, Log = kx.CommandLog() });
             if (now.MchbarPl1 == original.MchbarPl1 && (original.MsrLocked || now.Msr610 == original.Msr610))
             {
                 machine.Update(changes => changes with { Power = changes.Power! with { IntelLimits = null } });
+                worker.Release(kx, token);
             }
             else
             {
@@ -366,6 +397,13 @@ internal static class LabPowerRecovery
         }
     }
 
+    // Recovery's checkpoint persist: the original is already in the machine record, so nothing more is
+    // recorded before the writes are armed.
+    private static void AlreadyRecorded(object current)
+    {
+        _ = current;
+    }
+
     /// <summary>Whether two AMD limit readings agree within half a watt.</summary>
     /// <param name="a">One reading.</param>
     /// <param name="b">The other.</param>
@@ -375,7 +413,10 @@ internal static class LabPowerRecovery
         return Math.Abs(a.Stapm - b.Stapm) <= 0.5 && Math.Abs(a.Fast - b.Fast) <= 0.5 && Math.Abs(a.Slow - b.Slow) <= 0.5;
     }
 
-    /// <summary>Records a change before it is made.</summary>
+    /// <summary>
+    ///     Records a change before it is made: the persist step of a worker checkpoint, which must finish
+    ///     before the worker accepts the first write.
+    /// </summary>
     /// <param name="machine">The machine-change record.</param>
     /// <param name="recordId">Knowledge record ID.</param>
     /// <param name="change">Adds the original value.</param>

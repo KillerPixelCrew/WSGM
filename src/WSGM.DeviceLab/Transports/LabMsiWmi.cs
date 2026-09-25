@@ -6,14 +6,66 @@ using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Transports;
 
 /// <summary>An MSI power state the lab captured before changing it.</summary>
 /// <param name="Sustained">PL1 in watts.</param>
 /// <param name="Boost">PL2 in watts.</param>
 /// <param name="Scenario">The raw firmware scenario byte.</param>
 internal sealed record LabMsiState(int Sustained, int Boost, int Scenario);
+
+/// <summary>The MSI state a worker checkpoint captures before the first write.</summary>
+/// <param name="Power">PL1, PL2 and the scenario, when the record has a TDP mechanism and they read stably.</param>
+/// <param name="PowerUnavailable">Why <paramref name="Power" /> is missing, when the record declares it.</param>
+/// <param name="ChargeRaw">The raw charge limit byte, when the record has one and it reads.</param>
+/// <param name="ChargeUnavailable">Why <paramref name="ChargeRaw" /> is missing, when the record declares it.</param>
+internal sealed record LabMsiOriginal(LabMsiState? Power, string? PowerUnavailable, int? ChargeRaw,
+    string? ChargeUnavailable);
+
+/// <summary>
+///     The MSI_ACPI service the wizard calls through the hardware worker (<c>msi-wmi</c>, opened with a
+///     <see cref="LabMsiLayout" />). Writes are refused until the worker's checkpoint is acknowledged.
+/// </summary>
+internal interface ILabMsiWmi : IDisposable
+{
+    /// <summary>Reads PL1, PL2 and the scenario.</summary>
+    /// <returns>The state.</returns>
+    LabMsiState ReadPower();
+
+    /// <summary>Reads the raw charge limit byte.</summary>
+    /// <returns>The byte.</returns>
+    int ReadChargeRaw();
+
+    /// <summary>Reads both fans' RPM.</summary>
+    /// <returns>Readings, or none.</returns>
+    IReadOnlyList<LabFanReading> FanSpeeds();
+
+    /// <summary>The checkpoint snapshot: the stable power state and the raw charge limit.</summary>
+    /// <returns>What could be captured, and why the rest could not.</returns>
+    [LabWorkerSnapshot]
+    LabMsiOriginal Original();
+
+    /// <summary>Writes PL1 and PL2 in the safe order.</summary>
+    /// <param name="current">The state now.</param>
+    /// <param name="sustained">New PL1.</param>
+    /// <param name="boost">New PL2.</param>
+    [LabWorkerWrite]
+    void WritePair(LabMsiState current, int sustained, int boost);
+
+    /// <summary>Puts a captured state back and reads it back.</summary>
+    /// <param name="original">The captured state.</param>
+    /// <returns>Whether the readback matches exactly.</returns>
+    [LabWorkerWrite]
+    bool RestorePower(LabMsiState original);
+
+    /// <summary>Writes a raw charge limit byte.</summary>
+    /// <param name="raw">The byte.</param>
+    [LabWorkerWrite]
+    void WriteChargeRaw(int raw);
+}
 
 /// <summary>The raw MSI_ACPI method calls, so the logic above them can be tested without hardware.</summary>
 internal interface ILabMsiWmiChannel : IDisposable
@@ -33,8 +85,9 @@ internal interface ILabMsiWmiChannel : IDisposable
 /// <summary>
 ///     MSI_ACPI power limit, charge limit and fan telemetry access, following the Claw 8 A2VM plugin
 ///     (<c>src/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs</c>). Every call is logged before and after.
+///     It runs only inside the hardware worker, behind <see cref="ILabMsiWmi" />.
 /// </summary>
-internal sealed class LabMsiWmi : IDisposable
+internal sealed class LabMsiWmi : ILabMsiWmi
 {
     /// <summary>The WMI namespace.</summary>
     public const string Namespace = "root\\WMI";
@@ -53,6 +106,10 @@ internal sealed class LabMsiWmi : IDisposable
 
     /// <summary>The bits of the charge register that hold the percentage; bit 7 is a firmware flag.</summary>
     public const byte ChargePercentMask = 0x7F;
+
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("msi-wmi", typeof(ILabMsiWmi),
+        (args, log) => Open(LabWorkerService.Arg<LabMsiLayout>(args, 0), log));
 
     private readonly ILabMsiWmiChannel _channel;
     private readonly LabMsiLayout _layout;
@@ -117,6 +174,40 @@ internal sealed class LabMsiWmi : IDisposable
             ? first
             : throw new InvalidOperationException(
                 "The power settings changed by themselves. Another program may be controlling them.");
+    }
+
+    /// <inheritdoc />
+    public LabMsiOriginal Original()
+    {
+        LabMsiState? power = null;
+        string? powerUnavailable = null;
+        if (_layout.HasTdp)
+        {
+            try
+            {
+                power = StablePower();
+            }
+            catch (Exception ex) when (IsTransportFailure(ex))
+            {
+                powerUnavailable = ex.Message;
+            }
+        }
+
+        int? charge = null;
+        string? chargeUnavailable = null;
+        if (_layout.Charge is not null)
+        {
+            try
+            {
+                charge = ReadChargeRaw();
+            }
+            catch (Exception ex) when (IsTransportFailure(ex))
+            {
+                chargeUnavailable = ex.Message;
+            }
+        }
+
+        return new LabMsiOriginal(power, powerUnavailable, charge, chargeUnavailable);
     }
 
     /// <summary>

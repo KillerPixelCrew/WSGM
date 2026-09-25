@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
@@ -11,6 +12,7 @@ public sealed class LabAtkAcpiTests
     private const uint Fppt = 0x001200C1;
     private const uint CpuCurve = 0x00110024;
     private const uint GpuCurve = 0x00110025;
+    private const uint Charge = 0x00120057;
 
     private static LabAsusLayout Layout()
     {
@@ -27,6 +29,35 @@ public sealed class LabAtkAcpiTests
             CpuCurve = CpuCurve,
             GpuCurve = GpuCurve
         };
+    }
+
+    [Fact]
+    public void Original_CapturesThePowerStateAndTheChargeLimit()
+    {
+        var channel = new FakeChannel();
+        channel.OnRead = id => id == Charge ? 80 : channel.Value(id);
+        using LabAtkAcpi acpi = new(channel, Layout() with { Charge = Charge }, new LabPowerLog(), _ => { });
+
+        var original = acpi.Original();
+
+        Assert.Equal(15, original.Power?.Spl);
+        Assert.Null(original.PowerUnavailable);
+        Assert.Equal(80, original.ChargeLimit);
+    }
+
+    [Fact]
+    public void Original_ReportsAChangingStateInsteadOfCapturingIt()
+    {
+        var channel = new FakeChannel();
+        var reads = 0;
+        channel.OnRead = id => id == Spl ? 15 + reads++ : channel.Value(id);
+        using LabAtkAcpi acpi = new(channel, Layout(), new LabPowerLog(), _ => { });
+
+        var original = acpi.Original();
+
+        Assert.Null(original.Power);
+        Assert.NotNull(original.PowerUnavailable);
+        Assert.Null(original.ChargeLimit); // The layout has no charge limit.
     }
 
     [Fact]

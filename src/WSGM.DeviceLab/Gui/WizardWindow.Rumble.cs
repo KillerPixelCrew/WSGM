@@ -8,6 +8,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
@@ -72,6 +73,21 @@ public sealed class LabMsiWmiTests
         using LabMsiWmi wmi = new(channel, Layout(), new LabPowerLog());
 
         Assert.Throws<InvalidOperationException>(() => wmi.WriteChargeRaw(50)); // 50 % is below 60.
+    }
+
+    [Fact]
+    public void Original_CapturesThePowerStateAndTheRawChargeLimit()
+    {
+        var channel = new FakeChannel(sustained: 20, boost: 25, charge: 0x80 | 80);
+        using LabMsiWmi wmi = new(channel, Layout(), new LabPowerLog());
+
+        var original = wmi.Original();
+
+        Assert.Equal(new LabMsiState(20, 25, 0), original.Power);
+        Assert.Equal(0x80 | 80, original.ChargeRaw);
+        Assert.Null(original.PowerUnavailable);
+        Assert.Null(original.ChargeUnavailable);
+        Assert.Empty(channel.Writes); // A snapshot never writes.
     }
 
     [Fact]

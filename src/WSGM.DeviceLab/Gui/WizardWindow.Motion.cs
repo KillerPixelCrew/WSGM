@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -22,6 +23,7 @@ internal sealed partial class WizardWindow
         var attempt = await Task.Run(() => project.BeginAttempt(LabStages.Motion, DateTimeOffset.UtcNow));
         LabMotionRecorder? recorder = null;
         var skipped = false;
+        ModeCommandRun modes = new(project, attempt, "Motion sensors");
         try
         {
             recorder = await Task.Run(() => LabMotionRecorder.StartAsync(record, Lifetime));
@@ -76,6 +78,8 @@ internal sealed partial class WizardWindow
                 return;
             }
 
+            // Without a curated record, HC's IMU enables for this controller, only if the tester opts in.
+            await OfferModeCommandsAsync(modes, page, record, LabModeStages.Motion);
             List<LabMotionStepRecord> kept = [];
             if (choices[choice] == "Redo one step")
             {
@@ -103,6 +107,7 @@ internal sealed partial class WizardWindow
                 }
             }
 
+            await EndModeCommandsAsync(modes, page, false);
             page.Children.Clear();
             page.Children.Add(PageTitle("Motion sensors"));
             page.Children.Add(Status("Working out the results..."));
@@ -119,6 +124,7 @@ internal sealed partial class WizardWindow
         }
         finally
         {
+            await EndModeCommandsAsync(modes, page, true);
             if (recorder is not null)
             {
                 await Task.Run(recorder.Dispose);

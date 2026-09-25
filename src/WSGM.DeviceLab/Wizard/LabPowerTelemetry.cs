@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -102,8 +103,11 @@ internal sealed record LabPowerSample
     /// <summary>Active power plan.</summary>
     public LabPowerScheme? Scheme { get; init; }
 
-    /// <summary>Fan speeds, when the device has a readable source.</summary>
+    /// <summary>Fan speeds from the device's own interface, when the record names a readable source.</summary>
     public IReadOnlyList<LabFanReading> Fans { get; init; } = [];
+
+    /// <summary>Fan RPM, temperatures and fan-control duty from LibreHardwareMonitor, on any device.</summary>
+    public LabLhmReading? Sensors { get; init; }
 
     /// <summary>Power and energy meters Windows exposes.</summary>
     public IReadOnlyList<LabPowerMeter> Meters { get; init; } = [];
@@ -118,8 +122,12 @@ internal static class LabPowerTelemetry
     /// <summary>Reads everything at once.</summary>
     /// <param name="label">What is happening.</param>
     /// <param name="fans">Reads fan speeds from the device transport, or null.</param>
+    /// <param name="sensors">The stage's LibreHardwareMonitor session, or null.</param>
     /// <returns>The sample.</returns>
-    public static LabPowerSample Read(string label, Func<IReadOnlyList<LabFanReading>>? fans)
+    public static LabPowerSample Read(
+        string label,
+        Func<IReadOnlyList<LabFanReading>>? fans,
+        LabLhmSensors? sensors = null)
     {
         List<string> unavailable = [];
         IReadOnlyList<LabFanReading> fanReadings = [];
@@ -135,6 +143,12 @@ internal static class LabPowerTelemetry
             }
         }
 
+        var lhm = sensors?.Read();
+        if (lhm?.Problem is { } problem)
+        {
+            unavailable.Add($"LibreHardwareMonitor: {problem}");
+        }
+
         return new LabPowerSample
         {
             At = DateTimeOffset.UtcNow,
@@ -144,6 +158,7 @@ internal static class LabPowerTelemetry
             Cpu = Cpu(unavailable),
             Scheme = Scheme(unavailable),
             Fans = fanReadings,
+            Sensors = lhm,
             Meters = Meters(unavailable),
             Unavailable = unavailable
         };
@@ -174,9 +189,13 @@ internal static class LabPowerTelemetry
             parts.Add($"processor at {mhz / 1000.0:0.0} GHz");
         }
 
-        if (sample.Thermal.Count > 0)
+        var hottest = sample.Thermal.Select(zone => (double?)zone.Celsius)
+            .Concat(sample.Sensors?.Temperatures.Select(sensor => sensor.Value) ?? [])
+            .Where(value => value is > 0 and < 150)
+            .Max();
+        if (hottest is { } celsius)
         {
-            parts.Add($"hottest sensor {sample.Thermal.Max(zone => zone.Celsius):0} °C");
+            parts.Add($"hottest sensor {celsius:0} °C");
         }
 
         if (sample.Battery.DischargeRateMilliwatts is { } discharge and > 0)
@@ -191,6 +210,16 @@ internal static class LabPowerTelemetry
         foreach (var fan in sample.Fans)
         {
             parts.Add(fan.Unit == "rpm" ? $"{fan.Name.ToLowerInvariant()} {fan.Value} rpm" : $"{fan.Name.ToLowerInvariant()} reading {fan.Value}");
+        }
+
+        // LHM's tachometers are named per chip ("Fan #1"); label them so they are not taken for the
+        // vendor reading above.
+        foreach (var fan in sample.Sensors?.Fans ?? [])
+        {
+            if (fan.Value is { } rpm)
+            {
+                parts.Add($"{fan.Name.ToLowerInvariant()} {rpm:0} rpm (LHM)");
+            }
         }
 
         return parts.Count == 0 ? "no readings available" : string.Join(", ", parts);

@@ -7,16 +7,17 @@ using System.Runtime.Intrinsics.X86;
 using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using LibreHardwareMonitor.PawnIo;
 using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab.Gui;
 
 // The processor power-limit test for a machine with no curated interface: one bounded, lower limit
 // through the AMD SMU (PawnIO RyzenSMU) or Intel's MCHBAR and MSR (KX), read back from a real source,
-// held under load, and put back. The original is recorded before the write, so a killed session is
-// undone on the next start. Nothing is retried; the EC is never touched.
+// held under load, and put back. Both transports run in the hardware worker: its checkpoint captures the
+// original, which is recorded before the worker accepts the write, so a killed session is undone on the
+// next start. Nothing is retried; the EC is never touched.
 internal sealed partial class WizardWindow
 {
     private async Task RunProcessorPowerAsync(LabProject project, string attempt, StackPanel page,
@@ -66,10 +67,13 @@ internal sealed partial class WizardWindow
             return;
         }
 
-        LabAmdSmu smu;
+        var worker = await WorkerAsync();
+        ILabAmdSmu smu;
+        LabAmdIdentity identity;
         try
         {
-            smu = await Task.Run(LabAmdSmu.Open);
+            smu = await Task.Run(() => worker.Open<ILabAmdSmu>(LabAmdSmu.Service.Name, null));
+            identity = await Task.Run(smu.Identity);
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException)
         {
@@ -80,10 +84,10 @@ internal sealed partial class WizardWindow
 
         using (smu)
         {
-            if (smu.Commands is null)
+            if (!identity.Supported)
             {
-                tests.Add(Failed("processor-power", "ryzen-smu", $"{smu.CodeNameText} is not a supported mobile processor"));
-                page.Children.Add(Muted($"{smu.CodeNameText} has no known power-limit commands, so it was not tested."));
+                tests.Add(Failed("processor-power", "ryzen-smu", $"{identity.CodeNameText} is not a supported mobile processor"));
+                page.Children.Add(Muted($"{identity.CodeNameText} has no known power-limit commands, so it was not tested."));
                 return;
             }
 
@@ -109,16 +113,34 @@ internal sealed partial class WizardWindow
                 return;
             }
 
+            // The checkpoint: the worker reads the limits itself, and accepts no write until that reading
+            // (which must still agree with the two above) is recorded.
+            string token;
+            try
+            {
+                var stable = original;
+                (original, token) = await Task.Run(() => worker.Checkpoint<LabAmdLimits>(smu, captured =>
+                {
+                    if (!LabPowerRecovery.Same(captured, stable))
+                    {
+                        throw new InvalidOperationException("The processor power limits changed while they were recorded.");
+                    }
+
+                    LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
+                        changes => changes with { AcLine = _pinnedAcLine, AmdLimits = captured });
+                    project.WriteEvidence(attempt, $"original-amd-{passLabel}",
+                        new { _pinnedAcLine, identity.CodeNameText, SmuVersion = $"0x{identity.SmuVersion:X8}", Limits = captured });
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException or IOException)
+            {
+                tests.Add(Failed("processor-power", "ryzen-smu", ex.Message));
+                page.Children.Add(Muted($"The current processor power limits could not be recorded, so nothing was changed: {ex.Message}"));
+                return;
+            }
+
             var testStapm = Math.Max(LabAmdSmu.MinimumTestWatts, Math.Round(original.Stapm * 0.75));
             LabAmdLimits target = new(testStapm, Math.Max(testStapm, Math.Round(original.Fast * 0.75)), testStapm);
-            await Task.Run(() =>
-            {
-                LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
-                    changes => changes with { AcLine = _pinnedAcLine, AmdLimits = original });
-                project.WriteEvidence(attempt, $"original-amd-{passLabel}",
-                    new { _pinnedAcLine, smu.CodeNameText, SmuVersion = $"0x{smu.SmuVersion:X8}", Limits = original });
-            });
-
             page.Children.Add(Status(
                 $"Lowering the processor power limit from {original.Stapm} to {target.Stapm} watts for ten seconds, then putting it back. The device may feel slower meanwhile."));
             LabPowerTestResult? result = null;
@@ -126,7 +148,7 @@ internal sealed partial class WizardWindow
             {
                 var responses = await Task.Run(() => smu.WriteLimits(target));
                 var samples = await LabPowerLoad.RunAsync(LoadTest, SampleInterval,
-                    label => LabPowerTelemetry.Read($"processor-{target.Stapm}w-{passLabel}-{label}", FanReader(plan)), null,
+                    label => ReadTelemetry($"processor-{target.Stapm}w-{passLabel}-{label}", plan), null,
                     Lifetime);
                 telemetry.AddRange(samples);
                 List<LabAmdLimits> readbacks = [];
@@ -142,7 +164,7 @@ internal sealed partial class WizardWindow
                     Feature = "processor-power",
                     Transport = "ryzen-smu",
                     Outcome = matched ? "applied-readback-matched" : "readback-mismatch",
-                    Detail = $"{SourceName(passLabel)}: {smu.CodeNameText}, set {target.Stapm}/{target.Fast}/{target.Slow} W, SMU echoed {string.Join("/", responses)} mW.",
+                    Detail = $"{SourceName(passLabel)}: {identity.CodeNameText}, set {target.Stapm}/{target.Fast}/{target.Slow} W, SMU echoed {string.Join("/", responses)} mW.",
                     Original = original,
                     TestValue = target,
                     Readback = readbacks,
@@ -160,12 +182,17 @@ internal sealed partial class WizardWindow
             }
             finally
             {
-                // Restore without the stage token, so "Stop and save" still puts the limit back.
-                var outcome = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, new LabPowerLog()));
+                // Restore without the stage token, so "Stop and save" still puts the limit back. The restore
+                // opens its own worker session and checkpoint; this one is released once it verified.
+                var outcome = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, worker, new LabPowerLog()));
                 page.Children.Add(RestoreLine(true, outcome.Restored, "processor power limit"));
                 if (!outcome.Restored)
                 {
                     page.Children.Add(Warning(outcome.Message + " Restart the device to reset the processor power limit."));
+                }
+                else
+                {
+                    await ReleaseQuietlyAsync(worker, smu, token);
                 }
 
                 tests.Add((result ?? Failed("processor-power", "ryzen-smu", "stopped")) with { Restored = outcome.Restored });
@@ -176,12 +203,12 @@ internal sealed partial class WizardWindow
     private async Task RunIntelPowerAsync(LabProject project, string attempt, StackPanel page, LabPowerPlan plan,
         List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
-        double unit;
-        LabIntelKx kx;
+        var worker = await WorkerAsync();
+        ILabIntelKx kx;
         try
         {
-            unit = await Task.Run(PowerUnitWatts);
-            kx = await Task.Run(LabIntelKx.Open);
+            // The worker reads the power unit from MSR 0x606 itself.
+            kx = await Task.Run(() => worker.Open<ILabIntelKx>(LabIntelKx.Service.Name, null, (double?)null));
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException
                                        or Win32Exception)
@@ -196,8 +223,8 @@ internal sealed partial class WizardWindow
             LabIntelLimits original;
             try
             {
-                original = await Task.Run(() => kx.Read(unit));
-                var again = await Task.Run(() => kx.Read(unit));
+                original = await Task.Run(kx.Read);
+                var again = await Task.Run(kx.Read);
                 if (again != original || original.MchbarPl1Watts is < 3 or > 150)
                 {
                     tests.Add(Failed("processor-power", "kx",
@@ -213,14 +240,32 @@ internal sealed partial class WizardWindow
                 return;
             }
 
-            var target = Math.Max(5, Math.Round(original.MchbarPl1Watts * 0.75));
-            await Task.Run(() =>
+            // The checkpoint: the worker reads the limits itself, and accepts no write until that reading
+            // (which must still equal the two above) is recorded.
+            string token;
+            try
             {
-                LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
-                    changes => changes with { AcLine = _pinnedAcLine, IntelLimits = original });
-                project.WriteEvidence(attempt, $"original-intel-{passLabel}", new { _pinnedAcLine, Limits = original });
-            });
+                var stable = original;
+                (original, token) = await Task.Run(() => worker.Checkpoint<LabIntelLimits>(kx, captured =>
+                {
+                    if (captured != stable)
+                    {
+                        throw new InvalidOperationException("The processor power limits changed while they were recorded.");
+                    }
 
+                    LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
+                        changes => changes with { AcLine = _pinnedAcLine, IntelLimits = captured });
+                    project.WriteEvidence(attempt, $"original-intel-{passLabel}", new { _pinnedAcLine, Limits = captured });
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException)
+            {
+                tests.Add(Failed("processor-power", "kx", ex.Message));
+                page.Children.Add(Muted($"The current processor power limits could not be recorded, so nothing was changed: {ex.Message}"));
+                return;
+            }
+
+            var target = Math.Max(5, Math.Round(original.MchbarPl1Watts * 0.75));
             page.Children.Add(Status(
                 $"Lowering the processor power limit from {original.MchbarPl1Watts} to {target} watts for ten seconds, then putting it back."));
             LabPowerTestResult? result = null;
@@ -228,12 +273,12 @@ internal sealed partial class WizardWindow
             {
                 var problem = await Task.Run(() => kx.WritePl1(original, target));
                 var samples = await LabPowerLoad.RunAsync(LoadTest, SampleInterval,
-                    label => LabPowerTelemetry.Read($"processor-{target}w-{passLabel}-{label}", FanReader(plan)), null, Lifetime);
+                    label => ReadTelemetry($"processor-{target}w-{passLabel}-{label}", plan), null, Lifetime);
                 telemetry.AddRange(samples);
                 List<LabIntelLimits> readbacks = [];
                 for (var i = 0; i < 4; i++)
                 {
-                    readbacks.Add(await Task.Run(() => kx.Read(unit)));
+                    readbacks.Add(await Task.Run(kx.Read));
                     await Task.Delay(1000, Lifetime);
                 }
 
@@ -262,17 +307,48 @@ internal sealed partial class WizardWindow
             }
             finally
             {
-                var outcome = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, new LabPowerLog()));
+                var outcome = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, worker, new LabPowerLog()));
                 page.Children.Add(RestoreLine(true, outcome.Restored, "processor power limit"));
                 if (!outcome.Restored)
                 {
                     page.Children.Add(Warning(outcome.Message + " Restart the device to reset the processor power limit."));
                 }
+                else
+                {
+                    await ReleaseQuietlyAsync(worker, kx, token);
+                }
 
                 tests.Add((result ?? Failed("processor-power", "kx", "stopped")) with { Restored = outcome.Restored });
-                await Task.Run(() => project.WriteEvidence(attempt, $"kx-log-{passLabel}", kx.Log));
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        project.WriteEvidence(attempt, $"kx-log-{passLabel}", kx.CommandLog());
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        // A lost worker took the command log with it; the stage log has the rest.
+                        project.WriteEvidence(attempt, $"kx-log-{passLabel}", new { Unavailable = ex.Message });
+                    }
+                });
             }
         }
+    }
+
+    // Ends a checkpoint after a verified restore. A lost worker has no checkpoint left to end.
+    private static Task ReleaseQuietlyAsync(LabWorkerClient worker, object service, string token)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                worker.Release(service, token);
+            }
+            catch (InvalidOperationException)
+            {
+                // The worker is gone; the restore it verified still stands.
+            }
+        });
     }
 
     private static string CpuVendor()
@@ -288,21 +364,5 @@ internal sealed partial class WizardWindow
         BitConverter.GetBytes(edx).CopyTo(bytes, 4);
         BitConverter.GetBytes(ecx).CopyTo(bytes, 8);
         return Encoding.ASCII.GetString(bytes);
-    }
-
-    // MSR 0x606 bits 0-3: power unit is 1 / 2^n watts (usually n = 3, an eighth of a watt).
-    private static double PowerUnitWatts()
-    {
-        var msr = new IntelMsr();
-        try
-        {
-            return msr.ReadMsr(0x606, out ulong value)
-                ? 1.0 / (1 << (int)(value & 0xF))
-                : throw new InvalidOperationException("MSR 0x606 could not be read through PawnIO.");
-        }
-        finally
-        {
-            msr.Close();
-        }
     }
 }

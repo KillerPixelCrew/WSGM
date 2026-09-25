@@ -1,4 +1,4 @@
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>What a controller answer means.</summary>
 internal enum LabRumblePadAnswer

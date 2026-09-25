@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 // The legacy Sensor API COM ABI (sensorsapi.h, portabledeviceapi.h), HID capability calls and a
 // high-resolution wait, for the motion stage. The COM declarations match the reviewed

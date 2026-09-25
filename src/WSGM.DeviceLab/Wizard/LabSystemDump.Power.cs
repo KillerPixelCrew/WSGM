@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -53,6 +54,13 @@ internal static partial class LabSystemDump
             "ThermalStamp", "SamplingPeriod", "ActiveTripPointCount", "ActiveTripPoint"
         ], issues, token);
 
+        // Fan RPM, temperatures and fan-control duty from LibreHardwareMonitor: read once, never set.
+        var sensors = LabLhmSensors.ReadOnce(token);
+        if (sensors.Problem is { } sensorProblem)
+        {
+            AddIssue(issues, $"LibreHardwareMonitor: {sensorProblem}");
+        }
+
         object schemes;
         try
         {
@@ -73,6 +81,7 @@ internal static partial class LabSystemDump
             BatteryCycleCount = cycles,
             ThermalZones = thermal,
             ThermalZoneNote = "Temperatures are in tenths of a kelvin; subtract 2732 and divide by 10 for Celsius.",
+            LibreHardwareMonitor = sensors,
             PowerStatus = PowerStatus(),
             PowerCapabilities = PowerCapabilities(),
             PowerPlans = schemes,

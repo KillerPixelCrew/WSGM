@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Gui;
@@ -13,9 +14,12 @@ namespace WSGM.DeviceLab.Gui;
 // power plan and fan speed, before and after a 20 second load burst), then the device's own power,
 // performance mode, fan and charge-limit tests when the confirmed record is curated and the transport
 // opens, then lighting (Windows Dynamic Lighting for any device, plus the curated Aura endpoint). Every
-// write is recorded in LabMachineState before it is made, read back, and put back in a safe order; an
-// uncertain write is never retried, and an unverified restore is shown in orange with a "Try restoring
-// again" button. Everything the stage changed is restored when it ends, however it ends.
+// hardware call runs in the elevated worker. Before a transport's first write the worker captures the
+// original itself (the checkpoint), the stage records it in LabMachineState, and only then does the
+// worker accept writes; each write is read back and put back in a safe order, and the checkpoint is
+// released after a verified restore. An uncertain write is never retried, and an unverified restore is
+// shown in orange with a "Try restoring again" button. Everything the stage changed is restored when it
+// ends, however it ends.
 internal sealed partial class WizardWindow
 {
     private static readonly TimeSpan LoadBurst = TimeSpan.FromSeconds(20);
@@ -35,16 +39,6 @@ internal sealed partial class WizardWindow
         return LabPowerChanges.PowerPending(_machine.Read().Power);
     }
 
-    /// <summary>The recovery hook the lead calls from <c>Start()</c>: undoes power settings a killed session left.</summary>
-    /// <remarks>
-    ///     Run it off the UI thread, only when elevated, before preflight reserves the device owner. It
-    ///     takes the owner reservation itself and returns null when nothing was recorded.
-    /// </remarks>
-    public LabPowerRecoveryOutcome? RestoreRecordedPower()
-    {
-        return LabPowerRecovery.RestoreRecorded(_machine);
-    }
-
     private async Task RunPowerAsync(LabProject project, StackPanel page)
     {
         page.Children.Add(Status("Reading the power, temperature and fan state. Nothing is changed yet."));
@@ -57,6 +51,12 @@ internal sealed partial class WizardWindow
         List<(string Shown, string Seen)> lighting = [];
         var lightingFound = false;
         _powerRecord = plan.Curated ? record : null;
+        if (_options.Elevated)
+        {
+            // Every hardware read and write of this stage runs in the worker, including the fan readers.
+            await WorkerAsync();
+        }
+
         if (_powerRecord is { } curated)
         {
             // The BIOS, EC and vendor endpoint facts every later write is checked against.
@@ -66,6 +66,11 @@ internal sealed partial class WizardWindow
 
         try
         {
+            // Every device: LibreHardwareMonitor's fan RPM and temperatures, opened once for the stage
+            // and read with every sample next to the vendor readings. It only reads; a session that did
+            // not open reports why in each sample's unavailable list.
+            _powerSensors = await LabLhmSensors.OpenAsync(Lifetime);
+
             // Every device: read-only telemetry, before and during a load burst.
             telemetry.AddRange(await RunTelemetryAsync(page, plan, "before-load"));
             telemetry.AddRange(await RunLoadBurstAsync(page, plan));
@@ -119,6 +124,13 @@ internal sealed partial class WizardWindow
         {
             // On success, failure and window close alike: put back everything still recorded.
             await RestorePendingAsync(page, tests);
+            var sensors = _powerSensors;
+            _powerSensors = null;
+            if (sensors is not null)
+            {
+                await Task.Run(sensors.Dispose);
+            }
+
             await Task.Run(() =>
             {
                 project.WriteEvidence(attempt, "power-telemetry", new { Samples = telemetry, Events = log.Events() });
@@ -140,7 +152,7 @@ internal sealed partial class WizardWindow
 
     private async Task<IReadOnlyList<LabPowerSample>> RunTelemetryAsync(StackPanel page, LabPowerPlan plan, string label)
     {
-        var sample = await Task.Run(() => LabPowerTelemetry.Read(label, FanReader(plan)));
+        var sample = await Task.Run(() => ReadTelemetry(label, plan));
         page.Children.Add(Status($"Now: {LabPowerTelemetry.Describe(sample)}."));
         foreach (var missing in sample.Unavailable)
         {
@@ -155,24 +167,35 @@ internal sealed partial class WizardWindow
         var line = Status("The fan may get louder for 20 seconds while the processor is kept busy.");
         page.Children.Add(line);
         var samples = await LabPowerLoad.RunAsync(LoadBurst, SampleInterval,
-            label => LabPowerTelemetry.Read(label, FanReader(plan)),
+            label => ReadTelemetry(label, plan),
             left => OnUi(() => line.Text = $"Keeping the processor busy... {left} seconds left."),
             Lifetime);
-        var after = await Task.Run(() => LabPowerTelemetry.Read("after-load", FanReader(plan)));
+        var after = await Task.Run(() => ReadTelemetry("after-load", plan));
         line.Text = $"After the load: {LabPowerTelemetry.Describe(after)}.";
         return [.. samples, after];
+    }
+
+    private LabPowerSample ReadTelemetry(string label, LabPowerPlan plan)
+    {
+        return LabPowerTelemetry.Read(label, FanReader(plan), _powerSensors);
     }
 
     private Func<IReadOnlyList<LabFanReading>>? FanReader(LabPowerPlan plan)
     {
         // A fan RPM source the record names and the transport can read, without touching any write path.
-        if (plan is { Curated: true, Msi.FanGetter: not null } && _options.Elevated)
+        // It opens a worker session per reading and never takes a checkpoint, so it cannot write.
+        if (_worker is not { } worker || !_options.Elevated)
+        {
+            return null;
+        }
+
+        if (plan is { Curated: true, Msi.FanGetter: not null })
         {
             return () =>
             {
                 try
                 {
-                    using var wmi = LabMsiWmi.Open(plan.Msi!, new LabPowerLog());
+                    using var wmi = worker.Open<ILabMsiWmi>(LabMsiWmi.Service.Name, null, plan.Msi!);
                     return wmi.FanSpeeds();
                 }
                 catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
@@ -182,14 +205,14 @@ internal sealed partial class WizardWindow
             };
         }
 
-        if (plan is { Curated: true, Asus: not null } && _options.Elevated
+        if (plan is { Curated: true, Asus: not null }
             && (plan.Asus.CpuSpeed is not null || plan.Asus.GpuSpeed is not null))
         {
             return () =>
             {
                 try
                 {
-                    using var acpi = LabAtkAcpi.Open(plan.Asus!, new LabPowerLog());
+                    using var acpi = worker.Open<ILabAtkAcpi>(LabAtkAcpi.Service.Name, null, plan.Asus!);
                     return acpi.FanSpeeds();
                 }
                 catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
@@ -309,10 +332,11 @@ internal sealed partial class WizardWindow
         LabPowerLog log, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
         var layout = plan.Asus!;
-        LabAtkAcpi? acpi = null;
+        var worker = await WorkerAsync();
+        ILabAtkAcpi acpi;
         try
         {
-            acpi = await Task.Run(() => LabAtkAcpi.Open(layout, log));
+            acpi = await Task.Run(() => worker.Open<ILabAtkAcpi>(LabAtkAcpi.Service.Name, log, layout));
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
@@ -325,51 +349,72 @@ internal sealed partial class WizardWindow
             // Read-only first: every getter on its own, and both fan curves for all three modes.
             var getters = await Task.Run(acpi.ReadAllGetters);
             await Task.Run(() => WriteEvidenceOnce(project, attempt, $"asus-getters-{passLabel}", getters));
+            if (!layout.CanSnapshot && layout.Charge is null)
+            {
+                return;
+            }
 
+            // The checkpoint: the worker captures the whole state itself and accepts no write until it is
+            // recorded here, both in LabMachineState (for crash recovery) and in the project evidence.
+            LabAsusOriginal original;
+            string token;
+            try
+            {
+                (original, token) = await Task.Run(() => worker.Checkpoint<LabAsusOriginal>(acpi, captured =>
+                {
+                    LabPowerRecovery.Record(_machine, plan.Record!.Id, changes => changes with
+                    {
+                        AcLine = _pinnedAcLine,
+                        AsusPower = captured.Power ?? changes.AsusPower,
+                        AsusChargeLimit = captured.ChargeLimit ?? changes.AsusChargeLimit
+                    });
+                    WriteEvidenceOnce(project, attempt, $"original-asus-{passLabel}", new { _pinnedAcLine, State = captured });
+                }));
+            }
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
+            {
+                page.Children.Add(Warning($"The current settings could not be recorded, so nothing was changed: {ex.Message}"));
+                return;
+            }
+
+            var restored = true;
             if (layout.CanSnapshot)
             {
-                await RunAsusPowerFamilyAsync(project, attempt, page, plan, acpi, tests, telemetry, passLabel);
+                if (original.Power is { } power)
+                {
+                    restored &= await RunAsusPowerFamilyAsync(page, plan, acpi, power, tests, telemetry, passLabel);
+                }
+                else
+                {
+                    page.Children.Add(Status(
+                        $"The current power settings could not be read, so the tests were skipped: {original.PowerUnavailable}"));
+                }
             }
 
             if (layout.Charge is not null)
             {
-                await RunAsusChargeAsync(project, page, plan, acpi, tests);
+                restored &= await RunAsusChargeAsync(page, plan, acpi, original.ChargeLimit, tests);
+            }
+
+            if (restored)
+            {
+                await ReleaseQuietlyAsync(worker, acpi, token);
             }
         }
     }
 
-    private async Task RunAsusPowerFamilyAsync(LabProject project, string attempt, StackPanel page, LabPowerPlan plan,
-        LabAtkAcpi acpi, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
+    // Runs the TDP, performance mode and fan tests, then puts the whole family back once, together, and
+    // clears the record when it reads back. Returns whether it was put back.
+    private async Task<bool> RunAsusPowerFamilyAsync(StackPanel page, LabPowerPlan plan, ILabAtkAcpi acpi,
+        LabAsusState original, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
-        LabAsusState original;
-        try
-        {
-            original = await Task.Run(acpi.StableSnapshot);
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
-        {
-            page.Children.Add(Status($"The current power settings could not be read, so the tests were skipped: {ex.Message}"));
-            return;
-        }
-
-        // Record the whole state before any write, both in LabMachineState (for crash recovery) and in
-        // the project evidence, before the first write.
-        await Task.Run(() =>
-        {
-            LabPowerRecovery.Record(_machine, plan.Record!.Id,
-                changes => changes with { AcLine = _pinnedAcLine, AsusPower = original });
-            WriteEvidenceOnce(project, attempt, $"original-asus-{passLabel}", new { _pinnedAcLine, State = original });
-        });
-
         await RunAsusTdpAsync(page, plan, acpi, original, tests, telemetry, passLabel);
         await RunAsusProfileAsync(page, plan, acpi, original, tests);
         await RunAsusFanAsync(page, plan, acpi, original, tests);
-
-        // Put the whole family back once, together, and clear the record when it reads back.
-        await RestoreAsusPowerAsync(page, acpi, original, tests);
+        return await RestoreAsusPowerAsync(page, acpi, original, tests);
     }
 
-    private async Task RunAsusTdpAsync(StackPanel page, LabPowerPlan plan, LabAtkAcpi acpi, LabAsusState original,
+    private async Task RunAsusTdpAsync(StackPanel page, LabPowerPlan plan, ILabAtkAcpi acpi, LabAsusState original,
         List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
         foreach (var watts in LabPowerPlan.TestWattsList(plan.Asus!.MinimumWatts, plan.Asus.MaximumWatts))
@@ -392,7 +437,7 @@ internal sealed partial class WizardWindow
                         spl == watts && sppt == watts && fppt == watts);
                 });
                 var loaded = await LabPowerLoad.RunAsync(LoadTest, SampleInterval,
-                    label => LabPowerTelemetry.Read($"tdp-{watts}w-{passLabel}-{label}", FanReader(plan)), null, Lifetime);
+                    label => ReadTelemetry($"tdp-{watts}w-{passLabel}-{label}", plan), null, Lifetime);
                 telemetry.AddRange(loaded);
                 tests.Add(new LabPowerTestResult
                 {
@@ -420,7 +465,7 @@ internal sealed partial class WizardWindow
         }
     }
 
-    private async Task RunAsusProfileAsync(StackPanel page, LabPowerPlan plan, LabAtkAcpi acpi, LabAsusState original,
+    private async Task RunAsusProfileAsync(StackPanel page, LabPowerPlan plan, ILabAtkAcpi acpi, LabAsusState original,
         List<LabPowerTestResult> tests)
     {
         var modeId = plan.Asus!.Mode!.Value;
@@ -473,7 +518,7 @@ internal sealed partial class WizardWindow
         }
     }
 
-    private async Task RunAsusFanAsync(StackPanel page, LabPowerPlan plan, LabAtkAcpi acpi, LabAsusState original,
+    private async Task RunAsusFanAsync(StackPanel page, LabPowerPlan plan, ILabAtkAcpi acpi, LabAsusState original,
         List<LabPowerTestResult> tests)
     {
         // One fan at a time, each raised by 15 percentage points, as AllyXLab's fan test does.
@@ -521,7 +566,7 @@ internal sealed partial class WizardWindow
         }
     }
 
-    private async Task RestoreAsusPowerAsync(StackPanel page, LabAtkAcpi acpi, LabAsusState original,
+    private async Task<bool> RestoreAsusPowerAsync(StackPanel page, ILabAtkAcpi acpi, LabAsusState original,
         List<LabPowerTestResult> tests)
     {
         var restored = await Task.Run(() => acpi.Restore(original));
@@ -538,45 +583,38 @@ internal sealed partial class WizardWindow
             ? Status("The power, performance mode and fan settings were put back.")
             : Warning(
                 "The power or fan settings could not be confirmed as put back. Set them again in Armoury Crate, or use the button below."));
+        return restored;
     }
 
-    private async Task RunAsusChargeAsync(LabProject project, StackPanel page, LabPowerPlan plan, LabAtkAcpi acpi,
+    // The charge limit test. The original was recorded by the checkpoint; returns whether nothing is left
+    // changed.
+    private async Task<bool> RunAsusChargeAsync(StackPanel page, LabPowerPlan plan, ILabAtkAcpi acpi, int? original,
         List<LabPowerTestResult> tests)
     {
         var chargeId = plan.Asus!.Charge!.Value;
-        int? original;
-        try
-        {
-            original = await Task.Run(() => acpi.TryGet(chargeId));
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
-        {
-            original = null;
-            page.Children.Add(Muted($"The charge limit could not be read: {ex.Message}"));
-        }
-
         if (original is not { } current)
         {
             page.Children.Add(Muted("The charge limit could not be read, so it was not tested."));
-            return;
+            return true;
         }
 
         var target = LabPowerPlan.TestChargeLimit(current);
         if (!await PowerUnchangedAsync(page, tests, "charge-limit", "atkacpi"))
         {
-            return;
+            // Nothing was written, so the recorded original is no longer needed.
+            await ForgetRecordedAsync(changes => changes with { AsusChargeLimit = null });
+            return true;
         }
 
-        await Task.Run(() => LabPowerRecovery.Record(_machine, plan.Record!.Id,
-            changes => changes with { AsusChargeLimit = current }));
         page.Children.Add(Status($"Setting the charge limit to {target}%, then putting it back..."));
+        bool restored;
         try
         {
             await Task.Run(() => acpi.Set(chargeId, target));
             await Task.Delay(150, Lifetime);
             var readback = await Task.Run(() => acpi.TryGet(chargeId));
             var matched = readback == target;
-            var restored = await RestoreAsusChargeAsync(acpi, chargeId, current);
+            restored = await RestoreAsusChargeAsync(acpi, chargeId, current);
             tests.Add(new LabPowerTestResult
             {
                 Feature = "charge-limit",
@@ -592,13 +630,15 @@ internal sealed partial class WizardWindow
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
-            var restored = await RestoreAsusChargeAsync(acpi, chargeId, current);
+            restored = await RestoreAsusChargeAsync(acpi, chargeId, current);
             tests.Add(Failed("charge-limit", "atkacpi", ex.Message) with { Restored = restored });
             page.Children.Add(Warning($"The charge limit test stopped: {ex.Message}"));
         }
+
+        return restored;
     }
 
-    private async Task<bool> RestoreAsusChargeAsync(LabAtkAcpi acpi, uint chargeId, int original)
+    private async Task<bool> RestoreAsusChargeAsync(ILabAtkAcpi acpi, uint chargeId, int original)
     {
         var restored = await Task.Run(() =>
         {
@@ -632,12 +672,18 @@ internal sealed partial class WizardWindow
         LabPowerLog log, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
         var layout = plan.Msi!;
-        LabMsiWmi? wmi = null;
+        if (!layout.HasTdp && layout.Charge is null)
+        {
+            return;
+        }
+
+        var worker = await WorkerAsync();
+        ILabMsiWmi wmi;
         try
         {
-            wmi = await Task.Run(() => LabMsiWmi.Open(layout, log));
+            wmi = await Task.Run(() => worker.Open<ILabMsiWmi>(LabMsiWmi.Service.Name, log, layout));
         }
-        catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex) || ex is FileNotFoundException)
+        catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
         {
             page.Children.Add(Status($"The MSI power interface did not open, so its tests were skipped: {ex.Message}"));
             return;
@@ -645,39 +691,59 @@ internal sealed partial class WizardWindow
 
         using (wmi)
         {
+            // The checkpoint: the worker captures the limits, scenario and charge limit itself and accepts no
+            // write until they are recorded here and in the project evidence.
+            LabMsiOriginal original;
+            string token;
+            try
+            {
+                (original, token) = await Task.Run(() => worker.Checkpoint<LabMsiOriginal>(wmi, captured =>
+                {
+                    LabPowerRecovery.Record(_machine, plan.Record!.Id, changes => changes with
+                    {
+                        AcLine = _pinnedAcLine,
+                        MsiPower = captured.Power ?? changes.MsiPower,
+                        MsiChargeRaw = captured.ChargeRaw ?? changes.MsiChargeRaw
+                    });
+                    WriteEvidenceOnce(project, attempt, $"original-msi-{passLabel}", new { _pinnedAcLine, State = captured });
+                }));
+            }
+            catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
+            {
+                page.Children.Add(Warning($"The current settings could not be recorded, so nothing was changed: {ex.Message}"));
+                return;
+            }
+
+            var restored = true;
             if (layout.HasTdp)
             {
-                await RunMsiTdpAsync(project, attempt, page, plan, wmi, tests, telemetry, passLabel);
+                if (original.Power is { } power)
+                {
+                    restored &= await RunMsiTdpAsync(page, plan, wmi, power, tests, telemetry, passLabel);
+                }
+                else
+                {
+                    page.Children.Add(Status(
+                        $"The current power limits could not be read, so the test was skipped: {original.PowerUnavailable}"));
+                }
             }
 
             if (layout.Charge is not null)
             {
-                await RunMsiChargeAsync(page, plan, wmi, tests);
+                restored &= await RunMsiChargeAsync(page, wmi, original, tests);
+            }
+
+            if (restored)
+            {
+                await ReleaseQuietlyAsync(worker, wmi, token);
             }
         }
     }
 
-    private async Task RunMsiTdpAsync(LabProject project, string attempt, StackPanel page, LabPowerPlan plan,
-        LabMsiWmi wmi, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
+    // The TDP test from the checkpoint's original; returns whether the limits were put back.
+    private async Task<bool> RunMsiTdpAsync(StackPanel page, LabPowerPlan plan, ILabMsiWmi wmi, LabMsiState original,
+        List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
-        LabMsiState original;
-        try
-        {
-            original = await Task.Run(wmi.StablePower);
-        }
-        catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
-        {
-            page.Children.Add(Status($"The current power limits could not be read, so the test was skipped: {ex.Message}"));
-            return;
-        }
-
-        await Task.Run(() =>
-        {
-            LabPowerRecovery.Record(_machine, plan.Record!.Id,
-                changes => changes with { AcLine = _pinnedAcLine, MsiPower = original });
-            WriteEvidenceOnce(project, attempt, $"original-msi-{passLabel}", new { _pinnedAcLine, State = original });
-        });
-
         var failed = false;
         foreach (var watts in LabPowerPlan.TestWattsList(plan.Msi!.MinimumWatts, plan.Msi.MaximumWatts))
         {
@@ -698,7 +764,7 @@ internal sealed partial class WizardWindow
                         readback.Sustained == watts && readback.Boost == watts);
                 });
                 var loaded = await LabPowerLoad.RunAsync(LoadTest, SampleInterval,
-                    label => LabPowerTelemetry.Read($"tdp-{watts}w-{passLabel}-{label}", FanReader(plan)), null, Lifetime);
+                    label => ReadTelemetry($"tdp-{watts}w-{passLabel}-{label}", plan), null, Lifetime);
                 telemetry.AddRange(loaded);
                 tests.Add(new LabPowerTestResult
                 {
@@ -733,9 +799,10 @@ internal sealed partial class WizardWindow
         }
 
         page.Children.Add(RestoreLine(!failed, restored, "power limit"));
+        return restored;
     }
 
-    private async Task<bool> RestoreMsiPowerAsync(LabMsiWmi wmi, LabMsiState original)
+    private async Task<bool> RestoreMsiPowerAsync(ILabMsiWmi wmi, LabMsiState original)
     {
         var restored = await Task.Run(() => wmi.RestorePower(original));
         if (restored)
@@ -749,37 +816,35 @@ internal sealed partial class WizardWindow
         return restored;
     }
 
-    private async Task RunMsiChargeAsync(StackPanel page, LabPowerPlan plan, LabMsiWmi wmi,
+    // The charge limit test. The original was recorded by the checkpoint; returns whether nothing is left
+    // changed.
+    private async Task<bool> RunMsiChargeAsync(StackPanel page, ILabMsiWmi wmi, LabMsiOriginal checkpoint,
         List<LabPowerTestResult> tests)
     {
-        int originalRaw;
-        try
+        if (checkpoint.ChargeRaw is not { } originalRaw)
         {
-            originalRaw = await Task.Run(wmi.ReadChargeRaw);
-        }
-        catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
-        {
-            page.Children.Add(Muted($"The charge limit could not be read, so it was not tested: {ex.Message}"));
-            return;
+            page.Children.Add(Muted($"The charge limit could not be read, so it was not tested: {checkpoint.ChargeUnavailable}"));
+            return true;
         }
 
         var currentPercent = originalRaw & LabMsiWmi.ChargePercentMask;
         var target = LabPowerPlan.TestChargeLimit(currentPercent);
         if (!await PowerUnchangedAsync(page, tests, "charge-limit", "wmi-method"))
         {
-            return;
+            // Nothing was written, so the recorded original is no longer needed.
+            await ForgetRecordedAsync(changes => changes with { MsiChargeRaw = null });
+            return true;
         }
 
-        await Task.Run(() => LabPowerRecovery.Record(_machine, plan.Record!.Id,
-            changes => changes with { MsiChargeRaw = originalRaw }));
         page.Children.Add(Status($"Setting the charge limit to {target}%, then putting it back..."));
+        bool restored;
         try
         {
             await Task.Run(() => wmi.WriteChargeRaw(LabMsiWmi.EncodeCharge(originalRaw, target)));
             await Task.Delay(150, Lifetime);
             var readbackRaw = await Task.Run(wmi.ReadChargeRaw);
             var matched = (readbackRaw & LabMsiWmi.ChargePercentMask) == target;
-            var restored = await RestoreMsiChargeAsync(wmi, originalRaw);
+            restored = await RestoreMsiChargeAsync(wmi, originalRaw);
             tests.Add(new LabPowerTestResult
             {
                 Feature = "charge-limit",
@@ -795,13 +860,15 @@ internal sealed partial class WizardWindow
         }
         catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
         {
-            var restored = await RestoreMsiChargeAsync(wmi, originalRaw);
+            restored = await RestoreMsiChargeAsync(wmi, originalRaw);
             tests.Add(Failed("charge-limit", "wmi-method", ex.Message) with { Restored = restored });
             page.Children.Add(Warning($"The charge limit test stopped: {ex.Message}"));
         }
+
+        return restored;
     }
 
-    private async Task<bool> RestoreMsiChargeAsync(LabMsiWmi wmi, int originalRaw)
+    private async Task<bool> RestoreMsiChargeAsync(ILabMsiWmi wmi, int originalRaw)
     {
         var restored = await Task.Run(() =>
         {
@@ -926,9 +993,15 @@ internal sealed partial class WizardWindow
             return false;
         }
 
-        var aura = await Task.Run(() => LabAuraLighting.Open(plan.Aura!, log));
-        if (aura is null)
+        var worker = await WorkerAsync();
+        ILabAura aura;
+        try
         {
+            aura = await Task.Run(() => worker.Open<ILabAura>(LabAuraLighting.Service.Name, log, plan.Aura!));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or Win32Exception)
+        {
+            log.Add("aura-open-failed", ex.Message);
             page.Children.Add(Muted("The device's own lighting interface was not found, so it was not tested."));
             return false;
         }
@@ -951,8 +1024,24 @@ internal sealed partial class WizardWindow
                 return false;
             }
 
-            await Task.Run(() => LabPowerRecovery.Record(_machine, plan.Record.Id,
-                changes => changes with { AuraWrittenAt = DateTimeOffset.UtcNow }));
+            // The checkpoint: the lights cannot be read, so it only records that the lab is about to write
+            // them; the tester restores their colour. It is never released, because nothing can verify a
+            // restore, and it ends when the session closes.
+            try
+            {
+                await Task.Run(() => worker.Checkpoint<LabAuraOriginal>(aura, captured =>
+                {
+                    LabPowerRecovery.Record(_machine, plan.Record.Id,
+                        changes => changes with { AuraWrittenAt = DateTimeOffset.UtcNow });
+                    log.Add("aura-checkpoint", captured);
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException)
+            {
+                page.Children.Add(Warning($"The lighting test did not start: {ex.Message}"));
+                return true;
+            }
+
             string[] zones = ["both rings", "left ring outer half", "left ring inner half", "right ring inner half", "right ring outer half"];
             string[] colours = ["red", "green", "blue"];
             var stopped = false;
@@ -1025,7 +1114,8 @@ internal sealed partial class WizardWindow
             return;
         }
 
-        var outcome = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, new LabPowerLog()));
+        var worker = await WorkerAsync();
+        var outcome = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, worker, new LabPowerLog()));
         if (outcome.Restored)
         {
             return;
@@ -1040,7 +1130,7 @@ internal sealed partial class WizardWindow
         retry.Click += (_, _) => Run(page, async () =>
         {
             retry.IsEnabled = false;
-            var again = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, new LabPowerLog()));
+            var again = await Task.Run(() => LabPowerRecovery.RestorePower(_machine, worker, new LabPowerLog()));
             page.Children.Add(again.Restored
                 ? Status("The settings were put back.")
                 : Warning(again.Message));
@@ -1056,6 +1146,9 @@ internal sealed partial class WizardWindow
 
     // The curated record the stage's device writes belong to; its identity is rechecked before each write.
     private Knowledge.DeviceKnowledgeRecord? _powerRecord;
+
+    // The power stage's LibreHardwareMonitor session; open only while the stage runs.
+    private LabLhmSensors? _powerSensors;
 
     // Called immediately before every device write: the charger state is unchanged and the machine is
     // still the confirmed device with the BIOS, EC and vendor endpoints captured at the start.
@@ -1126,6 +1219,15 @@ internal sealed partial class WizardWindow
         }
 
         return (matched, samples);
+    }
+
+    // Clears a recorded original that no write followed.
+    private Task ForgetRecordedAsync(Func<LabPowerChanges, LabPowerChanges> clear)
+    {
+        return Task.Run(() => _machine.Update(changes => changes with
+        {
+            Power = changes.Power is null ? null : clear(changes.Power)
+        }));
     }
 
     private static void WriteContext(LabProject project, string attempt, string name, LabPowerContext context)

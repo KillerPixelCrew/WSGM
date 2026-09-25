@@ -6,6 +6,8 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -15,6 +17,7 @@ namespace WSGM.DeviceLab.Gui;
 internal sealed partial class WizardWindow
 {
     private LabInputCapture? _capture;
+    private LabWorkerClient? _worker;
 
     // Hardware stages refuse to start without the owner reservation preflight takes, so WSGM's device
     // integration can never drive the same hardware at the same time.
@@ -35,6 +38,15 @@ internal sealed partial class WizardWindow
     private async Task<LabInputCapture> CaptureAsync()
     {
         return _capture ??= await Task.Run(LabInputCapture.Start);
+    }
+
+    /// <summary>
+    ///     The elevated hardware worker, started on first use and stopped when the window closes. Every
+    ///     hardware write goes through it, behind its checkpoint handshake.
+    /// </summary>
+    private async Task<LabWorkerClient> WorkerAsync()
+    {
+        return _worker ??= await Task.Run(LabWorkerClient.Start);
     }
 
     /// <summary>The knowledge record the tester confirmed, if any.</summary>

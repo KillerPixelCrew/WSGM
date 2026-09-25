@@ -153,11 +153,17 @@ merged; everything after them landed in one change on master at the maintainer's
       to its wizard home by an audit before deletion.
 - [ ] Attended run on the Claw by the maintainer, and on the Xbox Ally X by the remote tester.
 - [ ] Test suites and the full gate, after the manual runs (written, not run).
-- Deviation from the plan, with reason: hardware writes run in the elevated wizard process, not in a
-  separate worker. Every change is recorded in `LabMachineState` before it is made and undone at
-  the next start, so killing the wizard during a write is the same recovery case the worker was
-  meant to give. Motion, rumble and init commands are sent only for curated records; other devices
-  get read-only capture, as the plan's knowledge-base rule says.
+- [x] Hardware worker: power, fan, charge, lighting and processor writes run in an elevated
+      `__lab-worker` process in a kill-on-close job, behind AllyXLab's checkpoint handshake (the
+      worker captures the original, the wizard records it, writes are refused until it is
+      acknowledged within five seconds). Transports live in `Transports/`, live capture in
+      `Capture/Live/`.
+- [x] `KnownMsiClaw` replaced by the knowledge base; LibreHardwareMonitor fan RPM and temperatures
+      in every power sample; opt-in HC mode and IMU-enable commands for non-curated devices.
+- [ ] Rumble output and the curated controller init still run in the wizard process, not through
+      the worker's streaming message.
+- Motion and init commands for non-curated devices are opt-in only; curated devices use their
+  record.
 
 ## Overlay glass library (2026-09-24, issue 183)
 

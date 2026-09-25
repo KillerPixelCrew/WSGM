@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json.Serialization;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>Motor strengths for one write, each 0 to 100 percent.</summary>
 /// <param name="Left">Left (low-frequency, strong) motor channel.</param>

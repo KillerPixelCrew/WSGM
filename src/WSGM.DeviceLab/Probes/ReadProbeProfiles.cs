@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Management;
 using System.Text;
 using System.Threading;
@@ -58,9 +59,137 @@ internal static class BuiltInReadProbeRegistry
             [(MsiChargeLimitProbe.ProbeId, 1)] = new MsiChargeLimitProbe()
         };
 
+    /// <summary>Every compiled probe family, each tied to the curated knowledge record it serves.</summary>
+    public static IReadOnlyList<CompiledReadProbeFamily> Families { get; } = [MsiClawReadProbes.Family];
+
     public static bool TryResolve(string id, int version, out IReadProbeProfile profile)
     {
         return Profiles.TryGetValue((id, version), out profile!);
+    }
+
+    /// <summary>Returns the compiled family whose probes carry this family ID.</summary>
+    /// <param name="familyId">Probe family ID.</param>
+    /// <returns>The family, or null when none is compiled in.</returns>
+    public static CompiledReadProbeFamily? FindFamily(string familyId)
+    {
+        return Families.FirstOrDefault(family => string.Equals(family.FamilyId, familyId, StringComparison.Ordinal));
+    }
+}
+
+/// <summary>
+///     The compiled read probes for one curated knowledge record, and the exact-gate facts the
+///     record's schema does not carry.
+/// </summary>
+/// <remarks>
+///     Identity rules, controller USB IDs and the WMI provider come from the knowledge record. This
+///     type holds only what belongs to the compiled probes themselves.
+/// </remarks>
+internal sealed record CompiledReadProbeFamily
+{
+    /// <summary>Probe family ID, as every probe's <see cref="ReadProbeMetadata.FamilyId" /> names it.</summary>
+    public required string FamilyId { get; init; }
+
+    /// <summary>Curated knowledge record whose identity gates these probes.</summary>
+    public required string KnowledgeRecordId { get; init; }
+
+    /// <summary>Logical device ID a caller names to select this family.</summary>
+    public required string DeviceId { get; init; }
+
+    /// <summary>
+    ///     USB release of the reference unit's controller; reported next to the observed one, never
+    ///     required, because the vendor updates controller firmware in the field.
+    /// </summary>
+    public required string ReferenceUsbDeviceRelease { get; init; }
+
+    /// <summary>Reviewed read-only probes compiled into Device Lab.</summary>
+    public IReadOnlyList<ReadProbeMetadata> Probes { get; init; } = [];
+
+    /// <summary>Device-specific facts that a new plugin must re-establish.</summary>
+    public IReadOnlyList<string> NonInheritableValues { get; init; } = [];
+}
+
+// Provenance: the logical ID ms-1t52 is the definition ID the Claw plugin returns for board MS-1T52
+// (src/WSGM.Device.Msi.Claw8A2Vm, docs/device-plugin-system.md); release 0229 is the controller
+// bcdDevice of the maintainer's MS-1T52 reference unit. The probe endpoints, response shapes and
+// bounds are the reviewed getters below.
+internal static class MsiClawReadProbes
+{
+    public const string FamilyId = "msi.claw-a2vm.ms-1t52";
+
+    public static CompiledReadProbeFamily Family { get; } = new()
+    {
+        FamilyId = FamilyId,
+        KnowledgeRecordId = "wsgm.claw-8-a2vm",
+        DeviceId = "ms-1t52",
+        ReferenceUsbDeviceRelease = "0229",
+        Probes =
+        [
+            Probe(MsiWmiVersionProbe.ProbeId, ReadProbeFamily.Version,
+                "root/WMI:MSI_ACPI.Get_WMI", "vendor-wmi", ReadProbeValueKind.Version, 4, 4,
+                0, 255),
+            Probe(MsiEmbeddedControllerVersionProbe.ProbeId, ReadProbeFamily.EmbeddedController,
+                "root/WMI:MSI_ACPI.Get_EC", "vendor-wmi", ReadProbeValueKind.Bytes, 32, 32),
+            Probe(MsiScenarioStatusProbe.ProbeId, ReadProbeFamily.WmiStatus,
+                "root/WMI:MSI_ACPI.Get_Data:0xd2", "power-policy", ReadProbeValueKind.Integer, 2, 2,
+                0, 255),
+            Probe(MsiFanRpmProbe.ProbeId, ReadProbeFamily.FanRpm,
+                "root/WMI:MSI_ACPI.Get_Fan:0", "fan-control", ReadProbeValueKind.Text, 5, 5,
+                stable: false, crossCheck: ReadProbeCrossCheckKind.Present),
+            Probe(MsiChargeLimitProbe.ProbeId, ReadProbeFamily.ChargeState,
+                "root/WMI:MSI_ACPI.Get_Data:0xd7", "charge-policy", ReadProbeValueKind.Integer, 2, 2,
+                0, 100)
+        ],
+        NonInheritableValues =
+        [
+            "WMI addresses and response offsets",
+            "power limits and scenario policy",
+            "fan table width, conversion, and safe minimum duty",
+            "controller profile-memory offsets and mode topology",
+            "RGB zone order and persistence"
+        ]
+    };
+
+    private static ReadProbeMetadata Probe(
+        string id,
+        ReadProbeFamily family,
+        string endpoint,
+        string resource,
+        ReadProbeValueKind kind,
+        int minimumLength,
+        int maximumLength,
+        long? minimum = null,
+        long? maximum = null,
+        bool stable = true,
+        ReadProbeCrossCheckKind crossCheck = ReadProbeCrossCheckKind.Equal)
+    {
+        return new ReadProbeMetadata
+        {
+            Id = id,
+            Version = 1,
+            FamilyId = FamilyId,
+            EndpointId = endpoint,
+            ResourceId = resource,
+            Family = family,
+            MaximumReadsPerSecond = 2,
+            TimeoutMilliseconds = 5_000,
+            Repetitions = 2,
+            ExpectedResponse = new ReadProbeResponseExpectation
+            {
+                ValueKind = kind,
+                MinimumLength = minimumLength,
+                MaximumLength = maximumLength,
+                AllowedStatusCodes = [1],
+                MinimumValue = minimum,
+                MaximumValue = maximum,
+                MustBeStable = stable
+            },
+            CrossCheck = new ReadProbeCrossCheck
+            {
+                Id = $"{id}.repeat-read",
+                Kind = crossCheck
+            },
+            RequiresElevation = true
+        };
     }
 }
 
@@ -154,7 +283,7 @@ internal abstract class MsiWmiReadProbeProfile(
     public CompiledReadProbeDescriptor Descriptor { get; } = new(
         id,
         1,
-        "msi.claw-a2vm.ms-1t52",
+        MsiClawReadProbes.FamilyId,
         endpoint,
         family,
         2,

@@ -1,4 +1,5 @@
 using WSGM.Device.Tests;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
@@ -42,7 +43,8 @@ public sealed class LabPowerRecoveryTests
         using TemporaryDirectory temporary = new();
         var machine = new LabMachineState(Path.Combine(temporary.Root, "machine.json"));
 
-        Assert.Null(LabPowerRecovery.RestoreRecorded(machine));
+        // Nothing recorded: the worker is never reached, so none is started.
+        Assert.Null(LabPowerRecovery.RestoreRecorded(machine, null!));
     }
 
     [Fact]

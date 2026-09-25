@@ -1,4 +1,4 @@
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>Readable names for Windows virtual-key codes, matching the names knowledge records use.</summary>
 internal static class LabKeyNames

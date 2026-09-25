@@ -5,7 +5,9 @@ using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
+using LibreHardwareMonitor.PawnIo;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab.Transports;
 
@@ -30,6 +32,36 @@ internal sealed record LabIntelLimits(int MchbarPl1, int MchbarPl2, ulong Msr610
 }
 
 /// <summary>
+///     The Intel KX service the wizard calls through the hardware worker (<c>intel-kx</c>, opened with the
+///     power unit in watts, or null to read it from MSR 0x606). Writes are refused until the worker's
+///     checkpoint is acknowledged.
+/// </summary>
+internal interface ILabIntelKx : IDisposable
+{
+    /// <summary>Reads the MCHBAR mirror and MSR 0x610; also the checkpoint snapshot.</summary>
+    /// <returns>The limits.</returns>
+    [LabWorkerSnapshot]
+    LabIntelLimits Read();
+
+    /// <summary>Writes PL1 in both places, keeping every other bit.</summary>
+    /// <param name="original">State read just before.</param>
+    /// <param name="watts">New PL1.</param>
+    /// <returns>Null when both writes reported success; otherwise what failed.</returns>
+    [LabWorkerWrite]
+    string? WritePl1(LabIntelLimits original, double watts);
+
+    /// <summary>Puts back the exact original MCHBAR PL1 and MSR 0x610 values.</summary>
+    /// <param name="original">State read before the test.</param>
+    /// <returns>Null when both writes reported success; otherwise what failed.</returns>
+    [LabWorkerWrite]
+    string? Restore(LabIntelLimits original);
+
+    /// <summary>Every KX command run so far and its output, for the evidence.</summary>
+    /// <returns>The commands, oldest first.</returns>
+    IReadOnlyList<string> CommandLog();
+}
+
+/// <summary>
 ///     Intel package power limits through the pinned KX.exe, for an Intel machine with no curated record.
 /// </summary>
 /// <remarks>
@@ -38,10 +70,15 @@ internal sealed record LabIntelLimits(int MchbarPl1, int MchbarPl2, ulong Msr610
 ///     <c>+0x59A4</c>, and MSR 0x610. Unlike HC, which writes MSR 0x610 with fixed enable and time-window
 ///     bits, every write here is read-modify-write of the PL1 field only, so the time window, clamp and
 ///     lock bits stay as they were, and a locked MSR is never written. Each call runs the digest-checked
-///     copy from an administrators-only folder with a deadline.
+///     copy from an administrators-only folder with a deadline. It runs only inside the hardware worker,
+///     behind <see cref="ILabIntelKx" />.
 /// </remarks>
-internal sealed class LabIntelKx : IDisposable
+internal sealed class LabIntelKx : ILabIntelKx
 {
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("intel-kx", typeof(ILabIntelKx),
+        (args, _) => Open(args.Count > 0 ? LabWorkerService.Arg<double?>(args, 0) : null));
+
     private static readonly string[] MchbarCandidates = ["0xFEDC0000", "0xFED10000"];
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
 
@@ -49,11 +86,14 @@ internal sealed class LabIntelKx : IDisposable
     private readonly FileStream _held;
     private readonly string _kx;
 
-    private LabIntelKx(string directory, string kx, FileStream held)
+    private readonly double _powerUnitWatts;
+
+    private LabIntelKx(string directory, string kx, FileStream held, double powerUnitWatts)
     {
         _directory = directory;
         _kx = kx;
         _held = held;
+        _powerUnitWatts = powerUnitWatts;
     }
 
     /// <summary>The MCHBAR base in use, as KX writes it, for example <c>0xFEDC</c>.</summary>
@@ -76,10 +116,18 @@ internal sealed class LabIntelKx : IDisposable
         }
     }
 
-    /// <summary>Extracts and checks KX.exe, then finds the MCHBAR.</summary>
-    /// <returns>The open transport.</returns>
-    public static LabIntelKx Open()
+    /// <inheritdoc />
+    public IReadOnlyList<string> CommandLog()
     {
+        return [.. Log];
+    }
+
+    /// <summary>Extracts and checks KX.exe, then finds the MCHBAR.</summary>
+    /// <param name="powerUnitWatts">Watts per power unit, or null to read MSR 0x606 through PawnIO.</param>
+    /// <returns>The open transport.</returns>
+    public static LabIntelKx Open(double? powerUnitWatts)
+    {
+        var unit = powerUnitWatts ?? PowerUnitWatts();
         var directory = PawnIoSetup.CreateAdministratorsOnlyDirectory("kx");
         var path = Path.Combine(directory, "KX.exe");
         using (var resource = typeof(LabIntelKx).Assembly.GetManifestResourceStream("WSGM.DeviceLab.KX.exe")
@@ -98,7 +146,7 @@ internal sealed class LabIntelKx : IDisposable
             throw new InvalidOperationException($"The bundled KX.exe does not match its pin ({digest}).");
         }
 
-        LabIntelKx kx = new(directory, path, held);
+        LabIntelKx kx = new(directory, path, held, unit);
         foreach (var candidate in MchbarCandidates)
         {
             if (kx.Return("/rdmem32", candidate) is { } value && value != uint.MaxValue)
@@ -112,15 +160,14 @@ internal sealed class LabIntelKx : IDisposable
     }
 
     /// <summary>Reads the MCHBAR mirror and MSR 0x610.</summary>
-    /// <param name="powerUnitWatts">Watts per power unit from MSR 0x606 (PawnIO read), usually 0.125.</param>
-    /// <returns>The limits.</returns>
-    public LabIntelLimits Read(double powerUnitWatts)
+    /// <returns>The limits, with the power unit the transport was opened with.</returns>
+    public LabIntelLimits Read()
     {
         var prefix = MchbarPrefix ?? throw new InvalidOperationException("The MCHBAR could not be found.");
         var pl1 = Return("/rdmem16", prefix + "59A0") ?? throw new InvalidOperationException("MCHBAR PL1 could not be read.");
         var pl2 = Return("/rdmem16", prefix + "59A4") ?? throw new InvalidOperationException("MCHBAR PL2 could not be read.");
         var msr = ReadMsr(0x610) ?? throw new InvalidOperationException("MSR 0x610 could not be read.");
-        return new LabIntelLimits((int)pl1, (int)pl2, msr, powerUnitWatts);
+        return new LabIntelLimits((int)pl1, (int)pl2, msr, _powerUnitWatts);
     }
 
     /// <summary>Writes PL1 in both places, keeping every other bit. Never retried; the caller reads back.</summary>
@@ -236,6 +283,22 @@ internal sealed class LabIntelKx : IDisposable
         List<string> lines = [.. output.Result.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)];
         Log.Add($"{string.Join(' ', arguments)} -> exit {process.ExitCode}: {string.Join(" | ", lines)}");
         return lines;
+    }
+
+    // MSR 0x606 bits 0-3: power unit is 1 / 2^n watts (usually n = 3, an eighth of a watt).
+    private static double PowerUnitWatts()
+    {
+        var msr = new IntelMsr();
+        try
+        {
+            return msr.ReadMsr(0x606, out ulong value)
+                ? 1.0 / (1 << (int)(value & 0xF))
+                : throw new InvalidOperationException("MSR 0x606 could not be read through PawnIO.");
+        }
+        finally
+        {
+            msr.Close();
+        }
     }
 
     private static string PinnedDigest()

@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -56,8 +57,11 @@ internal sealed partial class WizardWindow
             }
         }
 
+        // 1b. Without a curated record, HC's own mode commands for this device, only if the tester opts in.
+        ModeCommandRun modes = new(project, attempt, "Buttons");
         try
         {
+            await OfferModeCommandsAsync(modes, page, record, LabModeStages.Buttons);
             // 2. Baseline: bytes that change on their own (motion sensors, counters) are learned as noise
             //    so they are not mistaken for a press. They are still recorded.
             page.Children.Clear();
@@ -141,11 +145,13 @@ internal sealed partial class WizardWindow
 
             // 4. Summary, with a redo for any single control.
             await ButtonSummaryAsync(project, page, capture, record, controls);
+            await EndModeCommandsAsync(modes, page, false);
         }
         finally
         {
             capture.SwallowShortcuts = false;
             capture.Detailed = false;
+            await EndModeCommandsAsync(modes, page, true);
         }
 
         // 5. Put the controller back the way it was.

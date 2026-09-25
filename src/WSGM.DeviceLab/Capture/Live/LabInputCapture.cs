@@ -6,8 +6,9 @@ using System.Management;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Windows.Gaming.Input;
+using WSGM.DeviceLab.Wizard;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>One input device the capture has seen.</summary>
 /// <param name="Id">Short ID used by events, for example <c>hid3</c>.</param>

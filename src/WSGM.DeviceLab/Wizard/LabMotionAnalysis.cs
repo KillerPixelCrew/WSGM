@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Wizard;
 

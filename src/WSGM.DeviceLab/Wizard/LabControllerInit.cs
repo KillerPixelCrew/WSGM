@@ -9,6 +9,7 @@ using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -149,10 +150,23 @@ internal static class LabControllerInit
         return new LabInitResult(true, reports, before, ProductIds(vendor), null);
     }
 
+    /// <summary>
+    ///     Undoes everything a controller init left recorded: a switched controller mode and any opt-in mode
+    ///     command from <see cref="LabModeCommands" />. Blocking; call off the UI thread.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels waiting for re-enumeration.</param>
+    /// <returns>Null when there was nothing to restore or every restore succeeded; otherwise the problems.</returns>
+    public static string? RecoverPending(CancellationToken cancellationToken)
+    {
+        var commands = LabModeCommands.HasPending ? LabModeCommands.RecoverPending() : null;
+        var mode = RecoverControllerMode(cancellationToken);
+        return commands is null ? mode : mode is null ? commands : $"{mode} {commands}";
+    }
+
     /// <summary>Puts the controller mode back. Blocking; call off the UI thread.</summary>
     /// <param name="cancellationToken">Cancels waiting for re-enumeration.</param>
     /// <returns>Null when there was nothing to restore or the restore was verified; otherwise the problem.</returns>
-    public static string? RecoverPending(CancellationToken cancellationToken)
+    public static string? RecoverControllerMode(CancellationToken cancellationToken)
     {
         LabPendingControllerMode? pending;
         try
@@ -210,8 +224,11 @@ internal static class LabControllerInit
             : null;
     }
 
+    /// <summary>Whether a controller mode change or an opt-in mode command is waiting to be undone.</summary>
+    public static bool HasPending => HasControllerModePending || LabModeCommands.HasPending;
+
     /// <summary>Whether a controller mode change is waiting to be undone.</summary>
-    public static bool HasPending => File.Exists(StatePath);
+    public static bool HasControllerModePending => File.Exists(StatePath);
 
     private static LabInitResult SwitchMode(
         IReadOnlyDictionary<string, string> parameters,
@@ -220,13 +237,15 @@ internal static class LabControllerInit
         IReadOnlyList<string> before,
         CancellationToken cancellationToken)
     {
+        // Several product IDs can share a mode (the Legion Go's 2023 and 2025 firmware); the one present is used.
         var current = CurrentMode(parameters, before);
-        var endpointSpec = Endpoints(parameters).FirstOrDefault(item => Mode(parameters, item.Product) == current);
-        var endpoint = endpointSpec.Product is null
-            ? null
-            : LabRumbleNative.HidEndpoints(vendor).FirstOrDefault(item =>
-                item.ProductId.ToString("X4") == endpointSpec.Product && item.UsagePage == endpointSpec.Page
-                                                                     && item.Usage == endpointSpec.Usage);
+        var present = LabRumbleNative.HidEndpoints(vendor);
+        var endpoint = Endpoints(parameters)
+            .Where(item => Mode(parameters, item.Product) == current)
+            .Select(spec => present.FirstOrDefault(item =>
+                item.ProductId.ToString("X4") == spec.Product && item.UsagePage == spec.Page
+                                                              && item.Usage == spec.Usage))
+            .FirstOrDefault(item => item is not null);
         if (endpoint is null)
         {
             return new LabInitResult(false, [], before, before, "The controller's command collection is not present.");

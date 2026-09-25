@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab.Transports;
 
@@ -9,6 +10,35 @@ namespace WSGM.DeviceLab.Transports;
 /// <param name="Fast">Fast PPT limit.</param>
 /// <param name="Slow">Slow PPT limit.</param>
 internal sealed record LabAmdLimits(double Stapm, double Fast, double Slow);
+
+/// <summary>Which SMU the module found.</summary>
+/// <param name="CodeName">The module's codename number.</param>
+/// <param name="CodeNameText">The codename as text.</param>
+/// <param name="SmuVersion">SMU firmware version.</param>
+/// <param name="Supported">Whether the codename has known power-limit commands.</param>
+internal sealed record LabAmdIdentity(uint CodeName, string CodeNameText, uint SmuVersion, bool Supported);
+
+/// <summary>
+///     The AMD SMU service the wizard calls through the hardware worker (<c>amd-smu</c>). Writes are
+///     refused until the worker's checkpoint is acknowledged.
+/// </summary>
+internal interface ILabAmdSmu : IDisposable
+{
+    /// <summary>The codename and SMU version.</summary>
+    /// <returns>The identity.</returns>
+    LabAmdIdentity Identity();
+
+    /// <summary>Reads the limits the SMU is enforcing; also the checkpoint snapshot.</summary>
+    /// <returns>The limits.</returns>
+    [LabWorkerSnapshot]
+    LabAmdLimits ReadLimits();
+
+    /// <summary>Writes all three limits once each.</summary>
+    /// <param name="limits">Limits in watts.</param>
+    /// <returns>Each command's first response word.</returns>
+    [LabWorkerWrite]
+    IReadOnlyList<long> WriteLimits(LabAmdLimits limits);
+}
 
 /// <summary>
 ///     The AMD SMU power limits through PawnIO's pinned RyzenSMU module, for a mobile Ryzen that has no
@@ -21,10 +51,14 @@ internal sealed record LabAmdLimits(double Stapm, double Fast, double Slow);
 ///     Raven and Dali. The module picks the mailbox for the codename. Limits are read back from the PM
 ///     table (float 0 STAPM, 2 fast, 4 slow, as ryzenadj reads them), never by sending a set command
 ///     with 0, which is how HC "reads" them and which writes a zero limit. Desktop parts are refused:
-///     their IDs and limits differ, and they are not handhelds.
+///     their IDs and limits differ, and they are not handhelds. It runs only inside the hardware worker,
+///     behind <see cref="ILabAmdSmu" />.
 /// </remarks>
-internal sealed class LabAmdSmu : IDisposable
+internal sealed class LabAmdSmu : ILabAmdSmu
 {
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("amd-smu", typeof(ILabAmdSmu), (_, _) => Open());
+
     /// <summary>Lowest limit the test ever writes.</summary>
     public const double MinimumTestWatts = 5;
 
@@ -62,6 +96,12 @@ internal sealed class LabAmdSmu : IDisposable
     public void Dispose()
     {
         _module.Dispose();
+    }
+
+    /// <inheritdoc />
+    public LabAmdIdentity Identity()
+    {
+        return new LabAmdIdentity(CodeName, CodeNameText, SmuVersion, Commands is not null);
     }
 
     /// <summary>The set-command IDs HC uses for a codename; null for anything that is not a mobile APU.</summary>

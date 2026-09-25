@@ -5,9 +5,9 @@ using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.Interop;
-using static WSGM.DeviceLab.Wizard.LabSensorInterop;
+using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 // The CH340 serial IMU some handhelds carry (HC Sensors/SerialUSBIMU.cs): 115200 8N1 with RTS on,
 // 23-byte frames. The lab only reads. HC writes a register command when frames look wrong and has an

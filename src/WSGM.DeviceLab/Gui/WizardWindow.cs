@@ -139,7 +139,8 @@ internal sealed partial class WizardWindow : Window
 
             // Undo what a killed session left applied: power settings and a switched controller mode.
             List<string> recovered = [];
-            if (_options.Elevated && await Task.Run(() => LabPowerRecovery.RestoreRecorded(_machine)) is { } power)
+            if (_options.Elevated && await WorkerAsync() is var worker
+                                  && await Task.Run(() => LabPowerRecovery.RestoreRecorded(_machine, worker)) is { } power)
             {
                 recovered.Add(power.Message);
             }
@@ -968,6 +969,8 @@ internal sealed partial class WizardWindow : Window
 
         _capture?.Dispose();
         _capture = null;
+        _worker?.Dispose();
+        _worker = null;
         _owner?.Dispose();
         _closeReady = true;
         Close();

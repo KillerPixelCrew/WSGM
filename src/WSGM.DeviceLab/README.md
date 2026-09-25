@@ -27,8 +27,10 @@ someone who is not a developer. It asks for administrator rights once, then:
    with every field, the 256 EC registers, the AMD SMU or Intel power-limit registers, display,
    battery and power settings.
 4. **Buttons.** Runs a known device's controller init first (the Claw mode switch is switched back
-   afterwards; the Ally button tables only on the tester's choice), learns what changes by itself,
-   then asks for each control of the Xbox layout, the device's own buttons, back buttons,
+   afterwards; the Ally button tables only on the tester's choice), or, for a device without a
+   curated record, offers Handheld Companion's own mode commands one by one, each only if the tester
+   chooses to try it (the motion stage does the same for gyro enables). It then learns what changes
+   by itself, then asks for each control of the Xbox layout, the device's own buttons, back buttons,
    touchpads, stick touch, volume and power, holds and rear-button chords. Every input from every
    device is recorded (Raw Input on every usage page, keyboard and mouse hooks, XInput with the
    Guide button, Windows.Gaming.Input, WMI and power events) and attributed afterwards. Windows-key
@@ -41,7 +43,9 @@ someone who is not a developer. It asks for administrator rights once, then:
    curated record gives it), checks which motor is on which side, then live sliders to mark the
    weakest rumble felt and a pulse page for the shortest pulse. Motors are zeroed after every pulse
    and on every exit.
-7. **Power, fans and lighting.** Telemetry on charger and on battery, with and without load. For a
+7. **Power, fans and lighting.** Telemetry on charger and on battery, with and without load, with
+   fan RPM and temperatures from LibreHardwareMonitor on every device (read only; its controller
+   and PSU groups stay off because their discovery writes to USB and serial devices). For a
    curated device it tests TDP, the power profile, fan curves and the charge limit through the
    device's own interface, each read back and put back. For other AMD and Intel machines it tests
    the processor power limit through PawnIO's RyzenSMU module or KX, and never writes the EC.
@@ -122,6 +126,12 @@ identifying ones.
 `candidates` compares the inventory against the knowledge base compiled into Device Lab and lists
 every record whose identity rules match, with the fields that matched. A tester confirms the match;
 Device Lab never assumes it.
+
+The compiled read probes (`probe-read`) belong to a curated record. They are offered only when that
+record's exact identity rule, its controller USB IDs and its WMI provider all match the inventory,
+and `candidates` explains each of those comparisons. The probes themselves, and the few facts the
+record schema does not hold (the logical device ID, the reference controller release), live in
+`Probes/ReadProbeProfiles.cs`.
 
 The records live in `Knowledge/Devices` and come in two kinds:
 

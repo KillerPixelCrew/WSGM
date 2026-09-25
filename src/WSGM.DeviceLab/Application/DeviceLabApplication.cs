@@ -25,7 +25,7 @@ internal sealed record DeviceLabCandidateResult
     /// <summary>Exact logical device ID used for device-scoped matching.</summary>
     public required string TargetDeviceId { get; init; }
 
-    /// <summary>The known device comparison, including every exact mismatch.</summary>
+    /// <summary>One exact comparison per compiled probe family, including every mismatch.</summary>
     public IReadOnlyList<CandidateAssessment> Candidates { get; init; } = [];
 
     /// <summary>Reviewed read-only probes available only after an exact known-device match.</summary>
@@ -104,7 +104,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             cancellationToken);
     }
 
-    /// <summary>Compares the known MS-1T52 fingerprint and lists its reviewed probes without opening hardware.</summary>
+    /// <summary>
+    ///     Compares the curated records that have compiled read probes and lists the eligible probes
+    ///     without opening hardware.
+    /// </summary>
     /// <param name="inventoryPath">Canonical inventory JSON.</param>
     /// <param name="targetDeviceId">Optional exact logical device ID.</param>
     /// <param name="cancellationToken">Cancels bounded inventory parsing or assessment.</param>
@@ -124,19 +127,27 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var target = string.IsNullOrWhiteSpace(targetDeviceId) ? DeviceId(inventory) : targetDeviceId;
-        var fingerprint = KnownMsiClaw.Create();
-        var assessment = KnownDeviceMatcher.Assess(inventory, fingerprint, target);
+        var knowledge = DeviceKnowledgeBase.Default;
+        var families = BuiltInReadProbeRegistry.Families;
+        var target = string.IsNullOrWhiteSpace(targetDeviceId)
+            ? DeviceKnowledgeAssessor.LogicalDeviceId(knowledge, families, inventory)
+            : targetDeviceId;
+        var assessed = families
+            .Select(family => (Family: family,
+                Assessment: DeviceKnowledgeAssessor.Assess(knowledge, family, inventory, target)))
+            .ToArray();
         return new DeviceLabCandidateResult
         {
             TargetDeviceId = target,
-            Candidates = [assessment],
-            ReadOnlyProbes = assessment.ExactMatch
-                ? [.. fingerprint.ReadProbes.OrderBy(probe => probe.Id, StringComparer.Ordinal)]
-                : [],
-            KnowledgeMatches = DeviceKnowledgeMatcher.Match(
-                DeviceKnowledgeBase.Default,
-                DeviceKnowledgeIdentity.From(inventory))
+            Candidates = [.. assessed.Select(item => item.Assessment)],
+            ReadOnlyProbes =
+            [
+                .. assessed
+                    .Where(item => item.Assessment.ExactMatch)
+                    .SelectMany(item => item.Family.Probes)
+                    .OrderBy(probe => probe.Id, StringComparer.Ordinal)
+            ],
+            KnowledgeMatches = DeviceKnowledgeMatcher.Match(knowledge, DeviceKnowledgeIdentity.From(inventory))
         };
     }
 
@@ -557,13 +568,6 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         }
     }
 
-    private static string DeviceId(MachineInventory inventory)
-    {
-        return string.Equals(inventory.Firmware.BaseboardProduct, "MS-1T52", StringComparison.OrdinalIgnoreCase)
-            ? "ms-1t52"
-            : $"observed-{(inventory.Firmware.BaseboardProduct ?? "unknown").ToLowerInvariant()}";
-    }
-
     internal static DeviceIdentitySnapshot ToPluginIdentity(MachineInventory inventory)
     {
         return new DeviceIdentitySnapshot
@@ -602,11 +606,8 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
 
     private static bool ProbeFamilyMatches(string familyId, string targetDeviceId)
     {
-        return familyId switch
-        {
-            "msi.claw-a2vm.ms-1t52" => string.Equals(targetDeviceId, "ms-1t52", StringComparison.Ordinal),
-            _ => false
-        };
+        return BuiltInReadProbeRegistry.FindFamily(familyId) is { } family
+               && string.Equals(targetDeviceId, family.DeviceId, StringComparison.Ordinal);
     }
 
     private static bool ProbeEndpointMatches(string endpointId, MachineInventory inventory)

@@ -5,6 +5,7 @@ using WSGM.DeviceLab.Gui;
 using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Testing;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab;
 
@@ -21,6 +22,11 @@ internal static class Program
         if (string.Equals(args[0], "gui", StringComparison.Ordinal))
         {
             return DeviceLabGui.Run(args[1..]);
+        }
+
+        if (string.Equals(args[0], LabWorkerHost.Mode, StringComparison.Ordinal))
+        {
+            return LabWorkerHost.Run(args[1..]);
         }
 
         if (string.Equals(args[0], ReadProbeWorker.Mode, StringComparison.Ordinal))

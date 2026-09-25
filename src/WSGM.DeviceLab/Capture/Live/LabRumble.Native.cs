@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Interop;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>One HID top-level collection, as the rumble stage sees it.</summary>
 /// <param name="VendorId">USB vendor ID.</param>

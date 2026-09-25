@@ -86,7 +86,7 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   manifest is the only file rewritten (atomically).
 - Input capture records every input from every device and attributes it afterwards. Never filter by
   device, VID/PID or usage page at capture time; the knowledge base may rank sources, not narrow them.
-  `Wizard/LabInputCapture` is the one capture: Raw Input on every usage page present, low-level hooks,
+  `Capture/Live/LabInputCapture` is the one capture: Raw Input on every usage page present, low-level hooks,
   XInput, Windows.Gaming.Input, WMI events, power and device changes. While a button step runs it
   swallows Windows-key and Alt+Tab shortcuts after recording them, so a firmware chord cannot
   minimize the wizard; it suppresses nothing else. Presses are counted by key-up.
@@ -96,6 +96,16 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   reversible one (the Claw mode switch) is recorded before it is sent and switched back at the end
   and on the next start; an irreversible one (the Ally button tables) is sent only on the tester's
   explicit choice and is never described as undone.
+- Without a curated record, `Wizard/LabModeCommands` offers HC's own mode and init commands (Legion
+  Go mode, touchpad and gyro, Steam Deck and Steam Controller lizard mode and gyro, GameSir test
+  mode, OXP remap pages, ZOTAC M1/M2) as a compiled, reviewed table with HC/HHD file:line
+  provenance, never from inventory. Each is sent only on the tester's "Try it", only to the one
+  collection that matches exactly, and never retried; a reversible one is recorded before it is
+  sent and undone at the stage end and on the next start. Never add an EC write, a factory reset
+  or a command whose meaning is unknown; list it as withheld instead.
+- `Transports/LabLhmSensors` reads fan RPM and temperatures through LibreHardwareMonitor for every
+  device. It never sets a control, and its controller and PSU groups stay off because their
+  discovery writes to FTDI serial ports and vendor USB HID devices.
 - The sleep stage waits for the tester's power button; the wizard never requests sleep itself.
 - Hardware stages (buttons, motion, rumble, power, sleep) start through `RunHardware`, which refuses
   without the preflight owner reservation. Output writes (rumble, TDP, fans, charge limit, lighting)
@@ -104,6 +114,13 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   read back where the transport can, restored on every exit path, and recorded in `LabMachineState`
   before it is made when a crash could leave it applied. An uncertain write is not retried; the
   tester gets an explicit button instead.
+- Wizard hardware access runs in the elevated `Worker/LabWorkerHost` through a service interface
+  registered in `LabWorkerServices` (the power transports live in `Transports/`); only interface
+  methods are callable. A `[LabWorkerWrite]` method is refused until a checkpoint is acknowledged:
+  the worker captures the original with the service's `[LabWorkerSnapshot]` method, the wizard
+  records it (`LabPowerRecovery.Record`) and acknowledges within five seconds, and releases the
+  checkpoint only after a verified restore. Start-up recovery runs through the worker too. A missed
+  deadline (`LabWorkerLostException`) is uncertain: never retry it.
 - The shared report is built in memory, previewed, and written once. Every JSON string passes through
   one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
 - The wizard keeps blocking work (files, registry, drivers) off the UI thread and runs one operation
@@ -132,6 +149,9 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   lab run or HC line it came from. Keep a curated record in step with the plugin it cites.
 - A record is evidence, not a driver. Only curated records may carry wizard button mappings,
   readback claims or supersede an extracted record; the loader and tests enforce that.
+- Compiled read probes are gated by a curated record (`DeviceKnowledgeAssessor`): its exact
+  identity rule, controller endpoints and WMI provider. Keep a probe family's
+  `KnowledgeRecordId` pointing at a curated record; there is no separate device fingerprint.
 - The parser rejects unknown members. Extend `DeviceKnowledge.cs` and bump the schema version rather
   than loosening it.
 

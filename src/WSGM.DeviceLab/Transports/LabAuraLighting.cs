@@ -5,8 +5,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
+using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Transports;
 
 /// <summary>The HID endpoint an Aura test writes to, without its device path.</summary>
 /// <param name="VendorId">USB vendor ID.</param>
@@ -24,11 +26,47 @@ internal sealed record LabAuraEndpoint(
     int OutputBytes);
 
 /// <summary>
-///     ROG Ally Aura lighting over the vendor HID interface, ported from AllyXLab's Worker. The lights
-///     are write-only: the tester's colour cannot be read, so it cannot be put back.
+///     The Aura checkpoint marker. The lights are write-only, so there is no colour to capture; the
+///     checkpoint only records that the lab is about to write them, and the tester sets their colour again.
 /// </summary>
-internal sealed class LabAuraLighting : IDisposable
+/// <param name="Endpoint">The endpoint about to be written.</param>
+/// <param name="Note">What restoring takes.</param>
+internal sealed record LabAuraOriginal(LabAuraEndpoint Endpoint, string Note);
+
+/// <summary>
+///     The Aura service the wizard calls through the hardware worker (<c>aura</c>, opened with a
+///     <see cref="LabAuraLayout" />). Writes are refused until the worker's checkpoint is acknowledged.
+/// </summary>
+internal interface ILabAura : IDisposable
 {
+    /// <summary>The checkpoint marker; nothing is read from the lights.</summary>
+    /// <returns>The endpoint and the restore note.</returns>
+    [LabWorkerSnapshot]
+    LabAuraOriginal Original();
+
+    /// <summary>Shows one colour on one zone.</summary>
+    /// <param name="zone">0 both rings, 1 left outer, 2 left inner, 3 right inner, 4 right outer.</param>
+    /// <param name="channel">0 red, 1 green, 2 blue.</param>
+    [LabWorkerWrite]
+    void Colour(int zone, int channel);
+
+    /// <summary>Turns the brightness to off.</summary>
+    [LabWorkerWrite]
+    void Off();
+}
+
+/// <summary>
+///     ROG Ally Aura lighting over the vendor HID interface, ported from AllyXLab's Worker. The lights
+///     are write-only: the tester's colour cannot be read, so it cannot be put back. It runs only inside
+///     the hardware worker, behind <see cref="ILabAura" />.
+/// </summary>
+internal sealed class LabAuraLighting : ILabAura
+{
+    /// <summary>The worker service registration. Opening fails when there is not exactly one endpoint.</summary>
+    public static LabWorkerService Service { get; } = new("aura", typeof(ILabAura),
+        (args, log) => Open(LabWorkerService.Arg<LabAuraLayout>(args, 0), log)
+                       ?? throw new InvalidOperationException("The device's own lighting interface was not found."));
+
     private readonly SafeFileHandle _handle;
     private readonly LabPowerLog _log;
 
@@ -99,6 +137,13 @@ internal sealed class LabAuraLighting : IDisposable
 
         log.Add("aura-endpoint", new { Endpoint = endpoint, Opened = true });
         return new LabAuraLighting(handle, endpoint, log);
+    }
+
+    /// <inheritdoc />
+    public LabAuraOriginal Original()
+    {
+        return new LabAuraOriginal(Endpoint,
+            "Write-only lighting: the colour cannot be read, so the tester sets it again in Armoury Crate.");
     }
 
     /// <summary>The number of lighting zones this test steps through (both rings, then the four half-rings).</summary>

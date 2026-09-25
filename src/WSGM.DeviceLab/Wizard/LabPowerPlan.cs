@@ -6,6 +6,7 @@ using System.Management;
 using System.Threading;
 using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Wizard;
 

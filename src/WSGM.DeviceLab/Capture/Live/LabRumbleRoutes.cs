@@ -9,7 +9,7 @@ using Microsoft.Win32.SafeHandles;
 using Windows.Gaming.Input;
 using WSGM.DeviceLab.Knowledge;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>One way of driving the motors.</summary>
 /// <param name="Id">Stable ID within one discovery, for example <c>xinput:0</c>.</param>

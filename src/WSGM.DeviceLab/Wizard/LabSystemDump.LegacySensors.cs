@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using static WSGM.DeviceLab.Wizard.LabSensorInterop;
+using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 
 namespace WSGM.DeviceLab.Wizard;
 

@@ -17,7 +17,7 @@ Device Lab redistributes the following third-party components:
   Copyright namazso. The installer states it may be redistributed unmodified; PawnIO's own licence
   terms are upstream at <https://github.com/namazso/PawnIO.Setup>.
 - LibreHardwareMonitorLib 0.9.6, used for read-only embedded-controller, AMD SMU and Intel MSR
-  access through its signed PawnIO modules. Copyright the LibreHardwareMonitor contributors.
+  access through its signed PawnIO modules, and for reading fan RPM and temperatures. Copyright the LibreHardwareMonitor contributors.
   Licensed under the Mozilla Public License 2.0, whose terms are upstream at
   <https://github.com/LibreHardwareMonitor/LibreHardwareMonitor>. The library carries the signed
   PawnIO modules (including RyzenSMU and IntelMSR) it loads; those are namazso's PawnIO.Modules,

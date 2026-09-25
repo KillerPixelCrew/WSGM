@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 // The message-only window, Raw Input, low-level hooks and power notifications. Everything here runs on
 // the capture's own message thread.

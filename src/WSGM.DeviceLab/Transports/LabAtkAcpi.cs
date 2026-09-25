@@ -7,8 +7,10 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Transports;
 
 /// <summary>An ASUS power state the lab captured before changing it.</summary>
 /// <param name="Mode">Performance mode.</param>
@@ -30,11 +32,11 @@ internal sealed record LabAsusState(int Mode, int Spl, int Sppt, int Fppt, strin
     }
 }
 
-/// <summary>One fan reading.</summary>
-/// <param name="Name">Which fan.</param>
-/// <param name="Value">The reading.</param>
-/// <param name="Unit">Its unit, or <c>raw</c> when the unit is not known.</param>
-internal sealed record LabFanReading(string Name, int Value, string Unit);
+/// <summary>The ASUS state a worker checkpoint captures before the first write.</summary>
+/// <param name="Power">Mode, limits and fan curves, when the record declares them all and they read stably.</param>
+/// <param name="PowerUnavailable">Why <paramref name="Power" /> is missing, when the record declares it.</param>
+/// <param name="ChargeLimit">The charge limit, when the record declares one and it reads.</param>
+internal sealed record LabAsusOriginal(LabAsusState? Power, string? PowerUnavailable, int? ChargeLimit);
 
 /// <summary>The raw ATKACPI device call, so the logic above it can be tested without hardware.</summary>
 internal interface ILabAtkAcpiChannel : IDisposable
@@ -49,14 +51,88 @@ internal interface ILabAtkAcpiChannel : IDisposable
 }
 
 /// <summary>
+///     The ATKACPI service the wizard calls through the hardware worker (<c>atkacpi</c>, opened with a
+///     <see cref="LabAsusLayout" />). Writes are refused until the worker's checkpoint is acknowledged.
+/// </summary>
+internal interface ILabAtkAcpi : IDisposable
+{
+    /// <summary>Reads a scalar.</summary>
+    /// <param name="id">A declared ID.</param>
+    /// <returns>The low 16 bits of a supported result.</returns>
+    int Get(uint id);
+
+    /// <summary>Reads a scalar, or null when it cannot be read.</summary>
+    /// <param name="id">A declared ID.</param>
+    /// <returns>The value, or null.</returns>
+    int? TryGet(uint id);
+
+    /// <summary>Reads a fan curve for a performance mode.</summary>
+    /// <param name="id">A curve ID.</param>
+    /// <param name="mode">Performance mode.</param>
+    /// <returns>The 16-byte curve.</returns>
+    byte[] GetCurve(uint id, int mode);
+
+    /// <summary>Every declared getter and both curves for all three modes, for evidence.</summary>
+    /// <returns>Each reading or why it could not be taken.</returns>
+    IReadOnlyList<object> ReadAllGetters();
+
+    /// <summary>The fan speed readings.</summary>
+    /// <returns>Readings that could be taken.</returns>
+    IReadOnlyList<LabFanReading> FanSpeeds();
+
+    /// <summary>The checkpoint snapshot: the stable power state and the charge limit.</summary>
+    /// <returns>What could be captured, and why the rest could not.</returns>
+    [LabWorkerSnapshot]
+    LabAsusOriginal Original();
+
+    /// <summary>Writes a scalar inside the reviewed bounds.</summary>
+    /// <param name="id">A declared ID.</param>
+    /// <param name="value">The value.</param>
+    [LabWorkerWrite]
+    void Set(uint id, int value);
+
+    /// <summary>Writes a scalar and reads it back.</summary>
+    /// <param name="id">A declared ID.</param>
+    /// <param name="value">The value.</param>
+    [LabWorkerWrite]
+    void SetVerified(uint id, int value);
+
+    /// <summary>Writes a validated fan curve.</summary>
+    /// <param name="id">A curve ID.</param>
+    /// <param name="curve">Eight temperatures, then eight duties.</param>
+    [LabWorkerWrite]
+    void SetCurve(uint id, byte[] curve);
+
+    /// <summary>Sets all three limits to one value in the safe order.</summary>
+    /// <param name="original">The state before.</param>
+    /// <param name="watts">The value.</param>
+    [LabWorkerWrite]
+    void SetLimits(LabAsusState original, int watts);
+
+    /// <summary>Writes the fan test curve to one fan and reads it back.</summary>
+    /// <param name="original">The state before.</param>
+    /// <param name="cpu">True for the CPU fan.</param>
+    /// <returns>The test curve, as hex.</returns>
+    [LabWorkerWrite]
+    string ApplyFanTest(LabAsusState original, bool cpu);
+
+    /// <summary>Puts the original state back and reads it back.</summary>
+    /// <param name="original">The captured state.</param>
+    /// <returns>Whether a final snapshot matches the original exactly.</returns>
+    [LabWorkerWrite]
+    bool Restore(LabAsusState original);
+}
+
+/// <summary>
 ///     ASUS ATKACPI power, performance mode, fan curve and charge limit access, ported from AllyXLab's
 ///     AsusControl. Every call is logged before and after; only IDs the curated record names are allowed.
 /// </summary>
 /// <remarks>
 ///     A write's transport return is not a readback, so every write is followed by a read. A write whose
-///     readback does not match stops the sequence without a retry.
+///     readback does not match stops the sequence without a retry. It runs only inside the hardware
+///     worker, behind <see cref="ILabAtkAcpi" />.
 /// </remarks>
-internal sealed class LabAtkAcpi : IDisposable
+internal sealed class LabAtkAcpi : ILabAtkAcpi
 {
     /// <summary>The ATKACPI device path.</summary>
     public const string DevicePath = @"\\.\ATKACPI";
@@ -82,6 +158,10 @@ internal sealed class LabAtkAcpi : IDisposable
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _pause = pause ?? Thread.Sleep;
     }
+
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("atkacpi", typeof(ILabAtkAcpi),
+        (args, log) => Open(LabWorkerService.Arg<LabAsusLayout>(args, 0), log));
 
     /// <summary>The IDs this transport may use.</summary>
     public LabAsusLayout Layout { get; }
@@ -257,6 +337,26 @@ internal sealed class LabAtkAcpi : IDisposable
             ? first
             : throw new InvalidOperationException(
                 "The power settings changed by themselves. Another program may be controlling them.");
+    }
+
+    /// <inheritdoc />
+    public LabAsusOriginal Original()
+    {
+        LabAsusState? power = null;
+        string? unavailable = null;
+        if (Layout.CanSnapshot)
+        {
+            try
+            {
+                power = StableSnapshot();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or IOException)
+            {
+                unavailable = ex.Message;
+            }
+        }
+
+        return new LabAsusOriginal(power, unavailable, Layout.Charge is { } charge ? TryGet(charge) : null);
     }
 
     /// <summary>Sets all three limits to one value in AllyXLab's safe order, each with a readback.</summary>

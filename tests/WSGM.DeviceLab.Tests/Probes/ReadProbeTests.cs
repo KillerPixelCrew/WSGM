@@ -1,4 +1,3 @@
-using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Probes;
 
 namespace WSGM.DeviceLab.Tests.Probes;
@@ -73,7 +72,7 @@ public sealed class ReadProbeTests
     [Fact]
     public void FanRpmProbe_AllowsLiveTachometerMovementAcrossReads()
     {
-        var metadata = KnownMsiClaw.Create().ReadProbes
+        var metadata = MsiClawReadProbes.Family.Probes
             .Single(probe => probe.Id.EndsWith("fan-rpm", StringComparison.Ordinal));
         ReadProbeWorkerResponse response = new()
         {
@@ -97,7 +96,7 @@ public sealed class ReadProbeTests
     [Fact]
     public void ReadProbeSupervisor_OutlivesTheWorkersSemanticDeadline()
     {
-        var metadata = KnownMsiClaw.Create().ReadProbes[0];
+        var metadata = MsiClawReadProbes.Family.Probes[0];
 
         Assert.True(
             ReadProbeWorkerSupervisor.ProcessDeadline(metadata)
@@ -107,7 +106,7 @@ public sealed class ReadProbeTests
     [Fact]
     public void ReadProbeResponse_MutationOrMissingCrossCheck_IsRejected()
     {
-        var metadata = KnownMsiClaw.Create().ReadProbes
+        var metadata = MsiClawReadProbes.Family.Probes
             .Single(probe => probe.Id.EndsWith("charge-limit", StringComparison.Ordinal));
         ReadProbeSample sample = new()
         {

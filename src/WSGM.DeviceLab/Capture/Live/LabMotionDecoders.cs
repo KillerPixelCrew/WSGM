@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using WSGM.DeviceLab.Knowledge;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>Where one controller carries its IMU in its HID input report, as HC reads it.</summary>
 /// <param name="Name">Short name used in sensor IDs.</param>
@@ -18,7 +18,7 @@ namespace WSGM.DeviceLab.Wizard;
 /// <param name="GyrometerScale">deg/s per count.</param>
 /// <param name="Header">Bytes the buffer must start with, as <c>(offset, value)</c>, for packets that share a report.</param>
 /// <param name="Reference">HC file the layout comes from.</param>
-/// <param name="Note">What HC does before this data flows, which the lab does not do.</param>
+/// <param name="Note">What HC does before this data flows, which the lab does only on the tester's opt-in.</param>
 internal sealed record LabControllerImuLayout(
     string Name,
     ushort VendorId,
@@ -61,26 +61,26 @@ internal static class LabMotionDecoders
         new("legion-left", 0x17EF, [0x6182, 0x6183, 0x6184, 0x6185, 0x61EB, 0x61EC, 0x61ED, 0x61EE], [64], true,
             [35, 37, 39], [41, 43, 45], 1.0 / 8192, 2000.0 / 32767, [],
             "HandheldCompanion.Controllers.Lenovo/LegionController.cs:281",
-            "HC turns the Legion controllers' gyro reports on through its mode commands; the lab sends none."),
+            "HC turns the Legion controllers' gyro reports on through its mode commands; the lab sends them only when the tester opts in."),
         new("legion-right", 0x17EF, [0x6182, 0x6183, 0x6184, 0x6185, 0x61EB, 0x61EC, 0x61ED, 0x61EE], [64], true,
             [48, 50, 52], [54, 56, 58], 1.0 / 8192, 2000.0 / 32767, [],
             "HandheldCompanion.Controllers.Lenovo/LegionController.cs:290",
-            "HC turns the Legion controllers' gyro reports on through its mode commands; the lab sends none."),
+            "HC turns the Legion controllers' gyro reports on through its mode commands; the lab sends them only when the tester opts in."),
         new("legion-go-s", 0x1A86, [0xE310, 0xE311], [33], false,
             [14, 16, 18], [20, 22, 24], 1.0 / 8192, 2000.0 / 32767, [],
             "HandheldCompanion.Controllers.Lenovo/LegionControllerS.cs:81"),
         new("neptune", 0x28DE, [0x1205, 0x12F0], [64, 65], false,
             [24, 26, 28], [30, 32, 34], 2.0 / 32767, 2000.0 / 32767, [(0, 0x01), (1, 0x00), (2, 0x09)],
             "steam-hidapi.net/steam_hidapi.net.Hid/NCInput.cs",
-            "Order is pitch, yaw, roll. HC keeps the Deck out of lizard mode by writing every second; the lab does not."),
+            "Order is pitch, yaw, roll. HC keeps the Deck out of lizard mode by writing every second; the lab does only when the tester opts in."),
         new("steam-controller", 0x28DE, [0x1102, 0x1142], [64, 65], false,
             [28, 30, 32], [34, 36, 38], 2.0 / 32767, 2000.0 / 32767, [(0, 0x01), (2, 0x01)],
             "steam-hidapi.net/steam_hidapi.net.Hid/GCInput.cs",
-            "Order is pitch, yaw, roll. HC enables the gyro by writing GYRO_MODE 0x18; the lab does not, so it may read zeros."),
+            "Order is pitch, yaw, roll. HC enables the gyro by writing GYRO_MODE 0x18; the lab writes it only when the tester opts in, so it may read zeros."),
         new("gamesir-tarantula", 0x3537, [], [64], true,
             [15, 17, 19], [21, 23, 25], 1.0 / 8192, 2000.0 / 32767, [],
             "HandheldCompanion.Controllers.GameSir/TarantulaProController.cs:217",
-            "HC sends the test mode command 07 04 0A 02 01 first; the lab does not, so it may read nothing.")
+            "HC sends the test mode command 07 04 0A 02 01 first; the lab sends it only when the tester opts in, so it may read nothing.")
     ];
 
     /// <summary>Finds the layouts that apply to a HID collection.</summary>

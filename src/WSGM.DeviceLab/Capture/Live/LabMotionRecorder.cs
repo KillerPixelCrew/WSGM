@@ -10,9 +10,10 @@ using Windows.Devices.Enumeration;
 using Windows.Devices.Sensors;
 using Windows.Foundation;
 using WSGM.DeviceLab.Knowledge;
-using static WSGM.DeviceLab.Wizard.LabSensorInterop;
+using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
+using WSGM.DeviceLab.Wizard;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>What a motion sensor measures.</summary>
 internal enum LabMotionSensorKind

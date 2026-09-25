@@ -84,15 +84,22 @@ public sealed class DeviceKnowledgeTests
     }
 
     [Fact]
-    public void Match_CuratedClawRecordAgreesWithTheReadProbeFingerprint()
+    public void Match_CuratedClawRecordCarriesTheReadProbeGate()
     {
-        var fingerprint = KnownMsiClaw.Create();
         var claw = Knowledge.Records.Single(record => record.Id == "wsgm.claw-8-a2vm");
 
         var rule = Assert.Single(claw.Identity);
-        Assert.Equal(fingerprint.SystemManufacturer, rule.BaseboardManufacturer);
-        Assert.Equal(fingerprint.BaseboardProduct, rule.BaseboardProduct);
-        Assert.Equal(fingerprint.SystemSku, rule.SystemSku);
+        Assert.Equal("Micro-Star International Co., Ltd.", rule.BaseboardManufacturer);
+        Assert.Equal("MS-1T52", rule.BaseboardProduct);
+        Assert.Equal("1T52.1", rule.SystemSku);
+        Assert.Equal(["1901", "1902"], claw.HidEndpoints
+            .Where(endpoint => endpoint is { Role: "controller", VendorId: "0DB0" })
+            .SelectMany(endpoint => endpoint.ProductIds));
+        Assert.All(claw.Mechanisms.Where(mechanism => mechanism.Transport == "wmi-method"), mechanism =>
+        {
+            Assert.Equal("root\\WMI", mechanism.Parameters["namespace"]);
+            Assert.Equal("MSI_ACPI", mechanism.Parameters["class"]);
+        });
     }
 
     [Fact]

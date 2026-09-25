@@ -1,6 +1,7 @@
 using System.Text.Json;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 

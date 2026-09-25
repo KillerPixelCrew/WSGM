@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.DeviceLab.Capture.Live;
 
 /// <summary>Running statistics of one field over a step.</summary>
 /// <param name="Name">Field name, for example <c>x</c> or a legacy property key.</param>
