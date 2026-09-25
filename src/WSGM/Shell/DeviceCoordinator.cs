@@ -13,6 +13,7 @@ using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Input;
+using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Plugin.Sdk;
 

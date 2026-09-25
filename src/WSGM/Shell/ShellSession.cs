@@ -16,6 +16,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Input;
+using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Plugin.Sdk;
@@ -598,7 +599,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // Installed packages only. WSGM bundles none, and the application directory is
                 // user-writable, so scanning it would load plugin code from a path the installed
                 // root is administrator-protected precisely to avoid.
-                _commonPlugins = new CommonPluginManager(_pluginHost, DeviceInstallationPaths.PluginsRoot,
+                _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
                     Path.Combine(Log.Directory, "PluginState"));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
@@ -2435,12 +2436,14 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         var package = catalog.Device.Inventory.PackageFiles.Count > 0;
+        var roles = catalog.Device.InstalledPackage?.Manifest?.Capabilities ?? [];
 
         return new DevicePrerequisiteState(
             package,
             _config.DeviceIntegration.Enabled,
             DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
-            DevicePrerequisiteSource.HidHideInstalled());
+            DevicePrerequisiteSource.HidHideInstalled(),
+            SetupComponents.Required(roles));
     }
 
     private Task EnableDeviceIntegrationAsync()

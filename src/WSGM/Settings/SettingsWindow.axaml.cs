@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading;
@@ -7,7 +6,6 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
@@ -79,8 +77,6 @@ public partial class SettingsWindow : Window
     private Window? _keyboardDialog;
     private bool _leaseHandoffPending;
     private GamepadNavigation? _navigation;
-    private bool _quickSetupScanComplete;
-    private IReadOnlyList<SteamAutostartSource> _quickSetupSteamAutostart = [];
     private BootSplashWindow? _splashPreview;
 
     // In game mode WSGM hosts the only taskbar, and it excludes own-process windows
@@ -200,7 +196,6 @@ public partial class SettingsWindow : Window
             _viewModel.StartDisplayDiscovery();
             _viewModel.StartAudioDiscovery();
             _ = _services.RefreshDeviceOwner();
-            MaybeShowQuickSetup();
         };
         Closed += (_, _) =>
         {
@@ -253,8 +248,6 @@ public partial class SettingsWindow : Window
         };
     }
 
-    internal Task SteamAutostartScan { get; private set; } = Task.CompletedTask;
-
     /// <summary>
     ///     One selection path for touch, mouse, keyboard and the LB/RB
     ///     shoulder buttons: the TabStrip owns the index, this toggles the
@@ -293,124 +286,6 @@ public partial class SettingsWindow : Window
         _testOverlay.ShowOverlay();
     }
 
-    /// <summary>
-    ///     Raises Quick Setup over the window on a first run, or after a build
-    ///     adds a setting that needs an explicit decision.
-    /// </summary>
-    /// <remarks>
-    ///     The panel owns input while it is up: the pages behind it are disabled so
-    ///     gamepad focus cannot wander into them and answer nothing. Both integrations
-    ///     arrive pre-selected because both are what the product expects, but neither is
-    ///     applied until Continue - a skipped panel leaves Steam's directory untouched.
-    ///     Continue is refused while Steam autostart entries were found and the takeover
-    ///     has not been allowed: WSGM cannot own how Steam starts and leave them running.
-    /// </remarks>
-    private void MaybeShowQuickSetup()
-    {
-        if (DataContext is not SettingsViewModel { QuickSetupPending: true } viewModel)
-        {
-            return;
-        }
-
-        QuickSetupSteamInput.IsChecked = viewModel.SteamInputManagementEnabled;
-        QuickSetupCef.IsChecked = viewModel.CefEnabled;
-        QuickSetupStartAtSignIn.IsChecked = viewModel.StartAtSignIn;
-        QuickSetupStartMode.SelectedIndex = viewModel.StartModeIndex;
-        QuickSetupAutostart.IsCheckedChanged += (_, _) => UpdateQuickSetupContinue();
-        QuickSetupOverlay.IsVisible = true;
-        UpdateSettingsEnabled();
-        QuickSetupSkipButton.Focus();
-        SteamAutostartScan = ShowFoundSteamAutostartAsync();
-    }
-
-    /// <summary>Lists what Windows would start Steam from. Scanning only reads.</summary>
-    private async Task ShowFoundSteamAutostartAsync()
-    {
-        _quickSetupScanComplete = false;
-        QuickSetupScanStatus.IsVisible = true;
-        QuickSetupScanStatus.Text = "Checking how Windows starts Steam…";
-        QuickSetupScanRetry.IsVisible = false;
-        UpdateQuickSetupContinue();
-        try
-        {
-            var sources = await _viewModel.ScanSteamAutostartAsync();
-            if (_closed || !QuickSetupOverlay.IsVisible)
-            {
-                return;
-            }
-
-            _quickSetupSteamAutostart = [.. sources.Where(source => source.Enabled)];
-            _quickSetupScanComplete = true;
-            QuickSetupScanStatus.IsVisible = false;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            if (_closed || !QuickSetupOverlay.IsVisible)
-            {
-                return;
-            }
-
-            QuickSetupScanStatus.Text = "Could not check how Windows starts Steam. Try again or choose Skip.";
-            QuickSetupScanRetry.IsVisible = true;
-        }
-
-        QuickSetupAutostartRow.IsVisible = _quickSetupSteamAutostart.Count != 0;
-        QuickSetupAutostartList.Text = string.Join("\n",
-            _quickSetupSteamAutostart.Select(source => "• " + source.Describe()));
-        UpdateQuickSetupContinue();
-    }
-
-    private void OnQuickSetupScanRetry(object? sender, RoutedEventArgs e)
-    {
-        SteamAutostartScan = ShowFoundSteamAutostartAsync();
-    }
-
-    private void UpdateQuickSetupContinue()
-    {
-        QuickSetupContinueButton.IsEnabled =
-            _quickSetupScanComplete && (_quickSetupSteamAutostart.Count == 0 || QuickSetupAutostart.IsChecked == true);
-    }
-
-    private void OnQuickSetupContinue(object? sender, RoutedEventArgs e)
-    {
-        CompleteQuickSetup(
-            QuickSetupSteamInput.IsChecked == true, QuickSetupCef.IsChecked == true,
-            QuickSetupStartAtSignIn.IsChecked == true, QuickSetupStartMode.SelectedIndex,
-            QuickSetupAutostart.IsChecked == true);
-    }
-
-    private void OnQuickSetupSkip(object? sender, RoutedEventArgs e)
-    {
-        // Skipping is a decision, not a deferral: nothing gets written into Steam's
-        // directory or its debug port, no startup entry is touched, and WSGM does not
-        // arrange to start itself.
-        CompleteQuickSetup(false, false, false,
-            (int)SessionStartMode.Game, false);
-    }
-
-    private void CompleteQuickSetup(
-        bool steamInput, bool cef, bool startAtSignIn, int startModeIndex, bool takeSteamAutostart)
-    {
-        QuickSetupOverlay.IsVisible = false;
-        UpdateSettingsEnabled();
-        if (DataContext is not SettingsViewModel viewModel)
-        {
-            return;
-        }
-
-        viewModel.SteamInputManagementEnabled = steamInput;
-        viewModel.CefEnabled = cef;
-        viewModel.StartAtSignIn = startAtSignIn;
-        viewModel.StartModeIndex = startModeIndex;
-        viewModel.SteamAutostartTakeoverAccepted = takeSteamAutostart;
-        viewModel.QuickSetupAnswered = true;
-        Log.Info(
-            $"Quick Setup completed (revision {QuickSetup.CurrentRevision}): " +
-            $"steamInputManagement={steamInput}, cef={cef}, startAtSignIn={startAtSignIn}, " +
-            $"startMode={(SessionStartMode)startModeIndex}, steamAutostartTakeover={takeSteamAutostart}.");
-        viewModel.SaveCommand.Execute(null);
-    }
-
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(SettingsViewModel.IsSaving))
@@ -420,13 +295,13 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    ///     Keeps the page controls inert while either Quick Setup owns input or a
-    ///     save is persisting its immutable snapshot. This prevents a post-capture edit
-    ///     from being followed by a misleading "Saved" acknowledgement.
+    ///     Keeps the page controls inert while a save is persisting its immutable snapshot.
+    ///     This prevents a post-capture edit from being followed by a misleading "Saved"
+    ///     acknowledgement.
     /// </summary>
     private void UpdateSettingsEnabled()
     {
-        SettingsRoot.IsEnabled = !_viewModel.IsSaving && !QuickSetupOverlay.IsVisible;
+        SettingsRoot.IsEnabled = !_viewModel.IsSaving;
     }
 
     /// <summary>

@@ -380,6 +380,84 @@ internal sealed class HidHideOwnedDeltaManager
         }
     }
 
+    /// <summary>Uninstall: shows every device WSGM hid again and takes WSGM off the allowlist.</summary>
+    /// <param name="ownApplications">WSGM's own executables, in any path notation.</param>
+    /// <param name="cancellationToken">Cancels the cleanup.</param>
+    /// <returns>Verified only when HidHide read back without any WSGM entry.</returns>
+    /// <remarks>
+    ///     Runs whether or not HidHide itself is about to be removed, because a HidHide that stays would
+    ///     otherwise keep hiding the physical controller with no WSGM left to undo it. The allowlist
+    ///     entries <see cref="EnsureReadableAsync" /> adds carry no ledger entry, so they are removed
+    ///     by path here. An unverified result is never retried: the ledger stays for the next attempt.
+    /// </remarks>
+    internal async Task<HidHideCleanupResult> CleanupForUninstallAsync(
+        IReadOnlyList<string> ownApplications,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ownApplications);
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var snapshot = await _adapter.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (snapshot.Health is HidHideHealthState.Unavailable)
+            {
+                return new HidHideCleanupResult(true, "HidHide is not installed, so it hides nothing.");
+            }
+
+            var ledger = await _store.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (ledger is not null)
+            {
+                var cleanup = await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
+                if (!cleanup.Verified)
+                {
+                    return cleanup;
+                }
+            }
+
+            foreach (var application in ownApplications.Where(path => !string.IsNullOrWhiteSpace(path)))
+            {
+                if (!await RemoveApplicationAsync(application, cancellationToken).ConfigureAwait(false))
+                {
+                    return new HidHideCleanupResult(false,
+                        $"HidHide still allows {application} and did not accept its removal.");
+                }
+            }
+
+            return new HidHideCleanupResult(true, "Every WSGM entry is gone from HidHide.");
+        }
+        finally
+        {
+            _transition.Release();
+        }
+    }
+
+    private async Task<bool> RemoveApplicationAsync(string application, CancellationToken cancellationToken)
+    {
+        var normalized = NormalizePath(application);
+        for (var attempt = 0; attempt < MaximumCompareRetries; attempt++)
+        {
+            var snapshot = await _adapter.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (snapshot.Health is not HidHideHealthState.Ready)
+            {
+                return false;
+            }
+
+            var stored = snapshot.Applications.FirstOrDefault(entry =>
+                string.Equals(NormalizePath(entry), normalized, StringComparison.OrdinalIgnoreCase));
+            if (stored is null)
+            {
+                return true;
+            }
+
+            await _adapter.TryMutateAsync(
+                snapshot,
+                new HidHideEntryMutation(HidHideMutationKind.Remove, HidHideEntryKind.Application, stored),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
     private async Task<HidHideExactSnapshot> AddIfAbsentAsync(
         HidHideExactSnapshot snapshot,
         HidHideOwnershipLedger ledger,

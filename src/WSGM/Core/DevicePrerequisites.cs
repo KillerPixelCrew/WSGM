@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using WSGM.Install;
 
 namespace WSGM.Core;
 
@@ -8,11 +10,16 @@ namespace WSGM.Core;
 /// <param name="IntegrationEnabled">Whether Device Integration is switched on.</param>
 /// <param name="ControllerLibraryInstalled">Whether the virtual controller library is beside WSGM.</param>
 /// <param name="HidHideInstalled">Whether the HidHide control device answers.</param>
+/// <param name="RequiredComponents">
+///     What the installed package's declared capability roles need, from
+///     <see cref="SetupComponents" />. A package that declares no controller role needs no controller.
+/// </param>
 public sealed record DevicePrerequisiteState(
     bool PackageInstalled,
     bool IntegrationEnabled,
     bool ControllerLibraryInstalled,
-    bool HidHideInstalled);
+    bool HidHideInstalled,
+    IReadOnlyList<SetupComponent> RequiredComponents);
 
 /// <summary>What the user can do about a package whose prerequisites are missing.</summary>
 /// <param name="Detail">
@@ -29,10 +36,10 @@ public sealed record DevicePrerequisiteAdvice(string Detail, bool CanEnableInteg
 
 /// <summary>
 ///     Explains a device package that cannot do its job on this install.
-///     Setup's Minimal and Desktop modes install no controller support, and a device package can arrive
-///     afterwards: an administrator can copy a package file into the Plugins folder. That combination
-///     is otherwise silent — the package loads, controller management reports itself unavailable, and
-///     nothing says why or what would fix it.
+///     Setup installs the virtual controller only when the plugin it installs declares a controller
+///     role, and a device package can arrive afterwards: an administrator can copy a package file into
+///     the Plugins folder. That combination is otherwise silent — the package loads, controller
+///     management reports itself unavailable, and nothing says why or what would fix it.
 ///     The split between the two halves is not cosmetic. Device Integration is WSGM's own setting and
 ///     WSGM can turn it on. The virtual controller needs a kernel driver, and INV-020 forbids the
 ///     runtime from installing one whatever its provenance: the USB/IP install restarts every USB 3.0
@@ -55,7 +62,8 @@ public static class DevicePrerequisites
             return new DevicePrerequisiteAdvice("", false, false);
         }
 
-        var controllerMissing = !state.ControllerLibraryInstalled || !state.HidHideInstalled;
+        var controllerMissing = state.RequiredComponents.Contains(SetupComponent.ControllerStack)
+                                && (!state.ControllerLibraryInstalled || !state.HidHideInstalled);
         if (state.IntegrationEnabled && !controllerMissing)
         {
             return new DevicePrerequisiteAdvice("", false, false);
@@ -71,9 +79,9 @@ public static class DevicePrerequisites
         if (controllerMissing)
         {
             lines.Add(Missing(state)
-                      + " Controller management stays unavailable until it is added. Re-run the WSGM "
-                      + "setup and choose the device install mode, or Custom with virtual controller "
-                      + "support. It installs a driver that restarts USB devices and needs a reboot, "
+                      + " Controller management stays unavailable until it is added. Run Repair from "
+                      + "WSGM Settings, Plugins, or from Windows Settings, Apps: setup installs what the "
+                      + "plugin needs. It installs a driver that restarts USB devices and needs a reboot, "
                       + "which is why setup is the only place it can happen.");
         }
 

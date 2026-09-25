@@ -4,31 +4,29 @@ using System.IO;
 namespace WSGM.Core;
 
 /// <summary>
-///     Install-lifecycle helpers behind the Inno installer: the per-user install
-///     directory layout and the machine-setting rollback the uninstaller drives through
-///     <c>--uninstall-restore</c>.
+///     Install-lifecycle helpers behind setup: where the running application lives and the
+///     machine-setting rollback the uninstaller drives through <c>--uninstall-restore</c>.
 /// </summary>
 public static class Installer
 {
-    /// <summary>Gets the stable per-user directory that holds the installed application files.</summary>
-    public static string InstallDir => Path.Combine(Log.Directory, "bin");
+    /// <summary>Gets the directory of the running application.</summary>
+    /// <remarks>
+    ///     Setup installs to <c>%ProgramFiles%\WSGM\App</c> (<see cref="WSGM.Install.InstallLayout.App" />)
+    ///     and runs <c>--setup</c> from there, so everything recorded from this path (the boot manifest,
+    ///     Steam launch options, generated shortcuts) names the installed copy. A development deploy
+    ///     that runs from another folder records that folder instead.
+    /// </remarks>
+    public static string InstallDir => Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
 
-    /// <summary>Gets the installed WSGM executable path.</summary>
+    /// <summary>Gets the running WSGM executable path.</summary>
     public static string InstalledExePath => Path.Combine(InstallDir, "WSGM.exe");
-
-    /// <summary>Prepares the install directory for the files Inno just laid down.</summary>
-    public static void InstallApp()
-    {
-        Directory.CreateDirectory(InstallDir);
-        Log.Info($"Installed to {InstalledExePath}");
-    }
 
     /// <summary>
     ///     Best-effort rollback of every machine/user setting WSGM changed
     ///     outside its own directory: display scaling, UAC prompt level, and
-    ///     lock-on-wake. Called by --uninstall-restore, which the elevated Inno
-    ///     uninstaller runs (PrivilegesRequired=admin) so the HKLM writes succeed
-    ///     directly; each step is isolated so one failure cannot stop the rest.
+    ///     lock-on-wake. Called by --uninstall-restore, which the elevated
+    ///     uninstaller runs so the HKLM writes succeed directly; each step is isolated
+    ///     so one failure cannot stop the rest.
     /// </summary>
     public static void RestoreMachineSettings()
     {

@@ -179,7 +179,7 @@ Paths are under `src/WSGM/` unless another project is named.
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Host mechanism and rationale | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`, `docs/plugin-system.md`                                 |
 | SDK contract                 | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                  |
-| Package files and discovery  | `Core/PluginPackageFile.cs`, `PluginPackageCatalog.cs`, `DeviceInstallationPaths.cs`                                                             |
+| Package files and discovery  | `Core/PluginPackageFile.cs`, `PluginPackageCatalog.cs`, `src/WSGM.Install/InstallLayout.cs`                                                      |
 | Load and lifecycle           | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`         |
 | Common plugins               | `Shell/CommonPluginManager.cs`, `CommonPluginPackage.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Ir`                                        |
 | Publications and commands    | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                                    |

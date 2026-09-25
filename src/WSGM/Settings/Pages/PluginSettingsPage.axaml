@@ -8,34 +8,276 @@
         Independent activation uses common installed metadata. Device settings retain their
         existing projection and editor templates.
     -->
-  <Border Padding="16,10,16,10">
-    <DockPanel>
-      <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,16">
-        <Border Classes="section-header">
-          <TextBlock Text="INDEPENDENT PLUGINS" />
-        </Border>
-        <TextBlock Classes="caption" TextWrapping="Wrap"
-                   Text="Enable installed integrations here, then Save. They run independently of Device integration. External controls appear in the overlay." />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding CommonPluginDiscoveryError}" />
-        <ScrollViewer MaxHeight="200">
-          <ItemsControl ItemsSource="{Binding CommonPlugins}">
+  <UserControl.Styles>
+    <!-- Plugin cards: an icon tile, the name, a row of tinted badges (status, version, kind, origin,
+         validation) and the one action. Badge tones: green for installed and hardware-tested, amber for
+         blind and removing, red for refused and outdated, the accent for first-party, violet for
+         community, blue for available, grey for plain facts. -->
+    <Style Selector="Border.plugin-card">
+      <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14,12" />
+    </Style>
+    <Style Selector="Border.plugin-icon">
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="#14FFFFFF" />
+    </Style>
+    <Style Selector="Border.plugin-icon > Path">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.plugin-name">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.caption.problem">
+      <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+    </Style>
+    <Style Selector="Border.badge">
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="#14FFFFFF" />
+      <Setter Property="BorderBrush" Value="#2EFFFFFF" />
+    </Style>
+    <Style Selector="Border.badge > TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+    </Style>
+    <Style Selector="Border.badge.accent">
+      <Setter Property="Background" Value="#26FF9D3D" />
+      <Setter Property="BorderBrush" Value="#73FF9D3D" />
+    </Style>
+    <Style Selector="Border.badge.accent > TextBlock">
+      <Setter Property="Foreground" Value="#FFFFB870" />
+    </Style>
+    <Style Selector="Border.badge.community">
+      <Setter Property="Background" Value="#26B79CFF" />
+      <Setter Property="BorderBrush" Value="#73B79CFF" />
+    </Style>
+    <Style Selector="Border.badge.community > TextBlock">
+      <Setter Property="Foreground" Value="#FFCDB9FF" />
+    </Style>
+    <Style Selector="Border.badge.info">
+      <Setter Property="Background" Value="#268AB4F8" />
+      <Setter Property="BorderBrush" Value="#738AB4F8" />
+    </Style>
+    <Style Selector="Border.badge.info > TextBlock">
+      <Setter Property="Foreground" Value="#FFA8C7FA" />
+    </Style>
+    <Style Selector="Border.badge.good">
+      <Setter Property="Background" Value="#26A3DCA3" />
+      <Setter Property="BorderBrush" Value="#73A3DCA3" />
+    </Style>
+    <Style Selector="Border.badge.good > TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource HcSuccessBrush}" />
+    </Style>
+    <Style Selector="Border.badge.warn">
+      <Setter Property="Background" Value="#26FFC66D" />
+      <Setter Property="BorderBrush" Value="#73FFC66D" />
+    </Style>
+    <Style Selector="Border.badge.warn > TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource HcWarningBrush}" />
+    </Style>
+    <Style Selector="Border.badge.bad">
+      <Setter Property="Background" Value="#26FFA0A0" />
+      <Setter Property="BorderBrush" Value="#73FFA0A0" />
+    </Style>
+    <Style Selector="Border.badge.bad > TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+    </Style>
+  </UserControl.Styles>
+  <!-- One scrolling page: plugins first, then the device plugin's own settings. The two short fixed-height
+       lists this replaces hid most of each card. -->
+  <ScrollViewer Padding="16,10,16,10">
+    <StackPanel Spacing="4">
+        <!--
+            Installed package files and what the installed release bundles. Installing copies a bundled
+            file into the Plugins folder and removing deletes one; both apply at the next start, because
+            a loaded package is held open. A device plugin is offered only when its hardware rules match.
+        -->
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,0,0,4">
+          <TextBlock Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center"
+                     Text="Plugins WSGM has installed, and the ones this release brings for your hardware. Changes apply after WSGM restarts." />
+          <Button Grid.Column="1" Content="Repair installation" Command="{Binding RepairCommand}"
+                  IsVisible="{Binding CanRepair}" VerticalAlignment="Center" />
+        </Grid>
+          <Border Classes="section-header" IsVisible="{Binding HasInstalledPackages}">
+            <TextBlock Text="INSTALLED" />
+          </Border>
+          <ItemsControl ItemsSource="{Binding InstalledPackages}" IsVisible="{Binding HasInstalledPackages}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="s:CommonPluginInstanceRow">
-                <Border Classes="setting-row">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <StackPanel>
-                      <TextBlock Classes="setting-title" Text="{Binding Name}" />
-                      <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+              <DataTemplate x:DataType="s:PluginPackageRow">
+                <Border Classes="plugin-card">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                    <Border Classes="plugin-icon" VerticalAlignment="Top">
+                      <Path Data="{Binding Icon}" Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.6"
+                            Width="22" Height="22" Stretch="Uniform" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
+                      <TextBlock Classes="plugin-name" Text="{Binding Name}" />
+                      <ItemsControl ItemsSource="{Binding Badges}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="s:PluginBadgeView">
+                            <Border Classes="badge" Classes.accent="{Binding IsAccent}"
+                                    Classes.community="{Binding IsCommunity}" Classes.info="{Binding IsInfo}"
+                                    Classes.good="{Binding IsGood}" Classes.warn="{Binding IsWarn}"
+                                    Classes.bad="{Binding IsBad}">
+                              <TextBlock Text="{Binding Text}" />
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <TextBlock Classes="caption" Classes.problem="{Binding NoticeIsProblem}" Text="{Binding Notice}"
+                                 TextWrapping="Wrap" IsVisible="{Binding HasNotice}" />
                     </StackPanel>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled, Mode=TwoWay}"
-                                  VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Classes.primary="{Binding IsInstall}" Content="{Binding ActionLabel}"
+                            Command="{Binding ActCommand}" IsVisible="{Binding HasAction}" VerticalAlignment="Center"
+                            MinWidth="96" />
                   </Grid>
                 </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-        </ScrollViewer>
-      </StackPanel>
+          <Border Classes="section-header" IsVisible="{Binding HasAvailablePackages}">
+            <TextBlock Text="AVAILABLE" />
+          </Border>
+          <ItemsControl ItemsSource="{Binding AvailablePackages}" IsVisible="{Binding HasAvailablePackages}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:PluginPackageRow">
+                <Border Classes="plugin-card">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                    <Border Classes="plugin-icon" VerticalAlignment="Top">
+                      <Path Data="{Binding Icon}" Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.6"
+                            Width="22" Height="22" Stretch="Uniform" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
+                      <TextBlock Classes="plugin-name" Text="{Binding Name}" />
+                      <ItemsControl ItemsSource="{Binding Badges}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="s:PluginBadgeView">
+                            <Border Classes="badge" Classes.accent="{Binding IsAccent}"
+                                    Classes.community="{Binding IsCommunity}" Classes.info="{Binding IsInfo}"
+                                    Classes.good="{Binding IsGood}" Classes.warn="{Binding IsWarn}"
+                                    Classes.bad="{Binding IsBad}">
+                              <TextBlock Text="{Binding Text}" />
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <TextBlock Classes="caption" Classes.problem="{Binding NoticeIsProblem}" Text="{Binding Notice}"
+                                 TextWrapping="Wrap" IsVisible="{Binding HasNotice}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Classes.primary="{Binding IsInstall}" Content="{Binding ActionLabel}"
+                            Command="{Binding ActCommand}" IsVisible="{Binding HasAction}" VerticalAlignment="Center"
+                            MinWidth="96" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Border Classes="section-header" IsVisible="{Binding HasUnavailablePackages}">
+            <TextBlock Text="NOT FOR THIS DEVICE" />
+          </Border>
+          <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
+                     Text="Bundled with this release for other hardware, or community plugins this release could not build." />
+          <ItemsControl ItemsSource="{Binding UnavailablePackages}" IsVisible="{Binding HasUnavailablePackages}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:PluginPackageRow">
+                <Border Classes="plugin-card">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                    <Border Classes="plugin-icon" VerticalAlignment="Top">
+                      <Path Data="{Binding Icon}" Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.6"
+                            Width="22" Height="22" Stretch="Uniform" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
+                      <TextBlock Classes="plugin-name" Text="{Binding Name}" />
+                      <ItemsControl ItemsSource="{Binding Badges}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="s:PluginBadgeView">
+                            <Border Classes="badge" Classes.accent="{Binding IsAccent}"
+                                    Classes.community="{Binding IsCommunity}" Classes.info="{Binding IsInfo}"
+                                    Classes.good="{Binding IsGood}" Classes.warn="{Binding IsWarn}"
+                                    Classes.bad="{Binding IsBad}">
+                              <TextBlock Text="{Binding Text}" />
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <TextBlock Classes="caption" Classes.problem="{Binding NoticeIsProblem}" Text="{Binding Notice}"
+                                 TextWrapping="Wrap" IsVisible="{Binding HasNotice}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Classes.primary="{Binding IsInstall}" Content="{Binding ActionLabel}"
+                            Command="{Binding ActCommand}" IsVisible="{Binding HasAction}" VerticalAlignment="Center"
+                            MinWidth="96" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        <Border Classes="section-header">
+          <TextBlock Text="INDEPENDENT PLUGINS" />
+        </Border>
+        <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
+                   Text="Enable installed integrations here, then Save. They run independently of Device integration. External controls appear in the overlay." />
+        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding CommonPluginDiscoveryError}" />
+        <ItemsControl ItemsSource="{Binding CommonPlugins}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="8" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="s:CommonPluginInstanceRow">
+              <Border Classes="plugin-card">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="3" VerticalAlignment="Center">
+                    <TextBlock Classes="plugin-name" Text="{Binding Name}" />
+                    <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                VerticalAlignment="Center" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
       <Panel>
         <!--
                 Shown instead of an empty page. A plugin that declares no settings and a machine
@@ -47,7 +289,7 @@
                    TextWrapping="Wrap"
                    IsVisible="{Binding !PluginSettingsAvailable}" />
 
-        <ScrollViewer IsVisible="{Binding PluginSettingsAvailable}">
+        <Panel IsVisible="{Binding PluginSettingsAvailable}" Margin="0,12,0,0">
           <StackPanel>
             <!--
                     Authoring only. Settings mode does not activate device hardware, so there is no
@@ -183,8 +425,8 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </StackPanel>
-        </ScrollViewer>
+        </Panel>
       </Panel>
-    </DockPanel>
-  </Border>
+    </StackPanel>
+  </ScrollViewer>
 </UserControl>

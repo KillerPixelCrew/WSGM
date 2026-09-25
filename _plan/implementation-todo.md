@@ -44,8 +44,26 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
             secrets and publishes the setup's SHA-256, and CI builds the bundle on every push.
       - [ ] Manual test: `eng\dev-deploy.ps1` on the Claw (every capability still appears). After
             that, the SDK, Device Lab knowledge and catalog suites.
-- [ ] PR 3: `WSGM.Install` library, setup answers, HidHide cleanup at uninstall, Plugins page, Quick
-      Setup retired.
+- [ ] PR 3 (`feat/setup-support`, stacked on PR 2), implemented, awaiting the manual test:
+      - [x] `src/WSGM.Install` holds `InstallLayout`, `SetupComponents` (role → controller stack),
+            `BundleManifest`, `PluginOffers` and `DeviceMachineIdentity`, which moved there.
+            `Installer.InstallDir` is now the running executable's directory, and
+            `DeviceInstallationPaths` is gone.
+      - [x] `Core\SetupAnswers` with the Full and Minimal presets. `--export-setup-answers=<file>`
+            includes the Steam autostart scan, and `--setup --answers=<file>` applies the answers and
+            the consented takeover. `InstallProfile` is gone.
+      - [x] `--uninstall-restore` shows the controller again first. It cleans up the HidHide ledger
+            and WSGM's allowlist entry, and exits 3 when the result is unverified.
+      - [x] Quick Setup is retired: the overlay, the revision field and the `QuickSetup` class are
+            removed.
+      - [x] The Plugins page lists installed packages with badges, superseded and refused files,
+            the bundle's offers for this hardware, outdated community plugins, install, remove
+            (at the next start while loaded) and Repair. `DevicePrerequisites` reads
+            `SetupComponents`.
+      - [ ] Manual test: export and apply the answers, run the Plugins page, and run
+            `--uninstall-restore` with the controller hidden. After that, the `PluginOffersTests`,
+            `SetupAnswersTests`, `HidHideOwnershipTests`, `DevicePrerequisitesTests` and Settings
+            UI suites.
 - [ ] PR 4: `WSGM.Setup` replaces Inno.
 - [ ] PR 5: updater.
 

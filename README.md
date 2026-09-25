@@ -105,8 +105,8 @@ any game, including non-Steam shortcuts, without leaving game mode.
 Windows. Steam never feeds it there, so WSGM does.
 
 **Steam Input everywhere.** WSGM starts Steam itself, elevated, so Steam Input keeps working over
-elevated windows and games. Windows' own Steam startup entries would undo that, so Quick Setup asks
-to take them over. Nothing is deleted, and uninstall puts back exactly what WSGM changed.
+elevated windows and games. Windows' own Steam startup entries would undo that, so setup asks to
+take them over. Nothing is deleted, and uninstall puts back exactly what WSGM changed.
 
 **The Steam Input Lease** is the first tool that takes the controller out of the running Steam
 client's hands _while it runs_. Steam is asked to let go of the pad and gets it back the moment it
@@ -245,10 +245,9 @@ the exact log lines, budgets and dates it summarizes.
    defaults.
 
 3. Open WSGM. Steam is detected automatically, and you can add startup apps from the suggestions,
-   which detect Handheld Companion and friends too. Quick Setup shows your mode's answers for you to
-   confirm, and lists any Run entries, Startup shortcuts or scheduled tasks Windows uses to start
-   Steam. WSGM has to start Steam itself for Steam Input to work over elevated windows, so Continue
-   waits until you let it disable those. Skip leaves them alone and turns the takeover off.
+   which detect Handheld Companion and friends too. Every first-run choice was already asked by
+   setup, including taking over the Run entries, Startup shortcuts or scheduled tasks Windows uses
+   to start Steam; WSGM Settings changes any of them later.
 
 **Upgrading:** run the newer setup. **Uninstalling:** Windows Settings > Apps > WSGM. It restores
 every machine setting it changed and removes its files.

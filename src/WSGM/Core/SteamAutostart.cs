@@ -49,7 +49,7 @@ public sealed record SteamAutostartSource(
     /// <summary>Whether disabling this source needs an elevated process.</summary>
     public bool NeedsElevation => Scope is SteamAutostartScope.Machine;
 
-    /// <summary>A short description for the Quick Setup list and the log.</summary>
+    /// <summary>A short description for setup's takeover list and the log.</summary>
     public string Describe()
     {
         return Kind switch

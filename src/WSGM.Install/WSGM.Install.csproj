@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1573;CS1591</WarningsAsErrors>
+    <Description>Install layout, bundled plugin manifest, hardware offers and setup components shared by WSGM and its setup.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+    <InternalsVisibleTo Include="WSGM.Tests"/>
+  </ItemGroup>
+</Project>

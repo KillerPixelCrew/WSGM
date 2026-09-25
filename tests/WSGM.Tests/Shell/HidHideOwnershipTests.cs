@@ -304,6 +304,49 @@ public sealed class HidHideOwnershipTests
         Assert.False(HidHideOwnedDeltaManager.Contains([], DosPath));
         Assert.Equal(string.Empty, HidHideOwnedDeltaManager.NormalizePath("   "));
     }
+
+    [Fact]
+    public async Task UninstallShowsTheControllerAgainAndLeavesOtherToolsAlone()
+    {
+        DeterministicFakeHidHideAdapter adapter = new(["HC.exe"], ["HID\\PRE"]);
+        InMemoryHidHideOwnershipStore store = new();
+        HidHideOwnedDeltaManager manager = new(adapter, store);
+        Assert.True((await manager.StartAsync(DosPath, [Physical("HID\\OWN")], CancellationToken.None)).Activated);
+
+        var result = await manager.CleanupForUninstallAsync([DosPath], CancellationToken.None);
+        var final = await adapter.ReadAsync(CancellationToken.None);
+
+        Assert.True(result.Verified);
+        Assert.Equal(["HC.exe"], final.Applications);
+        Assert.Equal(["HID\\PRE"], final.Devices);
+        Assert.Null(store.Ledger);
+    }
+
+    [Fact]
+    public async Task UninstallRemovesTheReadableAllowanceThatHasNoLedgerEntry()
+    {
+        // EnsureReadableAsync adds WSGM to the allowlist without a ledger entry, and HidHide stores
+        // it in NT notation.
+        DeterministicFakeHidHideAdapter adapter = new([DevicePath, "HC.exe"], ["HID\\HC"]);
+        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+
+        var result = await manager.CleanupForUninstallAsync([DosPath], CancellationToken.None);
+
+        Assert.True(result.Verified);
+        Assert.Equal(["HC.exe"], (await adapter.ReadAsync(CancellationToken.None)).Applications);
+    }
+
+    [Fact]
+    public async Task UninstallWithoutHidHideHasNothingToShowAgain()
+    {
+        DeterministicFakeHidHideAdapter adapter = new() { Health = HidHideHealthState.Unavailable };
+        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+
+        var result = await manager.CleanupForUninstallAsync([DosPath], CancellationToken.None);
+
+        Assert.True(result.Verified);
+        Assert.Equal(0, adapter.MutationCount);
+    }
 }
 
 internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter

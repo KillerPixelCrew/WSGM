@@ -820,15 +820,6 @@ public sealed class AppConfig
     /// </remarks>
     public LogVerbosity LogVerbosity { get; set; } = LogVerbosity.Normal;
 
-    /// <summary>Which revision of the first-run Quick Setup this device has completed.</summary>
-    /// <remarks>
-    ///     An int rather than a bool so a later build that adds a setting needing an
-    ///     explicit decision can raise <see cref="QuickSetup.CurrentRevision" /> and have
-    ///     the panel appear once more, showing only what is new. Zero means the panel
-    ///     has never been completed.
-    /// </remarks>
-    public int QuickSetupRevision { get; set; }
-
     /// <summary>
     ///     Steam CEF integration master switch and per-feature sub-toggles
     ///     (see <see cref="CefConfig" />).
@@ -952,44 +943,6 @@ public sealed class AppConfig
 
     /// <summary>Pre-existing DC CONSOLELOCK policy value; <c>-1</c> means absent.</summary>
     public int PreviousConsoleLockPolicyDc { get; set; } = -1;
-}
-
-/// <summary>Decides when the first-run Quick Setup panel is shown.</summary>
-/// <remarks>
-///     Keyed on a revision rather than a "seen it" flag so the panel can come back
-///     exactly once when a later build adds a setting that needs an explicit decision -
-///     the same way Steam Input Management needed one. Raising
-///     <see cref="CurrentRevision" /> is the whole trigger; everything else follows from
-///     the comparison, and a user who has already answered a revision is never asked
-///     about it again.
-/// </remarks>
-public static class QuickSetup
-{
-    /// <summary>The revision this build asks about.</summary>
-    /// <remarks>
-    ///     Revision 1 introduced Steam Input Management, which writes a file into
-    ///     Steam's own install directory, and the Steam CEF integration master switch.
-    ///     Revision 2 added the sign-in start and its mode, and the Steam autostart
-    ///     takeover, which turns the user's own startup entries off.
-    ///     Raise this only when a NEW setting genuinely needs the user's decision -
-    ///     every raise interrupts every existing device once.
-    /// </remarks>
-    public const int CurrentRevision = 2;
-
-    /// <summary>Whether the panel should be shown for the given configuration.</summary>
-    /// <param name="config">The configuration to test.</param>
-    /// <returns><see langword="true" /> when this device has not answered the current revision.</returns>
-    public static bool ShouldShow(AppConfig config)
-    {
-        return config.QuickSetupRevision < CurrentRevision;
-    }
-
-    /// <summary>Records that the current revision has been answered.</summary>
-    /// <param name="config">The configuration to stamp.</param>
-    public static void MarkCompleted(AppConfig config)
-    {
-        config.QuickSetupRevision = CurrentRevision;
-    }
 }
 
 /// <summary>
