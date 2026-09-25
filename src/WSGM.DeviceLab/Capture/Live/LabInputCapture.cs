@@ -453,60 +453,72 @@ internal sealed partial class LabInputCapture : IDisposable
             !noiseOnly && changed.Count > 0);
     }
 
-    // Vendor WMI event classes a shipping manager already subscribes to on its own devices, so enabling
-    // them runs firmware paths that are exercised every day. Handheld Companion 1.3.1.6 subscribes to
-    // MSI_Event on the Claw (ClawA1M.cs) and to nothing on ASUS, whose buttons arrive over HID.
-    private static readonly string[] VendorWmiEvents = ["MSI_Event"];
-
+    // Subscribes to the firmware's own WMI events, as its _WDG tables declare them, and to Windows' own
+    // power, device and brightness events. Never to every root\wmi event class: each subscription is an
+    // enable request to the owning driver, most of those classes are kernel trace providers that carry no
+    // input, and one of them bugchecked an ROG Xbox Ally X (0x44, 2026-09-25). See LabWmiFirmwareEvents.
     private void StartWmi()
     {
-        // Never subscribe to every root\wmi event class. Each subscription makes Windows send the owning
-        // driver an enable request, and on an ROG Xbox Ally X one of them completed that request twice:
-        // bugcheck 0x44 in nt!WmipSendEnableDisableRequest from WmiPrvSE, three times on 2026-09-25.
-        foreach (var name in VendorWmiEvents)
+        if (LabWmiQuarantine.RecoverFromCrash() is { } crashed)
         {
-            if (WmiClassExists(@"root\wmi", name))
-            {
-                Watch(@"root\wmi", $"SELECT * FROM {name}");
-            }
+            LabTrace.Write($"capture wmi: {crashed} was being enabled when this machine last went down; blocked");
         }
 
-        Watch(@"root\wmi", "SELECT * FROM WmiMonitorBrightnessEvent");
-        Watch(@"root\cimv2", "SELECT * FROM Win32_PowerManagementEvent");
-        Watch(@"root\cimv2", "SELECT * FROM Win32_DeviceChangeEvent");
+        var firmware = LabWmiFirmwareEvents.Discover(out var problem);
+        if (problem is not null)
+        {
+            MarkUnavailable("wmi firmware event discovery", problem);
+        }
+
+        LabTrace.Write("capture wmi firmware events: " + (firmware.Count == 0
+            ? "none declared"
+            : string.Join(", ", firmware.Select(item =>
+                $"{item.Class} (notify 0x{item.Event.NotifyId:X2}{(item.Event.Expensive ? ", expensive" : string.Empty)})"))));
+        foreach (var name in firmware.Select(item => item.Class).Distinct(StringComparer.Ordinal))
+        {
+            Watch(@"root\wmi", name);
+        }
+
+        Watch(@"root\wmi", "WmiMonitorBrightnessEvent");
+        Watch(@"root\cimv2", "Win32_PowerManagementEvent");
+        Watch(@"root\cimv2", "Win32_DeviceChangeEvent");
     }
 
-    private bool WmiClassExists(string scope, string name)
+    private void Watch(string scope, string className)
     {
-        try
+        if (!className.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
         {
-            using ManagementObjectSearcher search = new(scope, $"SELECT * FROM meta_class WHERE __CLASS = '{name}'");
-            using var classes = search.Get();
-            return classes.Count > 0;
+            return;
         }
-        catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
-        {
-            MarkUnavailable($"wmi {scope} {name}", ex.Message);
-            return false;
-        }
-    }
 
-    private void Watch(string scope, string query)
-    {
+        var key = $@"{scope}\{className}";
+        if (LabWmiQuarantine.IsBlocked(key))
+        {
+            MarkUnavailable($"wmi {key}", "skipped: enabling it crashed this machine before");
+            LabTrace.Write($"capture wmi watch {key}: skipped, it crashed this machine before");
+            return;
+        }
+
         ManagementEventWatcher? watcher = null;
+        LabTrace.Write($"capture wmi watch {key}: enable");
+        LabWmiQuarantine.Begin(key);
         try
         {
-            LabTrace.Write($"capture wmi watch {scope}: {query}");
-            watcher = new ManagementEventWatcher(new ManagementScope(scope), new WqlEventQuery(query));
+            watcher = new ManagementEventWatcher(new ManagementScope(scope),
+                new WqlEventQuery($"SELECT * FROM {className}"));
             watcher.EventArrived += (_, args) => OnWmiEvent(args.NewEvent);
             watcher.Start();
             _watchers.Add(watcher);
-            LabTrace.Write($"capture wmi watch {scope}: started");
+            LabTrace.Write($"capture wmi watch {key}: started");
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
         {
             watcher?.Dispose();
-            MarkUnavailable($"wmi {scope} {query}", ex.Message);
+            MarkUnavailable($"wmi {key}", ex.Message);
+        }
+        finally
+        {
+            LabWmiQuarantine.End();
         }
     }
 
