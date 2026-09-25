@@ -386,9 +386,24 @@
     <Border Classes="rail">
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="12" Margin="0,0,0,28">
-          <Border Width="40" Height="40" CornerRadius="10" Background="{DynamicResource HcAccentBrush}">
-            <TextBlock Text="W" FontWeight="Bold" FontSize="15" Foreground="{StaticResource HcOnAccentBrush}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <!-- The WSGM app icon, drawn from docs\branding\wsgm-icon.svg. A Rectangle strokes inside its bounds and an
+               SVG rect on its edge, so each rectangle is the SVG's grown by half the stroke. -->
+          <Border Width="40" Height="40" CornerRadius="8" ClipToBounds="True">
+            <Viewbox Stretch="Uniform">
+              <Canvas Width="256" Height="256" Background="#1B1B1B">
+                <Rectangle Canvas.Left="32" Canvas.Top="80" Width="192" Height="96" Stroke="#E9E5DF"
+                           StrokeThickness="8" />
+                <Rectangle Canvas.Left="88" Canvas.Top="96" Width="80" Height="64" Stroke="#E9E5DF"
+                           StrokeThickness="8" />
+                <Rectangle Canvas.Left="48" Canvas.Top="112" Width="32" Height="32" Stroke="#E9E5DF"
+                           StrokeThickness="8" />
+                <Rectangle Canvas.Left="176" Canvas.Top="112" Width="32" Height="32" Stroke="#E9E5DF"
+                           StrokeThickness="8" />
+                <Path Data="M112,112 V144 L144,128 Z" Fill="#FF9D3D" />
+                <Path Stroke="#FF9D3D" StrokeThickness="8" StrokeLineCap="Flat"
+                      Data="M24,28 H48 M28,24 V48 M232,28 H208 M228,24 V48 M24,228 H48 M28,232 V208 M232,228 H208 M228,232 V208" />
+              </Canvas>
+            </Viewbox>
           </Border>
           <StackPanel VerticalAlignment="Center">
             <TextBlock Text="WSGM" FontWeight="Bold" FontSize="20" />
