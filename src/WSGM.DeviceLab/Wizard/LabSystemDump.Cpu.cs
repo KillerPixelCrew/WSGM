@@ -24,7 +24,10 @@ internal static partial class LabSystemDump
         var caches = WmiSection("root\\CIMV2", "Win32_CacheMemory",
             ["Purpose", "Level", "InstalledSize", "Associativity", "CacheType", "LineSize"], issues, token);
         var memory = WmiSection("root\\CIMV2", "Win32_PhysicalMemory",
-            ["Capacity", "Speed", "ConfiguredClockSpeed", "SMBIOSMemoryType", "FormFactor", "DataWidth", "Manufacturer"],
+            [
+                "Capacity", "Speed", "ConfiguredClockSpeed", "SMBIOSMemoryType", "FormFactor", "DataWidth",
+                "Manufacturer"
+            ],
             issues, token);
         var graphics = WmiSection("root\\CIMV2", "Win32_VideoController",
         [
@@ -73,7 +76,8 @@ internal static partial class LabSystemDump
             identity is null ? Plural(count, "processor", "processors") : $"processor {identity}", issues);
     }
 
-    [GeneratedRegex(@"Family (?<family>\d+) Model (?<model>\d+) Stepping (?<stepping>\d+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"Family (?<family>\d+) Model (?<model>\d+) Stepping (?<stepping>\d+)",
+        RegexOptions.CultureInvariant)]
     private static partial Regex CpuIdentity();
 
     [LibraryImport("kernel32.dll")]

@@ -172,18 +172,6 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
         _channel.Dispose();
     }
 
-    /// <summary>Opens the ATKACPI device.</summary>
-    /// <param name="layout">IDs from the curated record.</param>
-    /// <param name="log">Where every call is logged.</param>
-    /// <returns>The transport.</returns>
-    /// <exception cref="Win32Exception">The device is not there or cannot be opened.</exception>
-    public static LabAtkAcpi Open(LabAsusLayout layout, LabPowerLog log)
-    {
-        var channel = DeviceChannel.Open();
-        log.Add("acpi-open", new { Device = DevicePath });
-        return new LabAtkAcpi(channel, layout, log);
-    }
-
     /// <summary>Reads a scalar.</summary>
     /// <param name="id">A declared ID.</param>
     /// <returns>The low 16 bits of a supported result.</returns>
@@ -228,7 +216,8 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
                     : false;
         if (!allowed)
         {
-            throw new InvalidOperationException($"Refused ASUS write {Hex(id)} = {value}: outside the reviewed bounds.");
+            throw new InvalidOperationException(
+                $"Refused ASUS write {Hex(id)} = {value}: outside the reviewed bounds.");
         }
 
         var args = new byte[4];
@@ -291,54 +280,6 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
         _ = Call(true, id, curve);
     }
 
-    /// <summary>AllyXLab's curve check: rising temperatures in 20-110 °C, duties up to 100, not all zero.</summary>
-    /// <param name="curve">The curve.</param>
-    /// <returns>Whether it may be written.</returns>
-    public static bool ValidCurve(byte[] curve)
-    {
-        return curve.Length == 16
-               && curve.Take(8).All(x => x is >= 20 and <= 110)
-               && curve.Skip(8).All(x => x <= 100)
-               && Enumerable.Range(1, 7).All(i => curve[i] >= curve[i - 1])
-               && curve.Skip(8).Any(x => x > 0);
-    }
-
-    /// <summary>Reads the whole power state and checks it can be put back.</summary>
-    /// <returns>The state.</returns>
-    public LabAsusState Snapshot()
-    {
-        if (!Layout.CanSnapshot)
-        {
-            throw new InvalidOperationException("The record does not declare the whole ASUS power state.");
-        }
-
-        int mode = Get(Layout.Mode!.Value), spl = Get(Layout.Spl!.Value), sppt = Get(Layout.Sppt!.Value),
-            fppt = Get(Layout.Fppt!.Value);
-        if (!Layout.ModeValues.Contains(mode) || spl is < 5 or > 65 || sppt < spl || sppt > 65 || fppt < sppt
-            || fppt > 65)
-        {
-            throw new InvalidOperationException("The power readback is outside the range that can be put back.");
-        }
-
-        var state = new LabAsusState(mode, spl, sppt, fppt,
-            Convert.ToHexString(GetCurve(Layout.CpuCurve!.Value, mode)),
-            Convert.ToHexString(GetCurve(Layout.GpuCurve!.Value, mode)));
-        _log.Add("snapshot", state);
-        return state;
-    }
-
-    /// <summary>Takes two snapshots a moment apart and refuses a state another program is changing.</summary>
-    /// <returns>The stable state.</returns>
-    public LabAsusState StableSnapshot()
-    {
-        var first = Snapshot();
-        _pause(150);
-        return first.Same(Snapshot())
-            ? first
-            : throw new InvalidOperationException(
-                "The power settings changed by themselves. Another program may be controlling them.");
-    }
-
     /// <inheritdoc />
     public LabAsusOriginal Original()
     {
@@ -384,7 +325,8 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
         var id = cpu ? Layout.CpuCurve!.Value : Layout.GpuCurve!.Value;
         var hex = cpu ? original.CpuCurve : original.GpuCurve;
         var target = LabPowerPlan.FanTestCurve(Convert.FromHexString(hex))
-                     ?? throw new InvalidOperationException("The original fan curve is not valid, so no test curve was written.");
+                     ?? throw new InvalidOperationException(
+                         "The original fan curve is not valid, so no test curve was written.");
         SetCurve(id, target);
         _pause(150);
         var readback = GetCurve(id, original.Mode);
@@ -398,7 +340,8 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
         });
         return matches
             ? Convert.ToHexString(target)
-            : throw new InvalidOperationException("The fan curve did not read back as written. Stopped without trying again.");
+            : throw new InvalidOperationException(
+                "The fan curve did not read back as written. Stopped without trying again.");
     }
 
     /// <summary>
@@ -595,6 +538,68 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
         return readings;
     }
 
+    /// <summary>Opens the ATKACPI device.</summary>
+    /// <param name="layout">IDs from the curated record.</param>
+    /// <param name="log">Where every call is logged.</param>
+    /// <returns>The transport.</returns>
+    /// <exception cref="Win32Exception">The device is not there or cannot be opened.</exception>
+    public static LabAtkAcpi Open(LabAsusLayout layout, LabPowerLog log)
+    {
+        var channel = DeviceChannel.Open();
+        log.Add("acpi-open", new { Device = DevicePath });
+        return new LabAtkAcpi(channel, layout, log);
+    }
+
+    /// <summary>AllyXLab's curve check: rising temperatures in 20-110 °C, duties up to 100, not all zero.</summary>
+    /// <param name="curve">The curve.</param>
+    /// <returns>Whether it may be written.</returns>
+    public static bool ValidCurve(byte[] curve)
+    {
+        return curve.Length == 16
+               && curve.Take(8).All(x => x is >= 20 and <= 110)
+               && curve.Skip(8).All(x => x <= 100)
+               && Enumerable.Range(1, 7).All(i => curve[i] >= curve[i - 1])
+               && curve.Skip(8).Any(x => x > 0);
+    }
+
+    /// <summary>Reads the whole power state and checks it can be put back.</summary>
+    /// <returns>The state.</returns>
+    public LabAsusState Snapshot()
+    {
+        if (!Layout.CanSnapshot)
+        {
+            throw new InvalidOperationException("The record does not declare the whole ASUS power state.");
+        }
+
+        int mode = Get(Layout.Mode!.Value),
+            spl = Get(Layout.Spl!.Value),
+            sppt = Get(Layout.Sppt!.Value),
+            fppt = Get(Layout.Fppt!.Value);
+        if (!Layout.ModeValues.Contains(mode) || spl is < 5 or > 65 || sppt < spl || sppt > 65 || fppt < sppt
+            || fppt > 65)
+        {
+            throw new InvalidOperationException("The power readback is outside the range that can be put back.");
+        }
+
+        var state = new LabAsusState(mode, spl, sppt, fppt,
+            Convert.ToHexString(GetCurve(Layout.CpuCurve!.Value, mode)),
+            Convert.ToHexString(GetCurve(Layout.GpuCurve!.Value, mode)));
+        _log.Add("snapshot", state);
+        return state;
+    }
+
+    /// <summary>Takes two snapshots a moment apart and refuses a state another program is changing.</summary>
+    /// <returns>The stable state.</returns>
+    public LabAsusState StableSnapshot()
+    {
+        var first = Snapshot();
+        _pause(150);
+        return first.Same(Snapshot())
+            ? first
+            : throw new InvalidOperationException(
+                "The power settings changed by themselves. Another program may be controlling them.");
+    }
+
     private static string Hex(uint id)
     {
         return $"0x{id:X8}";
@@ -616,7 +621,10 @@ internal sealed class LabAtkAcpi : ILabAtkAcpi
         _log.Add(write ? "acpi-write" : "acpi-read", new { Id = Hex(id), Args = Convert.ToHexString(args) });
         var success = _channel.Control(input, output, out var returned, out var error);
         _log.Add("acpi-response",
-            new { Id = Hex(id), Write = write, Success = success, Returned = returned, Raw = Convert.ToHexString(output) });
+            new
+            {
+                Id = Hex(id), Write = write, Success = success, Returned = returned, Raw = Convert.ToHexString(output)
+            });
         if (!success)
         {
             throw new Win32Exception(error,

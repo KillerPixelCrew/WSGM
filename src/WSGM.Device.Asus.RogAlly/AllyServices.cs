@@ -73,14 +73,18 @@ internal sealed class VendorEventService(
             return ValueTask.CompletedTask;
         }
 
-        if (action.Button is not CanonicalButtons.None)
+        if (code is 0xA7 or 0xA8)
+        {
+            buttons.Hold(action.Button, action.Edge is OemControlEdge.Pressed);
+        }
+        else if (action.Button is not CanonicalButtons.None)
         {
             buttons.Latch(action.Button, timestamp);
         }
 
         return host.PublishOemEventAsync(
             new OemControlEvent(action.ControlId, action.Press, _cycleGeneration, timestamp,
-                $"asus-5a-{code:X2}-{Interlocked.Increment(ref _sequence)}"),
+                $"asus-5a-{code:X2}-{Interlocked.Increment(ref _sequence)}", action.Edge),
             CancellationToken.None);
     }
 }
@@ -215,8 +219,6 @@ internal sealed class PowerService(
     IAsusAcpi acpi,
     AllyRecoveryJournal journal) : AllyService(AllyServiceIds.Power)
 {
-    private bool _unjournalledWrite;
-
     public AllyPowerCapability? Capability { get; private set; }
 
     public AllyPowerState? LastObserved { get; private set; }
@@ -233,7 +235,8 @@ internal sealed class PowerService(
 
         if (context.Identity.Model is not { } model)
         {
-            return ValueTask.FromResult(Set(AllyServiceState.Passive, Missing("The exact Ally identity no longer matches.")));
+            return ValueTask.FromResult(Set(AllyServiceState.Passive,
+                Missing("The exact Ally identity no longer matches.")));
         }
 
         if (!acpi.TryOpen())
@@ -256,18 +259,17 @@ internal sealed class PowerService(
     }
 
     /// <summary>Journals the original state before the first write of this cycle, when it can be read.</summary>
-    public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
+    public async ValueTask<bool> PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         var original = Capability!.Read();
-        if (original.LimitsReadable)
+        if (!original.LimitsReadable || original.Mode is null)
         {
-            _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Power(original),
-                cancellationToken).ConfigureAwait(false);
+            return false;
         }
-        else
-        {
-            _unjournalledWrite = true;
-        }
+
+        _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Power(original),
+            cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
@@ -306,14 +308,12 @@ internal sealed class PowerService(
             if (!restored)
             {
                 return Set(AllyServiceState.ReleasedUnverified, new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted, "The captured power limits did not read back after restoration."));
+                    CapabilityReasonCode.TransportFaulted,
+                    "The captured power limits did not read back after restoration."));
             }
         }
 
-        return _unjournalledWrite
-            ? Set(AllyServiceState.ReleasedUnverified, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                "Power limits were changed but the firmware never reported the originals to restore."))
-            : Set(AllyServiceState.Idle);
+        return Set(AllyServiceState.Idle);
     }
 }
 
@@ -328,6 +328,8 @@ internal sealed class FanService(
 
     public (int? Cpu, int? Gpu) LastFans { get; private set; }
 
+    public AllyFanSnapshot? Original => journal.OriginalStateFor(ServiceId)?.ToFans();
+
     public override ValueTask<AllyServiceResult> AcquireAsync(
         AllyCycleContext context,
         CancellationToken cancellationToken)
@@ -340,7 +342,8 @@ internal sealed class FanService(
 
         if (!context.Identity.ExactMachineMatch)
         {
-            return ValueTask.FromResult(Set(AllyServiceState.Passive, Missing("The exact Ally identity no longer matches.")));
+            return ValueTask.FromResult(Set(AllyServiceState.Passive,
+                Missing("The exact Ally identity no longer matches.")));
         }
 
         if (!acpi.TryOpen())
@@ -368,17 +371,18 @@ internal sealed class FanService(
         LastFans = Capability.ReadFans();
     }
 
-    public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
+    public async ValueTask<bool> PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         var original = Capability!.Read();
-        if (original.Readable)
+        if (!original.Readable || original.Mode is null || (Capability.HasMidFan && original.Mid is null))
         {
-            _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Fans(original),
-                cancellationToken).ConfigureAwait(false);
+            return false;
         }
-    }
 
-    public AllyFanSnapshot? Original => journal.OriginalStateFor(ServiceId)?.ToFans();
+        _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Fans(original),
+            cancellationToken).ConfigureAwait(false);
+        return true;
+    }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
         AllyCycleContext context,
@@ -408,9 +412,10 @@ internal sealed class FanService(
                 AllyDiagnosticText.FromException("Fan restoration failed", ex)));
         }
 
-        // A written curve that DSTS does not echo is the unverified case the lab has to settle; the
-        // entry is still cleared, because the only restore possible has been performed.
-        await journal.CompleteAsync(ServiceId, AllyRecoveryStatus.RestoredVerified, cancellationToken)
+        // Keep an unverified restore visible to the next cycle. It must not be called verified.
+        await journal.CompleteAsync(ServiceId,
+                restored ? AllyRecoveryStatus.RestoredVerified : AllyRecoveryStatus.RestoredUnverified,
+                cancellationToken)
             .ConfigureAwait(false);
         return restored
             ? Set(AllyServiceState.Idle)
@@ -433,7 +438,8 @@ internal sealed class ChargeLimitService(IAsusAcpi acpi) : AllyService(AllyServi
         cancellationToken.ThrowIfCancellationRequested();
         if (!context.Identity.ExactMachineMatch)
         {
-            return ValueTask.FromResult(Set(AllyServiceState.Passive, Missing("The exact Ally identity no longer matches.")));
+            return ValueTask.FromResult(Set(AllyServiceState.Passive,
+                Missing("The exact Ally identity no longer matches.")));
         }
 
         if (!acpi.TryOpen())
@@ -476,8 +482,8 @@ internal sealed record AllyLightingState(int Brightness, AuraEffect Effect, int 
 /// </remarks>
 internal sealed class LightingService(IAllyAuraHid aura) : AllyService(AllyServiceIds.Lighting)
 {
-    private AllyModel? _model;
     private bool _dynamicLightingHandled;
+    private AllyModel? _model;
 
     public AllyLightingState Desired { get; private set; } = AllyLightingState.Initial;
 
@@ -561,14 +567,23 @@ internal sealed class LightingService(IAllyAuraHid aura) : AllyService(AllyServi
         var speed = AllyProtocol.Speed(state.Speed);
         if (state.Effect is AuraEffect.Solid)
         {
-            reports.Add((AllyProtocol.Color(AuraEffect.Solid, AuraZone.LeftStickLeft, state.LeftColor, state.LeftColor, speed), false));
-            reports.Add((AllyProtocol.Color(AuraEffect.Solid, AuraZone.LeftStickRight, state.LeftColor, state.LeftColor, speed), false));
-            reports.Add((AllyProtocol.Color(AuraEffect.Solid, AuraZone.RightStickLeft, state.RightColor, state.RightColor, speed), false));
-            reports.Add((AllyProtocol.Color(AuraEffect.Solid, AuraZone.RightStickRight, state.RightColor, state.RightColor, speed), false));
+            reports.Add((
+                AllyProtocol.Color(AuraEffect.Solid, AuraZone.LeftStickLeft, state.LeftColor, state.LeftColor, speed),
+                false));
+            reports.Add((
+                AllyProtocol.Color(AuraEffect.Solid, AuraZone.LeftStickRight, state.LeftColor, state.LeftColor, speed),
+                false));
+            reports.Add((
+                AllyProtocol.Color(AuraEffect.Solid, AuraZone.RightStickLeft, state.RightColor, state.RightColor,
+                    speed), false));
+            reports.Add((
+                AllyProtocol.Color(AuraEffect.Solid, AuraZone.RightStickRight, state.RightColor, state.RightColor,
+                    speed), false));
         }
         else
         {
-            reports.Add((AllyProtocol.Color(state.Effect, AuraZone.All, state.LeftColor, state.RightColor, speed), false));
+            reports.Add((AllyProtocol.Color(state.Effect, AuraZone.All, state.LeftColor, state.RightColor, speed),
+                false));
         }
 
         reports.Add((AllyProtocol.Apply(), false));
@@ -784,7 +799,9 @@ internal sealed class ControllerService(
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            host.Trace(DeviceTraceLevel.Warn, "controller", AllyDiagnosticText.FromException("zero rumble failed", ex));
+            var detail = AllyDiagnosticText.FromException("zero rumble failed", ex);
+            host.Trace(DeviceTraceLevel.Warn, "controller", detail);
+            failure = new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail);
         }
         finally
         {
@@ -811,7 +828,8 @@ internal sealed class ControllerService(
 
         if (_configured)
         {
-            failure ??= await RestoreConfigurationAsync(deadline).ConfigureAwait(false);
+            var restoreFailure = await RestoreConfigurationAsync(deadline).ConfigureAwait(false);
+            failure ??= restoreFailure;
         }
 
         LastReleasedDevices = _topology?.PhysicalDevices ?? [];

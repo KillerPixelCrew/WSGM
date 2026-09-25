@@ -41,26 +41,6 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
 
     public List<(AsusAcpiId Id, byte[] Data)> BufferWrites { get; } = [];
 
-    public int Scalar(AsusAcpiId id)
-    {
-        return _scalars[id];
-    }
-
-    public void SetScalar(AsusAcpiId id, int value)
-    {
-        _scalars[id] = value;
-    }
-
-    public byte[] Curve(AsusAcpiId id)
-    {
-        return _curves[id];
-    }
-
-    public void SetCurve(AsusAcpiId id, byte[] curve)
-    {
-        _curves[id] = curve;
-    }
-
     public bool TryOpen()
     {
         return Available;
@@ -119,6 +99,26 @@ internal sealed class FakeAsusAcpi : IAsusAcpi
 
     public void Dispose()
     {
+    }
+
+    public int Scalar(AsusAcpiId id)
+    {
+        return _scalars[id];
+    }
+
+    public void SetScalar(AsusAcpiId id, int value)
+    {
+        _scalars[id] = value;
+    }
+
+    public byte[] Curve(AsusAcpiId id)
+    {
+        return _curves[id];
+    }
+
+    public void SetCurve(AsusAcpiId id, byte[] curve)
+    {
+        _curves[id] = curve;
     }
 }
 
@@ -183,14 +183,14 @@ internal sealed class FakeVendorHid : IAllyVendorHid
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask RaiseAsync(byte code)
-    {
-        return _callback?.Invoke(code, DateTimeOffset.UtcNow) ?? ValueTask.CompletedTask;
-    }
-
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;
+    }
+
+    public ValueTask RaiseAsync(byte code)
+    {
+        return _callback?.Invoke(code, DateTimeOffset.UtcNow) ?? ValueTask.CompletedTask;
     }
 }
 
@@ -233,8 +233,8 @@ internal sealed class FakeAuraHid : IAllyAuraHid
 
 internal sealed class FakeControllerSource : IAllyControllerSource
 {
-    private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
     private long _generation;
+    private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
     private long _sequence;
 
     public bool Present { get; set; } = true;
@@ -251,6 +251,8 @@ internal sealed class FakeControllerSource : IAllyControllerSource
     ];
 
     public bool Running { get; private set; }
+
+    public bool FailRumble { get; set; }
 
     /// <summary>The OEM button state the plugin hands the real source, merged the same way.</summary>
     public AllyOemButtonState? Buttons { get; set; }
@@ -284,6 +286,16 @@ internal sealed class FakeControllerSource : IAllyControllerSource
     public ValueTask WriteRumbleAsync(float low, float high, CancellationToken cancellationToken)
     {
         Rumble.Add((low, high));
+        if (FailRumble)
+        {
+            throw new IOException("simulated rumble output failure");
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync()
+    {
         return ValueTask.CompletedTask;
     }
 
@@ -297,11 +309,6 @@ internal sealed class FakeControllerSource : IAllyControllerSource
             Timestamp = now,
             Buttons = buttons | (Buttons?.Current(now) ?? CanonicalButtons.None)
         }, CancellationToken.None) ?? ValueTask.CompletedTask;
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        return ValueTask.CompletedTask;
     }
 }
 
@@ -349,17 +356,17 @@ internal sealed class FakeKeyboardSource : IAllyKeyboardSource
         return ValueTask.CompletedTask;
     }
 
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
+
     /// <summary>Delivers a key the way the hook would: only when it is watched.</summary>
     public ValueTask PressAsync(uint virtualKey, bool down)
     {
         return Watched.Contains(virtualKey) && _callback is not null
             ? _callback(new AllyKeyEvent(virtualKey, down, DateTimeOffset.UtcNow))
             : ValueTask.CompletedTask;
-    }
-
-    public ValueTask DisposeAsync()
-    {
-        return ValueTask.CompletedTask;
     }
 }
 

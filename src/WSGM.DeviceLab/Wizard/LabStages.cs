@@ -46,8 +46,10 @@ internal static class LabStages
         new(SystemDump, "System details",
             "Records the ACPI tables, device tree, HID devices, sensors, WMI, display, battery and power settings. Nothing is changed."),
         new(Buttons, "Buttons", "Press each control when it is shown. Every input from every device is recorded."),
-        new(Motion, "Motion sensors", "Measures the gyro and accelerometer at rest, in six positions and while turning."),
-        new(Rumble, "Rumble", "Finds which way of driving the motors works, then the weakest rumble you can feel and the shortest pulse."),
+        new(Motion, "Motion sensors",
+            "Measures the gyro and accelerometer at rest, in six positions and while turning."),
+        new(Rumble, "Rumble",
+            "Finds which way of driving the motors works, then the weakest rumble you can feel and the shortest pulse."),
         new(Power, "Power, fans and lighting",
             "Tests power limits, fans, lighting and the charge limit where this device supports it, and puts everything back."),
         new(Sleep, "Sleep and wake", "Puts the device to sleep and checks the controller and sensors come back.")

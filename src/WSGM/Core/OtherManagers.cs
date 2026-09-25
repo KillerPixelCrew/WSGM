@@ -119,7 +119,8 @@ public sealed class ServiceSystem : IServiceSystem
             4 => "disabled",
             _ => null
         };
-        return mode is not null && ConsoleTool.Run(ConsoleTool.System32("sc.exe"), $"config \"{service}\" start= {mode}");
+        return mode is not null &&
+               ConsoleTool.Run(ConsoleTool.System32("sc.exe"), $"config \"{service}\" start= {mode}");
     }
 
     /// <inheritdoc />
@@ -160,7 +161,8 @@ public static class OtherManagers
     public static IReadOnlyList<OtherManager> Known { get; } =
     [
         new("handheld-companion", "Handheld Companion", ["HandheldCompanion"], [], ["HandheldCompanion"]),
-        new("msi-center-m", "MSI Center M", ["MSI_Center_M_Server", "MSI Center M", "MCMOSDInfo", "MSI Center OSD Info"],
+        new("msi-center-m", "MSI Center M",
+            ["MSI_Center_M_Server", "MSI Center M", "MCMOSDInfo", "MSI Center OSD Info"],
             ["MSI Foundation Service"], ["MSI_Center_M_Server", "MSI_Center_M_Updater"]),
         new("armoury-crate", "Armoury Crate", ["ArmouryCrate", "ArmourySocketServer", "ArmouryCrateUserSessionHelper"],
             ["ArmouryCrateSEService", "AsusAppService", "ArmouryCrateControlInterface"], []),
@@ -233,7 +235,8 @@ public static class OtherManagers
     /// <param name="services">The services; the live ones by default.</param>
     /// <param name="closeWindows">Asks the named processes to close and returns those still running.</param>
     /// <returns>What changed.</returns>
-    public static OtherManagersResult Disable(IReadOnlyList<DetectedManager> detected, Action<OtherManagerRecord> record,
+    public static OtherManagersResult Disable(IReadOnlyList<DetectedManager> detected,
+        Action<OtherManagerRecord> record,
         IAutostartSystem? autostart = null, IServiceSystem? services = null,
         Func<IReadOnlyList<string>, IReadOnlyList<string>>? closeWindows = null)
     {
@@ -301,7 +304,8 @@ public static class OtherManagers
             var restored = Restore(records, new AutostartSystem(), new ServiceSystem());
             HashSet<string> done = [.. restored.Select(Key)];
             ConfigStore.Mutate(config =>
-                config.OtherManagersDisabled = [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))]);
+                config.OtherManagersDisabled =
+                    [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))]);
             return restored.Count == records.Count ? 0 : 1;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

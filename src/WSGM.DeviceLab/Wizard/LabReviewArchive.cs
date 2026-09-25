@@ -247,7 +247,7 @@ internal sealed class LabReviewArchive : IDisposable
         }
 
         return value.TryGetValue<double>(out var real) && real is >= int.MinValue and <= int.MaxValue
-                                                          && Math.Abs(real - Math.Round(real)) < 1e-9
+                                                       && Math.Abs(real - Math.Round(real)) < 1e-9
             ? (int)Math.Round(real)
             : null;
     }

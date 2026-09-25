@@ -158,6 +158,12 @@ public sealed class LabAtkAcpiTests
     // A register file that speaks the DEVS/DSTS protocol LabAtkAcpi builds.
     private sealed class FakeChannel : ILabAtkAcpiChannel
     {
+        private readonly Dictionary<uint, byte[]> _curves = new()
+        {
+            [CpuCurve] = [20, 30, 40, 50, 60, 70, 80, 90, 10, 20, 30, 40, 50, 60, 70, 80],
+            [GpuCurve] = [20, 30, 40, 50, 60, 70, 80, 90, 10, 20, 30, 40, 50, 60, 70, 80]
+        };
+
         private readonly Dictionary<uint, int> _scalars = new()
         {
             [Mode] = 0,
@@ -166,20 +172,9 @@ public sealed class LabAtkAcpiTests
             [Fppt] = 25
         };
 
-        private readonly Dictionary<uint, byte[]> _curves = new()
-        {
-            [CpuCurve] = [20, 30, 40, 50, 60, 70, 80, 90, 10, 20, 30, 40, 50, 60, 70, 80],
-            [GpuCurve] = [20, 30, 40, 50, 60, 70, 80, 90, 10, 20, 30, 40, 50, 60, 70, 80]
-        };
-
         public Func<uint, int>? OnRead { get; set; }
 
         public List<(uint Id, int Value)> Writes { get; } = [];
-
-        public int Value(uint id)
-        {
-            return _scalars[id];
-        }
 
         public bool Control(byte[] input, byte[] output, out uint returned, out int error)
         {
@@ -221,6 +216,11 @@ public sealed class LabAtkAcpiTests
 
         public void Dispose()
         {
+        }
+
+        public int Value(uint id)
+        {
+            return _scalars[id];
         }
     }
 }

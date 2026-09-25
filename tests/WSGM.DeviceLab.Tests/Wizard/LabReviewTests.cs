@@ -1,3 +1,4 @@
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Tests;
 using WSGM.DeviceLab.Application;
@@ -116,7 +117,8 @@ public sealed class LabReviewTests
         Assert.Equal(DeviceKnowledgeStatus.Curated, record.Status);
         var rule = Assert.Single(record.Identity);
         Assert.Equal("MS-1T52", rule.BaseboardProduct);
-        Assert.Contains(record.Buttons, button => button is { WizardButton: "OemLeft", Source: DeviceButtonSourceKind.WmiEvent });
+        Assert.Contains(record.Buttons,
+            button => button is { WizardButton: "OemLeft", Source: DeviceButtonSourceKind.WmiEvent });
     }
 
     [Fact]
@@ -138,7 +140,7 @@ public sealed class LabReviewTests
         var manifest = PluginManifestReader.Read(File.ReadAllBytes(Path.Combine(directory, "plugin.wsgm.json")));
         Assert.True(manifest.IsValid);
         Assert.Equal("MS-1T52", Assert.Single(manifest.Manifest!.Hardware).BaseboardProduct);
-        Assert.Contains(WSGM.Device.Sdk.Capabilities.CapabilityRole.HapticSink, manifest.Manifest.Capabilities);
+        Assert.Contains(CapabilityRole.HapticSink, manifest.Manifest.Capabilities);
         Assert.Equal("0DB0", result.Scaffold.Identity.UsbVendorId);
     }
 
@@ -211,8 +213,10 @@ public sealed class LabReviewTests
         Button(project, "oem-right", "Extra button right of the screen", [],
             [new LabKeyPresses("hook", null, "F15", 1, 1, [80], false)]);
         Button(project, "back-left1", "Back button, left",
-            [new LabInputCandidate("raw-input", "hid:1", "hid 0DB0:1902 FFF0:0040", ["report 01 byte 7: 00 10"], 9, 2,
-                "controller")], []);
+        [
+            new LabInputCandidate("raw-input", "hid:1", "hid 0DB0:1902 FFF0:0040", ["report 01 byte 7: 00 10"], 9, 2,
+                "controller")
+        ], []);
         Button(project, "a", "A",
             [new LabInputCandidate("xinput", "xinput:0", "xinput", ["A"], 5, 2, null)], []);
 

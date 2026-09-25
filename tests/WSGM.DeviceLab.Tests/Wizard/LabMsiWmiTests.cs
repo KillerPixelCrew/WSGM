@@ -41,7 +41,7 @@ public sealed class LabMsiWmiTests
     [Fact]
     public void WritePair_RaisingSustainedAboveBoost_WritesBoostFirst()
     {
-        var channel = new FakeChannel(sustained: 10, boost: 12);
+        var channel = new FakeChannel(10, 12);
         using LabMsiWmi wmi = new(channel, Layout(), new LabPowerLog());
         var current = wmi.ReadPower();
 
@@ -54,7 +54,7 @@ public sealed class LabMsiWmiTests
     [Fact]
     public void RestorePower_PutsTheCapturedPairBack()
     {
-        var channel = new FakeChannel(sustained: 30, boost: 30);
+        var channel = new FakeChannel();
         using LabMsiWmi wmi = new(channel, Layout(), new LabPowerLog());
         var original = wmi.ReadPower();
 
@@ -78,7 +78,7 @@ public sealed class LabMsiWmiTests
     [Fact]
     public void Original_CapturesThePowerStateAndTheRawChargeLimit()
     {
-        var channel = new FakeChannel(sustained: 20, boost: 25, charge: 0x80 | 80);
+        var channel = new FakeChannel(20, 25, 0x80 | 80);
         using LabMsiWmi wmi = new(channel, Layout(), new LabPowerLog());
 
         var original = wmi.Original();

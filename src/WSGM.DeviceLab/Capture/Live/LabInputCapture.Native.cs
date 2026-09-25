@@ -33,15 +33,15 @@ internal sealed partial class LabInputCapture
     ];
 
     private readonly List<IntPtr> _notifications = [];
+    private bool _altHeld;
     private IntPtr _keyboardHook;
     private HookProc? _keyboardProc;
     private IntPtr _mouseHook;
     private HookProc? _mouseProc;
-    private bool _altHeld;
     private uint _shellMessage;
-    private bool _windowsHeld;
     private IntPtr _window;
     private WndProc? _windowProc;
+    private bool _windowsHeld;
 
     private void MessageLoop()
     {
@@ -107,7 +107,8 @@ internal sealed partial class LabInputCapture
             if (!RegisterShellHookWindow(_window))
             {
                 _shellMessage = 0;
-                MarkUnavailable("shell app commands", $"RegisterShellHookWindow failed ({Marshal.GetLastWin32Error()})");
+                MarkUnavailable("shell app commands",
+                    $"RegisterShellHookWindow failed ({Marshal.GetLastWin32Error()})");
             }
 
             _ready.Set();
@@ -337,7 +338,9 @@ internal sealed partial class LabInputCapture
     private static string? Hex(string path, string marker)
     {
         var at = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        return at >= 0 && at + marker.Length + 4 <= path.Length ? path.Substring(at + marker.Length, 4).ToUpperInvariant() : null;
+        return at >= 0 && at + marker.Length + 4 <= path.Length
+            ? path.Substring(at + marker.Length, 4).ToUpperInvariant()
+            : null;
     }
 
     private IntPtr WindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam)
@@ -350,15 +353,15 @@ internal sealed partial class LabInputCapture
                     ReadRawInput(lParam);
                     break;
                 case WmInputDeviceChange:
-                    {
-                        var arrived = wParam.ToInt64() == 1;
-                        var device = Describe(lParam);
-                        Record(new LabInputEvent(Math.Round(Now, 2), "device", device.Id,
+                {
+                    var arrived = wParam.ToInt64() == 1;
+                    var device = Describe(lParam);
+                    Record(new LabInputEvent(Math.Round(Now, 2), "device", device.Id,
                             $"{(arrived ? "arrived" : "removed")}: {device.Kind} {device.VendorId}:{device.ProductId} {device.UsagePage:X4}:{device.Usage:X4}"),
-                            false);
-                        DeviceChanged?.Invoke(device, arrived);
-                        break;
-                    }
+                        false);
+                    DeviceChanged?.Invoke(device, arrived);
+                    break;
+                }
                 case WmPowerBroadcast:
                     OnPowerBroadcast(wParam.ToInt64(), lParam);
                     return new IntPtr(1);
@@ -389,14 +392,14 @@ internal sealed partial class LabInputCapture
         switch (kind)
         {
             case 0x8013:
-                {
-                    var setting = Marshal.PtrToStructure<Guid>(lParam);
-                    var length = Marshal.ReadInt32(lParam + 16);
-                    var value = length is > 0 and <= 4 ? Marshal.ReadInt32(lParam + 20) : -1;
-                    var name = PowerSettings.FirstOrDefault(item => item.Setting == setting).Name ?? setting.ToString();
-                    Record(new LabInputEvent(Math.Round(Now, 2), "power", null, $"{name} = {value}"), true);
-                    break;
-                }
+            {
+                var setting = Marshal.PtrToStructure<Guid>(lParam);
+                var length = Marshal.ReadInt32(lParam + 16);
+                var value = length is > 0 and <= 4 ? Marshal.ReadInt32(lParam + 20) : -1;
+                var name = PowerSettings.FirstOrDefault(item => item.Setting == setting).Name ?? setting.ToString();
+                Record(new LabInputEvent(Math.Round(Now, 2), "power", null, $"{name} = {value}"), true);
+                break;
+            }
             case 4:
                 Record(new LabInputEvent(Math.Round(Now, 2), "power", null, "suspending"), true);
                 SuspendResume?.Invoke(true);
@@ -435,49 +438,49 @@ internal sealed partial class LabInputCapture
             switch (type)
             {
                 case 0:
+                {
+                    var buttons = (ushort)Marshal.ReadInt16(body + 4);
+                    if (buttons != 0 || Detailed)
                     {
-                        var buttons = (ushort)Marshal.ReadInt16(body + 4);
-                        if (buttons != 0 || Detailed)
-                        {
-                            Record(new LabInputEvent(Math.Round(Now, 2), "raw-input", device.Id,
-                                $"mouse buttons {buttons:X4} data {(short)Marshal.ReadInt16(body + 6)} move {Marshal.ReadInt32(body + 12)},{Marshal.ReadInt32(body + 16)}"),
-                                buttons != 0);
-                        }
-                        else
-                        {
-                            AddMotion(device.Id, Marshal.ReadInt32(body + 12), Marshal.ReadInt32(body + 16));
-                        }
-
-                        break;
-                    }
-                case 1:
-                    {
-                        var scan = (ushort)Marshal.ReadInt16(body);
-                        var flags = (ushort)Marshal.ReadInt16(body + 2);
-                        var key = (ushort)Marshal.ReadInt16(body + 6);
                         Record(new LabInputEvent(Math.Round(Now, 2), "raw-input", device.Id,
-                            $"key {LabKeyNames.Name(key)} (VK {key:X2}, scan {scan:X2}{((flags & 2) != 0 ? " E0" : string.Empty)}) {((flags & 1) != 0 ? "up" : "down")}"),
-                            true);
-                        break;
+                                $"mouse buttons {buttons:X4} data {Marshal.ReadInt16(body + 6)} move {Marshal.ReadInt32(body + 12)},{Marshal.ReadInt32(body + 16)}"),
+                            buttons != 0);
                     }
-                default:
+                    else
                     {
-                        var reportSize = Marshal.ReadInt32(body);
-                        var count = Marshal.ReadInt32(body + 4);
-                        if (reportSize <= 0 || count <= 0 || (long)reportSize * count > size - HeaderSize - 8)
-                        {
-                            return;
-                        }
-
-                        var data = new byte[reportSize];
-                        for (var i = 0; i < count; i++)
-                        {
-                            Marshal.Copy(body + 8 + i * reportSize, data, 0, reportSize);
-                            OnHidReport(device, data);
-                        }
-
-                        break;
+                        AddMotion(device.Id, Marshal.ReadInt32(body + 12), Marshal.ReadInt32(body + 16));
                     }
+
+                    break;
+                }
+                case 1:
+                {
+                    var scan = (ushort)Marshal.ReadInt16(body);
+                    var flags = (ushort)Marshal.ReadInt16(body + 2);
+                    var key = (ushort)Marshal.ReadInt16(body + 6);
+                    Record(new LabInputEvent(Math.Round(Now, 2), "raw-input", device.Id,
+                            $"key {LabKeyNames.Name(key)} (VK {key:X2}, scan {scan:X2}{((flags & 2) != 0 ? " E0" : string.Empty)}) {((flags & 1) != 0 ? "up" : "down")}"),
+                        true);
+                    break;
+                }
+                default:
+                {
+                    var reportSize = Marshal.ReadInt32(body);
+                    var count = Marshal.ReadInt32(body + 4);
+                    if (reportSize <= 0 || count <= 0 || (long)reportSize * count > size - HeaderSize - 8)
+                    {
+                        return;
+                    }
+
+                    var data = new byte[reportSize];
+                    for (var i = 0; i < count; i++)
+                    {
+                        Marshal.Copy(body + 8 + i * reportSize, data, 0, reportSize);
+                        OnHidReport(device, data);
+                    }
+
+                    break;
+                }
             }
         }
         finally
@@ -496,7 +499,7 @@ internal sealed partial class LabInputCapture
             var up = (flags & 0x80) != 0;
             var swallow = SwallowShortcuts && Shortcut((ushort)key, up);
             Record(new LabInputEvent(Math.Round(Now, 2), "hook", (flags & 0x10) != 0 ? "injected" : null,
-                $"key {LabKeyNames.Name((ushort)key)} (VK {key:X2}, scan {scan:X2}{((flags & 0x01) != 0 ? " E0" : string.Empty)}, flags {flags:X2}) {(up ? "up" : "down")}{((flags & 0x10) != 0 ? " injected" : string.Empty)}{((flags & 0x02) != 0 ? " lower-integrity" : string.Empty)}{(swallow ? " swallowed" : string.Empty)}"),
+                    $"key {LabKeyNames.Name((ushort)key)} (VK {key:X2}, scan {scan:X2}{((flags & 0x01) != 0 ? " E0" : string.Empty)}, flags {flags:X2}) {(up ? "up" : "down")}{((flags & 0x10) != 0 ? " injected" : string.Empty)}{((flags & 0x02) != 0 ? " lower-integrity" : string.Empty)}{(swallow ? " swallowed" : string.Empty)}"),
                 true);
             if (swallow)
             {
@@ -543,13 +546,103 @@ internal sealed partial class LabInputCapture
             {
                 var flags = (uint)Marshal.ReadInt32(lParam + 12);
                 Record(new LabInputEvent(Math.Round(Now, 2), "hook", (flags & 1) != 0 ? "injected" : null,
-                    $"mouse message {message:X4} data {Marshal.ReadInt32(lParam + 8) >> 16}{((flags & 1) != 0 ? " injected" : string.Empty)}"),
+                        $"mouse message {message:X4} data {Marshal.ReadInt32(lParam + 8) >> 16}{((flags & 1) != 0 ? " injected" : string.Empty)}"),
                     true);
             }
         }
 
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
     }
+
+    [DllImport("xinput1_4.dll", EntryPoint = "#100")]
+    private static extern uint XInputGetStateEx(uint slot, out XInputState state);
+
+    [DllImport("xinput1_4.dll")]
+    private static extern uint XInputGetState(uint slot, out XInputState state);
+
+    [DllImport("xinput1_4.dll", EntryPoint = "#108")]
+    private static extern uint XInputGetCapabilitiesEx(uint one, uint slot, uint flags, out XInputCapabilitiesEx caps);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern ushort RegisterClassEx(ref WindowClass windowClass);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool UnregisterClass(string className, IntPtr instance);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName, uint style,
+        int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref Message message);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref Message message);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostThreadMessage(uint threadId, uint message, nint wParam, nint lParam);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? name);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterRawInputDevices(RawInputDeviceRegistration[] devices, uint count, uint size);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetRawInputDeviceList(RawInputDeviceListEntry[]? list, ref uint count, uint size);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, IntPtr data, ref uint size);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, ref RawDeviceInfo data,
+        ref uint size);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetRawInputData(IntPtr input, uint command, IntPtr data, ref uint size,
+        uint headerSize);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int hook, HookProc callback, IntPtr module, uint threadId);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr RegisterPowerSettingNotification(IntPtr recipient, ref Guid setting, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterPowerSettingNotification(IntPtr handle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr RegisterSuspendResumeNotification(IntPtr recipient, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterSuspendResumeNotification(IntPtr handle);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint RegisterWindowMessage(string message);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterShellHookWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool DeregisterShellHookWindow(IntPtr window);
 
     private delegate IntPtr WndProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
@@ -650,94 +743,4 @@ internal sealed partial class LabInputCapture
         public ushort Unknown1;
         public uint Unknown2;
     }
-
-    [DllImport("xinput1_4.dll", EntryPoint = "#100")]
-    private static extern uint XInputGetStateEx(uint slot, out XInputState state);
-
-    [DllImport("xinput1_4.dll")]
-    private static extern uint XInputGetState(uint slot, out XInputState state);
-
-    [DllImport("xinput1_4.dll", EntryPoint = "#108")]
-    private static extern uint XInputGetCapabilitiesEx(uint one, uint slot, uint flags, out XInputCapabilitiesEx caps);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern ushort RegisterClassEx(ref WindowClass windowClass);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool UnregisterClass(string className, IntPtr instance);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr CreateWindowEx(uint exStyle, string className, string windowName, uint style,
-        int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
-
-    [DllImport("user32.dll")]
-    private static extern bool DestroyWindow(IntPtr window);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    private static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
-
-    [DllImport("user32.dll")]
-    private static extern bool TranslateMessage(ref Message message);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr DispatchMessage(ref Message message);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool PostThreadMessage(uint threadId, uint message, nint wParam, nint lParam);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetCurrentThreadId();
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr GetModuleHandle(string? name);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool RegisterRawInputDevices(RawInputDeviceRegistration[] devices, uint count, uint size);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint GetRawInputDeviceList(RawInputDeviceListEntry[]? list, ref uint count, uint size);
-
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, IntPtr data, ref uint size);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, ref RawDeviceInfo data,
-        ref uint size);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint GetRawInputData(IntPtr input, uint command, IntPtr data, ref uint size,
-        uint headerSize);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWindowsHookEx(int hook, HookProc callback, IntPtr module, uint threadId);
-
-    [DllImport("user32.dll")]
-    private static extern bool UnhookWindowsHookEx(IntPtr hook);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr RegisterPowerSettingNotification(IntPtr recipient, ref Guid setting, uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern bool UnregisterPowerSettingNotification(IntPtr handle);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr RegisterSuspendResumeNotification(IntPtr recipient, uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern bool UnregisterSuspendResumeNotification(IntPtr handle);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern uint RegisterWindowMessage(string message);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool RegisterShellHookWindow(IntPtr window);
-
-    [DllImport("user32.dll")]
-    private static extern bool DeregisterShellHookWindow(IntPtr window);
 }

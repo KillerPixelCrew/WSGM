@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -27,8 +28,8 @@ internal sealed class AllyOemButtonState
     internal static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(150);
 
     private readonly Lock _gate = new();
-    private CanonicalButtons _held;
     private DateTimeOffset _guideUntil;
+    private CanonicalButtons _held;
     private DateTimeOffset _quickAccessUntil;
 
     public void Latch(CanonicalButtons button, DateTimeOffset now)
@@ -234,7 +235,8 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
                 RequiresHiding = true
             })
         ];
-        var observed = string.Join(", ", nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}").Take(8));
+        var observed = string.Join(", ",
+            nodes.Select(node => $"{node.InstancePath} {ClassName(node.ClassGuid)}").Take(8));
         var slot = FindXInputSlot();
         if (slot >= 0)
         {
@@ -292,8 +294,12 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
 
         if (worker is not null)
         {
-            _ = await Task.Run(() => worker.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
+            var stopped = await Task.Run(() => worker.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
                 .WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!stopped)
+            {
+                throw new TimeoutException("The Ally controller reader did not stop within one second.");
+            }
         }
 
         lock (_gate)
@@ -323,7 +329,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
 
         if (slot < 0)
         {
-            return ValueTask.CompletedTask;
+            throw new InvalidOperationException("The Ally controller route is no longer available for rumble.");
         }
 
         // HC's XInputController.SetVibration: the large (low-frequency) motor is left, the small right
@@ -334,7 +340,12 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
             LeftMotorSpeed = (ushort)Math.Round(Math.Clamp(low, 0f, 1f) * ushort.MaxValue),
             RightMotorSpeed = (ushort)Math.Round(Math.Clamp(high, 0f, 1f) * ushort.MaxValue)
         };
-        _ = XInputNative.XInputSetState((uint)slot, ref vibration);
+        var result = XInputNative.XInputSetState((uint)slot, ref vibration);
+        if (result != 0)
+        {
+            throw new Win32Exception((int)result, "XInputSetState did not accept the Ally rumble frame.");
+        }
+
         return ValueTask.CompletedTask;
     }
 
@@ -365,7 +376,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
         return -1;
     }
 
-    private static async ValueTask<Gamepad?> FindGamepadAsync(CancellationToken cancellationToken)
+    private async ValueTask<Gamepad?> FindGamepadAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -373,7 +384,11 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
             for (var attempt = 0; attempt < 10; attempt++)
             {
                 var match = Gamepad.Gamepads.FirstOrDefault(pad =>
-                    RawGameController.FromGameController(pad)?.HardwareVendorId == AllyModels.AsusVendorId);
+                {
+                    var raw = RawGameController.FromGameController(pad);
+                    return raw?.HardwareVendorId == AllyModels.AsusVendorId
+                           && _model.ControllerProductIds.Contains(raw.HardwareProductId);
+                });
                 if (match is not null)
                 {
                     return match;
@@ -550,9 +565,6 @@ internal interface IAllyKeyboardSource : IAsyncDisposable
 /// </remarks>
 internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
 {
-    private readonly Lock _gate = new();
-    private readonly KeyboardNative.HookProcedure _procedure;
-
     private readonly Channel<AllyKeyEvent> _events = Channel.CreateBounded<AllyKeyEvent>(
         new BoundedChannelOptions(64)
         {
@@ -560,6 +572,9 @@ internal sealed class WindowsAllyKeyboardHook : IAllyKeyboardSource
             SingleReader = true,
             SingleWriter = true
         });
+
+    private readonly Lock _gate = new();
+    private readonly KeyboardNative.HookProcedure _procedure;
 
     private CancellationTokenSource? _cancellation;
     private nint _hook;

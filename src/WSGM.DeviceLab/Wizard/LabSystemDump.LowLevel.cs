@@ -122,7 +122,8 @@ internal static partial class LabSystemDump
         }
 
         context.Write("cpu-power", new { Vendor = vendor, Problem = "Not an AMD or Intel processor." });
-        return Skipped("cpu-power", $"Processor vendor {vendor} is not supported here.", "not an AMD or Intel processor");
+        return Skipped("cpu-power", $"Processor vendor {vendor} is not supported here.",
+            "not an AMD or Intel processor");
 
         static string Watts(double? value)
         {

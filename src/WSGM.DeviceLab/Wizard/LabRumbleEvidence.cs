@@ -202,7 +202,8 @@ internal static class LabRumbleSummary
         }
 
         return string.Join(", ",
-            measured.Select(item => item.Value is { } value ? $"{item.Side} {value} {unit}" : $"{item.Side} not measured"));
+            measured.Select(item =>
+                item.Value is { } value ? $"{item.Side} {value} {unit}" : $"{item.Side} not measured"));
     }
 }
 

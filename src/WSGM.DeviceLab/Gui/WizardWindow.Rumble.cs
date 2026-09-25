@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,8 +8,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Threading;
-using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Transports;
+using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -21,21 +24,22 @@ internal sealed partial class WizardWindow
     private const string FeltCode = "felt";
     private const string NotFeltCode = "not-felt";
 
-    private static readonly string[] FeltLabels = ["Felt it", "Didn't feel it"];
-    private static readonly string[] FeltCodes = [FeltCode, NotFeltCode];
-
     // Pulse page lengths; every one is within LabRumbleRoutes.LongestPulseMilliseconds.
     private const int MaxRumbleReplays = 2;
+
+    private static readonly string[] FeltLabels = ["Felt it", "Didn't feel it"];
+    private static readonly string[] FeltCodes = [FeltCode, NotFeltCode];
 
     private static readonly int[] RumblePulseLengths = [5, 10, 25, 50, 100, 250, 500];
 
     private async Task RunRumbleAsync(LabProject project, StackPanel page)
     {
         page.Children.Add(Status("Looking for ways to make the device rumble..."));
+        var worker = await WorkerAsync();
         var attempt = await Task.Run(() => project.BeginAttempt(LabStages.Rumble, DateTimeOffset.UtcNow));
         var record = ConfirmedRecord(project);
         var discovery = await Task.Run(() => LabRumbleRoutes.Discover(record));
-        RumbleSession session = new(discovery);
+        RumbleSession session = new(discovery, worker, record?.Id, _machine);
         try
         {
             await RumbleFlowAsync(page, session);
@@ -134,7 +138,8 @@ internal sealed partial class WizardWindow
         {
             page.Children.Clear();
             page.Children.Add(PageTitle("Rumble"));
-            page.Children.Add(Status("Another way also worked. Do you want to measure it too? It takes a few minutes."));
+            page.Children.Add(
+                Status("Another way also worked. Do you want to measure it too? It takes a few minutes."));
             var choice = await AskAsync(page, [.. others.Select(route => route.Detail), "No, go on"]);
             if (choice == others.Length)
             {
@@ -267,7 +272,7 @@ internal sealed partial class WizardWindow
             $"The rumble stops by itself after {LabRumbleStream.IdleStopMilliseconds / 1000} seconds without a change. Move the slider to start it again."));
 
         LabRumbleStream stream = new(output);
-        using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(Lifetime);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Lifetime);
         var problem = Warning(string.Empty);
         List<(LabRumbleSideCalibration Side, Slider Slider)> sliders = [];
 
@@ -310,6 +315,7 @@ internal sealed partial class WizardWindow
             Action("Continue", () => done.TrySetResult())));
 
         var streaming = stream.Run(stop.Token);
+        string? streamError = null;
         _ = streaming.ContinueWith(_ => OnUi(() =>
         {
             if (stream.Error is { } error)
@@ -329,8 +335,19 @@ internal sealed partial class WizardWindow
             // Leaving the page stops the stream, which writes the zero before the next page starts.
             await stop.CancelAsync();
             await streaming;
+            var streamed = output is WorkerRumbleOutput workerOutput
+                ? await Task.Run(() => workerOutput.FlushStream())
+                : [];
+            streamError = stream.Error ?? streamed.FirstOrDefault(write => write.Error is not null)?.Error;
+            var zeroFailed = stream.ZeroFailed || streamed.Any(write => write.Purpose is "stream-stop" or "worker-zero"
+                                                                        && write.Error is not null);
             session.SliderSessions.Add(new LabRumbleSliderSession(route.Id, stream.StartedAt, stream.StoppedAt,
-                stream.IdleStops, stream.Error, stream.ZeroFailed));
+                stream.IdleStops, streamError, zeroFailed));
+        }
+
+        if (streamError is not null)
+        {
+            throw new RumbleStoppedException($"The live rumble output failed: {streamError}");
         }
     }
 
@@ -653,7 +670,11 @@ internal sealed partial class WizardWindow
     private sealed class RumbleStoppedException(string message) : Exception(message);
 
     /// <summary>Everything one run of the stage opened, wrote and was told.</summary>
-    private sealed class RumbleSession(LabRumbleDiscovery discovery)
+    private sealed class RumbleSession(
+        LabRumbleDiscovery discovery,
+        LabWorkerClient worker,
+        string? recordId,
+        LabMachineState machine)
     {
         private readonly Dictionary<string, ILabRumbleOutput> _outputs = [];
 
@@ -692,9 +713,32 @@ internal sealed partial class WizardWindow
 
             try
             {
-                var output = await Task.Run(() => LabRumbleRoutes.Open(route, Log));
+                var output = await Task.Run(() =>
+                {
+                    var proxy = worker.Open<ILabRumbleWorker>(LabRumbleWorker.Service.Name, null,
+                        recordId, route.Id, route.Target);
+                    try
+                    {
+                        var pending = new LabPendingRumbleRoute(recordId, route.Id, route.Target);
+                        var (_, token) = worker.Checkpoint<string>(proxy, _ => machine.Update(changes => changes with
+                        {
+                            Rumble = [.. changes.Rumble, pending]
+                        }));
+                        return (ILabRumbleOutput)new WorkerRumbleOutput(route, proxy, worker, token, Log,
+                            machine, pending);
+                    }
+                    catch
+                    {
+                        proxy.Dispose();
+                        throw;
+                    }
+                });
                 _outputs[route.Id] = output;
                 return output;
+            }
+            catch (LabWorkerLostException)
+            {
+                throw;
             }
             catch (InvalidOperationException ex)
             {
@@ -723,10 +767,34 @@ internal sealed partial class WizardWindow
         public IReadOnlyList<string> Close()
         {
             var outputs = _outputs.Values.ToArray();
-            var failed = LabRumbleRoutes.ZeroAll(outputs);
+            List<string> failed = [.. LabRumbleRoutes.ZeroAll(outputs)];
             foreach (var output in outputs)
             {
-                output.Dispose();
+                try
+                {
+                    if (output is WorkerRumbleOutput workerOutput && !failed.Contains(output.Route.Id))
+                    {
+                        workerOutput.Complete();
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException)
+                {
+                    failed.Add(output.Route.Id);
+                }
+                finally
+                {
+                    try
+                    {
+                        output.Dispose();
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or IOException)
+                    {
+                        if (!failed.Contains(output.Route.Id))
+                        {
+                            failed.Add(output.Route.Id);
+                        }
+                    }
+                }
             }
 
             return failed;
@@ -736,6 +804,74 @@ internal sealed partial class WizardWindow
         {
             return LabRumbleSummary.Describe(Discovery.Routes.Count, [.. Working().Select(route => route.Name)],
                 Calibrations);
+        }
+    }
+
+    private sealed class WorkerRumbleOutput(
+        LabRumbleRoute route,
+        ILabRumbleWorker proxy,
+        LabWorkerClient worker,
+        string token,
+        LabRumbleLog log,
+        LabMachineState machine,
+        LabPendingRumbleRoute pending) : ILabRumbleOutput
+    {
+        private int _copiedStreamWrites;
+
+        public LabRumbleRoute Route => route;
+
+        public void Write(LabRumbleFrame frame, string purpose)
+        {
+            if (purpose is "stream" or "stream-stop")
+            {
+                proxy.SetIntensity(frame);
+                return;
+            }
+
+            LabRumbleWrite write;
+            try
+            {
+                write = proxy.Write(frame, purpose);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException)
+            {
+                log.Add(new LabRumbleWrite(DateTimeOffset.UtcNow, route.Id, purpose, frame, -1,
+                    ex.Message, null));
+                throw new LabRumbleWriteException(ex.Message);
+            }
+
+            log.Add(write);
+            if (write.Error is { } error)
+            {
+                throw new LabRumbleWriteException(error);
+            }
+        }
+
+        public void Dispose()
+        {
+            proxy.Dispose();
+        }
+
+        public IReadOnlyList<LabRumbleWrite> FlushStream()
+        {
+            var writes = proxy.StreamWrites();
+            var fresh = writes.Skip(_copiedStreamWrites).ToArray();
+            _copiedStreamWrites = writes.Count;
+            foreach (var write in fresh)
+            {
+                log.Add(write);
+            }
+
+            return fresh;
+        }
+
+        public void Complete()
+        {
+            worker.Release(proxy, token);
+            machine.Update(changes => changes with
+            {
+                Rumble = [.. changes.Rumble.Where(item => item != pending)]
+            });
         }
     }
 }

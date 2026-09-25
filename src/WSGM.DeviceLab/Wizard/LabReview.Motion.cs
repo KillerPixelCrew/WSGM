@@ -88,7 +88,9 @@ internal static partial class LabReview
             {
                 items.Add(baseItem with
                 {
-                    Detail = segment?.Prefix is null ? "The motion stage never ran." : "The motion attempt holds no analysis."
+                    Detail = segment?.Prefix is null
+                        ? "The motion stage never ran."
+                        : "The motion attempt holds no analysis."
                 });
                 continue;
             }
@@ -102,11 +104,14 @@ internal static partial class LabReview
                     continue;
                 }
 
-                var label = $"{LabReviewArchive.Text(sensor["source"])} {LabReviewArchive.Text(sensor["name"]) ?? LabReviewArchive.Text(sensor["sensorId"])}".Trim();
+                var label =
+                    $"{LabReviewArchive.Text(sensor["source"])} {LabReviewArchive.Text(sensor["name"]) ?? LabReviewArchive.Text(sensor["sensorId"])}"
+                        .Trim();
                 maps.Add((label, map, LabReviewArchive.Boolean(sensor["mapClear"]) == true && map.Swap.Count == 3));
             }
 
-            var lines = maps.Select(item => $"{item.Sensor}: {DescribeMap(item.Map)}{(item.Clear ? string.Empty : " (unclear)")}")
+            var lines = maps.Select(item =>
+                    $"{item.Sensor}: {DescribeMap(item.Map)}{(item.Clear ? string.Empty : " (unclear)")}")
                 .ToArray();
             var clear = maps.Where(item => item.Clear).ToArray();
             var distinct = clear.Select(item => DescribeMap(item.Map)).Distinct(StringComparer.Ordinal).ToArray();
@@ -125,7 +130,8 @@ internal static partial class LabReview
 
             var deduced = clear[0].Map;
             var hc = FromDeviceFrame(deduced);
-            var observed = $"{DescribeMap(hc)} (device frame {distinct[0]}) from {string.Join(", ", clear.Select(item => item.Sensor))}";
+            var observed =
+                $"{DescribeMap(hc)} (device frame {distinct[0]}) from {string.Join(", ", clear.Select(item => item.Sensor))}";
             if (known is null)
             {
                 items.Add(baseItem with

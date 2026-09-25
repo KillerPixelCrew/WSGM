@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -29,7 +28,7 @@ internal sealed partial class WizardWindow
         if (init is { Reversible: true })
         {
             page.Children.Add(Status("Setting up the controller as in the buttons step..."));
-            initBefore = await Task.Run(() => LabControllerInit.Send(init, Lifetime));
+            initBefore = await SendCuratedInitAsync(record!.Id);
         }
 
         try
@@ -40,7 +39,7 @@ internal sealed partial class WizardWindow
         {
             if (init is { Reversible: true })
             {
-                var problem = await Task.Run(() => LabControllerInit.RecoverPending(CancellationToken.None));
+                var problem = await RecoverControllerInitAsync();
                 if (problem is not null)
                 {
                     page.Children.Add(Warning(
@@ -74,6 +73,7 @@ internal sealed partial class WizardWindow
         TaskCompletionSource<bool> skipped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         double? suspendedAt = null;
         double? resumedAt = null;
+
         void OnSuspendResume(bool suspending)
         {
             if (suspending)
@@ -154,11 +154,11 @@ internal sealed partial class WizardWindow
         LabInitResult? resent = null;
         if (init is { Reversible: true } && initBefore is { Sent: true })
         {
-            modeAfterWake = await Task.Run(() => LabControllerInit.CurrentMode(init));
+            modeAfterWake = await CuratedModeAsync(project.Manifest.Device.RecordId!);
             if (modeAfterWake != LabControllerInit.TestMode(init))
             {
                 line.Text = "The controller lost its setup during sleep. Setting it up again...";
-                resent = await Task.Run(() => LabControllerInit.Send(init, Lifetime));
+                resent = await SendCuratedInitAsync(project.Manifest.Device.RecordId!);
             }
         }
 
@@ -206,6 +206,7 @@ internal sealed partial class WizardWindow
         page.Children.Add(PageTitle("Sleep and wake"));
         page.Children.Add(Status("Now press A, or any button on the controller."));
         TaskCompletionSource<string> pressed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         void OnActivity(LabInputActivity activity)
         {
             if (activity.Source is "xinput" or "wgi" or "raw-input"

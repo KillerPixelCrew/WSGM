@@ -9,6 +9,21 @@ namespace WSGM.DeviceLab.Capture.Live;
 // tools/probe-legacy-sensors.ps1 and the Claw plugin's LegacyPhysicalMotionSensors.
 internal static partial class LabSensorInterop
 {
+    /// <summary>VT_LPWSTR.</summary>
+    public const ushort VtLpwstr = 31;
+
+    /// <summary>VT_UI4.</summary>
+    public const ushort VtUi4 = 19;
+
+    /// <summary>HIDP_STATUS_SUCCESS.</summary>
+    public const int HidpStatusSuccess = 0x00110000;
+
+    /// <summary>HidP_Input.</summary>
+    public const int HidpInput = 0;
+
+    /// <summary>HidP_Feature.</summary>
+    public const int HidpFeature = 2;
+
     /// <summary>SENSOR_CATEGORY_ALL.</summary>
     public static readonly Guid CategoryAll = new("C317C286-C468-4288-9975-D4C4587C442C");
 
@@ -36,20 +51,8 @@ internal static partial class LabSensorInterop
     /// <summary>SENSOR_PROPERTY_COMMON_GUID: report intervals (pid 12 minimum, 13 current) and device path (pid 15).</summary>
     public static readonly Guid CommonProperties = new("7F8383EC-D3EC-495C-A8CF-B8BBE85C2920");
 
-    /// <summary>VT_LPWSTR.</summary>
-    public const ushort VtLpwstr = 31;
-
-    /// <summary>VT_UI4.</summary>
-    public const ushort VtUi4 = 19;
-
-    /// <summary>HIDP_STATUS_SUCCESS.</summary>
-    public const int HidpStatusSuccess = 0x00110000;
-
-    /// <summary>HidP_Input.</summary>
-    public const int HidpInput = 0;
-
-    /// <summary>HidP_Feature.</summary>
-    public const int HidpFeature = 2;
+    /// <summary>GUID_DEVINTERFACE_COMPORT.</summary>
+    public static readonly Guid ComPortInterface = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
 
     /// <summary>Reads a numeric PROPVARIANT, or NaN for anything that is not a number.</summary>
     /// <param name="value">The value.</param>
@@ -151,9 +154,6 @@ internal static partial class LabSensorInterop
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetCommTimeouts(SafeFileHandle file, in CommTimeouts timeouts);
-
-    /// <summary>GUID_DEVINTERFACE_COMPORT.</summary>
-    public static readonly Guid ComPortInterface = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
 
     /// <summary>DCB, the serial line settings.</summary>
     [StructLayout(LayoutKind.Sequential)]

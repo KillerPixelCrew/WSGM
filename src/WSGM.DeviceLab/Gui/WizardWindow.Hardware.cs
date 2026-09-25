@@ -4,10 +4,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -18,6 +19,12 @@ internal sealed partial class WizardWindow
 {
     private LabInputCapture? _capture;
     private LabWorkerClient? _worker;
+
+    /// <summary>
+    ///     The running stage's token: cancelled by "Stop and save", Escape, or the window closing. Restore
+    ///     paths must not depend on it; they are bounded on their own.
+    /// </summary>
+    private CancellationToken Lifetime => _stage.Token;
 
     // Hardware stages refuse to start without the owner reservation preflight takes, so WSGM's device
     // integration can never drive the same hardware at the same time.
@@ -47,6 +54,61 @@ internal sealed partial class WizardWindow
     private async Task<LabWorkerClient> WorkerAsync()
     {
         return _worker ??= await Task.Run(LabWorkerClient.Start);
+    }
+
+    private async Task<LabInitResult> SendCuratedInitAsync(string recordId)
+    {
+        var worker = await WorkerAsync();
+        return await Task.Run(() =>
+        {
+            using var init = worker.Open<ILabCuratedInitWorker>(LabCuratedInitWorker.Service.Name, null, recordId);
+            var (_, token) = worker.Checkpoint<int?>(init, _ => _machine.Update(changes => changes with
+            {
+                CuratedInitRecordId = recordId
+            }));
+            var result = init.Send();
+            worker.Release(init, token);
+            _machine.Update(changes => changes with { CuratedInitRecordId = null });
+            return result;
+        });
+    }
+
+    private async Task<int?> CuratedModeAsync(string recordId)
+    {
+        var worker = await WorkerAsync();
+        return await Task.Run(() =>
+        {
+            using var init = worker.Open<ILabCuratedInitWorker>(LabCuratedInitWorker.Service.Name, null, recordId);
+            return init.CurrentMode();
+        });
+    }
+
+    private async Task<string?> RecoverControllerInitAsync()
+    {
+        var modes = await Task.Run(() => LabModeCommands.HasPending ? LabModeCommands.RecoverPending() : null);
+        if (!LabControllerInit.HasControllerModePending)
+        {
+            return _machine.Read().CuratedInitRecordId is null
+                ? modes
+                : "A controller setup stopped before its result was known. Check the OEM button layout.";
+        }
+
+        var worker = await WorkerAsync();
+        var restored = await Task.Run(() =>
+        {
+            using var init = worker.Open<ILabCuratedInitWorker>(LabCuratedInitWorker.Service.Name, null,
+                (string?)null);
+            var (_, token) = worker.Checkpoint<int?>(init, _ => { });
+            var problem = init.RecoverControllerMode();
+            if (problem is null)
+            {
+                worker.Release(init, token);
+                _machine.Update(changes => changes with { CuratedInitRecordId = null });
+            }
+
+            return problem;
+        });
+        return modes is null ? restored : restored is null ? modes : $"{restored} {modes}";
     }
 
     /// <summary>The knowledge record the tester confirmed, if any.</summary>
@@ -107,12 +169,6 @@ internal sealed partial class WizardWindow
     {
         Dispatcher.UIThread.Post(action);
     }
-
-    /// <summary>
-    ///     The running stage's token: cancelled by "Stop and save", Escape, or the window closing. Restore
-    ///     paths must not depend on it; they are bounded on their own.
-    /// </summary>
-    private CancellationToken Lifetime => _stage.Token;
 
     /// <summary>Shows buttons and waits for the tester, or for <paramref name="elsewhere" /> to end the wait.</summary>
     /// <param name="panel">Where the buttons go.</param>

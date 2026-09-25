@@ -1329,7 +1329,6 @@ public sealed partial class SettingsViewModel : ObservableObject
                 _ => UnavailablePackages
             }).Add(row);
         }
-
     }
 
     private static Task<string> ActOnPackageAsync(PluginPackageRowState row, BundleManifest? bundle)

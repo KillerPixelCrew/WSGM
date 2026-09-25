@@ -135,7 +135,8 @@ internal static partial class ScaffoldFromCaptureWorkflow
             displayName,
             identity);
         tokens["HARDWARE_JSON"] = extras?.HardwareJson
-                                  ?? $"{{ \"baseboardProduct\": \"{tokens["BOARD_JSON"]}\", \"systemSku\": \"{tokens["SYSTEM_SKU_JSON"]}\" }}";
+                                  ??
+                                  $"{{ \"baseboardProduct\": \"{tokens["BOARD_JSON"]}\", \"systemSku\": \"{tokens["SYSTEM_SKU_JSON"]}\" }}";
         // The template publishes a toggle and a read-only value, and the host refuses roles the manifest
         // does not declare.
         tokens["CAPABILITIES_JSON"] = extras?.CapabilitiesJson ?? "[\"GenericToggle\", \"GenericReadOnly\"]";

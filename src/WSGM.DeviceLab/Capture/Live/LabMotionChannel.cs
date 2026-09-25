@@ -44,8 +44,12 @@ internal sealed record LabMotionChannelRecord
     public required IReadOnlyList<LabMotionFieldStats> Fields { get; init; }
 
     /// <summary>
-    ///     Kept readings, each <c>[host ms since the step began, sensor ms since the first reading, field
-    ///     values...]</c>; null where a value is missing or not a number.
+    ///     Kept readings, each
+    ///     <c>
+    ///         [host ms since the step began, sensor ms since the first reading, field
+    ///         values...]
+    ///     </c>
+    ///     ; null where a value is missing or not a number.
     /// </summary>
     public required IReadOnlyList<double?[]> Samples { get; init; }
 }

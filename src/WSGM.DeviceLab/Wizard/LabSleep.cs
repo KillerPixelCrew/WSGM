@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Windows.Devices.Sensors;
 using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Wizard;
@@ -31,8 +32,8 @@ internal static class LabSleep
             Math.Round(ms, 1),
             LabInputCapture.PresentDeviceKeys(),
             LabInputCapture.ConnectedXInputSlots(),
-            Reads(() => Windows.Devices.Sensors.Accelerometer.GetDefault()?.GetCurrentReading()),
-            Reads(() => Windows.Devices.Sensors.Gyrometer.GetDefault()?.GetCurrentReading()));
+            Reads(() => Accelerometer.GetDefault()?.GetCurrentReading()),
+            Reads(() => Gyrometer.GetDefault()?.GetCurrentReading()));
     }
 
     /// <summary>Lists what is missing from <paramref name="after" /> compared with <paramref name="before" />.</summary>

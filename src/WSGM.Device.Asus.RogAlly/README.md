@@ -5,10 +5,10 @@ ASUS performance modes, fan curves, the charge limit, Aura lighting on the stick
 controller with its OEM buttons, rumble and motion, and the physical glyphs Steam shows.
 
 It was built blind. Nobody working on it had an Ally, so every register, report and axis comes from
-the Handheld Companion 1.3.1.6 Patreon build and from HHD, and none of it has been run on the
-hardware yet. `PROVENANCE.md` cites the source of every fact and lists what a Device Lab report has
-to confirm. Everything that differs between the models is one row in `AllyModels.cs`, so a report
-corrects data rather than code.
+the Handheld Companion 1.3.1.6 Patreon build, with HHD as a cross-check, and none of it has been run
+on the hardware yet. `PROVENANCE.md` cites the source of every fact and lists what a Device Lab
+report has to confirm. Everything that differs between the models is one row in `AllyModels.cs`, so
+a report corrects data rather than code.
 
 | Model           | Board        | Definition ID |
 | --------------- | ------------ | ------------- |
@@ -26,42 +26,41 @@ if it no longer matches the detected model.
 
 Built blind on all four, awaiting lab evidence. "HC" and "HHD" name the reference each part follows.
 
-| Capability                  | Ally | Ally X | Xbox Ally | Xbox Ally X | Transport and reference                                        |
-| --------------------------- | ---- | ------ | --------- | ----------- | -------------------------------------------------------------- |
-| Sustained power (SPL)       | 5-30 | 5-30   | 5-35      | 5-35        | ATKACPI DEVS 0x001200A3 (HC)                                   |
-| Boost power (SPPT and FPPT) | yes  | yes    | yes       | yes         | ATKACPI 0x001200A0 and 0x001200C1 written together (HC)        |
-| Performance mode            | yes  | yes    | yes       | yes         | ATKACPI 0x00120075 Silent/Performance/Turbo (HC, HHD)          |
-| Power presets               | 10/15/25 | 13/17/25 | 13/17/25 | 13/17/25 | HC's three profiles, mode first, then watts               |
-| Fan curve                   | yes  | yes    | yes       | yes         | ATKACPI CPU/GPU (+ mid when present) curves (HC)               |
-| Fan readings                | yes  | yes    | yes       | yes         | ATKACPI 0x00110013/0x00110014 (HC)                             |
-| Charge limit                | yes  | yes    | yes       | yes         | ATKACPI 0x00120057 (HC)                                        |
-| Aura lighting               | yes  | yes    | yes       | yes         | HID report 0x5D (HC); Xbox models also put the lamp array in autonomous mode (HHD) |
-| Controller                  | yes  | yes    | yes       | yes         | XInput (HC); Windows.Gaming.Input if the pad has no XInput slot |
-| Rumble                      | yes  | yes    | yes       | yes         | XInput (HC)                                                    |
-| Motion                      | yes  | yes    | yes       | yes         | WinRT sensors, legacy Sensor API fallback (HC), HC axis maps   |
-| Front OEM buttons           | Command Center, Armoury Crate | same | Armoury Crate, Library, Xbox | same | Vendor report 0x5A codes (HHD); F21/F22 on the Xbox models (lab) |
-| M1 and M2                   | yes  | yes    | yes       | yes         | HHD's controller tables make them F18/F17 (HHD, lab)           |
-| Glyphs                      | rog-ally | rog-ally | rog-xbox-ally | rog-xbox-ally | handheld-controller-glyphs                            |
+| Capability                  | Ally                                   | Ally X   | Xbox Ally                    | Xbox Ally X   | Transport and reference                                                            |
+| --------------------------- | -------------------------------------- | -------- | ---------------------------- | ------------- | ---------------------------------------------------------------------------------- |
+| Sustained power (SPL)       | 5-30                                   | 5-30     | 5-35                         | 5-35          | ATKACPI DEVS 0x001200A3 (HC)                                                       |
+| Boost power (SPPT and FPPT) | yes                                    | yes      | yes                          | yes           | ATKACPI 0x001200A0 and 0x001200C1 written together (HC)                            |
+| Performance mode            | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120075 Silent/Performance/Turbo (HC, HHD)                              |
+| Power presets               | 10/15/25                               | 13/17/25 | 13/17/25                     | 13/17/25      | HC's three profiles, mode first, then watts                                        |
+| Fan curve                   | yes                                    | yes      | yes                          | yes           | ATKACPI CPU/GPU (+ mid when present) curves (HC)                                   |
+| Fan readings                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00110013/0x00110014 (HC)                                                 |
+| Charge limit                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120057 (HC)                                                            |
+| Aura lighting               | yes                                    | yes      | yes                          | yes           | HID report 0x5D (HC); Xbox models also put the lamp array in autonomous mode (HHD) |
+| Controller                  | yes                                    | yes      | yes                          | yes           | XInput (HC); Windows.Gaming.Input if the pad has no XInput slot                    |
+| Rumble                      | yes                                    | yes      | yes                          | yes           | XInput (HC)                                                                        |
+| Motion                      | yes                                    | yes      | yes                          | yes           | WinRT sensors, legacy Sensor API fallback (HC), HC axis maps                       |
+| Front OEM buttons           | Command Center, Armoury Crate, Library | same     | Armoury Crate, Library, Xbox | same          | Vendor report 0x5A codes (HC); F21/F22 on the Xbox models (lab)                    |
+| M1 and M2                   | yes                                    | yes      | yes                          | yes           | HC's controller tables make them F18/F17 (HC, lab)                                 |
+| Glyphs                      | rog-ally                               | rog-ally | rog-xbox-ally                | rog-xbox-ally | handheld-controller-glyphs                                                         |
 
-Nothing HC or HHD implements for these models is left out. Two things they do are deliberately not
-reproduced: HHD's mouse mode on the Armoury Crate hold (that press is published as a long press
-instead) and HHD's five-second re-send of the controller tables (an uncertain write is never
-retried).
+HHD's mouse mode on the Armoury Crate hold and its five-second re-send of controller tables are not
+reproduced. An uncertain write is never retried.
 
 ## How the parts behave
 
-**Power.** The sustained limit writes SPL; the boost limit writes SPPT and FPPT to one value, as HC's
-short limit does. Writes are ordered so that SPL <= SPPT <= FPPT holds after each one, spaced 100 ms
-apart as HHD does. A paired command from AutoTDP moves all three to the one target. Each command is
-verified by reading the three limits back through DSTS; if the firmware does not report them the
-result is unverified rather than a failure. The first write of a cycle journals the original mode
-and limits, and stop restores the mode first (a mode change resets the limits), then the limits.
+**Power.** The sustained limit writes SPL; the boost limit writes SPPT and FPPT to one value, as
+HC's short limit does. Writes are ordered so that SPL <= SPPT <= FPPT holds after each one, spaced
+100 ms apart as HHD does. A paired command from AutoTDP moves all three to the one target. Each
+command is verified by reading the three limits back through DSTS. If the original mode or any limit
+is unreadable, the write is refused. The first write of a cycle journals the original mode and
+limits; stop restores the mode first (a mode change resets the limits), then the limits.
 
 **Fans.** A curve is eight points from 20 to 110 °C with non-falling duties, clamped to 99 % as HC
-does, written to every fan. "Automatic" writes back the curves captured before the first change, or
-HC's default tables when nothing was captured. Whether a DSTS read shows the curve in force is not
-known, so a readback that differs is reported unverified. The original curves are journalled and
-restored on stop.
+does, written to every fan. "Custom" waits for the next curve command without changing hardware.
+"Automatic" writes back the curves captured before the first change. If any present fan's original
+curve cannot be read, the write is refused. A write is verified only when every present fan reads
+back the requested curve. An unverified restore remains in the recovery record and is not retried
+automatically.
 
 **Charge limit.** 40-100 %, verified by readback, and never reverted: it is a user setting.
 
@@ -69,20 +68,20 @@ restored on stop.
 colours, colour cycle and rainbow at three speeds. Aura cannot be read back, so every lighting
 command is reported as applied but unverified, and WSGM's lighting restore owns reapplying it.
 
-**Controller.** When WSGM manages the controller, the plugin finds the XInput slot whose capabilities
-report VID 0B05 and one of the Ally product IDs, publishes the XUSB, GIP and XInput HID nodes for
-WSGM to hide, and writes HHD's controller tables so that M1 and M2 send F18 and F17. It then reads
-the pad at 125 Hz, merges the OEM buttons and the IMU into each sample, and drives rumble through
-XInput. Release zeroes the motors, stops reading, and writes the factory M1/M2 tables back. Those
-tables cannot be read, so a release that touched them is reported as unverified even when every
-write was acknowledged.
+**Controller.** When WSGM manages the controller, the plugin finds the XInput slot whose
+capabilities report VID 0B05 and one of the Ally product IDs, publishes the XUSB, GIP and XInput HID
+nodes for WSGM to hide, and writes HC's controller tables so that M1 and M2 send F18 and F17. It
+then reads the pad at 125 Hz, merges the OEM buttons and the IMU into each sample, and drives rumble
+through XInput. Release zeroes the motors, stops reading, and writes the factory M1/M2 tables back.
+Those tables cannot be read, so a release that touched them is reported as unverified even when
+every write was acknowledged.
 
-**OEM buttons.** Front buttons come from the vendor collection's 0x5A reports as HHD decodes them:
-0xA6 is the guide, 0x38 and 0x93 the QAM, and 0xA7 a long press of the right button. They are
-latched into the controller sample for 150 ms and published as OEM events. The Xbox models also get
-F21/F22 from a low-level keyboard hook, which is how the lab saw those buttons arrive, and their Xbox
-button maps to the QAM as in HHD. M1 and M2 are claimed by the same hook, only while the controller
-tables are applied.
+**OEM buttons.** Front buttons come from the vendor collection's 0x5A reports. HC treats 0x93 as
+Library and 0xA7/0xA8 as M2 press/release; 0xA6 and 0x38 map to each model's front controls. A
+release-less press is latched into the controller sample for 150 ms. The Xbox models also get
+F21/F22 from a low-level keyboard hook, which is how the lab saw those buttons arrive, and their
+Xbox button maps to the QAM as in HHD. M1 and M2 are claimed by the same hook, only while the
+controller tables are applied.
 
 **Motion.** WinRT gyrometer and accelerometer at their minimum report interval, or the legacy Sensor
 API's standard motion fields when WinRT has none. HC's axis map is applied once, then the Claw
@@ -100,11 +99,10 @@ The parts most likely to need correcting:
 - The rear buttons' key codes and physical labels per side.
 - Motion axis signs, especially the Xbox models, where HC's gyro and accelerometer signs differ.
 - Whether DSTS reads back the power limits, the performance mode and the fan curves.
-- The Xbox Ally's watt envelope: HC says up to 35 W, HHD 20 W.
 - Aura on the Xbox models, the speed byte order, and the lamp-array step.
 
-Bring-up evidence comes from the Device Lab tester wizard (`wsgm-device`). A returned
-`.wsgmlab` report is summarized with `wsgm-device report <file.wsgmlab>`; fold what it shows into
+Bring-up evidence comes from the Device Lab tester wizard (`wsgm-device`). A returned `.wsgmlab`
+report is summarized with `wsgm-device report <file.wsgmlab>`; fold what it shows into
 `AllyModels.cs` and `PROVENANCE.md`.
 
 ## Building
@@ -115,9 +113,10 @@ dotnet test tests/WSGM.Device.Asus.RogAlly.Tests/WSGM.Device.Asus.RogAlly.Tests.
 ```
 
 The tests need no hardware: they drive the plugin through fake transports. Packaging follows the
-Claw plugin: `./eng/pack-device.ps1 -Source src/WSGM.Device.Asus.RogAlly -RequireGlyphs`. The curated
-bundle entry keeps the package out of setup (`plugins/curated/wsgm.device.asus.rog-ally.json`,
-`"bundle": false`) until a lab report has been reviewed.
+Claw plugin: `./eng/pack-device.ps1 -Source src/WSGM.Device.Asus.RogAlly -RequireGlyphs`. The
+curated bundle entry keeps the package out of setup
+(`plugins/curated/wsgm.device.asus.rog-ally.json`, `"bundle": false`) until a lab report has been
+reviewed.
 
 ## Licence
 

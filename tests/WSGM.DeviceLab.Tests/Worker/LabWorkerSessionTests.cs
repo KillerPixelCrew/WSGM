@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 
@@ -47,6 +49,52 @@ public sealed class LabWorkerSessionTests
 
         Assert.True(session.Armed);
         Assert.Equal([5], service.Written);
+    }
+
+    [Fact]
+    public void Stream_RequiresAnAcknowledgedCheckpoint()
+    {
+        var (session, service) = Open();
+        session.Stream(nameof(IFakeService.Stream), [Json(5)]);
+        var (token, _) = session.Checkpoint();
+        session.Stream(nameof(IFakeService.Stream), [Json(6)]);
+
+        Assert.Empty(service.Written);
+
+        session.Acknowledge(token);
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+
+        Assert.Equal([7], service.Written);
+    }
+
+    [Fact]
+    public void Stream_ZeroesAnOutputThatStopsSendingFrames()
+    {
+        var (session, service) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+
+        _now += LabWorkerHost.StreamTimeout + TimeSpan.FromMilliseconds(1);
+        session.ZeroIfStale();
+
+        Assert.Equal([7, 0], service.Written);
+    }
+
+    [Fact]
+    public void Stream_DoesNotRetryAfterAFailedFrame()
+    {
+        var (session, service) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+
+        session.Stream(nameof(IFakeService.Stream), [Json(9)]);
+        session.Stream(nameof(IFakeService.Stream), [Json(9)]);
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+        _now += LabWorkerHost.StreamTimeout + TimeSpan.FromMilliseconds(1);
+        session.ZeroIfStale();
+
+        Assert.Equal([0], service.Written);
     }
 
     [Fact]
@@ -107,6 +155,30 @@ public sealed class LabWorkerSessionTests
         Assert.Throws<InvalidOperationException>(() => session.Call(nameof(FakeService.NotOnTheInterface), []));
     }
 
+    [Fact]
+    public void HardwareWorker_RegistersRumbleAndCuratedInitWithCheckpointedWrites()
+    {
+        var rumble = LabWorkerServices.All[LabRumbleWorker.Service.Name];
+        var init = LabWorkerServices.All[LabCuratedInitWorker.Service.Name];
+
+        Assert.Equal(typeof(ILabRumbleWorker), rumble.Interface);
+        Assert.Equal(typeof(ILabCuratedInitWorker), init.Interface);
+        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.Original))!
+            .GetCustomAttribute<LabWorkerSnapshotAttribute>());
+        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.Write))!
+            .GetCustomAttribute<LabWorkerWriteAttribute>());
+        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.SetIntensity))!
+            .GetCustomAttribute<LabWorkerStreamAttribute>());
+        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.Zero))!
+            .GetCustomAttribute<LabWorkerZeroAttribute>());
+        Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.Original))!
+            .GetCustomAttribute<LabWorkerSnapshotAttribute>());
+        Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.Send))!
+            .GetCustomAttribute<LabWorkerWriteAttribute>());
+        Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.RecoverControllerMode))!
+            .GetCustomAttribute<LabWorkerWriteAttribute>());
+    }
+
     private (LabWorkerSession Session, FakeService Service) Open()
     {
         FakeService service = new();
@@ -126,6 +198,12 @@ public sealed class LabWorkerSessionTests
 
         [LabWorkerWrite]
         void Write(int value);
+
+        [LabWorkerStream]
+        void Stream(int value);
+
+        [LabWorkerZero]
+        void Zero();
     }
 
     internal sealed class FakeService : IFakeService
@@ -140,6 +218,21 @@ public sealed class LabWorkerSessionTests
         public void Write(int value)
         {
             Written.Add(value);
+        }
+
+        public void Stream(int value)
+        {
+            if (value == 9)
+            {
+                throw new InvalidOperationException("The motor write failed.");
+            }
+
+            Written.Add(value);
+        }
+
+        public void Zero()
+        {
+            Written.Add(0);
         }
 
         public void Dispose()

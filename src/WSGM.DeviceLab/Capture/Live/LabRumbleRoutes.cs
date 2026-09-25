@@ -1,3 +1,4 @@
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -5,7 +6,6 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
-using Microsoft.Win32.SafeHandles;
 using Windows.Gaming.Input;
 using WSGM.DeviceLab.Knowledge;
 
@@ -355,10 +355,10 @@ internal static class LabRumbleRoutes
             foreach (var (collectionPage, collectionUsage) in collections.Distinct())
             {
                 var matching = listed.Where(item => item.VendorId == vendor && item.ProductId == product
-                                                    && item.UsagePage == collectionPage
-                                                    && item.Usage == collectionUsage
-                                                    && item.OutputLength >= layout.Length
-                                                    && item.OutputLength <= 1024)
+                                                                            && item.UsagePage == collectionPage
+                                                                            && item.Usage == collectionUsage
+                                                                            && item.OutputLength >= layout.Length
+                                                                            && item.OutputLength <= 1024)
                     .ToArray();
                 if (matching.Length == 0)
                 {

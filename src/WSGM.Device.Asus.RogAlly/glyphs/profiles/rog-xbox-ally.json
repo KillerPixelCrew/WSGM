@@ -3,10 +3,7 @@
   "profileId": "rog-xbox-ally",
   "displayName": "ASUS ROG Xbox Ally and ROG Xbox Ally X",
   "revision": 1,
-  "exactDeviceIds": [
-    "rc73xa",
-    "rc73ya"
-  ],
+  "exactDeviceIds": ["rc73xa", "rc73ya"],
   "sourceRevision": "handheld-controller-glyphs-46792aadf3b1",
   "noticePath": "THIRD_PARTY_NOTICES.md",
   "assets": [

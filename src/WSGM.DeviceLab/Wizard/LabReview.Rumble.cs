@@ -24,7 +24,9 @@ internal static partial class LabReview
                 Area = "rumble",
                 Verdict = LabReviewVerdict.Unresolved,
                 Record = mechanisms.Length == 0 ? null : string.Join("; ", mechanisms.Select(DescribeMechanism)),
-                Detail = segment?.Prefix is null ? "The rumble stage never ran." : "The rumble attempt holds no route evidence.",
+                Detail = segment?.Prefix is null
+                    ? "The rumble stage never ran."
+                    : "The rumble attempt holds no route evidence.",
                 Evidence = reference
             });
             return;
@@ -35,8 +37,9 @@ internal static partial class LabReview
         foreach (var route in LabReviewArchive.Objects(LabReviewArchive.Get(routesJson, "routes")))
         {
             if (LabReviewArchive.Text(route["id"]) is { } id && LabReviewArchive.Text(route["kind"]) is { } kind
-                                                           && routes.TryAdd(id, (kind, LabReviewArchive.Text(route["name"]) ?? kind,
-                                                               LabReviewArchive.Text(route["report"]))))
+                                                             && routes.TryAdd(id,
+                                                                 (kind, LabReviewArchive.Text(route["name"]) ?? kind,
+                                                                     LabReviewArchive.Text(route["report"]))))
             {
                 order.Add(id);
             }
@@ -60,7 +63,8 @@ internal static partial class LabReview
             true => "felt",
             false => "not felt",
             null => "not played"
-        }}{(calibrations.TryGetValue(id, out var calibration) ? "; " + DescribeCalibration(calibration) : string.Empty)}").ToList();
+        }}{(calibrations.TryGetValue(id, out var calibration) ? "; " + DescribeCalibration(calibration) : string.Empty)}")
+            .ToList();
         lines.AddRange(LabReviewArchive.Strings(LabReviewArchive.Get(routesJson, "notes")).Take(CandidateLines));
         var working = order.Where(id => felt.GetValueOrDefault(id) == true).ToArray();
         var observed = working.Length == 0
@@ -86,7 +90,9 @@ internal static partial class LabReview
                 Observed = observed,
                 Detail = feltHere is not null
                     ? $"The tester felt the record's {mechanism.Transport} route"
-                      + (calibrations.TryGetValue(feltHere, out var calibrated) ? $"; {DescribeCalibration(calibrated)}." : ".")
+                      + (calibrations.TryGetValue(feltHere, out var calibrated)
+                          ? $"; {DescribeCalibration(calibrated)}."
+                          : ".")
                     : tried
                         ? $"The record's {mechanism.Transport} route was played and not felt."
                         : $"The record's {mechanism.Transport} route was not offered; see the route notes.",
@@ -126,7 +132,8 @@ internal static partial class LabReview
 
     private static string DescribeMechanism(DeviceMechanismKnowledge mechanism)
     {
-        return $"{mechanism.Feature} via {mechanism.Transport}{(mechanism.HasReadback ? " with readback" : string.Empty)}";
+        return
+            $"{mechanism.Feature} via {mechanism.Transport}{(mechanism.HasReadback ? " with readback" : string.Empty)}";
     }
 
     private static string DescribeCalibration(JsonObject calibration)

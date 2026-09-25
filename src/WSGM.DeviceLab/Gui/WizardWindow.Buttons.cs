@@ -6,9 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -40,12 +41,14 @@ internal sealed partial class WizardWindow
             page.Children.Add(Status(init.Description));
             var choice = init.Reversible
                 ? await AskAsync(page, "Continue", "Test without it")
-                : await AskAsync(page, "Test without it", "Do it anyway") == 1 ? 0 : 1;
+                : await AskAsync(page, "Test without it", "Do it anyway") == 1
+                    ? 0
+                    : 1;
             if (choice == 0)
             {
                 var line = Status("Setting up the controller...");
                 page.Children.Add(line);
-                initResult = await Task.Run(() => LabControllerInit.Send(init, Lifetime));
+                initResult = await SendCuratedInitAsync(record!.Id);
                 restoreMode = init.Reversible && initResult.Sent;
                 line.Text = initResult.Sent
                     ? "The controller is set up."
@@ -91,7 +94,8 @@ internal sealed partial class WizardWindow
             {
                 page.Children.Clear();
                 page.Children.Add(PageTitle("Buttons"));
-                page.Children.Add(Status("This test already has button results. Redo only some controls, or all of them?"));
+                page.Children.Add(
+                    Status("This test already has button results. Redo only some controls, or all of them?"));
                 resumed = await AskAsync(page, "Choose controls to redo", "Do all of them again") == 0;
             }
 
@@ -110,7 +114,8 @@ internal sealed partial class WizardWindow
                             {
                                 var id = $"{LabStages.Buttons}/{control.Id}";
                                 project.BeginAttempt(id, DateTimeOffset.UtcNow);
-                                project.Finish(id, LabSegmentStatus.Skipped, "Skipped with the rest.", DateTimeOffset.UtcNow);
+                                project.Finish(id, LabSegmentStatus.Skipped, "Skipped with the rest.",
+                                    DateTimeOffset.UtcNow);
                             }
                         });
                         break;
@@ -162,7 +167,7 @@ internal sealed partial class WizardWindow
             page.Children.Add(PageTitle("Buttons"));
             var line = Status("Putting the controller back the way it was...");
             page.Children.Add(line);
-            restoreProblem = await Task.Run(() => LabControllerInit.RecoverPending(CancellationToken.None));
+            restoreProblem = await RecoverControllerInitAsync();
             if (restoreProblem is not null)
             {
                 line.Text = $"The controller could not be put back: {restoreProblem}";
@@ -223,7 +228,7 @@ internal sealed partial class WizardWindow
                 var state = project.Segment($"{LabStages.Buttons}/{controls[i].Id}");
                 grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                 var nameCell = new TextBlock
-                    { Text = controls[i].Name, FontWeight = Avalonia.Media.FontWeight.SemiBold };
+                    { Text = controls[i].Name, FontWeight = FontWeight.SemiBold };
                 var resultCell = Muted(state.Status switch
                 {
                     LabSegmentStatus.Skipped => "Not on this device",
@@ -291,6 +296,7 @@ internal sealed partial class WizardWindow
             ConcurrentDictionary<string, byte> seen = new(StringComparer.Ordinal);
             long lastActivity = -1;
             var byId = devices.ToDictionary(device => device.Id, StringComparer.Ordinal);
+
             void OnActivity(LabInputActivity activity)
             {
                 if (activity.Source == "hook" && activity.Detail.StartsWith("mouse", StringComparison.Ordinal))
@@ -363,7 +369,8 @@ internal sealed partial class WizardWindow
             var nothing = answer == 0 && shown.Count == 0;
             if (nothing)
             {
-                page.Children.Add(Warning("Nothing reacted to that. Try it again, or keep it as \"nothing happened\"."));
+                page.Children.Add(
+                    Warning("Nothing reacted to that. Try it again, or keep it as \"nothing happened\"."));
                 if (await AskAsync(page, "Try again", "Keep it") == 0)
                 {
                     answer = 1;
@@ -434,7 +441,8 @@ internal sealed partial class WizardWindow
 
     // What is alive before a step: controller slots, game controllers, HID collections, and any
     // source that could not start.
-    private static IReadOnlyList<string> Liveness(IReadOnlyList<LabInputDevice> devices, IReadOnlyList<string> unavailable)
+    private static IReadOnlyList<string> Liveness(IReadOnlyList<LabInputDevice> devices,
+        IReadOnlyList<string> unavailable)
     {
         List<string> alive =
         [

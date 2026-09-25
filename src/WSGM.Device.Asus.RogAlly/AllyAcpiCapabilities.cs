@@ -38,14 +38,14 @@ internal sealed record AllyFanSnapshot(byte[]? Cpu, byte[]? Gpu, byte[]? Mid, in
 /// </remarks>
 internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
 {
+    private readonly IAsusAcpi _acpi = acpi ?? throw new ArgumentNullException(nameof(acpi));
+    private readonly AllyModel _model = model ?? throw new ArgumentNullException(nameof(model));
+
     /// <summary>HHD's <c>TDP_DELAY</c> between limit writes.</summary>
     internal static TimeSpan WriteSpacing { get; set; } = TimeSpan.FromMilliseconds(100);
 
     /// <summary>The settle time the Ally X Lab gave a performance-mode change before reading back.</summary>
     internal static TimeSpan ModeSettle { get; set; } = TimeSpan.FromMilliseconds(150);
-
-    private readonly IAsusAcpi _acpi = acpi ?? throw new ArgumentNullException(nameof(acpi));
-    private readonly AllyModel _model = model ?? throw new ArgumentNullException(nameof(model));
 
     public int Minimum => _model.MinimumWatts;
 
@@ -166,7 +166,7 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
             cancellationToken).ConfigureAwait(false);
         var readback = Read();
         return readback.Sustained == original.Sustained && readback.Slow == original.Slow
-                                                         && readback.Fast == original.Fast;
+                                                        && readback.Fast == original.Fast;
     }
 
     /// <summary>The write order that keeps SPL &lt;= SPPT &lt;= FPPT after every step.</summary>
@@ -268,7 +268,7 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
                 CancellationToken.None).ConfigureAwait(false);
             var readback = Read();
             return readback.Sustained == before.Sustained && readback.Slow == before.Slow
-                                                           && readback.Fast == before.Fast
+                                                          && readback.Fast == before.Fast
                 ? RollbackResult.RestoredVerified
                 : RollbackResult.RestoredUnverified;
         }
@@ -539,7 +539,8 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi)
         {
             await WriteChannelsAsync(cpu, gpu, mid ?? cpu, cancellationToken).ConfigureAwait(false);
             var readback = Read();
-            if (Same(readback.Cpu, cpu) && Same(readback.Gpu, gpu))
+            if (Same(readback.Cpu, cpu) && Same(readback.Gpu, gpu)
+                                        && (!HasMidFan || Same(readback.Mid, mid ?? cpu)))
             {
                 return AllyResults.Verified(command, reported);
             }

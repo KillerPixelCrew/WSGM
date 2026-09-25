@@ -1,6 +1,6 @@
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 
@@ -179,7 +179,8 @@ public sealed class LabButtonsTests
     [Fact]
     public void ControllerInit_IsNeverTakenFromAnExtractedRecord()
     {
-        Assert.All(DeviceKnowledgeBase.Default.Records.Where(record => record.Status is DeviceKnowledgeStatus.Extracted),
+        Assert.All(
+            DeviceKnowledgeBase.Default.Records.Where(record => record.Status is DeviceKnowledgeStatus.Extracted),
             record => Assert.Null(LabControllerInit.For(record)));
     }
 }

@@ -153,7 +153,7 @@ internal static partial class LabSystemDump
             AddIssue(issues, $"Only the first {MaximumHidCollections} of {paths.Count} collections were read.");
         }
 
-        context.Write("hid", new { Count = collections.Count, Collections = collections });
+        context.Write("hid", new { collections.Count, Collections = collections });
         return Result("hid", collections.Count, Plural(collections.Count, "collection", "collections"), issues);
     }
 
@@ -191,7 +191,8 @@ internal static partial class LabSystemDump
 
         // Zero desired access: the handle can query attributes and descriptors but cannot read or
         // write reports, so this never takes a device away from anything else or changes it.
-        using var handle = CreateFileW(path, 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
+        using var handle = CreateFileW(path, 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0,
+            IntPtr.Zero);
         if (handle.IsInvalid)
         {
             return new LabHidCollection
@@ -355,12 +356,15 @@ internal static partial class LabSystemDump
     private static partial int HidP_GetCaps(IntPtr preparsed, out HidpCaps caps);
 
     [LibraryImport("hid.dll")]
-    private static partial int HidP_GetButtonCaps(int reportType, [Out] byte[] caps, ref ushort length, IntPtr preparsed);
+    private static partial int HidP_GetButtonCaps(int reportType, [Out] byte[] caps, ref ushort length,
+        IntPtr preparsed);
 
     [LibraryImport("hid.dll")]
-    private static partial int HidP_GetValueCaps(int reportType, [Out] byte[] caps, ref ushort length, IntPtr preparsed);
+    private static partial int
+        HidP_GetValueCaps(int reportType, [Out] byte[] caps, ref ushort length, IntPtr preparsed);
 
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf16)]
     private static partial SafeFileHandle CreateFileW(
         string path,
         uint access,

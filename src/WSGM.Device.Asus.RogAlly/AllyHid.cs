@@ -610,14 +610,14 @@ internal sealed class WindowsAllyAuraHid(IReadOnlyCollection<ushort> productIds)
         try
         {
             var lamp = AllyHidEnumerator.Enumerate(_productIds)
-                .FirstOrDefault(endpoint => endpoint is { UsagePage: 0x0059, Usage: 0x0001, FeatureLength: >= 2 });
+                .FirstOrDefault(endpoint => endpoint is { UsagePage: 0x0059, Usage: 0x0001, OutputLength: >= 2 });
             if (lamp is null)
             {
                 return false;
             }
 
             using var handle = AllyHidEnumerator.Open(lamp, false);
-            AllyHidEnumerator.SetFeature(handle, lamp, [0x06, 0x01]);
+            AllyHidEnumerator.WriteOutput(handle, lamp, [0x06, 0x01]);
             return true;
         }
         finally

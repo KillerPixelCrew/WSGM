@@ -37,8 +37,8 @@ internal sealed class LabWorkerClient : IDisposable
     private readonly ConcurrentDictionary<long, TaskCompletionSource<LabWorkerResponse>> _pending = new();
     private readonly Process _process;
     private readonly Lock _send = new();
-    private long _next;
     private volatile string? _lost;
+    private long _next;
 
     private LabWorkerClient(Process process, WorkerJobObject job)
     {
@@ -111,7 +111,8 @@ internal sealed class LabWorkerClient : IDisposable
         process.StandardInput.AutoFlush = true;
         process.StandardInput.WriteLine(SelfWorkerAuthorization.Hash(secret));
         var hello = process.StandardOutput.ReadLine();
-        if (hello is null || JsonSerializer.Deserialize<LabWorkerResponse>(hello, LabWorkerHost.WireOptions) is not { Ok: true })
+        if (hello is null || JsonSerializer.Deserialize<LabWorkerResponse>(hello, LabWorkerHost.WireOptions) is not
+                { Ok: true })
         {
             client.Dispose();
             throw new InvalidOperationException("The Device Lab hardware worker did not authenticate.");
@@ -134,7 +135,11 @@ internal sealed class LabWorkerClient : IDisposable
         {
             Op = "open",
             Service = service,
-            Args = [.. args.Select(arg => JsonSerializer.SerializeToElement(arg, arg?.GetType() ?? typeof(object), LabProject.JsonOptions))]
+            Args =
+            [
+                .. args.Select(arg =>
+                    JsonSerializer.SerializeToElement(arg, arg?.GetType() ?? typeof(object), LabProject.JsonOptions))
+            ]
         }, log);
         var proxy = DispatchProxy.Create<T, LabWorkerProxy>();
         ((LabWorkerProxy)(object)proxy).Attach(this, response.Session, log);
@@ -195,7 +200,8 @@ internal sealed class LabWorkerClient : IDisposable
         if (!reply.Task.Wait(CallDeadline))
         {
             _pending.TryRemove(id, out _);
-            throw Lose($"The hardware worker did not answer {request.Method ?? request.Op} within {CallDeadline.TotalSeconds:0} seconds.");
+            throw Lose(
+                $"The hardware worker did not answer {request.Method ?? request.Op} within {CallDeadline.TotalSeconds:0} seconds.");
         }
 
         var response = reply.Task.Result;
@@ -221,7 +227,11 @@ internal sealed class LabWorkerClient : IDisposable
             Op = "stream",
             Session = session,
             Method = method,
-            Args = [.. args.Select(arg => JsonSerializer.SerializeToElement(arg, arg?.GetType() ?? typeof(object), LabProject.JsonOptions))]
+            Args =
+            [
+                .. args.Select(arg =>
+                    JsonSerializer.SerializeToElement(arg, arg?.GetType() ?? typeof(object), LabProject.JsonOptions))
+            ]
         }, LabWorkerHost.WireOptions);
         try
         {

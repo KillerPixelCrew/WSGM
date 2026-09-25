@@ -188,14 +188,19 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
     internal static AllyReconciliationAction Decide(AllyRecoveryEntry entry, string? currentFirmwareIdentity)
     {
         ArgumentNullException.ThrowIfNull(entry);
+        // A restore already reached the device but did not read back. Another automatic write
+        // would retry an uncertain cleanup; leave the entry for explicit investigation.
+        if (entry.Status is AllyRecoveryStatus.RestoredUnverified or AllyRecoveryStatus.RestoreFailed)
+        {
+            return AllyReconciliationAction.Block;
+        }
+
         if (string.Equals(entry.FirmwareIdentity, currentFirmwareIdentity, StringComparison.Ordinal))
         {
             return AllyReconciliationAction.Restore;
         }
 
-        return entry.Status is AllyRecoveryStatus.RestoreFailed
-            ? AllyReconciliationAction.Block
-            : AllyReconciliationAction.ReportOnly;
+        return AllyReconciliationAction.ReportOnly;
     }
 
     private static AllyRecoveryJournal Failed(string detail)
@@ -220,8 +225,8 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
             }
 
             var document = await JsonSerializer.DeserializeAsync(stream,
-                               AllyRecoveryJsonContext.Default.AllyRecoveryDocument, cancellationToken)
-                           .ConfigureAwait(false)
+                                   AllyRecoveryJsonContext.Default.AllyRecoveryDocument, cancellationToken)
+                               .ConfigureAwait(false)
                            ?? throw new InvalidDataException("The Ally recovery record was empty.");
             ValidateDocument(document);
             _entries = [.. document.Entries];
@@ -321,7 +326,7 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
         var valid = entry.ServiceId switch
         {
             AllyServiceIds.Power => state.Kind is AllyRecoveryStateKind.Power
-                                    && (state.Mode is null or >= 0 and <= 2)
+                                    && state.Mode is null or >= 0 and <= 2
                                     && Watts(state.Sustained) && Watts(state.Slow) && Watts(state.Fast),
             AllyServiceIds.Fans => state.Kind is AllyRecoveryStateKind.Fans
                                    && AsusAcpiProtocol.IsValidCurve(state.CpuCurve)

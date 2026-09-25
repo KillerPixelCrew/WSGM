@@ -121,7 +121,8 @@ internal sealed class LabExport
             export._files[relative] = (content, redacted);
             if (export._files.Count > MaximumFiles)
             {
-                throw new InvalidDataException($"The report would hold more than {MaximumFiles} files; nothing was written.");
+                throw new InvalidDataException(
+                    $"The report would hold more than {MaximumFiles} files; nothing was written.");
             }
         }
 
@@ -140,7 +141,8 @@ internal sealed class LabExport
             }),
             Counts = project.Manifest.Segments.GroupBy(segment => segment.Status)
                 .ToDictionary(group => group.Key.ToString(), group => group.Count()),
-            Limits = "Candidates are what reacted during a step, never proof of cause. Stages the tester skipped or stopped are marked, never counted as measured."
+            Limits =
+                "Candidates are what reacted during a step, never proof of cause. Stages the tester skipped or stopped are marked, never counted as measured."
         }, LabProject.JsonOptions), redactor));
         export._files["analysis.json"] = (analysis, true);
 

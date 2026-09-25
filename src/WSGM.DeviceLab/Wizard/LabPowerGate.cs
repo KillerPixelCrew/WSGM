@@ -77,7 +77,8 @@ internal static class LabPowerGate
         if (!matches)
         {
             return new LabPowerGateResult(false,
-                "This machine no longer looks like the confirmed device, so no power or fan test was run.", -1, context);
+                "This machine no longer looks like the confirmed device, so no power or fan test was run.", -1,
+                context);
         }
 
         if (managers.Length > 0)

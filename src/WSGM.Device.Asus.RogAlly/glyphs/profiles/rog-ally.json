@@ -3,10 +3,7 @@
   "profileId": "rog-ally",
   "displayName": "ASUS ROG Ally and ROG Ally X",
   "revision": 1,
-  "exactDeviceIds": [
-    "rc71l",
-    "rc72la"
-  ],
+  "exactDeviceIds": ["rc71l", "rc72la"],
   "sourceRevision": "handheld-controller-glyphs-46792aadf3b1",
   "noticePath": "THIRD_PARTY_NOTICES.md",
   "assets": [

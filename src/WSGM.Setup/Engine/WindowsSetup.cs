@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -308,7 +309,7 @@ internal static class WindowsSetup
     {
         try
         {
-            return process.SessionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return process.SessionId.ToString(CultureInfo.InvariantCulture);
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
         {

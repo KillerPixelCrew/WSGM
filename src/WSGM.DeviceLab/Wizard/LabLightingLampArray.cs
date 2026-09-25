@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Devices.Enumeration;
@@ -107,7 +108,7 @@ internal sealed class LabLampArrays : IDisposable
                 arrays.Add(array);
                 names.Add(device.Name);
             }
-            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException
+            catch (Exception ex) when (ex is COMException or UnauthorizedAccessException
                                            or InvalidOperationException)
             {
                 problems.Add($"{device.Name}: {ex.Message}");

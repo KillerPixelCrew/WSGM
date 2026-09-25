@@ -188,12 +188,6 @@ internal sealed partial class LabMotionRecorder
 
         public string Freshness => "serial frame";
 
-        public void Start(string id)
-        {
-            _thread = new Thread(Run) { IsBackground = true, Name = $"Device Lab motion {id}" };
-            _thread.Start();
-        }
-
         public void ResetCounters()
         {
             Interlocked.Exchange(ref _failures, 0);
@@ -218,6 +212,12 @@ internal sealed partial class LabMotionRecorder
 
             SetCommState(_handle, in _original);
             _handle.Dispose();
+        }
+
+        public void Start(string id)
+        {
+            _thread = new Thread(Run) { IsBackground = true, Name = $"Device Lab motion {id}" };
+            _thread.Start();
         }
 
         private unsafe void Run()

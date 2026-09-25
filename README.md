@@ -283,9 +283,9 @@ implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 License for more details.
 
 The Plugin SDK, Device SDK, Device Lab, Claw reference plugin, ROG Ally plugin and Handheld
-Companion scaffold, including their test projects, keep their MIT licenses under `src` and `tests`, so
-external packages can implement the contracts. See [device project layout](docs/device-projects.md)
-for paths and build commands.
+Companion scaffold, including their test projects, keep their MIT licenses under `src` and `tests`,
+so external packages can implement the contracts. See
+[device project layout](docs/device-projects.md) for paths and build commands.
 
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.

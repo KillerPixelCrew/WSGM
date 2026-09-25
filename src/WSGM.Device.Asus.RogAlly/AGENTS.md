@@ -9,8 +9,9 @@ This is the MIT-licensed device plugin for the ROG Ally (RC71L), Ally X (RC72LA/
 Patreon build in `_ref/HandheldCompanion`) and HHD (`_ref/hhd`); nothing in it has a recorded hardware
 pass. Read `README.md`, `PROVENANCE.md` and the tests before changing behavior.
 
-- HHD is the authority for buttons. HC is the authority for everything else: ATKACPI, fans, power,
-  Aura, rumble and motion. A Device Lab observation beats both.
+- HC 1.3.1.6 is the primary Windows reference, including default button behavior, ATKACPI, fans,
+  power, Aura, rumble and motion. HHD is a secondary cross-check and supplies behavior HC does not
+  implement. A Device Lab observation beats both.
 - Every per-model fact lives in `AllyModels.cs`. Correct a model by changing its row, never by adding
   a model check elsewhere.
 - Every device fact carries a citation, in `PROVENANCE.md` or beside the value. When a lab report
@@ -26,10 +27,11 @@ Every command revalidates identity, service state, generations, deadline and ran
 
 - ATKACPI calls go through `WindowsAsusAcpi`, which admits only the `AsusAcpiId` list and validated
   curves. Do not add INIT, WDOG or arbitrary IDs.
-- Power: SPL <= SPPT <= FPPT after every write; mode before limits on restore; journal the original
-  before the first write of a cycle when it can be read.
-- Fans: eight points, 20-110 °C, non-falling duties, clamped to 99. Journal and restore the captured
-  curves.
+- Power: SPL <= SPPT <= FPPT after every write; mode before limits on restore. Refuse a write unless
+  the original limits and mode can be read and journalled first.
+- Fans: eight points, 20-110 °C, non-falling duties, clamped to 99. Refuse a write unless every
+  present channel's original curve can be read and journalled. Keep an unverified restore in the
+  recovery record; do not retry it automatically.
 - Charge limit and Aura are persistent user choices: never journalled, never reverted on stop.
 - Controller tables are written as 64-byte 0x5A feature reports only while the controller is managed,
   journalled first, and replaced by the factory tables on release. They cannot be read back, so a
@@ -38,8 +40,9 @@ Every command revalidates identity, service state, generations, deadline and ran
 
 ## Input invariants
 
-- Vendor codes follow HHD: 0xA6 guide, 0x38/0x93 QAM, 0xA7 long press, 0xA8 ignored. Keep HC's
-  alternative in PROVENANCE.md, not in code.
+- Vendor codes follow HC's Windows event semantics: 0x93 is a separate Library control and
+  0xA7/0xA8 are M2 press/release. `AllyModels.cs` maps the front controls to each model's physical
+  layout; keep the HHD disagreement in PROVENANCE.md.
 - The keyboard hook claims only the watched F-keys, never injected input, and stays allocation-light
   with no I/O in the callback. Rear keys are watched only while the controller tables are applied.
 - Apply each model's axis maps exactly once, before the gyro-offset correction.

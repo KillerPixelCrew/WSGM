@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Knowledge;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -655,7 +655,7 @@ internal static class LabMotionAnalysis
         }
 
         var magnitudes = means.Values.Select(Magnitude).ToList();
-        var gravity = analysis.RestMagnitude ?? (magnitudes.Count > 0 ? magnitudes.Average() : (double?)null);
+        var gravity = analysis.RestMagnitude ?? (magnitudes.Count > 0 ? magnitudes.Average() : null);
         var (map, clear) = BuildMap(signed, signed, -1, gravity is { } g ? 0.5 * g : 0);
         return analysis with
         {
@@ -789,7 +789,9 @@ internal static class LabMotionAnalysis
             }
         }
 
-        return swap.Count == 0 ? (null, false) : (new DeviceAxisMap { Swap = swap, Sign = sign }, clear && swap.Count == 3);
+        return swap.Count == 0
+            ? (null, false)
+            : (new DeviceAxisMap { Swap = swap, Sign = sign }, clear && swap.Count == 3);
     }
 
     /// <summary>Converts an HC map, whose output is HC's frame (X, Z, -Y), to the device frame.</summary>
@@ -946,6 +948,7 @@ internal static class LabMotionAnalysis
         foreach (var ((device, reportId, length), bySteps) in groups)
         {
             byId.TryGetValue(device, out var known);
+
             LabMotionReportCandidate Candidate(int offset, string kind, double score, string? axis, int? sign)
             {
                 return new LabMotionReportCandidate
@@ -1042,10 +1045,13 @@ internal static class LabMotionAnalysis
         Dictionary<string, List<byte[]>> bySteps,
         int length)
     {
-        List<byte[]> baseline = bySteps.TryGetValue(LabMotionSteps.Rest, out var rest) && rest.Count >= 3
+        var baseline = bySteps.TryGetValue(LabMotionSteps.Rest, out var rest) && rest.Count >= 3
             ? rest
-            : [.. steps.Where(item => item.Step.Kind == LabMotionStepKind.Pose)
-                .SelectMany(item => bySteps.GetValueOrDefault(item.Step.Id) ?? [])];
+            :
+            [
+                .. steps.Where(item => item.Step.Kind == LabMotionStepKind.Pose)
+                    .SelectMany(item => bySteps.GetValueOrDefault(item.Step.Id) ?? [])
+            ];
         if (baseline.Count < 3)
         {
             yield break;
@@ -1081,8 +1087,8 @@ internal static class LabMotionAnalysis
         foreach (var item in items.OrderByDescending(candidate => candidate.Score))
         {
             if (chosen.Any(other => other.Device == item.Device && other.ReportId == item.ReportId
-                                                              && other.Length == item.Length
-                                                              && Math.Abs(other.Offset - item.Offset) < 2))
+                                                                && other.Length == item.Length
+                                                                && Math.Abs(other.Offset - item.Offset) < 2))
             {
                 continue;
             }
@@ -1148,7 +1154,10 @@ internal static class LabMotionAnalysis
             LabMotionSensorAnalysis updated;
             if (same)
             {
-                updated = accelerometer with { Convention = "gravity (Windows): the axis pointing up reads -1 g; agrees with the gyro" };
+                updated = accelerometer with
+                {
+                    Convention = "gravity (Windows): the axis pointing up reads -1 g; agrees with the gyro"
+                };
             }
             else if (opposite)
             {
@@ -1220,7 +1229,8 @@ internal static class LabMotionAnalysis
                                                            StringComparison.OrdinalIgnoreCase));
             if (match is null)
             {
-                found.Add($"The record names the legacy sensor \"{fields.FriendlyName}\", which this machine does not list.");
+                found.Add(
+                    $"The record names the legacy sensor \"{fields.FriendlyName}\", which this machine does not list.");
             }
             else if (match.AxisSource != "knowledge")
             {

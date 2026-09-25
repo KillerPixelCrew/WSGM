@@ -103,12 +103,17 @@ internal static partial class LabSystemDump
     private static readonly DevPropKey UpperFiltersKey = new(DeviceFormat, 19);
     private static readonly DevPropKey LowerFiltersKey = new(DeviceFormat, 20);
     private static readonly DevPropKey LocationPathsKey = new(DeviceFormat, 37);
-    private static readonly DevPropKey BusReportedDescriptionKey = new(new Guid("540b947e-8b40-45bc-a8a2-6a0b894cbda2"), 4);
+
+    private static readonly DevPropKey BusReportedDescriptionKey =
+        new(new Guid("540b947e-8b40-45bc-a8a2-6a0b894cbda2"), 4);
+
     private static readonly DevPropKey DriverDateKey = new(DriverFormat, 2);
     private static readonly DevPropKey DriverVersionKey = new(DriverFormat, 3);
     private static readonly DevPropKey DriverInfKey = new(DriverFormat, 5);
     private static readonly DevPropKey DriverProviderKey = new(DriverFormat, 9);
-    private static readonly DevPropKey InterfaceInstanceIdKey = new(new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"), 256);
+
+    private static readonly DevPropKey InterfaceInstanceIdKey =
+        new(new Guid("78c34fc8-104a-4aca-9ea4-524d52996e57"), 256);
 
     private static LabSystemDumpSectionResult CollectDeviceTree(LabSystemDumpContext context)
     {
@@ -133,7 +138,7 @@ internal static partial class LabSystemDump
         }
 
         context.Devices = devices;
-        context.Write("device-tree", new { Count = devices.Count, Truncated = ids.Count > MaximumDevices, Devices = devices });
+        context.Write("device-tree", new { devices.Count, Truncated = ids.Count > MaximumDevices, Devices = devices });
         return Result("device-tree", devices.Count, Plural(devices.Count, "device", "devices"), issues);
     }
 
@@ -221,7 +226,9 @@ internal static partial class LabSystemDump
 
     private static string? NodeString(uint node, in DevPropKey key)
     {
-        return ReadNodeProperty(node, key) is { } value ? DecodeProperty(value.Type, value.Bytes).FirstOrDefault() : null;
+        return ReadNodeProperty(node, key) is { } value
+            ? DecodeProperty(value.Type, value.Bytes).FirstOrDefault()
+            : null;
     }
 
     private static IReadOnlyList<string> NodeStrings(uint node, in DevPropKey key)

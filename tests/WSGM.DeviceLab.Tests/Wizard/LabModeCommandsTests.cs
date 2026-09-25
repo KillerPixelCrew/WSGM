@@ -37,7 +37,9 @@ public sealed class LabModeCommandsTests
             {
                 var overlap = first.Endpoint.VendorId == second.Endpoint.VendorId
                               && (first.Endpoint.ProductIds.Count == 0 || second.Endpoint.ProductIds.Count == 0
-                                  || first.Endpoint.ProductIds.Intersect(second.Endpoint.ProductIds).Any());
+                                                                       || first.Endpoint.ProductIds
+                                                                           .Intersect(second.Endpoint.ProductIds)
+                                                                           .Any());
                 Assert.False(overlap, $"{first.Id} and {second.Id} can match the same controller.");
             }
         }

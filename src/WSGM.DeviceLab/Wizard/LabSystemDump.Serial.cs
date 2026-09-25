@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
@@ -92,7 +93,7 @@ internal static partial class LabSystemDump
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or System.Security.SecurityException)
+                                       or SecurityException)
         {
             AddIssue(issues, $"SERIALCOMM: {ex.Message}");
         }
@@ -116,7 +117,7 @@ internal static partial class LabSystemDump
             return key?.GetValue("PortName") as string;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or System.Security.SecurityException or ArgumentException)
+                                       or SecurityException or ArgumentException)
         {
             AddIssue(issues, $"{instanceId}: {ex.Message}");
             return null;

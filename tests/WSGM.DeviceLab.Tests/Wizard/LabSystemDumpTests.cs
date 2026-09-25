@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
@@ -9,7 +10,7 @@ public sealed class LabSystemDumpTests
     public void ParseSmbios_RemovesSerialUuidAndRepeatedSerialText()
     {
         List<byte> table = [];
-        byte[] system = new byte[0x1B];
+        var system = new byte[0x1B];
         system[0] = 1;
         system[1] = 0x1B;
         system[2] = 0x01;
@@ -48,7 +49,7 @@ public sealed class LabSystemDumpTests
     public void ParseSmbios_RemovesMemoryPartAndAssetStrings()
     {
         List<byte> table = [];
-        byte[] memory = new byte[0x1B];
+        var memory = new byte[0x1B];
         memory[0] = 17;
         memory[1] = 0x1B;
         memory[0x17] = 1; // manufacturer
@@ -168,8 +169,7 @@ public sealed class LabSystemDumpTests
             Section("device-tree", 412),
             Section("hid", 57),
             Section("sensors", 3),
-            new LabSystemDumpSectionResult
-                { Id = "wmi", Status = LabSystemDumpSectionStatus.Failed, Summary = "could not be read" }
+            new() { Id = "wmi", Status = LabSystemDumpSectionStatus.Failed, Summary = "could not be read" }
         ];
 
         Assert.Equal(
@@ -208,10 +208,10 @@ public sealed class LabSystemDumpTests
         BitConverter.GetBytes((ushort)14850).CopyTo(dtd);
         dtd[2] = 1200 & 0xFF;
         dtd[3] = 80;
-        dtd[4] = (byte)((1200 >> 8) << 4);
+        dtd[4] = (1200 >> 8) << 4;
         dtd[5] = 1920 & 0xFF;
         dtd[6] = 40;
-        dtd[7] = (byte)((1920 >> 8) << 4);
+        dtd[7] = (1920 >> 8) << 4;
 
         // Range limits 48-120 Hz.
         var range = edid.AsSpan(72, 18);
@@ -266,7 +266,7 @@ public sealed class LabSystemDumpTests
             new() { Name = "WmiMonitorBrightness" }
         ];
 
-        var json = System.Text.Json.JsonSerializer.Serialize(LabSystemDump.VendorClassPresence(classes));
+        var json = JsonSerializer.Serialize(LabSystemDump.VendorClassPresence(classes));
 
         Assert.Contains("\"Name\":\"MSI_ACPI\",\"Present\":true", json);
         Assert.Contains("\"Name\":\"SuRwECRegInterface\",\"Present\":false", json);

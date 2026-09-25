@@ -121,6 +121,9 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   records it (`LabPowerRecovery.Record`) and acknowledges within five seconds, and releases the
   checkpoint only after a verified restore. Start-up recovery runs through the worker too. A missed
   deadline (`LabWorkerLostException`) is uncertain: never retry it.
+- Live rumble slider frames use `[LabWorkerStream]` only after the service's checkpoint is
+  acknowledged. They have no per-frame reply; the worker's stream watchdog zeroes quiet output,
+  and the wizard reads the worker's frame evidence after the slider stops.
 - The shared report is built in memory, previewed, and written once. Every JSON string passes through
   one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
 - The wizard keeps blocking work (files, registry, drivers) off the UI thread and runs one operation

@@ -36,15 +36,15 @@ internal sealed class LabPawnIoModule : IDisposable
         _handle = handle;
     }
 
+    /// <summary>Whether this build carries the pinned RyzenSMU module.</summary>
+    public static bool RyzenSmuBundled =>
+        typeof(LabPawnIoModule).Assembly.GetManifestResourceInfo(RyzenSmuResource) is not null;
+
     /// <inheritdoc />
     public void Dispose()
     {
         _handle.Dispose();
     }
-
-    /// <summary>Whether this build carries the pinned RyzenSMU module.</summary>
-    public static bool RyzenSmuBundled =>
-        typeof(LabPawnIoModule).Assembly.GetManifestResourceInfo(RyzenSmuResource) is not null;
 
     /// <summary>Loads the pinned RyzenSMU module.</summary>
     /// <returns>The loaded module.</returns>

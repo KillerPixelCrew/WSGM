@@ -103,7 +103,8 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
     /// <returns>True when this tool is denied.</returns>
     public bool DeniedByInverseList(HidHideState current)
     {
-        return current is { Available: true, Inverse: true } && Contains(current.Applications, selfPath, DeviceForDrive);
+        return current is { Available: true, Inverse: true } &&
+               Contains(current.Applications, selfPath, DeviceForDrive);
     }
 
     /// <summary>Whether this tool is allowed already.</summary>
@@ -111,7 +112,8 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
     /// <returns>True when it is listed in a normal list.</returns>
     public bool AlreadyAllowed(HidHideState current)
     {
-        return current is { Available: true, Inverse: false } && Contains(current.Applications, selfPath, DeviceForDrive);
+        return current is { Available: true, Inverse: false } &&
+               Contains(current.Applications, selfPath, DeviceForDrive);
     }
 
     /// <summary>

@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32;
@@ -153,7 +154,7 @@ internal static partial class LabSystemDump
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or System.Security.SecurityException)
+                                       or SecurityException)
         {
             AddIssue(issues, $@"HKLM\HARDWARE\ACPI: {ex.Message}");
         }
@@ -235,7 +236,9 @@ internal static partial class LabSystemDump
             if (filesByHash.TryGetValue(hash, out var earlier))
             {
                 tables.Add(Entry(signature, header, table.Length) with
-                    { Source = source, RegistryKey = keyPath, SameAs = earlier });
+                {
+                    Source = source, RegistryKey = keyPath, SameAs = earlier
+                });
                 return;
             }
 
@@ -250,7 +253,9 @@ internal static partial class LabSystemDump
             DurableFile.WriteNew(Path.Combine(context.Attempt, fileName), stream => stream.Write(table));
             filesByHash[hash] = fileName;
             tables.Add(Entry(signature, header, table.Length) with
-                { Source = source, RegistryKey = keyPath, FileName = fileName });
+            {
+                Source = source, RegistryKey = keyPath, FileName = fileName
+            });
             written++;
         }
 

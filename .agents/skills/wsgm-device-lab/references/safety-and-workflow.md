@@ -159,8 +159,8 @@ Record device facts next to the device they describe:
 - **Claw:** the dated measurements are in `_plan/claw-8-a2vm-plugin.md` and the provenance is in
   `src/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md`.
 - **Ally family:** the remote-tester results are in the ROG Ally X sections of
-  `_plan/implementation-todo.md`, and the pinned HHD/HC facts and the list of what a lab report
-  must confirm are in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
+  `_plan/implementation-todo.md`, and the pinned HHD/HC facts and the list of what a lab report must
+  confirm are in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
 
 ## Source map
 
@@ -200,6 +200,6 @@ points in mind:
   and a returned report proves only what its evidence shows.
 - Read a returned report with `wsgm-device report`, `review` and `promote`; `scaffold --from` takes
   it too. Promote only after reviewing the disagreements.
-- HHD is the primary reference for Ally buttons and HC cross-checks the Windows transport. Use the
-  pinned tables in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`. `_ref` may be missing from a
-  checkout; when it is present, search it with `rg --hidden --no-ignore`.
+- HC is the primary Windows-native Ally reference, including buttons; HHD cross-checks behavior HC
+  does not cover. Use the pinned tables in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`. `_ref` may
+  be missing from a checkout; when it is present, search it with `rg --hidden --no-ignore`.

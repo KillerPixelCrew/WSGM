@@ -9,9 +9,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.Interop;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -188,11 +188,11 @@ internal sealed class LabModeSession
 {
     private readonly Lock _gate = new();
     private readonly List<LabModeWriteRecord> _writes = [];
-    private CancellationTokenSource? _repeat;
     private SafeFileHandle? _handle;
     private Task? _loop;
-    private long _repeats;
+    private CancellationTokenSource? _repeat;
     private string? _repeatStopped;
+    private long _repeats;
 
     internal LabModeSession(LabModeCommand command, LabModeHid? hid)
     {
@@ -315,19 +315,6 @@ internal static class LabModeCommands
     private const string HcDevices = Hc + "HandheldCompanion/";
     private const string Hhd = "_ref/hhd: src/hhd/device/";
 
-    private static readonly string StatePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WSGM Device Lab", "wizard", "mode-commands.json");
-
-    private static readonly LabModeEndpoint LegionTablet = new(0x17EF,
-        [0x6182, 0x6183, 0x6184, 0x6185, 0x61EB, 0x61EC, 0x61ED, 0x61EE], 0xFFA0, 0x0001);
-
-    private static readonly LabModeEndpoint LegionGoS = new(0x1A86, [0xE310, 0xE311], 0xFFA0, 0x0001, 3, [65], 65);
-    private static readonly LabModeEndpoint SteamDeck = new(0x28DE, [0x1205, 0x12F0], InputLengths: [65, 64]);
-    private static readonly LabModeEndpoint SteamController = new(0x28DE, [0x1102, 0x1142], InputLengths: [65, 64]);
-    private static readonly LabModeEndpoint OxpX1 = new(0x1A86, [0xFE00], 0xFF00, 0x0001);
-    private static readonly LabModeEndpoint OxpX2 = new(0x1A86, [0xFE00, 0x1305], 0xFF00, 0x0001);
-
     private const string OxpPage1 =
         "02 38 20 01 01 01 01 01 00 00 00 02 01 02 00 00 00 03 01 03 00 00 00 04 01 04 00 00 00 05 01 05 00 00 00 06 01 06 00 00 00 07 01 07 00 00 00 08 01 08 00 00 00 09 01 09 00 00 00";
 
@@ -352,6 +339,18 @@ internal static class LabModeCommands
 
     private const string SteamLizardOff = "00 81 00|00 87 03 08 07 00|00 87 03 07 07 00";
     private const string SteamLizardOn = "00 85 00|00 8E 00";
+
+    private static readonly string StatePath = Path.Combine(
+        Path.GetDirectoryName(LabMachineState.ForCurrentUser.Path)!, "mode-commands.json");
+
+    private static readonly LabModeEndpoint LegionTablet = new(0x17EF,
+        [0x6182, 0x6183, 0x6184, 0x6185, 0x61EB, 0x61EC, 0x61ED, 0x61EE], 0xFFA0, 0x0001);
+
+    private static readonly LabModeEndpoint LegionGoS = new(0x1A86, [0xE310, 0xE311], 0xFFA0, 0x0001, 3, [65], 65);
+    private static readonly LabModeEndpoint SteamDeck = new(0x28DE, [0x1205, 0x12F0], InputLengths: [65, 64]);
+    private static readonly LabModeEndpoint SteamController = new(0x28DE, [0x1102, 0x1142], InputLengths: [65, 64]);
+    private static readonly LabModeEndpoint OxpX1 = new(0x1A86, [0xFE00], 0xFF00, 0x0001);
+    private static readonly LabModeEndpoint OxpX2 = new(0x1A86, [0xFE00, 0x1305], 0xFF00, 0x0001);
 
     /// <summary>Every reviewed command, in the order a stage offers them.</summary>
     public static IReadOnlyList<LabModeCommand> All { get; } =
@@ -380,9 +379,11 @@ internal static class LabModeCommands
                 "Switch the Legion controllers to XInput, the mode Handheld Companion uses by default. It is switched back at the end.",
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:249 (ApplyGamepadMode: 05 00 04 0E 03 mode)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:249 (ApplyGamepadMode: 05 00 04 0E 03 mode)",
                 HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:16 (XInput = 1, DInput = 2)",
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:37 (collection FFA0:0001 per product ID)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:37 (collection FFA0:0001 per product ID)",
                 HcDevices + "app.config:1361 (LegionControllerMode defaults to 0, XInput)",
                 Hhd + "legion_go/tablet/base.py:35 (product ID per mode: 6182/61EB xinput, 6183/61EC dinput)"
             ],
@@ -403,8 +404,10 @@ internal static class LabModeCommands
                 "Have the controller report the touchpad itself instead of passing it to Windows, as Handheld Companion does. The earlier setting cannot be read, so this tool does not change it back.",
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:293 (SetPassthrough: 05 06 6B 02 04 enabled 01)",
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGo.cs:296 (HC sends passthrough off when it closes)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:293 (SetPassthrough: 05 06 6B 02 04 enabled 01)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGo.cs:296 (HC sends passthrough off when it closes)",
                 HcDevices + "app.config:1157 (LegionControllerPassthrough defaults to False)"
             ]
         },
@@ -423,7 +426,8 @@ internal static class LabModeCommands
                 "Turn on the gyro in both detachable controllers, as Handheld Companion does. They are turned off again at the end, as HHD does when it exits; whether they were on before cannot be read.",
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:225 (EnableControllerGyro, sent for controllers 3 and 4 at line 209)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:225 (EnableControllerGyro, sent for controllers 3 and 4 at line 209)",
                 HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoTablet.cs:235 (DisableControllerGyro)",
                 Hhd + "legion_go/tablet/hid.py:113 (controller_enable_gyro: same bytes)",
                 Hhd + "legion_go/tablet/hid.py:324 (close disables both gyros)"
@@ -446,8 +450,10 @@ internal static class LabModeCommands
                 "Send Handheld Companion's touchpad setup for the Legion Go S (touchpad on, touchpad vibration on). The earlier settings cannot be read, so this tool does not change them back.",
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:110 (SetPassthrough(false): 04 08 01 and 08 03 01 after report ID 0)",
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:67 (collection with 65-byte input and output reports)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:110 (SetPassthrough(false): 04 08 01 and 08 03 01 after report ID 0)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:67 (collection with 65-byte input and output reports)",
                 Hhd + "legion_go/slim/hid.py:137 (04 08 01 enables the touchpad; 08 03 00 disables its vibration)",
                 Hhd + "legion_go/slim/base.py:167 (configuration interface 3, FFA0:0001)"
             ]
@@ -466,10 +472,12 @@ internal static class LabModeCommands
                 "Turn on the Legion Go S controller's gyro reports, the two gyro commands from Handheld Companion's controller setup. This tool cannot read them first or turn them off again.",
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:105 (04 07 01 and 04 05 01 in ControllerFactoryReset)",
+                HcDevices +
+                "HandheldCompanion.Devices.Lenovo/LegionGoSZ1.cs:105 (04 07 01 and 04 05 01 in ControllerFactoryReset)",
                 Hhd + "legion_go/slim/hid.py:143 (04 07 01 enables the gyro, 04 05 01 the HID IMU)"
             ],
-            Note = "HC sends these as part of a factory reset that also resets the XInput mapping; the lab sends only the two gyro commands."
+            Note =
+                "HC sends these as part of a factory reset that also resets the XInput mapping; the lab sends only the two gyro commands."
         },
 
         // Steam Deck and Steam Controller: HC drives these by USB ID on any device.
@@ -488,14 +496,19 @@ internal static class LabModeCommands
                 "Turn off the Deck's built-in keyboard and mouse emulation (lizard mode) while this step runs, sent again every second as Handheld Companion does. It is turned back on at the end.",
             Provenance =
             [
-                Hc + "steam-hidapi.net/steam_hidapi.net/SteamController.cs:89 (SetLizardMode: CLEAR_MAPPINGS, RPAD_MODE 7, LPAD_MODE 7; on: DEFAULT_MAPPINGS, DEFAULT_MOUSE)",
-                Hc + "steam-hidapi.net/steam_hidapi.net/SteamController.cs:40 (commands and registers are feature reports: 81 00, 87 03 reg lo hi)",
-                Hc + "steam-hidapi.net/steam_hidapi.net/NeptuneController.cs:75 (ConfigureLoop re-sends lizard off every 1000 ms)",
+                Hc +
+                "steam-hidapi.net/steam_hidapi.net/SteamController.cs:89 (SetLizardMode: CLEAR_MAPPINGS, RPAD_MODE 7, LPAD_MODE 7; on: DEFAULT_MAPPINGS, DEFAULT_MOUSE)",
+                Hc +
+                "steam-hidapi.net/steam_hidapi.net/SteamController.cs:40 (commands and registers are feature reports: 81 00, 87 03 reg lo hi)",
+                Hc +
+                "steam-hidapi.net/steam_hidapi.net/NeptuneController.cs:75 (ConfigureLoop re-sends lizard off every 1000 ms)",
                 Hc + "hidapi.net/hidapi/HidDevice.cs:254 (feature reports go out with report ID 0 first)",
-                HcDevices + "HandheldCompanion.Controllers.Steam/NeptuneController.cs:107 (input report length 65, then 64)",
+                HcDevices +
+                "HandheldCompanion.Controllers.Steam/NeptuneController.cs:107 (input report length 65, then 64)",
                 HcDevices + "HandheldCompanion.Managers/ControllerManager.cs:1760 (product IDs 1205 and 12F0)"
             ],
-            Note = "HC sends no separate IMU command for the Deck; the lizard mode loop is all it writes while it reads the gyro."
+            Note =
+                "HC sends no separate IMU command for the Deck; the lizard mode loop is all it writes while it reads the gyro."
         },
         new()
         {
@@ -512,7 +525,8 @@ internal static class LabModeCommands
             Provenance =
             [
                 Hc + "steam-hidapi.net/steam_hidapi.net/SteamController.cs:89 (SetLizardMode)",
-                HcDevices + "HandheldCompanion.Controllers.Steam/GordonController.cs:223 (lizard off on open, on again at line 242)",
+                HcDevices +
+                "HandheldCompanion.Controllers.Steam/GordonController.cs:223 (lizard off on open, on again at line 242)",
                 HcDevices + "HandheldCompanion.Managers/ControllerManager.cs:1739 (1102 on interface 2, and 1142)"
             ],
             Note = "HC also sets IDLE_TIMEOUT to 300 while open and 0 on close; the lab leaves the idle timeout alone."
@@ -533,7 +547,8 @@ internal static class LabModeCommands
             [
                 Hc + "steam-hidapi.net/steam_hidapi.net/GordonController.cs:66 (SetGyroscope: GYRO_MODE 24 on, 0 off)",
                 Hc + "steam-hidapi.net/steam_hidapi.net.Hid/SCRegister.cs:10 (GYRO_MODE = 48)",
-                HcDevices + "HandheldCompanion.Controllers.Steam/GordonController.cs:224 (gyro on at open, off at line 243)"
+                HcDevices +
+                "HandheldCompanion.Controllers.Steam/GordonController.cs:224 (gyro on at open, off at line 243)"
             ]
         },
 
@@ -551,9 +566,12 @@ internal static class LabModeCommands
                 "Put the GameSir controller in the test mode Handheld Companion uses, where it reports its buttons and motion sensor. The earlier mode cannot be read, so this tool cannot switch it back.",
             Provenance =
             [
-                Hc + "controller-hidapi.net/controller_hidapi.net/TarantulaProController.cs:8 (ControllerMode 07 04 0A 02 mode)",
-                Hc + "controller-hidapi.net/controller_hidapi.net/TarantulaProController.cs:80 (SetTestMode sends mode 1)",
-                HcDevices + "HandheldCompanion.Controllers.GameSir/TarantulaProController.cs:103 (collection with a 64-byte input report)",
+                Hc +
+                "controller-hidapi.net/controller_hidapi.net/TarantulaProController.cs:8 (ControllerMode 07 04 0A 02 mode)",
+                Hc +
+                "controller-hidapi.net/controller_hidapi.net/TarantulaProController.cs:80 (SetTestMode sends mode 1)",
+                HcDevices +
+                "HandheldCompanion.Controllers.GameSir/TarantulaProController.cs:103 (collection with a 64-byte input report)",
                 HcDevices + "HandheldCompanion.Managers/ControllerManager.cs:2285 (every 3537 product)"
             ],
             Note =
@@ -576,8 +594,10 @@ internal static class LabModeCommands
             Description = OxpRemapDescription,
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices/OneXPlayerX1.cs:497 (ConfigureController: page 1, then page 2 with M1 0x67 and M2 0x66)",
-                HcDevices + "HandheldCompanion.Devices/OneXPlayerX1.cs:619 (BuildRemapPage1 and BuildRemapPage2, preset 1)",
+                HcDevices +
+                "HandheldCompanion.Devices/OneXPlayerX1.cs:497 (ConfigureController: page 1, then page 2 with M1 0x67 and M2 0x66)",
+                HcDevices +
+                "HandheldCompanion.Devices/OneXPlayerX1.cs:619 (BuildRemapPage1 and BuildRemapPage2, preset 1)",
                 HcDevices + "HandheldCompanion.Devices/OneXPlayerX1.cs:589 (WriteVendorHidCommand framing)",
                 HcDevices + "HandheldCompanion.Devices/OneXPlayerX1.cs:75 (1A86:FE00, FF00:0001)"
             ],
@@ -597,7 +617,8 @@ internal static class LabModeCommands
             Description = "HC's controller setup for the X1 Mini.",
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices/OneXPlayerX1Mini.cs:25 (ConfigureController: command B3 with 01 05 05)",
+                HcDevices +
+                "HandheldCompanion.Devices/OneXPlayerX1Mini.cs:25 (ConfigureController: command B3 with 01 05 05)",
                 Hhd + "oxp/hid_v1.py:75 (HHD uses command B3 for vibration strength)"
             ],
             Withheld =
@@ -659,7 +680,8 @@ internal static class LabModeCommands
             Description = OxpRemapDescription,
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices/OneXPlayerX2MiniPro.cs:75 (ConfigureController: pages 1-3, then intercept off)",
+                HcDevices +
+                "HandheldCompanion.Devices/OneXPlayerX2MiniPro.cs:75 (ConfigureController: pages 1-3, then intercept off)",
                 HcDevices + "HandheldCompanion.Devices/OneXPlayerX2MiniPro.cs:86 (pages with 0x02, M1 0x68, M2 0x69)",
                 HcDevices + "HandheldCompanion.Devices/OneXPlayerX1.cs:651 (BuildIntercept(false): 00 01 02)",
                 Hhd + "oxp/hid_v1.py:120 (INITIALIZE_X2: the same pages and intercept off)"
@@ -675,12 +697,14 @@ internal static class LabModeCommands
             Endpoint = OxpX1,
             Write = LabModeWrite.Output,
             Framing = LabModeFraming.OxpVendor,
-            Reports = ["B4: " + OxpV2Page1, "B4: " + OxpV2Page2M67, "B2: 01 1F 40 03 02 03 00 00 00 01", "B2: 00 01 02"],
+            Reports =
+                ["B4: " + OxpV2Page1, "B4: " + OxpV2Page2M67, "B2: 01 1F 40 03 02 03 00 00 00 01", "B2: 00 01 02"],
             DelayMs = 50,
             Description = OxpRemapDescription,
             Provenance =
             [
-                HcDevices + "HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:119 (ConfigureController: pages 1-2, page 3 as B2, intercept off)",
+                HcDevices +
+                "HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:119 (ConfigureController: pages 1-2, page 3 as B2, intercept off)",
                 HcDevices + "HandheldCompanion.Devices.OneXPlayer/OneXPlayerApex.cs:130 (pages and page 3 bytes)",
                 HcDevices + "HandheldCompanion.Devices/OneXPlayerX1.cs:651 (BuildIntercept(false))"
             ]
@@ -706,10 +730,13 @@ internal static class LabModeCommands
             Provenance =
             [
                 HcDevices + "HandheldCompanion.Devices.Zotac/GamingZone.cs:704 (Device_Inserted sends both)",
-                HcDevices + "HandheldCompanion.Devices.Zotac/GamingZone.cs:765 (RemapM1_CtrlWinF11 and RemapM2_CtrlWinF12: modifiers 09, key at byte 13)",
+                HcDevices +
+                "HandheldCompanion.Devices.Zotac/GamingZone.cs:765 (RemapM1_CtrlWinF11 and RemapM2_CtrlWinF12: modifiers 09, key at byte 13)",
                 HcDevices + "HandheldCompanion.Devices.Zotac/GamingZone.cs:387 (F11 = 0x44, F12 = 0x45)",
-                HcDevices + "HandheldCompanion.Devices.Zotac/GamingZone.cs:847 (CalcZotacCRC over bytes 5-62, stored big-endian in 63-64)",
-                HcDevices + "HandheldCompanion.Devices.Zotac/GamingZone.cs:876 (1EE9:1590 collection with 65-byte input and output reports)"
+                HcDevices +
+                "HandheldCompanion.Devices.Zotac/GamingZone.cs:847 (CalcZotacCRC over bytes 5-62, stored big-endian in 63-64)",
+                HcDevices +
+                "HandheldCompanion.Devices.Zotac/GamingZone.cs:876 (1EE9:1590 collection with 65-byte input and output reports)"
             ]
         }
     ];
@@ -1117,7 +1144,7 @@ internal static class LabModeCommands
             return "A restore report does not fit the collection.";
         }
 
-        LabModeSession record = session ?? new LabModeSession(command, hid);
+        var record = session ?? new LabModeSession(command, hid);
         try
         {
             using var handle = LabRumbleNative.OpenForWrite(hid.Endpoint);

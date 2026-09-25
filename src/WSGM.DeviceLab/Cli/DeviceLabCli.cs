@@ -312,7 +312,8 @@ internal static class DeviceLabCli
         var output = args.Length > 0 ? Option(args[1..], "--out", "-o") : null;
         if (args.Length == 0 || args[0].StartsWith('-') || output is null)
         {
-            return UsageError("promote requires <file.wsgmlab> --out <new-record.json> and accepts --field <id> repeatedly.");
+            return UsageError(
+                "promote requires <file.wsgmlab> --out <new-record.json> and accepts --field <id> repeatedly.");
         }
 
         List<string> fields = [];

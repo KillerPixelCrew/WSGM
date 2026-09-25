@@ -89,13 +89,15 @@ internal sealed record LabReviewItem
 
     /// <summary>Whether <c>promote --field</c> can apply this item.</summary>
     public bool Promotable =>
-        Proposal is not null && Verdict is LabReviewVerdict.Confirmed or LabReviewVerdict.New or LabReviewVerdict.Disagrees;
+        Proposal is not null &&
+        Verdict is LabReviewVerdict.Confirmed or LabReviewVerdict.New or LabReviewVerdict.Disagrees;
 
     /// <summary>
     ///     Whether <c>promote</c> without <c>--field</c> applies it: confirmations and new facts do, a
     ///     disagreement has to be named.
     /// </summary>
-    public bool PromotedByDefault => Proposal is not null && Verdict is LabReviewVerdict.Confirmed or LabReviewVerdict.New;
+    public bool PromotedByDefault =>
+        Proposal is not null && Verdict is LabReviewVerdict.Confirmed or LabReviewVerdict.New;
 }
 
 /// <summary>The review of one returned report against the knowledge base.</summary>
@@ -193,7 +195,7 @@ internal static partial class LabReview
         var record = recordId is null
             ? null
             : knowledge.Records.FirstOrDefault(item => string.Equals(item.Id, recordId, StringComparison.Ordinal));
-        string? problem = recordId is null
+        var problem = recordId is null
             ? "The tester did not confirm a knowledge record."
             : record is null
                 ? $"Record {recordId} is not in this build's knowledge base."
