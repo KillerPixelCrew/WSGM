@@ -4,9 +4,11 @@ This scope owns `WSGM.Setup.exe`: install composition, hardware-driven plugin an
 selection, privilege boundaries, updates, repair, rollback and uninstall. Read docs/boot-and-shell.md,
 docs/elevation.md, and the relevant device or input document before changing behavior. The approved
 screen design is `docs/mockup.html`; keep flow, wording and layout aligned with it. One
-deliberate change since (maintainer, 2026-09-25): Customize is its own page, not a panel on Profile.
+deliberate changes since (maintainer, 2026-09-25): Customize is its own step after Profile in every install, update and repair, not a panel on Profile.
 Each switch there has a short description, and a NEW badge marks what WSGM 1.0.0 (the tree before
-`db0b0527`) did not have. A feature added later gets the badge too.
+`db0b0527`) did not have. A feature added later gets the badge too. The hardware page lets the user decline the
+device plugin (for Handheld Companion and similar tools); a fresh install's profile starts from Full with
+the plugin and Minimal without it, until the user picks a level or changes a switch.
 
 ## Invariants
 

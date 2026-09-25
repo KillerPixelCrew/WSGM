@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -61,6 +60,8 @@ internal sealed class ProfilePage : Page
     };
 
     private readonly JsonObject _presets;
+    private bool _applying;
+    private bool _edited;
     private bool _desktopFirst;
     private bool _signIn;
     private bool _takeover;
@@ -90,7 +91,15 @@ internal sealed class ProfilePage : Page
                 : (key, "", null, "Other", false);
             FeatureOption option = new(key, label, description, value?.GetValue<bool>() == true, parent)
                 { Group = group, IsNew = isNew };
-            option.PropertyChanged += (_, _) => Changed();
+            option.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(FeatureOption.On) && !_applying)
+                {
+                    _edited = true;
+                }
+
+                Changed();
+            };
             Features.Add(option);
         }
 
@@ -99,15 +108,7 @@ internal sealed class ProfilePage : Page
         {
             Groups.Add(new FeatureGroup(group.Key.ToUpperInvariant(), [.. group]));
         }
-
-        CustomizeCommand = new Command(() => CustomizeRequested?.Invoke());
     }
-
-    /// <summary>Raised when the user opens the Customize page.</summary>
-    public event Action? CustomizeRequested;
-
-    /// <summary>Opens the Customize page.</summary>
-    public Command CustomizeCommand { get; }
 
     /// <summary>The features by group, as the Customize page lists them.</summary>
     public ObservableCollection<FeatureGroup> Groups { get; } = [];
@@ -130,6 +131,7 @@ internal sealed class ProfilePage : Page
         {
             if (value)
             {
+                _edited = true;
                 ApplyPreset("full");
             }
         }
@@ -142,6 +144,7 @@ internal sealed class ProfilePage : Page
         {
             if (value)
             {
+                _edited = true;
                 ApplyPreset("minimal");
             }
         }
@@ -184,6 +187,7 @@ internal sealed class ProfilePage : Page
         {
             if (Set(ref _takeover, value))
             {
+                _edited = true;
                 Changed();
             }
         }
@@ -221,6 +225,19 @@ internal sealed class ProfilePage : Page
         return null;
     }
 
+    /// <summary>
+    ///     On a fresh install, starts the level from the hardware choice: Full with the device plugin, Minimal
+    ///     without it. It follows that choice until the user picks a level or changes a switch; an update or
+    ///     repair always keeps the current settings.
+    /// </summary>
+    public void UseDefaultLevel(bool withDevicePlugin)
+    {
+        if (!FromCurrent && !_edited)
+        {
+            ApplyPreset(withDevicePlugin ? "full" : "minimal");
+        }
+    }
+
     private void ApplyPreset(string name)
     {
         if (_presets[name] is not JsonObject preset || preset["features"] is not JsonObject features)
@@ -228,10 +245,13 @@ internal sealed class ProfilePage : Page
             return;
         }
 
+        _applying = true;
         foreach (var feature in Features)
         {
             feature.On = features[feature.Key]?.GetValue<bool>() == true;
         }
+
+        _applying = false;
 
         _takeover = preset["steamAutostartTakeover"]?.GetValue<bool>() ?? false;
         Raise(nameof(Takeover));

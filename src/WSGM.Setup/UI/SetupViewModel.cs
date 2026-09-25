@@ -155,9 +155,13 @@ internal sealed class SetupViewModel : Observable
         _flow.Clear();
         _flow.AddRange(kind switch
         {
-            "update" => ["update", "profile", "progress", "summary"],
-            "maintain-repair" => ["profile", "progress", "summary"],
-            _ => [engine.Legacy is null ? "welcome" : "legacy", "hardware", "profile", "drivers", "progress", "summary"]
+            "update" => ["update", "profile", "customize", "progress", "summary"],
+            "maintain-repair" => ["profile", "customize", "progress", "summary"],
+            _ =>
+            [
+                engine.Legacy is null ? "welcome" : "legacy", "hardware", "profile", "customize", "drivers", "progress",
+                "summary"
+            ]
         });
         // Unpacking the new WSGM and asking it for the current answers takes a moment; start now.
         _answersTask = Task.Run(engine.PrepareAnswers);
@@ -248,23 +252,6 @@ internal sealed class SetupViewModel : Observable
         Raise(nameof(HintLeft));
     }
 
-    // Customize joins the flow only once it is opened, so a user who keeps a preset never sees the step.
-    private void OpenCustomize()
-    {
-        var profile = _flow.IndexOf("profile");
-        if (profile < 0)
-        {
-            return;
-        }
-
-        if (!_flow.Contains("customize"))
-        {
-            _flow.Insert(profile + 1, "customize");
-        }
-
-        GoTo(profile + 1);
-    }
-
     private async Task ShowProfileAsync()
     {
         Page = new MessagePage("Profile", "Reading your settings…", "", "");
@@ -274,9 +261,10 @@ internal sealed class SetupViewModel : Observable
             if (_profile is null)
             {
                 _profile = new ProfilePage(_answers);
-                _profile.CustomizeRequested += OpenCustomize;
             }
 
+            // Full with the device plugin, Minimal without it (declined, or nothing matches).
+            _profile.UseDefaultLevel(_hardware?.Chosen is not null);
             Page = _profile;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
