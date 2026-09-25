@@ -18,7 +18,7 @@ Related:
 | Assembly / package | `WSGM.Device.Sdk`                                                                 |
 | Target framework   | `net10.0-windows`, matching the host that loads the plugin                        |
 | Dependencies       | none; a plugin inherits nothing from the SDK                                      |
-| API version        | `DeviceApi.Version = 7`; WSGM, Device Lab and every plugin require an exact match |
+| API version        | `DeviceApi.Version = 8`; WSGM, Device Lab and every plugin require an exact match |
 | Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                       |
 | Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                             |
 | Documentation      | every public member is documented; an undocumented member fails the build         |
@@ -641,7 +641,7 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
   "id": "wsgm.device.msi.claw-8-a2vm",
   "name": "MSI Claw 8 AI+ A2VM",
   "version": "1.2.0",
-  "apiVersion": 7,
+  "apiVersion": 8,
   "entryAssembly": "WSGM.Device.Msi.Claw8A2Vm.dll",
   "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin",
   "hardware": [

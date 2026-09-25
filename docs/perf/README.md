@@ -97,6 +97,25 @@ Ranked by measured share of WSGM.exe's 6.6 s of CPU and 132,000 wakeups over the
 Memory: 97 MB private, 240 to 300 MB working set, 14 MB in the large object heap. Not yet broken
 down.
 
+## After the first fix round: idle desktop, 2026-09-26
+
+The branch's first eight commits, deployed and recorded the same way eight minutes after a restart,
+with Task Manager and a remote-desktop session open on the machine and the motion setting at its
+default, so the sensor stream still ran. Report in
+[captures/20260926-012326-idle-desktop](captures/20260926-012326-idle-desktop/report.md).
+
+| Process      | Before: CPU % | Before: wakeups/s | After: CPU % | After: wakeups/s |
+| ------------ | ------------: | ----------------: | -----------: | ---------------: |
+| WSGM.exe     |          12.3 |             2,454 |         10.3 |            1,838 |
+| WUDFHost.exe |           5.6 |             1,185 |          2.6 |              496 |
+
+Thread-pool work items fell from 488 to 377 per second. The remaining cost is what the log says it
+is: with the stream on, every frame carries sensor noise, so no frame equals the last and each one
+still reaches VIIPER; the VIIPER thread alone still takes 700 wakeups/s. A run with "Motion only in
+game" switched on could not be taken: the mode never switched the stream off because the profile
+layers report the foreground desktop window as the running application, which the fix in the
+following commit corrects. That run, and the in-game scenarios, are the next captures.
+
 ## Budgets
 
 Proposed for the maintainer's decision; not agreed yet.

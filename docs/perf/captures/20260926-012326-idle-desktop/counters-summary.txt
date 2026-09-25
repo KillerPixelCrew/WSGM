@@ -1,0 +1,14 @@
+LHMDataProvider        cpu% avg    0,0  private MB    13,3  working set MB    42,6  handles   317  threads   4
+RTSS                   cpu% avg    0,0  private MB     2,5  working set MB     8,0  handles   385  threads   5
+RTSSHooksLoader64      cpu% avg    0,0  private MB     0,6  working set MB     1,8  handles   136  threads   2
+steam                  cpu% avg    1,0  private MB    71,7  working set MB   144,8  handles 1.028  threads  39
+steamwebhelper         cpu% avg    0,0  private MB    48,7  working set MB   182,3  handles 1.319  threads  36
+steamwebhelper#1       cpu% avg    0,0  private MB     3,8  working set MB    18,1  handles   225  threads   7
+steamwebhelper#2       cpu% avg    0,0  private MB   312,2  working set MB   382,6  handles   590  threads  25
+steamwebhelper#3       cpu% avg    0,0  private MB     8,4  working set MB    34,3  handles   344  threads  17
+steamwebhelper#4       cpu% avg    0,0  private MB     6,4  working set MB    24,7  handles   224  threads  10
+steamwebhelper#5       cpu% avg    0,0  private MB   263,8  working set MB   332,6  handles   789  threads  23
+steamwebhelper#6       cpu% avg    0,0  private MB     4,9  working set MB    26,4  handles   273  threads   9
+WSGM                   cpu% avg    0,0  private MB    13,2  working set MB    58,7  handles   360  threads   5
+WSGM.LogonService      cpu% avg    0,0  private MB     1,6  working set MB    25,4  handles   230  threads   6
+WSGM#1                 cpu% avg   15,5  private MB   132,0  working set MB   304,3  handles 1.313  threads  60
