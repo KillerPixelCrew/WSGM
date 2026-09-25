@@ -55,13 +55,19 @@ public sealed record SetupFeatures
     /// <summary>The boot splash over the desktop while Game Mode starts.</summary>
     public bool BootSplash { get; init; }
 
+    /// <summary>
+    ///     RTSS performance controls: frame limit, performance overlay and AutoTDP. Setup installs RTSS when this
+    ///     is on and RTSS is missing.
+    /// </summary>
+    public bool Rtss { get; init; }
+
     /// <summary>Everything on.</summary>
     public static SetupFeatures Full { get; } = new()
     {
         SteamInputManagement = true, SteamInputLease = true, SteamUi = true, LibraryTabs = true,
         CardManager = true, ConnectedLibraryCarousel = true, SdFormat = true, WifiIndicator = true,
         NativeQuickAccess = true, DownloadKeepAwake = true, DownloadQueueSort = true, EdgeGestures = true,
-        Hotkey = true, GamepadChord = true, BootSplash = true
+        Hotkey = true, GamepadChord = true, BootSplash = true, Rtss = true
     };
 
     /// <summary>The WSGM session only: nothing in or around Steam, but WSGM stays reachable.</summary>
@@ -172,7 +178,8 @@ public sealed record SetupAnswers
                                                        || config.Gestures.RightEdgeSteamQuickAccess,
                 Hotkey = config.Hotkey.Enabled,
                 GamepadChord = config.GamepadChord.Enabled,
-                BootSplash = config.BootSplashEnabled
+                BootSplash = config.BootSplashEnabled,
+                Rtss = config.Performance.Enabled
             },
             SteamAutostartEntries = steamAutostartEntries,
             Presets = DefaultPresets
@@ -206,6 +213,7 @@ public sealed record SetupAnswers
         config.Hotkey.Enabled = Features.Hotkey;
         config.GamepadChord.Enabled = Features.GamepadChord;
         config.BootSplashEnabled = Features.BootSplash;
+        config.Performance.Enabled = Features.Rtss;
     }
 
     /// <summary>Parses an answers document.</summary>
@@ -259,7 +267,7 @@ public sealed record SetupAnswers
             ("wifiIndicator", Features.WifiIndicator), ("nativeQuickAccess", Features.NativeQuickAccess),
             ("downloadKeepAwake", Features.DownloadKeepAwake), ("downloadQueueSort", Features.DownloadQueueSort),
             ("edgeGestures", Features.EdgeGestures), ("hotkey", Features.Hotkey),
-            ("gamepadChord", Features.GamepadChord), ("bootSplash", Features.BootSplash)
+            ("gamepadChord", Features.GamepadChord), ("bootSplash", Features.BootSplash), ("rtss", Features.Rtss)
         ];
         var off = features.Where(feature => !feature.On).Select(feature => feature.Name);
         return $"startAtSignIn={StartAtSignIn}, startMode={StartMode}, deviceIntegration={DeviceIntegration}, "

@@ -257,6 +257,16 @@ internal sealed class SetupEngine : IDisposable
             steps.Add(new SetupStep("Installing HidHide", "HidHide installed", false, InstallHidHide));
         }
 
+        // RTSS is the one component setup downloads rather than carries; a failure leaves WSGM working without it.
+        if (choices.Answers["features"]?["rtss"]?.GetValue<bool>() == true)
+        {
+            steps.Add(new SetupStep("Installing RivaTuner Statistics Server",
+                $"RivaTuner Statistics Server {RtssInstaller.Version} installed", false, RtssInstaller.Install)
+            {
+                Hint = "Setup downloads RTSS from Guru3D's mirror now."
+            });
+        }
+
         steps.Add(new SetupStep("Adding Start menu entries", "Start menu entries added", false, _ => Register()));
         return steps;
     }
