@@ -44,10 +44,32 @@ public sealed class SetupShutdownContractTests
         var stop = source[source.IndexOf("private bool StopRuntime", StringComparison.Ordinal)..];
 
         AssertOrdered(stop, "WindowsSetup.InspectService()", "WindowsSetup.StopService()");
-        AssertOrdered(stop, "WindowsSetup.StopService()", "WindowsSetup.StopForUpdate()");
-        AssertOrdered(stop, "WindowsSetup.StopForUpdate()", "WindowsSetup.Blockers(");
-        AssertOrdered(stop, "WindowsSetup.Blockers(", "WindowsSetup.ReserveDeviceOwner()");
+        AssertOrdered(stop, "WindowsSetup.StopService()", "StopAndCapture(forUninstall)");
+        AssertOrdered(stop, "StopAndCapture(forUninstall)", "WindowsSetup.CloseSteam(");
+        AssertOrdered(stop, "WindowsSetup.CloseSteam(", "WindowsSetup.Blockers(");
+        AssertOrdered(stop, "WindowsSetup.Blockers(", "WindowsSetup.ReserveDeviceOwner(");
         Assert.Contains("No process was ended.", stop, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LegacyRemoval_StopsWsgmThroughTheUpdateEventBeforeTheOldUninstallerRuns()
+    {
+        // The old uninstaller sends the uninstall event, on which WSGM leaves Steam running. The update
+        // event first lets WSGM close Steam gracefully, as the old installer's update did.
+        var source = Source(@"src\WSGM.Setup\Engine\SetupEngine.cs");
+        var legacy = source[source.IndexOf("\"Removing WSGM \" + legacy.Version", StringComparison.Ordinal)..];
+
+        AssertOrdered(legacy, "StopAndCapture(forUninstall: false)", "Registration.RunInnoUninstaller(");
+    }
+
+    [Fact]
+    public void SetupNeverTerminatesSteam()
+    {
+        var source = Source(@"src\WSGM.Setup\Engine\WindowsSetup.cs");
+
+        Assert.Contains("\"steam://exit\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ForceStopCurrentSession(\"steam", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/IM \\\"steam", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

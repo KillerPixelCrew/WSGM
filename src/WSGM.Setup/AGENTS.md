@@ -28,8 +28,9 @@ screen design is `docs/mockup.html`; keep flow, wording and layout aligned with 
 - The exit events, shell mutex, device-owner marker and anchor recovery event are a cross-version
   contract with the running WSGM. Keep their names, access rights, waits and order; the setup
   contract tests pin them.
-- Setup asks running WSGM to perform its bounded Steam and launch-wrapper pre-stop, but setup itself
-  never terminates Steam or a wrapper. Refuse replacement while either still owns a live game tree.
+- Setup asks running WSGM to perform its bounded Steam and launch-wrapper pre-stop. Steam that is
+  still running gets the same graceful `steam://exit` from setup, never a termination; setup never
+  terminates Steam or a wrapper, and refuses replacement while either still owns a live game tree.
   Force stops are limited to WSGM's own images in setup's session.
 - Steam Input shim cleanup must ask the runtime ownership logic to reconcile it. Never delete or
   replace a Steam DLL merely because its filename matches.

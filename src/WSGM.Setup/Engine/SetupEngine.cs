@@ -76,6 +76,8 @@ internal sealed class SetupEngine : IDisposable
     private static readonly string AppStaging = InstallLayout.App + ".staging";
     private static readonly string AppPrevious = InstallLayout.App + ".previous";
     private Mutex? _owner;
+    private bool _runtimeCaptured;
+    private string? _runtimeExe;
     private bool _runtimeWasRunning;
     private bool _runtimeWasShell;
     private ServiceState _service;
@@ -208,9 +210,16 @@ internal sealed class SetupEngine : IDisposable
         if (Legacy is { } legacy)
         {
             steps.Add(new SetupStep("Removing WSGM " + legacy.Version, "WSGM " + legacy.Version + " removed", true,
-                step => Fail(step,
-                    Registration.RunInnoUninstaller(legacy.Command, () => Registration.LegacyInstall() is not null),
-                    "The WSGM 1.0 uninstaller did not finish. Remove WSGM 1.0 from Windows Settings, then run setup again.")));
+                step =>
+                {
+                    // The old uninstaller signals the uninstall event, on which WSGM deliberately leaves Steam
+                    // running. Stop WSGM through the update event first, as the old installer's update did,
+                    // so WSGM closes Steam gracefully and the mode it ran in is recorded before it is gone.
+                    StopAndCapture(false);
+                    return Fail(step,
+                        Registration.RunInnoUninstaller(legacy.Command, () => Registration.LegacyInstall() is not null),
+                        "The WSGM 1.0 uninstaller did not finish. Remove WSGM 1.0 from Windows Settings, then run setup again.");
+                }));
         }
 
         steps.Add(new SetupStep("Closing WSGM and Steam", "WSGM and Steam closed", true,
@@ -349,13 +358,19 @@ internal sealed class SetupEngine : IDisposable
             return false;
         }
 
-        _runtimeWasShell = WindowsSetup.ShellRunning();
-        var handoff = forUninstall ? WindowsSetup.StopForUninstall() : WindowsSetup.StopForUpdate();
-        _runtimeWasRunning = handoff is not ShutdownHandoff.NotRunning || _runtimeWasShell;
+        StopAndCapture(forUninstall);
         _shutdownApplied = true;
 
+        // WSGM's own pre-stop gives Steam ten seconds, and it only runs when WSGM was running. Whatever is
+        // left gets the same graceful request from setup and a longer wait; it is never terminated.
         var existing = File.Exists(InstallLayout.AppExe);
-        var blockers = WindowsSetup.Blockers(!forUninstall && existing);
+        var includeSteam = !forUninstall && existing;
+        if (includeSteam)
+        {
+            WindowsSetup.CloseSteam(TimeSpan.FromSeconds(60));
+        }
+
+        var blockers = WindowsSetup.Blockers(includeSteam);
         if (blockers.Count > 0)
         {
             step.Note = $"{string.Join(" and ", blockers)} is still running. Close it normally, then run setup again. "
@@ -372,7 +387,7 @@ internal sealed class SetupEngine : IDisposable
             return false;
         }
 
-        _owner = WindowsSetup.ReserveDeviceOwner();
+        _owner = WindowsSetup.ReserveDeviceOwner(TimeSpan.FromSeconds(30));
         if (_owner is null)
         {
             step.Note = "A WSGM or Device Lab hardware owner is still active. Close it and run setup again.";
@@ -380,6 +395,26 @@ internal sealed class SetupEngine : IDisposable
         }
 
         return true;
+    }
+
+    /// <summary>
+    ///     Stops WSGM and records, once, how it ran and from where. A later stop sees the temporarily stopped
+    ///     state and must not overwrite it, or a rollback would restart nothing or the wrong mode.
+    /// </summary>
+    private void StopAndCapture(bool forUninstall)
+    {
+        var wasShell = WindowsSetup.ShellRunning();
+        var exe = WindowsSetup.RunningWsgmPath();
+        var handoff = forUninstall ? WindowsSetup.StopForUninstall() : WindowsSetup.StopForUpdate();
+        if (_runtimeCaptured)
+        {
+            return;
+        }
+
+        _runtimeWasShell = wasShell;
+        _runtimeWasRunning = handoff is not ShutdownHandoff.NotRunning || wasShell;
+        _runtimeExe = exe;
+        _runtimeCaptured = true;
     }
 
     private bool InstallApplication(SetupStep step, bool controller)
@@ -716,9 +751,15 @@ internal sealed class SetupEngine : IDisposable
             WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install");
         }
 
-        if (_runtimeWasRunning && File.Exists(InstallLayout.AppExe))
+        var restart = _runtimeExe is { } previous && File.Exists(previous) ? previous : InstallLayout.AppExe;
+        if (_runtimeWasRunning && File.Exists(restart))
         {
-            WindowsSetup.Start(InstallLayout.AppExe, _runtimeWasShell ? "--shell" : "--settings");
+            SetupLog.Info($"Rollback: restarting {restart}.");
+            WindowsSetup.Start(restart, _runtimeWasShell ? "--shell" : "--settings");
+        }
+        else if (_runtimeWasRunning)
+        {
+            SetupLog.Warn("Rollback: the WSGM that was running is gone, so it could not be restarted.");
         }
     }
 

@@ -392,9 +392,19 @@ internal sealed class SetupViewModel : Observable
 
         if (!ok)
         {
-            Page = new SummaryPage("Setup stopped", "Nothing was changed",
-                "The installed WSGM, if there was one, is back as it was.", rows,
-                string.Join("\n", failed.Select(row => row.Note)), "Close", "");
+            // The old version's own uninstaller cannot be undone, so a failure after it is not "nothing changed".
+            var legacyRemoved = engine.Legacy is { } legacy
+                                && progress.Steps.Any(row =>
+                                    row.Step.Label.EndsWith(legacy.Version, StringComparison.Ordinal)
+                                    && row.Step.State is StepState.Done);
+            Page = legacyRemoved
+                ? new SummaryPage("Setup stopped",
+                    $"WSGM {engine.Legacy!.Value.Version} was removed, but the new version is not installed",
+                    "Run setup again to install WSGM. Your settings are still there.", rows,
+                    string.Join("\n", failed.Select(row => row.Note)), "Close", "")
+                : new SummaryPage("Setup stopped", "Nothing was changed",
+                    "The installed WSGM, if there was one, is back as it was.", rows,
+                    string.Join("\n", failed.Select(row => row.Note)), "Close", "");
             return;
         }
 

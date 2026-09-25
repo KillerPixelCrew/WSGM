@@ -175,7 +175,7 @@
         </UniformGrid>
         <ToggleSwitch IsChecked="{Binding SignIn}" OnContent="Start WSGM when you sign in"
                       OffContent="Start WSGM when you sign in" />
-        <ToggleButton IsChecked="{Binding Customize}" Content="Customize…" MinHeight="48" Padding="22,0" />
+        <ToggleButton IsChecked="{Binding Customize}" Content="Customize…" HorizontalAlignment="Left" />
         <StackPanel Spacing="4" IsVisible="{Binding Customize}">
           <ItemsControl ItemsSource="{Binding Features}">
             <ItemsControl.ItemTemplate>
