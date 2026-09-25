@@ -1,0 +1,27 @@
+{
+  "scenario": "idle-desktop",
+  "started": "2026-09-26T00:19:44.0991630+02:00",
+  "seconds": 30,
+  "machine": "Claw 8 AI+ A2VM",
+  "os": "10.0.26200",
+  "wsgmVersion": "2.0.0.1354",
+  "wsgmPath": "C:\\Program Files\\WSGM\\App\\WSGM.exe",
+  "wsgmUptimeMinutes": 34.1,
+  "powerSource": "ac",
+  "batteryPercent": 72,
+  "processes": [
+    "LHMDataProvider:9776",
+    "RTSS:5988",
+    "RTSSHooksLoader64:1308",
+    "steam:8660",
+    "steamwebhelper:10784",
+    "steamwebhelper:13104",
+    "steamwebhelper:1648",
+    "steamwebhelper:3288",
+    "steamwebhelper:4184",
+    "steamwebhelper:6836",
+    "steamwebhelper:7020",
+    "WSGM:4532",
+    "WSGM.LogonService:2384"
+  ]
+}

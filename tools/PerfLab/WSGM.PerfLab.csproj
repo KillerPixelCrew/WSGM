@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Development-time tool: summarizes an ETW trace recorded by perf-capture.ps1 into the per-process
+       and per-thread numbers docs/perf records. It is not part of WSGM.slnx and never ships. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>WSGM.Tools.PerfLab</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.EventTracing.Processing.All" Version="1.12.10"/>
+  </ItemGroup>
+</Project>

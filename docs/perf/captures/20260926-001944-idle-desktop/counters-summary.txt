@@ -1,0 +1,7 @@
+LHMDataProvider        cpu% avg    1,4  ctx/s avg      48  private MB    16,5  handles   317  threads   4
+RTSS                   cpu% avg    0,0  ctx/s avg      11  private MB     2,6  handles   385  threads   5
+RTSSHooksLoader64      cpu% avg    0,0  ctx/s avg       0  private MB     0,6  handles   136  threads   2
+steam                  cpu% avg    1,4  ctx/s avg     240  private MB   129,4  handles  1046  threads  39
+steamwebhelper         cpu% avg    0,5  ctx/s avg     185  private MB    48,1  handles 1385,923076923077  threads  34
+WSGM                   cpu% avg   17,2  ctx/s avg   4.126  private MB    96,7  handles 1388,076923076923  threads 63,61538461538461
+WSGM.LogonService      cpu% avg    0,0  ctx/s avg       0  private MB     4,6  handles 229,46153846153845  threads 6,153846153846154
