@@ -21,6 +21,6 @@ internal static class DeviceInstallationPaths
         }
     }
 
-    internal static string InstalledPackageRoot =>
-        Path.Combine(ProtectedRoot, "DevicePlugins", "installed");
+    /// <summary>The folder of <c>.wsgmpkg</c> files, device and common alike.</summary>
+    internal static string PluginsRoot => Path.Combine(ProtectedRoot, "Plugins");
 }

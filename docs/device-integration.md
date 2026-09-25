@@ -33,11 +33,11 @@ administrator-installed hardware code running with WSGM's authority. There are n
 publisher grants, signer rotation or revocation, quarantine catalog or de-elevated plugin class to
 rank with, so ambiguity is refused rather than resolved.
 
-The release installer owns one administrator-protected slot under `%ProgramFiles%\WSGM`. A different
-package replaces the existing one, and a developer package occupies the same slot; there is no
-second location, and WSGM never loads plugin code from a user-writable discovery root. Replacement
-goes through the fixed, nondiscoverable `.staging` and `.previous` siblings while the slot gate is
-held, so normal discovery never sees a half-published package (`device-plugin-system.md` §6).
+Packages are `.wsgmpkg` files in the administrator-protected `%ProgramFiles%\WSGM\Plugins` folder,
+and WSGM loads them straight from the file. A developer package goes to the same folder; there is no
+second location, and WSGM never loads plugin code from a user-writable discovery root. Two different
+device packages there refuse device integration instead of choosing one. A package is replaced only
+while WSGM is closed, because a loaded file is held open (`device-plugin-system.md` §3–§7).
 
 The manifest is deliberately minimal: id, name, version, exact API version, entry assembly and entry
 type. Hardware identity, dependencies, capabilities and policy are published by plugin code, so the
@@ -47,19 +47,18 @@ manifest cannot disagree with what the plugin does.
 
 `ShellSession` creates at most one `DeviceCoordinator` per interactive session. The coordinator
 reserves the machine-wide `Global\WSGM.DeviceOwner` marker for the process lifetime, so no other
-session, setup, maintenance command or attended Device Lab run can start a second hardware cycle. It
-loads the sole package's entry type into one collectible assembly-load context inside WSGM, and that
-runtime stays alive across Steam restarts, games and desktop/game transitions. Lifecycle calls and
-publications are direct managed calls.
+session, setup or attended Device Lab run can start a second hardware cycle. It loads the sole
+package's entry type into one collectible assembly-load context inside WSGM, and that runtime stays
+alive across Steam restarts, games and desktop/game transitions. Lifecycle calls and publications
+are direct managed calls.
 
-Discovery and elevated install or removal share the crash-recovering `Global\WSGM.DevicePackageSlot`
-mutex. Maintenance takes that gate, then the owner marker, and holds both through the filesystem
-replacement, so package bytes cannot change under a loaded plugin. When setup or uninstall refuses
-before touching files, it restores the initially observed shell or settings mode and restarts the
-logon service only when that service was initially present and running, so startup catch-up cannot
-launch a second boot process. The restored process opens the installer's unowned marker and keeps
-that second handle for its lifetime, so the session survives without letting maintenance and a new
-hardware cycle overlap.
+Package bytes cannot change under a loaded plugin: the file is held open read-only while its code
+may run, and setup replaces it only after stopping WSGM. When setup or uninstall refuses before
+touching files, it restores the initially observed shell or settings mode and restarts the logon
+service only when that service was initially present and running, so startup catch-up cannot launch
+a second boot process. The restored process opens the installer's unowned marker and keeps that
+second handle for its lifetime, so the session survives without letting setup and a new hardware
+cycle overlap.
 
 **The collectible load context isolates dependency resolution; it is not crash containment.** It
 permits a clean unload after verified cleanup, but a process-fatal managed or native plugin failure

@@ -187,13 +187,13 @@ together.
 
 WSGM ships this package as its device component, but only setup's **MSI Claw 8 AI+ A2VM** mode, or a
 Custom install that selects it, puts it on disk. That mode is also the only one that enables Device
-Integration on a fresh install. A package copied into the slot on a Minimal or Desktop install shows
-a banner on the overlay's Device page naming what is missing.
+Integration on a fresh install. A package copied into the Plugins folder on a Minimal or Desktop
+install shows a banner on the overlay's Device page naming what is missing.
 
 To install a build of your own, see
 [the authoring guide](https://github.com/KillerPixelCrew/WSGM/blob/master/docs/device-plugin-authoring.md).
-In short: expand the `.wsgmpkg` into a fresh directory and hand it to
-`WSGM.exe --install-device-plugin`, which validates it again before replacing the protected slot.
+In short: close WSGM and copy the `.wsgmpkg` into `%ProgramFiles%\WSGM\Plugins`; WSGM validates it
+again when it loads it.
 
 The package puts its controls in the SDK's shared Power, RGB and Info sections, so WSGM can combine
 them with its own controls and assign the declared presets separately for AC and battery.

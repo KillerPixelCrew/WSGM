@@ -141,44 +141,27 @@ from those same handles, so a link or file replacement cannot substitute differe
 clean report. Licence and attribution notices required by shipped code or glyph assets remain
 package files.
 
-## 5. Install or replace the one slot
+## 5. Install or replace the package
 
-Close the WSGM shell first. A package installed through this command becomes trusted hardware code
-and may later inherit WSGM's elevation, so inspect and validate the exact directory you intend to
-install.
+A package becomes trusted hardware code that may later inherit WSGM's elevation, so inspect and
+validate the exact `.wsgmpkg` you intend to install.
 
-Expand the `.wsgmpkg` into a fresh directory, then ask the installed WSGM binary to replace the
-protected slot:
-
-```powershell
-$expanded = '<new-expanded-directory>'
-if (Test-Path -LiteralPath $expanded) { throw 'The expansion directory must be new.' }
-New-Item -ItemType Directory -Path $expanded | Out-Null
-tar -xf <plugin.wsgmpkg> -C $expanded
-if ($LASTEXITCODE -ne 0) { throw 'Package extraction failed.' }
-& "$env:LOCALAPPDATA\WSGM\bin\WSGM.exe" --install-device-plugin $expanded
-if ($LASTEXITCODE -ne 0) { throw 'WSGM rejected the plugin installation; inspect wsgm.log.' }
-```
-
-The maintenance command requests elevation, copies into the fixed nondiscoverable `.staging`
-sibling, revalidates its bounded paths, manifest, API version and x64 entry point, reserves the
-machine-wide hardware owner shared with Device Lab, and replaces
-`C:\Program Files\WSGM\DevicePlugins\installed`. It repairs an ambiguous old slot by replacing the
-whole slot and never leaves a release and a developer plugin side by side.
-
-The source directory must not overlap the installed slot, `.staging`, `.previous`,
-`.installed.previous` or an abandoned `.installed.staging-*` namespace in either direction, and must
-not traverse a link or reparse point. These checks run before recovery reconciliation. Runtime
-discovery and maintenance use the same machine-wide package-slot gate, and the owner reservation is
-held through every filesystem operation, so the startup race is closed without loading plugin code
-in maintenance. The full transaction is in `device-plugin-system.md` §6.
-
-Enable Device Integration in WSGM Settings only after the install succeeds.
-
-To return to core-only WSGM, run the maintenance removal. It also requests elevation and applies the
-same gate and owner refusal:
+WSGM loads packages straight from their file in the administrator-protected Plugins folder; nothing
+is unpacked. Close WSGM first, because a loaded package file is held open, then copy the package in
+from an elevated PowerShell:
 
 ```powershell
-& "$env:LOCALAPPDATA\WSGM\bin\WSGM.exe" --remove-device-plugin
-if ($LASTEXITCODE -ne 0) { throw 'WSGM rejected the plugin removal; inspect wsgm.log.' }
+$plugins = Join-Path $env:ProgramFiles 'WSGM\Plugins'
+New-Item -ItemType Directory -Path $plugins -Force | Out-Null
+Copy-Item -LiteralPath <plugin.wsgmpkg> -Destination $plugins
 ```
+
+At the next start WSGM validates the file again: bounded archive entries, no native images, the
+manifest, the exact API version and an x64 entry point (`device-plugin-system.md` §2–§5). For one id
+the highest version wins, and older files are reported as superseded rather than deleted. A second
+device package with a different id makes WSGM refuse device integration until one of them is
+removed, so a release and a developer plugin never run side by side.
+
+Enable Device Integration in WSGM Settings once the package is in place.
+
+To return to core-only WSGM, close WSGM and delete the package file from the same folder.

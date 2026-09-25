@@ -153,10 +153,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>The device definition matched by the active plugin cycle.</summary>
     private string? ActiveDeviceDefinitionId { get; set; }
 
-    /// <summary>The latest one-slot discovery result.</summary>
+    /// <summary>The latest device package discovery result.</summary>
     internal DevicePackageDiscovery PackageDiscovery { get; private set; } = new()
     {
-        Inventory = new DevicePackageInventory { PackageRoots = [] }
+        Inventory = new DevicePackageInventory { PackageFiles = [] }
     };
 
     /// <summary>The capability router, for snapshots and change subscriptions.</summary>
@@ -842,12 +842,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         _intentionalStop = false;
         SetState(DeviceCycleState.Detected);
-        DevicePackageSlotGate? slotGate;
+        InstalledDevicePackage package;
+        long cycleGeneration;
+        DevicePluginRuntime client;
         try
         {
-            slotGate = await DevicePackageSlotGate.TryAcquireAsync(
-                TimeSpan.FromSeconds(5),
-                cancellationToken).ConfigureAwait(false);
+            _identity = DeviceMachineIdentity.Collect();
+            PackageDiscovery = await DiscoverPackageAsync(cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -857,84 +859,46 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             ScheduleStartFault(new InvalidOperationException(
-                "The protected Device Plugin slot could not be locked for startup.",
+                "The installed plugin packages could not be discovered.",
                 ex));
             return;
         }
 
-        if (slotGate is null)
+        cancellationToken.ThrowIfCancellationRequested();
+        var discoveredPackage = InstalledPackage;
+        PhysicalGlyphCatalog.ReplacePackageProfiles([]);
+        if (discoveredPackage is null || !discoveredPackage.Valid)
         {
+            SetState(DeviceCycleState.Passive);
+            var refusal = PackageDiscovery.ErrorCode
+                          ?? discoveredPackage?.RejectionCode
+                          ?? "no-package-installed";
+            Log.Warn(
+                $"Device cycle passive: {refusal}; devicePackages={PackageDiscovery.Inventory.PackageFiles.Count}.");
             cancellationToken.ThrowIfCancellationRequested();
-            ScheduleStartFault(new TimeoutException(
-                "The protected Device Plugin slot remained busy during startup."));
             return;
         }
 
-        InstalledDevicePackage package;
-        long cycleGeneration;
-        DevicePluginRuntime client;
-        await using (slotGate)
+        package = discoveredPackage;
+
+        cycleGeneration = Interlocked.Increment(ref _cycleGeneration);
+        SetState(DeviceCycleState.Activating);
+        try
         {
-            try
-            {
-                // Maintenance and host startup share this gate. Reconcile the fixed recovery
-                // sibling before discovery so a process death between the two atomic moves cannot
-                // make the previously installed package disappear permanently.
-                DevicePackageStager.ReconcileInstalledPackage(
-                    DeviceInstallationPaths.InstalledPackageRoot);
-                _identity = DeviceMachineIdentity.Collect();
-                PackageDiscovery = await DiscoverPackageAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                ScheduleStartFault(new InvalidOperationException(
-                    "The protected Device Plugin slot could not be reconciled or discovered.",
-                    ex));
-                return;
-            }
-
+            client = await DevicePluginRuntime.StartAsync(
+                package,
+                cycleGeneration,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
             cancellationToken.ThrowIfCancellationRequested();
-            var discoveredPackage = InstalledPackage;
-            PhysicalGlyphCatalog.ReplacePackageProfiles([]);
-            if (discoveredPackage is null || !discoveredPackage.Valid)
-            {
-                SetState(DeviceCycleState.Passive);
-                var refusal = PackageDiscovery.ErrorCode
-                              ?? discoveredPackage?.RejectionCode
-                              ?? "no-package-installed";
-                Log.Warn(
-                    $"Device cycle passive: {refusal}; packageRoots={PackageDiscovery.Inventory.PackageRoots.Count}.");
-                cancellationToken.ThrowIfCancellationRequested();
-                return;
-            }
-
-            package = discoveredPackage;
-
-            cycleGeneration = Interlocked.Increment(ref _cycleGeneration);
-            SetState(DeviceCycleState.Activating);
-            try
-            {
-                client = await DevicePluginRuntime.StartAsync(
-                    package,
-                    cycleGeneration,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                ScheduleStartFault(ex);
-                return;
-            }
+            ScheduleStartFault(ex);
+            return;
         }
 
         _client = client;
@@ -2689,8 +2653,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     {
         try
         {
-            var imported = GlyphPackageImporter.Import(
-                new ImmutableGlyphPackageDirectorySource(package.PackagePath));
+            GlyphPackageImportResult imported;
+            using (var file = PluginPackageFile.Open(package.PackagePath))
+            {
+                imported = GlyphPackageImporter.Import(file);
+            }
+
             PhysicalGlyphCatalog.ReplacePackageProfiles(imported.Profiles);
             foreach (var error in imported.Errors)
             {
@@ -2716,7 +2684,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         return Task.Run(
-            () => DevicePackagePolicy.Discover(DeviceInstallationPaths.InstalledPackageRoot),
+            () => PluginPackageCatalog.DiscoverInstalled().Device,
             cancellationToken);
     }
 

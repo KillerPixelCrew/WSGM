@@ -4,6 +4,35 @@ Status: the previous implementation baseline is on `master`; the current open wo
 15 issues for 2.0 and five deferred issues. Follow the branch ownership and publishing rules in
 AGENTS.md; preserve the maintainer's task branch and use a PR by default.
 
+## Custom setup, bundled plugins and updater (2026-09-24, issues 117, 118, 175, 180, in progress)
+
+The Inno installer is replaced by a custom setup under `%ProgramFiles%\WSGM`. Every accepted plugin
+is bundled in that setup, and hardware detection decides which device plugin is installed. Plugins
+load straight from `.wsgmpkg` files. There is no hosted plugin repository and no hot upgrade. The
+updater always updates WSGM as a whole. WSGM 2.0 is unreleased, so nothing is migrated: setup
+uninstalls a WSGM 1.0 install first. The approved setup mockup is
+https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs.
+
+- [ ] PR 1 (`feat/plugin-package-files`), implemented, awaiting the manual test:
+      - [x] `Core\PluginPackageFile` reads a `.wsgmpkg` in memory within the old slot's bounds.
+            It refuses unsafe entry names and native images and serves glyphs through
+            `IGlyphPackageSource`.
+      - [x] `Core\PluginPackageCatalog` reads `%ProgramFiles%\WSGM\Plugins\*.wsgmpkg` for device
+            and common packages. The highest version of an id wins, and the others are reported,
+            never deleted. Two device ids make integration passive.
+      - [x] The loaders take assemblies from the held-open file. The staging swap, slot gate,
+            `--install-device-plugin`/`--remove-device-plugin` and the startup refusal are removed.
+      - [x] Staging, dev-deploy, `package-plugin.ps1` and Device Lab validation use package files and
+            refuse native images. Inno is untouched until PR 4.
+      - [ ] Manual test with `eng\dev-deploy.ps1` on the Claw. After that, the focused suites
+            `PluginPackageCatalogTests`, `CommonPluginPackageTests` and
+            `DeviceCoordinatorConcurrencyTests`.
+- [ ] PR 2: manifest `hardware`, `capabilities` and `wsgmVersion`; curated status; bundle build.
+- [ ] PR 3: `WSGM.Install` library, setup answers, HidHide cleanup at uninstall, Plugins page, Quick
+      Setup retired.
+- [ ] PR 4: `WSGM.Setup` replaces Inno.
+- [ ] PR 5: updater.
+
 ## Device Lab attended wizard (2026-09-24, in progress)
 
 Device Lab becomes the one tool a tester runs on any handheld: an attended wizard that checks for

@@ -4,7 +4,7 @@ namespace WSGM.Device.Sdk.Packaging;
 ///     Hard bounds applied to every <see cref="PluginManifest" /> before it is trusted.
 /// </summary>
 /// <remarks>
-///     A manifest is untrusted input from the package selected for the sole protected slot. Device Lab
+///     A manifest is untrusted input from a package in the protected Plugins folder. Device Lab
 ///     and WSGM both parse it before loading plugin code. Unbounded
 ///     strings are therefore a decode budget waiting to be exhausted, so every field has a ceiling and
 ///     exceeding one rejects the manifest rather than truncating it. The numbers are deliberately

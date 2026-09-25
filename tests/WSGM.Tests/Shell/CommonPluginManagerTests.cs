@@ -2,6 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Tests;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
@@ -124,23 +125,6 @@ public sealed class CommonPluginManagerTests
         Assert.Empty(manager.Snapshot());
     }
 
-    private static async Task<string> Catalog(TemporaryDirectory temporary, params string[] ids)
-    {
-        var installed = temporary.GetPath("plugins");
-        foreach (var id in ids)
-        {
-            var root = Path.Combine(installed, id);
-            Directory.CreateDirectory(root);
-            await File.WriteAllTextAsync(Path.Combine(root, "Fixture.dll"), "Metadata fixture");
-            await File.WriteAllTextAsync(Path.Combine(root, "plugin.wsgm.json"), $$"""
-                  {"id":"{{id}}","name":"Fixture","version":"1.0","category":"example.status",
-                   "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
-                  """);
-        }
-
-        return installed;
-    }
-
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -201,5 +185,16 @@ public sealed class CommonPluginManagerTests
         Assert.Equal(1, plugin.Resumes);
         Assert.Equal(2, Assert.Single(manager.Snapshot()).Registration!.Context.Generation);
         await manager.StopAsync(Deadline);
+    }
+
+    private static Task<string> Catalog(TemporaryDirectory temporary, params string[] ids)
+    {
+        var installed = temporary.GetPath("plugins");
+        foreach (var id in ids)
+        {
+            PluginPackageBuilders.WriteCommonFixture(installed, id);
+        }
+
+        return Task.FromResult(installed);
     }
 }

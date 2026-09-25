@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -12,12 +12,15 @@ namespace WSGM.Shell;
 internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi, IPluginSteamUi
 {
     private readonly PluginPackageLoader.PluginLoadContext _context;
+    private readonly PluginPackageFile _package;
     private readonly IPlugin _plugin;
     private bool _disposed;
 
-    private CommonPluginPackage(PluginPackageLoader.PluginLoadContext context, IPlugin plugin)
+    private CommonPluginPackage(PluginPackageLoader.PluginLoadContext context, PluginPackageFile package,
+        IPlugin plugin)
     {
         _context = context;
+        _package = package;
         _plugin = plugin;
     }
 
@@ -71,6 +74,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         await _plugin.DisposeAsync().ConfigureAwait(false);
         _disposed = true;
         _context.Unload();
+        _package.Dispose();
     }
 
     public IReadOnlyList<PluginAction> Actions => _plugin is IPluginActions actions ? actions.Actions : [];
@@ -111,32 +115,10 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
     public IReadOnlyList<PluginUiContribution> Contributions => _plugin is IPluginUi ui ? ui.Contributions : [];
     public IReadOnlyList<PluginWidget> Widgets => _plugin is IPluginUi ui ? ui.Widgets : [];
 
-    internal static PluginManifest ReadManifest(string packageRoot)
-    {
-        var root = Path.GetFullPath(packageRoot);
-        var path = PackageFile(root, "plugin.wsgm.json");
-        using var stream = File.OpenRead(path);
-        var bytes = new byte[PluginManifestReader.MaximumBytes + 1];
-        var count = stream.ReadAtLeast(bytes, bytes.Length, false);
-        if (!PluginManifestReader.TryRead(bytes.AsSpan(0, count), out var manifest, out var errors))
-        {
-            throw new InvalidDataException(string.Join(" ", errors));
-        }
-
-        if (manifest!.Category == PluginCategories.Device)
-        {
-            throw new InvalidDataException("Device packages use the selected Device adapter and installation slot.");
-        }
-
-        PackageFile(root, manifest.EntryAssembly);
-        return Snapshot(manifest);
-    }
-
     /// <summary>Loads trusted code off the UI thread; the caller retains ownership of a timed-out task.</summary>
-    internal static Task<CommonPluginPackage> LoadAsync(string packageRoot, PluginManifest admitted,
+    internal static Task<CommonPluginPackage> LoadAsync(string packagePath, PluginManifest admitted,
         CancellationToken cancellationToken)
     {
-        var root = Path.GetFullPath(packageRoot);
         if (PluginManifestReader.Validate(admitted).Count != 0 || admitted.Category == PluginCategories.Device)
         {
             throw new InvalidDataException("Common package metadata is not admissible.");
@@ -146,17 +128,22 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
         return Task.Run(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var entryPath = PackageFile(root, snapshot.EntryAssembly);
-            var context = new PluginPackageLoader.PluginLoadContext(root, entryPath);
+            // Discovery closed its handle; the reopened file must still be the admitted package.
+            var file = PluginPackageFile.Open(packagePath);
+            if (file.CommonManifest is not { } reopened || reopened.Id != snapshot.Id
+                                                        || reopened.Version != snapshot.Version
+                                                        || reopened.EntryAssembly != snapshot.EntryAssembly
+                                                        || reopened.EntryType != snapshot.EntryType)
+            {
+                file.Dispose();
+                throw new InvalidDataException("The plugin package changed between discovery and loading.");
+            }
+
+            var context = new PluginPackageLoader.PluginLoadContext(file);
             IPlugin? plugin = null;
             try
             {
-                Assembly assembly;
-                await using (var entry = File.OpenRead(entryPath))
-                {
-                    assembly = context.LoadFromStream(entry);
-                }
-
+                var assembly = context.LoadEntry(snapshot.EntryAssembly);
                 var type = assembly.GetType(snapshot.EntryType, false, false);
                 if (type is null || !type.IsPublic || type.IsAbstract || type.ContainsGenericParameters
                     || !typeof(IPlugin).IsAssignableFrom(type) || type.GetConstructor(Type.EmptyTypes) is null)
@@ -172,7 +159,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                return new CommonPluginPackage(context, plugin);
+                return new CommonPluginPackage(context, file, plugin);
             }
             catch (Exception loadFailure)
             {
@@ -192,6 +179,7 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
                 }
 
                 context.Unload();
+                file.Dispose();
                 throw;
             }
         }, CancellationToken.None);
@@ -204,19 +192,5 @@ internal sealed class CommonPluginPackage : IPlugin, IConfigurablePlugin, IPlugi
             Dependencies = Array.AsReadOnly([.. manifest.Dependencies]),
             Permissions = Array.AsReadOnly([.. manifest.Permissions])
         };
-    }
-
-    private static string PackageFile(string root, string name)
-    {
-        var rootAttributes = File.GetAttributes(root);
-        if ((rootAttributes & FileAttributes.ReparsePoint) != 0 || (rootAttributes & FileAttributes.Directory) == 0)
-        {
-            throw new InvalidDataException("Plugin package roots cannot be reparse points.");
-        }
-
-        var path = PluginPackageLoader.ConstrainPackagePath(root, name);
-        return (File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0
-            ? throw new InvalidDataException("Plugin package files cannot be reparse points.")
-            : path;
     }
 }

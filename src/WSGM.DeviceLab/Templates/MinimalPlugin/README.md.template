@@ -56,20 +56,17 @@ attended actions.
 
 ## Installing
 
-Close the WSGM shell first. Installing makes this directory trusted hardware code that may later
-inherit WSGM's elevation, so inspect the exact files before you do it.
+Installing makes this package trusted hardware code that may later inherit WSGM's elevation, so
+inspect the exact files before you do it.
 
-Install or replace the single protected plugin slot with the installed WSGM maintenance command. It
-requests elevation and refuses to run while a machine-wide WSGM or Device Lab hardware owner is
-active:
+Pack the plugin into a `.wsgmpkg`, close WSGM, and copy the file into the protected Plugins folder
+from an elevated PowerShell. WSGM loads it from the file at the next start:
 
 ```powershell
-& "$env:LOCALAPPDATA\WSGM\bin\WSGM.exe" --install-device-plugin <package-directory>
-if ($LASTEXITCODE -ne 0) { throw 'WSGM rejected the plugin installation; inspect wsgm.log.' }
+Copy-Item -LiteralPath <plugin.wsgmpkg> -Destination (Join-Path $env:ProgramFiles 'WSGM\Plugins')
 ```
 
-The package directory has to be separate from the protected installed slot. Pass exactly this
-command and directory; maintenance flags cannot be combined with normal WSGM modes.
+Only one device package may be installed; remove any other before starting WSGM.
 
 For the complete workflow and the safety contract, see `docs/device-plugin-authoring.md` in the WSGM
 repository.

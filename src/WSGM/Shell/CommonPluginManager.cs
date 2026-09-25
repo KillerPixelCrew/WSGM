@@ -27,7 +27,7 @@ internal sealed class CommonPluginManager
     private readonly Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>> _load;
     private readonly Lock _stateGate = new();
     private readonly string _stateRoot;
-    private volatile CommonPluginCatalog _catalog = new([], []);
+    private volatile PluginPackageCatalog _catalog = PluginPackageCatalog.Empty;
     private long _requestedRevision;
     private volatile bool _stopping;
 
@@ -40,12 +40,12 @@ internal sealed class CommonPluginManager
         _load = load ?? (async (package, token) =>
             package.Factory is { } factory
                 ? factory()
-                : await CommonPluginPackage.LoadAsync(package.PackageRoot, package.Manifest, token)
+                : await CommonPluginPackage.LoadAsync(package.PackagePath, package.Manifest, token)
                     .ConfigureAwait(false));
     }
 
     /// <summary>The installed packages as of the last reconcile, read without touching the disk.</summary>
-    internal CommonPluginCatalog Catalog => _catalog;
+    internal PluginPackageCatalog Catalog => _catalog;
 
     /// <summary>Raised after the admitted-plugin projection may have changed.</summary>
     internal event Action? Changed;
@@ -110,7 +110,7 @@ internal sealed class CommonPluginManager
                 return;
             }
 
-            _catalog = await Task.Run(() => CommonPluginCatalog.Discover(_installedRoot), cancellationToken)
+            _catalog = await Task.Run(() => PluginPackageCatalog.Discover(_installedRoot), cancellationToken)
                 .ConfigureAwait(false);
             if (_stopping || revision != Volatile.Read(ref _requestedRevision))
             {
@@ -164,7 +164,7 @@ internal sealed class CommonPluginManager
                 }
             }
 
-            var enabledPackages = _catalog.Packages
+            var enabledPackages = _catalog.Common
                 .Where(package => desired.Any(identity => identity.PluginId == package.Manifest.Id)).ToArray();
             var plan = CommonPluginDependencyPlan.Create([.. enabledPackages.Select(package => package.Manifest)]);
             List<string> errors =
@@ -172,7 +172,7 @@ internal sealed class CommonPluginManager
                 .. _catalog.Errors,
                 .. plan.Rejected.Select(pair => pair.Key + ": " + pair.Value),
                 .. desired
-                    .Where(identity => _catalog.Packages.All(package => package.Manifest.Id != identity.PluginId))
+                    .Where(identity => _catalog.Common.All(package => package.Manifest.Id != identity.PluginId))
                     .Select(identity => identity.PluginId + ": installed package is unavailable.")
             ];
             foreach (var manifest in plan.Ordered)

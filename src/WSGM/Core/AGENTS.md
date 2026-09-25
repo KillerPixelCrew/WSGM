@@ -15,9 +15,9 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   Every failed exit uses verified desktop recovery.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware, Steam, RTSS, or input
   resources.
-- There is one installed device package slot. With integration disabled, skip Device plugin lifecycle, controller
-  targeting, Device hardware writes, and AutoTDP. Explicitly enabled common plugin instances are independent of this
-  switch.
+- At most one device package runs; two different device packages in the Plugins folder refuse device integration.
+  With integration disabled, skip Device plugin lifecycle, controller targeting, Device hardware writes, and AutoTDP.
+  Explicitly enabled common plugin instances are independent of this switch.
 - Capability writes are serialized. If the outcome is uncertain, surface it; do not automatically retry a potentially
   successful write.
 - AutoTDP decisions are frametime-driven. CPU or GPU utilization may explain telemetry but must not become the control

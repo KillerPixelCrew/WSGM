@@ -57,187 +57,134 @@ EC, IOCTL, ACPI, MMIO, MSR or serial broker to a plugin.
 
 ## 2. The package on disk
 
-A package is one directory whose name equals the manifest `id`:
+A package is one `.wsgmpkg` file, a ZIP archive that WSGM reads without unpacking:
 
 ```text
-<package id>\
+<id>-<version>.wsgmpkg
   plugin.wsgm.json                     six fields; see the SDK reference
   <EntryAssembly>.dll                  AMD64 managed assembly with a CLR header
-  <EntryAssembly>.deps.json            drives package-local dependency resolution
-  *.dll                                package-local dependencies (host-first rule, §7)
+  *.dll                                package-local managed dependencies (host-first rule, §7)
   LICENSE.txt, THIRD_PARTY_NOTICES.md, PROVENANCE.md   as the package's licences require
-  glyphs\profiles\<profileId>.json     glyph profiles (optional)
-  glyphs\assets\<assetId>.svg|png      artwork named by its manifest id (optional)
+  glyphs/profiles/<profileId>.json     glyph profiles (optional)
+  glyphs/assets/<assetId>.svg|png      artwork named by its manifest id (optional)
 ```
 
-Budgets applied everywhere a package is validated, staged or packed (`Core\DevicePackagePolicy.cs`,
-Device Lab `PluginPackageWorkflow`):
+Every installed package, device and common alike, is a file directly in
+`%ProgramFiles%\WSGM\Plugins` (`Core\DeviceInstallationPaths.PluginsRoot`). Installing one means
+copying the file there, which only an administrator can do. A blank Program Files answer from
+Windows throws rather than falling back.
 
-| Budget                                      | Value                                                   |
-| ------------------------------------------- | ------------------------------------------------------- |
-| Filesystem entries (files plus directories) | 1024, counted before sorting                            |
-| Files                                       | 512                                                     |
-| One file                                    | 128 MiB                                                 |
-| Whole package                               | 512 MiB                                                 |
-| Manifest read                               | 1 MiB read bound, then the SDK's 256 KiB document limit |
-| Reparse points                              | none, anywhere in the tree                              |
+Budgets applied when a package is opened (`Core\PluginPackageFile.cs`) and when Device Lab validates
+or packs one (`PluginPackageWorkflow`):
 
-### The protected slot
+| Budget        | Value                                                             |
+| ------------- | ----------------------------------------------------------------- |
+| Archive       | 512 MiB on disk                                                   |
+| ZIP entries   | 1024                                                              |
+| Files         | 512                                                               |
+| One file      | 128 MiB                                                           |
+| Whole package | 512 MiB uncompressed                                              |
+| Manifest      | the SDK's 256 KiB document limit                                  |
+| Entry names   | relative, `/`-separated, no `.` or `..` segment, no drive, no `\` |
+| Duplicates    | no two entries whose names differ only in case                    |
+| Native images | none: every `.dll`, `.exe` or `.sys` must carry a CLR header      |
 
-`Core\DeviceInstallationPaths.cs` derives everything from `%ProgramFiles%\WSGM`. A blank Program
-Files answer from Windows throws rather than falling back.
+Packages carry managed code only because WSGM loads them from memory, where a native image cannot be
+loaded. A plugin that needs a system DLL, such as the Claw's `ControlLib.dll` from the Intel driver,
+resolves it through the normal system search path.
 
-| Path                                               | Role                                                    |
-| -------------------------------------------------- | ------------------------------------------------------- |
-| `%ProgramFiles%\WSGM\DevicePlugins\installed\<id>` | the one live package root                               |
-| `%ProgramFiles%\WSGM\DevicePlugins\.staging`       | fixed staging sibling used by maintenance and setup     |
-| `%ProgramFiles%\WSGM\DevicePlugins\.previous`      | the parked old slot during a replacement                |
-| `DevicePlugins\.installed.previous`                | legacy recovery name; only the installer reconciles it  |
-| `DevicePlugins\.installed.staging-*`               | legacy staging namespace; only the installer removes it |
-| `DevicePlugins\reviewed`                           | legacy root; only the installer deletes it              |
+## 3. Discovery
 
-Only the immediate children of `installed` are inventoried. The two fixed siblings sit beside
-`installed`, not inside it, so normal discovery never sees them.
+`Core\PluginPackageCatalog.Discover` reads every `*.wsgmpkg` directly in the Plugins folder, at most
+128, and never loads code. Each file is opened and validated (§5), then closed again.
 
-## 3. Startup and discovery
+- The manifest's shape decides the category: a manifest with a `category` member is a common plugin
+  (`plugin-system.md`); one without is a device package read by the Device SDK.
+- Files with the same id: the highest version is selected. The others are listed as superseded and
+  are never deleted, because WSGM does not remove a file it did not place. Dropping a newer version
+  beside the old one therefore works as an update at the next start.
+- One device id: that package is the candidate.
+- More than one device id: `multiple-device-packages`. Device integration stays passive and the
+  overlay lists every file; WSGM itself starts normally.
+- A file that cannot be opened or fails validation is a catalog error with its reason. It is not a
+  device candidate.
 
-`Program.MainAsync` runs process-mode recovery (`--restore-shell`, `--unregister-shell`) before
-logging, then the two plugin maintenance commands, then logging and the UAC and lock-screen
-one-shots, then the cardinality gate, and only then the run-mode decision. The gate runs on the
-entry thread before Avalonia creates its dispatcher, so the STA apartment is preserved.
-
-The gate is skipped when the arguments are exactly `--overlay-test` (a mixed
-`--shell --overlay-test` is still gated) or include any of `--restore-shell`, `--unregister-shell`,
-`--set-uac-silent`, `--restore-uac`, `--disable-lock-on-wake`, `--restore-lock-on-wake`,
-`--apply-steam-input-shim`, `--remove-steam-input-shim`, `--radio-probe`, `--uninstall-restore`,
-`--setup`, `--install-device-plugin`, `--remove-device-plugin`.
-
-The gate takes `Global\WSGM.DevicePackageSlot` for at most 5 s and runs
-`DevicePackageStager.InventoryEffectiveInstalledPackage`. `installed` and `.previous` must each be
-absent or a plain directory; `installed` is inventoried if it exists, otherwise `.previous` is
-inventoried in its place without moving anything. Inventory treats a reparse-point root as one
-unfollowed root, re-reads each entry's attributes (a vanished entry is an I/O failure, not
-"absent"), keeps directories and sorts them case-insensitively.
-
-| Outcome            | Behaviour                                                                                                                                                                                      |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Zero roots         | Core WSGM starts with Device Integration unavailable.                                                                                                                                          |
-| One root           | Startup continues; no manifest is read yet.                                                                                                                                                    |
-| More than one root | Exit code 2, a message box titled "WSGM Device Plugin startup refused", and the log line `Device plugin startup inventory: Multiple, roots=n` followed by every root's name and absolute path. |
-| Gate timeout (5 s) | Exit code 2: "The protected Device Plugin slot remained busy during startup."                                                                                                                  |
-| Inspection failure | Exit code 2: "WSGM could not inspect the protected Device Plugin slot. Use setup or --remove-device-plugin to repair it."                                                                      |
-
-Real discovery happens later, inside the device cycle (§8), under the same slot gate.
+The catalog is read at every device cycle start, at every common-plugin reconcile, when Settings
+opens, and for the overlay's prerequisite banner. A package copied in while WSGM runs is loaded at
+the next start: a loaded package file is held open (§7) and cannot be replaced underneath WSGM.
 
 ## 4. Machine-wide synchronization
 
-| Object                          | Kind                                                   | Held by                                                                                                                                | Purpose                                                    |
-| ------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `Global\WSGM.DevicePackageSlot` | named mutex, waited on                                 | startup inventory, every cycle start, maintenance, setup, uninstall                                                                    | No one loads or inventories a slot that is being replaced. |
-| `Global\WSGM.DeviceOwner`       | named mutex created unowned; ownership is `createdNew` | the `DeviceCoordinator` for the process lifetime, maintenance for the whole operation, setup and uninstall, an attended Device Lab run | At most one hardware cycle on the machine.                 |
-| `Local\WSGM.Shell`              | named mutex, initially owned                           | the shell instance                                                                                                                     | One shell per session; the installer probes it.            |
-
-`Core\DevicePackageSlotGate.cs` waits on a dedicated thread named "WSGM device package slot gate"
-because mutex ownership is thread-affine. It treats an abandoned mutex as acquired (crash recovery),
-returns `null` on timeout, and releases from the owning thread on disposal.
+| Object                    | Kind                                                   | Held by                                                                                           | Purpose                                         |
+| ------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `Global\WSGM.DeviceOwner` | named mutex created unowned; ownership is `createdNew` | the `DeviceCoordinator` for the process lifetime, setup and uninstall, an attended Device Lab run | At most one hardware cycle on the machine.      |
+| `Local\WSGM.Shell`        | named mutex, initially owned                           | the shell instance                                                                                | One shell per session; the installer probes it. |
 
 The owner marker is never waited on: it is created unowned, and "already exists" means someone else
 owns the hardware. The installer performs the same election with `CreateMutexW` and
-`ERROR_ALREADY_EXISTS`. Who takes what:
+`ERROR_ALREADY_EXISTS`. When the coordinator finds it already exists it logs
+`Device cycle: machine-wide ownership is already active or unavailable; no cycle started.` and no
+cycle ever starts.
 
-- Normal shell: the coordinator creates the owner marker once for the process lifetime. When it
-  already exists it logs
-  `Device cycle: machine-wide ownership is already active or unavailable; no cycle started.` and no
-  cycle ever starts. Each cycle start takes the slot gate (5 s) and releases it once the plugin has
-  started.
-- Maintenance (`--install-device-plugin`, `--remove-device-plugin`): after the elevation check, the
-  slot gate (5 s), then the owner marker, both held through the whole filesystem operation. A live
-  coordinator therefore refuses maintenance; close the shell first.
-- Setup: slot gate, stop the logon service, stop instances, blocker check, owner marker, stale
-  staging cleanup; both held through file copy and slot swap; owner released first, gate second.
-- Uninstall: the same objects held through `[UninstallRun]` and `[UninstallDelete]`.
+There is no package-slot lock. A package file is replaced only while WSGM is closed, and a loaded
+file is held open read-only, so nothing can change it under a running cycle.
 
 ## 5. Package validation
 
-`DevicePackagePolicy.ValidateInstalledPackage` runs on the single root discovery found and stops at
-the first failure with a stable rejection code:
+`PluginPackageFile.Open` refuses the package at the first failure:
 
-| Step | Check                                                                                                                           | Code                                                                |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| 1    | Root still exists and is a directory.                                                                                           | `package-invalid`                                                   |
-| 2    | Root is not a reparse point.                                                                                                    | `package-link`                                                      |
-| 3    | Bounded walk: entry, file, per-file and aggregate budgets; no reparse point anywhere.                                           | `package-invalid`                                                   |
-| 4    | `plugin.wsgm.json` resolves under the root without traversal or links, read under 1 MiB.                                        | `package-invalid`                                                   |
-| 5    | SDK `PluginManifestReader.Read` succeeds (size, depth, shape, six field rules).                                                 | `manifest-invalid`, or `api-incompatible` when `apiVersion` differs |
-| 6    | `apiVersion` equals `DeviceApi.Version` (5).                                                                                    | `api-incompatible`                                                  |
-| 7    | Entry assembly resolves under the root and is an AMD64 image with a CLR header, metadata and an assembly manifest (`PEReader`). | `architecture-unsupported`                                          |
+1. The path ends in `.wsgmpkg` and is a plain file, not a link or a directory.
+2. The archive is within the size budget and is a readable ZIP.
+3. Every entry passes the name, count, size, duplicate and native-image rules (§2), and each entry's
+   declared length matches the bytes read.
+4. `plugin.wsgm.json` exists at the root and passes the reader for its category (size, depth, shape,
+   field rules).
+5. The manifest's entry assembly exists at the package root.
 
-The slot itself yields `multiple-package-roots`; an empty slot is `no-package-installed`. Validation
-never loads the assembly.
+The catalog then validates the selected device package and reports it with a stable code:
+
+| Check                                                                     | Code                       |
+| ------------------------------------------------------------------------- | -------------------------- |
+| `apiVersion` equals `DeviceApi.Version` (5)                               | `api-incompatible`         |
+| Entry is an AMD64 image with a CLR header, metadata and assembly manifest | `architecture-unsupported` |
+
+Several device ids yield `multiple-device-packages`; none yields `no-package-installed`. An invalid
+device package is shown in the overlay's Diagnostics section. Validation never loads the assembly.
 
 ## 6. Installing, replacing and removing
 
-The maintenance commands are exact: `--install-device-plugin <expanded-directory>` with no other
-argument, or `--remove-device-plugin` alone. A non-elevated process relaunches itself with the
-`runas` verb and returns the child's exit code; failures exit 1.
+- Install: copy `<id>-<version>.wsgmpkg` into `%ProgramFiles%\WSGM\Plugins`, then start WSGM.
+- Replace: close WSGM, copy the new file in (remove the old one, or leave it to be superseded), then
+  start WSGM.
+- Remove: close WSGM and delete the file.
 
-`DevicePackageStager.StageAsync` performs the replacement while both machine-wide objects are held:
-
-1. Refuse a source that lexically overlaps `installed`, `.staging` or `.previous` in either
-   direction, or that traverses a link or reparse point at any ancestor, including when the leaf is
-   missing.
-2. Refuse a source whose `(volume serial, file id)` lineage aliases any protected path, so a
-   junction or hard link cannot bypass the lexical check.
-3. Open every ancestor and the source root with no-follow handles, hold them, and require the
-   identity unchanged ("Package source changed while its path was being secured.").
-4. Reconcile: delete a leftover `.staging`; if `installed` exists delete any `.previous`, otherwise
-   move `.previous` back to `installed`. A missing source still reconciles before failing.
-5. Read the manifest through the secured handle (ordinary file, 1 MiB bound, SDK rules) and require
-   `id` to be a safe directory segment equal to its own file name.
-6. Copy into `.staging\<id>` with the budgets enforced on enumeration and on bytes actually read,
-   never following links, writing with `CreateNew` and write-through.
-7. Re-run discovery on `.staging`; it must yield exactly one valid root.
-8. Require `.previous` absent and `.staging` present, then publish atomically: move `installed` to
-   `.previous`, move `.staging` to `installed`. If the second move fails and `installed` is absent,
-   move `.previous` back and rethrow.
-9. Delete `.staging` when not published, or `.previous` when published; a cleanup failure is only
-   logged.
-
-Success logs `Device plugin maintenance: installed <id> into the protected slot at <path>.`. Removal
-validates the same attributes, then deletes `.staging`, `.previous` and `installed` last, so a
-failed cleanup leaves the live package rather than a resurrected backup. It is idempotent on an
-empty slot.
-
-The installer's `ReplaceDevicePluginSlot` mirrors the transaction with the legacy names: it migrates
-`.installed.previous` to `.previous`, refuses when both exist, retires `reviewed`, and restores the
-previous slot when the swap fails. Deselecting the device component deletes every recovery root and
-then `installed`.
-
-`eng\dev-deploy.ps1` is different: it swaps through `<id>.incoming` and `<id>.old` inside
-`installed` from an elevated child and takes neither named object, relying on having stopped WSGM
-first. An interrupted swap leaves a second directory under `installed`, which the next startup
-refuses as a second package root; remove the leftover by hand.
+`eng\dev-deploy.ps1` stages the Claw package from this checkout, copies it in from an elevated child
+beside the target, renames it into place and deletes every other build of the same id.
 
 ## 7. Loading the plugin
 
-`Shell\PluginPackageLoader.cs` loads the validated package into a collectible `AssemblyLoadContext`
-named `WSGM.Plugin:<directory name>` with an `AssemblyDependencyResolver` over the entry assembly's
-`.deps.json`.
+`Shell\PluginPackageLoader.cs` reopens the selected file, requires its manifest to equal the one
+discovery admitted (a file swapped in between is refused), and loads the package into a collectible
+`AssemblyLoadContext` named `WSGM.Plugin:<package id>`.
 
-- The entry image is loaded from a stream so the installed file is not mapped for the context's
-  lifetime; the package can be replaced as soon as the lifecycle is quiescent.
+- The file stays open with `FileShare.Read` until the context is unloaded, so it cannot be replaced
+  or deleted while its code may run. Assemblies and their symbols are loaded from memory.
 - The entry type must be public, concrete, non-generic, assignable to `IDevicePlugin`, with a public
   parameterless constructor. Its `PackageId` must equal the manifest `id`.
 - Host-first resolution: the SDK assembly, `WinRT.Runtime` and `Microsoft.Windows.SDK.NET` are
   always answered from the host regardless of version. Every other assembly is asked of the default
-  context first; the package copy is loaded only when the host has no copy or cannot satisfy the
-  version, and that duplicate is logged once. Native libraries resolve through the package only and
-  must stay under the root. The reason is in `device-integration.md`, "Host-first dependency
-  resolution".
-- A load failure disposes the plugin if it was created, unloads the context and rethrows.
+  context first; the package copy (`<name>.dll`, or `<culture>/<name>.dll` for a satellite) is
+  loaded only when the host has no copy or cannot satisfy the version, and that duplicate is logged
+  once. Native resolution is left to the system. The reason is in `device-integration.md`,
+  "Host-first dependency resolution".
+- A load failure disposes the plugin if it was created, unloads the context, closes the file and
+  rethrows.
+- Glyph profiles are imported from the package file through the SDK's `IGlyphPackageSource`
+  contract.
 - Unload is requested, not verified. `DevicePluginRuntime.DisposeAsync` calls `Unload()` only when
   command quiescence, the emergency stop and the plugin's `DisposeAsync` were all clean; otherwise
-  the context stays loaded. Nothing waits for the GC to collect it.
+  the context stays loaded. Nothing waits for the GC to collect it. A plugin change applies at the
+  next start; there is no hot upgrade.
 
 The context is not crash containment: a process-fatal plugin failure terminates WSGM (decision D03).
 
@@ -255,7 +202,7 @@ The host-owned `DeviceCycleState` is logged on every change as
 | State                 | Entered when                                                                                                                                                          |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Disabled`            | Integration off, or a cycle ended intentionally.                                                                                                                      |
-| `Detected`            | A cycle start began; the slot is about to be inspected.                                                                                                               |
+| `Detected`            | A cycle start began; the Plugins folder is about to be read.                                                                                                          |
 | `Passive`             | No valid package, or the plugin did not match the machine.                                                                                                            |
 | `Activating`          | The runtime is loading, or a restart is scheduled.                                                                                                                    |
 | `Active` / `Degraded` | The plugin's `PluginStartResult`.                                                                                                                                     |
@@ -268,20 +215,18 @@ The host-owned `DeviceCycleState` is logged on every change as
 A cycle starts when integration is enabled at construction, when the master toggle turns on, after a
 fault backoff, or on manual retry:
 
-1. State `Detected`; take the slot gate (5 s). Timeout or failure schedules a start fault.
-2. Under the gate: reconcile the slot, collect `DeviceMachineIdentity` from the registry SMBIOS
-   keys, and run discovery. No valid package sets `Passive` and logs
-   `Device cycle passive: <code>; packageRoots=<n>.`.
-3. Advance the cycle generation; state `Activating`; load the package (§7). The gate is released
-   after this step.
-4. Attach the runtime to the coordinator, the capability router, the OEM router and the settings
+1. State `Detected`. Collect `DeviceMachineIdentity` from the registry SMBIOS keys and run discovery
+   (§3); a failure schedules a start fault. No valid package sets `Passive` and logs
+   `Device cycle passive: <code>; devicePackages=<n>.`.
+2. Advance the cycle generation; state `Activating`; load the package (§7).
+3. Attach the runtime to the coordinator, the capability router, the OEM router and the settings
    coordinator. Then allowlist WSGM in HidHide before the plugin starts, because a plugin cannot
    discover a controller that another tool's allowlist hides from WSGM.
-5. `client.StartAsync` with a 15 s deadline: `DetectAsync` (no match publishes `Passive` with the
+4. `client.StartAsync` with a 15 s deadline: `DetectAsync` (no match publishes `Passive` with the
    plugin's reason), then `StartAsync` with the host adapter, generation, definition id, the state
    directory `%LOCALAPPDATA%\WSGM\DeviceState\<packageId>` and the controller-management flag. A
    plugin exception publishes `Degraded` with `TransportFaulted` and rethrows.
-6. Record the definition id, attach plugin settings, import glyph profiles, reset the restart
+5. Record the definition id, attach plugin settings, import glyph profiles, reset the restart
    counter, log `Device cycle active: package=…, cycleGeneration=…, state=…`, and observe the
    runtime's completion.
 
@@ -920,10 +865,11 @@ SDK's `TestPluginHostAdapter`. Packaging:
 `eng\pack-device.ps1 -Source src\WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs` publishes
 framework-dependent `win-x64`, strips symbols, copies `glyphs\` verbatim and requires a profile,
 runs `wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\stage-device-components.ps1`
-publishes Device Lab, invokes that packer, checks the archive's path safety, extracts to
-`Packages\<id>`, requires the licence, notices and provenance files, compares the staged glyph count
-with the source tree, and validates again. The installer copies `Packages\*` into `.staging` and
-swaps the slot during post-install.
+publishes Device Lab, invokes that packer, checks the archive's path safety, extracts a copy,
+requires the licence, notices and provenance files, compares the glyph count with the source tree,
+validates again, and stages the archive itself as `Packages\<id>-<version>.wsgmpkg`. The Inno
+installer still targets the retired unpacked slot until the custom setup (#117) replaces it; use
+`eng\dev-deploy.ps1` meanwhile.
 
 ## 19. Device Lab
 

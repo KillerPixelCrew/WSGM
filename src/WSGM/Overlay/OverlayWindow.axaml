@@ -393,8 +393,8 @@
                          TextWrapping="Wrap"
                          Margin="2,0,2,6" />
               <!-- A device package can arrive on an install that has no controller
-                             support, because the protected slot is a directory an administrator
-                             can copy into. Without this the package simply does nothing and
+                             support, because the Plugins folder is one an administrator can
+                             copy a package file into. Without this the package simply does nothing and
                              nothing says why. Lives on the Device page because that is where a
                              person goes when their device is not working. -->
               <Border x:Name="DevicePrerequisiteBanner" Classes="device-group"

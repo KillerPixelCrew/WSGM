@@ -12,47 +12,44 @@ Program package-cardinality preflight
   -> capability/settings/OEM/controller/glyph consumers
 ```
 
-Exactly zero or one immediate Device package root is allowed. With zero, device-independent WSGM
-stays usable. With more than one, startup is refused before normal UI or plugin execution. Full
-validation and loading happen only when Device Integration is enabled.
+Packages are `.wsgmpkg` files in `%ProgramFiles%\WSGM\Plugins`, device and common alike, read by
+`Core/PluginPackageCatalog`. Zero or one device package id is allowed. With zero, device-independent
+WSGM stays usable. With more than one, device integration stays passive and WSGM starts normally.
+Loading happens only when Device Integration is enabled.
 
 The Shell owns the common `PluginHost`. DeviceCoordinator preserves controller-release ordering and
 uses its registration for lifecycle calls. An uncertain stop or disposal retains category capacity;
-a timed-out call retains its lifecycle lane until the actual task ends. `CommonPluginManager`
-discovers `%ProgramFiles%\WSGM\Plugins\<id>` plus the bundled `<app>\Plugins` catalog, where Artwork
-ships. It starts only instances enabled in `AppConfig.PluginInstances` and owns their config
-refresh, power transitions and shutdown independently of Device Integration. The Settings Plugin tab
-edits activation. `eng/new-plugin.ps1` and `eng/package-plugin.ps1` scaffold and package common
-plugins. See `docs/plugin-system.md` for health generations, resident mode revisions and the
-remaining UI follow-ons.
+a timed-out call retains its lifecycle lane until the actual task ends. `CommonPluginManager` takes
+the common packages from the same catalog. It starts only instances enabled in
+`AppConfig.PluginInstances` and owns their config refresh, power transitions and shutdown
+independently of Device Integration. The Settings Plugin tab edits activation. `eng/new-plugin.ps1`
+and `eng/package-plugin.ps1` scaffold and package common plugins. See `docs/plugin-system.md` for
+health generations, resident mode revisions and the remaining UI follow-ons.
 
 Important owners:
 
-- `Global\WSGM.DevicePackageSlot` is a real thread-owned mutex with a five-second acquisition
-  budget. Startup inventory, discovery, maintenance, setup, and uninstall use it.
 - `Global\WSGM.DeviceOwner` is an unowned named-mutex marker: `createdNew` elects the owner and the
   handle lifetime holds the claim. Never wait on or release it as a thread-owned mutex.
 - `Local\WSGM.Shell` admits one shell session.
 
 The coordinator keeps the device-owner marker while the shell runs even if Device Integration is
-disabled. Close WSGM before package maintenance; toggling integration off is not owner release.
+disabled. Close WSGM before replacing a package file: a loaded file is held open, and toggling
+integration off is not owner release.
 
 ## Package and load boundary
 
-The protected package root is `%ProgramFiles%\WSGM\DevicePlugins\installed\<package-id>`. Its
-transactional `.staging` and `.previous` folders sit beside `installed`, not inside it. Validation
-rejects links and reparse points, unsafe paths, limit violations, an API mismatch, non-x64 entry
-code, and an invalid entry type or package ID. With zero package roots, the stager falls back to
-inventorying `.previous`, so a leftover `.previous` can still load a package.
-`DevicePackagePolicy.Inventory` counts every immediate subdirectory of `installed`, so a stray
-folder, such as one left by an interrupted swap, causes a `Multiple` refusal at startup.
+`Core/PluginPackageFile` opens a package with `FileShare.Read` and reads it into memory. It rejects
+links, unsafe entry names, limit violations and native images; the catalog then rejects an API
+mismatch and non-x64 entry code, and the loader an invalid entry type or package ID. For one id the
+highest version wins and older files are reported as superseded, never deleted.
 
-The loader streams the entry assembly and resolves package dependencies through
-`AssemblyDependencyResolver`. `WSGM.Device.Sdk`, `WSGM.Plugin.Sdk`, SteamUiToolkit, `WinRT.Runtime`
-and `Microsoft.Windows.SDK.NET` are host-owned (`PluginLoadContext.HostOwned`) and always bind to
-the host copy. A second WinRT pair would break process-global CsWinRT initialization. Other managed
+The loader keeps the file open while its code may run and loads the entry and package dependencies
+from memory. `WSGM.Device.Sdk`, `WSGM.Plugin.Sdk`, SteamUiToolkit, `WinRT.Runtime` and
+`Microsoft.Windows.SDK.NET` are host-owned (`PluginLoadContext.HostOwned`) and always bind to the
+host copy. A second WinRT pair would break process-global CsWinRT initialization. Other managed
 dependencies try the default context first. If the host copy does not satisfy the request, the
-package copy loads and a warning is logged. Native dependencies stay confined to the package.
+package copy loads and a warning is logged. Packages carry no native code; native resolution is the
+system's.
 
 Dependency isolation is not fault isolation. A fatal managed/native plugin failure can terminate
 WSGM, and `AssemblyLoadContext.Unload()` is only a request. Dirty cleanup deliberately retains the
@@ -178,23 +175,23 @@ rejects, and high-rate trace spam hiding the first transition.
 
 Paths are under `src/WSGM/` unless another project is named.
 
-| Concern                       | Start here                                                                                                                                       |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Host mechanism and rationale  | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`, `docs/plugin-system.md`                                 |
-| SDK contract                  | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                  |
-| Package preflight/maintenance | `Program.cs`, `Core/DevicePackagePolicy.cs`, `DevicePackageSlotGate.cs`, `DevicePackageStager.cs`, `DeviceInstallationPaths.cs`                  |
-| Load and lifecycle            | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`         |
-| Common plugins                | `Shell/CommonPluginManager.cs`, `CommonPluginPackage.cs`, `CommonPluginCatalog.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Ir`              |
-| Publications and commands     | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                                    |
-| Desired state and restore     | `Shell/DeviceDesiredWriteAdmission.cs`, `DeviceLightingRestore.cs`, `DeviceProfileApplier.cs`                                                    |
-| Power and AutoTDP             | `Core/AutoTdp.cs`, `Shell/AutoTdpService.cs`, `DevicePowerPresets.cs`, `DevicePowerAssignments.cs`, `NativeQamPowerPresetService.cs`             |
-| Windows power schemes         | `Core/PowerSchemes.cs`, `Interop/WindowsPowerSchemeApi.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)                      |
-| Diagnostics and identity      | `Core/DeviceCoordinatorDiagnostics.cs`, `DeviceMachineIdentity.cs`                                                                               |
-| Controller safety             | `Shell/ControllerManager.cs`, `ControllerMakeSafe.cs`, `HidHideOwnership.cs`, `PluginHapticSink.cs`                                              |
-| Target input/output           | `Input/ManagedControllerRouter.cs`, `ViiperControllerBackend.cs`, `Xbox360Report.cs`, `DualShock4Report.cs`, `SteamDeckNeptuneReport.cs`         |
-| Host consumers                | `Shell/DeviceOverlayBridge.cs`; `Core/DeviceConfiguration.cs`, `PhysicalGlyphCatalog.cs`                                                         |
-| Reference plugin              | `src/WSGM.Device.Msi.Claw8A2Vm/`: `ClawCapabilities.cs`, `ClawResources.cs`, `Claw8A2VmPlugin.cs`, `ClawRecoveryJournal.cs`, `MsiWmiPlatform.cs` |
-| Reference plugin tests        | `tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs`                                                                                       |
+| Concern                      | Start here                                                                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host mechanism and rationale | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/device-security.md`, `docs/plugin-system.md`                                 |
+| SDK contract                 | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                  |
+| Package files and discovery  | `Core/PluginPackageFile.cs`, `PluginPackageCatalog.cs`, `DeviceInstallationPaths.cs`                                                             |
+| Load and lifecycle           | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`         |
+| Common plugins               | `Shell/CommonPluginManager.cs`, `CommonPluginPackage.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Ir`                                        |
+| Publications and commands    | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                                    |
+| Desired state and restore    | `Shell/DeviceDesiredWriteAdmission.cs`, `DeviceLightingRestore.cs`, `DeviceProfileApplier.cs`                                                    |
+| Power and AutoTDP            | `Core/AutoTdp.cs`, `Shell/AutoTdpService.cs`, `DevicePowerPresets.cs`, `DevicePowerAssignments.cs`, `NativeQamPowerPresetService.cs`             |
+| Windows power schemes        | `Core/PowerSchemes.cs`, `Interop/WindowsPowerSchemeApi.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)                      |
+| Diagnostics and identity     | `Core/DeviceCoordinatorDiagnostics.cs`, `DeviceMachineIdentity.cs`                                                                               |
+| Controller safety            | `Shell/ControllerManager.cs`, `ControllerMakeSafe.cs`, `HidHideOwnership.cs`, `PluginHapticSink.cs`                                              |
+| Target input/output          | `Input/ManagedControllerRouter.cs`, `ViiperControllerBackend.cs`, `Xbox360Report.cs`, `DualShock4Report.cs`, `SteamDeckNeptuneReport.cs`         |
+| Host consumers               | `Shell/DeviceOverlayBridge.cs`; `Core/DeviceConfiguration.cs`, `PhysicalGlyphCatalog.cs`                                                         |
+| Reference plugin             | `src/WSGM.Device.Msi.Claw8A2Vm/`: `ClawCapabilities.cs`, `ClawResources.cs`, `Claw8A2VmPlugin.cs`, `ClawRecoveryJournal.cs`, `MsiWmiPlatform.cs` |
+| Reference plugin tests       | `tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs`                                                                                       |
 
 ## Focused tests
 
@@ -207,7 +204,7 @@ Run these after the maintainer's manual test, as the root validation policy requ
   `DeviceLightingRestoreTests`, `DeviceProfileApplierTests`, `AutoTdpServiceTests`,
   `PluginHostTests`, `PluginSettingsProjectionTests`, `DeviceCoordinatorDiagnosticsTests`,
   `DevicePowerPresetsTests`.
-- Core: `DevicePackagePolicyTests` (which also covers the slot gate and stager),
+- Core: `PluginPackageCatalogTests` (package files, discovery and the glyph source),
   `DeviceDesiredStateTests`, `OemActionPolicyTests`, `PluginSettingsResolverTests`.
 - `PluginTraceTests` lives in `tests/WSGM.Device.Sdk.Tests/Plugin`.
 

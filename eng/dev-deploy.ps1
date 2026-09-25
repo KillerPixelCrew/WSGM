@@ -210,8 +210,9 @@ if (-not $SkipPlugin) {
     # The installed device plugin is a separate package under Program Files that the WSGM bin swap
     # never touches, so a dev loop that changes the SDK leaves a stale plugin the running host
     # rejects as api-incompatible (device features silently gone). Rebuild it from the device
-    # projects in this checkout exactly as the installer does, then swap the validated tree into the protected
-    # slot. Only this step needs elevation, so it is the one UAC prompt of a dev deploy.
+    # projects in this checkout exactly as the installer does, then copy the package file into the
+    # protected Plugins folder. Only this step needs elevation, so it is the one UAC prompt of a dev
+    # deploy.
     Write-Host '== Staging device plugin from WSGM source ==' -ForegroundColor Cyan
     $pluginStage = Join-Path $root 'publish\DevDeviceComponents'
     Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
@@ -220,34 +221,33 @@ if (-not $SkipPlugin) {
     & "$root\eng\stage-device-components.ps1" -OutputRoot $pluginStage
 
     $packagesRoot = Join-Path $pluginStage 'Packages'
-    $stagedPackage = @(Get-ChildItem -LiteralPath $packagesRoot -Directory)
+    $stagedPackage = @(Get-ChildItem -LiteralPath $packagesRoot -File -Filter '*.wsgmpkg')
     if ($stagedPackage.Count -ne 1) {
         throw "Expected exactly one staged package under $packagesRoot; found $($stagedPackage.Count)."
     }
-    $packageId = $stagedPackage[0].Name
-    $stagedTree = $stagedPackage[0].FullName
-    $installedRoot = Join-Path $env:ProgramFiles 'WSGM\DevicePlugins\installed'
-    $installedTree = Join-Path $installedRoot $packageId
+    $packageFile = $stagedPackage[0].FullName
+    $packageId = ($stagedPackage[0].BaseName -replace '-[0-9][0-9.]*$', '')
+    $pluginsRoot = Join-Path $env:ProgramFiles 'WSGM\Plugins'
 
     Write-Host "== Installing device plugin $packageId (elevation required) ==" -ForegroundColor Cyan
-    # A single elevated child does the protected-slot swap: replace the package directory atomically
-    # (stage beside, then swap) so a failed copy never leaves a half-written plugin the host loads.
-    $swap = @"
+    # WSGM is stopped, so no package file is held open. Copy beside the target and rename so the
+    # folder never holds a half-written package, then drop every other build of this id, which a dev
+    # deploy owns. Nothing else in the folder is touched.
+    $install = @"
 `$ErrorActionPreference = 'Stop'
-`$installedRoot = '$installedRoot'
-`$installedTree = '$installedTree'
-`$stagedTree = '$stagedTree'
-New-Item -ItemType Directory -Path `$installedRoot -Force | Out-Null
-`$incoming = "`$installedTree.incoming"
-`$old = "`$installedTree.old"
-if (Test-Path -LiteralPath `$incoming) { Remove-Item -LiteralPath `$incoming -Recurse -Force }
-Copy-Item -LiteralPath `$stagedTree -Destination `$incoming -Recurse -Force
-if (Test-Path -LiteralPath `$old) { Remove-Item -LiteralPath `$old -Recurse -Force }
-if (Test-Path -LiteralPath `$installedTree) { Rename-Item -LiteralPath `$installedTree -NewName (Split-Path -Leaf `$old) }
-Rename-Item -LiteralPath `$incoming -NewName (Split-Path -Leaf `$installedTree)
-if (Test-Path -LiteralPath `$old) { Remove-Item -LiteralPath `$old -Recurse -Force }
+`$pluginsRoot = '$pluginsRoot'
+`$packageFile = '$packageFile'
+`$packageId = '$packageId'
+New-Item -ItemType Directory -Path `$pluginsRoot -Force | Out-Null
+`$target = Join-Path `$pluginsRoot (Split-Path -Leaf `$packageFile)
+`$incoming = "`$target.incoming"
+Copy-Item -LiteralPath `$packageFile -Destination `$incoming -Force
+Get-ChildItem -LiteralPath `$pluginsRoot -File -Filter "`$packageId-*.wsgmpkg" |
+    Where-Object { `$_.FullName -ne `$target } |
+    Remove-Item -Force
+Move-Item -LiteralPath `$incoming -Destination `$target -Force
 "@
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($swap))
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($install))
     $elevated = Start-Process -FilePath 'powershell.exe' `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) `
         -Verb RunAs -Wait -PassThru

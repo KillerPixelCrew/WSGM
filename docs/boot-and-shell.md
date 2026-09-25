@@ -482,15 +482,16 @@ assumed.
 
 ### A device package on an install that has no room for it
 
-The protected package slot is a directory an administrator can copy into, so a device package can
+The Plugins folder is one an administrator can copy a package file into, so a device package can
 arrive on a Minimal or Desktop install long after setup ran. That combination is otherwise silent:
 the package loads, controller management reports itself unavailable, and nothing says why.
 
 `Core\DevicePrerequisites` answers it by looking at the machine rather than at the package, because
-a device manifest declares no prerequisites: is a package in the slot, is Device Integration on, is
-`libviiper.dll` beside WSGM, does the HidHide control device answer. When something is missing, the
-overlay's Device page carries a banner naming it — the overlay because it is the surface a person
-actually opens, and the Device page because that is where someone whose device is not working goes.
+a device manifest declares no prerequisites: is a device package in the Plugins folder, is Device
+Integration on, is `libviiper.dll` beside WSGM, does the HidHide control device answer. When
+something is missing, the overlay's Device page carries a banner naming it — the overlay because it
+is the surface a person actually opens, and the Device page because that is where someone whose
+device is not working goes.
 
 The banner offers **Enable Device Integration** and nothing else, and the split is not cosmetic.
 Device Integration is WSGM's own setting. The virtual controller needs a kernel driver, and INV-020
