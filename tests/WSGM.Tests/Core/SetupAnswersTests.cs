@@ -45,7 +45,7 @@ public sealed class SetupAnswersTests
     public void FullPreset_TurnsOnRtssPerformanceControls()
     {
         AppConfig config = new();
-        new SetupAnswers { Features = SetupFeatures.Full }.ApplyTo(config);
+        new SetupAnswers { Features = SetupFeatures.Full }.ApplyTo(config, true);
 
         Assert.True(config.Performance.Enabled);
     }
@@ -54,7 +54,7 @@ public sealed class SetupAnswersTests
     public void OtherManagersConsent_SurvivesARunThatFoundNothingToTurnOff()
     {
         AppConfig config = new();
-        new SetupAnswers { Features = SetupFeatures.Full, OtherManagersTakeover = true }.ApplyTo(config);
+        new SetupAnswers { Features = SetupFeatures.Full, OtherManagersTakeover = true }.ApplyTo(config, true);
 
         Assert.Empty(config.OtherManagersDisabled);
         Assert.True(SetupAnswers.Export(config, false, []).OtherManagersTakeover);

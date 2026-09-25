@@ -69,7 +69,11 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     /// <summary>The WSGM version the package was built for, or null when packing did not stamp one.</summary>
     internal string? WsgmVersion => DeviceManifest is { } device ? device.WsgmVersion : CommonManifest!.WsgmVersion;
 
-    /// <summary>This host's version, which a package's <see cref="WsgmVersion" /> must equal.</summary>
+    /// <summary>This host's release version, which a package's <see cref="WsgmVersion" /> must equal.</summary>
+    /// <remarks>
+    ///     The release only: packers stamp <c>WSGM.csproj</c>'s Version, and the assembly's fourth part is the
+    ///     build revision (eng/wsgm-revision.targets), which a package built for that release does not name.
+    /// </remarks>
     internal static Version HostVersion { get; } =
         Normalize(typeof(PluginPackageFile).Assembly.GetName().Version ?? new Version(0, 0));
 
@@ -125,7 +129,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         return true;
     }
 
-    /// <summary>Whether a stamped version names this host, with omitted components read as zero.</summary>
+    /// <summary>Whether a stamped version names this host's release, with an omitted patch read as zero.</summary>
     internal static bool IsForThisHost(string? wsgmVersion)
     {
         return System.Version.TryParse(wsgmVersion, out var parsed) && Normalize(parsed) == HostVersion;
@@ -133,7 +137,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 
     private static Version Normalize(Version version)
     {
-        return new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0));
+        return new Version(version.Major, version.Minor, Math.Max(version.Build, 0));
     }
 
     /// <summary>Returns a fresh stream over a package-root assembly and its symbols, or false.</summary>

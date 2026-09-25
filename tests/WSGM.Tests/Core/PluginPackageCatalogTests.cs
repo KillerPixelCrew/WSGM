@@ -12,6 +12,15 @@ public sealed class PluginPackageCatalogTests
     private static string Host => PluginPackageFile.HostVersion.ToString(3);
 
     [Fact]
+    public void AReleaseStampAdmitsEveryBuildOfThatRelease()
+    {
+        // The assembly's fourth part is the build revision; packers stamp only the release.
+        Assert.Equal(-1, PluginPackageFile.HostVersion.Revision);
+        Assert.True(PluginPackageFile.IsForThisHost(Host));
+        Assert.True(PluginPackageFile.IsForThisHost(Host + ".1234"));
+    }
+
+    [Fact]
     public void MissingPluginsFolder_IsAValidInstallWithoutPlugins()
     {
         using TemporaryDirectory temporary = new();
