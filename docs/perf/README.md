@@ -84,10 +84,15 @@ Ranked by measured share of WSGM.exe's 6.6 s of CPU and 132,000 wakeups over the
    `AudioProfileService.ReadPlaybackCapabilities` are the managed callers seen in the trace. The
    audio manager's one-second timer runs from shell start, and the system status and radio timers
    run from the overlay window's creation on, whether the sheet is visible or not.
-5. **WMI, about 1 % in process plus the WmiPrvSE rows.** The Claw plugin's ten-second observation
-   cycle re-reads identity and AC state through `MsiWmiPlatform` and `WindowsClawIdentityReader`.
+5. **WMI, about 1 % in process plus the WmiPrvSE rows.** The identity reads seen in the trace
+   (`WindowsClawIdentityReader`, `MsiWmiPlatform`) belong to capability commands: every desktop
+   foreground change resolved the same power preset again and replayed it as a full command
+   sequence, identity read, scenario and watt writes with readbacks, Windows power mode set. The
+   plugin's own ten-second observation cycle reads only power, charge, fans and telemetry.
 6. **One exception per second.** `WaitHandleCannotBeOpenedException` is thrown every second and
-   swallowed. The throw site is not in WSGM's own sources; the trace carried no stack for it.
+   swallowed by `LhmSensorReader.TryReadXml`, which opened the provider's
+   `Global\Access_LHMDPSharedMemory` mutex on every read although the installed provider never
+   creates it.
 
 Memory: 97 MB private, 240 to 300 MB working set, 14 MB in the large object heap. Not yet broken
 down.
@@ -107,15 +112,17 @@ those are the product working.
 
 ## Findings and their status
 
-| Finding                                                  | Cost at idle                      | Status                                                                                                                           |
-| -------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| VIIPER keepalive replay and completions with no consumer | 40 % CPU, 55 % wakeups            | open, needs a VIIPER pprof and an attended check of NAK-idle against Steam                                                       |
-| Per-sample thread-pool hops                              | 35 % CPU, 25 % wakeups            | open; the pool's spin-then-sleep is off since the runtimeconfig change, the hops remain                                          |
-| Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core | fixed on the desktop: the motion demand signal stops the source (see device-integration.md); the 2 ms poll in game is still open |
-| WinRT Bluetooth enumeration every 2 s at idle            | 17 % CPU                          | fixed: the radio timer stops when the overlay closes; the audio manager's one-second poll is still open                          |
-| Identity and AC state over WMI every 10 s                | 1 % CPU + WmiPrvSE                | open                                                                                                                             |
-| `WaitHandleCannotBeOpenedException` every second         | negligible CPU, one throw/s       | fixed: `LhmSensorReader` opened the provider's missing mutex on every read; it now tries once per mapping                        |
-| Every publication re-read on each 10 s network poll      | about 1 % CPU                     | open: the toolkit's publish loop reads every module's state whenever any module signals                                          |
+| Finding                                                  | Cost at idle                                         | Status                                                                                                                                                                                                       |
+| -------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| VIIPER keepalive replay and completions with no consumer | 40 % CPU, 55 % wakeups                               | partly fixed: an unchanged frame is no longer submitted, so an untouched pad costs no cgo call or Go wakeup per report; the 6 ms replay needs a VIIPER pprof and an attended check of NAK-idle against Steam |
+| Per-sample thread-pool hops                              | 35 % CPU, 25 % wakeups                               | open; the pool's spin-then-sleep is off since the runtimeconfig change, the hops remain                                                                                                                      |
+| Power preset replayed on every foreground change         | WMI writes and readbacks per window switch, WmiPrvSE | fixed: the same assignment resolving for another application is not re-applied while the device still shows it                                                                                               |
+| Steam running-application poll every 2 s over CEF        | part of the steamwebhelper 1.8 %                     | open: `RunningApplicationTarget` polls the client; Steam's app lifetime notifications would make it event-driven                                                                                             |
+| Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core                    | fixed on the desktop: the motion demand signal stops the source (see device-integration.md); the 2 ms poll in game is still open                                                                             |
+| WinRT Bluetooth enumeration every 2 s at idle            | 17 % CPU                                             | fixed: the radio timer stops when the overlay closes; the audio manager's one-second poll is still open                                                                                                      |
+| Identity and AC state over WMI every 10 s                | 1 % CPU + WmiPrvSE                                   | open                                                                                                                                                                                                         |
+| `WaitHandleCannotBeOpenedException` every second         | negligible CPU, one throw/s                          | fixed: `LhmSensorReader` opened the provider's missing mutex on every read; it now tries once per mapping                                                                                                    |
+| Every publication re-read on each 10 s network poll      | about 1 % CPU                                        | open: the toolkit's publish loop reads every module's state whenever any module signals                                                                                                                      |
 
 Fixed means changed in code and not yet re-measured; a row moves to done when a new capture shows
 the cost gone.

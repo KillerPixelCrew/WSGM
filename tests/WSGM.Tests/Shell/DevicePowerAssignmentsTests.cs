@@ -92,6 +92,26 @@ public sealed class DevicePowerAssignmentsTests
         Assert.Equal(ac ? "extreme" : "battery", ac ? shown.AcPreset : shown.BatteryPreset);
     }
 
+    [Fact]
+    public async Task TheSameAssignmentResolvingForAnotherApplicationIsNotReapplied()
+    {
+        Rig rig = new();
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(CancellationToken.None);
+        var writes = rig.Device.Calls.Count;
+        Assert.True(writes > 0);
+
+        // Every foreground change used to replay the whole preset over the device's command lane.
+        rig.Application = "steam:1";
+        await assignments.ReconcileAsync(CancellationToken.None);
+        rig.Application = "desktop:notepad.exe";
+        await assignments.ReconcileAsync(CancellationToken.None);
+
+        Assert.Equal(writes, rig.Device.Calls.Count);
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("extreme", assignments.Snapshot().AcPreset);
+    }
+
     private static void ChangeValue(Rig rig, int index, CapabilityValue value)
     {
         var view = rig.Device.Views[index];

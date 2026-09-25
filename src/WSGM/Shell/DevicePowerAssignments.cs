@@ -238,6 +238,25 @@ internal sealed class DevicePowerAssignments(
             return;
         }
 
+        // The same assignment resolving for another application is not a change. Every desktop
+        // window switch used to re-run the whole preset: an identity read, the scenario and both
+        // watt writes with their readbacks over WMI, and a Windows power mode set, all to land on
+        // the values the device already showed. Skip when the previous apply succeeded for this
+        // assignment on this power source and the device still reports it.
+        if (_applied
+            && _attempted is { } previous
+            && previous.Cycle == current.Cycle
+            && previous.Ac == ac
+            && previous.Assignment == assignment
+            && (assignment.CustomValues is { } customValues
+                ? state.Values == customValues
+                : state.Current == assignment.PresetId))
+        {
+            _attempted = key;
+            _status = string.Empty;
+            return;
+        }
+
         // Record before dispatch. Uncertainty or a timeout must never cause a polling retry.
         _attempted = key;
         _applied = false;
