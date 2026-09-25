@@ -365,10 +365,12 @@ original boost value, including unequal manual limits. Restoration across a devi
 refused. No automatic target is persisted into profile configuration.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
-Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset. A
-manual or assigned power change cancels pending automatic dispatch and updates the restoration
-target; disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost
-companion pauses the pair without saving observed sustained wattage as a new primary preference.
+Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,
+both as the active profile and in the assignment dropdown for the source in use. None of that is
+saved: the assignment loop never turns AutoTDP's readings into a Custom assignment. A manual or
+assigned power change cancels pending automatic dispatch and updates the restoration target;
+disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost companion
+pauses the pair without saving observed sustained wattage as a new primary preference.
 
 ## Remaining live work
 
