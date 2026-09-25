@@ -35,6 +35,9 @@ public sealed record DetectedManager(
     /// <summary>Whether anything of it would start or runs now.</summary>
     public bool Active => Services.Count > 0 || Tasks.Count > 0 || Running.Count > 0;
 
+    /// <summary>Whether every one of its tasks has a sign-in trigger.</summary>
+    public bool StartsAtSignIn { get; init; }
+
     /// <summary>One line for setup, such as <c>MSI Center M: 1 service, 2 scheduled tasks</c>.</summary>
     public string Describe()
     {
@@ -46,7 +49,9 @@ public sealed record DetectedManager(
 
         if (Tasks.Count > 0)
         {
-            parts.Add(Tasks.Count == 1 ? "starts at sign-in" : $"{Tasks.Count} scheduled tasks");
+            parts.Add(Tasks.Count == 1
+                ? StartsAtSignIn ? "starts at sign-in" : "1 scheduled task"
+                : $"{Tasks.Count} scheduled tasks");
         }
 
         if (Running.Count > 0)
@@ -198,8 +203,10 @@ public static class OtherManagers
         {
             List<string> activeServices =
                 [.. manager.Services.Where(service => services.ReadStart(service, out _) is not (null or 4))];
+            // A catalog task counts only when it exists: IsTaskEnabled reads a missing task as enabled.
             HashSet<string> tasks = new(StringComparer.OrdinalIgnoreCase);
-            foreach (var task in manager.Tasks.Select(name => @"\" + name).Where(autostart.IsTaskEnabled))
+            foreach (var task in manager.Tasks.Select(name => @"\" + name)
+                         .Where(path => autostart.ReadTaskEnabled(path) == true))
             {
                 tasks.Add(task);
             }
@@ -208,14 +215,17 @@ public static class OtherManagers
             foreach (var (path, command) in logonTasks)
             {
                 if (manager.Processes.Contains(ExecutableName(command), StringComparer.OrdinalIgnoreCase)
-                    && autostart.IsTaskEnabled(path))
+                    && autostart.ReadTaskEnabled(path) == true)
                 {
                     tasks.Add(path);
                 }
             }
 
             DetectedManager detected = new(manager, activeServices, [.. tasks.Order(StringComparer.OrdinalIgnoreCase)],
-                [.. manager.Processes.Where(process => running.Contains(process, StringComparer.OrdinalIgnoreCase))]);
+                [.. manager.Processes.Where(process => running.Contains(process, StringComparer.OrdinalIgnoreCase))])
+            {
+                StartsAtSignIn = tasks.Count > 0 && tasks.All(logonTasks.ContainsKey)
+            };
             if (detected.Active)
             {
                 found.Add(detected);
@@ -337,6 +347,8 @@ public static class OtherManagers
         {
             var ok = entry.Kind switch
             {
+                // A task the maker's uninstaller removed meanwhile has nothing left to restore either.
+                TaskKind when autostart.ReadTaskEnabled(entry.Name) is null => true,
                 TaskKind => autostart.SetTaskEnabled(entry.Name, true),
                 // A service the maker's uninstaller removed meanwhile has nothing left to restore.
                 ServiceKind when services.ReadStart(entry.Name, out _) is null => true,

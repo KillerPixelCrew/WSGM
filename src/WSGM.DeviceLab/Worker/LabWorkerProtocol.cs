@@ -29,10 +29,16 @@ internal sealed class LabWorkerZeroAttribute : Attribute;
 /// <summary>One request from the wizard to the worker.</summary>
 internal sealed record LabWorkerRequest
 {
-    /// <summary>Request ID; zero for a streamed frame, which gets no reply.</summary>
+    /// <summary>
+    ///     Request ID; zero for a streamed frame, which gets no reply. For <c>cancel</c>, the ID of the call
+    ///     to cancel; a cancel gets no reply either.
+    /// </summary>
     public long Id { get; init; }
 
-    /// <summary><c>open</c>, <c>call</c>, <c>checkpoint</c>, <c>ack</c>, <c>release</c>, <c>stream</c> or <c>close</c>.</summary>
+    /// <summary>
+    ///     <c>open</c>, <c>call</c>, <c>cancel</c>, <c>checkpoint</c>, <c>ack</c>, <c>release</c>, <c>stream</c>,
+    ///     <c>stream-status</c> or <c>close</c>.
+    /// </summary>
     public required string Op { get; init; }
 
     /// <summary>Service name, for <c>open</c>.</summary>
@@ -60,7 +66,7 @@ internal sealed record LabWorkerResponse
     /// <summary>Whether the request succeeded.</summary>
     public bool Ok { get; init; }
 
-    /// <summary>The return value, when there is one.</summary>
+    /// <summary>The return value, when there is one. A null return value is sent as no value.</summary>
     public JsonElement? Result { get; init; }
 
     /// <summary>The failure, when it failed.</summary>

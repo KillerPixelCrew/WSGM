@@ -317,18 +317,18 @@ internal static class AllyModels
         return model.Layout is AllyFrontLayout.Xbox
             ?
             [
-                Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, false, false),
-                Oem(OemControlIds.Library, "Library", OemControlPlacement.Front, true, false),
-                Oem(OemControlIds.M1, "M1", OemControlPlacement.Rear, false, true),
-                Oem(OemControlIds.M2, "M2", OemControlPlacement.Rear, false, true)
+                Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, false),
+                Oem(OemControlIds.Library, "Library", OemControlPlacement.Front, false),
+                Oem(OemControlIds.M1, "M1", OemControlPlacement.Rear, true),
+                Oem(OemControlIds.M2, "M2", OemControlPlacement.Rear, true)
             ]
             :
             [
-                Oem(OemControlIds.CommandCenter, "Command Center", OemControlPlacement.Front, false, false),
-                Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, true, false),
-                Oem(OemControlIds.Library, "Library", OemControlPlacement.Front, false, false),
-                Oem(OemControlIds.M1, "M1", OemControlPlacement.Rear, false, true),
-                Oem(OemControlIds.M2, "M2", OemControlPlacement.Rear, false, true)
+                Oem(OemControlIds.CommandCenter, "Command Center", OemControlPlacement.Front, false),
+                Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, false),
+                Oem(OemControlIds.Library, "Library", OemControlPlacement.Front, false),
+                Oem(OemControlIds.M1, "M1", OemControlPlacement.Rear, true),
+                Oem(OemControlIds.M2, "M2", OemControlPlacement.Rear, true)
             ];
     }
 
@@ -376,7 +376,6 @@ internal static class AllyModels
         string id,
         string label,
         OemControlPlacement placement,
-        bool supportsLongPress,
         bool requiresController)
     {
         return new OemControlDescriptor
@@ -384,7 +383,6 @@ internal static class AllyModels
             ControlId = id,
             Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
             Placement = placement,
-            SupportsLongPress = supportsLongPress,
             RequiresControllerAcquisition = requiresController
         };
     }

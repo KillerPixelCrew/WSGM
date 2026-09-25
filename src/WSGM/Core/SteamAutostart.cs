@@ -98,8 +98,13 @@ public interface IAutostartSystem
 
     /// <summary>Whether the named task is currently enabled.</summary>
     /// <param name="taskPath">The full task path.</param>
-    /// <returns>True when Windows would run it.</returns>
+    /// <returns>True when Windows would run it, or when the task cannot be read.</returns>
     bool IsTaskEnabled(string taskPath);
+
+    /// <summary>Whether the named task exists and is enabled.</summary>
+    /// <param name="taskPath">The full task path.</param>
+    /// <returns>The task's enabled state, or null when it does not exist or cannot be read.</returns>
+    bool? ReadTaskEnabled(string taskPath);
 
     /// <summary>Enables or disables one scheduled task.</summary>
     /// <param name="taskPath">The full task path.</param>

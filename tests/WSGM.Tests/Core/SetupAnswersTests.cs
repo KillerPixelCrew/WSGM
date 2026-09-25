@@ -38,6 +38,16 @@ public sealed class SetupAnswersTests
         Assert.True(config.Hotkey.Enabled);
     }
 
+    [Fact]
+    public void OtherManagersConsent_SurvivesARunThatFoundNothingToTurnOff()
+    {
+        AppConfig config = new();
+        new SetupAnswers { Features = SetupFeatures.Full, OtherManagersTakeover = true }.ApplyTo(config);
+
+        Assert.Empty(config.OtherManagersDisabled);
+        Assert.True(SetupAnswers.Export(config, false, []).OtherManagersTakeover);
+    }
+
     [Theory]
     [InlineData("""{"schemaVersion":2,"features":{}}""")]
     [InlineData("""{"schemaVersion":1,"startMode":"Nowhere","features":{}}""")]

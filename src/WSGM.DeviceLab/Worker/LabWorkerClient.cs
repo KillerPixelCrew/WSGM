@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Worker;
@@ -153,15 +154,42 @@ internal sealed class LabWorkerClient : IDisposable
     /// <typeparam name="TState">The snapshot type.</typeparam>
     /// <param name="service">A proxy from <see cref="Open{T}" />.</param>
     /// <param name="persist">Records the original; it must finish within five seconds.</param>
-    /// <returns>The original state and the token to release after a verified restore.</returns>
+    /// <returns>
+    ///     The original state, which is the default of <typeparamref name="TState" /> when the snapshot was
+    ///     null, and the token to release after a verified restore.
+    /// </returns>
     public (TState Original, string Token) Checkpoint<TState>(object service, Action<TState> persist)
     {
         var proxy = (LabWorkerProxy)service;
         var response = Send(new LabWorkerRequest { Op = "checkpoint", Session = proxy.Session }, proxy.Log);
-        var original = response.Result!.Value.Deserialize<TState>(LabProject.JsonOptions)!;
+        var original = Snapshot<TState>(response.Result);
         persist(original);
         Send(new LabWorkerRequest { Op = "ack", Session = proxy.Session, Token = response.Token }, proxy.Log);
         return (original, response.Token!);
+    }
+
+    /// <summary>Reads a checkpoint's original; a null snapshot, sent as no result, is the type's default.</summary>
+    /// <typeparam name="TState">The snapshot type.</typeparam>
+    /// <param name="result">The reply's result.</param>
+    /// <returns>The original.</returns>
+    internal static TState Snapshot<TState>(JsonElement? result)
+    {
+        return LabWorkerHost.Result(result) is { } value
+            ? value.Deserialize<TState>(LabProject.JsonOptions)!
+            : default!;
+    }
+
+    /// <summary>
+    ///     Why the service's streamed output stopped, or null while it runs. Streamed frames get no reply,
+    ///     so the wizard asks.
+    /// </summary>
+    /// <param name="service">A proxy from <see cref="Open{T}" />.</param>
+    /// <returns>The worker's failure, or null.</returns>
+    public string? StreamError(object service)
+    {
+        var proxy = (LabWorkerProxy)service;
+        var response = Send(new LabWorkerRequest { Op = "stream-status", Session = proxy.Session }, proxy.Log);
+        return response.Result is { ValueKind: JsonValueKind.String } error ? error.GetString() : null;
     }
 
     /// <summary>Ends a checkpoint after the original was restored and read back.</summary>
@@ -173,7 +201,10 @@ internal sealed class LabWorkerClient : IDisposable
         Send(new LabWorkerRequest { Op = "release", Session = proxy.Session, Token = token }, proxy.Log);
     }
 
-    internal LabWorkerResponse Send(LabWorkerRequest request, LabPowerLog? log)
+    // Cancelling asks the worker to end the call's wait; the reply is still awaited, because a write the
+    // call already sent is not undone by cancelling.
+    internal LabWorkerResponse Send(LabWorkerRequest request, LabPowerLog? log,
+        CancellationToken cancellationToken = default)
     {
         if (_lost is { } lost)
         {
@@ -197,6 +228,7 @@ internal sealed class LabWorkerClient : IDisposable
             throw Lose($"The hardware worker's input closed: {ex.Message}");
         }
 
+        using var cancel = cancellationToken.Register(() => ThreadPool.QueueUserWorkItem(_ => Cancel(id)));
         if (!reply.Task.Wait(CallDeadline))
         {
             _pending.TryRemove(id, out _);
@@ -243,6 +275,28 @@ internal sealed class LabWorkerClient : IDisposable
         catch (IOException)
         {
             // A lost worker zeroed its outputs when its input closed.
+        }
+    }
+
+    private void Cancel(long id)
+    {
+        if (_lost is not null || !_pending.ContainsKey(id))
+        {
+            return;
+        }
+
+        var line = JsonSerializer.Serialize(new LabWorkerRequest { Id = id, Op = "cancel" },
+            LabWorkerHost.WireOptions);
+        try
+        {
+            lock (_send)
+            {
+                _process.StandardInput.WriteLine(line);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // The call ends with the worker; its reply or the lost worker reports it.
         }
     }
 
@@ -317,6 +371,10 @@ internal sealed class LabWorkerClient : IDisposable
             "System.ArgumentOutOfRangeException" => new ArgumentOutOfRangeException(null, message),
             "System.ArgumentException" => new ArgumentException(message),
             "System.Management.ManagementException" => new IOException(message),
+            "System.OperationCanceledException" or "System.Threading.Tasks.TaskCanceledException" =>
+                new OperationCanceledException(message),
+            _ when response.ErrorType == typeof(LabRumbleRouteGoneException).FullName =>
+                new LabRumbleRouteGoneException(message),
             _ => new InvalidOperationException(message)
         };
     }
@@ -364,6 +422,9 @@ internal class LabWorkerProxy : DispatchProxy
             return null;
         }
 
+        // A CancellationToken stays here and cancels the call in the worker; everything else is sent.
+        var parameters = targetMethod.GetParameters();
+        var cancellationToken = args.OfType<CancellationToken>().FirstOrDefault();
         var response = client.Send(new LabWorkerRequest
         {
             Op = "call",
@@ -371,10 +432,12 @@ internal class LabWorkerProxy : DispatchProxy
             Method = targetMethod.Name,
             Args =
             [
-                .. targetMethod.GetParameters().Select((parameter, i) =>
-                    JsonSerializer.SerializeToElement(args[i], parameter.ParameterType, LabProject.JsonOptions))
+                .. parameters.Select((parameter, i) => (parameter, i))
+                    .Where(item => item.parameter.ParameterType != typeof(CancellationToken))
+                    .Select(item => JsonSerializer.SerializeToElement(args[item.i], item.parameter.ParameterType,
+                        LabProject.JsonOptions))
             ]
-        }, Log);
+        }, Log, cancellationToken);
         return targetMethod.ReturnType == typeof(void) || response.Result is not { } result
             ? null
             : result.Deserialize(targetMethod.ReturnType, LabProject.JsonOptions);

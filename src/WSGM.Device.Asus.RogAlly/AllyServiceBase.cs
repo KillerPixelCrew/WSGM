@@ -66,10 +66,14 @@ internal abstract class AllyService(string serviceId)
         Reason = result.Reason;
     }
 
+    /// <summary>Marks the service faulted until it is next acquired.</summary>
+    /// <remarks>
+    ///     Unlike <see cref="ReconciliationBlockReason" />, a fault does not outlive the cycle: resume and
+    ///     controller re-enablement acquire the service again.
+    /// </remarks>
     public void Fault(CapabilityReason reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
-        ReconciliationBlockReason = reason;
         _ = Set(AllyServiceState.Faulted, reason);
     }
 
@@ -165,14 +169,18 @@ internal static class AllyWriteBudget
         return deadline - DateTimeOffset.UtcNow >= Minimum;
     }
 
+    /// <summary>Throws <see cref="AllyBudgetException" /> when the deadline leaves too little time.</summary>
     public static void Require(DateTimeOffset deadline, string operation)
     {
         if (!IsAvailable(deadline))
         {
-            throw new OperationCanceledException($"Insufficient budget for {operation}.");
+            throw new AllyBudgetException($"Insufficient budget for {operation}.");
         }
     }
 }
+
+/// <summary>A write was refused for lack of time before anything reached the hardware.</summary>
+internal sealed class AllyBudgetException(string message) : Exception(message);
 
 internal static class AllyDiagnosticText
 {

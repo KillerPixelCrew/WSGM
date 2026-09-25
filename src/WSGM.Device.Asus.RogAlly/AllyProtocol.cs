@@ -83,8 +83,11 @@ internal static class AllyProtocol
     ];
 
     // HHD COMMANDS_GAME before the rear block (const.py:1120-1128): game mode, then the default
-    // D-pad, stick, shoulder, face and view/menu tables, byte-identical to HC's defaults
-    // (ROGAlly.cs:93-154).
+    // D-pad, stick, shoulder, face and view/menu tables. Each table is a 0x2C (44) byte body of four
+    // 11-byte button blocks. Six match HC's defaults (ROGAlly.cs:93-154) byte for byte; HC's
+    // dPadLeftRightDefault and faceButtonsABDefault drop one padding byte from their third block, so
+    // their fourth block starts one byte early while the length byte still says 44. HHD's layout,
+    // which agrees with that length and with HC's other tables, is sent (PROVENANCE.md).
     private static readonly byte[][] FrontTables =
     [
         Pad("5a d1 01 01 01"),
@@ -107,8 +110,9 @@ internal static class AllyProtocol
 
     /// <summary>
     ///     The controller configuration written when the plugin takes the gamepad: HHD's
-    ///     <c>COMMANDS_GAME</c> (<c>rog_ally/const.py:1120-1132</c>), sent in HC's order through feature
-    ///     reports (<c>ROGAlly.cs:646-668</c>).
+    ///     <c>COMMANDS_GAME</c> (<c>rog_ally/const.py:1120-1132</c>) in HHD's order, which sends the D-pad
+    ///     left/right table before up/down where HC's <c>ConfigureController</c> sends up/down first
+    ///     (<c>ROGAlly.cs:653-654</c>), through feature reports as HC does (<c>ROGAlly.cs:646-668</c>).
     /// </summary>
     public static IReadOnlyList<byte[]> GameModeConfiguration { get; } =
         [.. FrontTables, RearKeyboardMapping, Triggers, .. Commit];

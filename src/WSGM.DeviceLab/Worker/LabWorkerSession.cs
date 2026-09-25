@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Worker;
@@ -35,10 +36,15 @@ internal sealed class LabWorkerSession(
     private string? _pending;
     private DateTime _pendingSince;
     private int _sent;
-    private bool _streamFailed;
 
     /// <summary>Whether writes are accepted now.</summary>
     public bool Armed => _armed is not null;
+
+    /// <summary>
+    ///     Why a streamed frame failed since the checkpoint was acknowledged, or null. Later frames are
+    ///     ignored until a new checkpoint, so the wizard polls this to learn the stream stopped.
+    /// </summary>
+    public string? StreamError { get; private set; }
 
     /// <inheritdoc />
     public void Dispose()
@@ -72,9 +78,11 @@ internal sealed class LabWorkerSession(
 
     /// <summary>Calls one interface method.</summary>
     /// <param name="name">Method name.</param>
-    /// <param name="args">One JSON value per parameter.</param>
+    /// <param name="args">One JSON value per parameter, leaving out a <see cref="CancellationToken" />.</param>
+    /// <param name="cancellationToken">Bound to a <see cref="CancellationToken" /> parameter, if the method has one.</param>
     /// <returns>The return value, or null for a void method.</returns>
-    public JsonElement? Call(string name, IReadOnlyList<JsonElement> args)
+    public JsonElement? Call(string name, IReadOnlyList<JsonElement> args,
+        CancellationToken cancellationToken = default)
     {
         var method = Method(name);
         if (method.GetCustomAttribute<LabWorkerWriteAttribute>() is not null && _armed is null)
@@ -83,7 +91,7 @@ internal sealed class LabWorkerSession(
                 $"{service.Name}.{name} changes hardware and needs an acknowledged checkpoint first.");
         }
 
-        var result = method.Invoke(instance, Bind(method, args));
+        var result = method.Invoke(instance, Bind(method, args, cancellationToken));
         return method.ReturnType == typeof(void)
             ? null
             : JsonSerializer.SerializeToElement(result, method.ReturnType, LabProject.JsonOptions);
@@ -95,7 +103,7 @@ internal sealed class LabWorkerSession(
     public void Stream(string name, IReadOnlyList<JsonElement> args)
     {
         var method = Method(name);
-        if (method.GetCustomAttribute<LabWorkerStreamAttribute>() is null || _armed is null || _streamFailed)
+        if (method.GetCustomAttribute<LabWorkerStreamAttribute>() is null || _armed is null || StreamError is not null)
         {
             return;
         }
@@ -103,12 +111,13 @@ internal sealed class LabWorkerSession(
         _lastFrame = _clock();
         try
         {
-            method.Invoke(instance, Bind(method, args));
+            method.Invoke(instance, Bind(method, args, CancellationToken.None));
         }
-        catch (TargetInvocationException)
+        catch (TargetInvocationException ex)
         {
             // A failed frame is uncertain. Zero once and ignore later slider frames.
-            _streamFailed = true;
+            StreamError = ex.InnerException?.Message ?? ex.Message;
+            log.Add("stream-failed", StreamError);
             ZeroQuietly();
         }
     }
@@ -150,7 +159,7 @@ internal sealed class LabWorkerSession(
 
         _armed = _pending;
         _pending = null;
-        _streamFailed = false;
+        StreamError = null;
     }
 
     /// <summary>Ends the checkpoint after a verified restore; writes are refused again.</summary>
@@ -195,18 +204,23 @@ internal sealed class LabWorkerSession(
                ?? throw new InvalidOperationException($"{service.Name} has no method '{name}'.");
     }
 
-    private static object?[] Bind(MethodInfo method, IReadOnlyList<JsonElement> args)
+    // A CancellationToken parameter is not sent over the wire; it is the call's own token.
+    private static object?[] Bind(MethodInfo method, IReadOnlyList<JsonElement> args,
+        CancellationToken cancellationToken)
     {
         var parameters = method.GetParameters();
-        if (parameters.Length != args.Count)
+        var sent = parameters.Count(parameter => parameter.ParameterType != typeof(CancellationToken));
+        if (sent != args.Count)
         {
-            throw new ArgumentException($"{method.Name} takes {parameters.Length} arguments.");
+            throw new ArgumentException($"{method.Name} takes {sent} arguments.");
         }
 
+        var next = 0;
         return
         [
-            .. parameters.Select((parameter, i) =>
-                args[i].Deserialize(parameter.ParameterType, LabProject.JsonOptions))
+            .. parameters.Select(parameter => parameter.ParameterType == typeof(CancellationToken)
+                ? cancellationToken
+                : args[next++].Deserialize(parameter.ParameterType, LabProject.JsonOptions))
         ];
     }
 }

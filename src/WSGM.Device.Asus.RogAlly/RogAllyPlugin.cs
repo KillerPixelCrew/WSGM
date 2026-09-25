@@ -83,7 +83,6 @@ public sealed class RogAllyPlugin : IDevicePlugin
     private AllyMotionService? _motion;
     private IAllyMotionSource? _motionSource;
     private CancellationTokenSource? _observationLoop;
-    private CancellationToken _observationToken;
     private PowerService? _power;
     private bool _quiescing;
     private IReadOnlyList<AllyService> _services = [];
@@ -839,6 +838,11 @@ public sealed class RogAllyPlugin : IDevicePlugin
         {
             result = await ApplyAsync(command, identity, cancellationToken).ConfigureAwait(false);
         }
+        catch (AllyBudgetException ex)
+        {
+            // Thrown before any write, so nothing needs restoring and the service stays healthy.
+            return AllyResults.Rejected(command, CapabilityReasonCode.Quiescing, ex.Message, true);
+        }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return AllyResults.Indeterminate(command, CapabilityReasonCode.Quiescing,
@@ -854,7 +858,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
         if (result.Rollback is RollbackResult.RestoreFailed && service is PowerService or FanService)
         {
             service.Fault(new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                "A command rollback failed; the resource stays faulted until the next cycle reconciles it."));
+                "A command rollback failed; the resource stays faulted until it is acquired again, and stop "
+                + "restores the journalled original."));
         }
 
         return result.Outcome is not CommandOutcome.AppliedVerified && result.ReadbackValue is not null
@@ -1007,9 +1012,10 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 "The command targets a descriptor or device generation that is no longer current.", true);
         }
 
-        if (command.Deadline <= DateTimeOffset.UtcNow)
+        if (!AllyWriteBudget.IsAvailable(command.Deadline))
         {
-            return new CapabilityReason(CapabilityReasonCode.Quiescing, "The command deadline passed.", true);
+            return new CapabilityReason(CapabilityReasonCode.Quiescing,
+                "The command deadline leaves too little time for a hardware write.", true);
         }
 
         if (onAcPower ? !descriptor.AvailableOnAc : !descriptor.AvailableOnDc)
@@ -1147,7 +1153,6 @@ public sealed class RogAllyPlugin : IDevicePlugin
         StopObservationLoop();
         CancellationTokenSource loop = new();
         _observationLoop = loop;
-        _observationToken = loop.Token;
         _ = Task.Run(() => ObservationLoopAsync(loop.Token), loop.Token);
     }
 
@@ -1245,7 +1250,14 @@ public sealed class RogAllyPlugin : IDevicePlugin
     private async ValueTask<bool> PublishAfterCommandAsync(CapabilityCommand command,
         CancellationToken cancellationToken)
     {
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _observationToken);
+        if (_quiescing)
+        {
+            // Suspend or stop has begun and publishes the final states itself.
+            PluginTrace.Info("observe", $"post-command refresh for '{command.CapabilityId}' skipped while quiescing.");
+            return false;
+        }
+
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var remaining = command.Deadline - DateTimeOffset.UtcNow;
         bounded.CancelAfter(remaining <= TimeSpan.Zero ? TimeSpan.Zero
             : remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2));
@@ -1282,12 +1294,18 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 AllyServiceIds.Controller => _controller,
                 _ => null
             };
-            if (action is not AllyReconciliationAction.Restore)
+            if (action is AllyReconciliationAction.Block)
             {
-                Block(new CapabilityReason(
-                    action is AllyReconciliationAction.Block
-                        ? CapabilityReasonCode.TransportFaulted
-                        : CapabilityReasonCode.FirmwareNotVerified,
+                // Not retried and not blocking: the service stays usable, and the next explicit command
+                // re-arms the captured original for the following release.
+                PluginTrace.Warn("recovery",
+                    $"'{entry.ServiceId}' kept an unresolved {entry.Status} restore; it is not retried automatically.");
+                continue;
+            }
+
+            if (action is AllyReconciliationAction.ReportOnly)
+            {
+                Block(new CapabilityReason(CapabilityReasonCode.FirmwareNotVerified,
                     "An outstanding recovery entry is not safe to restore on this firmware."), service);
                 continue;
             }

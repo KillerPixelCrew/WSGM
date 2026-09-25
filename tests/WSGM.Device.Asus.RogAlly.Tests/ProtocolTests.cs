@@ -87,6 +87,48 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void FrontTablesMatchHcByteForByteExceptItsTwoShortTables()
+    {
+        // HC 1.3.1.6 ROGAlly.cs:93-154, in the order the plugin sends them.
+        byte[][] hc =
+        [
+            [90, 209, 1, 1, 1],
+            [
+                90, 209, 2, 2, 44, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 35, 0, 0, 0, 1, 12, 0,
+                0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 13
+            ],
+            [
+                90, 209, 2, 1, 44, 1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 1, 10, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 3, 140, 136, 118
+            ],
+            [90, 209, 2, 3, 44, 1, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 8],
+            [90, 209, 2, 4, 44, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6],
+            [
+                90, 209, 2, 5, 44, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 22, 0, 0, 0, 0, 0, 0, 0, 1, 2, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 2, 130, 49
+            ],
+            [
+                90, 209, 2, 6, 44, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 77, 0, 0, 0, 1, 4, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 30
+            ],
+            [90, 209, 2, 7, 44, 1, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 18]
+        ];
+        var sent = AllyProtocol.GameModeConfiguration.Take(hc.Length).ToArray();
+
+        for (var index = 0; index < hc.Length; index++)
+        {
+            var matches = sent[index].AsSpan(0, hc[index].Length).SequenceEqual(hc[index]);
+            // D-pad left/right (index 1) and A/B (index 5) are HHD's 11-byte-block layout.
+            Assert.Equal(index is not (1 or 5), matches);
+        }
+
+        // HHD REMAP_DPAD_LR and REMAP_AB (const.py:201-253, 549-605): the fourth block starts at byte 5 + 3 * 11.
+        Assert.Equal([0x04, 0x00, 0x00, 0x00, 0x00, 0x02, 0x82, 0x0D], sent[1][38..46]);
+        Assert.Equal([0x04, 0x00, 0x00, 0x00, 0x00, 0x02, 0x82, 0x31], sent[5][38..46]);
+        Assert.All(sent.Skip(1), table => Assert.Equal(0x2C, table[4]));
+    }
+
+    [Fact]
     public void CommitFollowsHcValues()
     {
         var commit = AllyProtocol.GameModeConfiguration.Skip(10).ToArray();
@@ -132,18 +174,35 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void SolidLightingWritesEachRingZone()
+    public void TwoSolidRingColoursFollowHcApplyColorFast()
     {
-        var reports = LightingService.Encode(new AllyLightingState(100, AuraEffect.Solid, 50, 0xFF0000, 0x0000FF));
+        var reports = LightingService.Encode(new AllyLightingState(100, AuraEffect.Solid, 90, 0xFF0000, 0x0000FF));
 
+        Assert.Equal(5, reports.Count);
         Assert.True(reports[0].Feature);
         Assert.Equal(0xBA, reports[0].Bytes[1]);
-        Assert.Equal([1, 2, 3, 4], reports.Skip(1).Take(4).Select(report => (int)report.Bytes[2]));
+        Assert.Equal([1, 2, 3, 4], reports.Skip(1).Select(report => (int)report.Bytes[2]));
         Assert.Equal(0xFF, reports[1].Bytes[4]);
         Assert.Equal(0xFF, reports[4].Bytes[6]);
-        Assert.Equal(0xB4, reports[^2].Bytes[1]);
-        Assert.Equal(0xB5, reports[^1].Bytes[1]);
-        Assert.All(reports.Skip(1), report => Assert.False(report.Feature));
+        // HC's fast path always sends the slow speed and no apply or set.
+        Assert.All(reports.Skip(1), report =>
+        {
+            Assert.False(report.Feature);
+            Assert.Equal(AllyProtocol.SpeedSlow, report.Bytes[7]);
+            Assert.Equal(0xB3, report.Bytes[1]);
+        });
+    }
+
+    [Fact]
+    public void OneSolidColourFollowsHcApplyColor()
+    {
+        var reports = LightingService.Encode(new AllyLightingState(100, AuraEffect.Solid, 90, 0x00FF00, 0x00FF00));
+
+        Assert.Equal(4, reports.Count);
+        Assert.Equal(0, reports[1].Bytes[2]);
+        Assert.Equal(AllyProtocol.SpeedFast, reports[1].Bytes[7]);
+        Assert.Equal(0xB4, reports[2].Bytes[1]);
+        Assert.Equal(0xB5, reports[3].Bytes[1]);
     }
 
     [Fact]
@@ -205,6 +264,24 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void XboxAllyFollowsHcsEnvelope()
+    {
+        var xboxAlly = AllyModels.ById("rc73ya")!;
+
+        Assert.Equal(35, xboxAlly.MaximumWatts);
+        Assert.Equal([13, 17, 25], xboxAlly.Presets.Select(preset => preset.Watts));
+        Assert.All(xboxAlly.Presets,
+            preset => Assert.InRange(preset.Watts, xboxAlly.MinimumWatts, xboxAlly.MaximumWatts));
+    }
+
+    [Fact]
+    public void FrontOemControlsDeclareNoLongPress()
+    {
+        Assert.All(AllyModels.All.SelectMany(AllyModels.OemControls),
+            control => Assert.False(control.SupportsLongPress));
+    }
+
+    [Fact]
     public void XboxGyroSignsDifferFromItsAccelerometer()
     {
         var model = AllyModels.ById("rc73ya")!;
@@ -234,11 +311,54 @@ public sealed class ProtocolTests
         var state = new AllyOemButtonState();
         var now = DateTimeOffset.UtcNow;
         state.Latch(CanonicalButtons.Guide, now);
-        state.Hold(CanonicalButtons.RearPaddle1, true);
+        state.Hold(AllyOemSource.Keyboard, CanonicalButtons.RearPaddle1, true);
 
         Assert.Equal(CanonicalButtons.Guide | CanonicalButtons.RearPaddle1, state.Current(now));
         Assert.Equal(CanonicalButtons.RearPaddle1, state.Current(now + AllyOemButtonState.HoldDuration));
-        state.Hold(CanonicalButtons.RearPaddle1, false);
+        state.Hold(AllyOemSource.Keyboard, CanonicalButtons.RearPaddle1, false);
         Assert.Equal(CanonicalButtons.None, state.Current(now + AllyOemButtonState.HoldDuration));
+    }
+
+    [Fact]
+    public void AButtonHeldByBothSourcesStaysDownUntilBothRelease()
+    {
+        var state = new AllyOemButtonState();
+        var now = DateTimeOffset.UtcNow;
+        state.Hold(AllyOemSource.Vendor, CanonicalButtons.RearPaddle2, true);
+        state.Hold(AllyOemSource.Keyboard, CanonicalButtons.RearPaddle2, true);
+        state.Hold(AllyOemSource.Vendor, CanonicalButtons.RearPaddle2, false);
+
+        Assert.Equal(CanonicalButtons.RearPaddle2, state.Current(now));
+        state.Release(CanonicalButtons.RearPaddle2);
+        Assert.Equal(CanonicalButtons.None, state.Current(now));
+    }
+
+    [Fact]
+    public void TheSecondTransportOfOnePressIsNotAdmitted()
+    {
+        var state = new AllyOemButtonState();
+        var now = DateTimeOffset.UtcNow;
+
+        // A release-less vendor press, then the same button's key inside the latch window.
+        Assert.True(state.Admit(OemControlIds.ArmouryCrate, AllyOemSource.Vendor, OemControlEdge.Pressed, false, now));
+        Assert.False(state.Admit(OemControlIds.ArmouryCrate, AllyOemSource.Keyboard, OemControlEdge.Pressed, true,
+            now.AddMilliseconds(20)));
+        Assert.False(state.Admit(OemControlIds.ArmouryCrate, AllyOemSource.Keyboard, OemControlEdge.Released, true,
+            now.AddMilliseconds(80)));
+
+        // A key held first swallows the vendor echo, and its own release still passes.
+        var later = now.AddSeconds(1);
+        Assert.True(state.Admit(OemControlIds.M2, AllyOemSource.Keyboard, OemControlEdge.Pressed, true, later));
+        Assert.False(state.Admit(OemControlIds.M2, AllyOemSource.Vendor, OemControlEdge.Pressed, true,
+            later.AddMilliseconds(5)));
+        Assert.False(state.Admit(OemControlIds.M2, AllyOemSource.Vendor, OemControlEdge.Released, true,
+            later.AddMilliseconds(90)));
+        Assert.True(state.Admit(OemControlIds.M2, AllyOemSource.Keyboard, OemControlEdge.Released, true,
+            later.AddMilliseconds(100)));
+
+        // Separate presses from one source are never merged.
+        Assert.True(state.Admit(OemControlIds.Library, AllyOemSource.Vendor, OemControlEdge.Pressed, false, later));
+        Assert.True(state.Admit(OemControlIds.Library, AllyOemSource.Vendor, OemControlEdge.Pressed, false,
+            later.AddMilliseconds(50)));
     }
 }

@@ -37,7 +37,7 @@
       "usage": 128,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/Hid.cs",
+        "reference": "tools/AllyXLab/Hid.cs at 8fa7510e",
         "note": "The FF31:0080 collection AllyXLab gates on; HC finds it as the interface where feature report 0x5A is readable."
       }
     }
@@ -133,7 +133,7 @@
       "note": "AllyXLab bounds tests to 5-25 W and restores limits in a safe order (AsusControl.Restore).",
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs",
+        "reference": "tools/AllyXLab/AsusControl.cs at 8fa7510e",
         "note": "Transport cross-checked against HHD and HC; no remote hardware result is recorded."
       }
     },
@@ -149,7 +149,7 @@
       "hasReadback": true,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs",
+        "reference": "tools/AllyXLab/AsusControl.cs at 8fa7510e",
         "note": "ASUS throttle_thermal_policy DEVS 0x00120075: 0 balanced, 1 turbo (performance), 2 silent, per asus-wmi and HHD. The fan-curve getter selector swaps 1 and 2 (AsusControl.GetCurve); that is a separate quirk, not the mode meaning."
       }
     },
@@ -168,7 +168,7 @@
       "hasReadback": true,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs"
+        "reference": "tools/AllyXLab/AsusControl.cs at 8fa7510e"
       }
     },
     {
@@ -201,7 +201,7 @@
       "note": "Write-only; the prior colour cannot be read, so restoring means the tester confirms the result. HC sends Aura as report 0x5D instead.",
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/Worker.cs"
+        "reference": "tools/AllyXLab/Worker.cs at 8fa7510e"
       }
     },
     {
@@ -218,7 +218,7 @@
       "note": "HHD's output report, written to the gamepad collection. AllyXLab also wrote it to the two PID collections with an output report of at least 9 bytes. XInput and Windows.Gaming.Input are the alternative routes.",
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/Motors.cs:36-39",
+        "reference": "tools/AllyXLab/Motors.cs:36-39 at 8fa7510e",
         "note": "The alsoCollections come from AllyXLab's rumble gate in tools/AllyXLab/Hid.cs:14 and the route discovery in tools/AllyXLab/Motors.cs:36-39."
       }
     },

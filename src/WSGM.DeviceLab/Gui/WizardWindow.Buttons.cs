@@ -48,7 +48,7 @@ internal sealed partial class WizardWindow
             {
                 var line = Status("Setting up the controller...");
                 page.Children.Add(line);
-                initResult = await SendCuratedInitAsync(record!.Id);
+                initResult = await SendCuratedInitAsync(record!.Id, Lifetime);
                 restoreMode = init.Reversible && initResult.Sent;
                 line.Text = initResult.Sent
                     ? "The controller is set up."
@@ -167,7 +167,7 @@ internal sealed partial class WizardWindow
             page.Children.Add(PageTitle("Buttons"));
             var line = Status("Putting the controller back the way it was...");
             page.Children.Add(line);
-            restoreProblem = await RecoverControllerInitAsync();
+            restoreProblem = await RecoverControllerInitAsync(CancellationToken.None);
             if (restoreProblem is not null)
             {
                 line.Text = $"The controller could not be put back: {restoreProblem}";

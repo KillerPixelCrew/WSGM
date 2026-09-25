@@ -370,7 +370,11 @@ internal interface IAllyVendorHid : IAsyncDisposable
     ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken);
 
     /// <summary>Starts reading 0x5A input reports; the callback receives the event code byte.</summary>
-    ValueTask<bool> StartAsync(Func<byte, DateTimeOffset, ValueTask> callback, CancellationToken cancellationToken);
+    /// <remarks>The fault callback runs once if the reader stops on its own, such as when the MCU re-enumerates.</remarks>
+    ValueTask<bool> StartAsync(
+        Func<byte, DateTimeOffset, ValueTask> callback,
+        Action<Exception> fault,
+        CancellationToken cancellationToken);
 
     ValueTask StopAsync(CancellationToken cancellationToken);
 
@@ -416,9 +420,11 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
 
     public ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
+        Action<Exception> fault,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(callback);
+        ArgumentNullException.ThrowIfNull(fault);
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
@@ -435,7 +441,7 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
 
             _stream = new FileStream(AllyHidEnumerator.Open(endpoint, true), FileAccess.ReadWrite, 4096, true);
             _readCancellation = new CancellationTokenSource();
-            _reader = ReadLoopAsync(_stream, endpoint.InputLength, callback, _readCancellation.Token);
+            _reader = ReadLoopAsync(_stream, endpoint.InputLength, callback, fault, _readCancellation.Token);
             return ValueTask.FromResult(true);
         }
     }
@@ -540,6 +546,7 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
         FileStream stream,
         int reportLength,
         Func<byte, DateTimeOffset, ValueTask> callback,
+        Action<Exception> fault,
         CancellationToken cancellationToken)
     {
         var report = new byte[reportLength];
@@ -554,10 +561,22 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
             {
                 return;
             }
+            catch (IOException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // HC treats a failed read as the device being removed (ROGAlly.cs:364-378).
+                PluginTrace.Failure("vendor-hid", "vendor collection read failed", ex);
+                fault(ex);
+                return;
+            }
 
             if (read == 0)
             {
                 PluginTrace.Warn("vendor-hid", "the vendor collection closed.");
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    fault(new IOException("The ASUS vendor collection closed."));
+                }
+
                 return;
             }
 
@@ -605,19 +624,31 @@ internal sealed class WindowsAllyAuraHid(IReadOnlyCollection<ushort> productIds)
     {
         // HHD writes 06 01 to the lamp array (application 0x00590001) on wake so Windows Dynamic
         // Lighting stops overriding Aura (rog_ally/base.py:482-505). Report 6 is the HID Lighting and
-        // Illumination LampArrayControlReport, whose first field is AutonomousMode.
+        // Illumination LampArrayControlReport, whose first field is AutonomousMode. The specification
+        // makes it a Feature report and the RC73XA lab run saw only feature reports on page 0x59, while
+        // HHD's hidraw write is an output report. One report is sent: as a feature when the collection
+        // has one, otherwise as output.
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var lamp = AllyHidEnumerator.Enumerate(_productIds)
-                .FirstOrDefault(endpoint => endpoint is { UsagePage: 0x0059, Usage: 0x0001, OutputLength: >= 2 });
+                .Where(endpoint => endpoint is { UsagePage: 0x0059, Usage: 0x0001 })
+                .FirstOrDefault(endpoint => endpoint.FeatureLength >= 2 || endpoint.OutputLength >= 2);
             if (lamp is null)
             {
                 return false;
             }
 
             using var handle = AllyHidEnumerator.Open(lamp, false);
-            AllyHidEnumerator.WriteOutput(handle, lamp, [0x06, 0x01]);
+            if (lamp.FeatureLength >= 2)
+            {
+                AllyHidEnumerator.SetFeature(handle, lamp, [0x06, 0x01]);
+            }
+            else
+            {
+                AllyHidEnumerator.WriteOutput(handle, lamp, [0x06, 0x01]);
+            }
+
             return true;
         }
         finally

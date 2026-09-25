@@ -70,6 +70,11 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
     }
 
     /// <summary>Records the state captured before a service's first mutation in this cycle.</summary>
+    /// <remarks>
+    ///     An entry whose restore was unverified or failed keeps its original state and is set pending
+    ///     again: the explicit command that called this is the user action that allows the next release to
+    ///     write that original once more. Nothing re-arms it automatically.
+    /// </remarks>
     /// <returns>True when a new entry was written; false when one was already outstanding.</returns>
     public async ValueTask<bool> BeginAsync(
         string serviceId,
@@ -92,9 +97,17 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
             var existing = _entries.SingleOrDefault(candidate => candidate.ServiceId == serviceId);
             if (existing is not null)
             {
-                return existing.Status is AllyRecoveryStatus.RestoredUnverified or AllyRecoveryStatus.RestoreFailed
-                    ? throw new InvalidOperationException($"Recovery for service '{serviceId}' is unresolved.")
-                    : false;
+                if (existing.Status is not AllyRecoveryStatus.Pending)
+                {
+                    await SaveAsync(
+                    [
+                        .. _entries.Select(candidate => candidate.ServiceId == serviceId
+                            ? candidate with { Status = AllyRecoveryStatus.Pending }
+                            : candidate)
+                    ], cancellationToken).ConfigureAwait(false);
+                }
+
+                return false;
             }
 
             await SaveAsync([.. _entries, entry], cancellationToken).ConfigureAwait(false);
@@ -114,6 +127,13 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
     public AllyRecoveryState? OriginalStateFor(string serviceId)
     {
         return _entries.SingleOrDefault(entry => entry.ServiceId == serviceId)?.OriginalState;
+    }
+
+    /// <summary>The original a release may write back: only a pending entry, never an unresolved one.</summary>
+    public AllyRecoveryState? PendingOriginalFor(string serviceId)
+    {
+        return _entries.SingleOrDefault(entry => entry.ServiceId == serviceId
+                                                 && entry.Status is AllyRecoveryStatus.Pending)?.OriginalState;
     }
 
     public async ValueTask<CapabilityReason?> CheckHealthAsync(CancellationToken cancellationToken)
@@ -188,8 +208,8 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
     internal static AllyReconciliationAction Decide(AllyRecoveryEntry entry, string? currentFirmwareIdentity)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        // A restore already reached the device but did not read back. Another automatic write
-        // would retry an uncertain cleanup; leave the entry for explicit investigation.
+        // A restore already reached the device but did not read back. Another automatic write would
+        // retry an uncertain cleanup; the entry waits for an explicit command (see BeginAsync).
         if (entry.Status is AllyRecoveryStatus.RestoredUnverified or AllyRecoveryStatus.RestoreFailed)
         {
             return AllyReconciliationAction.Block;
@@ -327,7 +347,8 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
         {
             AllyServiceIds.Power => state.Kind is AllyRecoveryStateKind.Power
                                     && state.Mode is null or >= 0 and <= 2
-                                    && Watts(state.Sustained) && Watts(state.Slow) && Watts(state.Fast),
+                                    && IsValidWatts(state.Sustained) && IsValidWatts(state.Slow)
+                                    && IsValidWatts(state.Fast),
             AllyServiceIds.Fans => state.Kind is AllyRecoveryStateKind.Fans
                                    && AsusAcpiProtocol.IsValidCurve(state.CpuCurve)
                                    && AsusAcpiProtocol.IsValidCurve(state.GpuCurve)
@@ -341,7 +362,8 @@ internal sealed class AllyRecoveryJournal : IAsyncDisposable
         }
     }
 
-    private static bool Watts(int? value)
+    /// <summary>Whether a captured limit is one the recovery record can hold.</summary>
+    internal static bool IsValidWatts(int? value)
     {
         return value is >= 1 and <= 80;
     }

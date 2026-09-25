@@ -120,10 +120,16 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   the worker captures the original with the service's `[LabWorkerSnapshot]` method, the wizard
   records it (`LabPowerRecovery.Record`) and acknowledges within five seconds, and releases the
   checkpoint only after a verified restore. Start-up recovery runs through the worker too. A missed
-  deadline (`LabWorkerLostException`) is uncertain: never retry it.
+  deadline (`LabWorkerLostException`) is uncertain: never retry it. A null snapshot is a valid
+  checkpoint and reaches the wizard as the type's default.
+- The worker reads requests on one thread and runs calls in order on another, so a `cancel` op can
+  reach a running call. A `CancellationToken` parameter is bound from the call's own token and is
+  never sent over the pipe. Cancelling stops only a wait: a write that was already sent keeps its
+  result and is never resent.
 - Live rumble slider frames use `[LabWorkerStream]` only after the service's checkpoint is
   acknowledged. They have no per-frame reply; the worker's stream watchdog zeroes quiet output,
-  and the wizard reads the worker's frame evidence after the slider stops.
+  and the wizard polls `stream-status` while the slider is up so a worker-side failure shows at
+  once. A zero counts as done only after it was written; a failed zero leaves the safety zero armed.
 - The shared report is built in memory, previewed, and written once. Every JSON string passes through
   one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
 - The wizard keeps blocking work (files, registry, drivers) off the UI thread and runs one operation

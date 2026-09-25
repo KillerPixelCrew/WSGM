@@ -13,6 +13,7 @@ not implement. Each disagreement between them is written down here.
 | HHD (Handheld Daemon)      | `5b49c5d904257e042a704ade958fac0ba57af4b1` (2026-09-14)                        | `_ref/hhd`                             |
 | handheld-controller-glyphs | `46792aadf3b104efec1c5240ba414d2c0bf84127` (2026-07-21)                        | `_ref/handheld-controller-glyphs`      |
 | Device Lab run on RC73XA   | `AllyXLab-20260915-171651-7db7c7`, BIOS RC73XA.317, EC 3.14                    | `src/WSGM.DeviceLab/Knowledge/Devices` |
+| Ally X Lab (retired)       | `tools/AllyXLab`, removed in `829c5a5c`; read it from git history              | none                                   |
 
 HC source paths are relative to `_ref/HandheldCompanion/source/HandheldCompanion/` and HC
 `Resources/` paths to `_ref/HandheldCompanion/`; HHD paths are relative to `_ref/hhd/src/`, with
@@ -39,9 +40,9 @@ exactly. The Xbox models' SMBIOS SKU was empty in the lab run, so the SKU is not
 | Guide bit through `XInputGetStateEx` (xinput1_4 ordinal 100)  | HC `HandheldCompanion.Controllers/XInputController.cs:232, 376-377`                                                            |
 | Slot identity through `XInputGetCapabilitiesEx` (ordinal 108) | HC `XInputController.cs:53-89, 370-371`                                                                                        |
 | Rumble through `XInputSetState`, large motor left             | HC `XInputController.cs:279-296`                                                                                               |
-| Windows.Gaming.Input fallback when no XInput slot exists      | The RC73XA lab run found no XInput slot; the Ally X Lab's third motor route (`tools/AllyXLab/Motors.cs`, deleted since)        |
+| Windows.Gaming.Input fallback when no XInput slot exists      | Neither reference; the retired Ally X Lab's third motor route (`tools/AllyXLab/Motors.cs`, removed in `829c5a5c`)              |
 | Vendor collection FF31:0080, report 0x5A                      | HHD `rog_ally/base.py:383-393`; HC finds it by feature report 0x5A (`ROGAlly.cs:416-436`)                                      |
-| Controller tables (game mode, button pairs, triggers, commit) | HHD `rog_ally/const.py:62-1132` (`COMMANDS_GAME`); byte-identical to HC `ROGAlly.cs:93-183`                                    |
+| Controller tables (game mode, button pairs, triggers, commit) | HHD `rog_ally/const.py:62-1132` (`COMMANDS_GAME`); HC `ROGAlly.cs:93-183` except the three tables below                        |
 | Tables sent as 64-byte feature reports                        | HC `ROGAlly.cs:646-668` (`WriteFeatureReport(..., 64)`)                                                                        |
 | Tables restored with the factory M1/M2 block on release       | HC `ROGAlly.cs:396-400` (`ConfigureController(Remap: false)`); block from HHD `const.py:839-896`                               |
 
@@ -49,6 +50,20 @@ Disagreements:
 
 - HHD writes the tables as HID output reports (`hid.py:357-372`), HC as feature reports. The RC73XA
   run found no output report on FF31:0080, so feature reports are used.
+- HC's `dPadLeftRightDefault` and `faceButtonsABDefault` (`ROGAlly.cs:108-115, 131-138`) are one
+  byte short: their third button block has ten bytes instead of eleven, so the fourth block (the
+  Meta+Tab and Meta+N combos) starts one byte early, while the length byte still says 0x2C (four
+  11-byte blocks). HC's other tables and HHD's `REMAP_DPAD_LR` and `REMAP_AB`
+  (`const.py:201-253, 549-605`) keep the 11-byte layout, so HHD's bytes are sent for these two. HC's
+  `M1M2Default` is truncated before its fourth block (`ROGAlly.cs:156-161`); HHD's complete
+  `REMAP_M1M2_DEFAULT` is sent.
+- Send order: HC writes D-pad up/down before left/right (`ROGAlly.cs:653-654`); HHD's
+  `COMMANDS_GAME` order, left/right first, is used. Nothing suggests the MCU is order-sensitive.
+- The WGI route has no guide button (`GamepadButtons` has none), and HC reads the Xbox button only
+  through XInput's guide bit. On that route the Xbox button is unavailable, and the plugin traces
+  it. The route is also used only when a hideable XUSB, GIP or XInput HID node exists, which the
+  only RC73XA topology seen so far lacks. Whether HidHide cloaking such a node also hides the pad
+  from WSGM's own WGI reads is untested.
 - Commit values: HC sends vibration 100/100 and stick and trigger ranges 0-100
   (`ROGAlly.cs:177-183`); HHD sends vibration 50 on the Ally X family and outer limits of 0x40 or
   0x60 (`rog_ally/base.py:44-51`, `const.py:1073-1118`). HC's values are used.
@@ -59,16 +74,19 @@ Disagreements:
 
 ## Buttons
 
-| Fact                                                             | Source                                                                                    |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 0xA6 is OEM1, 0x38 is OEM2, and 0x93 is separate Library/OEM5    | HC `ROGAlly.cs:53-83, 485-505`                                                            |
-| 0xA7 and 0xA8 are M2/OEM4 press and release                      | HC `ROGAlly.cs:485-505`                                                                   |
-| Release-less events are held for 150 ms                          | HHD `rog_ally/base.py:53` (`MODE_DELAY`)                                                  |
-| M1/M2 become keyboard keys only after the M1/M2 table is written | HHD `const.py:897-954` (`REMAP_M1M2_F17F18`), `base.py:396-403`                           |
-| Left rear button sends F18, right sends F17                      | Device Lab RC73XA run, results 019 and 020 (VK 0x81 and 0x80)                             |
-| Xbox models' front buttons arrived as F21 (left) and F22 (right) | Device Lab RC73XA run, results 017 and 018                                                |
-| Xbox button goes to QAM, the 0xA6 button to the guide            | HHD `rog_ally/base.py:415-427` (`share_to_qam=True`) and `controllers.yml` (`swap_xbox`)  |
-| Xbox models' left button is Armoury Crate, right is Library      | glyph theme `themes/asus/rog-xbox-ally.css`; HC maps 0x93 to Library (`ROGAlly.cs:63-66`) |
+| Fact                                                              | Source                                                                                    |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 0xA6 is OEM1, 0x38 is OEM2, and 0x93 is separate Library/OEM5     | HC `ROGAlly.cs:53-83, 485-505`                                                            |
+| 0xA7 and 0xA8 are M2/OEM4 press and release                       | HC `ROGAlly.cs:485-505`                                                                   |
+| 0xA5 is ignored                                                   | HC maps it to OEM3 (M1) but `HandleEvent` never acts on it (`ROGAlly.cs:71-74, 485-505`)  |
+| No front button reports a long press                              | HC press-and-releases 0xA6, 0x38 and 0x93 after `KeyPressDelay` (`ROGAlly.cs:485-505`)    |
+| A press seen on both the vendor and the keyboard path counts once | This package: the first report of a press wins, the other transport's echo is dropped     |
+| Release-less events are held for 150 ms                           | HHD `rog_ally/base.py:53` (`MODE_DELAY`)                                                  |
+| M1/M2 become keyboard keys only after the M1/M2 table is written  | HHD `const.py:897-954` (`REMAP_M1M2_F17F18`), `base.py:396-403`                           |
+| Left rear button sends F18, right sends F17                       | Device Lab RC73XA run, results 019 and 020 (VK 0x81 and 0x80)                             |
+| Xbox models' front buttons arrived as F21 (left) and F22 (right)  | Device Lab RC73XA run, results 017 and 018                                                |
+| Xbox button goes to QAM (XInput route), the 0xA6 button to guide  | HHD `rog_ally/base.py:415-427` (`share_to_qam=True`) and `controllers.yml` (`swap_xbox`)  |
+| Xbox models' left button is Armoury Crate, right is Library       | glyph theme `themes/asus/rog-xbox-ally.css`; HC maps 0x93 to Library (`ROGAlly.cs:63-66`) |
 
 Disagreements:
 
@@ -90,31 +108,34 @@ Disagreements:
 | Xbox models: gyro signs (1, 1, -1), accelerometer (-1, -1, 1)     | HC `Resources/Devices/XboxROGAlly.json`, `XboxROGAllyX.json`                        |
 | HC's matrix output equals WSGM's motion basis                     | HC `ClawA2VM.json` gives `(raw X, raw Z, -raw Y)`, the Claw plugin's measured basis |
 
-Disagreements: HHD maps all four models with one transform, `(x, z, -y)` for both sensors
-(`rog_ally/base.py:34-42`), and reads the IIO device directly with its own scale. HC is used, and
-its Xbox gyro signs differ from its accelerometer signs, which a single IMU would not normally need;
-the lab report must settle it. The stationary gyro-offset correction is the Claw's, with thresholds
-measured on the Claw's LSM6DSO.
+Disagreements: HHD maps all four models with one transform for both sensors, raw y to output z and
+raw z to output y negated, that is `(x, -z, y)` (`rog_ally/base.py:34-42`), and reads the IIO device
+directly with its own scale. HC is used, and its Xbox gyro signs differ from its accelerometer
+signs, which a single IMU would not normally need; the lab report must settle it. The stationary
+gyro-offset correction is the Claw's, with thresholds measured on the Claw's LSM6DSO.
 
 ## Power
 
-| Fact                                                                    | Source                                                                                                         |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `\\.\ATKACPI`, IOCTL 0x0022240C, DSTS/DEVS layout                       | HC `HandheldCompanion.Devices.ASUS/AsusACPI.cs:11-51, 110-188`                                                 |
-| SPL 0x001200A3, SPPT 0x001200A0, FPPT 0x001200C1                        | HC `AsusACPI.cs:45-49`                                                                                         |
-| Long limit writes SPL; short limit writes SPPT and FPPT together        | HC `AsusACPI.cs:343-352`                                                                                       |
-| Performance mode 0x00120075: 0 performance, 1 turbo, 2 silent           | HC `AsusACPI.cs:51` and `ROGAlly.cs:229-259` (`OEMPowerMode`); HHD `adjustor/drivers/asus/__init__.py:296-303` |
-| Write order keeping SPL <= SPPT <= FPPT                                 | Ally X Lab `AsusControl.Restore`; HHD writes fast, slow, steady (`__init__.py:384-389`)                        |
-| 100 ms between limit writes, 150 ms after a mode change                 | HHD `__init__.py:14` (`TDP_DELAY`); Ally X Lab                                                                 |
-| DSTS scalar presence bit 0x10000                                        | HC `AsusACPI.cs:182-188` (`DeviceGet` returns raw - 65536)                                                     |
-| Watt ranges: Ally and Ally X 5-30, Xbox models 5-35                     | HC `ROGAlly.cs:215`, `XboxROGAlly.cs:14`, `XboxROGAllyX.cs:14`; HHD `adjustor/core/const.py:261-320`           |
-| Presets Silent/Performance/Turbo 10/15/25 W (Ally), 13/17/25 W (others) | HC `ROGAlly.cs:229-259`, `ROGAllyX.cs:13-27`, `XboxROGAlly.cs:17-31`, `XboxROGAllyX.cs:17-31`                  |
+| Fact                                                                    | Source                                                                                                                  |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `\\.\ATKACPI`, IOCTL 0x0022240C, DSTS/DEVS layout                       | HC `HandheldCompanion.Devices.ASUS/AsusACPI.cs:11-51, 110-188`                                                          |
+| SPL 0x001200A3, SPPT 0x001200A0, FPPT 0x001200C1                        | HC `AsusACPI.cs:45-49`                                                                                                  |
+| Long limit writes SPL; short limit writes SPPT and FPPT together        | HC `AsusACPI.cs:343-352`                                                                                                |
+| Performance mode 0x00120075: 0 performance, 1 turbo, 2 silent           | HC `AsusACPI.cs:51` and `ROGAlly.cs:229-259` (`OEMPowerMode`); HHD `adjustor/drivers/asus/__init__.py:296-303`          |
+| Write order keeping SPL <= SPPT <= FPPT                                 | Retired Ally X Lab `AsusControl.Restore` (removed in `829c5a5c`); HHD writes fast, slow, steady (`__init__.py:384-389`) |
+| 100 ms between limit writes, 150 ms after a mode change                 | HHD `__init__.py:14` (`TDP_DELAY`); the retired Ally X Lab                                                              |
+| DSTS scalar presence bit 0x10000                                        | HC `AsusACPI.cs:182-188` (`DeviceGet` returns raw - 65536)                                                              |
+| Watt ranges: Ally and Ally X 5-30, Xbox models 5-35                     | HC `ROGAlly.cs:215`, `XboxROGAlly.cs:14`, `XboxROGAllyX.cs:14`; HHD `adjustor/core/const.py:261-320`                    |
+| Presets Silent/Performance/Turbo 10/15/25 W (Ally), 13/17/25 W (others) | HC `ROGAlly.cs:229-259`, `ROGAllyX.cs:13-27`, `XboxROGAlly.cs:17-31`, `XboxROGAllyX.cs:17-31`                           |
 
 Disagreements:
 
-- HC's Xbox Ally range is 15-35 W, but its own Silent preset is 13 W; HHD lists 4-20 W (OC 25). The
-  minimum is lowered to 5 so HC's presets validate. HC's 35 W maximum is used; BIOS enforces the
-  device's power limit.
+- HC's Xbox Ally range is 15-35 W, the same as its Xbox Ally X, while HHD lists 4-20 W (SPPT 20,
+  FPPT 25, OC 25; `adjustor/core/const.py:292-305`). HC's Windows envelope is used: HHD's 20 W would
+  cap the device well below what it runs at under Windows, and the BIOS enforces its own limit. HC's
+  Silent preset on both Xbox models is 13 W, so the minimum is lowered to 5.
+- A limit DSTS reports outside 1-80 W (a firmware reporting 0, say) cannot be journalled, so it
+  counts as unreadable and the write is refused.
 - HHD's performance preset is 30 W on AC and 25 W on battery for the Ally and Ally X; HC uses 25 W.
   HC is used.
 - HC never reads the limits back. Readback through DSTS is from the Ally X Lab. A power command is
@@ -122,15 +143,15 @@ Disagreements:
 
 ## Fans and charging
 
-| Fact                                                            | Source                                         |
-| --------------------------------------------------------------- | ---------------------------------------------- |
-| Curve IDs CPU 0x00110024, GPU 0x00110025, mid 0x00110032        | HC `AsusACPI.cs:31-35`                         |
-| Sixteen bytes, eight temperatures then eight duties, duty <= 99 | HC `AsusACPI.cs:281-298`, `ROGAlly.cs:287-311` |
-| Same curve on every fan                                         | HC `ROGAlly.cs:313-327`                        |
-| Automatic writes HC's default tables                            | HC `ROGAlly.cs:185-195, 466-478`               |
-| Curve readback selector by performance mode                     | HC `AsusACPI.cs:300-314`                       |
-| Fan readings 0x00110013 and 0x00110014, read as duty            | HC `AsusACPI.cs:39-41, 316-333`                |
-| Charge limit 0x00120057                                         | HC `AsusACPI.cs:37, 335-341`                   |
+| Fact                                                            | Source                                              |
+| --------------------------------------------------------------- | --------------------------------------------------- |
+| Curve IDs CPU 0x00110024, GPU 0x00110025, mid 0x00110032        | HC `AsusACPI.cs:31-35`                              |
+| Sixteen bytes, eight temperatures then eight duties, duty <= 99 | HC `AsusACPI.cs:281-298`, `ROGAlly.cs:287-311`      |
+| Same curve on every fan                                         | HC `ROGAlly.cs:313-327`                             |
+| Automatic writes HC's default tables                            | HC `ROGAlly.cs:185-195, 466-478`                    |
+| Curve readback selector by performance mode                     | HC `AsusACPI.cs:300-314`, which nothing in HC calls |
+| Fan readings 0x00110013 and 0x00110014, read as duty            | HC `AsusACPI.cs:39-41, 316-333`                     |
+| Charge limit 0x00120057                                         | HC `AsusACPI.cs:37, 335-341`                        |
 
 Disagreements: HHD drives two fans through Linux hwmon with fixed temperature points 30-100 °C and a
 0-255 duty (`__init__.py:46-48, 90-113`); HC's ATKACPI curve is used. When the plugin has captured
@@ -146,7 +167,8 @@ limit is offered from 40 %, not HC's 0.
 | Colour message, apply `5D B4`, set `5D B5` as output reports                | HC `ROGAlly.cs:556-617`                    |
 | Effects solid 0, breathing 1, colour cycle 2, rainbow 3; zones 0-4          | HC `ROGAlly.cs:22-51`; HHD `hid.py:41-130` |
 | Speed bytes and HC's bands (33/66)                                          | HC `ROGAlly.cs:31-36, 552`                 |
-| Per-zone solid colours for the two rings                                    | HC `ROGAlly.cs:575-593` (`ApplyColorFast`) |
+| One colour or an effect: one all-zone message, apply, set                   | HC `ROGAlly.cs:555-572` (`ApplyColor`)     |
+| Two ring colours: four zone messages at slow speed, no apply or set         | HC `ROGAlly.cs:574-593` (`ApplyColorFast`) |
 | Xbox models: lamp array to autonomous mode (`06 01`)                        | HHD `rog_ally/base.py:482-505`             |
 
 Disagreements:
@@ -155,8 +177,13 @@ Disagreements:
   (`const.py:1151-1177`); HC uses report 0x5D without a handshake. HC is used.
 - Speed: HC calls 0xEB slow, 0xF5 medium and 0xE1 fast; HHD calls 0xE1 low and 0xF5 high
   (`hid.py:92-100`). HC is used.
-- The lamp array step is HHD's only; HC does nothing special on the Xbox models. HHD sends it as an
-  output report, so this package does the same once per cycle without retrying.
+- The lamp array step is HHD's only; HC does nothing special on the Xbox models. HHD writes it
+  through hidraw, an output report, and only on the Xbox Ally X. Report 6 is the HID
+  LampArrayControlReport, a Feature report by specification, and the RC73XA run saw only feature
+  reports on page 0x59. This package sends it once per cycle on both Xbox models, as a feature
+  report when the collection has one and as output otherwise, and never retries it.
+- HC uses `ApplyColorFast` only for its ambilight mode. It is used here whenever the two rings
+  differ, because it is HC's only path that addresses the rings separately.
 
 ## Glyphs
 
@@ -170,20 +197,24 @@ highlight overlays are declared: their coordinates would be guesses.
 
 1. SMBIOS baseboard manufacturer and product on each model, and the controller's USB product ID.
 2. That the pad has an XInput slot reporting VID 0B05 through `XInputGetCapabilitiesEx`, or on the
-   Xbox models that Windows.Gaming.Input sees it; and which XUSB, GIP or HID nodes must be hidden.
+   Xbox models that Windows.Gaming.Input sees it; which XUSB, GIP or HID nodes must be hidden; and,
+   if the route is WGI, whether hiding those nodes also hides the pad from WSGM.
 3. That the guide bit reports the Xbox button on the Xbox models, and nothing on the others.
-4. Which vendor codes each front button sends (0xA6, 0x38, 0x93, 0xA7, 0xA8) after the tables are
-   written, and whether the Xbox models then still send F21/F22.
-5. That the feature-report controller tables are accepted, which rear button sends F17 and F18, and
-   the physical M1/M2 print on each side.
+4. Which vendor codes each front button sends (0xA5, 0xA6, 0x38, 0x93, 0xA7, 0xA8) after the tables
+   are written, and whether the Xbox models then send F21/F22 as well; a button on both paths is
+   counted once.
+5. That the feature-report controller tables are accepted, including HHD's layout for the D-pad
+   left/right and A/B tables, which rear button sends F17 and F18, and the physical M1/M2 print on
+   each side.
 6. That writing the factory tables returns the rear buttons to their stock behaviour.
 7. Rumble strength through XInput, and whether 100/100 vibration intensity is too strong on the Ally
    X family as HHD claims.
 8. Gyro and accelerometer axis signs per model, and whether WinRT or the legacy API delivers them.
-9. Whether DSTS reports SPL, SPPT, FPPT and the performance mode, and whether a mode change resets
-   the limits.
+9. Whether DSTS reports SPL, SPPT, FPPT and the performance mode, whether a mode change resets the
+   limits, and what envelope each Xbox model's firmware accepts.
 10. Whether a DSTS curve read returns the curve in force or the factory table for the mode, whether
-    the mid fan exists, and what unit the fan readings use.
+    HC's uncalled curve selector (1 and 2 swapped) addresses the right profile, whether the mid fan
+    exists, and what unit the fan readings use.
 11. The charge-limit range the firmware accepts, and whether DSTS reads it back.
 12. That the Aura collection answers 0x5D on every model, the speed byte order, and whether the Xbox
     models need the lamp-array step.

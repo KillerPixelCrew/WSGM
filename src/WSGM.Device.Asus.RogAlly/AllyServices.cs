@@ -53,9 +53,19 @@ internal sealed class VendorEventService(
 
         _model = model;
         _cycleGeneration = context.CycleGeneration;
-        return await vendor.StartAsync(OnEventAsync, cancellationToken).ConfigureAwait(false)
+        // A faulted reader keeps its task until stopped; stopping it lets this start open the collection again.
+        await vendor.StopAsync(cancellationToken).ConfigureAwait(false);
+        return await vendor.StartAsync(OnEventAsync, OnFault, cancellationToken).ConfigureAwait(false)
             ? Set(AllyServiceState.Owned)
-            : Set(AllyServiceState.Passive, Missing("The ASUS vendor collection (FF31:0080) was not found."));
+            : Set(AllyServiceState.Passive,
+                Missing("No ASUS vendor collection (FF31:0080, or one answering feature report 0x5A) was found."));
+    }
+
+    private void OnFault(Exception exception)
+    {
+        var detail = AllyDiagnosticText.FromException("The vendor event reader stopped", exception);
+        Fault(new CapabilityReason(CapabilityReasonCode.TransportFaulted, detail));
+        host.ReportFault(ServiceId, detail);
     }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
@@ -73,9 +83,16 @@ internal sealed class VendorEventService(
             return ValueTask.CompletedTask;
         }
 
-        if (code is 0xA7 or 0xA8)
+        // Only M2 (0xA7/0xA8) reports a release; HC press-and-releases the others (ROGAlly.cs:485-505).
+        var releases = code is 0xA7 or 0xA8;
+        if (!buttons.Admit(action.ControlId, AllyOemSource.Vendor, action.Edge, releases, timestamp))
         {
-            buttons.Hold(action.Button, action.Edge is OemControlEdge.Pressed);
+            return ValueTask.CompletedTask;
+        }
+
+        if (releases)
+        {
+            buttons.Hold(AllyOemSource.Vendor, action.Button, action.Edge is OemControlEdge.Pressed);
         }
         else if (action.Button is not CanonicalButtons.None)
         {
@@ -126,10 +143,15 @@ internal sealed class KeyboardOemService(
         _cycleGeneration = context.CycleGeneration;
         _front = model.FrontKeyboardControls;
         UpdateWatch();
+        if (!Watched().Any())
+        {
+            // No key to claim yet (a classic model without the controller tables): no system-wide hook.
+            return Set(AllyServiceState.Owned);
+        }
+
         return await keyboard.StartAsync(OnKeyAsync, OnFault, cancellationToken).ConfigureAwait(false)
             ? Set(AllyServiceState.Owned)
-            : Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                "The low-level keyboard hook could not be installed."));
+            : HookUnavailable();
     }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
@@ -143,7 +165,8 @@ internal sealed class KeyboardOemService(
     }
 
     /// <summary>Claims M1/M2 only while the controller tables that make them F-keys are applied.</summary>
-    public void SetRearEnabled(bool enabled)
+    /// <remarks>The hook is installed with the first watched key and removed when none is left.</remarks>
+    public async ValueTask SetRearEnabledAsync(bool enabled, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -151,9 +174,28 @@ internal sealed class KeyboardOemService(
         }
 
         UpdateWatch();
+        if (State is AllyServiceState.Owned)
+        {
+            if (enabled && !await keyboard.StartAsync(OnKeyAsync, OnFault, cancellationToken).ConfigureAwait(false))
+            {
+                _ = HookUnavailable();
+            }
+            else if (!enabled && _front.Count == 0)
+            {
+                await keyboard.StopAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         if (!enabled)
         {
-            buttons.Hold(CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2, false);
+            lock (_gate)
+            {
+                _down.Remove(AllyModels.VkF17);
+                _down.Remove(AllyModels.VkF18);
+            }
+
+            buttons.Hold(AllyOemSource.Keyboard, CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2, false);
+            buttons.Forget(AllyOemSource.Keyboard, OemControlIds.M1, OemControlIds.M2);
         }
     }
 
@@ -175,12 +217,23 @@ internal sealed class KeyboardOemService(
             return;
         }
 
-        buttons.Hold(mapped.Button, key.Down);
+        var edge = key.Down ? OemControlEdge.Pressed : OemControlEdge.Released;
+        if (!buttons.Admit(mapped.ControlId, AllyOemSource.Keyboard, edge, true, key.Timestamp))
+        {
+            return;
+        }
+
+        buttons.Hold(AllyOemSource.Keyboard, mapped.Button, key.Down);
         await host.PublishOemEventAsync(
             new OemControlEvent(mapped.ControlId, OemPressKind.Short, _cycleGeneration, key.Timestamp,
-                $"asus-key-{mapped.VirtualKey:X2}-{key.Timestamp.UtcTicks}",
-                key.Down ? OemControlEdge.Pressed : OemControlEdge.Released),
+                $"asus-key-{mapped.VirtualKey:X2}-{key.Timestamp.UtcTicks}", edge),
             CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private AllyServiceResult HookUnavailable()
+    {
+        return Set(AllyServiceState.Degraded, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+            "The low-level keyboard hook could not be installed."));
     }
 
     private void OnFault(Exception exception)
@@ -262,7 +315,11 @@ internal sealed class PowerService(
     public async ValueTask<bool> PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         var original = Capability!.Read();
-        if (!original.LimitsReadable || original.Mode is null)
+        // A limit the record cannot hold, such as a firmware reporting 0 W, counts as unreadable.
+        if (!original.LimitsReadable || original.Mode is null
+                                     || !AllyRecoveryJournal.IsValidWatts(original.Sustained)
+                                     || !AllyRecoveryJournal.IsValidWatts(original.Slow)
+                                     || !AllyRecoveryJournal.IsValidWatts(original.Fast))
         {
             return false;
         }
@@ -281,12 +338,14 @@ internal sealed class PowerService(
             return Set(AllyServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        if (State is not AllyServiceState.Owned || Capability is null)
+        // A service faulted by a failed command rollback still owns the ATKACPI handle and the journalled
+        // original, and stop is the designed restore point for both.
+        if (State is not (AllyServiceState.Owned or AllyServiceState.Faulted) || Capability is null)
         {
             return Set(AllyServiceState.Idle);
         }
 
-        if (journal.OriginalStateFor(ServiceId)?.ToPower() is { } original)
+        if (journal.PendingOriginalFor(ServiceId)?.ToPower() is { } original)
         {
             AllyWriteBudget.Require(context.Deadline, "power restoration");
             bool restored;
@@ -393,7 +452,9 @@ internal sealed class FanService(
             return Set(AllyServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        if (State is not AllyServiceState.Owned || Capability is null || Original is not { } original)
+        if (State is not (AllyServiceState.Owned or AllyServiceState.Faulted) || Capability is null
+                                                                              || journal.PendingOriginalFor(ServiceId)
+                                                                                  ?.ToFans() is not { } original)
         {
             return Set(AllyServiceState.Idle);
         }
@@ -475,10 +536,10 @@ internal sealed record AllyLightingState(int Brightness, AuraEffect Effect, int 
 
 /// <summary>Aura RGB on the joystick rings.</summary>
 /// <remarks>
-///     HC's sequence: brightness as a feature report, then the colour message, apply and set as output
-///     reports (<c>ROGAlly.cs:507-593</c>). Solid colour uses HC's per-zone path (<c>ApplyColorFast</c>)
-///     so the left and right rings can differ; the animated effects address all zones, with the right
-///     ring's colour as the breathing effect's second colour.
+///     HC's sequence: brightness as a feature report, then the colour messages as output reports
+///     (<c>ROGAlly.cs:507-593</c>). Two different solid ring colours use HC's per-zone path
+///     (<c>ApplyColorFast</c>); everything else is one all-zone message, with the right ring's colour as
+///     the breathing effect's second colour.
 /// </remarks>
 internal sealed class LightingService(IAllyAuraHid aura) : AllyService(AllyServiceIds.Lighting)
 {
@@ -561,12 +622,17 @@ internal sealed class LightingService(IAllyAuraHid aura) : AllyService(AllyServi
     }
 
     /// <summary>The reports one lighting state needs, in HC's order.</summary>
+    /// <remarks>
+    ///     One colour, or any animated effect, is HC's <c>ApplyColor</c>: one all-zone message, then apply
+    ///     and set (<c>ROGAlly.cs:555-572</c>). Two different solid colours are HC's <c>ApplyColorFast</c>:
+    ///     four per-zone messages at the slow speed with no apply or set (<c>ROGAlly.cs:574-593</c>).
+    /// </remarks>
     internal static IReadOnlyList<(byte[] Bytes, bool Feature)> Encode(AllyLightingState state)
     {
         List<(byte[], bool)> reports = [(AllyProtocol.Brightness(state.Brightness), true)];
-        var speed = AllyProtocol.Speed(state.Speed);
-        if (state.Effect is AuraEffect.Solid)
+        if (state.Effect is AuraEffect.Solid && state.LeftColor != state.RightColor)
         {
+            const byte speed = AllyProtocol.SpeedSlow;
             reports.Add((
                 AllyProtocol.Color(AuraEffect.Solid, AuraZone.LeftStickLeft, state.LeftColor, state.LeftColor, speed),
                 false));
@@ -579,13 +645,11 @@ internal sealed class LightingService(IAllyAuraHid aura) : AllyService(AllyServi
             reports.Add((
                 AllyProtocol.Color(AuraEffect.Solid, AuraZone.RightStickRight, state.RightColor, state.RightColor,
                     speed), false));
-        }
-        else
-        {
-            reports.Add((AllyProtocol.Color(state.Effect, AuraZone.All, state.LeftColor, state.RightColor, speed),
-                false));
+            return reports;
         }
 
+        reports.Add((AllyProtocol.Color(state.Effect, AuraZone.All, state.LeftColor, state.RightColor,
+            AllyProtocol.Speed(state.Speed)), false));
         reports.Add((AllyProtocol.Apply(), false));
         reports.Add((AllyProtocol.Set(), false));
         return reports;
@@ -697,6 +761,7 @@ internal sealed class ControllerService(
     private readonly Lock _hapticGate = new();
     private readonly SemaphoreSlim _outputGate = new(1, 1);
     private bool _configured;
+    private long _generation;
     private float _lastHigh;
     private float _lastLow;
     private AllyControllerTopology? _topology;
@@ -727,6 +792,30 @@ internal sealed class ControllerService(
             return Set(AllyServiceState.Passive, Missing("The exact Ally identity no longer matches."));
         }
 
+        if (State is AllyServiceState.Owned && _topology is { } owned)
+        {
+            if (_generation == context.CycleGeneration)
+            {
+                return Set(AllyServiceState.Owned);
+            }
+
+            // A new cycle generation: samples must carry it, so the reader restarts. The tables stay
+            // applied and are not written again.
+            await source.StopAsync(cancellationToken).ConfigureAwait(false);
+            await source.StartAsync(owned, context.CycleGeneration, PublishSampleAsync, OnReaderFault,
+                cancellationToken).ConfigureAwait(false);
+            _generation = context.CycleGeneration;
+            await host.PublishPhysicalDevicesAsync(owned.PhysicalDevices, OutputCapabilities, cancellationToken)
+                .ConfigureAwait(false);
+            return Set(AllyServiceState.Owned);
+        }
+
+        if (_topology is not null || _configured)
+        {
+            // A reader that faulted left its topology and tables behind; release them before starting over.
+            _ = await ReleaseControllerAsync(context.Deadline, cancellationToken).ConfigureAwait(false);
+        }
+
         LastReleasedDevices = [];
         var topology = await source.DiscoverAsync(cancellationToken).ConfigureAwait(false);
         host.Trace(topology is null ? DeviceTraceLevel.Warn : DeviceTraceLevel.Info, "controller",
@@ -738,14 +827,23 @@ internal sealed class ControllerService(
             return Set(AllyServiceState.Passive, Missing("The Ally gamepad was not found."));
         }
 
+        if (topology.Route is AllyControllerRoute.WindowsGamingInput)
+        {
+            // GamepadButtons has no guide flag, and HC reads the Xbox button only through XInput's guide bit.
+            host.Trace(DeviceTraceLevel.Warn, "controller",
+                "Windows.Gaming.Input reports no guide button; the Xbox button is unavailable on this route.");
+        }
+
         if (topology.PhysicalDevices.Count == 0)
         {
-            // Without an identity to hide, Steam would see the physical pad beside the virtual one.
+            // Without an identity to hide, Steam would see the physical pad beside the virtual one. This
+            // includes the only RC73XA topology observed so far; a lab report must name the node to hide.
             return Set(AllyServiceState.Passive, Missing(
                 $"No hideable XUSB, GIP or XInput HID node was found for the pad ({topology.Observed})."));
         }
 
         _topology = topology;
+        _generation = context.CycleGeneration;
         await ConfigureAsync(context, cancellationToken).ConfigureAwait(false);
         try
         {
@@ -790,6 +888,14 @@ internal sealed class ControllerService(
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
+        if (_topology is null && !_configured)
+        {
+            // Never acquired, or already released: there is no reader, motor or table to put back.
+            LastReleasedDevices = [];
+            _ = Set(AllyServiceState.Idle);
+            return ControllerHandoffResult.ReleasedVerified;
+        }
+
         _ = Set(AllyServiceState.Releasing);
         CapabilityReason? failure = null;
         await _outputGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -818,8 +924,8 @@ internal sealed class ControllerService(
                 AllyDiagnosticText.FromException("The controller reader did not stop cleanly", ex));
         }
 
-        keyboard.SetRearEnabled(false);
-        buttons.Hold(CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2, false);
+        await keyboard.SetRearEnabledAsync(false, CancellationToken.None).ConfigureAwait(false);
+        buttons.Release(CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2);
         lock (_hapticGate)
         {
             _lastLow = 0;
@@ -888,7 +994,13 @@ internal sealed class ControllerService(
             return;
         }
 
-        AllyWriteBudget.Require(context.Deadline, "controller configuration");
+        if (!AllyWriteBudget.IsAvailable(context.Deadline))
+        {
+            host.Trace(DeviceTraceLevel.Warn, "controller",
+                "too little time to write the controller tables; M1 and M2 stay unavailable this cycle.");
+            return;
+        }
+
         _ = await journal.BeginAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
             cancellationToken).ConfigureAwait(false);
         _configured = true;
@@ -910,7 +1022,7 @@ internal sealed class ControllerService(
         }
 
         host.Trace(DeviceTraceLevel.Info, "controller", "controller tables written; M1/M2 now send F18/F17.");
-        keyboard.SetRearEnabled(true);
+        await keyboard.SetRearEnabledAsync(true, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Writes the factory M1/M2 tables back.</summary>
@@ -929,8 +1041,13 @@ internal sealed class ControllerService(
                 await vendor.WriteConfigurationAsync(report, CancellationToken.None).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException
-                                       or OperationCanceledException)
+        catch (AllyBudgetException ex)
+        {
+            // Nothing was written, so the entry stays outstanding and the next cycle restores the tables.
+            return new CapabilityReason(CapabilityReasonCode.Quiescing,
+                AllyDiagnosticText.FromException("The factory controller tables were not written back", ex));
+        }
+        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
         {
             await journal.CompleteAsync(ServiceId, AllyRecoveryStatus.RestoreFailed, CancellationToken.None)
                 .ConfigureAwait(false);

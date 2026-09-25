@@ -147,6 +147,7 @@ internal sealed class FakeIdentityReader(string product, string manufacturer = A
 internal sealed class FakeVendorHid : IAllyVendorHid
 {
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
+    private Action<Exception>? _fault;
 
     public bool Available { get; set; } = true;
 
@@ -159,16 +160,18 @@ internal sealed class FakeVendorHid : IAllyVendorHid
         return ValueTask.FromResult(Available);
     }
 
-    public ValueTask<bool> StartAsync(Func<byte, DateTimeOffset, ValueTask> callback,
+    public ValueTask<bool> StartAsync(Func<byte, DateTimeOffset, ValueTask> callback, Action<Exception> fault,
         CancellationToken cancellationToken)
     {
         _callback = callback;
+        _fault = fault;
         return ValueTask.FromResult(Available);
     }
 
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         _callback = null;
+        _fault = null;
         return ValueTask.CompletedTask;
     }
 
@@ -186,6 +189,15 @@ internal sealed class FakeVendorHid : IAllyVendorHid
     public ValueTask DisposeAsync()
     {
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Stops the reader the way a failed read does.</summary>
+    public void RaiseFault()
+    {
+        var fault = _fault;
+        _callback = null;
+        _fault = null;
+        fault?.Invoke(new IOException("simulated vendor read failure"));
     }
 
     public ValueTask RaiseAsync(byte code)
@@ -233,9 +245,14 @@ internal sealed class FakeAuraHid : IAllyAuraHid
 
 internal sealed class FakeControllerSource : IAllyControllerSource
 {
-    private long _generation;
+    private Action<Exception>? _fault;
     private Func<CanonicalControllerSample, CancellationToken, ValueTask>? _publish;
     private long _sequence;
+
+    /// <summary>How many times the reader was started.</summary>
+    public int Starts { get; private set; }
+
+    public long Generation { get; private set; }
 
     public bool Present { get; set; } = true;
 
@@ -270,9 +287,16 @@ internal sealed class FakeControllerSource : IAllyControllerSource
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish, Action<Exception> fault,
         CancellationToken cancellationToken)
     {
+        if (Running)
+        {
+            throw new InvalidOperationException("The Ally controller reader is already active.");
+        }
+
         _publish = publish;
-        _generation = cycleGeneration;
+        _fault = fault;
+        Generation = cycleGeneration;
         Running = true;
+        Starts++;
         return ValueTask.CompletedTask;
     }
 
@@ -280,11 +304,17 @@ internal sealed class FakeControllerSource : IAllyControllerSource
     {
         Running = false;
         _publish = null;
+        _fault = null;
         return ValueTask.CompletedTask;
     }
 
     public ValueTask WriteRumbleAsync(float low, float high, CancellationToken cancellationToken)
     {
+        if (!Running)
+        {
+            throw new InvalidOperationException("The Ally controller route is no longer available for rumble.");
+        }
+
         Rumble.Add((low, high));
         if (FailRumble)
         {
@@ -299,13 +329,21 @@ internal sealed class FakeControllerSource : IAllyControllerSource
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>Stops the reader the way a transient XInput failure does; the worker stays registered.</summary>
+    public void RaiseFault()
+    {
+        var fault = _fault;
+        _publish = null;
+        fault?.Invoke(new InvalidOperationException("simulated XInput slot failure"));
+    }
+
     public ValueTask EmitAsync(CanonicalButtons buttons)
     {
         var now = DateTimeOffset.UtcNow;
         return _publish?.Invoke(new CanonicalControllerSample
         {
             Sequence = ++_sequence,
-            CycleGeneration = _generation,
+            CycleGeneration = Generation,
             Timestamp = now,
             Buttons = buttons | (Buttons?.Current(now) ?? CanonicalButtons.None)
         }, CancellationToken.None) ?? ValueTask.CompletedTask;
@@ -337,6 +375,9 @@ internal sealed class FakeKeyboardSource : IAllyKeyboardSource
     private Func<AllyKeyEvent, ValueTask>? _callback;
 
     public IReadOnlyCollection<uint> Watched { get; private set; } = [];
+
+    /// <summary>Whether the hook is installed.</summary>
+    public bool Hooked => _callback is not null;
 
     public ValueTask<bool> StartAsync(Func<AllyKeyEvent, ValueTask> callback, Action<Exception> fault,
         CancellationToken cancellationToken)

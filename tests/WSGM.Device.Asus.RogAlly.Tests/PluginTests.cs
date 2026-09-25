@@ -381,6 +381,199 @@ public sealed class PluginTests
         Assert.False(power.Available);
     }
 
+    [Fact]
+    public async Task ADeadlineTooShortToWriteIsRejectedWithoutFaultingThePowerService()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        var late = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Integer(20)) with
+            {
+                Deadline = DateTimeOffset.UtcNow.AddSeconds(1)
+            }, CancellationToken.None);
+        var next = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Integer(20)), CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.Rejected, late.Outcome);
+        Assert.True(late.Reason!.Retryable);
+        Assert.Equal(CommandOutcome.AppliedVerified, next.Outcome);
+    }
+
+    [Fact]
+    public async Task StopWithControllerManagementOffIsClean()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la", false), CancellationToken.None);
+
+        var stop = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+            DateTimeOffset.UtcNow.AddSeconds(12)), CancellationToken.None);
+
+        Assert.Equal(PluginStopStatus.Clean, stop.Status);
+        Assert.Empty(hardware.Controller.Rumble);
+    }
+
+    [Fact]
+    public async Task ClassicModelsInstallNoKeyboardHookUntilTheRearKeysAreClaimed()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la", false), CancellationToken.None);
+
+        Assert.False(hardware.Keyboard.Hooked);
+
+        await plugin.SetControllerManagementAsync(
+            new PluginControllerManagementContext(true, host.CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+        Assert.True(hardware.Keyboard.Hooked);
+
+        await plugin.SetControllerManagementAsync(
+            new PluginControllerManagementContext(false, host.CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+        Assert.False(hardware.Keyboard.Hooked);
+    }
+
+    [Fact]
+    public async Task ReEnablingAnOwnedControllerOnlyRestartsTheReaderForTheNewGeneration()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        hardware.Vendor.Reports.Clear();
+
+        await plugin.SetControllerManagementAsync(
+            new PluginControllerManagementContext(true, 2, DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+
+        Assert.True(hardware.Controller.Running);
+        Assert.Equal(2, hardware.Controller.Starts);
+        Assert.Equal(2, hardware.Controller.Generation);
+        Assert.Empty(hardware.Vendor.Reports);
+    }
+
+    [Fact]
+    public async Task AFaultedReaderIsReacquiredWhenControllerManagementIsEnabledAgain()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        hardware.Controller.RaiseFault();
+        await plugin.SetControllerManagementAsync(
+            new PluginControllerManagementContext(true, 2, DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+
+        Assert.True(hardware.Controller.Running);
+        Assert.Equal(2, hardware.Controller.Starts);
+        var controller = host.CapabilityStates.Last(state => state.CapabilityId == CapabilityIds.Controller);
+        Assert.True(controller.Available);
+    }
+
+    [Fact]
+    public async Task AVendorReadFailureIsReportedAndRecoveredOnResume()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        hardware.Vendor.RaiseFault();
+        var diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
+        Assert.Equal(nameof(AllyServiceState.Faulted), diagnostics.Values[AllyServiceIds.VendorEvents]);
+
+        await plugin.SuspendAsync(new PluginQuiesceContext(DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+        _ = await plugin.ResumeAsync(new PluginResumeContext(2, DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+        await hardware.Vendor.RaiseAsync(0xA6);
+
+        diagnostics = await plugin.GetDiagnosticsAsync(CancellationToken.None);
+        Assert.Equal(nameof(AllyServiceState.Owned), diagnostics.Values[AllyServiceIds.VendorEvents]);
+        Assert.Single(host.OemEvents);
+    }
+
+    [Fact]
+    public async Task AnUnverifiedRestoreIsNotRetriedButAnExplicitCommandRearmsIt()
+    {
+        using var directory = new TemporaryDirectory();
+        var points = AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve);
+        var hardware = new AllyFakeHardware();
+        await using (var first = hardware.CreatePlugin())
+        {
+            _ = await first.StartAsync(Start(new TestPluginHostAdapter(1), directory, "rc72la"),
+                CancellationToken.None);
+            _ = await first.ExecuteCommandAsync(
+                AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
+                CancellationToken.None);
+            hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
+            _ = await first.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+                DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+        }
+
+        hardware.Acpi.IgnoreWritesTo = null;
+        hardware.Acpi.BufferWrites.Clear();
+        var host = new TestPluginHostAdapter(1);
+        await using var second = hardware.CreatePlugin();
+        _ = await second.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        // Start neither retries the uncertain restore nor blocks the fans.
+        Assert.Empty(hardware.Acpi.BufferWrites);
+        var fan = await second.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
+            CancellationToken.None);
+        Assert.Equal(CommandOutcome.AppliedVerified, fan.Outcome);
+
+        await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+        Assert.Equal(AllyRecoveryStatus.Pending, Assert.Single(journal.OutstandingEntries).Status);
+    }
+
+    [Fact]
+    public async Task AZeroWattReadingRefusesThePowerWriteCleanly()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        hardware.Acpi.SetScalar(AsusAcpiId.FastPower, 0);
+
+        var result = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Integer(20)), CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+        Assert.Equal(CapabilityReasonCode.PrerequisiteMissing, result.Reason!.Code);
+        Assert.Empty(hardware.Acpi.Writes);
+    }
+
+    [Fact]
+    public async Task OneFrontPressReportedOnBothTransportsIsPublishedOnce()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware("RC73XA");
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc73xa"), CancellationToken.None);
+
+        await hardware.Vendor.RaiseAsync(0xA6);
+        await hardware.Keyboard.PressAsync(AllyModels.VkF21, true);
+        await hardware.Keyboard.PressAsync(AllyModels.VkF21, false);
+
+        Assert.Equal([OemControlIds.ArmouryCrate], host.OemEvents.Select(item => item.ControlId));
+    }
+
     private static PluginStartContext Start(
         IPluginHostAdapter host,
         TemporaryDirectory directory,
