@@ -119,6 +119,22 @@ public sealed class NativeQamPerfProjectionTests
     }
 
     [Fact]
+    public void AnUnsetFrameLimitSitsAtTheHighestCapAndReadsAsOff()
+    {
+        var state = NativeQamPerfProjection.Project(
+            PerformanceValues.Empty,
+            Support(options: [120, 30, 60, 0]),
+            null,
+            false,
+            false,
+            null,
+            null);
+
+        Assert.Equal(120, state.PerApp?.FpsLimit);
+        Assert.False(state.PerApp?.IsFpsLimitEnabled);
+    }
+
+    [Fact]
     public void NoFrameLimitOptionsHidesTheSliderRatherThanShowingAnEmptyOne()
     {
         var state = NativeQamPerfProjection.Project(
