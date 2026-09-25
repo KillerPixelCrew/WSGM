@@ -519,9 +519,10 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
 
     /// <summary>The vendor collection, chosen as HC chooses it: the one whose feature report 0x5A reads.</summary>
     /// <remarks>
-    ///     HC reads events from and writes the tables to that one collection (<c>ROGAlly.cs:416-436</c>). The
-    ///     FF31:0080 usage collection is preferred when it answers, then any other that does, and the usage
-    ///     collection is the last resort: the Xbox Ally X refused the tables on FF31:0080.
+    ///     HC reads events from and writes the tables to that one collection (<c>ROGAlly.cs:416-436</c>). On
+    ///     the Xbox Ally X the Device Lab saw every 0x5A button event on FF31:0076 (MI_02 Col01) and none on
+    ///     FF31:0080 (Col04), which also refused the tables. So FF31:0076 leads, then FF31:0080, then any
+    ///     other collection that answers; usage alone is the last resort.
     /// </remarks>
     private AllyHidEndpoint? Find()
     {
@@ -537,9 +538,11 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
                 .Where(endpoint => endpoint.FeatureLength >= AllyProtocol.ConfigurationLength
                                    && AllyHidEnumerator.AnswersFeature(endpoint, AllyProtocol.VendorReportId))
                 .ToArray();
-            _endpoint = answering.FirstOrDefault(IsVendorUsage)
+            _endpoint = answering.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorEventUsage))
+                        ?? answering.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorUsage))
                         ?? answering.LastOrDefault()
-                        ?? endpoints.FirstOrDefault(IsVendorUsage);
+                        ?? endpoints.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorEventUsage))
+                        ?? endpoints.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorUsage));
             if (_endpoint is not null)
             {
                 PluginTrace.Info("vendor-hid",
@@ -551,9 +554,9 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
         }
     }
 
-    private static bool IsVendorUsage(AllyHidEndpoint endpoint)
+    private static bool IsUsage(AllyHidEndpoint endpoint, ushort usage)
     {
-        return endpoint is { UsagePage: AllyProtocol.VendorUsagePage, Usage: AllyProtocol.VendorUsage };
+        return endpoint.UsagePage == AllyProtocol.VendorUsagePage && endpoint.Usage == usage;
     }
 
     private static async Task ReadLoopAsync(

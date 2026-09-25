@@ -108,6 +108,12 @@ internal sealed record AllyModel
 
     /// <summary>Virtual keys the firmware sends for the front buttons, when it uses the keyboard.</summary>
     public IReadOnlyList<AllyKeyboardControl> FrontKeyboardControls { get; init; } = [];
+
+    /// <summary>
+    ///     Whether M1 and M2 already send F18 and F17 before any controller table is written, so the rear
+    ///     keys are watched even when the tables are refused.
+    /// </summary>
+    public bool RearKeysNative { get; init; }
 }
 
 /// <summary>One OEM button that arrives on the ASUS keyboard collection.</summary>
@@ -236,7 +242,9 @@ internal static class AllyModels
             // HC reads the Xbox button as the pad's guide bit (XInputController.cs:376-377), which
             // stays the Guide. HHD's share_to_qam (base.py:415-427) sent it to QAM instead, which
             // left no button for Steam's main menu.
-            FrontKeyboardControls = XboxKeyboardFront
+            FrontKeyboardControls = XboxKeyboardFront,
+            // Assumed from the RC73XA Device Lab run; the Xbox Ally has not been measured.
+            RearKeysNative = true
         },
         new()
         {
@@ -253,7 +261,9 @@ internal static class AllyModels
             Accelerometer = ClassicMotion,
             GlyphProfileId = "rog-xbox-ally",
             DisableDynamicLighting = true,
-            FrontKeyboardControls = XboxKeyboardFront
+            FrontKeyboardControls = XboxKeyboardFront,
+            // Device Lab 2026-09-25: M1 sent F18 and M2 F17 with no table written.
+            RearKeysNative = true
         }
     ];
 

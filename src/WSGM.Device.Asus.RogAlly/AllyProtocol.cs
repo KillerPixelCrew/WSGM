@@ -41,6 +41,11 @@ internal static class AllyProtocol
     public const byte AuraReportId = 0x5D;
 
     public const ushort VendorUsagePage = 0xFF31;
+
+    /// <summary>The collection the Xbox Ally X sends its 0x5A button events on (Device Lab, 2026-09-25).</summary>
+    public const ushort VendorEventUsage = 0x0076;
+
+    /// <summary>HHD's vendor collection (<c>rog_ally/base.py:383-393</c>), used when 0x0076 is absent.</summary>
     public const ushort VendorUsage = 0x0080;
     public const int ConfigurationLength = 64;
 

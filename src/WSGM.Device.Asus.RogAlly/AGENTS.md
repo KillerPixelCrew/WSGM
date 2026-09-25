@@ -55,7 +55,8 @@ Every command revalidates identity, service state, generations, deadline and ran
   0xA7/0xA8 are M2 press/release. `AllyModels.cs` maps the front controls to each model's physical
   layout; keep the HHD disagreement in PROVENANCE.md.
 - The keyboard hook claims only the watched F-keys, never injected input, and stays allocation-light
-  with no I/O in the callback. Rear keys are watched only while the controller tables are applied.
+  with no I/O in the callback. Rear keys are watched while the controller tables are applied, and
+  always on a model whose `RearKeysNative` says M1/M2 send F18/F17 without them.
 - Apply each model's axis maps exactly once, before the gyro-offset correction.
 
 ## Validation

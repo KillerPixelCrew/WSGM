@@ -78,6 +78,23 @@ public sealed class PluginTests
     }
 
     [Fact]
+    public async Task XboxAllyXRearKeysWorkEvenWhenEveryTableIsRefused()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware("RC73XA");
+        hardware.Vendor.FailWrites = true;
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+
+        _ = await plugin.StartAsync(Start(host, directory, "rc73xa"), CancellationToken.None);
+
+        // Device Lab 2026-09-25: M1/M2 send F18/F17 on RC73XA before any table is written.
+        Assert.Empty(hardware.Vendor.Reports);
+        Assert.Contains(AllyModels.VkF18, hardware.Keyboard.Watched);
+        Assert.Contains(AllyModels.VkF17, hardware.Keyboard.Watched);
+    }
+
+    [Fact]
     public async Task ARefusedFrontTableDoesNotStopTheRestOrTheRearKeys()
     {
         using var directory = new TemporaryDirectory();

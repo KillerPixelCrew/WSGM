@@ -907,6 +907,12 @@ internal sealed class ControllerService(
         _topology = topology;
         _generation = context.CycleGeneration;
         await ConfigureAsync(context, cancellationToken).ConfigureAwait(false);
+        if (context.Identity.Model?.RearKeysNative == true)
+        {
+            // The rear keys work without the tables on this model, so a refused table set does not
+            // cost M1 and M2.
+            await keyboard.SetRearEnabledAsync(true, cancellationToken).ConfigureAwait(false);
+        }
         try
         {
             await source.StartAsync(topology, context.CycleGeneration, PublishSampleAsync, OnReaderFault,
