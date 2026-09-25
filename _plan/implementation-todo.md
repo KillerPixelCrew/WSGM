@@ -35,8 +35,8 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
       - [x] The host refuses a package built for another WSGM version, and the capability router
             refuses a descriptor set with an undeclared role. The Claw manifest declares its board
             and the 17 roles it publishes.
-      - [x] `plugins/curated`: Claw (first-party, hardware-tested), IR (first-party, blind until the
-            maintainer decides) and Ally X (not bundled). There is a submission issue template and
+      - [x] `plugins/curated`: Claw (first-party, hardware-tested), IR (first-party, hardware-tested:
+            the maintainer runs it on their desktop) and Ally X (not bundled). There is a submission issue template and
             `plugins/README.md`.
       - [x] `eng/build-bundle.ps1` replaces `stage-device-components.ps1` and writes `bundle.json`.
             The packers stamp `wsgmVersion` and strip host-supplied assemblies, taking the Claw
