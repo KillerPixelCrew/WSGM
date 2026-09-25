@@ -267,6 +267,13 @@ internal sealed class FeatureOption(string key, string label, string description
     public string Description { get; } = description;
     public string? Parent { get; } = parent;
     public string Group { get; init; } = "";
+
+    /// <summary>Whether WSGM 1.0 lacked this, for the NEW badge.</summary>
+    public bool IsNew { get; init; }
+
+    /// <summary>A sub-feature, indented under the switch it depends on.</summary>
+    public bool IsChild => Parent is not null;
+
     public bool HasDescription => Description.Length > 0;
 
     public bool On

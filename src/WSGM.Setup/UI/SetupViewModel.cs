@@ -206,6 +206,9 @@ internal sealed class SetupViewModel : Observable
             case "profile":
                 _ = ShowProfileAsync();
                 break;
+            case "customize":
+                Page = new CustomizePage(_profile!);
+                break;
             case "drivers":
                 Page = new DriversPage();
                 break;
@@ -230,6 +233,7 @@ internal sealed class SetupViewModel : Observable
                 "update" => "What's new",
                 "hardware" => "Hardware",
                 "profile" => "Profile",
+                "customize" => "Customize",
                 "drivers" => "Drivers",
                 "progress" => _flow.Contains("uninstall") ? "Remove" : "Install",
                 "summary" => "Done",
@@ -244,13 +248,35 @@ internal sealed class SetupViewModel : Observable
         Raise(nameof(HintLeft));
     }
 
+    // Customize joins the flow only once it is opened, so a user who keeps a preset never sees the step.
+    private void OpenCustomize()
+    {
+        var profile = _flow.IndexOf("profile");
+        if (profile < 0)
+        {
+            return;
+        }
+
+        if (!_flow.Contains("customize"))
+        {
+            _flow.Insert(profile + 1, "customize");
+        }
+
+        GoTo(profile + 1);
+    }
+
     private async Task ShowProfileAsync()
     {
         Page = new MessagePage("Profile", "Reading your settings…", "", "");
         try
         {
             _answers ??= await _answersTask!;
-            _profile ??= new ProfilePage(_answers);
+            if (_profile is null)
+            {
+                _profile = new ProfilePage(_answers);
+                _profile.CustomizeRequested += OpenCustomize;
+            }
+
             Page = _profile;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
