@@ -129,15 +129,24 @@ internal sealed class KeyboardOemService(
     private long _cycleGeneration;
     private IReadOnlyList<AllyKeyboardControl> _front = [];
     private bool _rearEnabled;
+    private bool _rearRemapped;
 
     public override bool Suspendable => true;
 
-    /// <summary>
-    ///     Rear keys by what the Device Lab run on RC73XA observed after HHD's table was applied: the
-    ///     left button (M1) sent F18 and the right (M2) F17. HHD reads F17 as left (<c>base.py:396-403</c>)
-    ///     and HC labels F18 as M1 (<c>ROGAlly.cs:263-282</c>); the lab agrees with HC here.
-    /// </summary>
+    /// <summary>Rear keys while HC's M1/M2 table is applied: the left button sends F17, the right F18.</summary>
+    /// <remarks>
+    ///     HHD reads the same table bytes that way (<c>base.py:396-403</c>), and an Xbox Ally X tester whose
+    ///     tables were accepted found the native assignment below swapped (2026-09-26).
+    /// </remarks>
     internal static IReadOnlyList<AllyKeyboardControl> Rear { get; } =
+    [
+        new(AllyModels.VkF17, OemControlIds.M1, CanonicalButtons.RearPaddle1),
+        new(AllyModels.VkF18, OemControlIds.M2, CanonicalButtons.RearPaddle2)
+    ];
+
+    /// <summary>Rear keys the Xbox Ally X firmware sends with no table written: left F18, right F17.</summary>
+    /// <remarks>Device Lab RC73XA run 2026-09-25, <c>back-left1</c> F18 and <c>back-right1</c> F17.</remarks>
+    internal static IReadOnlyList<AllyKeyboardControl> NativeRear { get; } =
     [
         new(AllyModels.VkF18, OemControlIds.M1, CanonicalButtons.RearPaddle1),
         new(AllyModels.VkF17, OemControlIds.M2, CanonicalButtons.RearPaddle2)
@@ -176,13 +185,20 @@ internal sealed class KeyboardOemService(
         return Set(AllyServiceState.Idle);
     }
 
-    /// <summary>Claims M1/M2 only while the controller tables that make them F-keys are applied.</summary>
+    /// <summary>Claims M1/M2 while they send F-keys: with the controller tables applied, or natively.</summary>
+    /// <param name="enabled">Whether the rear keys are watched.</param>
+    /// <param name="remapped">Whether HC's M1/M2 table is applied, which swaps the keys' sides.</param>
+    /// <param name="cancellationToken">Cancels hook installation.</param>
     /// <remarks>The hook is installed with the first watched key and removed when none is left.</remarks>
-    public async ValueTask SetRearEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    public async ValueTask SetRearEnabledAsync(
+        bool enabled,
+        bool remapped,
+        CancellationToken cancellationToken)
     {
         lock (_gate)
         {
             _rearEnabled = enabled;
+            _rearRemapped = remapped;
         }
 
         UpdateWatch();
@@ -265,7 +281,7 @@ internal sealed class KeyboardOemService(
 
     private IEnumerable<AllyKeyboardControl> Watched()
     {
-        return _rearEnabled ? _front.Concat(Rear) : _front;
+        return _rearEnabled ? _front.Concat(_rearRemapped ? Rear : NativeRear) : _front;
     }
 
     private void ReleaseHeld()
@@ -906,13 +922,14 @@ internal sealed class ControllerService(
 
         _topology = topology;
         _generation = context.CycleGeneration;
-        await ConfigureAsync(context, cancellationToken).ConfigureAwait(false);
-        if (context.Identity.Model?.RearKeysNative == true)
+        if (!await ConfigureAsync(context, cancellationToken).ConfigureAwait(false)
+            && context.Identity.Model?.RearKeysNative == true)
         {
             // The rear keys work without the tables on this model, so a refused table set does not
-            // cost M1 and M2.
-            await keyboard.SetRearEnabledAsync(true, cancellationToken).ConfigureAwait(false);
+            // cost M1 and M2; they keep the firmware's own sides.
+            await keyboard.SetRearEnabledAsync(true, false, cancellationToken).ConfigureAwait(false);
         }
+
         try
         {
             await source.StartAsync(topology, context.CycleGeneration, PublishSampleAsync, OnReaderFault,
@@ -992,7 +1009,7 @@ internal sealed class ControllerService(
                 AllyDiagnosticText.FromException("The controller reader did not stop cleanly", ex));
         }
 
-        await keyboard.SetRearEnabledAsync(false, CancellationToken.None).ConfigureAwait(false);
+        await keyboard.SetRearEnabledAsync(false, false, CancellationToken.None).ConfigureAwait(false);
         buttons.Release(CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2);
         lock (_hapticGate)
         {
@@ -1053,20 +1070,21 @@ internal sealed class ControllerService(
     }
 
     /// <summary>Writes the tables that turn M1/M2 into F17/F18, journalled first.</summary>
-    private async ValueTask ConfigureAsync(AllyCycleContext context, CancellationToken cancellationToken)
+    /// <returns>Whether the M1/M2 table was written and the rear keys are watched with its sides.</returns>
+    private async ValueTask<bool> ConfigureAsync(AllyCycleContext context, CancellationToken cancellationToken)
     {
         if (!await vendor.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
         {
             host.Trace(DeviceTraceLevel.Warn, "controller",
                 "no vendor collection for the controller tables; M1 and M2 stay unavailable.");
-            return;
+            return false;
         }
 
         if (!AllyWriteBudget.IsAvailable(context.Deadline))
         {
             host.Trace(DeviceTraceLevel.Warn, "controller",
                 "too little time to write the controller tables; M1 and M2 stay unavailable this cycle.");
-            return;
+            return false;
         }
 
         _ = await journal.BeginAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
@@ -1100,13 +1118,14 @@ internal sealed class ControllerService(
 
         if (!rearWritten)
         {
-            host.Trace(DeviceTraceLevel.Error, "controller",
-                "the M1/M2 table was not written; M1 and M2 stay unavailable this cycle.");
-            return;
+            host.Trace(DeviceTraceLevel.Error, "controller", "the M1/M2 table was not written.");
+            return false;
         }
 
-        host.Trace(DeviceTraceLevel.Info, "controller", "controller tables written; M1/M2 now send F18/F17.");
-        await keyboard.SetRearEnabledAsync(true, cancellationToken).ConfigureAwait(false);
+        host.Trace(DeviceTraceLevel.Info, "controller",
+            "controller tables written; left rear sends F17, right rear F18.");
+        await keyboard.SetRearEnabledAsync(true, true, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>Writes the factory M1/M2 tables back.</summary>

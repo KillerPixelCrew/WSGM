@@ -85,7 +85,8 @@ Disagreements:
 | A press seen on both the vendor and the keyboard path counts once | This package: the first report of a press wins, the other transport's echo is dropped     |
 | Release-less events are held for 150 ms                           | HHD `rog_ally/base.py:53` (`MODE_DELAY`)                                                  |
 | M1/M2 become keyboard keys only after the M1/M2 table is written  | HHD `const.py:897-954` (`REMAP_M1M2_F17F18`), `base.py:396-403`                           |
-| Left rear button sends F18, right sends F17                       | Device Lab RC73XA run, results 019 and 020 (VK 0x81 and 0x80)                             |
+| With HC's M1/M2 table applied, left sends F17 and right F18       | HHD `base.py:396-403`; RC73XA tester with accepted tables, 2026-09-26                     |
+| With no table written, left sends F18 and right F17               | Device Lab RC73XA runs (results 019/020; `back-left1`/`back-right1`), tables never landed |
 | Xbox models' front buttons arrived as F21 (left) and F22 (right)  | Device Lab RC73XA run, results 017 and 018                                                |
 | Xbox button is the Guide (XInput guide bit)                       | HC `XInputController.cs:376-377`; tester report 2026-09-25 (RC73XA, it opened the QAM)    |
 | Xbox models: Library is Quick Access, Armoury Crate opens WSGM    | Maintainer mapping 2026-09-26; HC opens its window from it (`ROGAlly.cs:283`)             |
@@ -98,9 +99,10 @@ Disagreements:
   tester pressed the Xbox button for it and got the QAM, so HC's guide reading is used.
 - HHD merges 0x93 into QAM and treats 0xA7 as the right button's hold (`base.py:180-215`). HC's
   Windows event semantics are used: 0x93 stays Library and 0xA7/0xA8 form M2 press/release.
-- HHD maps F17 to the left extra button and F18 to the right (`base.py:396-403`); HC labels F18 as
-  M1 (`ROGAlly.cs:263-282`). The lab run saw the left button send F18, agreeing with HC, so the lab
-  result is used and HHD's assignment is recorded as the likely error.
+- Both lab runs saw the left rear button send F18, but in both the tables went to FF31:0080, which
+  refuses them, so that is the firmware's own assignment. Once HC's table was accepted on FF31:0076,
+  the tester found those sides swapped: with the table, F17 is left and F18 right, as HHD reads the
+  same bytes. HC labels F18 as M1 (`ROGAlly.cs:263-282`) and leaves the sides to the user's layout.
 - The glyph theme labels the left rear button M2 (`themes/asus/rog-ally.css`, `--button-l4-image`).
   This package labels left M1, following HC and the lab wizard. The physical print is unverified.
 

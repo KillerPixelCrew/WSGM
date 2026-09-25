@@ -92,6 +92,11 @@ public sealed class PluginTests
         Assert.Empty(hardware.Vendor.Reports);
         Assert.Contains(AllyModels.VkF18, hardware.Keyboard.Watched);
         Assert.Contains(AllyModels.VkF17, hardware.Keyboard.Watched);
+
+        // Without the table the firmware's own sides hold: F18 is the left button.
+        await hardware.Keyboard.PressAsync(AllyModels.VkF18, true);
+        Assert.Equal((OemControlIds.M1, OemControlEdge.Pressed),
+            host.OemEvents.Select(item => (item.ControlId, item.Edge)).Last());
     }
 
     [Fact]
@@ -296,11 +301,12 @@ public sealed class PluginTests
         await using var plugin = hardware.CreatePlugin();
         _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
 
-        await hardware.Keyboard.PressAsync(AllyModels.VkF18, true);
-        await hardware.Keyboard.PressAsync(AllyModels.VkF18, true);
-        await hardware.Controller.EmitAsync(CanonicalButtons.None);
-        await hardware.Keyboard.PressAsync(AllyModels.VkF18, false);
+        // With HC's M1/M2 table applied the left button sends F17 and the right F18.
         await hardware.Keyboard.PressAsync(AllyModels.VkF17, true);
+        await hardware.Keyboard.PressAsync(AllyModels.VkF17, true);
+        await hardware.Controller.EmitAsync(CanonicalButtons.None);
+        await hardware.Keyboard.PressAsync(AllyModels.VkF17, false);
+        await hardware.Keyboard.PressAsync(AllyModels.VkF18, true);
 
         Assert.Equal(
             [

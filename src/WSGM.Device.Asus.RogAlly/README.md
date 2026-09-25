@@ -115,8 +115,9 @@ HC answers each open question on every model, since its Xbox classes inherit the
   cloaked pad looks exactly like that.
 - Front buttons: vendor codes 0xA6, 0x38 and 0x93 on every model (`ROGAlly.cs:53-83, 485-505`). The
   F21/F22 keys the RC73XA run saw are handled as well, and a press on both paths counts once.
-- Rear buttons: HC's table makes M1 send F18 and M2 send F17 (`ROGAlly.cs:163-168, 263-282`); the
-  RC73XA run agrees.
+- Rear buttons: with HC's table (`ROGAlly.cs:163-168`) the left button sends F17 and the right F18,
+  as an RC73XA tester confirmed; without it the RC73XA firmware sends F18 left and F17 right, and
+  the Xbox models watch those keys too.
 - Motion: HC's per-model axis matrices, including the Xbox models' differing gyro signs
   (`Resources/Devices/*.json`).
 - Aura: report 0x5D with HC's speed bytes on every model. For Windows Dynamic Lighting, HC turns
