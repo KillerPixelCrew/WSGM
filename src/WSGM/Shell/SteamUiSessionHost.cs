@@ -96,7 +96,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly NativeQamPowerProfileService _powerProfiles = new(PowerSchemes.Windows,
         id => ConfigStore.Mutate(config => config.LastSelectedPowerSchemeId = id));
 
-    private readonly NativeQamProfileOverrideService? _profileOverrides;
     private readonly ProfileService? _profiles;
 
     /// <summary>
@@ -232,9 +231,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             new NativeQamPowerPresetService(deviceCoordinator?.PowerPresets, deviceCoordinator?.PowerAssignments);
         _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
         _performanceService = performance;
-        _profileOverrides = profiles is null
-            ? null
-            : new NativeQamProfileOverrideService(profiles, () => deviceCoordinator?.DeviceIdentityKey);
         _performance = new PerformanceServiceNativeQamAdapter(performance)
         {
             Profiles = profiles,
@@ -912,15 +908,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Enabled,
                 () => new ValueTask<SteamPowerLimitState?>(_tdp.PowerLimit),
                 _tdp,
-                "tdp",
-                _profileOverrides),
+                "tdp"),
 
             SteamAutoTdpRow.Module(Enabled, () => new ValueTask<SteamAutoTdpState?>(_autoTdp.Current), _autoTdp),
 
             // The frame limit is the toolkit's unified row rather than Valve's notch slider, and
             // the Q12 retirement does not apply: a free 30-120 range made Valve's unusable.
             SteamFrameLimitRow.Module(Enabled, () => new ValueTask<SteamFrameLimitState?>(_performance.FrameLimit),
-                _performance, overrides: _profileOverrides),
+                _performance),
             SteamPowerProfileRow.Module(Enabled, _powerProfiles.ReadAsync, _powerProfiles),
             SteamHybridCoreRow.Module(Enabled, _hybridCores.ReadAsync, _hybridCores),
             SteamPowerPresetRow.Module(Enabled, _powerPresets.ReadAsync, _powerPresets),
@@ -928,13 +923,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             SteamControllerTargetRow.Module(
                 Enabled,
                 () => new ValueTask<SteamControllerTargetState?>(_controllerTarget.Current),
-                _controllerTarget,
-                overrides: _profileOverrides),
+                _controllerTarget),
 
             // Declared unconditionally — whether the switch appears is decided by whether the
             // device publishes a variable-refresh capability, which the state carries.
             SteamVariableRefreshRow.Module(Enabled, () => new ValueTask<SteamVariableRefreshState?>(_performance.Vrr),
-                _performance, overrides: _profileOverrides),
+                _performance),
 
             // The backend behind Valve's own Performance tab and the Valve rows that read it.
             // Declared unconditionally because the performance service always exists; what the
@@ -951,8 +945,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             SteamDeviceControlsRow.Module(
                 Enabled,
                 () => new ValueTask<SteamDeviceControlsState?>(_deviceControls.Current),
-                _deviceControls,
-                overrides: _profileOverrides),
+                _deviceControls),
 
             new SteamUiModule("download-sort", [new SteamDownloadSortPatch()]),
 
