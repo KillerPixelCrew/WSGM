@@ -1,0 +1,25 @@
+<Project>
+  <!-- The fourth version part is the build's revision: the number of commits reachable from HEAD.
+       <Version> stays the release version (2.0.0), so a prerelease build never uses up a release
+       number, and setup still sees each new build as newer. Pass -p:WsgmRevision=N to override it;
+       without git it is 0. The release workflow checks out full history so the count is complete. -->
+  <Target Name="WsgmRevision" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo" Condition="'$(WsgmRevision)' == ''">
+    <Exec Command="git rev-list --count HEAD" WorkingDirectory="$(MSBuildThisFileDirectory).." ConsoleToMSBuild="true"
+          IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="WsgmRevisionOutput"/>
+      <Output TaskParameter="ExitCode" PropertyName="WsgmRevisionExitCode"/>
+    </Exec>
+    <PropertyGroup>
+      <WsgmRevision Condition="'$(WsgmRevisionExitCode)' == '0' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(WsgmRevisionOutput)', '^\d{1,5}$'))">$(WsgmRevisionOutput)</WsgmRevision>
+      <WsgmRevision Condition="'$(WsgmRevision)' == ''">0</WsgmRevision>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="WsgmRevisionVersion" AfterTargets="WsgmRevision" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+    <PropertyGroup>
+      <WsgmVersionCore>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^\d+\.\d+\.\d+').Value)</WsgmVersionCore>
+      <AssemblyVersion>$(WsgmVersionCore).$(WsgmRevision)</AssemblyVersion>
+      <FileVersion>$(WsgmVersionCore).$(WsgmRevision)</FileVersion>
+    </PropertyGroup>
+  </Target>
+</Project>

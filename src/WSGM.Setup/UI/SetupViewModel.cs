@@ -81,7 +81,7 @@ internal sealed class SetupViewModel : Observable
 
     public ICommand PrimaryCommand { get; }
     public ICommand BackCommand { get; }
-    public string Version => _engine?.ThisVersion.ToString(3) ?? "";
+    public string Version => SetupEngine.Display(_engine?.ThisVersion);
     public string InstallPath => InstallLayout.Root;
     public string HintLeft => _flow.Count == 0 ? "" : $"Step {_step + 1} of {_flow.Count}";
 
@@ -110,7 +110,7 @@ internal sealed class SetupViewModel : Observable
         else if (engine.Kind is SetupKind.NewerInstalled)
         {
             Page = new MessagePage($"WSGM {engine.InstalledVersion}", "A newer WSGM is installed",
-                $"This setup installs WSGM {engine.ThisVersion.ToString(3)}, which is older. Nothing was changed.");
+                $"This setup installs WSGM {SetupEngine.Display(engine.ThisVersion)}, which is older. Nothing was changed.");
         }
         else if (engine.Payload is null || engine.Offers is null)
         {
@@ -173,7 +173,7 @@ internal sealed class SetupViewModel : Observable
         var engine = _engine!;
         _flow.Clear();
         _flow.AddRange(["uninstall", "progress", "summary"]);
-        _uninstall = new UninstallPage(engine.InstalledVersion?.ToString(3) ?? engine.ThisVersion.ToString(3),
+        _uninstall = new UninstallPage(SetupEngine.Display(engine.InstalledVersion ?? engine.ThisVersion),
             engine.Components.Usbip && InstalledComponents.UsbipPresent(),
             engine.Components.HidHide && InstalledComponents.HidHidePresent());
         GoTo(0);
@@ -288,7 +288,7 @@ internal sealed class SetupViewModel : Observable
         var engine = _engine!;
         var bundle = engine.Payload!.Bundle;
         var installedBundle = BundleManifest.TryRead(InstallLayout.InstalledBundle);
-        List<string> changes = [$"WSGM {engine.InstalledVersion?.ToString(3)} → {engine.ThisVersion.ToString(3)}"];
+        List<string> changes = [$"WSGM {SetupEngine.Display(engine.InstalledVersion)} → {SetupEngine.Display(engine.ThisVersion)}"];
         foreach (var id in engine.InstalledPluginIds)
         {
             var next = bundle.Plugins.First(plugin => plugin.Id == id);
@@ -311,8 +311,8 @@ internal sealed class SetupViewModel : Observable
             }
         }
 
-        return new UpdatePage(changes, outdated, engine.InstalledVersion?.ToString(3) ?? "",
-            engine.ThisVersion.ToString(3));
+        return new UpdatePage(changes, outdated, SetupEngine.Display(engine.InstalledVersion),
+            SetupEngine.Display(engine.ThisVersion));
     }
 
     private InstallChoices Choices()
@@ -423,7 +423,7 @@ internal sealed class SetupViewModel : Observable
         }
 
         var problem = string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}"));
-        var title = _flow.Contains("update") ? $"WSGM {engine.ThisVersion.ToString(3)} is installed" : "WSGM is ready";
+        var title = _flow.Contains("update") ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed" : "WSGM is ready";
         var lead = engine.RestartRequired
             ? "Restart Windows to turn on the virtual controller. Everything else works now."
             : "";

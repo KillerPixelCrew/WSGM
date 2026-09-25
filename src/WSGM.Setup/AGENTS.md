@@ -17,7 +17,9 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   (`components.json`, `bundle.json`, `setup.log`) in `%ProgramData%\WSGM`. Keep that boundary
   explicit. Setup starts WSGM itself only after the install, the way the Inno installer did.
 - The WSGM csproj Version is the only version source. WSGM.Setup.csproj reads it; do not introduce
-  another copy.
+  another copy. Setup compares all four assembly version parts; the fourth is the commit-count
+  revision, so a newer build of the same release is an update, and a registered version without a
+  revision is older than any revisioned build.
 - Preserve the supported Windows and architecture checks and the Steam prerequisite. Fail with an
   actionable message before modifying the machine.
 - Hardware detection decides the device plugin: only a plugin whose hardware rules match is

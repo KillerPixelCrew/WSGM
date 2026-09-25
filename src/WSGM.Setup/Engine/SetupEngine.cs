@@ -96,10 +96,23 @@ internal sealed class SetupEngine : IDisposable
 
     public Version? InstalledVersion { get; private set; }
 
+    // All four parts: the fourth is the build's revision (eng/wsgm-revision.targets), so a newer build of
+    // the same release is an update rather than a repair. An entry a three-part build registered has no
+    // revision and so is older than any revisioned build of the same release.
     public Version ThisVersion { get; } =
         typeof(SetupEngine).Assembly.GetName().Version is { } version
-            ? new Version(version.Major, version.Minor, Math.Max(version.Build, 0))
+            ? new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0))
             : new Version(0, 0);
+
+    /// <summary>A version as setup shows it: the release, and the build when it has one.</summary>
+    /// <param name="version">The version.</param>
+    /// <returns>For example <c>2.0.0 (build 1350)</c>.</returns>
+    public static string Display(Version? version)
+    {
+        return version is null ? string.Empty
+            : version.Revision > 0 ? $"{version.ToString(3)} (build {version.Revision})"
+            : version.ToString(3);
+    }
 
     /// <summary>The WSGM 1.0 install to remove first, or null.</summary>
     public (string Command, string Version)? Legacy { get; private set; }
@@ -231,7 +244,7 @@ internal sealed class SetupEngine : IDisposable
 
         steps.Add(new SetupStep("Closing WSGM and Steam", "WSGM and Steam closed", true,
             step => StopRuntime(step, false)));
-        steps.Add(new SetupStep("Copying WSGM", $"WSGM {ThisVersion} installed", true,
+        steps.Add(new SetupStep("Copying WSGM", $"WSGM {Display(ThisVersion)} installed", true,
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
             _ => StoreSetup(payload)));
@@ -618,7 +631,7 @@ internal sealed class SetupEngine : IDisposable
 
     private bool Register()
     {
-        Registration.Register(ThisVersion.ToString(3));
+        Registration.Register(ThisVersion.ToString(4));
         var programs = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
         WindowsSetup.CreateShortcut(Path.Combine(programs, "WSGM.lnk"), InstallLayout.AppExe, "--shell --activate",
             "Open WSGM");

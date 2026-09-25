@@ -43,4 +43,5 @@
     <!-- build.ps1 passes -p:SetupPayload=<payload.zip>: the app, controller stack, plugins and bundle.json. -->
     <EmbeddedResource Include="$(SetupPayload)" LogicalName="WSGM.Setup.Payload.zip"/>
   </ItemGroup>
+  <Import Project="..\..\eng\wsgm-revision.targets"/>
 </Project>

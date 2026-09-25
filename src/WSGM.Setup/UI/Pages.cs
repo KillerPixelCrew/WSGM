@@ -82,7 +82,7 @@ internal sealed class MessagePage(string eyebrow, string title, string lead, str
 
 internal sealed class WelcomePage(Version version, bool steamFound) : Page
 {
-    public override string Eyebrow => $"WSGM {version.ToString(3)}";
+    public override string Eyebrow => $"WSGM {SetupEngine.Display(version)}";
     public override string Title => "Set up WSGM";
 
     public override string Lead =>
@@ -96,7 +96,7 @@ internal sealed class WelcomePage(Version version, bool steamFound) : Page
 
 internal sealed class LegacyPage(string legacyVersion, Version version) : Page
 {
-    public override string Eyebrow => $"WSGM {legacyVersion} → {version.ToString(3)}";
+    public override string Eyebrow => $"WSGM {legacyVersion} → {SetupEngine.Display(version)}";
     public override string Title => $"WSGM {legacyVersion} is removed first";
 
     public override string Lead =>
@@ -121,7 +121,7 @@ internal sealed class UpdatePage(IReadOnlyList<string> changes, IReadOnlyList<st
 
 internal sealed class MaintainPage(Version version, Action repair, Action uninstall, Action close) : Page
 {
-    public override string Eyebrow => $"WSGM {version.ToString(3)} is installed";
+    public override string Eyebrow => $"WSGM {SetupEngine.Display(version)} is installed";
     public override string Title => "What do you want to do?";
     public ICommand Repair { get; } = new Command(repair);
     public ICommand Uninstall { get; } = new Command(uninstall);

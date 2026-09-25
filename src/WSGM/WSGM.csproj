@@ -142,4 +142,5 @@
     <!-- Controller input; bundles SDL3.dll for win-x64. -->
     <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0"/>
   </ItemGroup>
+  <Import Project="..\..\eng\wsgm-revision.targets"/>
 </Project>

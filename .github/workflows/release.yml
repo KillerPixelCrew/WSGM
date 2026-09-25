@@ -59,6 +59,8 @@ jobs:
           # external/steam-input-lease and libviiper built from external/viiper, and links
           # external/windows-device-control, all submodules.
           submodules: recursive
+          # Full history: the fourth version part is the commit count (eng/wsgm-revision.targets).
+          fetch-depth: 0
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
