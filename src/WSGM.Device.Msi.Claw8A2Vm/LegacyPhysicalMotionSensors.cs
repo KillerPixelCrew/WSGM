@@ -64,6 +64,9 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        // Before the handles go: a sink left registered on a released sensor is a callback into
+        // a freed object.
+        Unsubscribe();
         lock (_gate)
         {
             RestoreInterval(_gyrometer, ExpectedGyrometerName, _gyrometerInterval);
