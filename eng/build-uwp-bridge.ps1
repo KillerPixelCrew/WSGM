@@ -72,8 +72,25 @@ if (-not (Test-Path -LiteralPath (Join-Path $MinHookSource 'include\MinHook.h'))
     throw "MinHook headers are not at $MinHookSource."
 }
 
-Write-Host "== Configuring the overlay bridge ==" -ForegroundColor Cyan
-& cmake -S $source -B $buildDirectory -G 'Visual Studio 17 2022' -A x64 "-DMINHOOK_SOURCE=$MinHookSource"
+# The generator names the Visual Studio release, so it follows the newest one with the C++ tools
+# rather than a fixed year: a machine with only Visual Studio 2026 has no 2022 generator to use.
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path -LiteralPath $vswhere)) { throw 'vswhere.exe not found; install Visual Studio with the C++ tools.' }
+$vsVersion = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+    -property installationVersion
+$generator = switch (([string]$vsVersion).Split('.')[0]) {
+    '17' { 'Visual Studio 17 2022' }
+    '18' { 'Visual Studio 18 2026' }
+    default { throw "No supported Visual Studio with the C++ tools was found (found '$vsVersion')." }
+}
+$cache = Join-Path $buildDirectory 'CMakeCache.txt'
+if ((Test-Path -LiteralPath $cache) -and -not (Select-String -LiteralPath $cache -SimpleMatch "CMAKE_GENERATOR:INTERNAL=$generator" -Quiet)) {
+    # CMake refuses to reconfigure a build directory for a different generator.
+    Remove-Item -LiteralPath $buildDirectory -Recurse -Force
+}
+
+Write-Host "== Configuring the overlay bridge ($generator) ==" -ForegroundColor Cyan
+& cmake -S $source -B $buildDirectory -G $generator -A x64 "-DMINHOOK_SOURCE=$MinHookSource"
 if ($LASTEXITCODE -ne 0) { throw "Overlay bridge configure failed ($LASTEXITCODE)." }
 
 Write-Host "== Building the overlay bridge ==" -ForegroundColor Cyan

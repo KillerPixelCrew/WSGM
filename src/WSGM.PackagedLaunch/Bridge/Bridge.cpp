@@ -2,6 +2,7 @@
 #include <intrin.h>
 #include <cstdint>
 #include <cstddef>
+#include <cstdlib>
 #include <cwchar>
 #include "MinHook.h"
 
