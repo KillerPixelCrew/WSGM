@@ -1346,6 +1346,7 @@ public sealed class ConfigurationTests
     [Fact]
     public void NormalizeRepairsANullPinList()
     {
+        Assert.Equal(["home.desktop"], new AppConfig().QuickAccessPins);
         var config = new AppConfig { QuickAccessPins = null! };
 
         ConfigStore.Normalize(config);

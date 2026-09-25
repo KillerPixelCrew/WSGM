@@ -858,9 +858,10 @@ public sealed class AppConfig
     ///     (a row's <c>Tag</c>: <c>home.steam</c>, <c>system.keep-awake</c>, a device
     ///     capability key, …) in display order. An id the running build cannot resolve
     ///     is kept (a device plugin's row survives the device being unplugged) but not
-    ///     rendered.
+    ///     rendered. A new configuration starts with the Game Mode / Desktop switch pinned
+    ///     (<c>home.desktop</c>, labelled "Return to Desktop" or "Back to Game Mode").
     /// </summary>
-    public List<string> QuickAccessPins { get; set; } = [];
+    public List<string> QuickAccessPins { get; set; } = ["home.desktop"];
 
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
