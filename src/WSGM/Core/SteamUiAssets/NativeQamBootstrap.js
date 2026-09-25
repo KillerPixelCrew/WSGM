@@ -7541,9 +7541,10 @@
         // Off is zero, and the slider never shows it: the cap the user chose has to survive being
         // switched off and back on, so the switch below writes zero and the slider keeps sitting
         // where it was. That is how SteamOS's own "Disable Frame Limit" behaves next to its Frame
-        // Limit slider, and it is why the slider can start at a cap worth playing at.
+        // Limit slider. With no cap chosen yet it sits at the highest one, because no limit means
+        // the most the display can run, so switching the limit on costs nothing until it is moved.
         const capped = state.limitEnabled && echoed.value > 0;
-        const cappedValue = echoed.value > 0 ? echoed.value : (state.minimumFps ?? 0);
+        const cappedValue = echoed.value > 0 ? echoed.value : (state.maximumFps ?? 0);
         // Recomputed every render, which is what makes it track a value still being dragged.
         const pairedHz = state.refreshForCap.get(cappedValue);
         // The row's second mode. With the cap off the slider IS the refresh rate — the whole reason

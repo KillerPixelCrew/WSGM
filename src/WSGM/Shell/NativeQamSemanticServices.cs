@@ -368,7 +368,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
 
     /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
     /// <remarks>
-    ///     The last cap the service still holds when there is one, else the lowest offered notch —
+    ///     The last cap the service still holds when there is one, else the highest offered notch —
     ///     which is also the value the projection shows on the disabled slider, so the cap that takes
     ///     effect is the number the user was already looking at.
     /// </remarks>
@@ -377,7 +377,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         var desired = _service.Current.Desired.FrameLimit ?? 0;
         return desired > 0
             ? desired
-            : NativeQamPerfProjection.LowestOption(PerfSupport?.Invoke().FrameLimitOptions ?? []);
+            : NativeQamPerfProjection.HighestOption(PerfSupport?.Invoke().FrameLimitOptions ?? []);
     }
 
     /// <summary>Whether a delta field only restates the value WSGM already wants.</summary>

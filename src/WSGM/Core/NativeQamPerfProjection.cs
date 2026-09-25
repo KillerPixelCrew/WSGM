@@ -88,7 +88,7 @@ internal static class NativeQamPerfProjection
             ? [.. support.FrameLimitOptions.Where(option => option > 0).Distinct().Order()]
             : null;
         int? frameLimit = frameLimitOptions is not null
-            ? values.FrameLimit ?? LowestOption(support.FrameLimitOptions)
+            ? values.FrameLimit ?? HighestOption(support.FrameLimitOptions)
             : null;
         bool? frameLimitEnabled = frameLimitOptions is not null ? values.FrameLimit is > 0 : null;
         int? manualRefreshHz = support.RefreshRatesSelectable
@@ -133,7 +133,7 @@ internal static class NativeQamPerfProjection
                 // LIMITS AND SETTINGS ARE A PAIR, and getting this wrong crashed the whole
                 // Performance tab on 2026-08-30. Every field here is supplied exactly when the
                 // limits field that reveals its control is, and carries a concrete value: the
-                // lowest offered notch when no cap is set, never 0, because zero is filtered out of
+                // highest offered notch when no cap is set, never 0, because zero is filtered out of
                 // the options above and "off" is carried by the flag below.
                 //
                 // The `_external` twins follow the rule on FpsLimitOptionsExternal.
@@ -157,11 +157,31 @@ internal static class NativeQamPerfProjection
         };
     }
 
+    /// <summary>The highest cap actually offered, or zero when none is.</summary>
+    /// <remarks>
+    ///     What an unset frame limit shows, and what switching the limit on applies when no cap was
+    ///     chosen yet: no limit means the most the display can run, not the least. Mirrors the filter
+    ///     applied to <c>fps_limit_options</c> above, so the value is always one the slider has a notch
+    ///     for.
+    /// </remarks>
+    internal static int HighestOption(IReadOnlyList<int> options)
+    {
+        var highest = 0;
+        foreach (var option in options)
+        {
+            if (option > highest)
+            {
+                highest = option;
+            }
+        }
+
+        return highest;
+    }
+
     /// <summary>The lowest cap actually offered, or zero when none is.</summary>
     /// <remarks>
-    ///     Mirrors the filter applied to <c>fps_limit_options</c> above, so the value reported can never
-    ///     be one the slider does not have a notch for. Shared with the frame-limit projection and the
-    ///     enable-toggle default, which need the same "lowest playable cap" answer.
+    ///     Mirrors the filter applied to <c>fps_limit_options</c> above. The frame-limit row's lower
+    ///     bookend.
     /// </remarks>
     internal static int LowestOption(IReadOnlyList<int> options)
     {
