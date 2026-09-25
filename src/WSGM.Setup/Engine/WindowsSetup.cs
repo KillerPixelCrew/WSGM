@@ -239,6 +239,17 @@ internal static class WindowsSetup
     {
         if (!Blockers(true).Contains("steam", StringComparer.OrdinalIgnoreCase))
         {
+            // Steam elsewhere is not ours to close, but saying so tells a session mismatch from no Steam at all.
+            var elsewhere = Process.GetProcessesByName("steam");
+            SetupLog.Info("Steam is not running in this session"
+                          + (elsewhere.Length == 0
+                              ? "."
+                              : $"; found in session(s) {string.Join(", ", elsewhere.Select(Session).Distinct())}."));
+            foreach (var process in elsewhere)
+            {
+                process.Dispose();
+            }
+
             return true;
         }
 
@@ -291,6 +302,18 @@ internal static class WindowsSetup
         }
 
         return null;
+    }
+
+    private static string Session(Process process)
+    {
+        try
+        {
+            return process.SessionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            return "?";
+        }
     }
 
     /// <summary>Force-stops an image in this session only; another signed-in user's WSGM is never touched.</summary>

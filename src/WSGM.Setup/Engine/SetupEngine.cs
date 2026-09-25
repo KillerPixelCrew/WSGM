@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -149,7 +150,7 @@ internal sealed class SetupEngine : IDisposable
                 engine.InstalledPluginIds);
         }
 
-        SetupLog.Info($"Setup {engine.ThisVersion}: kind={engine.Kind}, installed={engine.InstalledVersion}, "
+        SetupLog.Info($"Setup {engine.ThisVersion} ({Build}, {Environment.ProcessPath}): kind={engine.Kind}, installed={engine.InstalledVersion}, "
                       + $"legacy={engine.Legacy?.Version ?? "none"}, steam={engine.SteamInstalled}, "
                       + $"payload={engine.Payload?.Source ?? "none"}.");
         return engine;
@@ -200,6 +201,11 @@ internal sealed class SetupEngine : IDisposable
         return RequiredComponents(choices).Contains(SetupComponent.ControllerStack)
                && (!InstalledComponents.UsbipPresent() || !InstalledComponents.HidHidePresent());
     }
+
+    // The informational version carries the commit, so the log says exactly which build ran.
+    private static string Build =>
+        typeof(SetupEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? "unknown build";
 
     /// <summary>The steps of an install, update or repair.</summary>
     public IReadOnlyList<SetupStep> PlanInstall(InstallChoices choices)
