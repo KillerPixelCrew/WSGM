@@ -140,4 +140,5 @@ Do not assume a Claw-style gamepad report codec or a HID rumble route on that fi
 and `AllyModels.cs`, cited in its `PROVENANCE.md`) come from HHD and HC source, not from
 measurement. HHD is the primary source for buttons because the maintainer reports that HC's button
 handling is buggy. Record findings from a
-returned `tools/AllyXLab` ZIP in the tracker before encoding them in the plugin.
+returned Device Lab `.wsgmlab` report (`wsgm-device review`) in the tracker before encoding them in
+the plugin.

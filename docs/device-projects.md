@@ -80,10 +80,10 @@ records come from the decompiled Handheld Companion source through `eng/extract-
 the development-only `tools/HcDeviceExtract`, which is not in `WSGM.slnx`. Curated records are
 written by hand from the plugins and lab runs. The Device Lab README describes both.
 
-## Portable Ally X tester
+## Remote testers
 
-[Ally X Lab](../tools/AllyXLab/README.md) is a separate developer tool for an attended remote
-tester. Its self-contained EXE is committed under `tools/AllyXLab/Downloads` at the maintainer's
-request. It and `tests/WSGM.AllyXLab.Tests` build independently of `WSGM.slnx`; neither is an
-installer component. The source comparison and outstanding hardware validation live beside the Ally
-X plugin.
+A remote tester runs the Device Lab wizard from one portable `wsgm-device.exe`
+(`eng/publish-device-lab.ps1 -Portable`); it replaced the Ally-only AllyXLab tool. The returned
+`.wsgmlab` report is read with `wsgm-device report`, `review` and `promote`, and a plugin can be
+scaffolded from it. The source comparison and outstanding hardware validation for the Ally live
+beside the Ally plugin.

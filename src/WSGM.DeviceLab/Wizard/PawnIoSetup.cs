@@ -223,12 +223,12 @@ internal static class PawnIoSetup
 
     // A random name directly under %SystemRoot%\Temp: users may create folders there but cannot
     // delete or rename one an administrator created, and the protected ACL keeps them out of it.
-    private static string CreateAdministratorsOnlyDirectory()
+    internal static string CreateAdministratorsOnlyDirectory(string purpose = "pawnio")
     {
         var path = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.Windows),
             "Temp",
-            $"wsgm-device-lab-pawnio-{Guid.NewGuid():N}");
+            $"wsgm-device-lab-{purpose}-{Guid.NewGuid():N}");
         DirectorySecurity security = new();
         security.SetAccessRuleProtection(true, false);
         foreach (var sid in new[] { WellKnownSidType.BuiltinAdministratorsSid, WellKnownSidType.LocalSystemSid })

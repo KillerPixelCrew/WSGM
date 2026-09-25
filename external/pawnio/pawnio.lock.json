@@ -11,8 +11,14 @@
     "assetSha256": "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032",
     "signerSubject": "E=admin@namazso.eu, CN=namazso.eu, O=namazso, L=Debrecen, C=HU",
     "signerThumbprint": "F380DCC9F706E2756A5047B832FFE719E1BC35F5",
-    "installArguments": ["-install", "-silent"],
-    "uninstallArguments": ["-uninstall", "-silent"],
+    "installArguments": [
+      "-install",
+      "-silent"
+    ],
+    "uninstallArguments": [
+      "-uninstall",
+      "-silent"
+    ],
     "uninstallKey": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PawnIO",
     "controlDevice": "\\\\.\\PawnIO",
     "minimumInstalledVersion": "2.0.0",
@@ -21,5 +27,22 @@
       "The installer states it may be redistributed unmodified. It refuses to install over an existing copy, so an older version is uninstalled first, and only with the tester's consent.",
       "-unrestricted disables PawnIO's module signature check and is never passed."
     ]
-  }
+  },
+  "modules": [
+    {
+      "id": "RyzenSMU",
+      "repository": "https://github.com/namazso/PawnIO.Modules",
+      "tag": "0.2.11",
+      "archive": "release_0_2_11.zip",
+      "archiveUrl": "https://github.com/namazso/PawnIO.Modules/releases/download/0.2.11/release_0_2_11.zip",
+      "archiveSha256": "43608CB89BC84247FEF1368A139013F7D043E17DB6D6C8DFC9B46BF0905A81F4",
+      "member": "RyzenSMU.bin",
+      "memberSha256": "301D9CA397108E09F31BFBD5AC4C9BB4F352A5DE68532C32DB3BA7DDCDE93450",
+      "notes": [
+        "Byte-identical to the RyzenSMU.bin Handheld Companion 1.3.1.6 embeds (HandheldCompanion.Resources.PawnIO.RyzenSMU.bin).",
+        "PawnIO verifies the module signature when it loads it; Device Lab also checks this digest first.",
+        "LibreHardwareMonitorLib 0.9.6 embeds an older RyzenSMU.bin (SHA-256 0CF0FE12...D8AA) without the SMU command function; Device Lab uses that copy only through LHM's own read calls."
+      ]
+    }
+  ]
 }

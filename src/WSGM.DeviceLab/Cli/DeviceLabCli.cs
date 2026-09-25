@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -10,7 +11,9 @@ using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
+using WSGM.DeviceLab.Scaffolding;
 using WSGM.DeviceLab.Testing;
+using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Cli;
 
@@ -59,6 +62,9 @@ internal static class DeviceLabCli
                 "validate" => RunValidate(args.AsSpan(1)),
                 "test" => await RunTestAsync(args[1..]).ConfigureAwait(false),
                 "pack" => RunPack(args.AsSpan(1)),
+                "report" => RunReport(args.AsSpan(1)),
+                "review" => RunReview(args.AsSpan(1)),
+                "promote" => RunPromote(args.AsSpan(1)),
                 _ => Unknown(args[0])
             };
         }
@@ -279,6 +285,49 @@ internal static class DeviceLabCli
         return Success;
     }
 
+    private static int RunReport(ReadOnlySpan<string> args)
+    {
+        if (args.Length != 1)
+        {
+            return UsageError("report requires one .wsgmlab path.");
+        }
+
+        WriteJson(LabReport.Read(args[0]));
+        return Success;
+    }
+
+    private static int RunReview(ReadOnlySpan<string> args)
+    {
+        if (args.Length != 1)
+        {
+            return UsageError("review requires one .wsgmlab path.");
+        }
+
+        WriteJson(LabReview.Review(args[0]));
+        return Success;
+    }
+
+    private static int RunPromote(ReadOnlySpan<string> args)
+    {
+        var output = args.Length > 0 ? Option(args[1..], "--out", "-o") : null;
+        if (args.Length == 0 || args[0].StartsWith('-') || output is null)
+        {
+            return UsageError("promote requires <file.wsgmlab> --out <new-record.json> and accepts --field <id> repeatedly.");
+        }
+
+        List<string> fields = [];
+        for (var index = 1; index + 1 < args.Length; index++)
+        {
+            if (args[index] is "--field")
+            {
+                fields.Add(args[++index]);
+            }
+        }
+
+        WriteJson(LabPromote.Run(args[0], output, fields, DeviceLabPathBoundaries.ForCurrentUser(RepositoryRoot())));
+        return Success;
+    }
+
     private static int RunCompare(ReadOnlySpan<string> args)
     {
         if (args.Length != 2)
@@ -343,7 +392,17 @@ internal static class DeviceLabCli
         if (from is null || output is null)
         {
             return UsageError(
-                "scaffold requires --from <capture> --out-dir <new-directory>; use --usb-instance when the capture has multiple exact USB endpoints.");
+                "scaffold requires --from <capture|file.wsgmlab> --out-dir <new-directory>; use --usb-instance when the source has multiple exact USB endpoints.");
+        }
+
+        if (ScaffoldFromLabProjectWorkflow.IsLabReport(from))
+        {
+            WriteJson(ScaffoldFromLabProjectWorkflow.Run(
+                from,
+                output,
+                DeviceLabPathBoundaries.ForCurrentUser(RepositoryRoot()),
+                usbInstance));
+            return Success;
         }
 
         WriteJson(Application().Scaffold(
@@ -538,6 +597,8 @@ internal static class DeviceLabCli
             "fixture" => UnknownToken(tail, 1, [], ["--from", "-f", "--id", "--out-dir", "-o"]),
             "scaffold" => UnknownToken(tail, 0, [], ["--from", "-f", "--out-dir", "-o", "--usb-instance"]),
             "pack" => UnknownToken(tail, 1, [], ["--out", "-o"]),
+            "review" => UnknownToken(tail, 1, [], []),
+            "promote" => UnknownToken(tail, 1, [], ["--out", "-o", "--field"]),
             "test" when tail.Length > 0 && tail[0] is "hardware" => null,
             "test" when tail.Length > 0 && tail[0] is "plugin" =>
                 UnknownToken(tail, 2, [], ["--from", "-f"]),
@@ -624,9 +685,12 @@ internal static class DeviceLabCli
     private static void WriteUsage(TextWriter writer)
     {
         writer.WriteLine(
-            "wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|glyph|validate|test|pack");
+            "wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|glyph|validate|test|pack|report|review|promote");
         writer.WriteLine("test: sample | plugin <dir> --from <inventory>");
         writer.WriteLine("scaffold --from <capture> --out-dir <new-dir> [--usb-instance <exact-id>]");
+        writer.WriteLine("scaffold --from <file.wsgmlab> --out-dir <new-dir> [--usb-instance <VID:PID[:release]>]");
+        writer.WriteLine("review <file.wsgmlab>");
+        writer.WriteLine("promote <file.wsgmlab> --out <new-record.json> [--field <id>...]");
         writer.WriteLine(
             "test hardware <dir> --from <inventory> --state-dir <new-dir> --action capability --capability <id> [--instance <id>] --value <value>");
         writer.WriteLine(

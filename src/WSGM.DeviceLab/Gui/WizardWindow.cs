@@ -32,11 +32,21 @@ internal sealed record WizardOptions(bool Elevated, string? ElevationNote, strin
 ///     attempt. Every file, registry and driver call runs off the UI thread, one operation at a time, and
 ///     closing the window waits for that operation before it undoes the session's machine changes.
 /// </remarks>
-internal sealed class WizardWindow : Window
+internal sealed partial class WizardWindow : Window
 {
     private const string FinishId = "finish";
 
     private readonly CancellationTokenSource _lifetime = new();
+
+    private readonly TextBox _note = new()
+    {
+        PlaceholderText = "Anything to add? For example: the left stick feels loose.",
+        AcceptsReturn = true,
+        TextWrapping = TextWrapping.Wrap,
+        MaxLength = 2000,
+        Height = 80
+    };
+
     private readonly LabMachineState _machine = LabMachineState.ForCurrentUser;
     private readonly WizardOptions _options;
     private readonly ContentControl _page = new();
@@ -45,9 +55,12 @@ internal sealed class WizardWindow : Window
     private readonly ListBox _stages = new() { MinWidth = 240 };
     private bool _closeReady;
     private bool _closing;
+    private bool _confirmingClose;
     private Task _operation = Task.CompletedTask;
     private DeviceLabOwnerReservation? _owner;
     private LabProject? _project;
+    private string? _running;
+    private CancellationTokenSource _stage = new();
     private bool _refreshing;
 
     public WizardWindow(WizardOptions options)
@@ -70,6 +83,13 @@ internal sealed class WizardWindow : Window
         side.Children.Add(new TextBlock { Text = "Device Lab", FontSize = 24, FontWeight = FontWeight.SemiBold });
         side.Children.Add(_projectLine);
         side.Children.Add(_stages);
+        Button stop = new() { Content = "Stop and save (Esc)" };
+        stop.Click += (_, _) => StopStage();
+        side.Children.Add(stop);
+        side.Children.Add(Muted("Notes for the developer"));
+        side.Children.Add(_note);
+        side.Children.Add(Action("Save note", SaveNote));
+        side.Children.Add(Buttons(Action("Open test folder", OpenProjectFolder), Action("Help and licences", ShowHelp)));
         root.Children.Add(side);
         ScrollViewer scroller = new() { Content = _page };
         Grid.SetColumn(scroller, 1);
@@ -91,13 +111,19 @@ internal sealed class WizardWindow : Window
             }
 
             args.Cancel = true;
-            if (!_closing)
+            if (!_closing && !_confirmingClose)
             {
-                _closing = true;
-                _ = CloseAfterCleanupAsync();
+                _ = ConfirmCloseAsync();
             }
         };
         Opened += (_, _) => Start();
+        KeyDown += (_, args) =>
+        {
+            if (args.Key == Avalonia.Input.Key.Escape)
+            {
+                StopStage();
+            }
+        };
     }
 
     private void Start()
@@ -109,6 +135,33 @@ internal sealed class WizardWindow : Window
             if (_options.Elevated)
             {
                 await Task.Run(_pawnIo.Reconcile);
+            }
+
+            // Undo what a killed session left applied: power settings and a switched controller mode.
+            List<string> recovered = [];
+            if (_options.Elevated && await Task.Run(() => LabPowerRecovery.RestoreRecorded(_machine)) is { } power)
+            {
+                recovered.Add(power.Message);
+            }
+
+            if (LabControllerInit.HasPending)
+            {
+                var problem = await Task.Run(() => LabControllerInit.RecoverPending(_lifetime.Token));
+                recovered.Add(problem is null
+                    ? "The controller was switched back to the mode it had before an earlier test."
+                    : $"The controller could not be switched back after an earlier test: {problem}");
+            }
+
+            if (recovered.Count > 0)
+            {
+                var notice = Page("Test your handheld", "An earlier test did not finish.");
+                foreach (var line in recovered)
+                {
+                    notice.Children.Add(Status(line));
+                }
+
+                _page.Content = notice;
+                await AskAsync(notice, "Continue");
             }
 
             if (_options.ProjectPath is { } path)
@@ -153,7 +206,8 @@ internal sealed class WizardWindow : Window
         var project = await Task.Run(() =>
         {
             Directory.CreateDirectory(parent);
-            return LabProject.Create(decision.FullPath!, LabStages.Ids, ToolVersion(), DateTimeOffset.UtcNow);
+            return LabProject.Create(decision.FullPath!, LabStages.Ids, ToolVersion(), DateTimeOffset.UtcNow,
+                ToolSha256(), SourceRevision());
         });
         Load(project);
     }
@@ -181,7 +235,7 @@ internal sealed class WizardWindow : Window
         _project = project;
         _projectLine.Text = project.Directory;
         var next = LabStages.All.FirstOrDefault(stage =>
-                stage.Available && project.Segment(stage.Id).Status is LabSegmentStatus.NotStarted)
+                project.Segment(stage.Id).Status is LabSegmentStatus.NotStarted)
             ?.Id ?? FinishId;
         ShowStage(next, true);
     }
@@ -200,20 +254,17 @@ internal sealed class WizardWindow : Window
             foreach (var stage in LabStages.All)
             {
                 var state = _project.Segment(stage.Id);
-                var mark = !stage.Available
-                    ? "later"
-                    : state.Status switch
-                    {
-                        LabSegmentStatus.Completed => "done",
-                        LabSegmentStatus.Skipped => "skipped",
-                        LabSegmentStatus.Failed => "failed",
-                        _ => string.Empty
-                    };
+                var mark = state.Status switch
+                {
+                    LabSegmentStatus.Completed => "done",
+                    LabSegmentStatus.Skipped => "skipped",
+                    LabSegmentStatus.Failed => "failed",
+                    _ => string.Empty
+                };
                 items.Add(new ListBoxItem
                 {
                     Tag = stage.Id,
-                    Content = mark.Length == 0 ? stage.Title : $"{stage.Title}  ({mark})",
-                    Foreground = stage.Available ? null : Brushes.Gray
+                    Content = mark.Length == 0 ? stage.Title : $"{stage.Title}  ({mark})"
                 });
             }
 
@@ -250,13 +301,6 @@ internal sealed class WizardWindow : Window
         var stage = LabStages.All.Single(item => item.Id == id);
         var page = Page(stage.Title, stage.Description);
         _page.Content = page;
-        if (!stage.Available)
-        {
-            page.Children.Add(
-                Status("This part is not in this build of Device Lab yet; skip ahead to Finish and share."));
-            return;
-        }
-
         var state = project.Segment(id);
         if (state.Status is LabSegmentStatus.NotStarted)
         {
@@ -265,7 +309,13 @@ internal sealed class WizardWindow : Window
                 page.Children.Add(Muted("An earlier run of this step did not finish."));
             }
 
-            page.Children.Add(Buttons(Action("Start", () => StartStage(id))));
+            page.Children.Add(Buttons(
+                Action("Start", () => StartStage(id)),
+                Action("Skip this step", () => Run(page, async () =>
+                {
+                    await Task.Run(() => SkipStage(project, id));
+                    Next(id);
+                }))));
             return;
         }
 
@@ -291,6 +341,7 @@ internal sealed class WizardWindow : Window
             return;
         }
 
+        _running = id;
         RefreshStages(id);
         var page = Page(LabStages.All.Single(stage => stage.Id == id).Title, string.Empty);
         _page.Content = page;
@@ -302,14 +353,31 @@ internal sealed class WizardWindow : Window
             case LabStages.Identity:
                 Run(page, () => RunIdentityAsync(project, page), fromCompletedOperation);
                 break;
+            case LabStages.SystemDump:
+                Run(page, () => RunSystemDumpAsync(project, page), fromCompletedOperation);
+                break;
+            case LabStages.Buttons:
+                RunHardware(page, () => RunButtonsAsync(project, page), fromCompletedOperation);
+                break;
+            case LabStages.Motion:
+                RunHardware(page, () => RunMotionAsync(project, page), fromCompletedOperation);
+                break;
+            case LabStages.Rumble:
+                RunHardware(page, () => RunRumbleAsync(project, page), fromCompletedOperation);
+                break;
+            case LabStages.Power:
+                RunHardware(page, () => RunPowerAsync(project, page), fromCompletedOperation);
+                break;
+            case LabStages.Sleep:
+                RunHardware(page, () => RunSleepAsync(project, page), fromCompletedOperation);
+                break;
         }
     }
 
     // Called at the end of an operation, which still counts as running until it returns.
     private void Next(string after)
     {
-        var next = LabStages.All.SkipWhile(stage => stage.Id != after).Skip(1)
-            .FirstOrDefault(stage => stage.Available)?.Id;
+        var next = LabStages.All.SkipWhile(stage => stage.Id != after).Skip(1).FirstOrDefault()?.Id;
         if (next is null)
         {
             ShowStage(FinishId, true);
@@ -328,14 +396,25 @@ internal sealed class WizardWindow : Window
         var allowance = HidHideAllowance.ForMachine(_machine, DeviceLabExecutable.CurrentPath);
         Dictionary<string, object?> evidence = new() { ["elevated"] = _options.Elevated };
 
-        // 1. Undo what an earlier session left behind.
+        // 1. An entry an earlier session left behind: the tester chooses to remove or keep it.
         if (await Task.Run(() => _machine.Read().HidHideEntry) is not null)
         {
-            var problem = await Task.Run(allowance.RestoreRecorded);
-            evidence["recoveredHidHideEntry"] = problem ?? "removed";
-            page.Children.Add(Status(problem is null
-                ? "Removed the HidHide entry an earlier session left behind."
-                : $"An earlier session left a HidHide entry that could not be removed: {problem}"));
+            page.Children.Add(Heading("Left over from an earlier test"));
+            page.Children.Add(Status(
+                "An earlier test added this tool to HidHide's allowed programs and did not remove it. Remove it now?"));
+            if (await AskAsync(page, "Remove it", "Keep it") == 0)
+            {
+                var problem = await Task.Run(allowance.RestoreRecorded);
+                evidence["recoveredHidHideEntry"] = problem ?? "removed";
+                page.Children.Add(Status(problem is null
+                    ? "Removed the HidHide entry an earlier session left behind."
+                    : $"The entry could not be removed: {problem}"));
+            }
+            else
+            {
+                evidence["recoveredHidHideEntry"] = $"kept by the tester: {await Task.Run(allowance.KeepRecorded)}";
+                page.Children.Add(Status("Kept. It will not be removed automatically."));
+            }
         }
 
         // 2. WSGM's device integration must not run beside the test. The reservation is held until the
@@ -379,11 +458,52 @@ internal sealed class WizardWindow : Window
             }
             else
             {
-                var allowed = await Task.Run(allowance.TryAllow);
-                evidence["hidHideAllow"] = allowed;
-                page.Children.Add(Status(allowed.Added is not null
-                    ? "This tool was added to HidHide's allowed programs for the test. It is removed again when you finish or close the window."
-                    : allowed.Reason ?? "Nothing to change."));
+                if (allowance.DeniedByInverseList(state))
+                {
+                    page.Children.Add(Warning(
+                        "HidHide is set to hide devices from the programs on its list, and this tool is on that list. It will not see the controller. Remove it from HidHide's list, or continue and the tests will miss the controller."));
+                    evidence["hidHideAllow"] = "denied by inverse list";
+                    if (await AskAsync(page, "Continue anyway", "Stop here") == 1)
+                    {
+                        await Task.Run(() =>
+                        {
+                            project.WriteEvidence(attempt, "preflight", evidence);
+                            project.Finish(LabStages.Preflight, LabSegmentStatus.Failed,
+                                "Stopped: HidHide blocks this tool.", DateTimeOffset.UtcNow);
+                        });
+                        page.Children.Add(Buttons(Action("Check again", () => StartStage(LabStages.Preflight))));
+                        return;
+                    }
+                }
+                else if (state.Inverse)
+                {
+                    page.Children.Add(Status(
+                        "HidHide is in inverse mode and this tool is not on its list, so it sees every device. Nothing to change."));
+                    evidence["hidHideAllow"] = "inverse mode, not listed";
+                }
+                else if (allowance.AlreadyAllowed(state))
+                {
+                    page.Children.Add(Status("This tool is already allowed by HidHide."));
+                    evidence["hidHideAllow"] = "already allowed";
+                }
+                else
+                {
+                    page.Children.Add(Status(
+                        "HidHide can hide the controller from this tool. Add this tool to HidHide's allowed programs for the test? It is removed again when you finish or close the window."));
+                    if (await AskAsync(page, "Add it, then undo it later", "Leave HidHide alone") == 0)
+                    {
+                        var allowed = await Task.Run(allowance.TryAllow);
+                        evidence["hidHideAllow"] = allowed;
+                        page.Children.Add(Status(allowed.Added is not null
+                            ? "Added. It is removed again when you finish or close the window."
+                            : allowed.Reason ?? "Nothing to change."));
+                    }
+                    else
+                    {
+                        evidence["hidHideAllow"] = "declined by the tester";
+                        page.Children.Add(Status("Left alone. Hidden controllers will not show up in the tests."));
+                    }
+                }
             }
         }
 
@@ -615,6 +735,18 @@ internal sealed class WizardWindow : Window
 
         var export = await Task.Run(() => LabExport.Prepare(project));
         var preview = export.Preview;
+        var steps = LabStages.All.Select(stage => project.Segment(stage.Id)).ToList();
+        page.Children.Add(Heading("Your test"));
+        page.Children.Add(Status(
+            $"{steps.Count(step => step.Status is LabSegmentStatus.Completed)} steps done, " +
+            $"{steps.Count(step => step.Status is LabSegmentStatus.Skipped)} skipped, " +
+            $"{steps.Count(step => step.Status is LabSegmentStatus.Failed)} failed, " +
+            $"{steps.Count(step => step.Status is LabSegmentStatus.NotStarted)} not run."));
+        if (await Task.Run(() => _machine.Read().Power) is not null)
+        {
+            page.Children.Add(Warning(
+                "A power or fan setting from this test is still recorded as not put back. Restart Device Lab to restore it, or restart the device."));
+        }
         page.Children.Add(Heading($"{preview.Files.Count} files, {preview.Files.Sum(file => file.Bytes) / 1024} KiB"));
         page.Children.Add(Muted(string.Join(Environment.NewLine,
             preview.Files.Select(file => $"{file.Path}  ({file.Bytes} bytes)"))));
@@ -675,6 +807,10 @@ internal sealed class WizardWindow : Window
 
         await Task.Run(() => export.Write(path, Boundaries()));
         saved.Text = $"Saved to {path}. Send this file back.";
+        if (saved.Parent is Panel panel)
+        {
+            panel.Children.Add(Buttons(Action("Show the report in its folder", () => OpenInExplorer("/select," + Quote(path)))));
+        }
     }
 
     private string? RestoreHidHide()
@@ -695,6 +831,12 @@ internal sealed class WizardWindow : Window
         }
 
         _stages.IsEnabled = false;
+        if (!chained)
+        {
+            _stage.Dispose();
+            _stage = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        }
+
         var operation = RunCore(errors, work);
         if (!chained)
         {
@@ -717,11 +859,30 @@ internal sealed class WizardWindow : Window
         {
             // The window is closing.
         }
+        catch (OperationCanceledException) when (_stage.IsCancellationRequested)
+        {
+            // "Stop and save": everything recorded so far stays; the interrupted step is marked not done.
+            var page = Page("Stopped",
+                "Everything recorded so far is saved. Pick any step in the list to continue or redo it.");
+            page.Children.Add(Buttons(Action("Go to Finish and share", () => ShowStage(FinishId))));
+            _page.Content = page;
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             if (errors is not null)
             {
-                errors.Children.Add(Warning($"Something went wrong: {ex.Message}"));
+                errors.Children.Add(Warning(
+                    $"Something went wrong: {ex.Message} Nothing is retried automatically; what was recorded is saved."));
+                if (_running is { } stage && _project is not null)
+                {
+                    errors.Children.Add(Buttons(
+                        Action("Continue with the next step", () =>
+                        {
+                            var next = LabStages.All.SkipWhile(item => item.Id != stage).Skip(1).FirstOrDefault()?.Id;
+                            ShowStage(next ?? FinishId);
+                        }),
+                        Action("Go to Finish and share", () => ShowStage(FinishId))));
+                }
             }
             else
             {
@@ -733,6 +894,54 @@ internal sealed class WizardWindow : Window
         finally
         {
             _stages.IsEnabled = _project is not null && !_closing;
+        }
+    }
+
+    // A power, fan or charge setting that could not be confirmed as put back makes closing a choice.
+    private async Task ConfirmCloseAsync()
+    {
+        _confirmingClose = true;
+        try
+        {
+            if (PowerRestorationPending())
+            {
+                TaskCompletionSource<bool> answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                Window dialog = new()
+                {
+                    Title = "Settings not confirmed as restored",
+                    Width = 520,
+                    SizeToContent = SizeToContent.Height,
+                    CanResize = false
+                };
+                StackPanel body = new() { Margin = new Thickness(18), Spacing = 12 };
+                body.Children.Add(Status(
+                    "A power or fan setting from this test is not confirmed as put back. Close without confirming restoration? Device Lab tries again the next time it starts."));
+                body.Children.Add(Buttons(
+                    Action("Close anyway", () =>
+                    {
+                        answer.TrySetResult(true);
+                        dialog.Close();
+                    }),
+                    Action("Stay open", () =>
+                    {
+                        answer.TrySetResult(false);
+                        dialog.Close();
+                    })));
+                dialog.Content = body;
+                dialog.Closed += (_, _) => answer.TrySetResult(false);
+                await dialog.ShowDialog(this);
+                if (!await answer.Task)
+                {
+                    return;
+                }
+            }
+
+            _closing = true;
+            await CloseAfterCleanupAsync();
+        }
+        finally
+        {
+            _confirmingClose = false;
         }
     }
 
@@ -757,14 +966,105 @@ internal sealed class WizardWindow : Window
             // The record stays, so the next start removes the entry.
         }
 
+        _capture?.Dispose();
+        _capture = null;
         _owner?.Dispose();
         _closeReady = true;
         Close();
     }
 
+    private void StopStage()
+    {
+        if (!_operation.IsCompleted)
+        {
+            _stage.Cancel();
+        }
+    }
+
+    // A note is its own attempt of the "notes" segment, so notes never overwrite each other.
+    private void SaveNote()
+    {
+        if (_project is not { } project || string.IsNullOrWhiteSpace(_note.Text))
+        {
+            return;
+        }
+
+        var text = _note.Text.Trim();
+        var stage = _running;
+        _ = Task.Run(() =>
+        {
+            var directory = project.BeginAttempt("notes", DateTimeOffset.UtcNow);
+            project.WriteEvidence(directory, "note", new { Stage = stage, Text = text, At = DateTimeOffset.UtcNow });
+            project.Finish("notes", LabSegmentStatus.Completed, "Tester notes", DateTimeOffset.UtcNow);
+        }).ContinueWith(task => OnUi(() => _note.Text = task.IsFaulted
+            ? $"The note could not be saved: {task.Exception?.GetBaseException().Message}"
+            : string.Empty), TaskScheduler.Default);
+    }
+
+    private void OpenProjectFolder()
+    {
+        if (_project is { } project)
+        {
+            OpenInExplorer(Quote(project.Directory));
+        }
+    }
+
+    private static void OpenInExplorer(string arguments)
+    {
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo("explorer.exe", arguments) { UseShellExecute = false });
+    }
+
+    private static string Quote(string path)
+    {
+        return '"' + path + '"';
+    }
+
+    private void ShowHelp()
+    {
+        Window help = new()
+        {
+            Title = "Device Lab: help and licences",
+            Width = 820,
+            Height = 640,
+            Content = new TextBox
+            {
+                Text = WizardHelp.Text(),
+                IsReadOnly = true,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new FontFamily("Consolas, monospace")
+            }
+        };
+        help.Show(this);
+    }
+
     private static DeviceLabPathBoundaries Boundaries()
     {
         return DeviceLabPathBoundaries.ForCurrentUser(DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory));
+    }
+
+    private static string? ToolSha256()
+    {
+        try
+        {
+            using var stream = File.OpenRead(DeviceLabExecutable.CurrentPath);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string? SourceRevision()
+    {
+        var informational = typeof(WizardWindow).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion;
+        var plus = informational?.IndexOf('+') ?? -1;
+        return plus >= 0 ? informational![(plus + 1)..] : null;
     }
 
     private static string ToolVersion()

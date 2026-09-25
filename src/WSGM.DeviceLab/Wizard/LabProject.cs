@@ -78,6 +78,15 @@ internal sealed record LabProjectManifest
     /// <summary>Device Lab version that created the project.</summary>
     public required string ToolVersion { get; init; }
 
+    /// <summary>SHA-256 of the executable that created the project, upper-case hex.</summary>
+    public string? ToolSha256 { get; init; }
+
+    /// <summary>Source revision the executable was built from, when the build recorded one.</summary>
+    public string? SourceRevision { get; init; }
+
+    /// <summary>What the report contains and what it never contains, as the tester was told.</summary>
+    public string Notice { get; init; } = LabProject.PrivacyNotice;
+
     /// <summary>Which device this is.</summary>
     public LabDeviceIdentity Device { get; init; } = new();
 
@@ -97,6 +106,10 @@ internal sealed class LabProject
 {
     /// <summary>Manifest file name at the project root.</summary>
     public const string ManifestFileName = "project.json";
+
+    /// <summary>The privacy notice recorded in every manifest.</summary>
+    public const string PrivacyNotice =
+        "This test records hardware identity, firmware tables, inputs and sensor readings. It never collects serial numbers, UUIDs, network addresses or account names; user folders and device instance paths are replaced before sharing, and nothing is uploaded.";
 
     private readonly object _gate = new();
 
@@ -128,12 +141,16 @@ internal sealed class LabProject
     /// <param name="segmentIds">Top-level segment IDs in wizard order.</param>
     /// <param name="toolVersion">Device Lab version.</param>
     /// <param name="now">Creation time.</param>
+    /// <param name="toolSha256">SHA-256 of the running executable.</param>
+    /// <param name="sourceRevision">Source revision of the build.</param>
     /// <returns>The project.</returns>
     public static LabProject Create(
         string directory,
         IEnumerable<string> segmentIds,
         string toolVersion,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? toolSha256 = null,
+        string? sourceRevision = null)
     {
         var full = Path.GetFullPath(directory);
         if (Path.Exists(full))
@@ -148,6 +165,8 @@ internal sealed class LabProject
             Id = Guid.NewGuid().ToString("N"),
             CreatedAt = now,
             ToolVersion = toolVersion,
+            ToolSha256 = toolSha256,
+            SourceRevision = sourceRevision,
             Segments =
             [
                 .. segmentIds.Select(id => new LabSegmentState

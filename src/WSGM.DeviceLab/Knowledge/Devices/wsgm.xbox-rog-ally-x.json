@@ -193,12 +193,13 @@
         "device": "\\\\.\\ATKACPI",
         "ioctl": "0x0022240C",
         "id": "0x00120075",
-        "values": "0 balanced, 1 performance, 2 silent"
+        "values": "0 balanced, 1 turbo, 2 silent"
       },
       "hasReadback": true,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs"
+        "reference": "tools/AllyXLab/AsusControl.cs",
+        "note": "ASUS throttle_thermal_policy DEVS 0x00120075: 0 balanced, 1 turbo (performance), 2 silent, per asus-wmi and HHD. The fan-curve getter selector swaps 1 and 2 (AsusControl.GetCurve); that is a separate quirk, not the mode meaning."
       }
     },
     {

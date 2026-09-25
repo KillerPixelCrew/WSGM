@@ -49,6 +49,9 @@ internal sealed class LabExport
     /// <summary>Largest report the archive carries.</summary>
     public const long MaximumTotalBytes = 256L * 1024 * 1024;
 
+    /// <summary>Most files the archive carries.</summary>
+    public const int MaximumFiles = 4096;
+
     private static readonly string[] BinaryExtensions = [".aml", ".dat"];
 
     private readonly SortedDictionary<string, (byte[] Content, bool Redacted)> _files = new(StringComparer.Ordinal);
@@ -116,7 +119,30 @@ internal sealed class LabExport
             }
 
             export._files[relative] = (content, redacted);
+            if (export._files.Count > MaximumFiles)
+            {
+                throw new InvalidDataException($"The report would hold more than {MaximumFiles} files; nothing was written.");
+            }
         }
+
+        // One table of every step for whoever opens the report: status, attempts and summary.
+        var analysis = Encoding.UTF8.GetBytes(RedactJson("analysis.json", JsonSerializer.Serialize(new
+        {
+            project.Manifest.Device,
+            project.Manifest.ToolVersion,
+            project.Manifest.SourceRevision,
+            Steps = project.Manifest.Segments.Select(segment => new
+            {
+                segment.Id,
+                segment.Status,
+                segment.Attempts,
+                segment.Summary
+            }),
+            Counts = project.Manifest.Segments.GroupBy(segment => segment.Status)
+                .ToDictionary(group => group.Key.ToString(), group => group.Count()),
+            Limits = "Candidates are what reacted during a step, never proof of cause. Stages the tester skipped or stopped are marked, never counted as measured."
+        }, LabProject.JsonOptions), redactor));
+        export._files["analysis.json"] = (analysis, true);
 
         var manifest = export._files.TryGetValue(LabProject.ManifestFileName, out var entry)
             ? Encoding.UTF8.GetString(entry.Content)

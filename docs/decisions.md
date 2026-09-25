@@ -211,8 +211,8 @@ device's own power, fan, lighting and controller-mode commands. The rules a plug
 apply: every change is recorded before it is made, read back from a real source, restored, confirmed
 by the tester and never retried automatically, and a crashed session is cleaned up on the next
 start. The knowledge records the wizard works from are evidence, not a plugin: nothing WSGM runs
-reads them, and a device only becomes supported through a plugin built from them. AllyXLab is
-retired once the wizard covers it.
+reads them, and a device only becomes supported through a plugin built from them. AllyXLab was
+retired on 2026-09-25, once the wizard covered it.
 
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it

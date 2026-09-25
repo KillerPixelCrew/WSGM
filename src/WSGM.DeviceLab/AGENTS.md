@@ -32,7 +32,7 @@ running tool otherwise.
   (`--elevated-relaunch` prevents a loop) and opens without elevation if the prompt is declined.
   `gui` starts the developer tabs as-invoker. Normal CLI commands are `doctor`, `inventory`, `candidates`,
   `probe-read`, `capture`, `inspect`, `compare`, `correlate`, `fixture`, `scaffold`, `glyph`,
-  `validate`, `test`, and `pack`.
+  `validate`, `test`, `pack`, `report`, `review` and `promote` (the last three read a returned `.wsgmlab`; `scaffold --from` also takes one).
 - `__read-probe` and `__plugin-test` are authenticated internal worker modes, not public commands.
 - Use stdout for result JSON and stderr for diagnostics. Preserve exit codes: `0` success, `64`
   usage error, `70` operational failure.
@@ -86,6 +86,24 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   manifest is the only file rewritten (atomically).
 - Input capture records every input from every device and attributes it afterwards. Never filter by
   device, VID/PID or usage page at capture time; the knowledge base may rank sources, not narrow them.
+  `Wizard/LabInputCapture` is the one capture: Raw Input on every usage page present, low-level hooks,
+  XInput, Windows.Gaming.Input, WMI events, power and device changes. While a button step runs it
+  swallows Windows-key and Alt+Tab shortcuts after recording them, so a firmware chord cannot
+  minimize the wizard; it suppresses nothing else. Presses are counted by key-up.
+  Storage per step is bounded; baseline-noise reports are sampled and everything else that did not
+  fit is counted, never silently lost. Hiding pointer and touch input is for display only.
+- A Curated record's controller init (`LabControllerInit`) runs before the buttons stage. A
+  reversible one (the Claw mode switch) is recorded before it is sent and switched back at the end
+  and on the next start; an irreversible one (the Ally button tables) is sent only on the tester's
+  explicit choice and is never described as undone.
+- The sleep stage waits for the tester's power button; the wizard never requests sleep itself.
+- Hardware stages (buttons, motion, rumble, power, sleep) start through `RunHardware`, which refuses
+  without the preflight owner reservation. Output writes (rumble, TDP, fans, charge limit, lighting)
+  use only generic Windows APIs or a Curated record's typed mechanism whose endpoint is present;
+  never guess reports, registers or WMI methods, and never write the EC. Every write is bounded,
+  read back where the transport can, restored on every exit path, and recorded in `LabMachineState`
+  before it is made when a crash could leave it applied. An uncertain write is not retried; the
+  tester gets an explicit button instead.
 - The shared report is built in memory, previewed, and written once. Every JSON string passes through
   one `CaptureRedactor`; only JSON and raw ACPI tables leave the machine.
 - The wizard keeps blocking work (files, registry, drivers) off the UI thread and runs one operation

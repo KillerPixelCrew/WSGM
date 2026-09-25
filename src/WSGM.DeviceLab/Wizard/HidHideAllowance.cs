@@ -98,6 +98,34 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
         return new HidHideAllowResult(null, error);
     }
 
+    /// <summary>Whether HidHide is in inverse mode and lists this tool, which blocks it from the devices.</summary>
+    /// <param name="current">State from <see cref="Read" />.</param>
+    /// <returns>True when this tool is denied.</returns>
+    public bool DeniedByInverseList(HidHideState current)
+    {
+        return current is { Available: true, Inverse: true } && Contains(current.Applications, selfPath, DeviceForDrive);
+    }
+
+    /// <summary>Whether this tool is allowed already.</summary>
+    /// <param name="current">State from <see cref="Read" />.</param>
+    /// <returns>True when it is listed in a normal list.</returns>
+    public bool AlreadyAllowed(HidHideState current)
+    {
+        return current is { Available: true, Inverse: false } && Contains(current.Applications, selfPath, DeviceForDrive);
+    }
+
+    /// <summary>
+    ///     Keeps an entry an earlier session left behind, at the tester's choice: the record is cleared so
+    ///     it is no longer removed automatically, and the entry stays in HidHide.
+    /// </summary>
+    /// <returns>The entry that was kept, or null.</returns>
+    public string? KeepRecorded()
+    {
+        var added = state.Read().HidHideEntry;
+        state.Update(changes => changes with { HidHideEntry = null, HidHideAddedAt = null });
+        return added;
+    }
+
     /// <summary>Removes the entry recorded in the machine state, leaving every other entry as it is now.</summary>
     /// <returns>Null when nothing is recorded or the list reads back without it; otherwise the problem.</returns>
     public string? RestoreRecorded()

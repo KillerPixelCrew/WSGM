@@ -102,48 +102,62 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
             closes Steam. The overlay notice waits for the overlay redesign in #114.
       - [ ] Manual test: update to a test release. After that, `UpdateCheckerTests`.
 
-## Device Lab attended wizard (2026-09-24, in progress)
+## Device Lab attended wizard (2026-09-24, implemented 2026-09-25, awaiting attended runs)
 
-Device Lab becomes the one tool a tester runs on any handheld: an attended wizard that checks for
+Device Lab is the one tool a tester runs on any handheld: an attended wizard that checks for
 interfering programs and HidHide, identifies the device against a knowledge base, dumps ACPI, the
-device tree, HID and sensors, maps buttons, motion and rumble, tests power, fan and lighting, and
-exports a project that can be reopened to redo single segments. AllyXLab is retired once the wizard
-covers it. The knowledge base is seeded from a decompiled Handheld Companion 1.3.1.6 build in
-`_ref/HandheldCompanion`. Button capture records every input from every device and attributes it
-afterwards. Delivered as stacked PRs ending at `feat/devicelab-attended-wizard`.
+device tree, HID and sensors, maps buttons, motion and rumble, tests power, fan and lighting, checks
+sleep, and exports a project that can be reopened to redo single segments. The knowledge base is
+seeded from a decompiled Handheld Companion 1.3.1.6 build in `_ref/HandheldCompanion`. Button
+capture records every input from every device and attributes it afterwards. The plan is
+`we-go-ahead-and-hazy-knuth` (maintainer plan store). PR 1 (#187) and the wizard shell (#188) were
+merged; everything after them landed in one change on master at the maintainer's direction.
 
-- [x] PR 1 (`feat/devicelab-knowledge-base`): knowledge-base schema, loader and matcher,
-      `tools/HcDeviceExtract` with `eng/extract-hc-devices.ps1` (89 extracted records), curated
-      Claw 8 A2VM, ROG Ally X and Xbox Ally X records, `candidates` knowledge matches, baseboard
-      manufacturer in the inventory, Windows 10 SDK target framework. Smoke-checked with a live
-      inventory and a synthetic RC73XA identity; test suites deferred to after manual testing.
-- [ ] PR 2 (`feat/devicelab-wizard-shell`, #188), implemented, awaiting the attended run:
-      - [x] Wizard as the default start, elevated once with a no-loop marker; `gui` keeps the tabs.
-      - [x] Project folders with per-segment attempts; selecting a stage shows it, Run again redoes it.
-      - [x] Preflight: `Global\WSGM.DeviceOwner` reserved and held for the session; other managers
-            get a close request only (tray-only ones are reported at once); HidHide self-allow with
-            exact-entry restore and crash recovery; PawnIO detection and pinned silent install.
-      - [x] PawnIO installer extracted into an administrators-only folder and held open through
-            SHA-256, Authenticode signer check and execution; replacement tracked apart from a fresh
-            install and never offered for removal; the machine record reconciled at start.
-      - [x] Identity: board, BIOS, EC, CPUID family/model/stepping and HID controller firmware
-            (USB release), confirmed against the knowledge base or typed product and model.
-      - [x] Export: redacted in-memory preview, then one `.wsgmlab` file (a ZIP).
-      - [x] `external/pawnio` pin, `eng/acquire-pawnio.ps1`, `eng/assert-pawnio-pin.ps1` in
-            eng/verify.ps1, and `publish-device-lab.ps1 -Portable` (offline installer builds warn).
-      - [x] Decision in `docs/decisions.md`; licence note for the linked WSGM interop sources.
-      - [ ] Attended run on the Claw by the maintainer (it elevates, edits HidHide, installs PawnIO).
-      - Deferred, with reason: the AMD SMU codename needs the PawnIO RyzenSMU module and moves to
-        PR 6; AllyXLab's own tests stay with AllyXLab until PR 7 deletes the tool (the ported code
-        has its own tests here); the export preview is its own bounded record because
-        `CapturePrivacyPreview` is tied to capture bundles; reopening a `.wsgmlab` is the PR 7
-        developer path.
-- [ ] PR 3: system dump (ACPI without MSDM/SLIC, SMBIOS redaction, device tree, HID, sensors, EC,
-      WMI, display, battery, CPU).
-- [ ] PR 4: button capture across all devices, analog, chords, init and restore.
-- [ ] PR 5: motion (four sources) and rumble with live sliders and pulse lengths.
-- [ ] PR 6: power, fan, lighting and charge-limit transports, sleep and resume.
-- [ ] PR 7: scaffold from a project and retire AllyXLab.
+- [x] Knowledge base (#187): schema, loader and matcher, `tools/HcDeviceExtract` with
+      `eng/extract-hc-devices.ps1` (89 extracted records), curated Claw 8 A2VM, ROG Ally X and Xbox
+      Ally X records, `candidates` knowledge matches.
+- [x] Wizard shell (#188): elevation, project folders with per-segment attempts, preflight
+      (owner reservation, managers, HidHide, PawnIO), identity, export with privacy preview.
+- [x] Preflight follow-ups: HidHide changes are asked for (add, keep or remove a leftover entry,
+      inverse-list warning); "Stop and save" and Escape end a step and keep its evidence; notes for
+      the developer; help and licences embedded; tool SHA-256, source revision and privacy notice in
+      the manifest; a report-wide `analysis.json`.
+- [x] System details: every ACPI table from `HKLM\HARDWARE\ACPI` plus the firmware table API,
+      never MSDM or SLIC; SMBIOS with serials, UUIDs and asset tags removed; device tree; HID caps;
+      serial ports; WMI classes with vendor-interface presence; WinRT and legacy sensors with every
+      field; the 256 EC registers; AMD SMU codename, version and PM table or Intel MSR 0x610;
+      display with EDID fields, VRR and brightness; battery and power plans.
+- [x] Buttons: one shared capture (`LabInputCapture`) on Raw Input for every usage page, hooks,
+      XInput with Guide, Windows.Gaming.Input, WMI and power events; baseline noise learning; the
+      Xbox layout, device buttons from the record, back L1/L2/R1/R2, touchpads, stick touch,
+      volume, power, holds and rear-button chords; key-up counting and hold times; stick range and
+      roundness, trigger travel; Windows-key shortcuts swallowed during a step; quiet-window
+      auto-advance; flagged empty steps; per-control redo; the Claw mode switch (reversible,
+      restored and crash-recovered) and the Ally button init (only on the tester's choice).
+- [x] Motion: WinRT, legacy Sensor API with custom fields, CH340 serial IMU and controller HID
+      (HC's Legion, Deck, Steam Controller and GameSir layouts) at once; rest, six poses and
+      movement-triggered pitch, roll and yaw; axis map per source compared with the record.
+- [x] Rumble: route probe (XInput, Windows.Gaming.Input, curated HID report), left/right check,
+      live sliders with "lowest I can feel", pulse page at full and at that level, A/B answers,
+      "still vibrating" stop, motors zeroed on every exit.
+- [x] Power, fans and lighting: telemetry with a load burst on charger and on battery; curated
+      ATKACPI and MSI WMI TDP, profile, fan and charge tests with checkpoint, readback, restore and a
+      recovery gate; unknown AMD through the pinned PawnIO RyzenSMU 0.2.11 module and unknown Intel
+      through pinned KX.exe (`external/kx`), one bounded lower limit read back from the PM table or
+      MCHBAR/MSR and restored; Dynamic Lighting and Ally Aura zones; the EC is never written.
+- [x] Sleep and wake: the tester presses the power button; device, XInput and sensor return times,
+      a press after wake, and whether a controller init survived.
+- [x] Developer path: `report`, `review`, `promote`, `scaffold --from <.wsgmlab>` and a "Lab report"
+      developer tab.
+- [x] AllyXLab retired: tool, download, test project and verify step removed; every feature mapped
+      to its wizard home by an audit before deletion.
+- [ ] Attended run on the Claw by the maintainer, and on the Xbox Ally X by the remote tester.
+- [ ] Test suites and the full gate, after the manual runs (written, not run).
+- Deviation from the plan, with reason: hardware writes run in the elevated wizard process, not in a
+  separate worker. Every change is recorded in `LabMachineState` before it is made and undone at
+  the next start, so killing the wizard during a write is the same recovery case the worker was
+  meant to give. Motion, rumble and init commands are sent only for curated records; other devices
+  get read-only capture, as the plan's knowledge-base rule says.
 
 ## Overlay glass library (2026-09-24, issue 183)
 

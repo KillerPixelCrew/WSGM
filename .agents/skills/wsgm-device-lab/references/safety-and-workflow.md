@@ -188,22 +188,18 @@ Offline suite, run after the maintainer's manual test under the root validation 
 dotnet test tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj --configuration Release
 ```
 
-## Portable Ally X bring-up
+## Remote testers and the wizard
 
-`tools/AllyXLab` is a self-contained EXE for an attended remote Ally X tester, built at the
-maintainer's request. It is a separate developer tool. It is not a Device Lab command and not the
-production plugin, and its README is authoritative. Keep these points in mind:
+A remote tester runs the portable `wsgm-device.exe` (`eng/publish-device-lab.ps1 -Portable`) and
+lands in the wizard, which elevates itself once. It replaced the Ally-only AllyXLab tool. Keep these
+points in mind:
 
-- It admits RC72LA and RC73XA only; RC73YA is refused. Its family gate is not the production
-  plugin's firmware allowlist.
-- HHD is the primary reference and HC cross-checks the Windows transport. Use the pinned tables in
-  `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`. `_ref` may be missing from a checkout; when it is
-  present, search it with `rg --hidden --no-ignore`.
-- The tracked download lives in `tools/AllyXLab/Downloads` (`AllyXLab.exe`, `SHA256.txt`,
-  `BUILD.json`). `eng/allyxlab-download.ps1` checks that the three files agree and warns about
-  source drift, and `eng/verify.ps1` runs that check. `-Build` rebuilds all three from committed
-  source and adds about 55 MB to history, so rebuild only when a tester needs the new binary.
-- Its guard tests are in `tests/WSGM.AllyXLab.Tests`, outside `WSGM.slnx`.
-- A build or publish does not authorize running it on this machine, and it proves no hardware
-  behavior. Do not add generic raw command entry, unattended writes, or controller remapping without
-  original-state restoration.
+- The wizard is attended. Its hardware stages change machine state (HidHide, PawnIO, controller
+  mode, rumble, power limits, fans, charge limit, lighting) under the rules in
+  `src/WSGM.DeviceLab/AGENTS.md`. A build or publish does not authorize running it on this machine,
+  and a returned report proves only what its evidence shows.
+- Read a returned report with `wsgm-device report`, `review` and `promote`; `scaffold --from` takes
+  it too. Promote only after reviewing the disagreements.
+- HHD is the primary reference for Ally buttons and HC cross-checks the Windows transport. Use the
+  pinned tables in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`. `_ref` may be missing from a
+  checkout; when it is present, search it with `rg --hidden --no-ignore`.

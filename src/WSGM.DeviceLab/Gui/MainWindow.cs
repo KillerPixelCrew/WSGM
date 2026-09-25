@@ -15,7 +15,9 @@ using Avalonia.Platform.Storage;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
+using WSGM.DeviceLab.Scaffolding;
 using WSGM.DeviceLab.Testing;
+using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -77,8 +79,9 @@ internal sealed class MainWindow : Window
         var workbench = BuildWorkbenchTab();
         var scaffold = BuildScaffoldTab();
         var package = BuildPackageTab();
+        var labReport = BuildLabReportTab(DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot));
         _ownerTabs = [safety, candidates, capture, workbench];
-        _developerTabs = [safety, candidates, capture, workbench, scaffold, package];
+        _developerTabs = [safety, candidates, capture, workbench, scaffold, package, labReport];
         _tabs = new TabControl { ItemsSource = _ownerTabs };
 
         _result = new TextBox
@@ -404,6 +407,54 @@ internal sealed class MainWindow : Window
             Labeled("USB instance ID", usbInstance),
             Labeled("Fixture ID", fixtureId),
             Buttons(scaffold, fixture));
+    }
+
+    // A returned .wsgmlab report: review it against the knowledge base, promote the confirmed fields to a
+    // new record file, or scaffold a plugin project from it. The same services as the CLI commands.
+    private TabItem BuildLabReportTab(DeviceLabPathBoundaries boundaries)
+    {
+        var report = PathInput("lab-report", PathSelectionKind.OpenFile);
+        var record = PathInput("lab-record", PathSelectionKind.SaveFile);
+        var project = PathInput("lab-scaffold", PathSelectionKind.NewFolder, suggestedName: "new-device-plugin");
+        TextBox fields = new() { PlaceholderText = "Field IDs to promote, comma-separated; empty promotes every confirmation" };
+        Button review = new() { Content = "Review against the knowledge base" };
+        review.Click += async (_, _) =>
+        {
+            var reportPath = report.Text!;
+            await RunAsync(token => Task.Run<object?>(() => LabReview.Review(reportPath), token));
+        };
+        Button promote = new() { Content = "Write promoted record" };
+        promote.Click += async (_, _) =>
+        {
+            var reportPath = report.Text!;
+            var recordPath = record.Text!;
+            string[] selected =
+            [
+                .. (fields.Text ?? string.Empty).Split(',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            ];
+            await RunAsync(token => Task.Run<object?>(
+                () => LabPromote.Run(reportPath, recordPath, selected, boundaries), token));
+        };
+        Button scaffold = new() { Content = "Scaffold plugin from report" };
+        scaffold.Click += async (_, _) =>
+        {
+            var reportPath = report.Text!;
+            var outputPath = project.Text!;
+            await RunAsync(token => Task.Run<object?>(
+                () => ScaffoldFromLabProjectWorkflow.Run(reportPath, outputPath, boundaries,
+                    cancellationToken: token), token));
+        };
+        return Tab(
+            "Lab report",
+            "Reads a returned .wsgmlab report without extracting it, lists where it agrees and disagrees with the knowledge record, and writes new files only.",
+            Labeled("Lab report (.wsgmlab)", report),
+            Buttons(review),
+            Labeled("New record file", record),
+            Labeled("Fields", fields),
+            Buttons(promote),
+            Labeled("New plugin directory", project),
+            Buttons(scaffold));
     }
 
     private TabItem BuildPackageTab()

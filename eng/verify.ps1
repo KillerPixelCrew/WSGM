@@ -103,10 +103,6 @@ try {
     # csproj version that no local build stamps.
     & "$PSScriptRoot\check-version-sync.ps1"
 
-    # The committed Ally X Lab download must agree with its hash file and manifest. A source change
-    # since the last rebuild is only a warning; the maintainer decides when testers get a new exe.
-    & "$PSScriptRoot\allyxlab-download.ps1"
-
     # The setup step that installs the USB/IP driver carries its own copy of the pinned identity,
     # because it runs where the lock file does not exist. This is what stops the two drifting into
     # a setup that installs a version nobody reviewed.

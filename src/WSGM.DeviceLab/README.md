@@ -15,26 +15,62 @@ someone who is not a developer. It asks for administrator rights once, then:
 
 1. **Get ready.** Holds WSGM's device-owner lock for the session, so WSGM's device integration
    cannot run beside the test. Lists other controller software that would hide or change the device
-   and offers to close it (a close request only; services are never stopped). Adds itself to
-   HidHide's allowed programs and removes exactly that entry when the test finishes or the window
-   closes. Installs the pinned PawnIO driver when it is missing, and asks before replacing an older
-   one.
+   and offers to close it (a close request only; services are never stopped). Asks before adding
+   itself to HidHide's allowed programs, and removes exactly that entry when the test finishes or
+   the window closes. Installs the pinned PawnIO driver when it is missing, and asks before
+   replacing an older one.
 2. **Your device.** Reads the board, BIOS, EC and processor identity, matches it against the known
    devices and asks the tester to confirm, or to type the product name and exact model.
-3. The later stages (system details, buttons, motion, rumble, power and fans, sleep) are listed and
-   arrive in later builds.
-4. **Finish and share.** Shows every file that will be shared, what was replaced (account names,
+3. **System details.** Read-only: every ACPI table (from the registry, so every SSDT is kept, and
+   never MSDM or SLIC), SMBIOS with serials, UUIDs and asset tags removed, the device tree, every
+   HID collection with its caps, serial ports, WMI classes and methods, WinRT and legacy sensors
+   with every field, the 256 EC registers, the AMD SMU or Intel power-limit registers, display,
+   battery and power settings.
+4. **Buttons.** Runs a known device's controller init first (the Claw mode switch is switched back
+   afterwards; the Ally button tables only on the tester's choice), learns what changes by itself,
+   then asks for each control of the Xbox layout, the device's own buttons, back buttons,
+   touchpads, stick touch, volume and power, holds and rear-button chords. Every input from every
+   device is recorded (Raw Input on every usage page, keyboard and mouse hooks, XInput with the
+   Guide button, Windows.Gaming.Input, WMI and power events) and attributed afterwards. Windows-key
+   shortcuts are swallowed while a step runs. A press step finishes by itself once the control is
+   quiet; any control can be redone.
+5. **Motion sensors.** WinRT, the legacy Sensor API (including custom fields such as the Claw's),
+   a CH340 serial IMU and controller HID reports, all at once: rest, six gravity poses, and pitch,
+   roll and yaw. The axis map is worked out per source and compared with the known record.
+6. **Rumble.** Tries every route (XInput, Windows.Gaming.Input, and the device's own report where a
+   curated record gives it), checks which motor is on which side, then live sliders to mark the
+   weakest rumble felt and a pulse page for the shortest pulse. Motors are zeroed after every pulse
+   and on every exit.
+7. **Power, fans and lighting.** Telemetry on charger and on battery, with and without load. For a
+   curated device it tests TDP, the power profile, fan curves and the charge limit through the
+   device's own interface, each read back and put back. For other AMD and Intel machines it tests
+   the processor power limit through PawnIO's RyzenSMU module or KX, and never writes the EC.
+   Lighting uses Windows Dynamic Lighting, and the Ally's Aura interface where it applies.
+8. **Sleep and wake.** The tester presses the power button; the wizard never sleeps the device
+   itself. It checks that the controller, HID devices and sensors come back, that a press arrives,
+   and whether a controller init survived.
+9. **Finish and share.** Shows every file that will be shared, what was replaced (account names,
    user folders, device instance paths, network addresses) and what stays on the computer, then
    writes one `.wsgmlab` file, a ZIP of the redacted test folder.
 
 Each test is a folder under `Documents\WSGM Device Lab`. Selecting a stage in the list shows its
 result; "Run again" starts a new attempt, and every attempt is kept, so a wrongly read button does
-not mean repeating the whole test. Changes the wizard makes to the machine are also recorded in
-`%LOCALAPPDATA%\WSGM Device Lab\wizard`, so a session that was killed is cleaned up the next time
-the wizard starts.
+not mean repeating the whole test. "Stop and save" (or Escape) ends the running step and keeps what
+was recorded. Changes the wizard makes to the machine are recorded in
+`%LOCALAPPDATA%\WSGM Device Lab\wizard` before they are made, so a session that was killed is put
+back the next time the wizard starts.
 
-`wsgm-device gui` opens the developer tabs described below instead. For a remote tester, publish one
-self-contained file:
+A returned report is read with the developer commands:
+
+```powershell
+wsgm-device report  test.wsgmlab                       # every step and its summary
+wsgm-device review  test.wsgmlab                       # agreements and disagreements with the known record
+wsgm-device promote test.wsgmlab --out new-record.json # a curated record with lab-confirmed facts
+wsgm-device scaffold --from test.wsgmlab --out-dir my-plugin
+```
+
+`wsgm-device gui` opens the developer tabs described below instead, including a "Lab report" tab
+for the same review. For a remote tester, publish one self-contained file:
 
 ```powershell
 .\eng\publish-device-lab.ps1 -Portable -OutputRoot publish/DeviceLabPortable

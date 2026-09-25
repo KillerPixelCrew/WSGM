@@ -26,6 +26,12 @@ internal sealed record LabMachineChanges
     ///     the tester, so the lab never offers to remove its successor.
     /// </summary>
     public string? PawnIoReplacedVersion { get; init; }
+
+    /// <summary>
+    ///     Power, fan, charge and lighting settings the power stage changed and has not seen put back, or
+    ///     null. <see cref="LabPowerRecovery.RestoreRecorded" /> undoes them on the next start.
+    /// </summary>
+    public LabPowerChanges? Power { get; init; }
 }
 
 /// <summary>

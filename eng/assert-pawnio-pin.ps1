@@ -52,6 +52,32 @@ if ($project -notmatch [regex]::Escape('external\pawnio\pawnio.lock.json')) {
     $problems.Add('the Device Lab project does not embed external\pawnio\pawnio.lock.json')
 }
 
+foreach ($module in @($lock.modules)) {
+    $expectedArchive = "https://github.com/namazso/PawnIO.Modules/releases/download/$($module.tag)/$($module.archive)"
+    if ($module.archiveUrl -ne $expectedArchive) { $problems.Add("module $($module.id) archiveUrl is not $expectedArchive") }
+    if ($module.archiveSha256 -notmatch '^[0-9A-F]{64}$') { $problems.Add("module $($module.id) archiveSha256 is not 64 upper-case hex digits") }
+    if ($module.memberSha256 -notmatch '^[0-9A-F]{64}$') { $problems.Add("module $($module.id) memberSha256 is not 64 upper-case hex digits") }
+    $acquired = Join-Path $ArtifactDirectory $module.member
+    if ((Test-Path -LiteralPath $acquired -PathType Leaf) -and
+        (Get-FileHash -LiteralPath $acquired -Algorithm SHA256).Hash -ne $module.memberSha256) {
+        $problems.Add("acquired $($module.member) does not match its pin")
+    }
+}
+
+# KX.exe has no download and no signature: it is committed and pinned by digest alone.
+$kxLockPath = Join-Path $PSScriptRoot '..\external\kx\kx.lock.json'
+$kx = (Get-Content -LiteralPath $kxLockPath -Raw | ConvertFrom-Json).component
+$kxPath = Join-Path (Split-Path -Parent $kxLockPath) $kx.file
+if (-not (Test-Path -LiteralPath $kxPath -PathType Leaf)) {
+    $problems.Add("external\kx\$($kx.file) is missing")
+}
+elseif ((Get-FileHash -LiteralPath $kxPath -Algorithm SHA256).Hash -ne $kx.sha256) {
+    $problems.Add("external\kx\$($kx.file) does not match kx.lock.json")
+}
+if ($project -notmatch [regex]::Escape('external\kx\KX.exe')) {
+    $problems.Add('the Device Lab project does not embed external\kx\KX.exe')
+}
+
 $installer = Join-Path $ArtifactDirectory $pin.asset
 if (Test-Path -LiteralPath $installer -PathType Leaf) {
     $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash

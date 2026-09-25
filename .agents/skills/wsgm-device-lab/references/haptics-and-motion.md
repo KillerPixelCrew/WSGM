@@ -55,9 +55,10 @@ controller-driven phases measure:
 Phase 1 is stored as `ContinuousFloor`. Levels run from 255 down to 8/255, pulses from 200 down to 5
 ms, and the whole sweep has a five-minute budget. The sweep calls the plugin's
 `ApplyHapticOutputAsync` directly, bypassing WSGM's router. It reads A/B answers from the plugin's
-own controller samples (`src/WSGM.DeviceLab/Testing/AttendedPluginAction.cs`). `tools/AllyXLab` uses
-a different method: six phases per motor, capped at 50% drive. Do not compare its boundaries with
-Device Lab sweep results.
+own controller samples (`src/WSGM.DeviceLab/Testing/AttendedPluginAction.cs`). The wizard's rumble
+stage uses a different method: live sliders on which the tester marks the weakest rumble felt, and a
+pulse page at full and at that level. Do not compare its values with sweep results, or with reports
+from the retired AllyXLab tool, which used six phases per motor capped at 50% drive.
 
 The stock fixed pulse and sweep drive low and high channels identically. They prove only the
 symmetric path's perceptual floor and pulse length; they cannot prove independent motor routing,

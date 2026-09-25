@@ -105,6 +105,22 @@ public sealed class DeviceKnowledgeTests
     }
 
     [Fact]
+    public void Match_OriginalAllyXIsItsCuratedRecord()
+    {
+        var matches = DeviceKnowledgeMatcher.Match(Knowledge, Identity("ASUSTeK COMPUTER INC.", "RC72LA"));
+
+        Assert.Equal("wsgm.rog-ally-x", Assert.Single(matches).RecordId);
+    }
+
+    [Fact]
+    public void Match_XboxAllyIsNotTheXboxAllyX()
+    {
+        var matches = DeviceKnowledgeMatcher.Match(Knowledge, Identity("ASUSTeK COMPUTER INC.", "RC73YA"));
+
+        Assert.DoesNotContain(matches, match => match.RecordId is "wsgm.xbox-rog-ally-x" or "wsgm.rog-ally-x");
+    }
+
+    [Fact]
     public void Match_ManufacturerComparisonIgnoresCaseLikeHc()
     {
         // HC upper-cases the baseboard manufacturer before its switch.

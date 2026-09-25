@@ -6,7 +6,7 @@
   "entryAssembly": "{{ROOT_NAMESPACE}}.dll",
   "entryType": "{{ROOT_NAMESPACE}}.DevicePlugin",
   "hardware": [
-    { "baseboardProduct": "{{BOARD_JSON}}", "systemSku": "{{SYSTEM_SKU_JSON}}" }
+    {{HARDWARE_JSON}}
   ],
-  "capabilities": []
+  "capabilities": {{CAPABILITIES_JSON}}
 }

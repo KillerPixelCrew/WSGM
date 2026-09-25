@@ -16,6 +16,18 @@ Device Lab redistributes the following third-party components:
 - The PawnIO 2.2.0 installer (`PawnIO_setup.exe`), embedded unmodified when the build acquired it.
   Copyright namazso. The installer states it may be redistributed unmodified; PawnIO's own licence
   terms are upstream at <https://github.com/namazso/PawnIO.Setup>.
+- LibreHardwareMonitorLib 0.9.6, used for read-only embedded-controller, AMD SMU and Intel MSR
+  access through its signed PawnIO modules. Copyright the LibreHardwareMonitor contributors.
+  Licensed under the Mozilla Public License 2.0, whose terms are upstream at
+  <https://github.com/LibreHardwareMonitor/LibreHardwareMonitor>. The library carries the signed
+  PawnIO modules (including RyzenSMU and IntelMSR) it loads; those are namazso's PawnIO.Modules,
+  loaded only through the signature-checked PawnIO driver and never with `-unrestricted`.
+- The RyzenSMU module from namazso's PawnIO.Modules 0.2.11 (`RyzenSMU.bin`), embedded unmodified
+  when the build acquired it and loaded only through the PawnIO driver, which checks its signature.
+  Its terms are upstream at <https://github.com/namazso/PawnIO.Modules>.
+- `KX.exe`, the Intel register tool Handheld Companion 1.3.1.6 bundles, embedded unmodified and
+  pinned by SHA-256 in `external/kx`. It is unsigned and names no author or licence, so its terms are
+  unknown; it is not covered by this project's MIT licence.
 - `av_libglesv2.dll` from the ANGLE Project. Copyright 2018 The ANGLE Project Authors. Licensed
   under the BSD 3-Clause terms reproduced below.
 

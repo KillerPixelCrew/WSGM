@@ -144,12 +144,13 @@
         "device": "\\\\.\\ATKACPI",
         "ioctl": "0x0022240C",
         "id": "0x00120075",
-        "values": "0 balanced, 1 performance, 2 silent"
+        "values": "0 balanced, 1 turbo, 2 silent"
       },
       "hasReadback": true,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs"
+        "reference": "tools/AllyXLab/AsusControl.cs",
+        "note": "ASUS throttle_thermal_policy DEVS 0x00120075: 0 balanced, 1 turbo (performance), 2 silent, per asus-wmi and HHD. The fan-curve getter selector swaps 1 and 2 (AsusControl.GetCurve); that is a separate quirk, not the mode meaning."
       }
     },
     {
@@ -209,12 +210,16 @@
       "parameters": {
         "vendorId": "0B05",
         "productId": "1B4C",
-        "report": "0D 0F 00 00 <left%> <right%> FF 00 EB"
+        "report": "0D 0F 00 00 <left%> <right%> FF 00 EB",
+        "usagePage": "0x0001",
+        "usage": "0x0005",
+        "alsoCollections": "0x000F:0x0002, 0x000F:0x0021"
       },
-      "note": "HHD's output report. XInput and Windows.Gaming.Input are the alternative routes.",
+      "note": "HHD's output report, written to the gamepad collection. AllyXLab also wrote it to the two PID collections with an output report of at least 9 bytes. XInput and Windows.Gaming.Input are the alternative routes.",
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/Motors.cs"
+        "reference": "tools/AllyXLab/Motors.cs:36-39",
+        "note": "The alsoCollections come from AllyXLab's rumble gate in tools/AllyXLab/Hid.cs:14 and the route discovery in tools/AllyXLab/Motors.cs:36-39."
       }
     },
     {

@@ -102,6 +102,26 @@ internal static partial class ScaffoldFromCaptureWorkflow
         }
 
         var identity = SelectExactIdentity(read.Bundle, usbInstanceId);
+        return Write(identity, outputDirectory, boundaries, null, cancellationToken);
+    }
+
+    /// <summary>Renders the minimal plugin template for an exact identity and publishes it as a new directory.</summary>
+    /// <param name="identity">Exact identity the generated detection matches.</param>
+    /// <param name="outputDirectory">New explicit output directory.</param>
+    /// <param name="boundaries">Filesystem safety boundaries.</param>
+    /// <param name="extras">
+    ///     Extra templates and tokens, and the manifest's hardware and capability lists; null renders the
+    ///     captured board as the one hardware rule and no capabilities.
+    /// </param>
+    /// <param name="cancellationToken">Cancels rendering or publication.</param>
+    /// <returns>The written files and identity.</returns>
+    internal static PluginScaffoldResult Write(
+        PluginScaffoldIdentity identity,
+        string outputDirectory,
+        DeviceLabPathBoundaries boundaries,
+        PluginScaffoldExtras? extras,
+        CancellationToken cancellationToken)
+    {
         var slug = Slug(identity.BaseboardProduct);
         var rootNamespace = $"WSGM.Device.Scaffold.{Identifier(slug)}";
         var packageId = $"wsgm.device.scaffold.{slug}";
@@ -114,9 +134,18 @@ internal static partial class ScaffoldFromCaptureWorkflow
             deviceDefinitionId,
             displayName,
             identity);
+        tokens["HARDWARE_JSON"] = extras?.HardwareJson
+                                  ?? $"{{ \"baseboardProduct\": \"{tokens["BOARD_JSON"]}\", \"systemSku\": \"{tokens["SYSTEM_SKU_JSON"]}\" }}";
+        // The template publishes a toggle and a read-only value, and the host refuses roles the manifest
+        // does not declare.
+        tokens["CAPABILITIES_JSON"] = extras?.CapabilitiesJson ?? "[\"GenericToggle\", \"GenericReadOnly\"]";
+        foreach (var (key, value) in extras?.Tokens ?? new Dictionary<string, string>())
+        {
+            tokens.Add(key, value);
+        }
 
         List<(string Path, string Content)> rendered = [];
-        foreach (var template in Templates)
+        foreach (var template in Templates.Concat(extras?.Templates ?? []))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var path = template.OutputPath.Replace("{rootNamespace}", rootNamespace, StringComparison.Ordinal);
@@ -380,7 +409,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         return builder.Length == 0 ? "UnknownDevice" : builder.ToString();
     }
 
-    private static string CSharp(string value)
+    internal static string CSharp(string value)
     {
         return value
             .Replace(@"\", @"\\", StringComparison.Ordinal)
@@ -422,5 +451,24 @@ internal static partial class ScaffoldFromCaptureWorkflow
     [GeneratedRegex("[^a-z0-9]+")]
     private static partial Regex NonIdentifier();
 
-    private sealed record TemplateFile(string ResourceName, string OutputPath);
+    /// <summary>One checked-in template and the path it renders to.</summary>
+    /// <param name="ResourceName">Template file name under <c>Templates/MinimalPlugin</c>.</param>
+    /// <param name="OutputPath">Relative output path; <c>{rootNamespace}</c> is replaced.</param>
+    internal sealed record TemplateFile(string ResourceName, string OutputPath);
+}
+
+/// <summary>What another scaffold source adds to the minimal plugin template.</summary>
+internal sealed record PluginScaffoldExtras
+{
+    /// <summary>The manifest's hardware rules as JSON objects, joined by a comma.</summary>
+    public required string HardwareJson { get; init; }
+
+    /// <summary>The manifest's capability roles as a JSON array.</summary>
+    public required string CapabilitiesJson { get; init; }
+
+    /// <summary>Templates rendered in addition to the minimal ones.</summary>
+    public IReadOnlyList<ScaffoldFromCaptureWorkflow.TemplateFile> Templates { get; init; } = [];
+
+    /// <summary>Tokens those templates use.</summary>
+    public IReadOnlyDictionary<string, string> Tokens { get; init; } = new Dictionary<string, string>();
 }
