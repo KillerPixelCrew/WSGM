@@ -108,7 +108,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private MotionStreamMode _motionStream = MotionStreamMode.Always;
     private bool _motionWanted = true;
-    private string? _runningApplicationId;
+    private bool _steamGameRunning;
     private long _sourceGeneration;
     private List<CanonicalControllerSample>? _spareSamples = [];
     private bool _steamCapture;
@@ -142,7 +142,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Whether anything downstream reads motion samples right now.</summary>
     /// <remarks>
     ///     True only while management is active on a target that carries a motion report, and, in
-    ///     <see cref="MotionStreamMode.InGame" />, while Steam reports a running application. The
+    ///     <see cref="MotionStreamMode.InGame" />, while Steam reports a running app. A foreground
+    ///     desktop window counts as an application for the profile layers but not here. The
     ///     plugin is told on every change through <see cref="MotionDemandChanged" /> so it can stop
     ///     reading the sensors rather than publish samples nobody encodes.
     /// </remarks>
@@ -180,7 +181,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             wanted = State is ControllerManagementState.Active
                      && Effective is { } effective
                      && effective.Target is not ManagedControllerTarget.Xbox360
-                     && (_motionStream is MotionStreamMode.Always || _runningApplicationId is not null);
+                     && (_motionStream is MotionStreamMode.Always || _steamGameRunning);
             if (wanted == _motionWanted)
             {
                 return;
@@ -476,6 +477,13 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            lock (_stateGate)
+            {
+                // A foreground desktop window is an application for the profile layers, but only a
+                // Steam app id is a game for the motion demand: on the desktop nothing reads motion.
+                _steamGameRunning = snapshot.SteamAppId is not null;
+            }
+
             return await ReconcileTargetUnderGateAsync(snapshot.ApplicationId, snapshot.RtssProfileName,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -1193,11 +1201,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         string? executable,
         CancellationToken cancellationToken)
     {
-        lock (_stateGate)
-        {
-            _runningApplicationId = applicationId;
-        }
-
         try
         {
             return await ReconcileTargetCoreUnderGateAsync(applicationId, executable, cancellationToken)
