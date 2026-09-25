@@ -64,6 +64,9 @@ public static class Installer
             Log.Warn($"Uninstall restore: Steam autostart failed: {ex.Message}");
         }
 
+        // Handheld Companion and the maker's apps start again the way they did before setup's Full mode.
+        OtherManagers.RestoreAll();
+
         try
         {
             var config = ConfigStore.Load();
