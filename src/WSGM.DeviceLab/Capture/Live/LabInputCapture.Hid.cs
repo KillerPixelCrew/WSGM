@@ -4,9 +4,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.DeviceLab.Application;
 using WSGM.Interop;
 using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
-using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -14,8 +14,8 @@ namespace WSGM.DeviceLab.Capture.Live;
 // remains active; a direct HID read also covers collections that do not publish Raw Input reports.
 internal sealed partial class LabInputCapture
 {
-    private readonly List<HidCollectionReader> _hidReaders = [];
     private readonly HashSet<string> _hidPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<HidCollectionReader> _hidReaders = [];
     private int _hidScanQueued;
 
     public void RescanHidCollections()
@@ -161,16 +161,14 @@ internal sealed partial class LabInputCapture
         }
     }
 
-    private sealed class HidCollectionReader(LabInputCapture capture, LabInputDevice device, FileStream stream,
+    private sealed class HidCollectionReader(
+        LabInputCapture capture,
+        LabInputDevice device,
+        FileStream stream,
         int reportLength) : IDisposable
     {
         private readonly CancellationTokenSource _stop = new();
         private Task? _task;
-
-        public void Start()
-        {
-            _task = RunAsync();
-        }
 
         public void Dispose()
         {
@@ -186,6 +184,11 @@ internal sealed partial class LabInputCapture
             }
 
             _stop.Dispose();
+        }
+
+        public void Start()
+        {
+            _task = RunAsync();
         }
 
         private async Task RunAsync()

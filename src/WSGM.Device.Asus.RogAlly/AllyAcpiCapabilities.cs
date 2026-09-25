@@ -41,6 +41,8 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
     private readonly IAsusAcpi _acpi = acpi ?? throw new ArgumentNullException(nameof(acpi));
     private readonly AllyModel _model = model ?? throw new ArgumentNullException(nameof(model));
 
+    private AllyPowerState _written = new(null, null, null, null);
+
     /// <summary>HHD's <c>TDP_DELAY</c> between limit writes.</summary>
     internal static TimeSpan WriteSpacing { get; set; } = TimeSpan.FromMilliseconds(100);
 
@@ -51,15 +53,31 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
 
     public int Maximum => _model.MaximumWatts;
 
+    /// <summary>What the firmware reports. A limit it reports as 0 W, as the Xbox Ally X does, is unknown.</summary>
     public AllyPowerState Read()
     {
         return new AllyPowerState(
-            Scalar(AsusAcpiId.SustainedPower),
-            Scalar(AsusAcpiId.SlowPower),
-            Scalar(AsusAcpiId.FastPower),
+            Watts(AsusAcpiId.SustainedPower),
+            Watts(AsusAcpiId.SlowPower),
+            Watts(AsusAcpiId.FastPower),
             Scalar(AsusAcpiId.PerformanceMode) is { } mode && AllyModels.ScenarioName(mode) is not null
                 ? mode
                 : null);
+    }
+
+    /// <summary>The firmware's report, with anything it cannot report filled from the last value written.</summary>
+    /// <remarks>
+    ///     HC never reads these back and simply writes (<c>ROGAlly.cs:694-702</c>). Where the firmware is
+    ///     silent, what this cycle last wrote is the best available statement of the device's state.
+    /// </remarks>
+    public AllyPowerState Effective()
+    {
+        var read = Read();
+        return new AllyPowerState(
+            read.Sustained ?? _written.Sustained,
+            read.Slow ?? _written.Slow,
+            read.Fast ?? _written.Fast,
+            read.Mode ?? _written.Mode);
     }
 
     public async ValueTask<CapabilityCommandResult> ApplySustainedAsync(
@@ -72,7 +90,7 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
             return OutOfRange(command);
         }
 
-        var before = Read();
+        var before = Effective();
         // A paired command moves every limit to the one target, as HHD does with boost off. A plain
         // sustained change carries the boost pair up only when it would otherwise sit below SPL.
         var slow = command.ApplyPowerPair ? watts : Math.Max(before.Slow ?? watts, watts);
@@ -91,7 +109,7 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
             return OutOfRange(command);
         }
 
-        var before = Read();
+        var before = Effective();
         // A boost ceiling below the current sustained limit pulls SPL down with it, the Claw rule.
         var sustained = Math.Min(before.Sustained ?? watts, watts);
         return await ApplyLimitsAsync(command, before, sustained, watts, watts, watts, cancellationToken)
@@ -119,17 +137,21 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
             if (before.Mode != target)
             {
                 _ = _acpi.Write(AsusAcpiId.PerformanceMode, target);
+                // A mode change resets the limits to the mode's own, which a silent firmware does not report.
+                _written = new AllyPowerState(null, null, null, null);
                 await Task.Delay(ModeSettle, cancellationToken).ConfigureAwait(false);
             }
 
             var after = Read();
             if (after.Mode == target)
             {
+                _written = _written with { Mode = target };
                 return AllyResults.Verified(command, CapabilityValue.Choice(scenario));
             }
 
             if (after.Mode is null)
             {
+                _written = _written with { Mode = target };
                 return AllyResults.Unverified(command, "The firmware does not report its performance mode.");
             }
         }
@@ -212,11 +234,13 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
             var readback = Read();
             if (!readback.LimitsReadable)
             {
+                _written = _written with { Sustained = sustained, Slow = slow, Fast = fast };
                 return AllyResults.Unverified(command, "The firmware does not report its package power limits.");
             }
 
             if (readback.Sustained == sustained && readback.Slow == slow && readback.Fast == fast)
             {
+                _written = _written with { Sustained = sustained, Slow = slow, Fast = fast };
                 return AllyResults.Verified(command, CapabilityValue.Integer(reported));
             }
         }
@@ -314,6 +338,11 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
     private int? Scalar(AsusAcpiId id)
     {
         return AsusAcpiProtocol.TryDecodeScalar(_acpi.ReadStatus(id), out var value) ? value : null;
+    }
+
+    private int? Watts(AsusAcpiId id)
+    {
+        return Scalar(id) is { } watts && AllyRecoveryJournal.IsValidWatts(watts) ? watts : null;
     }
 
     private bool InRange(int watts)
@@ -421,9 +450,17 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi)
     /// <summary>Whether the mid fan curve answered with a valid curve when the service started.</summary>
     public bool HasMidFan { get; private set; }
 
+    /// <summary>Whether the firmware answered any curve query when the service started.</summary>
+    public bool CurvesReadable { get; private set; }
+
+    /// <summary>The CPU curve this cycle last wrote, for firmware that cannot report it.</summary>
+    public byte[]? WrittenCpu { get; private set; }
+
     public void Probe()
     {
-        HasMidFan = ReadCurve(AsusAcpiId.MidFanCurve, Mode()) is not null;
+        var mode = Mode();
+        HasMidFan = ReadCurve(AsusAcpiId.MidFanCurve, mode) is not null;
+        CurvesReadable = HasMidFan || ReadCurve(AsusAcpiId.CpuFanCurve, mode) is not null;
     }
 
     public AllyFanSnapshot Read()
@@ -513,6 +550,14 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi)
             original?.Mid);
     }
 
+    /// <summary>Writes HC's factory tables, the state HC returns the fans to (<c>ROGAlly.cs:466-478</c>).</summary>
+    public async ValueTask WriteFactoryAsync(CancellationToken cancellationToken)
+    {
+        await WriteChannelsAsync(DefaultCpuCurve, DefaultGpuCurve, DefaultCpuCurve, cancellationToken)
+            .ConfigureAwait(false);
+        WrittenCpu = DefaultCpuCurve;
+    }
+
     public async ValueTask<bool> RestoreAsync(AllyFanSnapshot original, CancellationToken cancellationToken)
     {
         if (!original.Readable)
@@ -539,11 +584,19 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi)
         try
         {
             await WriteChannelsAsync(cpu, gpu, mid ?? cpu, cancellationToken).ConfigureAwait(false);
+            WrittenCpu = cpu;
             var readback = Read();
             if (Same(readback.Cpu, cpu) && Same(readback.Gpu, gpu)
                                         && (!HasMidFan || Same(readback.Mid, mid ?? cpu)))
             {
                 return AllyResults.Verified(command, reported);
+            }
+
+            if (!CurvesReadable)
+            {
+                // HC never reads curves back (ROGAlly.cs:313-321); a firmware that refuses the query
+                // leaves the write unverified, which is not a failure.
+                return AllyResults.Unverified(command, "The firmware does not report its fan curves.");
             }
 
             // DSTS may report the firmware's table for the mode rather than the curve now in force; the
@@ -582,10 +635,20 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi)
         _ = _acpi.WriteBuffer(AsusAcpiId.CpuFanCurve, cpu);
         await Task.Delay(AllyPowerCapability.WriteSpacing, cancellationToken).ConfigureAwait(false);
         _ = _acpi.WriteBuffer(AsusAcpiId.GpuFanCurve, gpu);
-        if (HasMidFan && mid is not null)
+        // HC writes the mid fan on every Ally (ROGAlly.cs:317-321). Where the probe could not tell,
+        // do the same, and let a firmware without the channel refuse it without failing the rest.
+        if (mid is not null && (HasMidFan || !CurvesReadable))
         {
             await Task.Delay(AllyPowerCapability.WriteSpacing, cancellationToken).ConfigureAwait(false);
-            _ = _acpi.WriteBuffer(AsusAcpiId.MidFanCurve, mid);
+            try
+            {
+                _ = _acpi.WriteBuffer(AsusAcpiId.MidFanCurve, mid);
+            }
+            catch (Exception ex) when (!HasMidFan && ex is IOException or Win32Exception)
+            {
+                PluginTrace.Change("fans", "mid-write", $"Mid fan curve refused ({ex.Message}).",
+                    DeviceTraceLevel.Warn);
+            }
         }
     }
 

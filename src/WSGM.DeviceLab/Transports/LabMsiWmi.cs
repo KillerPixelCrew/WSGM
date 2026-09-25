@@ -213,10 +213,12 @@ internal sealed class LabMsiWmi : ILabMsiWmi
         {
             WriteByte(_layout.FanCustom!.Value, state.Custom);
         }
+
         if (current.FullSpeed != state.FullSpeed)
         {
             WriteByte(_layout.FanFullSpeed!.Value, state.FullSpeed);
         }
+
         return ReadFans() == state;
     }
 
@@ -310,7 +312,8 @@ internal sealed class LabMsiWmi : ILabMsiWmi
     {
         var percent = raw & ChargePercentMask;
         // BIOS can report 0x80 (no percentage configured). It must remain restorable verbatim.
-        if (raw is < 0 or > 0xFF || (percent != 0 && (percent < _layout.ChargeMinimum || percent > _layout.ChargeMaximum)))
+        if (raw is < 0 or > 0xFF ||
+            (percent != 0 && (percent < _layout.ChargeMinimum || percent > _layout.ChargeMaximum)))
         {
             throw new InvalidOperationException($"Refused MSI charge limit {percent} %: outside the record's range.");
         }

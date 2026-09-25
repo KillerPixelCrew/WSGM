@@ -27,6 +27,10 @@ public static class DeviceApi
     ///         members. Hosts refuse a descriptor whose role the manifest does not declare, so a version 5
     ///         plugin would lose every capability; the exact match turns that into a clear refusal.
     ///     </para>
+    ///     <para>
+    ///         Version 7 adds <c>OemControlDescriptor.CompanionApplication</c>, which marks the
+    ///         manufacturer's companion-application button so the host can give it a default.
+    ///     </para>
     /// </remarks>
-    public const int Version = 6;
+    public const int Version = 7;
 }

@@ -30,6 +30,9 @@ namespace WSGM.Shell;
 /// </summary>
 public sealed class ShellSession : IAsyncDisposable
 {
+    /// <summary>What Steam UI calls report while the transport waits for Big Picture.</summary>
+    private const string SteamUiHeldReason = "Steam UI transport held until Big Picture exists.";
+
     private readonly ApplicationPerformanceReconciler _applicationProfiles;
 
     // One gate for the whole master-switch workflow: a retraction is three CEF
@@ -405,7 +408,8 @@ public sealed class ShellSession : IAsyncDisposable
         var bigPictureReady = master && (inGameMode || transitionPending) && SteamUiReadiness.IsReady;
         var open = SteamUiReadiness.TransportShouldBeOpen(
             master, inGameMode, transitionPending, bigPictureReady);
-        SteamUiTransportSession.SetEnabled(open);
+        // A held transport is not a disabled one: patches that meet it must say they are waiting.
+        SteamUiTransportSession.SetEnabled(open, master ? SteamUiHeldReason : null);
         string state;
         if (open)
         {

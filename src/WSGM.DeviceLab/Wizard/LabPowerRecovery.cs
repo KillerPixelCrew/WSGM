@@ -67,9 +67,11 @@ internal sealed record LabPowerChanges
     {
         return changes is not null
                && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null || changes.MsiFans is not null
+                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null ||
+                                                 changes.MsiFans is not null
                                                  || changes.AmdLimits is not null || changes.IntelLimits is not null
-                                                 || changes.AuraWrittenAt is not null || changes.ClawLighting is not null);
+                                                 || changes.AuraWrittenAt is not null ||
+                                                 changes.ClawLighting is not null);
     }
 
     /// <summary>Whether a readable setting is still recorded.</summary>
@@ -79,7 +81,8 @@ internal sealed record LabPowerChanges
     {
         return changes is not null
                && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null || changes.MsiFans is not null || changes.ClawLighting is not null
+                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null ||
+                                                 changes.MsiFans is not null || changes.ClawLighting is not null
                                                  || changes.AmdLimits is not null || changes.IntelLimits is not null);
     }
 }
@@ -204,6 +207,7 @@ internal static class LabPowerRecovery
                 problems.Add($"The original Claw RGB profile could not be restored: {ex.Message}");
             }
         }
+
         if (recorded!.AsusPower is not null || recorded.AsusChargeLimit is not null)
         {
             RestoreAsus(machine, worker, recorded, plan, log, problems);
@@ -331,6 +335,7 @@ internal static class LabPowerRecovery
                     problems.Add("The fan mode flags did not read back as they were.");
                 }
             }
+
             if (recorded.MsiPower is { } power && layout.HasTdp)
             {
                 var powerRestored = wmi.RestorePower(power);

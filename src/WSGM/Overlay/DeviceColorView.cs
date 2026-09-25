@@ -39,18 +39,16 @@ public sealed class DeviceColorView : OverlaySubView
     /// <inheritdoc />
     protected override string LogScope => "Device color";
 
-    /// <summary>Stages the capability's observed color and opens its editor.</summary>
+    /// <summary>Stages the capability's current color, or white when it has none, and opens its editor.</summary>
     /// <param name="source">The device source that owns command execution.</param>
     /// <param name="capability">A writable color capability.</param>
     internal void Open(IDeviceOverlaySource source, DeviceOverlayCapability capability)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(capability);
-        if (capability.CurrentValue is not
-            { Kind: CapabilityValueKind.Color, ColorValue: { } color })
-        {
-            throw new ArgumentException("The capability has no observed color.", nameof(capability));
-        }
+        var color = capability.CurrentValue is { Kind: CapabilityValueKind.Color, ColorValue: { } current }
+            ? current
+            : 0xFFFFFF;
 
         _source = source;
         _capability = capability;

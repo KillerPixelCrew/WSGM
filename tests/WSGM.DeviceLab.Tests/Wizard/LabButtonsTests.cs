@@ -191,7 +191,8 @@ public sealed class LabButtonsTests
     {
         LabInputCandidate touch = new("raw-input", "hid1", "hid 04F3:2C43 000D:0004", ["x"], 1, 1, null);
         LabInputCandidate mouse = new("hook", "injected", null, ["mouse message 0201 data 0"], 1, 1, null);
-        LabInputCandidate rawMouse = new("raw-input", "injected0", "injected (virtual)", ["mouse buttons 0001"], 1, 1, null);
+        LabInputCandidate rawMouse = new("raw-input", "injected0", "injected (virtual)", ["mouse buttons 0001"], 1, 1,
+            null);
         LabInputCandidate pad = new("xinput", "xinput0", "xinput 045E:028E", ["A"], 1, 1, null);
 
         Assert.Equal([pad], LabInputAnalysis.WithoutPointer([touch, mouse, rawMouse, pad]));

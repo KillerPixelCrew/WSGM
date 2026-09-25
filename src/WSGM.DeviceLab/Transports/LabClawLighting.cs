@@ -45,6 +45,7 @@ internal sealed class LabClawLighting : ILabClawLighting
         {
             throw new InvalidDataException("The Claw RGB profile reply has an unexpected address or length.");
         }
+
         var profile = reply.AsSpan(9, 32).ToArray();
         Validate(profile);
         return profile;
@@ -59,6 +60,7 @@ internal sealed class LabClawLighting : ILabClawLighting
         {
             Thread.Sleep(remaining);
         }
+
         var request = Request(0x21);
         profile.CopyTo(request, 9);
         _lastWrite = DateTime.UtcNow;
@@ -78,6 +80,7 @@ internal sealed class LabClawLighting : ILabClawLighting
             profile[offset + 1] = green;
             profile[offset + 2] = blue;
         }
+
         return profile;
     }
 
@@ -105,16 +108,17 @@ internal sealed class LabClawLighting : ILabClawLighting
     private static byte[] Exchange(byte[] request, byte replyCommand)
     {
         var endpoint = LabRumbleNative.HidEndpoints(0x0DB0).SingleOrDefault(item =>
-            item.OutputLength == 64 &&
-            ((item.ProductId == 0x1902 && item.UsagePage == 0xFFF0 && item.Usage == 0x0040)
-             || (item.ProductId == 0x1901 && item.UsagePage == 0xFFA0 && item.Usage == 1)))
-            ?? throw new IOException("The Claw MCU lighting collection was not found.");
+                           item.OutputLength == 64 &&
+                           ((item.ProductId == 0x1902 && item.UsagePage == 0xFFF0 && item.Usage == 0x0040)
+                            || (item.ProductId == 0x1901 && item.UsagePage == 0xFFA0 && item.Usage == 1)))
+                       ?? throw new IOException("The Claw MCU lighting collection was not found.");
         using var handle = Kernel32.CreateFileW(endpoint.Path, Kernel32.GenericRead | Kernel32.GenericWrite,
             Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0x40000000, 0);
         if (handle.IsInvalid)
         {
             throw new IOException("The Claw MCU lighting collection could not be opened.");
         }
+
         using var stream = new FileStream(handle, FileAccess.ReadWrite, 64, true);
         return ExchangeAsync(stream, request, replyCommand).GetAwaiter().GetResult();
     }
@@ -128,7 +132,7 @@ internal sealed class LabClawLighting : ILabClawLighting
         {
             await stream.ReadExactlyAsync(reply, timeout.Token).ConfigureAwait(false);
             if (reply[0] == 0x10 && reply[4] == replyCommand
-                && (replyCommand != 0x05 || (reply[5] == 1 && reply[6] == 2 && reply[7] == 0x4A)))
+                                 && (replyCommand != 0x05 || (reply[5] == 1 && reply[6] == 2 && reply[7] == 0x4A)))
             {
                 return reply;
             }

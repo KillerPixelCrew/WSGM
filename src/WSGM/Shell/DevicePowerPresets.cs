@@ -100,7 +100,7 @@ internal sealed class DevicePowerPresets(
                     var result = await execute(scenario.Descriptor.CapabilityId,
                         new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = target },
                         cycle, generation, false, cancellationToken).ConfigureAwait(false);
-                    if (result.Outcome != CommandOutcome.AppliedVerified)
+                    if (!result.Outcome.IsApplied())
                     {
                         throw new InvalidOperationException(result.Reason?.Detail ??
                                                             $"The device reported {result.Outcome}.");
@@ -108,7 +108,9 @@ internal sealed class DevicePowerPresets(
 
                     CheckCurrent();
                     views = snapshot();
-                    if (ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue != target
+                    // Firmware that cannot report its scenario is trusted to have taken the write.
+                    if ((ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue is { } scenarioNow
+                         && scenarioNow != target)
                         || !TryPair(views, out sustained, out slow))
                     {
                         throw new InvalidOperationException("The firmware scenario could not be confirmed.");
@@ -118,7 +120,7 @@ internal sealed class DevicePowerPresets(
                 // Firmware scenario selection can change the pair, so order using its new readback.
                 // Raise PL2 before PL1 when necessary; lower PL1 before lowering PL2.
                 (DeviceCapabilityView View, int Watts)[] writes =
-                    preset.SustainedWatts > slow!.Projection.State.ObservedValue!.IntegerValue
+                    preset.SustainedWatts > (slow!.Projection.State.ObservedValue?.IntegerValue ?? preset.SlowWatts)
                         ? [(slow, preset.SlowWatts), (sustained!, preset.SustainedWatts)]
                         : [(sustained!, preset.SustainedWatts), (slow, preset.SlowWatts)];
                 foreach (var write in writes)
@@ -131,7 +133,7 @@ internal sealed class DevicePowerPresets(
                             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = write.Watts },
                             cycle, generation, persistValues, cancellationToken)
                         .ConfigureAwait(false);
-                    if (result.Outcome != CommandOutcome.AppliedVerified)
+                    if (!result.Outcome.IsApplied())
                     {
                         throw new InvalidOperationException(result.Reason?.Detail ??
                                                             $"The device reported {result.Outcome}.");
@@ -206,7 +208,6 @@ internal sealed class DevicePowerPresets(
         if (!TryPair(views, out var sustained, out var slow)
             || (presets.Any(preset => preset.ScenarioOnAc is not null)
                 && (onAc is null || !Current(ScenarioView(views))
-                                 || ScenarioView(views)!.Projection.State.ObservedValue?.ChoiceValue is null
                                  || ScenarioView(views)!.Projection.State.CycleGeneration !=
                                  sustained!.Projection.State.CycleGeneration
                                  || ScenarioView(views)!.Projection.State.DescriptorGeneration !=
@@ -217,21 +218,23 @@ internal sealed class DevicePowerPresets(
         }
 
         var match = presets.FirstOrDefault(preset =>
-            preset.SustainedWatts == sustained!.Projection.State.ObservedValue!.IntegerValue
-            && preset.SlowWatts == slow!.Projection.State.ObservedValue!.IntegerValue
+            preset.SustainedWatts == sustained!.Projection.State.ObservedValue?.IntegerValue
+            && preset.SlowWatts == slow!.Projection.State.ObservedValue?.IntegerValue
             && WindowsPowerModes.Id(preset.WindowsMode) == mode
             && (preset.ScenarioOnAc is null || ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue
                 == (onAc == true ? preset.ScenarioOnAc : preset.ScenarioOnDc)));
         var observedMode = Enum.GetValues<DevicePowerMode>().Cast<DevicePowerMode?>()
             .FirstOrDefault(item => WindowsPowerModes.Id(item!.Value) == mode);
         var values = observedMode is { } knownMode
+                     && sustained!.Projection.State.ObservedValue?.IntegerValue is { } sustainedWatts
+                     && slow!.Projection.State.ObservedValue?.IntegerValue is { } slowWatts
             ? new DevicePowerCustomValues
             {
-                SustainedWatts = sustained!.Projection.State.ObservedValue!.IntegerValue!.Value,
-                SlowWatts = slow!.Projection.State.ObservedValue!.IntegerValue!.Value,
+                SustainedWatts = sustainedWatts,
+                SlowWatts = slowWatts,
                 WindowsMode = knownMode,
                 Scenario = presets.Any(preset => preset.ScenarioOnAc is not null)
-                    ? ScenarioView(views)!.Projection.State.ObservedValue!.ChoiceValue
+                    ? ScenarioView(views)!.Projection.State.ObservedValue?.ChoiceValue
                     : null
             }
             : null;
@@ -296,24 +299,17 @@ internal sealed class DevicePowerPresets(
         sustained = sustainedMatches.Length == 1 ? sustainedMatches[0] : null;
         slow = slowMatches.Length == 1 ? slowMatches[0] : null;
         return Current(sustained) && Current(slow)
-                                  && sustained!.Projection.State.ObservedValue?.IntegerValue is not null
-                                  && slow!.Projection.State.ObservedValue?.IntegerValue is not null
-                                  && sustained.Projection.State.CycleGeneration == slow.Projection.State.CycleGeneration
+                                  && sustained!.Projection.State.CycleGeneration ==
+                                  slow!.Projection.State.CycleGeneration
                                   && sustained.Projection.State.DescriptorGeneration ==
                                   slow.Projection.State.DescriptorGeneration;
     }
 
     private static bool Current(DeviceCapabilityView? view)
     {
-        return view is
-               {
-                   Projection.State:
-                   {
-                       Available: true,
-                       Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
-                       ObservedValue: not null
-                   }
-               }
+        // Readback is not required: firmware that cannot report its limits still takes presets.
+        return view is not null
+               && DeviceCapabilityRouter.CanCommand(view.Projection.State)
                && view.Projection.Progress != CommandProgress.Pending
                && (view.Projection.Progress != CommandProgress.Uncertain
                    || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);

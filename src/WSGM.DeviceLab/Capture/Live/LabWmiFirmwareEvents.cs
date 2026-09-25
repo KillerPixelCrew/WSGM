@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text;
 using Microsoft.Win32;
 
@@ -47,7 +48,7 @@ internal static class LabWmiFirmwareEvents
     public static List<LabWdgEvent> ParseWdgEvents(ReadOnlySpan<byte> table)
     {
         List<LabWdgEvent> events = [];
-        ReadOnlySpan<byte> name = "_WDG"u8;
+        var name = "_WDG"u8;
         var at = 0;
         while ((at = IndexOf(table, name, at)) >= 0)
         {
@@ -100,7 +101,7 @@ internal static class LabWmiFirmwareEvents
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or System.Security.SecurityException)
+                                       or SecurityException)
         {
             problem = $@"HKLM\HARDWARE\ACPI: {ex.Message}";
             return [];
@@ -117,7 +118,7 @@ internal static class LabWmiFirmwareEvents
             using ManagementObjectSearcher search = new(@"root\wmi",
                 "SELECT * FROM meta_class WHERE __this ISA 'WMIEvent'");
             using var classes = search.Get();
-            foreach (ManagementBaseObject definition in classes)
+            foreach (var definition in classes)
             {
                 using (definition)
                 {
@@ -183,7 +184,9 @@ internal static class LabWmiFirmwareEvents
             {
                 if (found.Count < MaximumTables && key.GetValueKind(value) == RegistryValueKind.Binary
                                                 && key.GetValue(value) is byte[]
-                                                    { Length: >= 36 and <= MaximumTableBytes } table)
+                                                {
+                                                    Length: >= 36 and <= MaximumTableBytes
+                                                } table)
                 {
                     found.Add(table);
                 }
@@ -313,7 +316,8 @@ internal static class LabWmiQuarantine
         try
         {
             return File.Exists(Blocked)
-                   && File.ReadAllLines(Blocked).Any(line => string.Equals(line.Trim(), name, StringComparison.Ordinal));
+                   && File.ReadAllLines(Blocked)
+                       .Any(line => string.Equals(line.Trim(), name, StringComparison.Ordinal));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

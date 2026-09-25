@@ -54,26 +54,20 @@ internal static class AllyProtocol
     public const byte SpeedMedium = 0xF5;
     public const byte SpeedFast = 0xE1;
 
-    /// <summary>HHD <c>REMAP_M1M2_F17F18</c>: M1 and M2 become keyboard keys the plugin can read.</summary>
+    /// <summary>HC <c>M1F18M2F17</c> (<c>ROGAlly.cs:163-168</c>): M1 and M2 become keyboard keys the plugin can read.</summary>
     /// <remarks>
     ///     Without this block the rear buttons send ASUS's own M1/M2 codes, which no Windows API
-    ///     surfaces. HC writes the identical bytes as <c>M1F18M2F17</c> (<c>ROGAlly.cs:163-168</c>).
+    ///     surfaces. HHD writes the identical bytes as <c>REMAP_M1M2_F17F18</c>.
     /// </remarks>
     public static readonly byte[] RearKeyboardMapping =
         Pad("5a d1 02 08 2c 02 00 28 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02 00 30");
 
-    /// <summary>HHD <c>REMAP_M1M2_DEFAULT</c>: ASUS's M2 code 0x8E on the first pair, M1 0x8F on the second.</summary>
-    /// <remarks>
-    ///     HHD <c>rog_ally/const.py:839-896</c>. HC's <c>M1M2Default</c> is the same block truncated
-    ///     before its fourth entry (<c>ROGAlly.cs:156-161</c>), so HHD's complete block is used.
-    /// </remarks>
+    /// <summary>HC <c>M1M2Default</c> (<c>ROGAlly.cs:156-161</c>): ASUS's M2 code 0x8E, then M1 0x8F.</summary>
     public static readonly byte[] RearDefaultMapping =
-        Pad("5a d1 02 08 2c 02 00 8e 00 00 00 00 00 00 00 00 02 00 8e 00 00 00 00 00 00 00 00 02 00 8f 00 00 00 00"
-            + " 00 00 00 00 02 00 8f");
+        Pad("5a d1 02 08 2c 02 00 8e 00 00 00 00 00 00 00 00 02 00 8e 00 00 00 00 00 00 00 00 02 00 8f");
 
-    // HHD COMMIT_RESET (const.py:1073-1118) with HC's commitReset1of4-4of4 values (ROGAlly.cs:177-183):
-    // turbo reset, vibration 100/100, stick and trigger ranges 0-100. HHD sends vibration 100 on the
-    // Ally and 50 on the others, and stick and trigger outer limits of 0x40 or 0x60.
+    // HC commitReset1of4-4of4 (ROGAlly.cs:177-183): turbo reset, vibration 100/100, stick and trigger
+    // ranges 0-100.
     private static readonly byte[][] Commit =
     [
         Pad("5a d1 0f 20"),
@@ -82,37 +76,34 @@ internal static class AllyProtocol
         Pad("5a d1 05 04 00 64 00 64")
     ];
 
-    // HHD COMMANDS_GAME before the rear block (const.py:1120-1128): game mode, then the default
-    // D-pad, stick, shoulder, face and view/menu tables. Each table is a 0x2C (44) byte body of four
-    // 11-byte button blocks. Six match HC's defaults (ROGAlly.cs:93-154) byte for byte; HC's
-    // dPadLeftRightDefault and faceButtonsABDefault drop one padding byte from their third block, so
-    // their fourth block starts one byte early while the length byte still says 44. HHD's layout,
-    // which agrees with that length and with HC's other tables, is sent (PROVENANCE.md).
+    // HC modeGame and the default D-pad, stick, shoulder, face and view/menu tables
+    // (ROGAlly.cs:93-154), byte for byte and in HC's ConfigureController order (ROGAlly.cs:652-659).
+    // HC has shipped these on every Ally including the Xbox models; HHD's variants of the D-pad
+    // left/right and A/B tables differ by one byte (PROVENANCE.md) and are not used.
     private static readonly byte[][] FrontTables =
     [
         Pad("5a d1 01 01 01"),
-        Pad("5a d1 02 02 2c 01 0b 00 00 00 00 00 00 00 00 00 04 00 00 00 00 02 82 23 00 00 00 01 0c 00 00 00 00"
-            + " 00 00 00 00 00 04 00 00 00 00 02 82 0d"),
         Pad("5a d1 02 01 2c 01 09 00 00 00 00 00 00 00 00 00 05 00 00 19 00 00 00 00 00 00 00 01 0a 00 00 00 00"
             + " 00 00 00 00 00 04 00 00 00 00 03 8c 88 76"),
+        Pad("5a d1 02 02 2c 01 0b 00 00 00 00 00 00 00 00 00 04 00 00 00 00 02 82 23 00 00 00 01 0c 00 00 00 00"
+            + " 00 00 00 00 04 00 00 00 00 02 82 0d"),
         Pad("5a d1 02 03 2c 01 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 08"),
         Pad("5a d1 02 04 2c 01 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 06"),
         Pad("5a d1 02 05 2c 01 01 00 00 00 00 00 00 00 00 00 05 00 00 16 00 00 00 00 00 00 00 01 02 00 00 00 00"
-            + " 00 00 00 00 00 04 00 00 00 00 02 82 31"),
+            + " 00 00 00 00 00 04 00 00 00 02 82 31"),
         Pad("5a d1 02 06 2c 01 03 00 00 00 00 00 00 00 00 00 04 00 00 00 00 02 82 4d 00 00 00 01 04 00 00 00 00"
             + " 00 00 00 00 00 05 00 00 1e"),
         Pad("5a d1 02 07 2c 01 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 12")
     ];
 
-    // HHD REMAP_TRIGGERS (const.py:955-1012), HC triggersDefault (ROGAlly.cs:170-175).
+    // HC triggersDefault (ROGAlly.cs:170-175).
     private static readonly byte[] Triggers =
         Pad("5a d1 02 09 2c 01 0d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 0e");
 
     /// <summary>
-    ///     The controller configuration written when the plugin takes the gamepad: HHD's
-    ///     <c>COMMANDS_GAME</c> (<c>rog_ally/const.py:1120-1132</c>) in HHD's order, which sends the D-pad
-    ///     left/right table before up/down where HC's <c>ConfigureController</c> sends up/down first
-    ///     (<c>ROGAlly.cs:653-654</c>), through feature reports as HC does (<c>ROGAlly.cs:646-668</c>).
+    ///     The controller configuration written when the plugin takes the gamepad: HC's
+    ///     <c>ConfigureController(Remap: true)</c> (<c>ROGAlly.cs:646-668</c>), every table in its order,
+    ///     sent as 64-byte feature reports.
     /// </summary>
     public static IReadOnlyList<byte[]> GameModeConfiguration { get; } =
         [.. FrontTables, RearKeyboardMapping, Triggers, .. Commit];

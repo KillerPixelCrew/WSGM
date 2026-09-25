@@ -91,8 +91,12 @@ and acquired again on resume or when controller management is turned back on.
 HC. HC treats 0x93 as Library and 0xA7/0xA8 as M2 press/release; 0xA6 and 0x38 map to each model's
 front controls, and none reports a long press. A release-less press is latched into the controller
 sample for 150 ms. The Xbox models also get F21/F22 from a low-level keyboard hook, which is how the
-lab saw those buttons arrive, and on the XInput route their Xbox button maps to the QAM as in HHD.
-M1 and M2 are claimed by the same hook, only while the controller tables are applied; the hook is
+lab saw those buttons arrive. On the Xbox models the Xbox button is Steam's Guide, as HC reads it,
+Library is Steam's Quick Access, and Armoury Crate carries no Steam button: it is published as the
+companion-application control, which WSGM opens its overlay from unless the user assigns it
+otherwise. The classic models keep Armoury Crate as the Guide and Command Center as Quick Access,
+since they have no Xbox button. A vendor code the model does not map is traced once per cycle. M1
+and M2 are claimed by the same hook, only while the controller tables are applied; the hook is
 installed only while it has a key to claim. A button that reports on both the vendor collection and
 the keyboard is counted once. If the vendor reader stops, the fault is reported and the reader
 restarts on resume.

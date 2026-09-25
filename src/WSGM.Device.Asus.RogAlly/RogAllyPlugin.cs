@@ -65,6 +65,10 @@ public sealed class RogAllyPlugin : IDevicePlugin
 
     private readonly SemaphoreSlim _commandSerializer = new(1, 1);
     private readonly AllyHardwareServices _hardware;
+
+    /// <summary>Values this cycle wrote, keyed by capability and instance, for firmware without readback.</summary>
+    private readonly Dictionary<(string CapabilityId, string? InstanceId), CapabilityValue> _written = [];
+
     private bool _active;
     private IAllyAuraHid? _aura;
     private AllyOemButtonState? _buttons;
@@ -160,6 +164,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         _host = context.Host;
         _model = definition;
         _cycleGeneration = context.CycleGeneration;
+        _written.Clear();
         _cycleIdentity = identity;
         _quiescing = false;
         try
@@ -320,6 +325,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         try
         {
             _cycleGeneration = context.CycleGeneration;
+            _written.Clear();
             _cycleIdentity = await _hardware.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
             if (_journal is not null && await _journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false)
                     is { } journalFailure)
@@ -412,6 +418,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
             var previous = _cycleGeneration;
             _controller.Enabled = context.Enabled;
             _cycleGeneration = context.CycleGeneration;
+            _written.Clear();
             // The Claw plugin's rule: a fresh cycle generation resets the descriptor generation WSGM
             // accepts, so the surface is republished before any state under it.
             if (_cycleGeneration != previous && _host is not null && _descriptorSet is not null)
@@ -855,11 +862,21 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 RollbackResult.RestoreFailed);
         }
 
-        if (result.Rollback is RollbackResult.RestoreFailed && service is PowerService or FanService)
+        // A blind write with no journalled original has nothing to reconcile, so it does not fault.
+        if (result.Rollback is RollbackResult.RestoreFailed
+            && service is PowerService { HasJournalledOriginal: true } or FanService { HasJournalledOriginal: true })
         {
             service.Fault(new CapabilityReason(CapabilityReasonCode.TransportFaulted,
                 "A command rollback failed; the resource stays faulted until it is acquired again, and stop "
                 + "restores the journalled original."));
+        }
+
+        if (result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified
+            && command.RequestedValue is { } requested)
+        {
+            // What was written stands in for a readback the firmware cannot give (SDK: an unverified
+            // write earns Observed at best). It lives only for this cycle.
+            _written[(command.CapabilityId, command.InstanceId)] = requested;
         }
 
         return result.Outcome is not CommandOutcome.AppliedVerified && result.ReadbackValue is not null
@@ -877,32 +894,20 @@ public sealed class RogAllyPlugin : IDevicePlugin
         {
             case CapabilityIds.PowerSustained:
                 AllyWriteBudget.Require(command.Deadline, "power limit");
-                if (!await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
-                {
-                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
-                        "The current power limits and mode must be readable before they can be changed.");
-                }
+                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
                 return await _power.Capability!
                     .ApplySustainedAsync(command, value.IntegerValue!.Value, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.PowerBoost:
                 AllyWriteBudget.Require(command.Deadline, "power limit");
-                if (!await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
-                {
-                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
-                        "The current power limits and mode must be readable before they can be changed.");
-                }
+                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
                 return await _power.Capability!.ApplyBoostAsync(command, value.IntegerValue!.Value, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.Scenario:
                 AllyWriteBudget.Require(command.Deadline, "performance mode");
-                if (!await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
-                {
-                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
-                        "The current power limits and mode must be readable before they can be changed.");
-                }
+                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
                 return await _power.Capability!.ApplyScenarioAsync(command, value.ChoiceValue!, cancellationToken)
                     .ConfigureAwait(false);
@@ -910,11 +915,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 return _charge!.Capability!.Apply(command, value.IntegerValue!.Value);
             case CapabilityIds.FanCurve:
                 AllyWriteBudget.Require(command.Deadline, "fan curve");
-                if (!await _fans!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
-                {
-                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
-                        "The current fan curves must be readable before they can be changed.");
-                }
+                await _fans!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
                 return await _fans.Capability!.ApplyCurveAsync(command, value.CurveValue, cancellationToken)
                     .ConfigureAwait(false);
@@ -951,11 +952,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
         if (mode == FanModes.Automatic)
         {
             AllyWriteBudget.Require(command.Deadline, "fan mode");
-            if (!await fans.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
-            {
-                return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
-                    "The current fan curves must be readable before they can be changed.");
-            }
+            await fans.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
 
             return await fans.Capability!.ApplyAutomaticAsync(command, fans.Original, cancellationToken)
                 .ConfigureAwait(false);
@@ -1076,7 +1073,12 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 continue;
             }
 
-            var value = descriptor.SupportsRead ? CurrentState(descriptor) : null;
+            // Power keeps its own written state, which a mode change clears (AllyPowerCapability.Effective).
+            var value = (descriptor.SupportsRead ? CurrentState(descriptor) : null)
+                        ?? (service is PowerService
+                            ? null
+                            : _written.GetValueOrDefault((descriptor.CapabilityId, descriptor.InstanceId)))
+                        ?? Fallback(descriptor);
             await _host.PublishCapabilityStateAsync(new CapabilityState
             {
                 CapabilityId = descriptor.CapabilityId,
@@ -1131,6 +1133,23 @@ public sealed class RogAllyPlugin : IDevicePlugin
             default:
                 return null;
         }
+    }
+
+    /// <summary>What the device is known to be doing before anything was written this cycle.</summary>
+    /// <remarks>
+    ///     The fans run HC's factory tables under firmware control until a curve is sent, so that is
+    ///     what the fan controls show on a firmware that refuses the curve query.
+    /// </remarks>
+    private CapabilityValue? Fallback(CapabilityDescriptor descriptor)
+    {
+        return descriptor.CapabilityId switch
+        {
+            CapabilityIds.FanMode when _fans?.State is AllyServiceState.Owned =>
+                CapabilityValue.Choice(FanModes.Automatic),
+            CapabilityIds.FanCurve when _fans?.Capability is { } fans =>
+                CapabilityValue.Curve(AllyFanCapability.Decode(fans.WrittenCpu ?? AllyFanCapability.DefaultCpuCurve)),
+            _ => null
+        };
     }
 
     private static bool InRange(int value, CapabilityDescriptor descriptor)

@@ -36,6 +36,7 @@ internal sealed class VendorEventService(
     IPluginHostAdapter host,
     AllyOemButtonState buttons) : AllyService(AllyServiceIds.VendorEvents)
 {
+    private readonly HashSet<byte> _unmapped = [];
     private long _cycleGeneration;
     private AllyModel? _model;
     private long _sequence;
@@ -78,8 +79,19 @@ internal sealed class VendorEventService(
 
     internal ValueTask OnEventAsync(byte code, DateTimeOffset timestamp)
     {
-        if (_model is null || AllyModels.VendorAction(_model, code) is not { } action)
+        if (_model is null)
         {
+            return ValueTask.CompletedTask;
+        }
+
+        if (AllyModels.VendorAction(_model, code) is not { } action)
+        {
+            // Once per code, so a tester's log names what a silent button sends.
+            if (_unmapped.Add(code))
+            {
+                PluginTrace.Info("vendor-hid", $"unmapped vendor event 0x{code:X2}.");
+            }
+
             return ValueTask.CompletedTask;
         }
 
@@ -276,6 +288,9 @@ internal sealed class PowerService(
 
     public AllyPowerState? LastObserved { get; private set; }
 
+    /// <summary>Whether this cycle journalled an original that stop restores.</summary>
+    public bool HasJournalledOriginal => journal.PendingOriginalFor(ServiceId) is not null;
+
     public override ValueTask<AllyServiceResult> AcquireAsync(
         AllyCycleContext context,
         CancellationToken cancellationToken)
@@ -308,25 +323,31 @@ internal sealed class PowerService(
 
     public void Refresh()
     {
-        LastObserved = Capability?.Read();
+        LastObserved = Capability?.Effective();
     }
 
     /// <summary>Journals the original state before the first write of this cycle, when it can be read.</summary>
-    public async ValueTask<bool> PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
+    /// <remarks>
+    ///     A firmware that cannot report its limits and mode is written anyway, as HC does
+    ///     (<c>ROGAlly.cs:694-702</c>). Nothing is journalled then, so stop has nothing to restore.
+    /// </remarks>
+    public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
-        var original = Capability!.Read();
-        // A limit the record cannot hold, such as a firmware reporting 0 W, counts as unreadable.
-        if (!original.LimitsReadable || original.Mode is null
-                                     || !AllyRecoveryJournal.IsValidWatts(original.Sustained)
-                                     || !AllyRecoveryJournal.IsValidWatts(original.Slow)
-                                     || !AllyRecoveryJournal.IsValidWatts(original.Fast))
+        if (HasJournalledOriginal)
         {
-            return false;
+            return;
+        }
+
+        var original = Capability!.Read();
+        if (!original.LimitsReadable || original.Mode is null)
+        {
+            PluginTrace.Change("power", "journal",
+                "The firmware does not report its power limits and mode; writing without a restore point.");
+            return;
         }
 
         _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Power(original),
             cancellationToken).ConfigureAwait(false);
-        return true;
     }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
@@ -389,6 +410,9 @@ internal sealed class FanService(
 
     public AllyFanSnapshot? Original => journal.OriginalStateFor(ServiceId)?.ToFans();
 
+    /// <summary>Whether this cycle journalled an original that stop restores.</summary>
+    public bool HasJournalledOriginal => journal.PendingOriginalFor(ServiceId) is not null;
+
     public override ValueTask<AllyServiceResult> AcquireAsync(
         AllyCycleContext context,
         CancellationToken cancellationToken)
@@ -430,17 +454,28 @@ internal sealed class FanService(
         LastFans = Capability.ReadFans();
     }
 
-    public async ValueTask<bool> PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
+    /// <summary>Journals the original curves before the first write of this cycle, when they can be read.</summary>
+    /// <remarks>
+    ///     A firmware that refuses the curve query is written anyway, as HC does; stop then returns the
+    ///     fans to HC's factory tables rather than to a captured original (<c>ROGAlly.cs:466-478</c>).
+    /// </remarks>
+    public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
+        if (HasJournalledOriginal)
+        {
+            return;
+        }
+
         var original = Capability!.Read();
         if (!original.Readable || original.Mode is null || (Capability.HasMidFan && original.Mid is null))
         {
-            return false;
+            PluginTrace.Change("fans", "journal",
+                "The firmware does not report its fan curves; stop will write HC's factory tables.");
+            return;
         }
 
         _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Fans(original),
             cancellationToken).ConfigureAwait(false);
-        return true;
     }
 
     public override async ValueTask<AllyServiceResult> ReleaseAsync(
@@ -452,11 +487,14 @@ internal sealed class FanService(
             return Set(AllyServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        if (State is not (AllyServiceState.Owned or AllyServiceState.Faulted) || Capability is null
-                                                                              || journal.PendingOriginalFor(ServiceId)
-                                                                                  ?.ToFans() is not { } original)
+        if (State is not (AllyServiceState.Owned or AllyServiceState.Faulted) || Capability is null)
         {
             return Set(AllyServiceState.Idle);
+        }
+
+        if (journal.PendingOriginalFor(ServiceId)?.ToFans() is not { } original)
+        {
+            return await ReleaseToFactoryAsync(context, cancellationToken).ConfigureAwait(false);
         }
 
         AllyWriteBudget.Require(context.Deadline, "fan restoration");
@@ -482,6 +520,31 @@ internal sealed class FanService(
             ? Set(AllyServiceState.Idle)
             : Set(AllyServiceState.ReleasedUnverified, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
                 "The captured fan curves were written back but did not read back."));
+    }
+
+    /// <summary>Without a captured original, a custom curve is replaced by HC's factory tables.</summary>
+    private async ValueTask<AllyServiceResult> ReleaseToFactoryAsync(
+        AllyCycleContext context,
+        CancellationToken cancellationToken)
+    {
+        if (Capability!.WrittenCpu is not { } written
+            || written.AsSpan().SequenceEqual(AllyFanCapability.DefaultCpuCurve))
+        {
+            return Set(AllyServiceState.Idle);
+        }
+
+        AllyWriteBudget.Require(context.Deadline, "fan restoration");
+        try
+        {
+            await Capability.WriteFactoryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or Win32Exception)
+        {
+            return Set(AllyServiceState.Faulted, new CapabilityReason(CapabilityReasonCode.TransportFaulted,
+                AllyDiagnosticText.FromException("Fan restoration failed", ex)));
+        }
+
+        return Set(AllyServiceState.Idle);
     }
 }
 
@@ -1003,20 +1066,36 @@ internal sealed class ControllerService(
         _ = await journal.BeginAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
             cancellationToken).ConfigureAwait(false);
         _configured = true;
-        try
+        // HC writes every table and ignores each result (ROGAlly.cs:646-668). Each is one uncertain
+        // write that is never retried; a refused table does not stop the others, and only a refused
+        // M1/M2 table keeps the rear buttons off.
+        List<string> refused = [];
+        var rearWritten = false;
+        foreach (var report in AllyProtocol.GameModeConfiguration)
         {
-            foreach (var report in AllyProtocol.GameModeConfiguration)
+            try
             {
                 await vendor.WriteConfigurationAsync(report, cancellationToken).ConfigureAwait(false);
+                rearWritten |= ReferenceEquals(report, AllyProtocol.RearKeyboardMapping);
+            }
+            catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+            {
+                refused.Add($"{report[2]:X2}/{report[3]:X2}: "
+                            + AllyDiagnosticText.FromException("refused", ex));
             }
         }
-        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+
+        if (refused.Count > 0)
         {
-            // Each table is one uncertain write; none is retried. Put the defaults back and carry on
-            // without the rear buttons: the pad itself does not depend on these tables.
+            host.Trace(DeviceTraceLevel.Warn, "controller",
+                $"{refused.Count} of {AllyProtocol.GameModeConfiguration.Count} controller tables refused: "
+                + string.Join("; ", refused));
+        }
+
+        if (!rearWritten)
+        {
             host.Trace(DeviceTraceLevel.Error, "controller",
-                AllyDiagnosticText.FromException("controller tables were not all written", ex));
-            _ = await RestoreConfigurationAsync(context.Deadline).ConfigureAwait(false);
+                "the M1/M2 table was not written; M1 and M2 stay unavailable this cycle.");
             return;
         }
 
@@ -1035,10 +1114,6 @@ internal sealed class ControllerService(
         try
         {
             AllyWriteBudget.Require(deadline, "controller table restoration");
-            foreach (var report in AllyProtocol.DefaultConfiguration)
-            {
-                await vendor.WriteConfigurationAsync(report, CancellationToken.None).ConfigureAwait(false);
-            }
         }
         catch (AllyBudgetException ex)
         {
@@ -1046,12 +1121,33 @@ internal sealed class ControllerService(
             return new CapabilityReason(CapabilityReasonCode.Quiescing,
                 AllyDiagnosticText.FromException("The factory controller tables were not written back", ex));
         }
-        catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+
+        // Like the forward write, every table is sent even when one is refused (HC ROGAlly.cs:646-668).
+        Exception? failure = null;
+        var refused = 0;
+        foreach (var report in AllyProtocol.DefaultConfiguration)
         {
-            await journal.CompleteAsync(ServiceId, AllyRecoveryStatus.RestoreFailed, CancellationToken.None)
-                .ConfigureAwait(false);
+            try
+            {
+                await vendor.WriteConfigurationAsync(report, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
+            {
+                failure ??= ex;
+                refused++;
+            }
+        }
+
+        if (failure is not null)
+        {
+            // A partly written release is still the best that can be done for an unreadable table.
+            var status = refused == AllyProtocol.DefaultConfiguration.Count
+                ? AllyRecoveryStatus.RestoreFailed
+                : AllyRecoveryStatus.RestoredUnverified;
+            await journal.CompleteAsync(ServiceId, status, CancellationToken.None).ConfigureAwait(false);
             return new CapabilityReason(CapabilityReasonCode.TransportFaulted,
-                AllyDiagnosticText.FromException("The factory controller tables could not be written back", ex));
+                AllyDiagnosticText.FromException(
+                    $"{refused} factory controller tables could not be written back", failure));
         }
 
         // Every report was acknowledged; nothing more can be done for an unreadable table, so the

@@ -153,6 +153,9 @@ internal sealed class FakeVendorHid : IAllyVendorHid
 
     public bool FailWrites { get; set; }
 
+    /// <summary>A table (report byte 3) the fake refuses while accepting every other.</summary>
+    public byte? RefuseTable { get; set; }
+
     public List<byte[]> Reports { get; } = [];
 
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
@@ -177,7 +180,7 @@ internal sealed class FakeVendorHid : IAllyVendorHid
 
     public ValueTask WriteConfigurationAsync(ReadOnlyMemory<byte> report, CancellationToken cancellationToken)
     {
-        if (FailWrites)
+        if (FailWrites || (RefuseTable is { } table && report.Span[2] == 0x02 && report.Span[3] == table))
         {
             throw new IOException("simulated feature report failure");
         }

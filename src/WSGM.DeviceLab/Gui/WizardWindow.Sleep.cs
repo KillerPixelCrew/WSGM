@@ -83,6 +83,7 @@ internal sealed partial class WizardWindow
             {
                 return;
             }
+
             if (activity.Detail == "display-state = 0")
             {
                 detection = "Modern Standby display off/on cycle";

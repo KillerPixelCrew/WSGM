@@ -12,14 +12,6 @@ internal static partial class LabSystemDump
 {
     private const uint AccessScheme = 16;
     private const int SystemPowerCapabilities = 4;
-
-    /// <summary>Whether Windows reports S0 low-power idle support.</summary>
-    internal static bool SupportsModernStandby()
-    {
-        var buffer = new byte[PowerCapabilitiesBytes];
-        return CallNtPowerInformation(SystemPowerCapabilities, IntPtr.Zero, 0, buffer, (uint)buffer.Length) == 0
-               && buffer[20] != 0;
-    }
     private const int PowerCapabilitiesBytes = 76;
 
     // Windows' power mode slider values: no overlay means the balanced position.
@@ -30,6 +22,14 @@ internal static partial class LabSystemDump
         [new Guid("3af9b8d9-7c97-431d-ad78-34a8bfea439f")] = "better battery",
         [new Guid("ded574b5-45a0-4f42-8737-46345c09c238")] = "best performance"
     };
+
+    /// <summary>Whether Windows reports S0 low-power idle support.</summary>
+    internal static bool SupportsModernStandby()
+    {
+        var buffer = new byte[PowerCapabilitiesBytes];
+        return CallNtPowerInformation(SystemPowerCapabilities, IntPtr.Zero, 0, buffer, (uint)buffer.Length) == 0
+               && buffer[20] != 0;
+    }
 
     private static LabSystemDumpSectionResult CollectBatteryPower(LabSystemDumpContext context)
     {

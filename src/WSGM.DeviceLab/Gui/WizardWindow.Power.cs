@@ -746,6 +746,7 @@ internal sealed partial class WizardWindow
             {
                 restored &= await RunMsiFansAsync(page, wmi, fans, tests);
             }
+
             if (layout.HasTdp)
             {
                 if (original.Power is { } power)
@@ -776,7 +777,8 @@ internal sealed partial class WizardWindow
         List<LabPowerTestResult> tests)
     {
         page.Children.Add(Heading("Full-speed fans (100%)"));
-        page.Children.Add(Status("Both fans will run at full speed for five seconds, then return to their original mode."));
+        page.Children.Add(
+            Status("Both fans will run at full speed for five seconds, then return to their original mode."));
         if (await AskAsync(page, "Test full speed", "Skip") == 1)
         {
             _machine.Update(changes => changes with { Power = changes.Power! with { MsiFans = null } });

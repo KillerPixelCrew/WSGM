@@ -373,6 +373,7 @@ internal sealed partial class LabInputCapture
                     {
                         QueueHidRescan();
                     }
+
                     break;
                 }
                 case WmPowerBroadcast:

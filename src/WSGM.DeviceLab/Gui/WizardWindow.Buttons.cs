@@ -19,13 +19,6 @@ namespace WSGM.DeviceLab.Gui;
 // and a redo runs the same init and liveness check first.
 internal sealed partial class WizardWindow
 {
-    private enum ButtonControlResult
-    {
-        Next,
-        Previous,
-        SkipRest
-    }
-
     private async Task RunButtonsAsync(LabProject project, StackPanel page)
     {
         var record = ConfirmedRecord(project);
@@ -60,6 +53,7 @@ internal sealed partial class WizardWindow
                 {
                     await Task.Run(capture.RescanHidCollections);
                 }
+
                 restoreMode = init.Reversible && initResult.Sent;
                 line.Text = initResult.Sent
                     ? "The controller is set up."
@@ -329,7 +323,8 @@ internal sealed partial class WizardWindow
 
             void OnActivity(LabInputActivity activity)
             {
-                if (activity.Source is "hook" or "raw-input" && activity.Detail.StartsWith("mouse", StringComparison.Ordinal))
+                if (activity.Source is "hook" or "raw-input" &&
+                    activity.Detail.StartsWith("mouse", StringComparison.Ordinal))
                 {
                     return;
                 }
@@ -364,8 +359,11 @@ internal sealed partial class WizardWindow
             int answer;
             try
             {
-                string[] choices = canGoBack
-                    ? new[] { "Next", "Do it again", "This device does not have it", "Skip the rest", "Previous button" }
+                var choices = canGoBack
+                    ? new[]
+                    {
+                        "Next", "Do it again", "This device does not have it", "Skip the rest", "Previous button"
+                    }
                     : ["Next", "Do it again", "This device does not have it", "Skip the rest"];
                 answer = await AskAsync(page, quiet.Token, choices);
             }
@@ -513,5 +511,12 @@ internal sealed partial class WizardWindow
 
         alive.AddRange(unavailable.Select(item => $"unavailable: {item}"));
         return alive;
+    }
+
+    private enum ButtonControlResult
+    {
+        Next,
+        Previous,
+        SkipRest
     }
 }

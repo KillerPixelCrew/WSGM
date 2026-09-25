@@ -2,7 +2,7 @@
   "id": "wsgm.device.asus.rog-ally",
   "name": "ASUS ROG Ally family",
   "version": "0.2.0",
-  "apiVersion": 6,
+  "apiVersion": 7,
   "entryAssembly": "WSGM.Device.Asus.RogAlly.dll",
   "entryType": "WSGM.Device.Asus.RogAlly.RogAllyPlugin",
   "hardware": [

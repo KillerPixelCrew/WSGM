@@ -16,11 +16,26 @@ public sealed class DeviceDesiredWriteAdmissionTests
         Assert.Null(admission.SkipReason);
     }
 
+    [Fact]
+    public void StateThatWasNeverReadBackIsStillAdmitted()
+    {
+        var view = View();
+
+        var admission = DeviceDesiredWriteAdmission.TryAdmit(view with
+        {
+            Projection = view.Projection with
+            {
+                State = view.Projection.State with { Quality = HardwareStateQuality.Unknown, ObservedValue = null }
+            }
+        });
+
+        Assert.True(admission.Admitted);
+    }
+
     [Theory]
-    [InlineData(HardwareStateQuality.Unknown)]
     [InlineData(HardwareStateQuality.Stale)]
     [InlineData(HardwareStateQuality.Faulted)]
-    public void StateWithoutFreshHardwareEvidenceIsNotAdmitted(HardwareStateQuality quality)
+    public void ExpiredOrFaultedStateIsNotAdmitted(HardwareStateQuality quality)
     {
         var view = View();
 

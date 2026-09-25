@@ -15,10 +15,10 @@ internal sealed partial class LabInputCapture
     private sealed class DirectInputReader : IDisposable
     {
         private readonly LabInputCapture _capture;
-        private readonly IDirectInput8 _input;
-        private readonly nint _window;
         private readonly HashSet<Guid> _failed = [];
+        private readonly IDirectInput8 _input;
         private readonly Dictionary<Guid, Pad> _pads = [];
+        private readonly nint _window;
         private long _lastScan = long.MinValue;
 
         public DirectInputReader(LabInputCapture capture, nint window)
@@ -26,6 +26,18 @@ internal sealed partial class LabInputCapture
             _capture = capture;
             _window = window;
             _input = DInput.DirectInput8Create();
+        }
+
+        public void Dispose()
+        {
+            foreach (var pad in _pads.Values)
+            {
+                pad.Controller.Unacquire();
+                pad.Controller.Dispose();
+            }
+
+            _pads.Clear();
+            _input.Dispose();
         }
 
         public void Poll()
@@ -80,18 +92,6 @@ internal sealed partial class LabInputCapture
                     }
                 }
             }
-        }
-
-        public void Dispose()
-        {
-            foreach (var pad in _pads.Values)
-            {
-                pad.Controller.Unacquire();
-                pad.Controller.Dispose();
-            }
-
-            _pads.Clear();
-            _input.Dispose();
         }
 
         private void Scan()
@@ -164,11 +164,11 @@ internal sealed partial class LabInputCapture
             private readonly bool[] _buttons = new bool[128];
             private readonly int[] _values = new int[12];
 
+            public JoystickState State = new();
+
             public IDirectInputDevice8 Controller { get; } = controller;
 
             public LabInputDevice Device { get; } = device;
-
-            public JoystickState State = new();
 
             public bool Faulted { get; set; }
 

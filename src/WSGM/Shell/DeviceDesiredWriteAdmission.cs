@@ -51,7 +51,8 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.DesiredValueOutOfRange);
         }
 
-        if (projection.State.Quality is not (HardwareStateQuality.Observed or HardwareStateQuality.Verified))
+        // A value that was never read back is still restored; only an expired or faulted state is not.
+        if (!DeviceCapabilityRouter.CanCommand(projection.State))
         {
             return Skipped(DeviceDesiredWriteSkipReason.UntrustedState);
         }

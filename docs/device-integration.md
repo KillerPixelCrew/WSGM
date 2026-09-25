@@ -132,13 +132,14 @@ records only temporary plugin-owned state that was actually changed and could no
 persistent desired RGB and profile state is kept separately. An indeterminate hardware write is
 reported to the plugin owner and never blindly retried.
 
-RGB restoration cannot save configuration. Automatic desired-value restoration requires an observed
-or verified current hardware state; an unknown, stale or faulted state cannot trigger a write. Fresh
-lighting readiness admits one restore per saved value and device cycle; delayed startup and resume
-readbacks can admit that first attempt, while repeated defaults or failures cannot repeatedly write
-firmware. The command result and reconciliation summary retain failure evidence. These paths have
-hardware-free regression coverage; the reported RGB reset still needs a fresh attended
-startup/resume pass.
+RGB restoration cannot save configuration. Automatic desired-value restoration runs whenever the
+capability is available and its state is neither stale nor faulted. A value the firmware cannot read
+back (`Unknown`) is still restored: readback is never a precondition, because many firmwares cannot
+report what they were set to. Fresh lighting readiness admits one restore per saved value and device
+cycle; delayed startup and resume readbacks can admit that first attempt, while repeated defaults or
+failures cannot repeatedly write firmware. The command result and reconciliation summary retain
+failure evidence. These paths have hardware-free regression coverage; the reported RGB reset still
+needs a fresh attended startup/resume pass.
 
 Device controls show a pending command's requested value while it runs, then the plugin's observed
 value. Saved desired values are only a fallback when no observation exists; they must not hide a
@@ -262,8 +263,10 @@ rumble, continuous `0xEA` trackpad haptics approximated symmetrically on the phy
 `0x8F` pulses. A pulse carries a bounded, route-generation-checked stop through the serialized
 haptic sink, so an old pulse can neither stop a replacement target nor leave the Claw's latched
 motors running. An action-only haptic sink has availability but no readback; the overlay treats it
-as `Ready` with a `RUN` action and permits its bounded preview, rather than labelling the absent
-value `Unknown` and disabling the only direct hardware test.
+as `Ready` with a `RUN` action and permits its bounded preview. The same holds for every capability:
+the router, overlay, native QAM, power presets and AutoTDP command anything the plugin reports
+available whose state is neither stale nor faulted, and show a value that was never read back as
+"Ready · no readback" instead of disabling it.
 
 The optional installer task owns the initial usbip-win2 and HidHide installation. Its USB/IP helper
 is nonfatal but publishes an atomic bounded status under `%ProgramData%\WSGM`, and setup reads that

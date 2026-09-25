@@ -36,6 +36,18 @@ public sealed record OemControlDescriptor
     ///     separate vendor event channel and survive.
     /// </remarks>
     public bool RequiresControllerAcquisition { get; init; }
+
+    /// <summary>
+    ///     Whether this is the button the manufacturer prints for its own companion application, such as
+    ///     Armoury Crate or Legion Space.
+    /// </summary>
+    /// <remarks>
+    ///     Physical metadata, like <see cref="Placement" />: it says what the button is for on the device,
+    ///     not what WSGM does with it. The host decides what an unassigned control of this kind does. A
+    ///     plugin that already routes the button into the controller sample as Guide or Quick Access
+    ///     leaves this false.
+    /// </remarks>
+    public bool CompanionApplication { get; init; }
 }
 
 /// <summary>Where an OEM control sits on the device.</summary>

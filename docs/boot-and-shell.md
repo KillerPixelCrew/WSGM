@@ -268,22 +268,27 @@ that late shell may still publish `Shell_TrayWnd`.
 
 The scheduled-task route (`Core\UnelevatedLauncher.cs`) is last-resort recovery when no anchor
 request was dispatched. Its result is always reported as degraded, even when the Explorer it
-produced happens to be jobless; its deadline rules are in `docs\elevation.md`. An older-build
-job-bound taskbar is never ended without a verified repair owner. For a canonical, ready,
-current-session medium Explorer, WSGM can duplicate that shell's primary token and create the fixed
+produced happens to be jobless; its deadline rules are in `docs\elevation.md`. A job-bound taskbar
+is never ended without a verified repair owner. For a canonical, ready, current-session medium
+Explorer that is already in a job, WSGM duplicates that shell's primary token and creates the fixed
 anchor through `CreateProcessWithTokenW`, without using the job-bound shell as the process parent.
-The anchor must still pass the same image, session, medium-integrity and jobless checks before
-Explorer receives an exit request. Failed creation or verification preserves the existing desktop.
+The anchor must still pass the image, session and medium-integrity checks before Explorer receives
+an exit request. It must also be jobless unless the Explorer it replaces was job-bound: some OEM
+images, such as the Xbox Ally X's, start Explorer in a job at logon, and the anchor created from it
+lands in a job too (2026-09-25 tester log, every boot). Such an anchor is no worse than the desktop
+the user already had, so takeover proceeds, the anchor is logged as degraded, and the restored
+Explorer is reported as a degraded desktop. An unknown job membership is still refused. Failed
+creation or verification preserves the existing desktop.
 
 ### Shutdown keeps the anchor alive until the desktop is verified
 
 Application shutdown rejects new mode and Steam-launch commands and waits for the in-flight
 transition and boot worker under one outer deadline. Device cleanup runs before that wait. The
 anchor stays alive if the deadline or the desktop verification fails, so owner-loss recovery still
-has a jobless launch path. Before retiring the anchor, normal disposal verifies or restores a usable
-desktop; logoff retires it without launching. Logs record source and result pid, both shell-surface
-owners, route, session, integrity, job state, readiness, elapsed time, dispatched state and the
-Win32 query errors.
+has a launch path that is jobless whenever the original shell was. Before retiring the anchor,
+normal disposal verifies or restores a usable desktop; logoff retires it without launching. Logs
+record source and result pid, both shell-surface owners, route, session, integrity, job state,
+readiness, elapsed time, dispatched state and the Win32 query errors.
 
 ### A dead designated parent still reparents; token inheritance is unproven
 

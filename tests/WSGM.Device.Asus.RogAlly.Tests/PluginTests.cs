@@ -78,6 +78,25 @@ public sealed class PluginTests
     }
 
     [Fact]
+    public async Task ARefusedFrontTableDoesNotStopTheRestOrTheRearKeys()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        // The D-pad left/right table (02/02) is refused, as a firmware might refuse any one of them.
+        hardware.Vendor.RefuseTable = 0x02;
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        // HC writes every table and ignores each result; only the refused one is missing.
+        Assert.Equal(AllyProtocol.GameModeConfiguration.Count - 1, hardware.Vendor.Reports.Count);
+        Assert.Contains(AllyProtocol.RearKeyboardMapping, hardware.Vendor.Reports);
+        Assert.Contains(AllyModels.VkF18, hardware.Keyboard.Watched);
+        Assert.Contains(AllyModels.VkF17, hardware.Keyboard.Watched);
+    }
+
+    [Fact]
     public async Task ControllerManagementOffLeavesTheTablesAndRearKeysAlone()
     {
         using var directory = new TemporaryDirectory();
@@ -111,7 +130,7 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task UnreadablePowerAndFanOriginalsRefuseWrites()
+    public async Task UnreadablePowerAndFanOriginalsAreWrittenBlindAsHcDoes()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
@@ -120,18 +139,29 @@ public sealed class PluginTests
         var host = new TestPluginHostAdapter(1);
         await using var plugin = hardware.CreatePlugin();
         _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        var custom = AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve);
 
         var power = await plugin.ExecuteCommandAsync(
             AcpiCapabilityTests.Command(CapabilityValue.Integer(20)), CancellationToken.None);
         var fan = await plugin.ExecuteCommandAsync(
-            AcpiCapabilityTests.Command(
-                CapabilityValue.Curve(AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve)),
-                CapabilityIds.FanCurve), CancellationToken.None);
+            AcpiCapabilityTests.Command(CapabilityValue.Curve(custom), CapabilityIds.FanCurve),
+            CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.Rejected, power.Outcome);
-        Assert.Equal(CommandOutcome.Rejected, fan.Outcome);
-        Assert.Empty(hardware.Acpi.Writes);
-        Assert.Empty(hardware.Acpi.BufferWrites);
+        Assert.Equal(CommandOutcome.AppliedUnverified, power.Outcome);
+        Assert.True(fan.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified);
+        Assert.Contains(hardware.Acpi.Writes, write => write is { Id: AsusAcpiId.SustainedPower, Value: 20 });
+        Assert.NotEmpty(hardware.Acpi.BufferWrites);
+        // The written limit stands in for the readback the firmware cannot give.
+        var published = host.CapabilityStates.Last(state => state.CapabilityId == CapabilityIds.PowerSustained);
+        Assert.Equal(HardwareStateQuality.Observed, published.Quality);
+        Assert.Equal(20, published.ObservedValue?.IntegerValue);
+
+        // Nothing was journalled, so stop returns the fans to HC's factory tables.
+        hardware.Acpi.BufferWrites.Clear();
+        _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+            DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+        Assert.Contains(hardware.Acpi.BufferWrites, write =>
+            write.Id == AsusAcpiId.CpuFanCurve && write.Data.SequenceEqual(AllyFanCapability.DefaultCpuCurve));
     }
 
     [Fact]
@@ -279,6 +309,24 @@ public sealed class PluginTests
         Assert.Contains(AllyModels.VkF21, hardware.Keyboard.Watched);
         Assert.DoesNotContain(AllyModels.VkF18, hardware.Keyboard.Watched);
         Assert.Equal([OemControlIds.Library, OemControlIds.Library], host.OemEvents.Select(item => item.ControlId));
+    }
+
+    [Fact]
+    public async Task XboxArmouryCrateIsTheCompanionButtonAndCarriesNoSteamButton()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware("RC73XA");
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc73xa"), CancellationToken.None);
+
+        await hardware.Keyboard.PressAsync(AllyModels.VkF21, true);
+        await hardware.Controller.EmitAsync(CanonicalButtons.None);
+
+        Assert.True(host.OemControlSets.Last()
+            .Single(control => control.ControlId == OemControlIds.ArmouryCrate).CompanionApplication);
+        Assert.Equal([OemControlIds.ArmouryCrate], host.OemEvents.Select(item => item.ControlId));
+        Assert.Equal(CanonicalButtons.None, host.ControllerSamples.Last().Buttons);
     }
 
     [Fact]
@@ -541,7 +589,7 @@ public sealed class PluginTests
     }
 
     [Fact]
-    public async Task AZeroWattReadingRefusesThePowerWriteCleanly()
+    public async Task AZeroWattReadingStillWritesThePowerLimitAsHcDoes()
     {
         using var directory = new TemporaryDirectory();
         var hardware = new AllyFakeHardware();
@@ -553,9 +601,10 @@ public sealed class PluginTests
         var result = await plugin.ExecuteCommandAsync(
             AcpiCapabilityTests.Command(CapabilityValue.Integer(20)), CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
-        Assert.Equal(CapabilityReasonCode.PrerequisiteMissing, result.Reason!.Code);
-        Assert.Empty(hardware.Acpi.Writes);
+        // The Xbox Ally X reports 0 W: that is unknown, not a reason to refuse. HC writes blind.
+        Assert.True(result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified,
+            result.Reason?.Detail);
+        Assert.NotEmpty(hardware.Acpi.Writes);
     }
 
     [Fact]

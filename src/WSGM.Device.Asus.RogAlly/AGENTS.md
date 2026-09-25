@@ -27,18 +27,26 @@ Every command revalidates identity, service state, generations, deadline and ran
 
 - ATKACPI calls go through `WindowsAsusAcpi`, which admits only the `AsusAcpiId` list and validated
   curves. Do not add INIT, WDOG or arbitrary IDs.
-- Power: SPL <= SPPT <= FPPT after every write; mode before limits on restore. Refuse a write unless
-  the original limits and mode can be read and journalled first.
-- Fans: eight points, 20-110 °C, non-falling duties, clamped to 99. Refuse a write unless every
-  present channel's original curve can be read and journalled. Keep an unverified restore in the
-  recovery record; do not retry it automatically, and do not let it block the service. The next
-  explicit command for that capability is the user action that re-arms the original for release.
+- Readback is never a precondition for a write. HC writes power, fans and Aura blind, and firmware
+  that cannot report a value (the Xbox Ally X reports 0 W and refuses the curve query) must still be
+  controllable. A refused DSTS query reads as unsupported and never faults a service. After an
+  unverified write, publish the written value as `Observed` for the rest of the cycle.
+- Power: SPL <= SPPT <= FPPT after every write; mode before limits on restore. Journal the original
+  limits and mode before the first write when they can be read, and restore them on stop; when they
+  cannot, write anyway and restore nothing, as HC does. A 0 W report is unknown, not a value.
+- Fans: eight points, 20-110 °C, non-falling duties, clamped to 99. Journal the original curves when
+  they can be read; otherwise write anyway and return the fans to HC's factory tables on stop. Keep an
+  unverified restore in the recovery record; do not retry it automatically, and do not let it block
+  the service. The next explicit command for that capability is the user action that re-arms the
+  original for release. Only a journalled original's failed rollback faults the service.
 - A write refused for lack of deadline budget has touched nothing: reject it, never fault the service
   or mark a recovery entry failed for it.
 - Charge limit and Aura are persistent user choices: never journalled, never reverted on stop.
-- Controller tables are written as 64-byte 0x5A feature reports only while the controller is managed,
-  journalled first, and replaced by the factory tables on release. They cannot be read back, so a
-  release that wrote them stays reported as unverified.
+- Controller tables are HC's bytes in HC's order, written as 64-byte 0x5A feature reports only while
+  the controller is managed, journalled first, and replaced by the factory tables on release. They go
+  to the collection that answers feature report 0x5A, as HC chooses it. Every table is sent even when
+  one is refused, as HC does; only a refused M1/M2 table keeps the rear keys off. They cannot be read
+  back, so a release that wrote them stays reported as unverified.
 - An uncertain write is never retried. HHD's timed re-send of the controller tables stays out.
 
 ## Input invariants

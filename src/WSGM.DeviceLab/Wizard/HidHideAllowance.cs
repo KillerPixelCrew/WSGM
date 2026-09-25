@@ -226,8 +226,10 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
         return length > 0 && length < buffer.Length ? new string(buffer, 0, (int)length) : string.Empty;
     }
 
-    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern uint GetFinalPathNameByHandle(SafeFileHandle file, [Out] char[] path, uint length, uint flags);
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", SetLastError = true,
+        CharSet = CharSet.Unicode)]
+    private static extern uint
+        GetFinalPathNameByHandle(SafeFileHandle file, [Out] char[] path, uint length, uint flags);
 
     private static string? DeviceForDrive(string drive)
     {

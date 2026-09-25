@@ -289,13 +289,22 @@ internal sealed class DeviceOemActionRouter : IDisposable
         var assignment = _assignments.FirstOrDefault(item =>
             string.Equals(item.ControlId, control.ControlId, StringComparison.Ordinal));
 
-        // WSGM claims no physical button by default. The handheld's OEM buttons reach Steam as the
-        // virtual target's own Steam and Quick Access buttons — the plugin puts them in the
-        // controller sample, and Steam responds to its controller natively. WSGM neither intercepts
-        // them nor synthesizes anything on their behalf.
-        // Putting a WSGM surface on a hardware button is an explicit Settings assignment; an
-        // unassigned button does nothing here.
-        return assignment?.Action ?? OemAction.Disabled;
+        // The handheld's Guide and Quick Access buttons reach Steam as the virtual target's own
+        // buttons: the plugin puts them in the controller sample and Steam responds natively, so WSGM
+        // neither intercepts them nor synthesizes anything on their behalf. The one default WSGM
+        // claims is the manufacturer's companion-application button (Armoury Crate on the Xbox Ally),
+        // a button the Steam Deck layout has no place for: it opens WSGM, the companion application
+        // here, as Handheld Companion opens its own window from it. An explicit assignment, Disabled
+        // included, always wins.
+        return assignment?.Action ?? DefaultAction(control);
+    }
+
+    /// <summary>What an unassigned control does.</summary>
+    internal static OemAction DefaultAction(OemControlDescriptor control)
+    {
+        return control is { CompanionApplication: true, Placement: OemControlPlacement.Front }
+            ? OemAction.ToggleWsgmOverlay
+            : OemAction.Disabled;
     }
 
     private void ExpireDeduplicationUnderGate(DateTimeOffset now)

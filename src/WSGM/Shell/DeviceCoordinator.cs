@@ -271,7 +271,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 ? CapabilityCommandOrigin.User
                 : CapabilityCommandOrigin.AutomaticControl,
             cycle, generation, false, token).ConfigureAwait(false);
-        if (!persist && value.IntegerValue is { } watts && result.Outcome == CommandOutcome.AppliedVerified
+        if (!persist && value.IntegerValue is { } watts && result.Outcome.IsApplied()
             && FindDescriptor(id, null)?.Role == CapabilityRole.PowerSustainedLimit)
         {
             _assignedPowerOverride?.Invoke(watts);
@@ -2067,7 +2067,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = sustained },
                 TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
                 state.CycleGeneration, state.DescriptorGeneration, true, cancellationToken).ConfigureAwait(false);
-            if (pair.Outcome != CommandOutcome.AppliedVerified || pair.ReadbackValue?.IntegerValue != sustained)
+            if (!pair.Applied(sustained))
             {
                 return false;
             }
@@ -2077,7 +2077,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = boost },
                 TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
                 state.CycleGeneration, state.DescriptorGeneration, false, cancellationToken).ConfigureAwait(false);
-            return result.Outcome == CommandOutcome.AppliedVerified && result.ReadbackValue?.IntegerValue == boost;
+            return result.Applied(boost);
         }
         finally
         {
@@ -2110,7 +2110,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 case CapabilityCommandOrigin.User:
                     NotifyManualPowerChange(capabilityId, instanceId, value, result);
                     if (value?.IntegerValue is { } boostWatts
-                        && result.Outcome == CommandOutcome.AppliedVerified
+                        && result.Outcome.IsApplied()
                         && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSlowLimit)
                     {
                         await PersistManualBoostAsync(boostWatts, cancellationToken).ConfigureAwait(false);

@@ -288,7 +288,8 @@ internal sealed class SetupViewModel : Observable
         var engine = _engine!;
         var bundle = engine.Payload!.Bundle;
         var installedBundle = BundleManifest.TryRead(InstallLayout.InstalledBundle);
-        List<string> changes = [$"WSGM {SetupEngine.Display(engine.InstalledVersion)} → {SetupEngine.Display(engine.ThisVersion)}"];
+        List<string> changes =
+            [$"WSGM {SetupEngine.Display(engine.InstalledVersion)} → {SetupEngine.Display(engine.ThisVersion)}"];
         foreach (var id in engine.InstalledPluginIds)
         {
             var next = bundle.Plugins.First(plugin => plugin.Id == id);
@@ -423,7 +424,9 @@ internal sealed class SetupViewModel : Observable
         }
 
         var problem = string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}"));
-        var title = _flow.Contains("update") ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed" : "WSGM is ready";
+        var title = _flow.Contains("update")
+            ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed"
+            : "WSGM is ready";
         var lead = engine.RestartRequired
             ? "Restart Windows to turn on the virtual controller. Everything else works now."
             : "";

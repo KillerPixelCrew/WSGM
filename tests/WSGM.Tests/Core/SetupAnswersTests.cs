@@ -16,7 +16,7 @@ public sealed class SetupAnswersTests
         var exported = SetupAnswers.Export(config, false, ["Steam (HKCU Run)"]);
         var read = SetupAnswers.Parse(exported.ToUtf8Json());
         AppConfig applied = new();
-        read.ApplyTo(applied, freshInstall: false);
+        read.ApplyTo(applied, false);
 
         Assert.False(applied.StartAtSignIn);
         Assert.Equal(SessionStartMode.Desktop, applied.StartMode);
@@ -31,7 +31,7 @@ public sealed class SetupAnswersTests
     public void MinimalPreset_LeavesSteamAloneButKeepsWsgmReachable()
     {
         AppConfig config = new();
-        new SetupAnswers { Features = SetupFeatures.Minimal, StartMode = SessionStartMode.Game }.ApplyTo(config, freshInstall: true);
+        new SetupAnswers { Features = SetupFeatures.Minimal, StartMode = SessionStartMode.Game }.ApplyTo(config, true);
 
         Assert.False(config.SteamInputManagementEnabled);
         Assert.False(config.Cef.Enabled);
@@ -68,7 +68,7 @@ public sealed class SetupAnswersTests
         AppConfig config = new();
         var answers = new SetupAnswers { Features = SetupFeatures.Full, DeviceIntegration = integration };
 
-        answers.ApplyTo(config, freshInstall: true);
+        answers.ApplyTo(config, true);
 
         Assert.Equal(expected, config.DeviceIntegration.ControllerManagementEnabled);
     }
@@ -83,9 +83,10 @@ public sealed class SetupAnswersTests
         AppConfig config = new();
         config.DeviceIntegration.ControllerManagementEnabled = management;
         // The actual installation state wins over the exported answer's stale flag.
-        var answers = new SetupAnswers { Features = SetupFeatures.Full, DeviceIntegration = integration, FreshInstall = true };
+        var answers = new SetupAnswers
+            { Features = SetupFeatures.Full, DeviceIntegration = integration, FreshInstall = true };
 
-        answers.ApplyTo(config, freshInstall: false);
+        answers.ApplyTo(config, false);
 
         Assert.Equal(management, config.DeviceIntegration.ControllerManagementEnabled);
     }

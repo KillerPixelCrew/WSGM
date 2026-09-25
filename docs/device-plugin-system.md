@@ -588,14 +588,17 @@ notation; the findings behind that and the pre-start allowlist are in `device-in
 | `CyclePerformanceProfile`, `CyclePerformanceOverlayLevel` | RTSS cycles.                                                              |
 | `VirtualTargetRearButton1`, `VirtualTargetRearButton2`    | Pulse a rear paddle on the target.                                        |
 
-An unassigned control resolves to `Disabled`: WSGM claims no physical button by default, and the
-plugin exposes the front buttons to Steam as the target's own Guide and Quick Access buttons.
-Assignments are authored in plugin code, and there is no UI to rebind them because WSGM does not
-build a remapper: every handheld on the market today maps cleanly onto a Steam Deck controller with
-no buttons or functions left over, so a remapper would be a general-purpose feature answering a
-problem no supported device has. Rear-button actions are assignable only to `Rear` placement and
-only when the target has rear buttons (Steam Deck); a control that `RequiresControllerAcquisition`
-needs management enabled.
+An unassigned control resolves to `Disabled`, and the plugin exposes the front buttons to Steam as
+the target's own Guide and Quick Access buttons. The one exception is a front control the plugin
+marks `CompanionApplication`, the manufacturer's companion-app button that the Steam Deck layout has
+no place for (Armoury Crate on the Xbox Ally, where the Xbox button is the Guide and Library is
+Quick Access): unassigned, it toggles the WSGM overlay, as Handheld Companion opens its own window
+from it. An explicit assignment, `Disabled` included, always wins. Assignments are authored in
+plugin code, and there is no UI to rebind them because WSGM does not build a remapper: every
+handheld on the market today maps cleanly onto a Steam Deck controller with no buttons or functions
+left over, so a remapper would be a general-purpose feature answering a problem no supported device
+has. Rear-button actions are assignable only to `Rear` placement and only when the target has rear
+buttons (Steam Deck); a control that `RequiresControllerAcquisition` needs management enabled.
 
 Events are refused for a stale source generation, an unknown control, a blank or over-long (128)
 deduplication id, a timestamp more than 5 s in the future, or one older than the 30 s deduplication
@@ -654,8 +657,9 @@ A row's value is the pending value, else the desired value, else the observed va
 follows the projection: `Progress` while pending; `Faulted` on failure or `TransportFaulted`;
 `Warning` for uncertain or out-of-range; `Stale` for expired or generation-changed;
 `ExternallyOwned` for `ResourceConflict` or `ResourceReleased`; `Unsupported` for `Unsupported`,
-`FirmwareNotVerified` or `PrerequisiteMissing`. An available action-only capability with no readback
-is `Ready` and runnable rather than `Unknown`. A refresh is skipped while a control has focus so
+`FirmwareNotVerified` or `PrerequisiteMissing`. Readback is never a precondition: an available
+capability whose state is neither stale nor faulted is commandable, including one that was never
+read back, which shows "Ready · no readback". A refresh is skipped while a control has focus so
 telemetry cannot destroy an edit. The authored-profile row states scope: "applies to this game only"
 or "applies to everything".
 
@@ -673,29 +677,30 @@ guards enable commands and disables both UI controls with the same reason. Limit
 relinquish runtime control and clear the enabled setting; see `rtss.md` for the ownership contract.
 
 `PairedPowerLimitId` opts a sustained descriptor into plugin-owned paired commands. AutoTDP sends
-`ApplyPowerPair` with captured cycle/descriptor generations and requires verified results. Both
-original limits are retained for release; readback after an uncertain result must be newer than that
-result before automatic control can continue. The Claw maps the target to equal PL1/PL2 values
-through its existing ordered-write and rollback implementation. Other plugins may publish different
-companion bounds and steps. The sustained descriptor's range defines coordinated targets; the plugin
-owns the mapping and confirms both limits. Host validation does not impose the Claw's equal-limit
-policy on other hardware.
+`ApplyPowerPair` with captured cycle/descriptor generations and requires applied results: a verified
+result must read back the target, an unverified one is accepted. Without any value for the limit,
+AutoTDP starts from the descriptor's maximum. Both original limits are retained for release;
+readback after an uncertain result must be newer than that result before automatic control can
+continue. The Claw maps the target to equal PL1/PL2 values through its existing ordered-write and
+rollback implementation. Other plugins may publish different companion bounds and steps. The
+sustained descriptor's range defines coordinated targets; the plugin owns the mapping and confirms
+both limits. Host validation does not impose the Claw's equal-limit policy on other hardware.
 
 The manual TDP preferences are four profile values: `TdpUnified`, `UnifiedWatts`, `SustainedWatts`
 and `BoostWatts`. Each resolves on its own, so a game that sets one inherits the rest from Global.
 These values are preferences rather than readback. Saved unified targets restore through the paired
-command with captured generations and verified readback; profile-owned pair release also uses the
-coordinated path. Both surfaces expose the shared mode and retain readback. Split restoration
-validates the saved boost against its descriptor, applies the plugin's coordinated target and then
-restores the independent boost under one power-mutation gate. Both results must be verified; there
-is no retry after uncertainty. Manual sustained edits from Overlay and QAM now consult the same
-active profile in the coordinator to select paired dispatch. Verified independent boost edits save
-the advanced boost value and select split mode while retaining unified history. Manual sustained
-edits use the active mode to select paired dispatch. Saving a unified target preserves the stored
-advanced values, and saving an advanced sustained value preserves the unified target. Overlay Device
-now exposes an Advanced/split versus Unified selector. Selection persists only policy; a subsequent
-sustained-slider edit applies the coordinated target. QAM exposes the same mode toggle and one TDP
-slider in unified mode.
+command with captured generations; profile-owned pair release also uses the coordinated path. Both
+surfaces expose the shared mode and retain readback. Split restoration validates the saved boost
+against its descriptor, applies the plugin's coordinated target and then restores the independent
+boost under one power-mutation gate. Both results must be applied (a verified one must read back the
+requested value); there is no retry after uncertainty. Manual sustained edits from Overlay and QAM
+now consult the same active profile in the coordinator to select paired dispatch. Verified
+independent boost edits save the advanced boost value and select split mode while retaining unified
+history. Manual sustained edits use the active mode to select paired dispatch. Saving a unified
+target preserves the stored advanced values, and saving an advanced sustained value preserves the
+unified target. Overlay Device now exposes an Advanced/split versus Unified selector. Selection
+persists only policy; a subsequent sustained-slider edit applies the coordinated target. QAM exposes
+the same mode toggle and one TDP slider in unified mode.
 
 ## 15. Glyphs
 
@@ -769,7 +774,7 @@ file. Levels and key style are in `docs\logging.md`.
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above was
-tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 6, entry
+tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 7, entry
 `WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin`. It targets `net10.0-windows10.0.19041.0`, references
 only the SDK and `System.Management`, ships its licence and notices beside the assembly, declares no
 settings manifest, and keeps every vendor address inside the package.

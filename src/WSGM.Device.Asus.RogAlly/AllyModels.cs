@@ -106,9 +106,6 @@ internal sealed record AllyModel
     /// </summary>
     public bool DisableDynamicLighting { get; init; }
 
-    /// <summary>Canonical button the XInput guide bit becomes on this model.</summary>
-    public CanonicalButtons XInputGuide { get; init; } = CanonicalButtons.Guide;
-
     /// <summary>Virtual keys the firmware sends for the front buttons, when it uses the keyboard.</summary>
     public IReadOnlyList<AllyKeyboardControl> FrontKeyboardControls { get; init; } = [];
 }
@@ -178,9 +175,11 @@ internal static class AllyModels
     // the accelerometer keeps the classic signs. HHD maps all four identically (base.py:34-42).
     private static readonly AxisMap XboxGyro = AxisMap.SwapYz(1, 1, -1);
 
+    // The Xbox button is the Guide (XInput), so Armoury Crate carries no Steam button: WSGM opens its
+    // overlay from it as the companion-application button. Library is Steam's Quick Access.
     private static readonly IReadOnlyList<AllyKeyboardControl> XboxKeyboardFront =
     [
-        new(VkF21, OemControlIds.ArmouryCrate, CanonicalButtons.Guide),
+        new(VkF21, OemControlIds.ArmouryCrate, CanonicalButtons.None),
         new(VkF22, OemControlIds.Library, CanonicalButtons.QuickAccess)
     ];
 
@@ -234,9 +233,9 @@ internal static class AllyModels
             Accelerometer = ClassicMotion,
             GlyphProfileId = "rog-xbox-ally",
             DisableDynamicLighting = true,
-            // HHD routes the Xbox button to QAM (base.py:415-427, share_to_qam) and the Armoury
-            // Crate button, vendor code 0xA6, to the guide.
-            XInputGuide = CanonicalButtons.QuickAccess,
+            // HC reads the Xbox button as the pad's guide bit (XInputController.cs:376-377), which
+            // stays the Guide. HHD's share_to_qam (base.py:415-427) sent it to QAM instead, which
+            // left no button for Steam's main menu.
             FrontKeyboardControls = XboxKeyboardFront
         },
         new()
@@ -254,7 +253,6 @@ internal static class AllyModels
             Accelerometer = ClassicMotion,
             GlyphProfileId = "rog-xbox-ally",
             DisableDynamicLighting = true,
-            XInputGuide = CanonicalButtons.QuickAccess,
             FrontKeyboardControls = XboxKeyboardFront
         }
     ];
@@ -289,7 +287,9 @@ internal static class AllyModels
     /// <remarks>
     ///     HC maps 0x93 to a separate Library control and 0xA7/0xA8 to M2 press/release
     ///     (ROGAlly.cs:53-83, 485-505). HHD merges 0x38/0x93 and ignores 0xA8; HC's Windows
-    ///     behavior is followed until Device Lab can distinguish the paths on each model.
+    ///     behavior is followed until Device Lab can distinguish the paths on each model. On the Xbox
+    ///     models the Xbox button is the Guide, Library is Quick Access, and Armoury Crate carries no
+    ///     Steam button because WSGM opens its overlay from it.
     /// </remarks>
     public static AllyVendorAction? VendorAction(AllyModel model, byte code)
     {
@@ -299,7 +299,7 @@ internal static class AllyModels
         return code switch
         {
             0xA6 => new AllyVendorAction(left, OemPressKind.Short,
-                model.Layout is AllyFrontLayout.Xbox ? CanonicalButtons.Guide : CanonicalButtons.QuickAccess),
+                model.Layout is AllyFrontLayout.Xbox ? CanonicalButtons.None : CanonicalButtons.QuickAccess),
             0x38 => new AllyVendorAction(right, OemPressKind.Short,
                 model.Layout is AllyFrontLayout.Xbox ? CanonicalButtons.QuickAccess : CanonicalButtons.Guide),
             0x93 => new AllyVendorAction(OemControlIds.Library, OemPressKind.Short,
@@ -317,7 +317,10 @@ internal static class AllyModels
         return model.Layout is AllyFrontLayout.Xbox
             ?
             [
-                Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, false),
+                Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, false) with
+                {
+                    CompanionApplication = true
+                },
                 Oem(OemControlIds.Library, "Library", OemControlPlacement.Front, false),
                 Oem(OemControlIds.M1, "M1", OemControlPlacement.Rear, true),
                 Oem(OemControlIds.M2, "M2", OemControlPlacement.Rear, true)

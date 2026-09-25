@@ -397,10 +397,10 @@ internal interface IAllyAuraHid : IAsyncDisposable
 
 /// <summary>Windows transport for the vendor collection, usage page 0xFF31, usage 0x0080.</summary>
 /// <remarks>
-///     HHD selects the collection by usage (<c>rog_ally/base.py:383-393</c>); HC selects the one whose
-///     feature report 0x5A reads (<c>ROGAlly.cs:422-436</c>). Usage wins here and the feature probe is
-///     the fallback. Configuration uses feature reports as HC does (<c>ROGAlly.cs:646-668</c>), because
-///     the Device Lab run found no output report on this collection on RC73XA.
+///     HC selects the collection whose feature report 0x5A reads (<c>ROGAlly.cs:422-436</c>) and HHD selects
+///     by usage (<c>rog_ally/base.py:383-393</c>); HC's probe leads and usage breaks ties. Configuration uses
+///     feature reports as HC does (<c>ROGAlly.cs:646-668</c>), because the Device Lab run found no output
+///     report on this collection on RC73XA.
 /// </remarks>
 internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productIds) : IAllyVendorHid
 {
@@ -517,6 +517,12 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
+    /// <summary>The vendor collection, chosen as HC chooses it: the one whose feature report 0x5A reads.</summary>
+    /// <remarks>
+    ///     HC reads events from and writes the tables to that one collection (<c>ROGAlly.cs:416-436</c>). The
+    ///     FF31:0080 usage collection is preferred when it answers, then any other that does, and the usage
+    ///     collection is the last resort: the Xbox Ally X refused the tables on FF31:0080.
+    /// </remarks>
     private AllyHidEndpoint? Find()
     {
         lock (_gate)
@@ -527,19 +533,27 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
             }
 
             var endpoints = AllyHidEnumerator.Enumerate(_productIds);
-            _endpoint = endpoints.FirstOrDefault(endpoint => endpoint is
-                        {
-                            UsagePage: AllyProtocol.VendorUsagePage, Usage: AllyProtocol.VendorUsage
-                        })
-                        ?? endpoints.FirstOrDefault(endpoint =>
-                            AllyHidEnumerator.AnswersFeature(endpoint, AllyProtocol.VendorReportId));
+            var answering = endpoints
+                .Where(endpoint => endpoint.FeatureLength >= AllyProtocol.ConfigurationLength
+                                   && AllyHidEnumerator.AnswersFeature(endpoint, AllyProtocol.VendorReportId))
+                .ToArray();
+            _endpoint = answering.FirstOrDefault(IsVendorUsage)
+                        ?? answering.LastOrDefault()
+                        ?? endpoints.FirstOrDefault(IsVendorUsage);
             if (_endpoint is not null)
             {
-                PluginTrace.Info("vendor-hid", $"vendor collection {_endpoint.Describe()}.");
+                PluginTrace.Info("vendor-hid",
+                    $"vendor collection {_endpoint.Describe()} (answering 0x5A: "
+                    + $"{string.Join(", ", answering.Select(endpoint => endpoint.Describe()))}).");
             }
 
             return _endpoint;
         }
+    }
+
+    private static bool IsVendorUsage(AllyHidEndpoint endpoint)
+    {
+        return endpoint is { UsagePage: AllyProtocol.VendorUsagePage, Usage: AllyProtocol.VendorUsage };
     }
 
     private static async Task ReadLoopAsync(

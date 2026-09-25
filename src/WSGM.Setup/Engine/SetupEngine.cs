@@ -104,16 +104,6 @@ internal sealed class SetupEngine : IDisposable
             ? new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0))
             : new Version(0, 0);
 
-    /// <summary>A version as setup shows it: the release, and the build when it has one.</summary>
-    /// <param name="version">The version.</param>
-    /// <returns>For example <c>2.0.0 (build 1350)</c>.</returns>
-    public static string Display(Version? version)
-    {
-        return version is null ? string.Empty
-            : version.Revision > 0 ? $"{version.ToString(3)} (build {version.Revision})"
-            : version.ToString(3);
-    }
-
     /// <summary>The WSGM 1.0 install to remove first, or null.</summary>
     public (string Command, string Version)? Legacy { get; private set; }
 
@@ -144,6 +134,16 @@ internal sealed class SetupEngine : IDisposable
     {
         _owner?.Dispose();
         Payload?.Dispose();
+    }
+
+    /// <summary>A version as setup shows it: the release, and the build when it has one.</summary>
+    /// <param name="version">The version.</param>
+    /// <returns>For example <c>2.0.0 (build 1350)</c>.</returns>
+    public static string Display(Version? version)
+    {
+        return version is null ? string.Empty
+            : version.Revision > 0 ? $"{version.ToString(3)} (build {version.Revision})"
+            : version.ToString(3);
     }
 
     /// <summary>Reads the machine: what is installed, the payload, and the offers for this hardware.</summary>

@@ -108,7 +108,8 @@ internal static class RtssInstaller
                 return true;
             }
 
-            step.Note = $"RTSS setup exited with code {code}. Install it from guru3d.com and WSGM uses it from then on.";
+            step.Note =
+                $"RTSS setup exited with code {code}. Install it from guru3d.com and WSGM uses it from then on.";
             return false;
         }
         finally

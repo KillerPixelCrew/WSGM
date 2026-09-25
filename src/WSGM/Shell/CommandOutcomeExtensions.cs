@@ -17,4 +17,21 @@ internal static class CommandOutcomeExtensions
     {
         return outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
     }
+
+    /// <summary>Whether a result applied the given integer.</summary>
+    /// <param name="result">The capability command result.</param>
+    /// <param name="value">The integer that was requested.</param>
+    /// <returns>
+    ///     <see langword="true" /> for a verified result that read back <paramref name="value" />, or an
+    ///     unverified one, which by definition has no readback to disagree with it.
+    /// </returns>
+    internal static bool Applied(this CapabilityCommandResult result, int value)
+    {
+        return result.Outcome switch
+        {
+            CommandOutcome.AppliedVerified => result.ReadbackValue?.IntegerValue == value,
+            CommandOutcome.AppliedUnverified => true,
+            _ => false
+        };
+    }
 }

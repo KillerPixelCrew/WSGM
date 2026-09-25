@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 using System;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
@@ -187,7 +188,8 @@ internal static class AllyDiagnosticText
     public static string FromException(string context, Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        var message = $"{context} ({exception.GetType().Name}): {exception.Message}";
+        var code = exception is Win32Exception win32 ? $" [error {win32.NativeErrorCode}]" : string.Empty;
+        var message = $"{context} ({exception.GetType().Name}): {exception.Message}{code}";
         var length = Math.Min(message.Length, PluginTrace.MaxMessageLength);
         var bounded = new char[length];
         for (var index = 0; index < bounded.Length; index++)

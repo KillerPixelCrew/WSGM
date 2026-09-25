@@ -18,8 +18,10 @@ Related:
 
 The fixed shell anchor has a separate repair route for an already job-bound Explorer: it duplicates
 the verified existing medium shell's primary token and uses `CreateProcessWithTokenW`, then verifies
-the actual anchor before allowing takeover. This does not change general application de-elevation or
-the game wrapper's process ownership.
+the actual anchor before allowing takeover. That anchor may itself land in a job; because the shell
+it replaces was already job-bound, takeover proceeds and the desktop is reported as degraded (see
+`docs\boot-and-shell.md`). This does not change general application de-elevation or the game
+wrapper's process ownership.
 
 The naive route, `TokenLinkedToken` to a primary token, fails with error 1346 because it needs
 `SeTcbPrivilege`. The working mechanism is a one-shot scheduled task whose principal has `LogonType`

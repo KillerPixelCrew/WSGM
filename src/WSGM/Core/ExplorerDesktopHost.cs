@@ -151,12 +151,11 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         var anchorExecutable = ExplorerShellAnchor.ExecutablePath
                                ?? throw new InvalidOperationException(
                                    "The shell-anchor executable path disappeared after launch.");
-        var anchorAcceptance = ExplorerShellPolicy.Evaluate(
+        var anchorAcceptance = ExplorerShellPolicy.EvaluateLaunchAnchor(
             anchorInfo,
             anchorExecutable,
             _sessionId,
-            false,
-            false);
+            shell.Process.JobMembership is NativeJobMembership.InJob);
         LogObservation(
             "Explorer launch anchor",
             new ExplorerDesktopObservation(
@@ -166,7 +165,11 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 false,
                 false,
                 anchorAcceptance,
-                anchorAcceptance.Accepted ? ExplorerDesktopOutcome.Normal : ExplorerDesktopOutcome.Failed));
+                !anchorAcceptance.Accepted
+                    ? ExplorerDesktopOutcome.Failed
+                    : anchorAcceptance.JobBoundLikeSource
+                        ? ExplorerDesktopOutcome.Degraded
+                        : ExplorerDesktopOutcome.Normal));
         if (!anchorAcceptance.Accepted)
         {
             Log.Warn("Explorer takeover refused: launch anchor did not inherit normal process semantics "
@@ -192,13 +195,19 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             }
         }
 
+        if (anchorAcceptance.JobBoundLikeSource)
+        {
+            Log.Warn("Explorer launch anchor is job-bound like the Explorer it replaces "
+                     + $"(pid {shell.Process.ProcessId}); continuing with a degraded desktop.");
+        }
+
         Log.Info($"Explorer launch anchor ready (pid {_anchor.ProcessId}, "
                  + $"parent pid {shell.Process.ProcessId}).");
         return new ExplorerPreparationResult(true, "ready");
     }
 
-    // A job-bound shell may supply its verified medium token, but may not supply the new
-    // anchor's job. The anchor still has to pass every normal acceptance check before exit.
+    // A job-bound shell may supply its verified medium token. The anchor it yields may be job-bound
+    // too (EvaluateLaunchAnchor), but still has to pass every other acceptance check before exit.
     private static bool CanCaptureShell(ExplorerDesktopObservation shell)
     {
         return shell.Acceptance.Accepted || shell.Acceptance.Rejection is ExplorerShellRejection.JobBound;

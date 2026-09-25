@@ -1071,15 +1071,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                         ?? projection.DesiredValue;
         var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
                               && descriptor is { SupportsAction: true, SupportsRead: false };
-        var current = actionOnlyReady
-                      || state is
-                      {
-                          Available: true,
-                          Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
-                      };
+        var current = DeviceCapabilityRouter.CanCommand(state);
         var next = NextValue(descriptor, displayed);
-        var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
-                         && displayed?.ColorValue is not null;
+        // A color that was never read back still opens its editor, starting from white.
+        var colorWrite = descriptor.ValueKind is CapabilityValueKind.Color;
         var curveWrite = descriptor.ValueKind is CapabilityValueKind.Curve
                          && displayed?.CurveValue is { Count: > 0 };
         var canInvoke = current
@@ -1452,7 +1447,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             HardwareStateQuality.Observed => "Observed",
             HardwareStateQuality.Stale => "Stale",
             HardwareStateQuality.Faulted => "Faulted",
-            _ => "Unknown"
+            _ => "Ready · no readback"
         };
     }
 

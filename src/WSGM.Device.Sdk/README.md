@@ -14,9 +14,10 @@ would inherit.
 
 The common identity and lifecycle contracts shared with non-device plugins live in a separate MIT
 assembly at [ `../WSGM.Plugin.Sdk`](../WSGM.Plugin.Sdk/README.md). The resident common host admits
-this Device runtime through a compatibility adapter. Device API 6 adds the manifest's hardware rules
-and declared capability roles, which setup reads without loading code, and keeps API 5's
-presentation hints and allocation-free controller and motion samples.
+this Device runtime through a compatibility adapter. Device API 7 marks the manufacturer's
+companion-application button on an OEM control. It keeps API 6's manifest hardware rules and
+declared capability roles, which setup reads without loading code, and API 5's presentation hints
+and allocation-free controller and motion samples.
 
 ## What a plugin is
 

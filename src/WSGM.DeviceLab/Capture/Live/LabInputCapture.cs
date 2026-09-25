@@ -6,8 +6,8 @@ using System.Management;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Windows.Gaming.Input;
-using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -35,7 +35,8 @@ internal sealed record LabInputDevice(
 /// <summary>One recorded input event.</summary>
 /// <param name="Ms">Milliseconds since the capture started.</param>
 /// <param name="Source">
-///     <c>raw-input</c>, <c>hid-read</c>, <c>directinput</c>, <c>hook</c>, <c>xinput</c>, <c>wgi</c>, <c>wmi</c>, <c>power</c>, <c>device</c> or
+///     <c>raw-input</c>, <c>hid-read</c>, <c>directinput</c>, <c>hook</c>, <c>xinput</c>, <c>wgi</c>, <c>wmi</c>,
+///     <c>power</c>, <c>device</c> or
 ///     <c>app-command</c>.
 /// </param>
 /// <param name="Device">Device ID from <see cref="LabInputDevice.Id" />, when the source names one.</param>
@@ -112,8 +113,8 @@ internal sealed partial class LabInputCapture : IDisposable
 
     private readonly Dictionary<IntPtr, LabInputDevice> _byHandle = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly List<LabInputDevice> _devices = [];
     private readonly Dictionary<string, int> _deviceIds = new(StringComparer.Ordinal);
+    private readonly List<LabInputDevice> _devices = [];
     private readonly Dictionary<string, int> _dropped = new(StringComparer.Ordinal);
     private readonly List<LabInputEvent> _events = [];
     private readonly Lock _gate = new();
@@ -198,6 +199,7 @@ internal sealed partial class LabInputCapture : IDisposable
         {
             reader.Dispose();
         }
+
         foreach (var watcher in _watchers)
         {
             try

@@ -1356,6 +1356,7 @@ internal static class LabMotionAnalysis
         {
             parts.Add("ambiguous axis measurements need a repeat");
         }
+
         if (maps.Count == 0)
         {
             if (sensors.Count > 0)

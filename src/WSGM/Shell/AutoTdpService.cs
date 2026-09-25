@@ -547,7 +547,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
             power.Descriptor.Minimum ?? 0,
             power.Descriptor.Maximum ?? 0,
             power.Descriptor.Step ?? 0);
-        if (!limits.IsUsable || power.Projection.State.ObservedValue?.IntegerValue is not { } current)
+        // Firmware without readback starts control from the ceiling until the first write lands.
+        var current = CurrentWatts(power) ?? limits.Maximum;
+        if (!limits.IsUsable)
         {
             Publish(
                 AutoTdpState.Unavailable,
@@ -737,8 +739,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
             var result = await command.ConfigureAwait(false);
             var applied = power.Descriptor.PairedPowerLimitId is not null
-                ? result.Outcome == CommandOutcome.AppliedVerified &&
-                  result.ReadbackValue?.IntegerValue == decision.Watts
+                ? result.Applied(decision.Watts)
                 : result.Outcome.IsApplied();
             lock (_gate)
             {
@@ -837,7 +838,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             var live = FindPairedPower(power);
             if (!IsObserved(live) || live!.Projection.State.CycleGeneration != _restoreCycle
-                                  || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId)
+                                  || live.Descriptor.CapabilityId != pair.Descriptor.CapabilityId
+                                  || pair.Projection.State.ObservedValue is null)
             {
                 restored = false;
             }
@@ -847,9 +849,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 {
                     var result = await _writeAsync(live,
                         pair.Projection.State.ObservedValue!, false, cancellationToken).ConfigureAwait(false);
-                    restored = result.Outcome == CommandOutcome.AppliedVerified
-                               && result.ReadbackValue?.IntegerValue ==
-                               pair.Projection.State.ObservedValue?.IntegerValue;
+                    restored = pair.Projection.State.ObservedValue?.IntegerValue is { } pairWatts
+                               && result.Applied(pairWatts);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -912,18 +913,19 @@ internal sealed class AutoTdpService : IAsyncDisposable
             : null;
     }
 
+    /// <summary>Whether the limit can be commanded now. Readback is not required.</summary>
     private static bool IsObserved(DeviceCapabilityView? view)
     {
-        return view?.Projection is
-               {
-                   Progress: not CommandProgress.Pending, State:
-                   {
-                       Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
-                       ObservedValue.IntegerValue: not null
-                   }
-               }
+        return view?.Projection is { Progress: not CommandProgress.Pending }
+               && DeviceCapabilityRouter.CanCommand(view.Projection.State)
                && (view.Projection.Progress != CommandProgress.Uncertain
                    || view.Projection.State.ObservedAt > view.LastResult?.CompletedAt);
+    }
+
+    /// <summary>The limit as last read or written, else the value the profile asks for.</summary>
+    private static int? CurrentWatts(DeviceCapabilityView? view)
+    {
+        return view?.Projection.State.ObservedValue?.IntegerValue ?? view?.Projection.DesiredValue?.IntegerValue;
     }
 
     private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running)

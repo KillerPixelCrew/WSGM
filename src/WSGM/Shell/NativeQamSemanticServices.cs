@@ -890,7 +890,6 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         if (descriptor.Role != role
             || descriptor.ValueKind is not CapabilityValueKind.Integer
             || descriptor.Unit is not CapabilityUnit.Watt
-            || !descriptor.SupportsRead
             || !descriptor.SupportsWrite
             || descriptor.Minimum is not { } minimum
             || descriptor.Maximum is not { } maximum
@@ -908,12 +907,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
 
         var desired = NativeQamUi.ValidInteger(projection.DesiredValue, minimum, maximum, step);
         var observed = NativeQamUi.ValidInteger(state.ObservedValue, minimum, maximum, step);
-        var available = state is
-                        {
-                            Available: true,
-                            Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
-                        }
-                        && observed.HasValue;
+        // Readback is not required: firmware that cannot report its limits is still commanded.
+        var available = DeviceCapabilityRouter.CanCommand(state);
         var status = StatusText(view, available);
         return new TdpProjection(
             new NativeQamTdpState(
@@ -1211,7 +1206,6 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                {
                    ValueKind: CapabilityValueKind.Integer,
                    Unit: CapabilityUnit.Percent,
-                   SupportsRead: true,
                    SupportsWrite: true
                }
                && minimum >= 0
@@ -1219,11 +1213,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                && minimum < maximum
                && step >= 1
                && step <= maximum - minimum
-               && state is
-               {
-                   Available: true,
-                   Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
-               };
+               && DeviceCapabilityRouter.CanCommand(state);
     }
 
     private static bool WritableColor(DeviceCapabilityView view)
@@ -1234,16 +1224,9 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
                {
                    Role: CapabilityRole.LightingZoneColor,
                    ValueKind: CapabilityValueKind.Color,
-                   SupportsRead: true,
                    SupportsWrite: true
                }
-               && state is
-               {
-                   Available: true,
-                   Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
-               }
-               && (ValidColor(view.Projection.DesiredValue).HasValue
-                   || ValidColor(state.ObservedValue).HasValue);
+               && DeviceCapabilityRouter.CanCommand(state);
     }
 
     private static int? ValidColor(CapabilityValue? value)

@@ -86,7 +86,9 @@ free; do not reintroduce stacked 2 s timeouts.
 `OemAction` vocabulary has no authoring UI on purpose. Every handheld on the market today maps
 cleanly onto a Steam Deck controller with no buttons or functions left over, so a rebinding surface
 would answer a problem no supported device has while making WSGM responsible for input policy that
-belongs to Steam. See `docs\device-plugin-system.md`, "OEM controls".
+belongs to Steam. The one button left over, the Xbox Ally's Armoury Crate beside its Xbox and
+Library buttons, is marked as the companion-application button and opens the WSGM overlay by default
+(maintainer, 2026-09-26). See `docs\device-plugin-system.md`, "OEM controls".
 
 **The Claw OEM workaround also blocks keyboard Win+G.** After continued desktop Game Bar activation,
 the maintainer requested HC's key-down interception on 2026-09-05. The global hook cannot
@@ -219,9 +221,9 @@ ROG Ally plugin was first built with HHD as the authority for buttons, because H
 had been reported buggy. WSGM runs on Windows, and HC 1.3.1.6 is the reference that ships and is
 used on these devices under Windows, so its event semantics now lead: 0x93 is a separate Library
 control and 0xA7/0xA8 are M2 press and release. HHD stays the cross-check and the source for what HC
-does not do. Where HC's own data is internally inconsistent, as two of its controller tables are,
-HHD's bytes are used and the disagreement is written down. A Device Lab observation beats both. The
-per-fact record is `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
+does not do. HC's controller tables are sent as HC sends them, even where they differ from HHD's: an
+Xbox Ally X refused the HHD-layout set. A Device Lab observation beats both. The per-fact record is
+`src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
 
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it

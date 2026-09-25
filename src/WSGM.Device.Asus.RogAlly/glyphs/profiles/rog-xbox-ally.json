@@ -568,8 +568,7 @@
     {
       "control": "Guide",
       "presence": "Present",
-      "physicalLabel": "Armoury Crate",
-      "assetId": "armoury-crate"
+      "physicalLabel": "Xbox"
     },
     {
       "control": "View",

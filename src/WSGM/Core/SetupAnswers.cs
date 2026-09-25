@@ -199,6 +199,7 @@ public sealed record SetupAnswers
         {
             config.DeviceIntegration.ControllerManagementEnabled = DeviceIntegration;
         }
+
         config.SteamAutostartTakeoverAccepted = SteamAutostartTakeover;
         config.OtherManagersTakeoverAccepted = OtherManagersTakeover;
         config.SteamInputManagementEnabled = Features.SteamInputManagement;

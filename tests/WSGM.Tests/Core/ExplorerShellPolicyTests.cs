@@ -215,6 +215,45 @@ public sealed class ExplorerShellPolicyTests
     }
 
     [Theory]
+    [InlineData((int)NativeJobMembership.NotInJob, false, true, false)]
+    [InlineData((int)NativeJobMembership.NotInJob, true, true, false)]
+    [InlineData((int)NativeJobMembership.InJob, false, false, false)]
+    [InlineData((int)NativeJobMembership.InJob, true, true, true)]
+    [InlineData((int)NativeJobMembership.Unknown, true, false, false)]
+    public void EvaluateLaunchAnchor_ExcusesAJobOnlyWhenTheSourceShellWasJobBound(
+        int membershipValue,
+        bool sourceShellJobBound,
+        bool expectedAccepted,
+        bool expectedJobBoundLikeSource)
+    {
+        var acceptance = ExplorerShellPolicy.EvaluateLaunchAnchor(
+            NormalProcess() with { JobMembership = (NativeJobMembership)membershipValue },
+            ExplorerPath,
+            3,
+            sourceShellJobBound);
+
+        Assert.Equal(expectedAccepted, acceptance.Accepted);
+        Assert.Equal(expectedJobBoundLikeSource, acceptance.JobBoundLikeSource);
+    }
+
+    [Fact]
+    public void EvaluateLaunchAnchor_JobBoundSourceStillRejectsAWrongIntegrityAnchor()
+    {
+        var acceptance = ExplorerShellPolicy.EvaluateLaunchAnchor(
+            NormalProcess() with
+            {
+                JobMembership = NativeJobMembership.InJob,
+                Integrity = NativeIntegrityLevel.High
+            },
+            ExplorerPath,
+            3,
+            true);
+
+        Assert.False(acceptance.Accepted);
+        Assert.Equal(ExplorerShellRejection.WrongIntegrity, acceptance.Rejection);
+    }
+
+    [Theory]
     [InlineData((int)ExplorerShellRejection.ProcessUnavailable)]
     [InlineData((int)ExplorerShellRejection.WrongImage)]
     [InlineData((int)ExplorerShellRejection.ImageUnknown)]

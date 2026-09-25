@@ -17,15 +17,18 @@ internal sealed partial class WizardWindow
         {
             return false;
         }
+
         page.Children.Add(Heading("Claw RGB lighting"));
-        page.Children.Add(Status("Test red, green and blue on the rings and buttons, then restore your original lighting."));
+        page.Children.Add(
+            Status("Test red, green and blue on the rings and buttons, then restore your original lighting."));
         if (await AskAsync(page, "Test RGB", "Skip") == 1)
         {
             return true;
         }
 
         var worker = await WorkerAsync();
-        using var rgb = await Task.Run(() => worker.Open<ILabClawLighting>(LabClawLighting.Service.Name, log, plan.Record.Id));
+        using var rgb = await Task.Run(() =>
+            worker.Open<ILabClawLighting>(LabClawLighting.Service.Name, log, plan.Record.Id));
         var (original, token) = await Task.Run(() => worker.Checkpoint<byte[]>(rgb, profile =>
             LabPowerRecovery.Record(_machine, plan.Record.Id, changes => changes with { ClawLighting = profile })));
         try
@@ -41,9 +44,11 @@ internal sealed partial class WizardWindow
                 {
                     throw new IOException("The Claw RGB profile did not match after writing it.");
                 }
+
                 page.Children.Add(Status($"The rings and buttons should now be {colour.Name}."));
                 var answer = await AskAsync(page, "Correct colour", "Wrong colour", "No change");
-                lighting.Add(($"claw:{colour.Name}", answer switch { 0 => "matched", 1 => "wrong colour", _ => "no change" }));
+                lighting.Add(($"claw:{colour.Name}",
+                    answer switch { 0 => "matched", 1 => "wrong colour", _ => "no change" }));
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
@@ -71,6 +76,7 @@ internal sealed partial class WizardWindow
                 page.Children.Add(Warning($"RGB restoration failed: {ex.Message}"));
             }
         }
+
         return true;
     }
 }

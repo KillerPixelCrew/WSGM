@@ -521,13 +521,14 @@ public sealed class DevicePowerAssignmentsTests
         internal readonly DevicePowerPresetsTests.Rig Device = new();
         internal string? Application;
 
+        internal bool AutoTdpOwnsPower;
+
         internal ProfileConfig Config = new()
         {
             Global = new ProfileValues
                 { AcPowerPreset = Reference("extreme"), BatteryPowerPreset = Reference("battery") }
         };
 
-        internal bool AutoTdpOwnsPower;
         internal long Cycle = 1;
         internal bool Enabled = true;
         internal string Plugin = "fixture";

@@ -18,10 +18,10 @@ Early operation order is also a safety property:
   fully inert process.
 
 Do not make restore-shell depend on the component whose failure it is meant to recover. Normal
-session transitions restore through `ExplorerDesktopHost` and its pre-captured medium, jobless
-anchor. Early `--restore-shell` runs before normal composition and calls
-`ExplorerControl.StartExplorerAndVerify`, including its scheduled-task de-elevation repair when
-needed.
+session transitions restore through `ExplorerDesktopHost` and its pre-captured medium anchor, which
+is jobless unless the Explorer it replaces was already job-bound. Early `--restore-shell` runs
+before normal composition and calls `ExplorerControl.StartExplorerAndVerify`, including its
+scheduled-task de-elevation repair when needed.
 
 Explorer exit uses its orderly `0x05B4` command. After both shell surfaces disappear for two
 seconds, the retained original process may be released to avoid blocking the next shell on a stale

@@ -336,7 +336,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                         _cycleGeneration)))
                 {
                     return Reject(command, CapabilityReasonCode.ObservationExpired,
-                        "The paired power limit has no current readback.");
+                        "The paired power limit is not available.");
                 }
             }
 
@@ -851,12 +851,17 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     /// <summary>Whether a command may be issued against this state.</summary>
     /// <remarks>
-    ///     Commanding from stale state is how a UI sends a value derived from a reading that no longer
-    ///     describes the device. The control is disabled until a fresh observation arrives.
+    ///     Readback is not a precondition: many firmwares cannot report what they were set to, and a
+    ///     capability that was never read (<see cref="HardwareStateQuality.Unknown" />) is still
+    ///     writable while the plugin reports it available. An expired or faulted observation is not.
     /// </remarks>
-    private static bool CanCommand(CapabilityState state)
+    internal static bool CanCommand(CapabilityState state)
     {
-        return state is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified };
+        return state is
+        {
+            Available: true,
+            Quality: not (HardwareStateQuality.Stale or HardwareStateQuality.Faulted)
+        };
     }
 
     private static CapabilityState Stale(

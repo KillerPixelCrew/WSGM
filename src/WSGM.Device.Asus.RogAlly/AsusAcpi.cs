@@ -8,6 +8,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Asus.RogAlly;
 
@@ -226,7 +227,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
             throw new InvalidOperationException($"ATKACPI device 0x{(uint)id:X8} is not on the reviewed list.");
         }
 
-        return BinaryPrimitives.ReadUInt32LittleEndian(Exchange(AsusAcpiProtocol.EncodeStatus(id, selector), 4));
+        return BinaryPrimitives.ReadUInt32LittleEndian(Read(AsusAcpiProtocol.EncodeStatus(id, selector), 4));
     }
 
     public byte[] ReadBuffer(AsusAcpiId id, uint selector)
@@ -236,7 +237,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
             throw new InvalidOperationException($"ATKACPI device 0x{(uint)id:X8} is not a reviewed buffer.");
         }
 
-        return Exchange(AsusAcpiProtocol.EncodeStatus(id, selector), AsusAcpiProtocol.CurveLength);
+        return Read(AsusAcpiProtocol.EncodeStatus(id, selector), AsusAcpiProtocol.CurveLength);
     }
 
     public uint Write(AsusAcpiId id, uint value)
@@ -267,6 +268,26 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
             _disposed = true;
             _handle?.Dispose();
             _handle = null;
+        }
+    }
+
+    /// <summary>A DSTS query. A failed call reads as all zeros, which decodes as unsupported.</summary>
+    /// <remarks>
+    ///     HC ignores the <c>DeviceIoControl</c> result and reads its zeroed buffer (<c>AsusACPI.Control</c>).
+    ///     A query changes nothing, so a firmware that refuses one (the Xbox Ally X refuses the fan-curve
+    ///     reads) must leave the value unknown rather than fault the service that asked.
+    /// </remarks>
+    private byte[] Read(byte[] request, int minimumResponse)
+    {
+        try
+        {
+            return Exchange(request, minimumResponse);
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException)
+        {
+            PluginTrace.Change("acpi-read", $"0x{BinaryPrimitives.ReadUInt32LittleEndian(request.AsSpan(8)):X8}",
+                $"ATKACPI query refused ({ex.Message}); treated as unsupported.", DeviceTraceLevel.Warn);
+            return new byte[Math.Max(minimumResponse, AsusAcpiProtocol.ResponseLength)];
         }
     }
 

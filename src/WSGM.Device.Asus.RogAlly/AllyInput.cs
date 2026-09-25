@@ -238,7 +238,7 @@ internal static class AllyControllerCodec
     public const ushort X = 0x4000;
     public const ushort Y = 0x8000;
 
-    public static CanonicalButtons Buttons(ushort buttons, CanonicalButtons guide)
+    public static CanonicalButtons Buttons(ushort buttons)
     {
         var result = CanonicalButtons.None;
         result |= (buttons & A) != 0 ? CanonicalButtons.A : 0;
@@ -255,13 +255,12 @@ internal static class AllyControllerCodec
         result |= (buttons & DPadDown) != 0 ? CanonicalButtons.DPadDown : 0;
         result |= (buttons & DPadLeft) != 0 ? CanonicalButtons.DPadLeft : 0;
         result |= (buttons & DPadRight) != 0 ? CanonicalButtons.DPadRight : 0;
-        result |= (buttons & Guide) != 0 ? guide : 0;
+        result |= (buttons & Guide) != 0 ? CanonicalButtons.Guide : 0;
         return result;
     }
 
     public static CanonicalControllerSample Decode(
         in XInputNative.State state,
-        CanonicalButtons guide,
         CanonicalButtons oem,
         long sequence,
         long cycleGeneration,
@@ -274,7 +273,7 @@ internal static class AllyControllerCodec
             Sequence = sequence,
             CycleGeneration = cycleGeneration,
             Timestamp = timestamp,
-            Buttons = Buttons(gamepad.Buttons, guide) | oem,
+            Buttons = Buttons(gamepad.Buttons) | oem,
             LeftStickX = Axis(gamepad.ThumbLX),
             LeftStickY = Axis(gamepad.ThumbLY),
             RightStickX = Axis(gamepad.ThumbRX),
@@ -543,7 +542,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
                         throw new InvalidOperationException($"XInput slot {slot} stopped answering ({result}).");
                     }
 
-                    sample = AllyControllerCodec.Decode(state, _model.XInputGuide, _oem.Current(now), ++sequence,
+                    sample = AllyControllerCodec.Decode(state, _oem.Current(now), ++sequence,
                         cycleGeneration, now, first ? SampleQuality.Discontinuity : SampleQuality.Good);
                 }
                 else

@@ -18,7 +18,7 @@ Related:
 | Assembly / package | `WSGM.Device.Sdk`                                                                 |
 | Target framework   | `net10.0-windows`, matching the host that loads the plugin                        |
 | Dependencies       | none; a plugin inherits nothing from the SDK                                      |
-| API version        | `DeviceApi.Version = 5`; WSGM, Device Lab and every plugin require an exact match |
+| API version        | `DeviceApi.Version = 7`; WSGM, Device Lab and every plugin require an exact match |
 | Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                       |
 | Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                             |
 | Documentation      | every public member is documented; an undocumented member fails the build         |
@@ -560,13 +560,14 @@ expressible here, so a plugin can publish vendor controls without turning the ca
 a remapper. The host owns every action vocabulary and decides which mapping is compatible with a
 placement.
 
-| `OemControlDescriptor` field    | Meaning                                                                                                                                                                                                                                                          |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ControlId`                     | Stable id within the device definition, for example `oem1`.                                                                                                                                                                                                      |
-| `Display`                       | Label (`CapabilityDisplay`).                                                                                                                                                                                                                                     |
-| `Placement`                     | `OemControlPlacement.Front` or `Rear`.                                                                                                                                                                                                                           |
-| `SupportsLongPress`             | Whether the source distinguishes a long press.                                                                                                                                                                                                                   |
-| `RequiresControllerAcquisition` | Whether the control disappears when controller management is off. Declared, not inferred: on the reference handheld the rear paddles are visible only in the acquisition mode the plugin selects, while the front buttons arrive over a separate vendor channel. |
+| `OemControlDescriptor` field    | Meaning                                                                                                                                                                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ControlId`                     | Stable id within the device definition, for example `oem1`.                                                                                                                                                                                                                                     |
+| `Display`                       | Label (`CapabilityDisplay`).                                                                                                                                                                                                                                                                    |
+| `Placement`                     | `OemControlPlacement.Front` or `Rear`.                                                                                                                                                                                                                                                          |
+| `SupportsLongPress`             | Whether the source distinguishes a long press.                                                                                                                                                                                                                                                  |
+| `RequiresControllerAcquisition` | Whether the control disappears when controller management is off. Declared, not inferred: on the reference handheld the rear paddles are visible only in the acquisition mode the plugin selects, while the front buttons arrive over a separate vendor channel.                                |
+| `CompanionApplication`          | Whether this is the button the manufacturer prints for its own companion application (Armoury Crate, Legion Space). Physical metadata: the host decides what an unassigned one does; WSGM opens its overlay. Leave it false when the plugin already routes the button to Guide or Quick Access. |
 
 `OemControlEvent(ControlId, OemPressKind Press, long SourceGeneration, DateTimeOffset Timestamp, string DeduplicationId, OemControlEdge Edge = Pressed)`.
 `OemPressKind` is `Short` or `Long`. JSON writes those names and still accepts the legacy numeric
@@ -638,7 +639,7 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
   "id": "wsgm.device.msi.claw-8-a2vm",
   "name": "MSI Claw 8 AI+ A2VM",
   "version": "1.2.0",
-  "apiVersion": 6,
+  "apiVersion": 7,
   "entryAssembly": "WSGM.Device.Msi.Claw8A2Vm.dll",
   "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin",
   "hardware": [
@@ -851,7 +852,7 @@ The compiler catches none of these; the host relies on all of them.
 
 | Limit                                                        | Value                   | Defined on                                                                       |
 | ------------------------------------------------------------ | ----------------------- | -------------------------------------------------------------------------------- |
-| API version                                                  | 5                       | `DeviceApi.Version`                                                              |
+| API version                                                  | 7                       | `DeviceApi.Version`                                                              |
 | Trace message                                                | 1024 chars              | `PluginTrace.MaxMessageLength`                                                   |
 | Custom label                                                 | 48                      | `CapabilityDisplay.MaxCustomLabelLength`                                         |
 | Overlay sections per set                                     | 16                      | `CapabilitySection.MaxSections`                                                  |
@@ -890,11 +891,12 @@ power plans.
 Optional `ScenarioOnAc` and `ScenarioOnDc` targets select a firmware scenario before the watt
 limits. Declare both or neither. They must name choices of exactly one single-instance, readable,
 writable `ScenarioMode` capability available on both power sources. A host must know the current
-power source, confirm the scenario readback, re-read the watt pair after the scenario command, and
-include the scenario in preset matching. A source change during application stops remaining writes
-without retry. Scenario targets are one-shot selections, not stored desired-state policy. This
-extends the existing preset and scenario vocabulary without exposing device registers; firmware
-scenario choices can describe MSI SHIFT modes or another device's thermal modes.
+power source, confirm the scenario readback when the firmware reports one, re-read the watt pair
+after the scenario command, and include the scenario in preset matching. A source change during
+application stops remaining writes without retry. Scenario targets are one-shot selections, not
+stored desired-state policy. This extends the existing preset and scenario vocabulary without
+exposing device registers; firmware scenario choices can describe MSI SHIFT modes or another
+device's thermal modes.
 
 `DevicePowerPreset.TryValidate` checks the complete descriptor set: exactly one readable, writable
 sustained/slow watt pair, targets inside both ranges and steps, sustained <= slow, unique IDs of

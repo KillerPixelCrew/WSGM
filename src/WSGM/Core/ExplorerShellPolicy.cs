@@ -87,6 +87,24 @@ internal static class ExplorerShellPolicy
     }
 
     /// <summary>
+    ///     Evaluates a freshly created launch anchor. A jobless source shell still requires a jobless
+    ///     anchor. When the captured Explorer was already job-bound, as some OEM images start it at
+    ///     logon, a job-bound anchor is no worse than the desktop the user had, so only its job
+    ///     membership is excused; image, session and integrity checks still apply.
+    /// </summary>
+    internal static ExplorerShellAcceptance EvaluateLaunchAnchor(
+        NativeShellProcessInfo anchor,
+        string expectedImagePath,
+        int expectedSessionId,
+        bool sourceShellJobBound)
+    {
+        var acceptance = Evaluate(anchor, expectedImagePath, expectedSessionId, false, false);
+        return sourceShellJobBound && acceptance.Rejection is ExplorerShellRejection.JobBound
+            ? new ExplorerShellAcceptance(true, ExplorerShellRejection.None, true)
+            : acceptance;
+    }
+
+    /// <summary>
     ///     Classifies an observed taskbar owner. Only a canonical current-session medium
     ///     Explorer can be usable in degraded mode, and a scheduler route is always recovery-only.
     /// </summary>
@@ -168,7 +186,15 @@ internal static class ExplorerShellPolicy
 }
 
 /// <summary>Result of applying the normal-shell acceptance policy.</summary>
-internal readonly record struct ExplorerShellAcceptance(bool Accepted, ExplorerShellRejection Rejection);
+/// <param name="Accepted">Whether the process may serve.</param>
+/// <param name="Rejection">Why it may not, or <see cref="ExplorerShellRejection.None" />.</param>
+/// <param name="JobBoundLikeSource">
+///     Accepted only because the source Explorer was job-bound too; the resulting desktop is degraded.
+/// </param>
+internal readonly record struct ExplorerShellAcceptance(
+    bool Accepted,
+    ExplorerShellRejection Rejection,
+    bool JobBoundLikeSource = false);
 
 /// <summary>Concrete reason a process cannot serve as the normal shell or its creation owner.</summary>
 internal enum ExplorerShellRejection

@@ -46,9 +46,45 @@ public sealed class ProtocolTests
 
         Assert.Equal(OemControlIds.ArmouryCrate, AllyModels.VendorAction(xbox, 0xA6)!.Value.ControlId);
         Assert.Equal(OemControlIds.Library, AllyModels.VendorAction(xbox, 0x93)!.Value.ControlId);
-        Assert.Equal(CanonicalButtons.QuickAccess, xbox.XInputGuide);
         Assert.Equal([AllyModels.VkF21, AllyModels.VkF22], xbox.FrontKeyboardControls.Select(item => item.VirtualKey));
         Assert.Empty(AllyModels.ById("rc71l")!.FrontKeyboardControls);
+    }
+
+    [Theory]
+    [InlineData("rc73ya")]
+    [InlineData("rc73xa")]
+    public void XboxFrontButtonsAreGuideQuickAccessAndCompanion(string definitionId)
+    {
+        var xbox = AllyModels.ById(definitionId)!;
+
+        // The Xbox button is the pad's guide bit and always reaches Steam as the Guide.
+        Assert.Equal(CanonicalButtons.Guide, AllyControllerCodec.Buttons(AllyControllerCodec.Guide));
+        // Armoury Crate carries no Steam button: WSGM opens its overlay from it.
+        Assert.Equal(CanonicalButtons.None, AllyModels.VendorAction(xbox, 0xA6)!.Value.Button);
+        Assert.Equal(CanonicalButtons.QuickAccess, AllyModels.VendorAction(xbox, 0x38)!.Value.Button);
+        Assert.Equal(CanonicalButtons.QuickAccess, AllyModels.VendorAction(xbox, 0x93)!.Value.Button);
+        Assert.Equal(
+            [
+                (AllyModels.VkF21, OemControlIds.ArmouryCrate, CanonicalButtons.None),
+                (AllyModels.VkF22, OemControlIds.Library, CanonicalButtons.QuickAccess)
+            ],
+            xbox.FrontKeyboardControls.Select(item => (item.VirtualKey, item.ControlId, item.Button)));
+
+        var controls = AllyModels.OemControls(xbox);
+        Assert.True(controls.Single(control => control.ControlId == OemControlIds.ArmouryCrate).CompanionApplication);
+        Assert.All(controls.Where(control => control.ControlId != OemControlIds.ArmouryCrate),
+            control => Assert.False(control.CompanionApplication));
+    }
+
+    [Fact]
+    public void ClassicFrontButtonsKeepGuideAndQuickAccess()
+    {
+        var ally = AllyModels.ById("rc71l")!;
+
+        // With no Xbox button, Armoury Crate is the only Guide source, so it is not the companion button.
+        Assert.Equal(CanonicalButtons.QuickAccess, AllyModels.VendorAction(ally, 0xA6)!.Value.Button);
+        Assert.Equal(CanonicalButtons.Guide, AllyModels.VendorAction(ally, 0x38)!.Value.Button);
+        Assert.All(AllyModels.OemControls(ally), control => Assert.False(control.CompanionApplication));
     }
 
     [Fact]
@@ -82,24 +118,24 @@ public sealed class ProtocolTests
         Assert.Equal(0x8E, factory[7]);
         Assert.Equal(0x8E, factory[18]);
         Assert.Equal(0x8F, factory[29]);
-        // HC's copy stops before this fourth entry; HHD's complete block is the one sent.
-        Assert.Equal(0x8F, factory[40]);
+        // HC's M1M2Default ends here; its bytes are sent as HC sends them.
+        Assert.All(factory[30..].ToArray(), value => Assert.Equal(0, value));
     }
 
     [Fact]
-    public void FrontTablesMatchHcByteForByteExceptItsTwoShortTables()
+    public void FrontTablesMatchHcByteForByteInHcOrder()
     {
-        // HC 1.3.1.6 ROGAlly.cs:93-154, in the order the plugin sends them.
+        // HC 1.3.1.6 ROGAlly.cs:93-154, in ConfigureController's order (ROGAlly.cs:652-659).
         byte[][] hc =
         [
             [90, 209, 1, 1, 1],
             [
-                90, 209, 2, 2, 44, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 35, 0, 0, 0, 1, 12, 0,
-                0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 13
-            ],
-            [
                 90, 209, 2, 1, 44, 1, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 1, 10, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 3, 140, 136, 118
+            ],
+            [
+                90, 209, 2, 2, 44, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 35, 0, 0, 0, 1, 12, 0,
+                0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 2, 130, 13
             ],
             [90, 209, 2, 3, 44, 1, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 8],
             [90, 209, 2, 4, 44, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6],
@@ -117,15 +153,9 @@ public sealed class ProtocolTests
 
         for (var index = 0; index < hc.Length; index++)
         {
-            var matches = sent[index].AsSpan(0, hc[index].Length).SequenceEqual(hc[index]);
-            // D-pad left/right (index 1) and A/B (index 5) are HHD's 11-byte-block layout.
-            Assert.Equal(index is not (1 or 5), matches);
+            Assert.True(sent[index].AsSpan(0, hc[index].Length).SequenceEqual(hc[index]), $"table {index}");
+            Assert.All(sent[index][hc[index].Length..].ToArray(), value => Assert.Equal(0, value));
         }
-
-        // HHD REMAP_DPAD_LR and REMAP_AB (const.py:201-253, 549-605): the fourth block starts at byte 5 + 3 * 11.
-        Assert.Equal([0x04, 0x00, 0x00, 0x00, 0x00, 0x02, 0x82, 0x0D], sent[1][38..46]);
-        Assert.Equal([0x04, 0x00, 0x00, 0x00, 0x00, 0x02, 0x82, 0x31], sent[5][38..46]);
-        Assert.All(sent.Skip(1), table => Assert.Equal(0x2C, table[4]));
     }
 
     [Fact]
@@ -298,9 +328,7 @@ public sealed class ProtocolTests
                                | AllyControllerCodec.DPadLeft);
 
         Assert.Equal(CanonicalButtons.A | CanonicalButtons.View | CanonicalButtons.Guide | CanonicalButtons.DPadLeft,
-            AllyControllerCodec.Buttons(buttons, CanonicalButtons.Guide));
-        Assert.Equal(CanonicalButtons.QuickAccess, AllyControllerCodec.Buttons(AllyControllerCodec.Guide,
-            CanonicalButtons.QuickAccess));
+            AllyControllerCodec.Buttons(buttons));
         Assert.Equal(-1f, AllyControllerCodec.Axis(short.MinValue));
         Assert.Equal(1f, AllyControllerCodec.Axis(short.MaxValue));
     }
