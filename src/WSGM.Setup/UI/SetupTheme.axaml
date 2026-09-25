@@ -113,6 +113,19 @@
   <Style Selector="Grid.feature:disabled">
     <Setter Property="Opacity" Value="0.45" />
   </Style>
+  <Style Selector="Border.recommended">
+    <Setter Property="Background" Value="#26A3DCA3" />
+    <Setter Property="BorderBrush" Value="#73A3DCA3" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="6,1" />
+  </Style>
+  <Style Selector="Border.recommended > TextBlock">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="LetterSpacing" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource HcSuccessBrush}" />
+  </Style>
   <Style Selector="Border.new">
     <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
     <Setter Property="CornerRadius" Value="4" />

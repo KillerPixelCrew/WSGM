@@ -91,7 +91,30 @@
             <TextBlock Classes="mono" Text="{Binding Identity}" />
           </StackPanel>
         </Border>
-        <ItemsControl ItemsSource="{Binding Candidates}" IsVisible="{Binding HasMatch}">
+        <!-- Accept or decline. Declining is for Handheld Companion and similar tools that already manage the
+             device; WSGM then installs without a device plugin and the profile starts from Minimal. -->
+        <StackPanel Spacing="8" IsVisible="{Binding HasMatch}">
+          <RadioButton Classes="choice" GroupName="support" IsChecked="{Binding InstallPlugin}">
+            <StackPanel Spacing="4">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Classes="row-title" Text="Use WSGM's hardware support" VerticalAlignment="Center" />
+                <Border Classes="recommended" VerticalAlignment="Center">
+                  <TextBlock Text="RECOMMENDED" />
+                </Border>
+              </StackPanel>
+              <TextBlock Classes="muted" Text="{Binding AcceptDetail}" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton Classes="choice" GroupName="support" IsChecked="{Binding SkipPlugin}">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="row-title" Text="Skip hardware support" />
+              <TextBlock Classes="muted"
+                         Text="For Handheld Companion or another tool that already manages this device. WSGM leaves the hardware alone. You can add the plugin later in WSGM Settings, Plugin." />
+            </StackPanel>
+          </RadioButton>
+        </StackPanel>
+        <TextBlock Classes="section" Text="PLUGIN" IsVisible="{Binding ShowPlugin}" />
+        <ItemsControl ItemsSource="{Binding Candidates}" IsVisible="{Binding ShowPlugin}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="ui:CandidateOption">
               <RadioButton Classes="choice" GroupName="device" IsChecked="{Binding Selected}" Margin="0,0,0,8">
@@ -106,9 +129,7 @@
         <Border Classes="banner warn" IsVisible="{Binding HasCaution}">
           <TextBlock TextWrapping="Wrap" Text="{Binding Caution}" />
         </Border>
-        <CheckBox IsChecked="{Binding InstallPlugin}" IsVisible="{Binding HasMatch}"
-                  Content="Install hardware support" />
-        <Border Classes="card" IsVisible="{Binding HasMatch}">
+        <Border Classes="card" IsVisible="{Binding ShowPlugin}">
           <StackPanel Spacing="6">
             <TextBlock Classes="section" Text="WHAT GETS INSTALLED" />
             <TextBlock Text="WSGM" />
@@ -175,7 +196,6 @@
         </UniformGrid>
         <ToggleSwitch IsChecked="{Binding SignIn}" OnContent="Start WSGM when you sign in"
                       OffContent="Start WSGM when you sign in" />
-        <Button Content="Customize…" Command="{Binding CustomizeCommand}" HorizontalAlignment="Left" />
       </StackPanel>
     </DataTemplate>
 

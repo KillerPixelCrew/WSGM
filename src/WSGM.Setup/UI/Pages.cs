@@ -218,10 +218,36 @@ internal sealed class HardwarePage : Page
         {
             if (Set(ref _installPlugin, value))
             {
+                Raise(nameof(SkipPlugin));
+                Raise(nameof(ShowPlugin));
                 Refresh();
             }
         }
     }
+
+    /// <summary>
+    ///     Declines the plugin, for someone who keeps Handheld Companion or another tool managing the device.
+    ///     WSGM then leaves the hardware alone and the profile starts from Minimal.
+    /// </summary>
+    public bool SkipPlugin
+    {
+        get => !_installPlugin;
+        set
+        {
+            if (value)
+            {
+                InstallPlugin = false;
+            }
+        }
+    }
+
+    /// <summary>Whether the plugin cards and what gets installed are shown.</summary>
+    public bool ShowPlugin => HasMatch && _installPlugin;
+
+    /// <summary>What accepting installs, in one line under the choice.</summary>
+    public string AcceptDetail => Candidates.Count == 1
+        ? $"Installs {Candidates[0].Name}, so WSGM manages power, fans, lighting and the controller on this device."
+        : "Installs the plugin you pick below, so WSGM manages power, fans, lighting and the controller.";
 
     public override string Eyebrow => "Hardware";
 
