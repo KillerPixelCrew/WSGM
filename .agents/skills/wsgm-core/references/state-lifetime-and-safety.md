@@ -23,12 +23,12 @@ is jobless unless the Explorer it replaces was already job-bound. Early `--resto
 before normal composition and calls `ExplorerControl.StartExplorerAndVerify`, including its
 scheduled-task de-elevation repair when needed.
 
-Explorer exit uses its orderly `0x05B4` command. After both shell surfaces disappear for two
-seconds, the retained original process may be released to avoid blocking the next shell on a stale
-singleton. Never terminate an active or replacement desktop, or unrelated folder processes, during
-takeover. A failed exit always runs the shared desktop-return sequence; a surviving PID is not
-recovery. Both matching shell owners and responsive windows are required before reporting a usable
-desktop.
+Explorer exit uses its orderly `0x05B4` command and is never terminated: Winlogon respawns a killed
+shell. A retired process that outlives its shell surfaces is asked to close its windows (`WM_CLOSE`)
+and left to finish; desktop return waits for it, bounded, before starting Explorer. Never sweep
+unrelated folder processes. A failed exit always runs the shared desktop-return sequence; a
+surviving PID is not recovery. Both matching shell owners and responsive windows are required before
+reporting a usable desktop.
 
 Launch-parent capture checks matching shell owners, process identity and token semantics without a
 UI-responsiveness gate or extra stability delay. A brief message timeout during display changes is

@@ -10,9 +10,10 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
 - A mutation uses the strict load path. If an existing configuration is unreadable, abort instead of writing defaults
   over its recovery snapshots.
 - Recovery operations must be idempotent and usable before normal application initialization.
-- ExplorerControl requests orderly exit first. After both shell surfaces disappear for two seconds, it may release only
-  the retained original process. Never terminate an active/replacement shell or sweep folder processes during takeover.
-  Every failed exit uses verified desktop recovery.
+- ExplorerControl only ever asks Explorer to leave: the orderly `0x05B4` exit, then `WM_CLOSE` to a retired process's
+  remaining windows. Never terminate Explorer, retired or not: Winlogon answers a killed shell with a respawn. Never sweep
+  folder processes. Desktop return waits, bounded, for a retired process still finishing. Every failed exit uses verified
+  desktop recovery.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware, Steam, RTSS, or input
   resources.
 - At most one device package runs; two different device packages in the Plugins folder refuse device integration.

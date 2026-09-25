@@ -214,16 +214,22 @@ The taskbar's exact process handle is retained before posting the command. File 
 that do not own the desktop do not block takeover. A new taskbar owner is a replacement shell; WSGM
 gives it one orderly attempt within the same deadline.
 
-After both `Shell_TrayWnd` and `GetShellWindow` disappear, the original process gets two seconds to
-finish. If it still holds the shell singleton, WSGM terminates that retained process only, without
-its children. An active or replacement desktop is never force-closed by this path. Success requires
-500 ms of stable shell absence after exit. On refusal or timeout, the shared desktop-return sequence
-restores the layout, shell and captured integrations before optional leave actions.
+Explorer is never terminated. A killed shell process is what Winlogon's AutoRestartShell answers
+with a respawn (2026-08-08). After both `Shell_TrayWnd` and `GetShellWindow` disappear, the original
+process finishes on its own. If it is still running after 3 s, its remaining windows are sent
+`WM_CLOSE`, the first step of Task Manager's End task, and nothing further. Success requires 1.5 s
+of stable shell absence, long enough to catch a respawn inside the exit step. A retired process that
+still owns no shell after 10 s does not hold Game Mode back: it has no taskbar, and the tray host
+checks for Explorer's desktop shell, not for any `explorer.exe`. On refusal or timeout, the shared
+desktop-return sequence restores the layout, shell and captured integrations before optional leave
+actions.
 
-This replaces the older wait-only policy after the attended 2026-09-13 failure: Explorer removed its
-taskbar but stayed alive, and a new Explorer then created unresponsive shell windows. Keeping that
-retired process alive stranded recovery. The maintainer requested the transition redesign; process
-existence is no longer treated as proof of a usable desktop.
+On 2026-09-13 a new Explorer started beside a lingering retired one came up unresponsive. Desktop
+return therefore waits up to 5 s for a retired process that Game Mode entry left running, asking its
+windows to close again, before it starts Explorer. The same day's fix released (killed) that process
+after 2 s instead. An Xbox Ally X, whose orderly exit takes longer, then fought a Winlogon respawn
+on every entry and failed to create the Game Mode tray (2026-09-25), so the release was removed
+again.
 
 ## How Explorer is restored
 

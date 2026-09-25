@@ -428,16 +428,21 @@ public sealed class ExplorerShellPolicyTests
     }
 
     [Theory]
-    [InlineData(true, false, 30000, 0)]
-    [InlineData(true, true, 30000, 0)]
-    [InlineData(false, false, 1999, 0)]
-    [InlineData(false, false, 2000, 1)]
-    [InlineData(false, true, 499, 0)]
-    [InlineData(false, true, 500, 2)]
-    public void OnlyARetiredOriginalShellCanBeReleased(bool present, bool exited, int absentMs, int expected)
+    // Shell still up, or not yet stably gone: wait.
+    [InlineData(true, false, 30000, false, 0)]
+    [InlineData(false, true, 1499, false, 0)]
+    // Gone and exited: complete.
+    [InlineData(false, true, 1500, false, 2)]
+    // Retired process lingering: ask its windows to close once, never terminate.
+    [InlineData(false, false, 2999, false, 0)]
+    [InlineData(false, false, 3000, false, 1)]
+    [InlineData(false, false, 5000, true, 0)]
+    // It owns no shell, so entry proceeds beside it after the linger limit.
+    [InlineData(false, false, 10000, true, 2)]
+    public void ExplorerIsOnlyEverAskedToLeave(bool present, bool exited, int absentMs, bool asked, int expected)
     {
         Assert.Equal((ExplorerExitAction)expected,
-            ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs)));
+            ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs), asked));
     }
 
     [Fact]

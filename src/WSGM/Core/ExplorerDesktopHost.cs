@@ -345,6 +345,14 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         }
 
         var anchorError = "No anchor was captured.";
+        // A retired shell still finishing its exit is waited for, never killed, before a new one starts.
+        var retiredWait = Remaining(deadline) < TimeSpan.FromSeconds(5) ? Remaining(deadline) : TimeSpan.FromSeconds(5);
+        if (retiredWait > TimeSpan.Zero)
+        {
+            await Task.Run(() => ExplorerControl.WaitForRetiredShell(retiredWait), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (_anchor is not null)
         {
             var launch = await _anchor.StartExplorerAsync(

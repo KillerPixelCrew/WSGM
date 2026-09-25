@@ -17,6 +17,10 @@ public static class ExplorerControl
     // so every use is bounded and fails open. The device evidence (kills and
     // Restart Manager both device-DISPROVEN) lives in docs\boot-and-shell.md.
     private const uint ExitExplorerMessage = 0x05B4;
+    private const uint WmClose = 0x0010;
+
+    /// <summary>A retired shell process Game Mode entry left to finish on its own. Guarded by ExitGate.</summary>
+    private static Process? _retired;
 
     private static readonly Lock ExitGate = new();
 
@@ -199,9 +203,10 @@ public static class ExplorerControl
     }
 
     /// <summary>
-    ///     Requests orderly exit of the actual desktop shell, then releases a stuck original
-    ///     process only after both shell surfaces have disappeared. Folder-only Explorer processes do
-    ///     not own the desktop and do not block Game Mode. A replacement shell gets one orderly attempt.
+    ///     Requests orderly exit of the actual desktop shell and waits for it to leave. Explorer is never
+    ///     terminated: a retired process that outlives its shell surfaces is asked to close its windows and
+    ///     otherwise left to finish. Folder-only Explorer processes do not own the desktop and do not block
+    ///     Game Mode. A replacement shell gets one orderly attempt.
     /// </summary>
     /// <param name="timeout">Total budget, including a replacement shell and readiness checks.</param>
     /// <returns>Whether the desktop shell is stably absent.</returns>
@@ -225,7 +230,7 @@ public static class ExplorerControl
 
                 NativeMethods.GetWindowThreadProcessId(taskbar, out var owner);
                 using var original = Process.GetProcessById(checked((int)owner));
-                // Keep the handle, not merely the PID: PID reuse cannot authorize termination.
+                // Keep the handle, not merely the PID, so its exit is observed on the right process.
                 _ = original.Handle;
                 if (!string.Equals(original.MainModule?.FileName, ExplorerPath, StringComparison.OrdinalIgnoreCase))
                 {
@@ -240,6 +245,7 @@ public static class ExplorerControl
 
                 DateTime? absentSince = null;
                 var replacement = false;
+                var closeRequested = false;
                 while (DateTime.UtcNow < deadline)
                 {
                     var currentTaskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
@@ -254,28 +260,30 @@ public static class ExplorerControl
 
                     absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
                     var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
-                    var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent);
+                    var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent, closeRequested);
                     // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                     switch (action)
                     {
                         case ExplorerExitAction.Complete:
-                            Log.Info("Explorer desktop exited and remained absent.");
-                            return true;
-                        case ExplorerExitAction.ReleaseOriginal:
-                        {
-                            // Orderly shutdown already removed both surfaces. A stuck extension must
-                            // not strand the next Explorer behind the old process's shell singleton.
-                            Log.Warn($"Releasing retired Explorer pid {owner} after orderly shell shutdown.");
-                            original.Kill();
-                            var remainingMs = (int)Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds);
-                            if (!original.WaitForExit(Math.Min(2000, remainingMs)))
+                            if (original.HasExited)
                             {
-                                return false;
+                                Log.Info("Explorer desktop exited and remained absent.");
+                            }
+                            else
+                            {
+                                Log.Warn($"Explorer desktop exited; retired pid {owner} still owns no shell and is "
+                                         + "left to finish on its own.");
+                                RememberRetired(original);
                             }
 
-                            absentSince = null; // Observe Winlogon after releasing the original process.
+                            return true;
+                        case ExplorerExitAction.RequestClose:
+                            // Never terminated: Winlogon respawns a killed shell. Ask its remaining
+                            // windows to close, as Task Manager's End task asks first.
+                            closeRequested = true;
+                            var asked = CloseWindowsOf(owner);
+                            Log.Info($"Retired Explorer pid {owner} is still running; asked {asked} window(s) to close.");
                             break;
-                        }
                         case ExplorerExitAction.Wait:
                             break;
                     }
@@ -296,6 +304,79 @@ public static class ExplorerControl
         }
     }
 
+    /// <summary>
+    ///     Before the desktop comes back, gives a retired shell process that Game Mode entry left running
+    ///     a bounded chance to finish. A new Explorer beside a lingering one came up unresponsive
+    ///     (2026-09-13); it is asked to close its windows again and waited for, never terminated.
+    /// </summary>
+    /// <param name="timeout">The longest the desktop return waits for it.</param>
+    internal static void WaitForRetiredShell(TimeSpan timeout)
+    {
+        lock (ExitGate)
+        {
+            var retired = _retired;
+            _retired = null;
+            if (retired is null)
+            {
+                return;
+            }
+
+            using (retired)
+            {
+                if (retired.HasExited)
+                {
+                    return;
+                }
+
+                var asked = CloseWindowsOf(checked((uint)retired.Id));
+                Log.Info($"Waiting for retired Explorer pid {retired.Id} before restoring the desktop; "
+                         + $"asked {asked} window(s) to close.");
+                if (!retired.WaitForExit(timeout))
+                {
+                    Log.Warn($"Retired Explorer pid {retired.Id} is still running; restoring the desktop beside it.");
+                }
+            }
+        }
+    }
+
+    private static void RememberRetired(Process original)
+    {
+        try
+        {
+            // A second handle to the same process, checked by start time so a reused PID never counts.
+            var copy = Process.GetProcessById(original.Id);
+            if (copy.StartTime == original.StartTime)
+            {
+                _retired?.Dispose();
+                _retired = copy;
+                return;
+            }
+
+            copy.Dispose();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            // It exited meanwhile, which is the outcome being waited for.
+        }
+    }
+
+    /// <summary>Posts <c>WM_CLOSE</c> to every top-level window a process owns; never terminates it.</summary>
+    private static int CloseWindowsOf(uint processId)
+    {
+        var asked = 0;
+        nint window = 0;
+        while ((window = NativeMethods.FindWindowExW(0, window, null, null)) != 0)
+        {
+            NativeMethods.GetWindowThreadProcessId(window, out var windowOwner);
+            if (windowOwner == processId && NativeMethods.PostMessageW(window, WmClose, 0, 0))
+            {
+                asked++;
+            }
+        }
+
+        return asked;
+    }
+
     private static bool WaitForShellAbsence(DateTime deadline)
     {
         DateTime? absentSince = null;
@@ -304,7 +385,7 @@ public static class ExplorerControl
             var present = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0
                           || NativeMethods.GetShellWindow() != 0;
             absentSince = present ? null : absentSince ?? DateTime.UtcNow;
-            if (absentSince is { } since && DateTime.UtcNow - since >= TimeSpan.FromMilliseconds(500))
+            if (absentSince is { } since && DateTime.UtcNow - since >= ExplorerExitPolicy.StableAbsence)
             {
                 return true;
             }

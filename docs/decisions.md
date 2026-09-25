@@ -160,10 +160,14 @@ are in `src\Avalonia.LiveBackdrop\README.md`.
 **Desktop recovery is a single transition (2026-09-13).** Normal return and failed Game Mode entry
 share ordered, independently guarded cleanup. They restore a responsive Explorer before optional IR
 actions and never redirect a failed desktop request back into Game Mode. The shell's window owners
-and responsiveness define readiness. After orderly exit has removed both shell surfaces for two
-seconds, WSGM may release the retained original process; it never force-closes an active or
-replacement shell during takeover. This replaces waiting for every Explorer process to disappear,
-which stranded the attended desktop after its taskbar had already exited.
+and responsiveness define readiness. Explorer is only ever asked to leave, never terminated (see
+**Explorer is never killed**). This replaces waiting for every Explorer process to disappear, which
+stranded the attended desktop after its taskbar had already exited.
+
+**Explorer is never killed (2026-09-26).** Game Mode entry posts Explorer's orderly exit and, for a
+retired process that outlives its shell surfaces, only `WM_CLOSE` to its windows. Killing it makes
+Winlogon respawn the shell; the 2026-09-13 release did that on every Xbox Ally X entry and broke the
+return to Game Mode. Desktop return waits, bounded, for a retired process still finishing.
 
 **Launch-parent capture is independent of UI responsiveness (2026-09-13).** The first deployed
 redesign refused a valid medium, jobless Explorer after one 100 ms message timeout, before any
