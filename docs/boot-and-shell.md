@@ -474,7 +474,10 @@ Settings. A quiet fresh install never takes over Steam's autostart; a quiet upda
 takeover. Quick Setup is retired, and WSGM Settings changes the choices afterwards.
 
 A WSGM 1.0 install is removed first through its own Inno uninstaller (`/VERYSILENT`), and setup
-stops when that fails. Nothing from 1.0 is carried over.
+stops when that fails. Nothing from 1.0 is carried over. That uninstaller signals the uninstall
+event, on which WSGM leaves Steam running, so setup first stops WSGM through the update event: WSGM
+then closes Steam gracefully, as the old installer's update did, and setup records the mode it ran
+in.
 
 ### A device package on an install that has no room for it
 
@@ -513,21 +516,28 @@ is on screen. For that half the banner says to re-run setup and warns that a reb
    publishes `Local\WSGM.ShellAnchor.RecoverySettled`, through the same current-session filter.
    Without the acknowledgement it stays alive as the only remaining desktop-recovery owner; the
    `App` swap then fails on its locked image and setup rolls back.
-6. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
+6. When an installed WSGM is being replaced and Steam is still running (WSGM's pre-stop ran out of
+   time, or WSGM was not running), setup sends Steam the same graceful `steam://exit` and waits up
+   to 60 s.
+7. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
    the retired `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never
    terminates either tree.
-7. Reserve `Global\WSGM.DeviceOwner`, so no WSGM or Device Lab runs plugin code during the change.
-8. Extract the new application to `App.staging`, move `App` to `App.previous` and the new one into
+8. Reserve `Global\WSGM.DeviceOwner`, so no WSGM or Device Lab runs plugin code during the change.
+   Setup waits up to 30 s for a process that just exited, or the old uninstaller's temporary copy,
+   to let go of it.
+9. Extract the new application to `App.staging`, move `App` to `App.previous` and the new one into
    place, copy the setup and its packages to `Setup`, and replace the installed plugins with the
    chosen ones.
-9. `WSGM.exe --setup --answers=<file>` (per-user files, migrate off any legacy shell registration,
-   the Xbox-FSE guard, the boot manifest, the answers), then `WSGM.LogonService.exe --install`
-   (create-or-reconfigure, failure actions, start), then the USB/IP driver and HidHide when the
-   plugin needs them, then shortcuts and the Installed apps entry.
-10. Start WSGM in its previous mode (`--shell`, or Settings), or the session on a fresh install.
+10. `WSGM.exe --setup --answers=<file>` (per-user files, migrate off any legacy shell registration,
+    the Xbox-FSE guard, the boot manifest, the answers), then `WSGM.LogonService.exe --install`
+    (create-or-reconfigure, failure actions, start), then the USB/IP driver and HidHide when the
+    plugin needs them, then shortcuts and the Installed apps entry.
+11. Start WSGM in its previous mode (`--shell`, or Settings), or the session on a fresh install.
 
-A failed step before step 9 puts `App.previous` back, restores the service when it was running and
-restarts WSGM in the recorded mode. `App.previous` is deleted after success.
+A failed step before step 10 puts `App.previous` back, restores the service when it was running and
+restarts the WSGM image that was running, from wherever it ran, in the recorded mode. A WSGM 1.0
+that its own uninstaller already removed cannot be restarted; setup says so and asks to run it
+again. `App.previous` is deleted after success.
 
 ### Updates
 

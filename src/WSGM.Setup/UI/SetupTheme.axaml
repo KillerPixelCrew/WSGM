@@ -102,6 +102,16 @@
     <Setter Property="CornerRadius" Value="6" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
+  <!-- Customize is a toggle; it takes the Button look, with its label centred like every other button. -->
+  <Style Selector="ToggleButton">
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="Padding" Value="22,0" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
   <Style Selector="Button.primary">
     <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
     <Setter Property="Foreground" Value="{StaticResource HcOnAccentBrush}" />
@@ -117,19 +127,54 @@
       </FocusAdornerTemplate>
     </Setter>
   </Style>
-  <Style Selector="CheckBox, RadioButton, ToggleSwitch">
+  <Style Selector="ToggleSwitch">
     <Setter Property="MinHeight" Value="44" />
     <Setter Property="FontSize" Value="15" />
   </Style>
+  <!-- Fluent's checkbox keeps its box in a fixed 32 px row and centres the label in the whole control, so
+       a taller minimum pulls the label below the box. The spacing comes from a margin instead. -->
+  <Style Selector="CheckBox">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Margin" Value="0,6" />
+  </Style>
+  <!-- A choice card: the indicator is centred beside the text inside the padding, and the card fills its
+       grid cell so the two cards of a row always have the same height. -->
   <Style Selector="RadioButton.choice">
-    <Setter Property="Padding" Value="14,10" />
+    <Setter Property="Padding" Value="18,16" />
+    <Setter Property="FontSize" Value="15" />
     <Setter Property="Background" Value="#B82C2C2C" />
     <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
     <Setter Property="BorderThickness" Value="2" />
     <Setter Property="CornerRadius" Value="10" />
     <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+            <Panel Width="22" Height="22" VerticalAlignment="Center">
+              <Ellipse Name="Ring" Stroke="{StaticResource HcTextSecondaryBrush}" StrokeThickness="2" />
+              <Ellipse Name="Dot" Width="10" Height="10" Fill="{DynamicResource HcAccentBrush}" IsVisible="False" />
+            </Panel>
+            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="RadioButton.choice:pointerover">
+    <Setter Property="Background" Value="#C8333333" />
   </Style>
   <Style Selector="RadioButton.choice:checked">
     <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="RadioButton.choice:checked /template/ Ellipse#Ring">
+    <Setter Property="Stroke" Value="{DynamicResource HcAccentBrush}" />
+  </Style>
+  <Style Selector="RadioButton.choice:checked /template/ Ellipse#Dot">
+    <Setter Property="IsVisible" Value="True" />
   </Style>
 </Styles>

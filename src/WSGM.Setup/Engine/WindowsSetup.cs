@@ -229,6 +229,70 @@ internal static class WindowsSetup
         return handoff;
     }
 
+    /// <summary>
+    ///     Asks Steam to exit the way WSGM's own update pre-stop does (<c>steam://exit</c>) and waits for it.
+    ///     Steam is never terminated: it may be saving a running game, so a Steam that stays is a refusal.
+    /// </summary>
+    /// <param name="budget">How long Steam may take to shut down.</param>
+    /// <returns>Whether Steam is gone from this session.</returns>
+    public static bool CloseSteam(TimeSpan budget)
+    {
+        if (!Blockers(true).Contains("steam", StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        SetupLog.Info("Steam is still running; asking it to exit (steam://exit).");
+        try
+        {
+            Process.Start(new ProcessStartInfo("steam://exit") { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException)
+        {
+            SetupLog.Error("Could not ask Steam to exit", ex);
+            return false;
+        }
+
+        var deadline = Stopwatch.StartNew();
+        while (deadline.Elapsed < budget)
+        {
+            Thread.Sleep(500);
+            if (!Blockers(true).Contains("steam", StringComparer.OrdinalIgnoreCase))
+            {
+                SetupLog.Info($"Steam exited after {deadline.Elapsed.TotalSeconds:0.0} s.");
+                return true;
+            }
+        }
+
+        SetupLog.Warn($"Steam did not exit within {budget.TotalSeconds:0} s; it was not terminated.");
+        return false;
+    }
+
+    /// <summary>The image path of the WSGM running in this session, so a rollback restarts that one.</summary>
+    public static string? RunningWsgmPath()
+    {
+        using var self = Process.GetCurrentProcess();
+        foreach (var process in Process.GetProcessesByName("WSGM"))
+        {
+            using (process)
+            {
+                try
+                {
+                    if (process.SessionId == self.SessionId && process.MainModule?.FileName is { } path)
+                    {
+                        return path;
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                {
+                    // Exited while enumerating, or not readable.
+                }
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Force-stops an image in this session only; another signed-in user's WSGM is never touched.</summary>
     public static void ForceStopCurrentSession(string image)
     {
@@ -302,19 +366,32 @@ internal static class WindowsSetup
 
     /// <summary>
     ///     Elects setup as the machine's hardware owner. WSGM and Device Lab hold the same unowned marker
-    ///     while plugin code may run; "already exists" means one of them still does.
+    ///     while plugin code may run; "already exists" means one of them still does. A process that just
+    ///     exited can hold it a moment longer, and the old Inno uninstaller hands off to a temporary copy that
+    ///     releases it only as it finishes, so setup waits for the release instead of refusing at once.
     /// </summary>
-    /// <returns>The held marker, or null when another owner is active.</returns>
-    public static Mutex? ReserveDeviceOwner()
+    /// <param name="wait">How long another owner may take to let go.</param>
+    /// <returns>The held marker, or null when another owner stayed active.</returns>
+    public static Mutex? ReserveDeviceOwner(TimeSpan wait)
     {
-        Mutex marker = new(false, DeviceOwner, out var createdNew);
-        if (createdNew)
+        var deadline = Stopwatch.StartNew();
+        while (true)
         {
-            return marker;
-        }
+            Mutex marker = new(false, DeviceOwner, out var createdNew);
+            if (createdNew)
+            {
+                return marker;
+            }
 
-        marker.Dispose();
-        return null;
+            marker.Dispose();
+            if (deadline.Elapsed >= wait)
+            {
+                SetupLog.Warn($"The device-owner marker was still held after {wait.TotalSeconds:0} s.");
+                return null;
+            }
+
+            Thread.Sleep(500);
+        }
     }
 
     /// <summary>Runs a program hidden and returns its exit code, or -1 when it could not start.</summary>
