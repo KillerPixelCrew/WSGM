@@ -74,8 +74,8 @@ reads as global; WSGM's own rows still show the game layer.
 ## A value the game overrides is marked
 
 Every row whose value the running game's profile supplies says so, in the overlay and in the Quick
-Access rows WSGM owns, and offers a way back to Global. Nothing is drawn for a value from Global or
-from nowhere, so a game without overrides looks exactly as it would with no profile.
+Access rows WSGM owns. Nothing is drawn for a value from Global or from nowhere, so a game without
+overrides looks exactly as it would with no profile.
 
 | Surface                         | Marker                                       | Way back to Global                          |
 | ------------------------------- | -------------------------------------------- | ------------------------------------------- |
@@ -84,13 +84,15 @@ from nowhere, so a game without overrides looks exactly as it would with no prof
 | Overlay power presets           | "Game override" beside the source's title    | the "Use global assignment" entry           |
 | Overlay manual power mode       | accent bar and "Game override"               | Use global                                  |
 | Overlay header                  | "Profile: name · N overrides"                | Reset performance profile                   |
-| Quick Access rows WSGM owns     | description leads with "Game override"       | Use global button (`useGlobal` command)     |
+| Quick Access rows WSGM owns     | "Game override" description in Steam blue    | Steam's Reset button                        |
 | Quick Access power presets      | the same                                     | the unset entry                             |
 
-Use global calls `ProfileService.ClearGameOverrideAsync`, which removes only the game's value; the
-fan-out then applies Global and the marker disappears. It never clears Global. Each marker carries
-the setting's id (`ProfileSettingKey.Id`: a field name, or `device:<capability>#<instance>`), which
-is what the Quick Access rows send back.
+The overlay's Use global calls `ProfileService.ClearGameOverrideAsync`, which removes only the
+game's value; the fan-out then applies Global and the marker disappears. It never clears Global.
+Each marker carries the setting's id (`ProfileSettingKey.Id`: a field name, or
+`device:<capability>#<instance>`). Quick Access only colours the row's description while it has one
+and offers no per-row control; the maintainer found a button under every overridden row too heavy
+for Steam's panel (2026-09-25).
 
 Valve's own overlay-level selector draws no marker: it reads Valve's store, which has no field for
 it. WSGM's overlay row for the same value does.
