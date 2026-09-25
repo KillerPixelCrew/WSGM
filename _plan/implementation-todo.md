@@ -36,7 +36,7 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
             refuses a descriptor set with an undeclared role. The Claw manifest declares its board
             and the 17 roles it publishes.
       - [x] `plugins/curated`: Claw (first-party, hardware-tested), IR (first-party, hardware-tested:
-            the maintainer runs it on their desktop) and Ally X (not bundled). There is a submission issue template and
+            the maintainer runs it on their desktop) and the ROG Ally family (blind, not bundled). There is a submission issue template and
             `plugins/README.md`.
       - [x] `eng/build-bundle.ps1` replaces `stage-device-components.ps1` and writes `bundle.json`.
             The packers stamp `wsgmVersion` and strip host-supplied assemblies, taking the Claw
@@ -162,6 +162,27 @@ API and limits are in the library README.
 - [x] Attended integrated Overlay check on the Claw over Steam and a game, with bright/dark
       readability and no noticeable frame-time regression reported by the maintainer.
 - [x] Attended check of the new Settings blur slider, preview and persisted value on the Claw.
+
+## ROG Ally family plugin (2026-09-25, built blind)
+
+`src/WSGM.Device.Asus.RogAllyX` is renamed to `src/WSGM.Device.Asus.RogAlly` (package
+`wsgm.device.asus.rog-ally`) and replaces the passive scaffold with a working plugin for the ROG
+Ally RC71L, Ally X RC72LA/RC72L, Xbox Ally RC73YA and Xbox Ally X RC73XA. It was built without
+hardware from HHD (buttons) and the HC 1.3.1.6 Patreon build (everything else); every fact is cited
+in its `PROVENANCE.md`, and every per-model difference is one row in `AllyModels.cs`.
+
+- [x] Exact SMBIOS detection per model, with positive and negative fixtures.
+- [x] ATKACPI power (SPL, SPPT+FPPT, performance mode), presets, fan curves and readings, charge
+      limit, with journalled original state and ordered restore.
+- [x] XInput controller with a Windows.Gaming.Input fallback, HidHide identities, rumble, WinRT or
+      legacy motion with HC's axis maps, HHD's controller tables for M1/M2, vendor 0x5A OEM codes
+      and the Xbox models' F21/F22 keys.
+- [x] Aura lighting over report 0x5D, and the lamp-array step on the Xbox models.
+- [x] Glyph profiles `rog-ally` and `rog-xbox-ally` from handheld-controller-glyphs.
+- [x] Hardware-free tests in `tests/WSGM.Device.Asus.RogAlly.Tests`, written but not yet run.
+- [ ] Device Lab report from the remote tester on each model; fold its findings into `AllyModels.cs`
+      and `PROVENANCE.md` ("What the Device Lab report must confirm").
+- [ ] Bundle the package (`plugins/curated/wsgm.device.asus.rog-ally.json`) once a report is reviewed.
 
 ## Global and per-game profile system (2026-09-22, in progress)
 

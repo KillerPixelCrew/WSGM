@@ -132,7 +132,7 @@ public change must update:
 - source XML docs and `src/WSGM.Device.Sdk/docs/reference.md`;
 - manifest/examples and serialization metadata only where the actual wire format uses them;
 - Device Lab scaffolding/validation;
-- every first-party device project, including the Ally X and HC scaffolds;
+- every first-party device project, including the ROG Ally plugin and the HC scaffold;
 - WSGM host consumers and tests.
 
 When compatibility is deliberately broken, also update:
@@ -159,6 +159,6 @@ dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release -
 ```
 
 Device test projects are `tests/WSGM.Device.Sdk.Tests`, `tests/WSGM.Device.Msi.Claw8A2Vm.Tests`,
-`tests/WSGM.Device.HandheldCompanion.Tests` (manifest only) and `tests/WSGM.DeviceLab.Tests`. Host
-tests live under `tests/WSGM.Tests/Shell` and `tests/WSGM.Tests/Core`. The Ally X plugin has no test
-project yet.
+`tests/WSGM.Device.Asus.RogAlly.Tests`, `tests/WSGM.Device.HandheldCompanion.Tests` (manifest only)
+and `tests/WSGM.DeviceLab.Tests`. Host tests live under `tests/WSGM.Tests/Shell` and
+`tests/WSGM.Tests/Core`.

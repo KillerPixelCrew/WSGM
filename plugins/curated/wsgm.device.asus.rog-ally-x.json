@@ -1,7 +1,0 @@
-{
-  "id": "wsgm.device.asus.rog-ally-x",
-  "origin": "first-party",
-  "validation": "blind",
-  "bundle": false,
-  "project": "src/WSGM.Device.Asus.RogAllyX"
-}

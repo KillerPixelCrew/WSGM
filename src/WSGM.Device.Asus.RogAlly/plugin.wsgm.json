@@ -1,0 +1,31 @@
+{
+  "id": "wsgm.device.asus.rog-ally",
+  "name": "ASUS ROG Ally family",
+  "version": "0.2.0",
+  "apiVersion": 6,
+  "entryAssembly": "WSGM.Device.Asus.RogAlly.dll",
+  "entryType": "WSGM.Device.Asus.RogAlly.RogAllyPlugin",
+  "hardware": [
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC71L" },
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC72LA" },
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC72L" },
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC73YA" },
+    { "baseboardManufacturer": "ASUSTeK COMPUTER INC.", "baseboardProduct": "RC73XA" }
+  ],
+  "capabilities": [
+    "PowerSustainedLimit",
+    "PowerSlowLimit",
+    "ScenarioMode",
+    "FanMode",
+    "FanCurve",
+    "ChargeLimit",
+    "LightingBrightness",
+    "LightingZoneColor",
+    "LightingEffect",
+    "LightingEffectSpeed",
+    "Telemetry",
+    "ControllerSource",
+    "MotionSource",
+    "HapticSink"
+  ]
+}

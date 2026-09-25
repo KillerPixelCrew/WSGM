@@ -6,7 +6,7 @@
   <Folder Name="/src/">
     <Project Path="src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj"/>
     <Project Path="src/WSGM/WSGM.csproj"/>
-    <Project Path="src/WSGM.Device.Asus.RogAllyX/WSGM.Device.Asus.RogAllyX.csproj"/>
+    <Project Path="src/WSGM.Device.Asus.RogAlly/WSGM.Device.Asus.RogAlly.csproj"/>
     <Project Path="src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj"/>
     <Project Path="src/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj"/>
     <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"/>
@@ -22,6 +22,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Avalonia.LiveBackdrop.Tests/Avalonia.LiveBackdrop.Tests.csproj"/>
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj"/>
+    <Project Path="tests/WSGM.Device.Asus.RogAlly.Tests/WSGM.Device.Asus.RogAlly.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.HandheldCompanion.Tests/WSGM.Device.HandheldCompanion.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.Msi.Claw8A2Vm.Tests/WSGM.Device.Msi.Claw8A2Vm.Tests.csproj"/>
     <Project Path="tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj"/>

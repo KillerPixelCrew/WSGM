@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>WSGM.Device.Asus.RogAlly</AssemblyName>
+    <RootNamespace>WSGM.Device.Asus.RogAlly</RootNamespace>
+    <Version>0.2.0</Version>
+    <!-- The keyboard hook reads the KBDLLHOOKSTRUCT through a pointer, as the Claw plugin does. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Loaded by WSGM from its installed package directory, never referenced by it. The test
+         project is the only compile-time consumer, for fake-hardware regression tests. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="plugin.wsgm.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <None Update="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <None Update="PROVENANCE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <None Update="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <!-- The package ships its licence beside the assembly, because the installed package is read
+         as a standalone directory with no repository around it. -->
+    <None Update="LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+  </ItemGroup>
+</Project>

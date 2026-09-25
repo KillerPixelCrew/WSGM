@@ -29,8 +29,8 @@ moving machine policy into the SDK.
 
 | Project                                | State                                                                                                                                           |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/WSGM.Device.Msi.Claw8A2Vm`        | The only working plugin and the reference implementation. Read its `AGENTS.md` before changing it.                                              |
-| `src/WSGM.Device.Asus.RogAllyX`        | Passive API scaffold whose detection never matches. `AllyXProtocol.cs` and the ATKACPI reader are unwired reference code. HHD is primary.       |
+| `src/WSGM.Device.Msi.Claw8A2Vm`        | The hardware-tested plugin and the reference implementation. Read its `AGENTS.md` before changing it.                                           |
+| `src/WSGM.Device.Asus.RogAlly`         | All four ROG Allys, built blind from HHD (buttons) and HC (everything else). `AllyModels.cs` holds every per-model fact; `PROVENANCE.md` cites each one. |
 | `src/WSGM.Device.HandheldCompanion`    | Design scaffold with no entry type, so it cannot be installed. Its named-pipe `docs/ipc-protocol.md` is a proposal, not retired DeviceHost IPC. |
 | `src/WSGM.DeviceLab`, `tools/AllyXLab` | Evidence tools. Use `wsgm-device-lab`.                                                                                                          |
 

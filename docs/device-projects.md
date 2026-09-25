@@ -1,6 +1,6 @@
 # Device projects in WSGM
 
-The SDK, Device Lab, Claw plugin, Handheld Companion scaffold and ROG Ally X scaffold are maintained
+The SDK, Device Lab, Claw plugin, ROG Ally plugin and Handheld Companion scaffold are maintained
 in this repository. Their source lives under `src`, their tests under `tests`, and `WSGM.slnx`
 includes them all. Every consumer references `src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`, so a
 contract change and its consumers build and go through review together.
@@ -10,12 +10,13 @@ contract change and its consumers build and go through review together.
 | SDK                | [WSGM.Device.Sdk](../src/WSGM.Device.Sdk/README.md)                             | Public MIT contract and NuGet package support                  |
 | Device Lab         | [WSGM.DeviceLab](../src/WSGM.DeviceLab/README.md)                               | Separate GUI/CLI executable, optional installer component      |
 | MSI Claw           | [WSGM.Device.Msi.Claw8A2Vm](../src/WSGM.Device.Msi.Claw8A2Vm/README.md)         | Built-in reference plugin, loaded dynamically                  |
-| ASUS ROG Ally X    | [WSGM.Device.Asus.RogAllyX](../src/WSGM.Device.Asus.RogAllyX/README.md)         | Passive scaffold, exact detection and hardware support pending |
+| ASUS ROG Ally      | [WSGM.Device.Asus.RogAlly](../src/WSGM.Device.Asus.RogAlly/README.md)           | All four Allys, built blind from HHD and HC, awaiting lab data  |
 | Handheld Companion | [WSGM.Device.HandheldCompanion](../src/WSGM.Device.HandheldCompanion/README.md) | Design scaffold and IPC proposal, no working plugin yet        |
 
 WSGM still references only the SDK at compile time. Device Lab and plugins remain separate
 assemblies with their existing lifecycle and package boundaries. The installer continues to ship the
-Claw package and optional Device Lab tool; it does not ship the HC or Ally X scaffolds.
+Claw package and optional Device Lab tool; it does not ship the HC scaffold, and the Ally plugin stays
+out of the bundle until a Device Lab report has been reviewed.
 
 Run from the repository root:
 
@@ -40,13 +41,13 @@ dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release -
 
 `eng/build-bundle.ps1` builds the bundled plugin packages and `bundle.json` from these same sources,
 listed in `plugins/curated`. `eng/pack-device.ps1 -Source <project directory>` packs any device
-project, so the HC and Ally X scaffolds stay packable; add `-RequireGlyphs` for a package that ships
+project, so the Ally plugin and the HC scaffold stay packable; add `-RequireGlyphs` for a package that ships
 physical glyphs. It uses `eng/device-package-output.ps1` to replace an existing archive atomically
 or publish a new one without overwriting a competing file. A failed replacement preserves the
 previous archive.
 
 The four imported source trees and their matching test trees retain their original MIT licenses.
-Each has a `LICENSE` file. The new Ally X scaffold is also MIT-licensed. The imported packaging
+Each has a `LICENSE` file. The ROG Ally plugin is also MIT-licensed. The imported packaging
 scripts (`eng/publish-device-lab.ps1` and `eng/pack-device.ps1`, which merges the former Claw and HC
 packers) retain the MIT license of their respective source projects. Their shared
 `eng/device-package-output.ps1` and `eng/device-lab-publish.ps1` helpers are also MIT-licensed.

@@ -136,7 +136,8 @@ remote RC73XA (Xbox Ally X) inventory, in the ROG Ally X sections of `_plan/impl
 - an `FF31:0080` collection with no output report, and no HID gamepad collection.
 
 Do not assume a Claw-style gamepad report codec or a HID rumble route on that firmware. The report
-`0x5A` events and rumble bytes in `src/WSGM.Device.Asus.RogAllyX/REFERENCE.md` and
-`AllyXProtocol.cs` come from HHD and HC source, not from measurement. HHD is the primary source for
-buttons because the maintainer reports that HC's button handling is buggy. Record findings from a
+`0x5A` events, controller tables and Aura bytes in `src/WSGM.Device.Asus.RogAlly` (`AllyProtocol.cs`
+and `AllyModels.cs`, cited in its `PROVENANCE.md`) come from HHD and HC source, not from
+measurement. HHD is the primary source for buttons because the maintainer reports that HC's button
+handling is buggy. Record findings from a
 returned `tools/AllyXLab` ZIP in the tracker before encoding them in the plugin.
