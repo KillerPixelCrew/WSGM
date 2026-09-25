@@ -65,7 +65,9 @@ try {
     $processNames = @('WSGM', 'WSGM.Launch', 'WSGM.PackagedLaunch', 'WSGM.LogonService', 'steam', 'steamwebhelper', 'RTSS', 'RTSSHooksLoader64', 'LHMDataProvider')
 
     # Environment record: what was running, on which power source, at which build.
-    $wsgm = Get-Process WSGM -ErrorAction SilentlyContinue | Select-Object -First 1
+    # The shell is the largest WSGM.exe; a medium-integrity launcher that started it elevated stays
+    # around as a second, small one.
+    $wsgm = Get-Process WSGM -ErrorAction SilentlyContinue | Sort-Object WorkingSet64 -Descending | Select-Object -First 1
     $battery = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
     $system = [ordered]@{
         scenario = $Scenario
@@ -110,7 +112,8 @@ try {
     # second with a per-thread query, so the sampling stays coarse and CPU and wakeups come from the
     # trace, where they are exact.
     $rows = New-Object System.Collections.Generic.List[object]
-    $filter = ($processNames | ForEach-Object { "Name = '$_'" }) -join ' OR '
+    # A second instance of a process is 'Name#1' in the performance counters.
+    $filter = ($processNames | ForEach-Object { "Name = '$_' OR Name LIKE '$_#%'" }) -join ' OR '
     $stopAt = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $stopAt) {
         $t = Get-Date
