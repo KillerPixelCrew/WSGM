@@ -99,6 +99,10 @@ internal sealed class LabWorkerClient : IDisposable
             authorization.DisposeLocalCopyOfClientHandle();
             authorization.Write(secret);
             authorization.Flush();
+            // The worker reads the secret up to end of stream before it says hello, so the pipe has to
+            // close now; held open until after the hello, both sides waited on each other forever.
+            // ReSharper disable once DisposeOnUsingVariable
+            authorization.Dispose();
         }
         catch
         {
