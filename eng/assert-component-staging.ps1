@@ -49,8 +49,24 @@ $packageFiles = @(
     Get-ChildItem -LiteralPath $packagesDirectory -File -Filter "*.wsgmpkg" |
     Sort-Object FullName
 )
-if ($packageFiles.Count -ne 1) {
-    throw "Exactly one plugin package must be staged; found $($packageFiles.Count)."
+if ($packageFiles.Count -eq 0) {
+    throw "No plugin package was staged."
+}
+
+# bundle.json must describe exactly the staged files, byte for byte.
+$bundle = Get-Content -LiteralPath (Join-Path $outputFull "bundle.json") -Raw | ConvertFrom-Json -Depth 32
+$listed = @($bundle.plugins)
+if ($listed.Count -ne $packageFiles.Count) {
+    throw "bundle.json lists $($listed.Count) plugin(s) but $($packageFiles.Count) package file(s) are staged."
+}
+foreach ($entry in $listed) {
+    $staged = Join-Path $packagesDirectory ([string]$entry.file)
+    if (-not (Test-Path -LiteralPath $staged -PathType Leaf)) {
+        throw "bundle.json names $($entry.file), which is not staged."
+    }
+    if ((Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash -ne ([string]$entry.sha256).ToUpperInvariant()) {
+        throw "bundle.json's hash for $($entry.file) does not match the staged file."
+    }
 }
 
 $forbiddenExtensions = @(
@@ -109,7 +125,7 @@ try {
 foreach ($packageFile in $packageFiles) {
     $packageRoot = Get-Item -LiteralPath (New-Item -ItemType Directory -Path (Join-Path $expansionRoot $packageFile.BaseName)).FullName
     [IO.Compression.ZipFile]::ExtractToDirectory($packageFile.FullName, $packageRoot.FullName)
-    foreach ($required in @("plugin.wsgm.json", "LICENSE.txt", "PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
+    foreach ($required in @("plugin.wsgm.json", "LICENSE.txt")) {
         if (-not (Test-Path -LiteralPath (Join-Path $packageRoot.FullName $required) -PathType Leaf)) {
             throw "Plugin package $($packageFile.Name) is missing $required."
         }

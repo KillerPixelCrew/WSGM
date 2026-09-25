@@ -1,0 +1,7 @@
+{
+  "id": "wsgm.device.msi.claw-8-a2vm",
+  "origin": "first-party",
+  "validation": "hardware-tested",
+  "bundle": true,
+  "project": "src/WSGM.Device.Msi.Claw8A2Vm"
+}

@@ -294,12 +294,15 @@ public sealed class DevicePluginRuntimeTests
             Version = "1.0.0",
             ApiVersion = DeviceApi.Version,
             EntryAssembly = entryAssembly,
-            EntryType = typeof(RuntimeFixturePlugin).FullName!
+            EntryType = typeof(RuntimeFixturePlugin).FullName!,
+            WsgmVersion = PluginPackageBuilders.Host,
+            Capabilities = [CapabilityRole.LightingZoneColor]
         };
         var packagePath = PluginPackageBuilders.Write(temporary.GetPath("runtime.wsgmpkg"), $$"""
               {"id":"{{manifest.Id}}","name":"{{manifest.Name}}","version":"{{manifest.Version}}",
                "apiVersion":{{manifest.ApiVersion}},"entryAssembly":"{{manifest.EntryAssembly}}",
-               "entryType":"{{manifest.EntryType}}"}
+               "entryType":"{{manifest.EntryType}}","wsgmVersion":"{{manifest.WsgmVersion}}",
+               "hardware":[],"capabilities":["LightingZoneColor"]}
               """, (entryAssembly, File.ReadAllBytes(sourceAssembly)));
         InstalledDevicePackage package = new()
         {

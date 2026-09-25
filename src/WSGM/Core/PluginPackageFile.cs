@@ -66,6 +66,13 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 
     internal string EntryAssembly => DeviceManifest?.EntryAssembly ?? CommonManifest!.EntryAssembly;
 
+    /// <summary>The WSGM version the package was built for, or null when packing did not stamp one.</summary>
+    internal string? WsgmVersion => DeviceManifest is { } device ? device.WsgmVersion : CommonManifest!.WsgmVersion;
+
+    /// <summary>This host's version, which a package's <see cref="WsgmVersion" /> must equal.</summary>
+    internal static Version HostVersion { get; } =
+        Normalize(typeof(PluginPackageFile).Assembly.GetName().Version ?? new Version(0, 0));
+
     /// <summary>Whether the entry point is an x64 managed assembly, which a device package requires.</summary>
     internal bool EntryIsX64Assembly { get; private init; }
 
@@ -116,6 +123,17 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 
         bytes = [.. stored];
         return true;
+    }
+
+    /// <summary>Whether a stamped version names this host, with omitted components read as zero.</summary>
+    internal static bool IsForThisHost(string? wsgmVersion)
+    {
+        return System.Version.TryParse(wsgmVersion, out var parsed) && Normalize(parsed) == HostVersion;
+    }
+
+    private static Version Normalize(Version version)
+    {
+        return new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0));
     }
 
     /// <summary>Returns a fresh stream over a package-root assembly and its symbols, or false.</summary>

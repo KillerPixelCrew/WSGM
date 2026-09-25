@@ -362,7 +362,7 @@ public interface IDevicePlugin
   when the extension is implemented and its host behavior is reviewed.
 - A **type-level declaration, not a publication**: it must be known _before_
   `EnsureHidHideReadableAsync`, which runs before `StartAsync`, and it never changes during a cycle.
-  The manifest is the wrong place (it is deliberately six fields and carries no capability facts); a
+  The manifest is the wrong place (it declares roles for setup, not live capability facts); a
   property on the loaded plugin type is read by `PluginPackageLoader` right after the entry type is
   instantiated.
 - `ExternalControllerOwnerName` goes through `PlainText.TryValidate` (48 chars) like every other

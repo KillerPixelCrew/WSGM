@@ -25,9 +25,10 @@ Related:
 
 ## The contract at a glance
 
-A plugin is one class implementing `IDevicePlugin`, shipped with a six-field `plugin.wsgm.json`.
-WSGM loads it in-process and drives it through one lifecycle per WSGM run. Everything crossing the
-boundary is a semantic record: no transport, handle, path, script or UI travels in either direction.
+A plugin is one class implementing `IDevicePlugin`, shipped with a `plugin.wsgm.json` that also
+declares the hardware it is for and the capability roles it publishes. WSGM loads it in-process and
+drives it through one lifecycle per WSGM run. Everything crossing the boundary is a semantic record:
+no transport, handle, path, script or UI travels in either direction.
 
 ```text
  WSGM ──────────────────────────────────────────────────────────────► plugin
@@ -624,20 +625,35 @@ delivered to `ApplySettingsAsync` as part of the complete set.
 
 ## Package manifest: `plugin.wsgm.json`
 
-Exactly six camelCase fields. An unknown member rejects the document. Hardware identity,
-dependencies, capabilities, glyphs and recovery policy are published by plugin code or fixed package
-data, never by the manifest.
+CamelCase fields; an unknown member rejects the document. Besides identity and the entry point, the
+manifest declares as data what a host must know before it loads any code: the hardware the package
+is for and every capability role it may publish. WSGM setup matches `hardware` against the machine
+to decide whether to install the package, and derives the system components it installs (for example
+the virtual-controller drivers for `ControllerSource`) from `capabilities`. The host refuses a
+descriptor set that uses an undeclared role. `DetectAsync` still confirms the exact machine once the
+plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fixed package data.
 
 ```json
 {
   "id": "wsgm.device.msi.claw-8-a2vm",
   "name": "MSI Claw 8 AI+ A2VM",
   "version": "1.2.0",
-  "apiVersion": 5,
+  "apiVersion": 6,
   "entryAssembly": "WSGM.Device.Msi.Claw8A2Vm.dll",
-  "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin"
+  "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin",
+  "hardware": [
+    {
+      "baseboardManufacturer": "Micro-Star International Co., Ltd.",
+      "baseboardProduct": "MS-1T52",
+      "systemSku": "1T52.1"
+    }
+  ],
+  "capabilities": ["PowerSustainedLimit", "FanCurve", "ControllerSource"]
 }
 ```
+
+`wsgmVersion` is absent from a source manifest. Packing writes the WSGM release the package is built
+for, and WSGM refuses a package whose `wsgmVersion` is not its own.
 
 `PluginManifestReader.Read(ReadOnlySpan<byte>)` never throws for bad input. It rejects on size
 before any allocation proportional to the input, deserializes with `MaxDepth = 16`, then runs the
@@ -655,6 +671,19 @@ field `Path`, a stable `ManifestValidationCode` and a message.
 | `apiVersion`    | equals `DeviceApi.Version`                                                                                                                      | `InvalidApiVersion`                                  |
 | `entryAssembly` | required; ≤ 260; relative; no `:`; no empty, `.` or `..` segment; `.dll` extension                                                              | `MissingField`, `UnsafePath`                         |
 | `entryType`     | required; ≤ 256; ASCII letters, digits, `.`, `_`, `+`, `` ` ``                                                                                  | `MissingField`, `InvalidIdentifier`                  |
+| `hardware`      | optional; ≤ 32 `HardwareMatchRule`s; each sets at least one field; each field ≤ 128, plain text                                                 | `LimitExceeded`, `MissingField`                      |
+| `capabilities`  | optional; distinct `CapabilityRole` names; an unknown name is a malformed document                                                              | `InvalidIdentifier`, `MalformedDocument`             |
+| `wsgmVersion`   | optional; canonical dotted numeric version                                                                                                      | `InvalidVersion`                                     |
+
+### `HardwareMatchRule` and `HardwareMatcher`
+
+A rule's fields are `baseboardManufacturer`, `baseboardProduct`, `systemModel`, `systemSku`,
+`processorName`, `processorNameContains`, `baseboardVersion` and `fallback`. Every field that is set
+must match the `DeviceIdentitySnapshot`, compared case-insensitively after trimming;
+`processorNameContains` is a substring test and `systemModel` is compared with `SystemProduct`. A
+rule with no field set never matches. `HardwareMatcher.Match(rules, identity)` returns the first
+exact rule that matches, else the first matching fallback, with one explanation per compared field.
+Device Lab's knowledge base and WSGM setup use the same rule and matcher.
 
 `ManifestLimits`: `MaxDocumentBytes = 256 KiB`, `MaxDepth = 16`, `MaxIdLength = 128`,
 `MaxDisplayTextLength = 256`, `MaxPathLength = 260`.
@@ -908,3 +937,4 @@ and Windows-policy dimensions remain separate work.
 | 3   | Suppressed and repeat-aware diagnostics: `DeviceTraceLevel.Debug`, `PluginTrace.Debug`, `PluginTrace.Change`, and `IPluginHostAdapter.TraceChange`. The adapter member has a default implementation so version 2 hosts and test doubles continue to compile.                                                       |
 | 4   | Controller and motion samples use readonly record structs to avoid per-sample contract allocation.                                                                                                                                                                                                                 |
 | 5   | Optional `Prominence` and `LayoutPair` descriptor hints use normal, unpaired defaults. New descriptor setters require API 5 so older hosts reject incompatible plugin binaries before loading them.                                                                                                                |
+| 6   | Manifest `hardware`, `capabilities` and `wsgmVersion`; `HardwareMatchRule` and `HardwareMatcher`; `DeviceIdentitySnapshot.BaseboardManufacturer` and `ProcessorName`. Hosts refuse descriptors whose role the manifest does not declare.                                                                           |

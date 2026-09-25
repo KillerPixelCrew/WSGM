@@ -1,0 +1,7 @@
+{
+  "id": "wsgm.ir",
+  "origin": "first-party",
+  "validation": "hardware-tested",
+  "bundle": true,
+  "project": "src/WSGM.Plugin.Ir"
+}

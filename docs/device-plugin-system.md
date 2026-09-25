@@ -61,7 +61,7 @@ A package is one `.wsgmpkg` file, a ZIP archive that WSGM reads without unpackin
 
 ```text
 <id>-<version>.wsgmpkg
-  plugin.wsgm.json                     six fields; see the SDK reference
+  plugin.wsgm.json                     identity, entry point, hardware, capabilities, wsgmVersion
   <EntryAssembly>.dll                  AMD64 managed assembly with a CLR header
   *.dll                                package-local managed dependencies (host-first rule, §7)
   LICENSE.txt, THIRD_PARTY_NOTICES.md, PROVENANCE.md   as the package's licences require
@@ -108,6 +108,9 @@ resolves it through the normal system search path.
   overlay lists every file; WSGM itself starts normally.
 - A file that cannot be opened or fails validation is a catalog error with its reason. It is not a
   device candidate.
+- A package whose `wsgmVersion` is missing or names another WSGM release is refused as a catalog
+  error that names the version it was built for. Packing stamps the field (`eng\pack-device.ps1`,
+  `eng\package-plugin.ps1`); a source manifest never carries it.
 
 The catalog is read at every device cycle start, at every common-plugin reconcile, when Settings
 opens, and for the overlay's prerequisite banner. A package copied in while WSGM runs is loaded at
@@ -145,7 +148,7 @@ The catalog then validates the selected device package and reports it with a sta
 
 | Check                                                                     | Code                       |
 | ------------------------------------------------------------------------- | -------------------------- |
-| `apiVersion` equals `DeviceApi.Version` (5)                               | `api-incompatible`         |
+| `apiVersion` equals `DeviceApi.Version` (6)                               | `api-incompatible`         |
 | Entry is an AMD64 image with a CLR header, metadata and assembly manifest | `architecture-unsupported` |
 
 Several device ids yield `multiple-device-packages`; none yields `no-package-installed`. An invalid
@@ -758,7 +761,7 @@ file. Levels and key style are in `docs\logging.md`.
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw8A2Vm` (MIT) is the reference plugin and the shape every rule above was
-tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 5, entry
+tested against. Its manifest is `wsgm.device.msi.claw-8-a2vm`, API 6, entry
 `WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin`. It targets `net10.0-windows10.0.19041.0`, references
 only the SDK and `System.Management`, ships its licence and notices beside the assembly, declares no
 settings manifest, and keeps every vendor address inside the package.
@@ -864,12 +867,11 @@ Tests build the plugin with fake WMI, MCU, controller, motion, chord and event s
 SDK's `TestPluginHostAdapter`. Packaging:
 `eng\pack-device.ps1 -Source src\WSGM.Device.Msi.Claw8A2Vm -RequireGlyphs` publishes
 framework-dependent `win-x64`, strips symbols, copies `glyphs\` verbatim and requires a profile,
-runs `wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\stage-device-components.ps1`
-publishes Device Lab, invokes that packer, checks the archive's path safety, extracts a copy,
-requires the licence, notices and provenance files, compares the glyph count with the source tree,
-validates again, and stages the archive itself as `Packages\<id>-<version>.wsgmpkg`. The Inno
-installer still targets the retired unpacked slot until the custom setup (#117) replaces it; use
-`eng\dev-deploy.ps1` meanwhile.
+runs `wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\build-bundle.ps1` publishes Device
+Lab, invokes that packer, checks the archive's path safety, extracts a copy, requires the licence,
+notices and provenance files, compares the glyph count with the source tree, validates again, and
+stages the archive itself as `Packages\<id>-<version>.wsgmpkg`. The Inno installer still targets the
+retired unpacked slot until the custom setup (#117) replaces it; use `eng\dev-deploy.ps1` meanwhile.
 
 ## 19. Device Lab
 

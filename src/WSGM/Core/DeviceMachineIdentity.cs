@@ -24,10 +24,12 @@ public static class DeviceMachineIdentity
             SystemProduct = Normalize(bios?.GetValue("SystemProductName") as string),
             SystemSku = Normalize(bios?.GetValue("SystemSKU") as string),
             SystemFamily = Normalize(bios?.GetValue("SystemFamily") as string),
+            BaseboardManufacturer = Normalize(bios?.GetValue("BaseBoardManufacturer") as string),
             BaseboardProduct = Normalize(bios?.GetValue("BaseBoardProduct") as string),
             BaseboardVersion = Normalize(bios?.GetValue("BaseBoardVersion") as string),
             BiosVersion = Normalize(bios?.GetValue("BIOSVersion") as string),
-            CpuIdentity = Normalize(cpu?.GetValue("Identifier") as string)
+            CpuIdentity = Normalize(cpu?.GetValue("Identifier") as string),
+            ProcessorName = Normalize(cpu?.GetValue("ProcessorNameString") as string)
         };
     }
 

@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Device.Sdk.Packaging;
 
-/// <summary>Validates the bounded six-field plugin manifest.</summary>
+/// <summary>Validates the bounded plugin manifest.</summary>
 internal static class PluginManifestValidator
 {
     /// <summary>Returns every deterministic validation failure.</summary>
@@ -27,7 +28,84 @@ internal static class PluginManifestValidator
 
         ValidateRelativeAssemblyPath(errors, manifest.EntryAssembly);
         ValidateEntryType(errors, manifest.EntryType);
+        ValidateHardware(errors, manifest.Hardware);
+        ValidateCapabilities(errors, manifest.Capabilities);
+        if (manifest.WsgmVersion is not null)
+        {
+            ValidateDottedVersion(errors, "wsgmVersion", manifest.WsgmVersion);
+        }
+
         return errors;
+    }
+
+    private static void ValidateHardware(
+        ICollection<ManifestValidationError> errors,
+        IReadOnlyList<HardwareMatchRule>? rules)
+    {
+        if (rules is null)
+        {
+            Add(errors, "hardware", ManifestValidationCode.MissingField, "The hardware list cannot be null.");
+            return;
+        }
+
+        if (rules.Count > HardwareMatchRule.MaxRules)
+        {
+            Add(errors, "hardware", ManifestValidationCode.LimitExceeded,
+                $"A manifest may declare at most {HardwareMatchRule.MaxRules} hardware rules.");
+        }
+
+        for (var index = 0; index < rules.Count; index++)
+        {
+            var rule = rules[index];
+            if (rule is null || rule.Fields().All(field => string.IsNullOrWhiteSpace(field.Value)))
+            {
+                Add(errors, $"hardware[{index}]", ManifestValidationCode.MissingField,
+                    "A hardware rule must set at least one field.");
+                continue;
+            }
+
+            foreach (var (name, value) in rule.Fields())
+            {
+                if (value is not null && (value.Length > HardwareMatchRule.MaxFieldLength
+                                          || string.IsNullOrWhiteSpace(value)
+                                          || value.Any(char.IsControl)))
+                {
+                    Add(errors, $"hardware[{index}].{name}", ManifestValidationCode.LimitExceeded,
+                        "Hardware rule fields must be non-empty, bounded plain text.");
+                }
+            }
+        }
+    }
+
+    private static void ValidateCapabilities(
+        ICollection<ManifestValidationError> errors,
+        IReadOnlyList<CapabilityRole>? roles)
+    {
+        if (roles is null)
+        {
+            Add(errors, "capabilities", ManifestValidationCode.MissingField,
+                "The capability list cannot be null.");
+            return;
+        }
+
+        if (roles.Any(role => !Enum.IsDefined(role)) || roles.Distinct().Count() != roles.Count)
+        {
+            Add(errors, "capabilities", ManifestValidationCode.InvalidIdentifier,
+                "Capabilities must be distinct, known capability roles.");
+        }
+    }
+
+    private static void ValidateDottedVersion(
+        ICollection<ManifestValidationError> errors,
+        string path,
+        string value)
+    {
+        if (!Version.TryParse(value, out var parsed)
+            || parsed.ToString(parsed.Revision >= 0 ? 4 : parsed.Build >= 0 ? 3 : 2) != value)
+        {
+            Add(errors, path, ManifestValidationCode.InvalidVersion,
+                "Versions must be canonical dotted numeric versions.");
+        }
     }
 
     private static void ValidateIdentifier(

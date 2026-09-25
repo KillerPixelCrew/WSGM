@@ -1,3 +1,4 @@
+using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 
@@ -188,24 +189,24 @@ public sealed class DeviceKnowledgeTests
         Assert.Equal("GPD", identity.BaseboardManufacturer);
         Assert.Equal("G1618-04", identity.BaseboardProduct);
         Assert.Equal("V1", identity.BaseboardVersion);
-        Assert.Equal("G1618-04", identity.SystemModel);
+        Assert.Equal("G1618-04", identity.SystemProduct);
         Assert.Equal("SKU", identity.SystemSku);
         Assert.Equal("hc.gpd-win4", Assert.Single(DeviceKnowledgeMatcher.Match(Knowledge, identity)).RecordId);
     }
 
-    private static DeviceKnowledgeIdentity Identity(
+    private static DeviceIdentitySnapshot Identity(
         string manufacturer,
         string product,
         string? processor = null,
         string? model = null,
         string? sku = null)
     {
-        return new DeviceKnowledgeIdentity
+        return new DeviceIdentitySnapshot
         {
             BaseboardManufacturer = manufacturer,
             BaseboardProduct = product,
             ProcessorName = processor,
-            SystemModel = model,
+            SystemProduct = model,
             SystemSku = sku
         };
     }
@@ -218,7 +219,7 @@ public sealed class DeviceKnowledgeTests
             Id = id,
             DisplayName = id,
             Status = status,
-            Identity = [new DeviceIdentityRule { BaseboardManufacturer = "Contoso" }]
+            Identity = [new HardwareMatchRule { BaseboardManufacturer = "Contoso" }]
         };
     }
 }

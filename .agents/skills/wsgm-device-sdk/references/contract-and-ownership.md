@@ -56,7 +56,7 @@ requires unwind; cancellation is not rollback.
 - Descriptors, physical-device identities, OEM controls and the settings manifest are whole-set
   replacements. Omitting an item withdraws it. If a new settings manifest fails validation, the host
   keeps the previous one.
-- The descriptor set carries its sections, categories and placement. It also carries the API 5
+- The descriptor set carries its sections, categories and placement. It also carries the API 6
   layout hints: `Prominence` (Normal, Primary or Compact) and `LayoutPair`, which must name a
   different descriptor in the same explicit section and category. It carries power presets and the
   power pair too. The production router checks `CapabilityLayout.TryValidate`,

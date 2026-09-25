@@ -73,4 +73,10 @@ public sealed record PluginManifest
 
     /// <summary>Declared external access requirements. Declarations are not grants or sandbox boundaries.</summary>
     public IReadOnlyList<string> Permissions { get; set; } = [];
+
+    /// <summary>
+    ///     The exact WSGM version the package was built for. Packing writes it; a source manifest omits
+    ///     it. The host refuses a package built for another version.
+    /// </summary>
+    public string? WsgmVersion { get; set; }
 }

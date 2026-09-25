@@ -1,7 +1,7 @@
 # {{DISPLAY_NAME_MD}}
 
 This starter came from Device Lab's minimal plugin template. It has exact identity detection, the
-six-field package manifest, and safe in-memory examples of partial capability availability,
+package manifest with the captured board as its hardware rule, and safe in-memory examples of partial capability availability,
 cancellation, canonical input and output, diagnostics, and restoring state on stop.
 
 - Manufacturer: `{{MANUFACTURER_MD}}`

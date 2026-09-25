@@ -45,6 +45,13 @@ param(
 
     [string]$DeviceLabExecutable = "",
 
+    [ValidatePattern('^$|^[0-9]+(\.[0-9]+){1,3}$')]
+    [string]$WsgmVersion = "",
+
+    # Extra MSBuild arguments for the plugin publish, used to build a community plugin against the
+    # local SDK feed.
+    [string[]]$MsBuildArgument = @(),
+
     [switch]$NoRestore
 )
 
@@ -136,13 +143,24 @@ try {
         /p:PublishSingleFile=false `
         /p:TreatWarningsAsErrors=true `
         @restoreArguments `
+        @MsBuildArgument `
         -m:1
     if ($LASTEXITCODE -ne 0) {
         throw "Publishing the plugin failed."
     }
 
-    # Debug symbols are not package content and would only inflate the installed slot.
+    # WSGM refuses a package built for another version, so the package names the release it belongs
+    # to. The source manifest never carries this; packing is the one place that writes it.
+    . (Join-Path $PSScriptRoot "device-package-output.ps1")
+    if ([string]::IsNullOrWhiteSpace($WsgmVersion)) {
+        $WsgmVersion = Get-WsgmVersion -Root $root
+    }
+    Set-PackageWsgmVersion -ManifestPath (Join-Path $packageDirectory "plugin.wsgm.json") -WsgmVersion $WsgmVersion
+
+    # Debug symbols are not package content, and assemblies WSGM always supplies are never loaded
+    # from a package.
     Get-ChildItem -LiteralPath $packageDirectory -Filter "*.pdb" -File -Recurse | Remove-Item -Force
+    Remove-HostProvidedFiles -Directory $packageDirectory
 
     if (-not (Test-Path -LiteralPath (Join-Path $packageDirectory $entryAssembly) -PathType Leaf)) {
         throw "The publish did not produce the manifest's entry assembly: $entryAssembly"

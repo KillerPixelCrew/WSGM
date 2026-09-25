@@ -13,7 +13,9 @@ loaded from memory. Install it by copying the file into %ProgramFiles%\WSGM\Plug
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Project,
-    [Parameter(Mandatory)][string]$Archive
+    [Parameter(Mandatory)][string]$Archive,
+    [ValidatePattern('^$|^[0-9]+(\.[0-9]+){1,3}$')][string]$WsgmVersion = '',
+    [string[]]$MsBuildArgument = @()
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -31,9 +33,12 @@ $stage = Join-Path $parent.FullName ('.wsgm-plugin-' + [Guid]::NewGuid().ToStrin
 [void][IO.Directory]::CreateDirectory($stage)
 $payload = Join-Path $stage 'payload'
 try {
-    & dotnet publish $projectPath -c Release -r win-x64 --no-self-contained -o $payload
+    & dotnet publish $projectPath -c Release -r win-x64 --no-self-contained -o $payload @MsBuildArgument
     if ($LASTEXITCODE -ne 0) { throw "Plugin publish failed ($LASTEXITCODE)." }
+    Remove-HostProvidedFiles -Directory $payload
     $manifestPath = Join-Path $payload 'plugin.wsgm.json'
+    if ([string]::IsNullOrWhiteSpace($WsgmVersion)) { $WsgmVersion = Get-WsgmVersion -Root (Split-Path -Parent $PSScriptRoot) }
+    Set-PackageWsgmVersion -ManifestPath $manifestPath -WsgmVersion $WsgmVersion
     $validation = @(& dotnet run --file (Join-Path $PSScriptRoot 'plugin-manifest.cs') -- validate $manifestPath 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "The Plugin SDK rejected the manifest:`n$($validation -join [Environment]::NewLine)" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json

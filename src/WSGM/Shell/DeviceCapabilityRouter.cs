@@ -427,6 +427,17 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return;
             }
 
+            // The manifest's capability list is what setup installed components for, so a role it
+            // does not declare is a package defect, not a capability to show.
+            if (_client is { } declaring
+                && descriptors.Descriptors.FirstOrDefault(descriptor =>
+                    !declaring.DeclaredCapabilities.Contains(descriptor.Role)) is { } undeclared)
+            {
+                Log.Warn($"Device descriptor set rejected: capability {undeclared.CapabilityId} uses role "
+                         + $"{undeclared.Role}, which the package manifest does not declare.");
+                return;
+            }
+
             _descriptorGeneration = descriptors.Generation;
             _sections = DeviceSections.IncludePredefined(descriptors.Sections);
             _descriptors.Clear();

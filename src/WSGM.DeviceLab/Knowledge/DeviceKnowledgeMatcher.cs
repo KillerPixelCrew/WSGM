@@ -1,42 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Inventory;
 
 namespace WSGM.DeviceLab.Knowledge;
 
-/// <summary>The identity fields a knowledge rule can test, as read from one machine.</summary>
-internal sealed record DeviceKnowledgeIdentity
+/// <summary>Builds the SDK identity snapshot a knowledge rule is matched against.</summary>
+internal static class DeviceKnowledgeIdentity
 {
-    /// <summary>Win32_BaseBoard.Manufacturer.</summary>
-    public string? BaseboardManufacturer { get; init; }
-
-    /// <summary>Win32_BaseBoard.Product.</summary>
-    public string? BaseboardProduct { get; init; }
-
-    /// <summary>Win32_ComputerSystem.Model.</summary>
-    public string? SystemModel { get; init; }
-
-    /// <summary>Win32_ComputerSystem.SystemSKUNumber.</summary>
-    public string? SystemSku { get; init; }
-
-    /// <summary>Win32_Processor.Name.</summary>
-    public string? ProcessorName { get; init; }
-
-    /// <summary>Win32_BaseBoard.Version.</summary>
-    public string? BaseboardVersion { get; init; }
-
     /// <summary>Reads the identity fields out of an inventory.</summary>
     /// <param name="inventory">Observed machine inventory.</param>
-    /// <returns>The identity.</returns>
-    public static DeviceKnowledgeIdentity From(MachineInventory inventory)
+    /// <returns>The identity, in the SDK shape WSGM and setup match against too.</returns>
+    public static DeviceIdentitySnapshot From(MachineInventory inventory)
     {
         ArgumentNullException.ThrowIfNull(inventory);
-        return new DeviceKnowledgeIdentity
+        return new DeviceIdentitySnapshot
         {
             BaseboardManufacturer = inventory.Firmware.BaseboardManufacturer,
             BaseboardProduct = inventory.Firmware.BaseboardProduct,
-            SystemModel = inventory.Firmware.SystemProduct,
+            SystemProduct = inventory.Firmware.SystemProduct,
             SystemSku = inventory.Firmware.SystemSku,
             ProcessorName = inventory.Processor?.Name,
             BaseboardVersion = inventory.Firmware.BaseboardVersion
@@ -77,7 +60,7 @@ internal static class DeviceKnowledgeMatcher
     /// </remarks>
     public static IReadOnlyList<DeviceKnowledgeMatch> Match(
         DeviceKnowledgeBase knowledge,
-        DeviceKnowledgeIdentity identity)
+        DeviceIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(knowledge);
         ArgumentNullException.ThrowIfNull(identity);
@@ -105,77 +88,18 @@ internal static class DeviceKnowledgeMatcher
         ];
     }
 
-    private static DeviceKnowledgeMatch? BestRule(DeviceKnowledgeRecord record, DeviceKnowledgeIdentity identity)
+    private static DeviceKnowledgeMatch? BestRule(DeviceKnowledgeRecord record, DeviceIdentitySnapshot identity)
     {
-        DeviceKnowledgeMatch? fallback = null;
-        foreach (var rule in record.Identity)
-        {
-            List<string> explanations = [];
-            if (!Matches(rule, identity, explanations))
-            {
-                continue;
-            }
-
-            var match = new DeviceKnowledgeMatch
+        var match = HardwareMatcher.Match(record.Identity, identity);
+        return match is null
+            ? null
+            : new DeviceKnowledgeMatch
             {
                 RecordId = record.Id,
                 DisplayName = record.DisplayName,
                 Status = record.Status,
-                Fallback = rule.Fallback,
-                Explanations = explanations
+                Fallback = match.Fallback,
+                Explanations = match.Explanations
             };
-            if (!rule.Fallback)
-            {
-                return match;
-            }
-
-            fallback ??= match;
-        }
-
-        return fallback;
-    }
-
-    private static bool Matches(DeviceIdentityRule rule, DeviceKnowledgeIdentity identity, List<string> explanations)
-    {
-        return Field("baseboard manufacturer", rule.BaseboardManufacturer, identity.BaseboardManufacturer,
-                   explanations)
-               && Field("baseboard product", rule.BaseboardProduct, identity.BaseboardProduct, explanations)
-               && Field("system model", rule.SystemModel, identity.SystemModel, explanations)
-               && Field("system SKU", rule.SystemSku, identity.SystemSku, explanations)
-               && Field("processor", rule.ProcessorName, identity.ProcessorName, explanations)
-               && Contains("processor", rule.ProcessorNameContains, identity.ProcessorName, explanations)
-               && Field("baseboard version", rule.BaseboardVersion, identity.BaseboardVersion, explanations);
-    }
-
-    private static bool Contains(string label, string? expected, string? observed, List<string> explanations)
-    {
-        if (expected is null)
-        {
-            return true;
-        }
-
-        if (observed?.Contains(expected, StringComparison.OrdinalIgnoreCase) != true)
-        {
-            return false;
-        }
-
-        explanations.Add($"{label} contains '{expected}'.");
-        return true;
-    }
-
-    private static bool Field(string label, string? expected, string? observed, List<string> explanations)
-    {
-        if (expected is null)
-        {
-            return true;
-        }
-
-        if (!string.Equals(expected.Trim(), observed?.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        explanations.Add($"{label} matched '{expected}'.");
-        return true;
     }
 }

@@ -7,10 +7,10 @@ namespace WSGM.Device.Sdk.Identity;
 ///     against.
 /// </summary>
 /// <remarks>
-///     This is the observed half of identity: the manifest declares predicates, this records what the
-///     machine actually reports. Producing it is platform work owned by Device Lab and WSGM's runtime;
-///     the contract only fixes which facts exist and how they compare, so both sides agree on what
-///     "matched" means.
+///     This is the observed half of identity: a manifest's <see cref="HardwareMatchRule" /> list and the
+///     plugin's own detection are the predicates, this records what the machine actually reports.
+///     Producing it is platform work owned by Device Lab and WSGM's runtime; the contract only fixes which
+///     facts exist and how they compare, so both sides agree on what "matched" means.
 ///     <para>
 ///         Every value arrives already normalized through <see cref="IdentityText" />. Comparison is ordinal
 ///         and case-insensitive on the normalized form, so a vendor that changes casing or padding between
@@ -31,6 +31,9 @@ public sealed record DeviceIdentitySnapshot
     /// <summary>SMBIOS Type 1 family.</summary>
     public string? SystemFamily { get; init; }
 
+    /// <summary>SMBIOS Type 2 baseboard manufacturer.</summary>
+    public string? BaseboardManufacturer { get; init; }
+
     /// <summary>SMBIOS Type 2 baseboard product — the exact board identifier.</summary>
     public string? BaseboardProduct { get; init; }
 
@@ -50,6 +53,9 @@ public sealed record DeviceIdentitySnapshot
 
     /// <summary>CPU family, model, and stepping in a normalized <c>family-model-stepping</c> form.</summary>
     public string? CpuIdentity { get; init; }
+
+    /// <summary>Processor brand string, for example <c>Intel(R) Core(TM) Ultra 7 258V</c>.</summary>
+    public string? ProcessorName { get; init; }
 
     /// <summary>USB endpoints currently present on this machine.</summary>
     public IReadOnlyList<UsbEndpointObservation> UsbEndpoints { get; init; } = [];

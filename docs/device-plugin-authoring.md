@@ -23,9 +23,10 @@ Use Device Lab's Plugin Developer flow, or scaffold from a confirmed capture:
 wsgm-device scaffold --from <capture.wsgmcap> --out-dir <new-plugin-directory>
 ```
 
-The generated project contains a minimal `IDevicePlugin`, a six-field `plugin.wsgm.json`, an
-explicit x64 target, an MIT `LICENSE.txt` the author is expected to put their own name in, and the
-package layout. `LICENSE.txt` is kept beside both build and publish output.
+The generated project contains a minimal `IDevicePlugin`, a `plugin.wsgm.json` with the captured
+board as its first `hardware` rule and an empty `capabilities` list to fill in, an explicit x64
+target, an MIT `LICENSE.txt` the author is expected to put their own name in, and the package
+layout. `LICENSE.txt` is kept beside both build and publish output.
 
 A scaffolded plugin links only the MIT SDK, never WSGM, so the author picks its licence freely,
 including a closed-source vendor plugin. Inside a WSGM checkout the project references the SDK
@@ -140,6 +141,12 @@ Device Lab pins the source tree and regular-file handles before validation, then
 from those same handles, so a link or file replacement cannot substitute different bytes after a
 clean report. Licence and attribution notices required by shipped code or glyph assets remain
 package files.
+
+WSGM refuses a package that does not name the WSGM release it was built for, so pack through
+`eng\pack-device.ps1`: it publishes the project, stamps `wsgmVersion` from `src\WSGM\WSGM.csproj`
+(or `-WsgmVersion`), removes the assemblies WSGM always supplies itself (the SDKs, the WinRT
+projection and runtime) together with symbols and XML documentation, validates, then runs
+`wsgm-device pack`. An archive packed from a source tree by `wsgm-device pack` alone is unstamped.
 
 ## 5. Install or replace the package
 

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using WSGM.Core;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Tests.Builders;
@@ -7,6 +8,9 @@ namespace WSGM.Tests.Builders;
 /// <summary>Writes <c>.wsgmpkg</c> files the way the packers do: a ZIP with the manifest at its root.</summary>
 internal static class PluginPackageBuilders
 {
+    /// <summary>The <c>wsgmVersion</c> every package must carry to be admitted by this host.</summary>
+    internal static string Host => PluginPackageFile.HostVersion.ToString(3);
+
     /// <summary>Writes a package holding the manifest and the given entries.</summary>
     /// <param name="path">The package file to create.</param>
     /// <param name="manifest">The <c>plugin.wsgm.json</c> text.</param>
@@ -35,7 +39,7 @@ internal static class PluginPackageBuilders
     {
         return Write(Path.Combine(directory, id + ".wsgmpkg"), $$"""
                                                                  {"id":"{{id}}","name":"{{name}}","version":"1.0.0","category":"{{category}}",
-                                                                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin"}
+                                                                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}"}
                                                                  """,
             ("Fixture.dll", File.ReadAllBytes(typeof(IPlugin).Assembly.Location)));
     }
