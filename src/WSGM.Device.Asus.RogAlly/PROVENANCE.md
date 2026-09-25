@@ -61,9 +61,10 @@ Disagreements:
   `COMMANDS_GAME` order, left/right first, is used. Nothing suggests the MCU is order-sensitive.
 - The WGI route has no guide button (`GamepadButtons` has none), and HC reads the Xbox button only
   through XInput's guide bit. On that route the Xbox button is unavailable, and the plugin traces
-  it. The route is also used only when a hideable XUSB, GIP or XInput HID node exists, which the
-  only RC73XA topology seen so far lacks. Whether HidHide cloaking such a node also hides the pad
-  from WSGM's own WGI reads is untested.
+  it. HC has no such route: every Ally, the Xbox models included, is its XUSB pad on XInput. The
+  0.2.1 RC73XA run that saw no XInput slot and no gamepad collection predates the lab's HidHide
+  allowance (AllyXLab 0.3.1), and a HidHide-cloaked XUSB pad reads exactly that way, so the run does
+  not contradict HC.
 - Commit values: HC sends vibration 100/100 and stick and trigger ranges 0-100
   (`ROGAlly.cs:177-183`); HHD sends vibration 50 on the Ally X family and outer limits of 0x40 or
   0x60 (`rog_ally/base.py:44-51`, `const.py:1073-1118`). HC's values are used.
@@ -195,10 +196,14 @@ highlight overlays are declared: their coordinates would be guesses.
 
 ## What the Device Lab report must confirm
 
+Everything below except the DSTS readback in items 9 and 10 is established by HC; a report confirms
+it. Readback is the one question HC cannot answer, because it never reads the power limits and never
+calls its curve getter.
+
 1. SMBIOS baseboard manufacturer and product on each model, and the controller's USB product ID.
-2. That the pad has an XInput slot reporting VID 0B05 through `XInputGetCapabilitiesEx`, or on the
-   Xbox models that Windows.Gaming.Input sees it; which XUSB, GIP or HID nodes must be hidden; and,
-   if the route is WGI, whether hiding those nodes also hides the pad from WSGM.
+2. That the pad has an XInput slot reporting VID 0B05 through `XInputGetCapabilitiesEx` on every
+   model, as HC expects, with the tester's HidHide allowance in place, and which XUSB or XInput HID
+   nodes must be hidden.
 3. That the guide bit reports the Xbox button on the Xbox models, and nothing on the others.
 4. Which vendor codes each front button sends (0xA5, 0xA6, 0x38, 0x93, 0xA7, 0xA8) after the tables
    are written, and whether the Xbox models then send F21/F22 as well; a button on both paths is

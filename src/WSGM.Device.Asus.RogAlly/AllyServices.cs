@@ -836,8 +836,7 @@ internal sealed class ControllerService(
 
         if (topology.PhysicalDevices.Count == 0)
         {
-            // Without an identity to hide, Steam would see the physical pad beside the virtual one. This
-            // includes the only RC73XA topology observed so far; a lab report must name the node to hide.
+            // Without an identity to hide, Steam would see the physical pad beside the virtual one.
             return Set(AllyServiceState.Passive, Missing(
                 $"No hideable XUSB, GIP or XInput HID node was found for the pad ({topology.Observed})."));
         }

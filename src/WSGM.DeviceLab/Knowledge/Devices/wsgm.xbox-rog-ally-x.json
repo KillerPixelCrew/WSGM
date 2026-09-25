@@ -237,7 +237,7 @@
     }
   ],
   "hazards": [
-    "No HID gamepad collection and no XInput slot were present in the 0.2.1 run, so the gamepad route is unknown. Capture every input source.",
+    "No HID gamepad collection and no XInput slot were present in the 0.2.1 run, which had no HidHide allowance. HC reads this pad as the XUSB device 0B05:1B4C through XInput (ControllerManager.cs:2236-2243), so allow the lab in HidHide before capturing. Capture every input source.",
     "Lighting and rumble routes are unknown: FF31:0080 has no output report, and FF31:0079 and the Dynamic Lighting lamp array are untested.",
     "The power button produced no input event; it needs power notifications."
   ],

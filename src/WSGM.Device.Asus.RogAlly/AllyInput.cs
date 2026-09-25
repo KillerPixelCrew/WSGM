@@ -186,9 +186,9 @@ internal enum AllyControllerRoute
     XInput,
 
     /// <summary>
-    ///     Windows.Gaming.Input, for a pad that has no XInput slot. The RC73XA lab run saw neither an XInput
-    ///     slot nor a HID gamepad collection, so which route that model uses is unknown. This route has no
-    ///     guide button, and WSGM owns it only when a hideable XUSB, GIP or XInput HID node exists.
+    ///     Windows.Gaming.Input, only when no XInput slot is found. HC reads every Ally, the Xbox models
+    ///     included, through XInput and has no such route. This route has no guide button, and WSGM owns
+    ///     it only when a hideable XUSB, GIP or XInput HID node exists.
     /// </summary>
     WindowsGamingInput
 }
