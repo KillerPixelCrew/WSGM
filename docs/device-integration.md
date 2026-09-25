@@ -274,6 +274,20 @@ status instead of treating exit code zero as proof that the signed driver regist
 installation requests a reboot; an already-present driver does not; a failed, newer-unreviewed,
 missing or malformed result is shown without rolling back WSGM.
 
+### Motion runs only while something reads it
+
+The gyroscope and accelerometer are the highest-rate data WSGM moves, and on the Claw the sensor
+poll alone cost WSGM 12 % of its idle CPU and the Intel sensor driver host another 5 % of a core
+with nothing consuming a sample (docs/perf). The controller manager therefore computes a motion
+demand and the coordinator forwards every change to the plugin through
+`IDevicePlugin.SetMotionDemandAsync`. Motion is wanted only while controller management is active on
+a target with a motion report (Steam Deck or DualShock 4, never Xbox 360) and, with the "Motion only
+in game" setting on, only while Steam reports a running application. The plugin stops reading the
+hardware, not just publishing; the Claw source keeps its measured zero-rate offset across stops so
+the first samples after a restart are corrected. A plugin built against an older SDK never sees the
+signal and streams as before. The demand is a runtime signal, not a setting the plugin owns, which
+is why it is a contract member rather than a declared plugin setting.
+
 ### A target replacement must plug out the usbip client attachment, not only the server device
 
 Attach records the driver-assigned port, and removal issues `IOCTL_PLUGOUT_HARDWARE` for that port

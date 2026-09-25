@@ -543,6 +543,29 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
         }
     }
 
+    internal async Task SetMotionDemandAsync(
+        bool wanted,
+        DateTimeOffset deadline,
+        CancellationToken cancellationToken)
+    {
+        using var bounded = CreateDeadlineToken(
+            deadline,
+            cancellationToken,
+            _lifetime.Token);
+        await _lifecycleGate.WaitAsync(bounded.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureLifecycleOperationAllowed();
+            await Plugin.SetMotionDemandAsync(
+                new PluginMotionDemandContext(wanted, CycleGeneration, deadline),
+                bounded.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
     // ReSharper disable once UnusedMember.Global
     internal async Task<DeviceDiagnosticsSnapshot> GetDiagnosticsAsync(
         CancellationToken cancellationToken)

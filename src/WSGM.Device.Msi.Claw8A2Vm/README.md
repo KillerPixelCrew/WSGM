@@ -78,6 +78,13 @@ up after a slow read. The bounded publication channel, the sensor counter checks
 resampling are all unchanged. CPU and gyro responsiveness after that scheduling change still want a
 manual check.
 
+The worker only exists while WSGM says something reads motion. `SetMotionDemandAsync` releases the
+motion service on `Wanted = false` and reacquires it on `true`; start and resume skip the service
+while the last answer was `false`, and a skipped service does not count as unhealthy. The zero-rate
+offset calibrator lives on the source, not the worker, so a restart carries the measured offset
+instead of drifting until the next rest window. Until WSGM has sent the signal once, the stream runs
+as it always did.
+
 Motion shutdown waits up to two seconds and honours caller cancellation. If a worker is still
 running, the session keeps its sensor until both workers finish and refuses another start. Cleanup
 failures stay visible. Truncated power and fan responses fail before decoding, and unknown fan modes

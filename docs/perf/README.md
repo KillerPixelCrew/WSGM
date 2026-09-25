@@ -107,14 +107,18 @@ those are the product working.
 
 ## Findings and their status
 
-| Finding                                                  | Cost at idle                      | Status                     |
-| -------------------------------------------------------- | --------------------------------- | -------------------------- |
-| VIIPER keepalive replay and completions with no consumer | 40 % CPU, 55 % wakeups            | open, needs a VIIPER pprof |
-| Per-sample thread-pool hops                              | 35 % CPU, 25 % wakeups            | open                       |
-| Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core | open, #121 known candidate |
-| WinRT Bluetooth and audio enumeration at idle            | 15 % CPU                          | open                       |
-| Identity and AC state over WMI every 10 s                | 1 % CPU + WmiPrvSE                | open                       |
-| `WaitHandleCannotBeOpenedException` every second         | negligible CPU, one throw/s       | open, throw site unknown   |
+| Finding                                                  | Cost at idle                      | Status                                                                                                                           |
+| -------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| VIIPER keepalive replay and completions with no consumer | 40 % CPU, 55 % wakeups            | open, needs a VIIPER pprof and an attended check of NAK-idle against Steam                                                       |
+| Per-sample thread-pool hops                              | 35 % CPU, 25 % wakeups            | open; the pool's spin-then-sleep is off since the runtimeconfig change, the hops remain                                          |
+| Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core | fixed on the desktop: the motion demand signal stops the source (see device-integration.md); the 2 ms poll in game is still open |
+| WinRT Bluetooth enumeration every 2 s at idle            | 17 % CPU                          | fixed: the radio timer stops when the overlay closes; the audio manager's one-second poll is still open                          |
+| Identity and AC state over WMI every 10 s                | 1 % CPU + WmiPrvSE                | open                                                                                                                             |
+| `WaitHandleCannotBeOpenedException` every second         | negligible CPU, one throw/s       | fixed: `LhmSensorReader` opened the provider's missing mutex on every read; it now tries once per mapping                        |
+| Every publication re-read on each 10 s network poll      | about 1 % CPU                     | open: the toolkit's publish loop reads every module's state whenever any module signals                                          |
+
+Fixed means changed in code and not yet re-measured; a row moves to done when a new capture shows
+the cost gone.
 
 ## Recording a run
 

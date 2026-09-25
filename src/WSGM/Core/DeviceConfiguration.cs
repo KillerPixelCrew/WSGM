@@ -31,6 +31,17 @@ public static class DeviceAuthoredProfileCapabilities
     public const string Lighting = "lighting.zone-color";
 }
 
+/// <summary>When WSGM asks the device plugin to stream motion.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<MotionStreamMode>))]
+public enum MotionStreamMode
+{
+    /// <summary>Stream whenever a managed target with a motion report is active.</summary>
+    Always,
+
+    /// <summary>Stream only while Steam reports a running application.</summary>
+    InGame
+}
+
 /// <summary>Persisted settings for the optional production device platform.</summary>
 public sealed class DeviceIntegrationConfig
 {
@@ -50,6 +61,15 @@ public sealed class DeviceIntegrationConfig
     ///     the power limit entirely to manual control and profiles.
     /// </remarks>
     public bool AutoTdpEnabled { get; set; }
+
+    /// <summary>When the plugin's gyroscope and accelerometer stream runs.</summary>
+    /// <remarks>
+    ///     Motion is the highest-rate data WSGM moves, and on the Claw reading it costs a driver host
+    ///     and a WSGM thread several percent of a core (docs/perf). Whatever the mode, the stream is
+    ///     off while controller management is not active or the managed target carries no motion
+    ///     report; the mode decides whether it also stops while no application runs.
+    /// </remarks>
+    public MotionStreamMode MotionStream { get; set; } = MotionStreamMode.Always;
 
     /// <summary>How the active handheld glyph profile is selected.</summary>
     public DeviceGlyphSelection GlyphSelection { get; set; } = DeviceGlyphSelection.Automatic;

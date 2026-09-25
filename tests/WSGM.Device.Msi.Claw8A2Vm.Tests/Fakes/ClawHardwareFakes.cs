@@ -385,18 +385,27 @@ internal sealed class FakeMotionSource : IClawMotionSource
 {
     public Func<MotionSample, ValueTask>? Publish { get; private set; }
 
+    /// <summary>Whether the source is between a start and the following stop.</summary>
+    public bool Started { get; private set; }
+
+    /// <summary>How many times the source was started.</summary>
+    public int StartCount { get; private set; }
+
     public ValueTask<bool> StartAsync(
         Func<MotionSample, ValueTask> publish,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Publish = publish;
+        Started = true;
+        StartCount++;
         return ValueTask.FromResult(true);
     }
 
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Started = false;
         return ValueTask.CompletedTask;
     }
 

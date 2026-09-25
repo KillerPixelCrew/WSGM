@@ -126,9 +126,15 @@ public sealed class SystemStatus : ObservableObject, IDisposable
 
         // Only when this object created them. Disposing a session-scoped manager here would take
         // audio or the radios away from everything else holding them the moment the taskbar closes.
+        // A shared radio manager only has its timer stopped: this cluster started it, and nothing
+        // else reads on a timer while the sheet is closed.
         if (_ownsRadios)
         {
             Radios.Dispose();
+        }
+        else
+        {
+            Radios.Stop();
         }
 
         if (_ownsAudio)

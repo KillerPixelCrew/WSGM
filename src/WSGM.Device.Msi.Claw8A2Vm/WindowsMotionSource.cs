@@ -28,6 +28,13 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
 
+    /// <summary>
+    ///     Outlives the worker sessions on purpose. WSGM stops the stream whenever nothing reads
+    ///     motion and starts it again when a game takes focus; a calibrator that restarted with the
+    ///     session would send that game two seconds of uncorrected drift before the first rest window.
+    /// </summary>
+    private readonly StationaryGyroBiasCalibrator _calibrator = new();
+
     private readonly Lock _gate = new();
     private readonly Func<Func<MotionSample, ValueTask>, MotionWorkerSession?> _open;
     private readonly TimeSpan _stopTimeout;
@@ -39,7 +46,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         Func<Func<MotionSample, ValueTask>, MotionWorkerSession?>? open = null,
         TimeSpan? stopTimeout = null)
     {
-        _open = open ?? OpenSession;
+        _open = open ?? (publish => OpenSession(publish, _calibrator));
         _stopTimeout = stopTimeout ?? TimeSpan.FromSeconds(2);
     }
 
@@ -97,7 +104,9 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static MotionWorkerSession? OpenSession(Func<MotionSample, ValueTask> publish)
+    private static MotionWorkerSession? OpenSession(
+        Func<MotionSample, ValueTask> publish,
+        StationaryGyroBiasCalibrator calibrator)
     {
         var sensors = LegacyPhysicalMotionSensors.TryOpen();
         if (sensors is null)
@@ -113,7 +122,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         });
         CancellationTokenSource cancellation = new();
         var producer = Task.Factory.StartNew(
-            () => Produce(sensors, samples.Writer, cancellation.Token),
+            () => Produce(sensors, samples.Writer, calibrator, cancellation.Token),
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
@@ -158,9 +167,9 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     private static void Produce(
         LegacyPhysicalMotionSensors sensors,
         ChannelWriter<MotionSample> writer,
+        StationaryGyroBiasCalibrator calibrator,
         CancellationToken cancellationToken)
     {
-        StationaryGyroBiasCalibrator calibrator = new();
         ulong freshIndex = 0;
         var readFailed = false;
         Vector3? reportedBias = null;

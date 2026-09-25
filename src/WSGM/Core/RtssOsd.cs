@@ -545,6 +545,14 @@ internal sealed class LhmSensorReader : IDisposable
     private bool _disposed;
     private Mutex? _gate;
 
+    /// <summary>
+    ///     Whether opening the provider's mutex already failed for this mapping. The provider builds
+    ///     that ship without the mutex make every read throw and swallow a
+    ///     <see cref="WaitHandleCannotBeOpenedException" />, once a second for the whole session, so
+    ///     the open is attempted once per mapping and again only after the mapping is reopened.
+    /// </summary>
+    private bool _gateUnavailable;
+
     private MemoryMappedFile? _map;
     private MemoryMappedViewAccessor? _view;
 
@@ -571,8 +579,11 @@ internal sealed class LhmSensorReader : IDisposable
             {
                 try
                 {
-                    _gate ??= Mutex.OpenExisting(MutexName);
-                    held = _gate.WaitOne(TimeSpan.FromMilliseconds(200));
+                    if (!_gateUnavailable)
+                    {
+                        _gate ??= Mutex.OpenExisting(MutexName);
+                        held = _gate.WaitOne(TimeSpan.FromMilliseconds(200));
+                    }
                 }
                 catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException
                                                or UnauthorizedAccessException or AbandonedMutexException)
@@ -580,6 +591,11 @@ internal sealed class LhmSensorReader : IDisposable
                     // No lock is still a readable snapshot: the provider replaces the buffer
                     // in one write and the XML parse rejects a torn one harmlessly.
                     held = ex is AbandonedMutexException;
+                    if (ex is not AbandonedMutexException)
+                    {
+                        _gateUnavailable = true;
+                        Log.Change("rtss-lhm-mutex", $"LHM sensor mutex unavailable: {ex.GetType().Name}.");
+                    }
                 }
 
                 var size = (int)Math.Min(_view!.Capacity, 4 * 1024 * 1024);
@@ -651,6 +667,7 @@ internal sealed class LhmSensorReader : IDisposable
         _map = null;
         _gate?.Dispose();
         _gate = null;
+        _gateUnavailable = false;
     }
 }
 

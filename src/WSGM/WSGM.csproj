@@ -123,6 +123,11 @@
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. -->
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9"/>
+    <!-- A pool worker that runs out of work spins, then sleeps in short slices, before it blocks.
+         With the controller pipeline queueing about 500 short work items a second that spin was
+         8,600 wakeups and 200 ms of CPU per minute at idle (docs/perf). Blocking straight away
+         costs a few microseconds of dispatch latency on a handheld with a small power budget. -->
+    <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.UnfairSemaphoreSpinLimit" Value="0"/>
   </ItemGroup>
   <ItemGroup>
     <!-- Pinned exactly: a shell replacement must ship the patch level that was

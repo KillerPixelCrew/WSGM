@@ -31,6 +31,12 @@ public static class DeviceApi
     ///         Version 7 adds <c>OemControlDescriptor.CompanionApplication</c>, which marks the
     ///         manufacturer's companion-application button so the host can give it a default.
     ///     </para>
+    ///     <para>
+    ///         Version 8 adds <c>IDevicePlugin.SetMotionDemandAsync</c> and
+    ///         <c>PluginMotionDemandContext</c>, the host's signal that nothing reads motion. The member
+    ///         has a default implementation, so a plugin written against version 7 compiles unchanged
+    ///         and keeps streaming motion as before.
+    ///     </para>
     /// </remarks>
-    public const int Version = 7;
+    public const int Version = 8;
 }

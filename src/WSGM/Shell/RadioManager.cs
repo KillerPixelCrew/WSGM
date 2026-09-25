@@ -375,6 +375,29 @@ public sealed class RadioManager : ObservableObject, IDisposable
     }
 
     /// <summary>
+    ///     Stops the update timer without disposing the manager, so a later <see cref="Start" /> can
+    ///     resume it. UI-thread callers only. Idempotent.
+    /// </summary>
+    /// <remarks>
+    ///     The refresh enumerates Bluetooth devices through WinRT, about 75 ms of a native pool
+    ///     thread per tick on the Claw. A session-scoped manager started by the overlay's status
+    ///     cluster kept ticking for the rest of the session after the sheet closed, which was two
+    ///     percent of a core for pills nobody could see (docs/perf). Steam's own Bluetooth row reads
+    ///     the snapshot on demand and does not need the timer.
+    /// </remarks>
+    public void Stop()
+    {
+        if (_timer is null)
+        {
+            return;
+        }
+
+        _timer.Stop();
+        _timer.Tick -= OnTick;
+        _timer = null;
+    }
+
+    /// <summary>
     ///     Begins actively scanning for networks and devices. Called when
     ///     the radio panel opens: an idle taskbar must not pay for scans nobody is
     ///     looking at, which on a handheld is battery.

@@ -113,6 +113,51 @@ public sealed class ClawPluginTests
     }
 
     [Fact]
+    public async Task SetMotionDemandAsync_StopsAndRestartsTheSourceInsideTheCycle()
+    {
+        using TemporaryDirectory state = new();
+        FakeMotionSource motion = new();
+        await using Claw8A2VmPlugin plugin = new(CreateServices(motion: motion));
+        TestPluginHostAdapter host = new(CycleGeneration);
+        _ = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+        Assert.True(motion.Started);
+
+        await plugin.SetMotionDemandAsync(
+            new PluginMotionDemandContext(false, CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(5)),
+            CancellationToken.None);
+
+        Assert.False(motion.Started);
+        Assert.Contains(host.CapabilityStates, capability =>
+            capability is { CapabilityId: CapabilityIds.Motion, Available: false });
+
+        await plugin.SetMotionDemandAsync(
+            new PluginMotionDemandContext(true, CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(5)),
+            CancellationToken.None);
+
+        Assert.True(motion.Started);
+        Assert.Equal(2, motion.StartCount);
+    }
+
+    [Fact]
+    public async Task StartAsync_HonoursAMotionDemandReceivedBeforeTheCycle()
+    {
+        using TemporaryDirectory state = new();
+        FakeMotionSource motion = new();
+        await using Claw8A2VmPlugin plugin = new(CreateServices(motion: motion));
+        TestPluginHostAdapter host = new(CycleGeneration);
+        await plugin.SetMotionDemandAsync(
+            new PluginMotionDemandContext(false, CycleGeneration, DateTimeOffset.UtcNow.AddSeconds(5)),
+            CancellationToken.None);
+
+        var result = await plugin.StartAsync(StartContext(host, state.Root), CancellationToken.None);
+
+        // A service WSGM asked to keep off is not a degraded one.
+        Assert.Equal(PluginOperationalState.Active, result.State);
+        Assert.False(motion.Started);
+        Assert.Equal(0, motion.StartCount);
+    }
+
+    [Fact]
     public async Task StartAsync_ReadsIdentityOnceForEveryServiceInTheCycle()
     {
         using TemporaryDirectory state = new();

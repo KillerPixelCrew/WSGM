@@ -99,6 +99,9 @@ internal sealed class ControllerManager : IAsyncDisposable
         new ProfileConfig(),
         "Controller management has not started.");
 
+    private MotionStreamMode _motionStream = MotionStreamMode.Always;
+    private bool _motionWanted = true;
+    private string? _runningApplicationId;
     private long _sourceGeneration;
     private List<CanonicalControllerSample>? _spareSamples = [];
     private bool _steamCapture;
@@ -128,6 +131,62 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     /// <summary>Current state of controller management.</summary>
     internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
+
+    /// <summary>Whether anything downstream reads motion samples right now.</summary>
+    /// <remarks>
+    ///     True only while management is active on a target that carries a motion report, and, in
+    ///     <see cref="MotionStreamMode.InGame" />, while Steam reports a running application. The
+    ///     plugin is told on every change through <see cref="MotionDemandChanged" /> so it can stop
+    ///     reading the sensors rather than publish samples nobody encodes.
+    /// </remarks>
+    internal bool MotionWanted
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _motionWanted;
+            }
+        }
+    }
+
+    /// <summary>Raised when <see cref="MotionWanted" /> changes, with the new value.</summary>
+    internal event Action<bool>? MotionDemandChanged;
+
+    /// <summary>Applies the configured motion stream mode and re-evaluates the demand.</summary>
+    /// <param name="mode">The mode from the device integration settings.</param>
+    internal void ApplyMotionStreamMode(MotionStreamMode mode)
+    {
+        lock (_stateGate)
+        {
+            _motionStream = mode;
+        }
+
+        UpdateMotionDemand();
+    }
+
+    private void UpdateMotionDemand()
+    {
+        bool wanted;
+        lock (_stateGate)
+        {
+            wanted = State is ControllerManagementState.Active
+                     && Effective is { } effective
+                     && effective.Target is not ManagedControllerTarget.Xbox360
+                     && (_motionStream is MotionStreamMode.Always || _runningApplicationId is not null);
+            if (wanted == _motionWanted)
+            {
+                return;
+            }
+
+            _motionWanted = wanted;
+        }
+
+        Log.Info(wanted
+            ? "Motion stream wanted: a managed target with a motion report is active."
+            : "Motion stream not wanted: nothing downstream reads motion.");
+        MotionDemandChanged?.Invoke(wanted);
+    }
 
     /// <summary>Why the current state holds, for logs and the overlay.</summary>
     private string Detail { get; set; } = "Controller management has not started.";
@@ -1046,6 +1105,29 @@ internal sealed class ControllerManager : IAsyncDisposable
         string? executable,
         CancellationToken cancellationToken)
     {
+        lock (_stateGate)
+        {
+            _runningApplicationId = applicationId;
+        }
+
+        try
+        {
+            return await ReconcileTargetCoreUnderGateAsync(applicationId, executable, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            // Every exit changed something the demand depends on: the application, the target, or
+            // the state after a failed replacement.
+            UpdateMotionDemand();
+        }
+    }
+
+    private async Task<ControllerManagerStatus> ReconcileTargetCoreUnderGateAsync(
+        string? applicationId,
+        string? executable,
+        CancellationToken cancellationToken)
+    {
         var resolved = ControllerTargetSelection.Resolve(
             _selection.Profiles,
             applicationId,
@@ -1148,6 +1230,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         var status = Snapshot();
         StatusChanged?.Invoke(status);
+        UpdateMotionDemand();
         return status;
     }
 }

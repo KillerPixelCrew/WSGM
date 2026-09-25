@@ -216,6 +216,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadArtworkTabs();
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
+        DeviceMotionOnlyInGame = _config.DeviceIntegration.MotionStream is MotionStreamMode.InGame;
         DeviceControllerTargetIndex =
             (int)(_config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget);
         DeviceAutoTdpEnabled = _config.DeviceIntegration.AutoTdpEnabled;
@@ -715,6 +716,21 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             field = value;
             Raise(nameof(DeviceControllerManagementEnabled));
+        }
+    }
+
+    /// <summary>Gets or sets whether the plugin's motion stream stops while no application runs.</summary>
+    /// <remarks>
+    ///     Maps <see cref="MotionStreamMode.InGame" /> onto a switch. Only this window edits the mode,
+    ///     so it is written on every save like <see cref="DeviceControllerManagementEnabled" />.
+    /// </remarks>
+    public bool DeviceMotionOnlyInGame
+    {
+        get;
+        set
+        {
+            field = value;
+            Raise(nameof(DeviceMotionOnlyInGame));
         }
     }
 
@@ -2077,6 +2093,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.GameLibrary.ImportUnroutable = GameLibraryImportUnroutable;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
+        config.DeviceIntegration.MotionStream = DeviceMotionOnlyInGame
+            ? MotionStreamMode.InGame
+            : MotionStreamMode.Always;
         // Same rule as the three below, for the same reason: only settings this window actually
         // edited are written, so a running shell's own stores are not reverted by an unrelated save.
         ApplyPluginSettingsTo(config);
@@ -2645,6 +2664,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Profiles = fresh.Profiles;
         config.DeviceIntegration.Enabled = editedDevice.Enabled;
         config.DeviceIntegration.ControllerManagementEnabled = editedDevice.ControllerManagementEnabled;
+        config.DeviceIntegration.MotionStream = editedDevice.MotionStream;
         if (request.AutoTdpEdited)
         {
             config.DeviceIntegration.AutoTdpEnabled = editedDevice.AutoTdpEnabled;
