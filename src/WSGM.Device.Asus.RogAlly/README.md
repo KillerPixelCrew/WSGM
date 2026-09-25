@@ -29,10 +29,10 @@ Built blind on all four, awaiting lab evidence. "HC" and "HHD" name the referenc
 
 | Capability                  | Ally                                   | Ally X   | Xbox Ally                    | Xbox Ally X   | Transport and reference                                                            |
 | --------------------------- | -------------------------------------- | -------- | ---------------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| Sustained power (SPL)       | 5-30                                   | 5-30     | 5-20                         | 5-35          | ATKACPI DEVS 0x001200A3 (HC; Xbox Ally envelope from HHD)                          |
+| Sustained power (SPL)       | 5-30                                   | 5-30     | 5-35                         | 5-35          | ATKACPI DEVS 0x001200A3 (HC)                                                       |
 | Boost power (SPPT and FPPT) | yes                                    | yes      | yes                          | yes           | ATKACPI 0x001200A0 and 0x001200C1 written together (HC)                            |
 | Performance mode            | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120075 Silent/Performance/Turbo (HC, HHD)                              |
-| Power presets               | 10/15/25                               | 13/17/25 | 6/15/20                      | 13/17/25      | HC's three profiles (HHD's watts on the Xbox Ally), mode first, then watts         |
+| Power presets               | 10/15/25                               | 13/17/25 | 13/17/25                     | 13/17/25      | HC's three profiles, mode first, then watts                                        |
 | Fan curve                   | yes                                    | yes      | yes                          | yes           | ATKACPI CPU/GPU (+ mid when present) curves (HC)                                   |
 | Fan readings                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00110013/0x00110014 (HC)                                                 |
 | Charge limit                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120057 (HC)                                                            |
@@ -105,7 +105,6 @@ The parts most likely to need correcting:
 - The Xbox models' controller route. The RC73XA lab run saw neither an XInput slot nor a HID gamepad
   collection, so the plugin leaves that pad alone until a report names the node to hide. The
   Windows.Gaming.Input fallback is unproven there and cannot report the Xbox button.
-- The Xbox Ally's power envelope: HHD's 20 W is used because HC's file repeats the Xbox Ally X's.
 - Whether the Xbox models send 0x5A vendor codes at all once the tables are written, or only the
   F21/F22 keys the lab saw.
 - The rear buttons' key codes and physical labels per side.

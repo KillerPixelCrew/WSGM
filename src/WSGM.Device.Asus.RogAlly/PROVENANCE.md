@@ -116,26 +116,24 @@ gyro-offset correction is the Claw's, with thresholds measured on the Claw's LSM
 
 ## Power
 
-| Fact                                                                               | Source                                                                                                                  |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `\\.\ATKACPI`, IOCTL 0x0022240C, DSTS/DEVS layout                                  | HC `HandheldCompanion.Devices.ASUS/AsusACPI.cs:11-51, 110-188`                                                          |
-| SPL 0x001200A3, SPPT 0x001200A0, FPPT 0x001200C1                                   | HC `AsusACPI.cs:45-49`                                                                                                  |
-| Long limit writes SPL; short limit writes SPPT and FPPT together                   | HC `AsusACPI.cs:343-352`                                                                                                |
-| Performance mode 0x00120075: 0 performance, 1 turbo, 2 silent                      | HC `AsusACPI.cs:51` and `ROGAlly.cs:229-259` (`OEMPowerMode`); HHD `adjustor/drivers/asus/__init__.py:296-303`          |
-| Write order keeping SPL <= SPPT <= FPPT                                            | Retired Ally X Lab `AsusControl.Restore` (removed in `829c5a5c`); HHD writes fast, slow, steady (`__init__.py:384-389`) |
-| 100 ms between limit writes, 150 ms after a mode change                            | HHD `__init__.py:14` (`TDP_DELAY`); the retired Ally X Lab                                                              |
-| DSTS scalar presence bit 0x10000                                                   | HC `AsusACPI.cs:182-188` (`DeviceGet` returns raw - 65536)                                                              |
-| Watt ranges: Ally and Ally X 5-30, Xbox Ally 5-20, Xbox Ally X 5-35                | HC `ROGAlly.cs:215`, `XboxROGAllyX.cs:14`; HHD `adjustor/core/const.py:261-320`                                         |
-| Presets 10/15/25 W (Ally), 13/17/25 W (Ally X, Xbox Ally X), 6/15/20 W (Xbox Ally) | HC `ROGAlly.cs:229-259`, `ROGAllyX.cs:13-27`, `XboxROGAllyX.cs:17-31`; HHD `const.py:292-305`                           |
+| Fact                                                                    | Source                                                                                                                  |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `\\.\ATKACPI`, IOCTL 0x0022240C, DSTS/DEVS layout                       | HC `HandheldCompanion.Devices.ASUS/AsusACPI.cs:11-51, 110-188`                                                          |
+| SPL 0x001200A3, SPPT 0x001200A0, FPPT 0x001200C1                        | HC `AsusACPI.cs:45-49`                                                                                                  |
+| Long limit writes SPL; short limit writes SPPT and FPPT together        | HC `AsusACPI.cs:343-352`                                                                                                |
+| Performance mode 0x00120075: 0 performance, 1 turbo, 2 silent           | HC `AsusACPI.cs:51` and `ROGAlly.cs:229-259` (`OEMPowerMode`); HHD `adjustor/drivers/asus/__init__.py:296-303`          |
+| Write order keeping SPL <= SPPT <= FPPT                                 | Retired Ally X Lab `AsusControl.Restore` (removed in `829c5a5c`); HHD writes fast, slow, steady (`__init__.py:384-389`) |
+| 100 ms between limit writes, 150 ms after a mode change                 | HHD `__init__.py:14` (`TDP_DELAY`); the retired Ally X Lab                                                              |
+| DSTS scalar presence bit 0x10000                                        | HC `AsusACPI.cs:182-188` (`DeviceGet` returns raw - 65536)                                                              |
+| Watt ranges: Ally and Ally X 5-30, Xbox models 5-35                     | HC `ROGAlly.cs:215`, `XboxROGAlly.cs:14`, `XboxROGAllyX.cs:14`; HHD `adjustor/core/const.py:261-320`                    |
+| Presets Silent/Performance/Turbo 10/15/25 W (Ally), 13/17/25 W (others) | HC `ROGAlly.cs:229-259`, `ROGAllyX.cs:13-27`, `XboxROGAlly.cs:17-31`, `XboxROGAllyX.cs:17-31`                           |
 
 Disagreements:
 
-- HC's `XboxROGAlly.cs:13-31` repeats `XboxROGAllyX`'s cTDP 15-35 and 13/17/25 presets verbatim,
-  which reads as a copy for the 20 W-class Z2 A. HHD gives the Xbox Ally 4-20 W (SPPT 20, FPPT 25,
-  OC 25) with quiet 6, balanced 15 and performance 20 (`adjustor/core/const.py:292-305`). HHD's
-  envelope is used, with the plugin's 5 W floor, so no write depends on the BIOS clamping it.
-- HC's Xbox Ally X range is 15-35 W, but its own Silent preset is 13 W; the minimum is lowered to 5
-  so HC's presets validate.
+- HC's Xbox Ally range is 15-35 W, the same as its Xbox Ally X, while HHD lists 4-20 W (SPPT 20,
+  FPPT 25, OC 25; `adjustor/core/const.py:292-305`). HC's Windows envelope is used: HHD's 20 W would
+  cap the device well below what it runs at under Windows, and the BIOS enforces its own limit. HC's
+  Silent preset on both Xbox models is 13 W, so the minimum is lowered to 5.
 - A limit DSTS reports outside 1-80 W (a firmware reporting 0, say) cannot be journalled, so it
   counts as unreadable and the write is refused.
 - HHD's performance preset is 30 W on AC and 25 W on battery for the Ally and Ally X; HC uses 25 W.
@@ -213,7 +211,7 @@ highlight overlays are declared: their coordinates would be guesses.
    X family as HHD claims.
 8. Gyro and accelerometer axis signs per model, and whether WinRT or the legacy API delivers them.
 9. Whether DSTS reports SPL, SPPT, FPPT and the performance mode, whether a mode change resets the
-   limits, and what envelope the Xbox Ally's firmware accepts.
+   limits, and what envelope each Xbox model's firmware accepts.
 10. Whether a DSTS curve read returns the curve in force or the factory table for the mode, whether
     HC's uncalled curve selector (1 and 2 swapped) addresses the right profile, whether the mid fan
     exists, and what unit the fan readings use.

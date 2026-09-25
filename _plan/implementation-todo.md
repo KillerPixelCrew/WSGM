@@ -204,7 +204,7 @@ one row in `AllyModels.cs`.
 - [x] Aura lighting over report 0x5D, and the lamp-array step on the Xbox models.
 - [x] Glyph profiles `rog-ally` and `rog-xbox-ally` from handheld-controller-glyphs.
 - [x] Hardware-free tests in `tests/WSGM.Device.Asus.RogAlly.Tests`, written but not yet run.
-- [x] Review fixes (2026-09-25): Xbox Ally held to HHD's 20 W envelope; one press on both OEM
+- [x] Review fixes (2026-09-25): one press on both OEM
       transports counted once; no long press declared; lamp-array step as a feature report; HC's
       exact Aura paths; deadline shortfalls rejected without faulting; faults and unverified restores
       no longer block a service for good; faulted readers reacquired; the keyboard hook installed

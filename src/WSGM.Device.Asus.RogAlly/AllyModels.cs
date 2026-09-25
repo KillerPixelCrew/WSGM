@@ -163,20 +163,12 @@ internal static class AllyModels
         new("turbo", "Turbo", 25, Scenarios.Turbo, DevicePowerMode.BestPerformance)
     ];
 
-    // HC 1.3.1.6 ROGAllyX.cs and XboxROGAllyX.cs override the watt targets to 13/17/25.
+    // HC 1.3.1.6 ROGAllyX.cs, XboxROGAlly.cs and XboxROGAllyX.cs override the watt targets to 13/17/25.
     private static readonly IReadOnlyList<AllyPreset> AllyXPresets =
     [
         new("silent", "Silent", 13, Scenarios.Silent, DevicePowerMode.BetterBattery),
         new("performance", "Performance", 17, Scenarios.Performance, DevicePowerMode.Balanced),
         new("turbo", "Turbo", 25, Scenarios.Turbo, DevicePowerMode.BestPerformance)
-    ];
-
-    // HHD adjustor/core/const.py:292-305 XBOX_ALLY_DATA quiet/balanced/performance 6/15/20.
-    private static readonly IReadOnlyList<AllyPreset> XboxAllyPresets =
-    [
-        new("silent", "Silent", 6, Scenarios.Silent, DevicePowerMode.BetterBattery),
-        new("performance", "Performance", 15, Scenarios.Performance, DevicePowerMode.Balanced),
-        new("turbo", "Turbo", 20, Scenarios.Turbo, DevicePowerMode.BestPerformance)
     ];
 
     // HC Resources/Devices/ROGAlly.json and ROGAllyX.json: both matrices X: -1, Y: -1, Z: 1.
@@ -232,13 +224,12 @@ internal static class AllyModels
             BaseboardProducts = ["RC73YA"],
             ControllerProductIds = AllyProductIds,
             Layout = AllyFrontLayout.Xbox,
-            // HC XboxROGAlly.cs:13-31 repeats XboxROGAllyX's cTDP 15-35 and 13/17/25 presets
-            // verbatim, a copy for a 20 W-class Z2 A. HHD adjustor/core/const.py:292-305 gives this
-            // model max 20 (SPPT 20, FPPT 25) with 6/15/20 presets; the lower envelope is kept
-            // until a lab report shows what the firmware accepts.
+            // HC XboxROGAlly.cs:14 declares 35 W and its Silent preset is 13 W. HC's maximum is
+            // authoritative for this Windows implementation; the BIOS enforces its own limit.
+            // The minimum is lowered so HC's presets validate.
             MinimumWatts = 5,
-            MaximumWatts = 20,
-            Presets = XboxAllyPresets,
+            MaximumWatts = 35,
+            Presets = AllyXPresets,
             Gyro = XboxGyro,
             Accelerometer = ClassicMotion,
             GlyphProfileId = "rog-xbox-ally",

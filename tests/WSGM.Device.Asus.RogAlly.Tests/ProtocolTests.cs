@@ -264,14 +264,14 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void XboxAllyKeepsHhdsTwentyWattEnvelope()
+    public void XboxAllyFollowsHcsEnvelope()
     {
         var xboxAlly = AllyModels.ById("rc73ya")!;
 
-        Assert.Equal(20, xboxAlly.MaximumWatts);
-        Assert.Equal([6, 15, 20], xboxAlly.Presets.Select(preset => preset.Watts));
-        Assert.All(xboxAlly.Presets, preset => Assert.InRange(preset.Watts, xboxAlly.MinimumWatts, 20));
-        Assert.Equal(35, AllyModels.ById("rc73xa")!.MaximumWatts);
+        Assert.Equal(35, xboxAlly.MaximumWatts);
+        Assert.Equal([13, 17, 25], xboxAlly.Presets.Select(preset => preset.Watts));
+        Assert.All(xboxAlly.Presets,
+            preset => Assert.InRange(preset.Watts, xboxAlly.MinimumWatts, xboxAlly.MaximumWatts));
     }
 
     [Fact]
