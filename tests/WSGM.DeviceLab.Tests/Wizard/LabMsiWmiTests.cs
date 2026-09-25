@@ -67,6 +67,29 @@ public sealed class LabMsiWmiTests
     }
 
     [Fact]
+    public void Charge_RestoresTheBiosUnconfiguredValue()
+    {
+        var channel = new FakeChannel(charge: 0x80);
+        using LabMsiWmi wmi = new(channel, Layout(), new LabPowerLog());
+        wmi.WriteChargeRaw(0xD0);
+        Assert.Equal(0xD0, wmi.ReadChargeRaw());
+        wmi.WriteChargeRaw(0x80);
+        Assert.Equal(0x80, wmi.ReadChargeRaw());
+    }
+
+    [Fact]
+    public void Fans_FullSpeedAndRestorePreserveOtherFlagBits()
+    {
+        var channel = new FakeChannel();
+        using LabMsiWmi wmi = new(channel, Layout() with { FanCustom = 0xD4, FanFullSpeed = 0x98 }, new LabPowerLog());
+        var original = new LabMsiFanState(0x85, 0x12);
+        Assert.True(wmi.WriteFans(original));
+        Assert.True(wmi.WriteFans(new LabMsiFanState(0x05, 0x92)));
+        Assert.True(wmi.WriteFans(original));
+        Assert.Equal(original, wmi.ReadFans());
+    }
+
+    [Fact]
     public void WriteChargeRaw_RejectsAPercentageOutsideTheRange()
     {
         var channel = new FakeChannel();

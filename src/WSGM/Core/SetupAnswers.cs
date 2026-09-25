@@ -188,12 +188,17 @@ public sealed record SetupAnswers
 
     /// <summary>Writes the answers into a configuration.</summary>
     /// <param name="config">The configuration to change.</param>
-    public void ApplyTo(AppConfig config)
+    /// <param name="freshInstall">Whether setup found no configuration before loading it.</param>
+    public void ApplyTo(AppConfig config, bool freshInstall)
     {
         ArgumentNullException.ThrowIfNull(config);
         config.StartAtSignIn = StartAtSignIn;
         config.StartMode = StartMode;
         config.DeviceIntegration.Enabled = DeviceIntegration;
+        if (freshInstall)
+        {
+            config.DeviceIntegration.ControllerManagementEnabled = DeviceIntegration;
+        }
         config.SteamAutostartTakeoverAccepted = SteamAutostartTakeover;
         config.OtherManagersTakeoverAccepted = OtherManagersTakeover;
         config.SteamInputManagementEnabled = Features.SteamInputManagement;

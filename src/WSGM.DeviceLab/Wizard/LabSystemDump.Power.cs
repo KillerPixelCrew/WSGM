@@ -12,6 +12,14 @@ internal static partial class LabSystemDump
 {
     private const uint AccessScheme = 16;
     private const int SystemPowerCapabilities = 4;
+
+    /// <summary>Whether Windows reports S0 low-power idle support.</summary>
+    internal static bool SupportsModernStandby()
+    {
+        var buffer = new byte[PowerCapabilitiesBytes];
+        return CallNtPowerInformation(SystemPowerCapabilities, IntPtr.Zero, 0, buffer, (uint)buffer.Length) == 0
+               && buffer[20] != 0;
+    }
     private const int PowerCapabilitiesBytes = 76;
 
     // Windows' power mode slider values: no overlay means the balanced position.

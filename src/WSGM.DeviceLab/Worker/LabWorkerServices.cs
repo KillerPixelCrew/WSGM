@@ -17,6 +17,7 @@ internal static class LabWorkerServices
             LabAtkAcpi.Service,
             LabMsiWmi.Service,
             LabAuraLighting.Service,
+            LabClawLighting.Service,
             LabAmdSmu.Service,
             LabIntelKx.Service,
             LabRumbleWorker.Service,

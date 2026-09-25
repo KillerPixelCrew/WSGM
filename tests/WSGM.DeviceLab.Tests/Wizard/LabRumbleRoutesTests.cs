@@ -11,6 +11,25 @@ public sealed class LabRumbleRoutesTests
         @"\\?\hid#vid_0b05&pid_1b4c&mi_02#7&2d7f1a3&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
     [Fact]
+    public void Claw_RumbleUsesTheGamepadCollectionAndPluginReport()
+    {
+        var record = DeviceKnowledgeBase.Default.Records.Single(item => item.Id == "wsgm.claw-8-a2vm");
+        LabRumbleHidEndpoint[] endpoints =
+        [
+            new(0x0DB0, 0x1902, 1, 0x0001, 0x0005, 64, "gamepad"),
+            new(0x0DB0, 0x1902, 1, 0xFFF0, 0x0040, 64, "mcu")
+        ];
+        var discovery = LabRumbleRoutes.DiscoverHid(record, _ => endpoints);
+        var route = Assert.Single(discovery.Routes);
+        Assert.Equal("gamepad", route.Target);
+        var report = route.Layout!.Encode(new LabRumbleFrame(100, 0), 64);
+        Assert.Equal(0x05, report[0]);
+        Assert.Equal(0x01, report[1]);
+        Assert.Equal(0, report[4]);
+        Assert.Equal(255, report[5]);
+    }
+
+    [Fact]
     public void UnknownMotorRoutesAreRefused()
     {
         LabRumbleLog log = new();

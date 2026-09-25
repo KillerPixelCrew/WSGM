@@ -47,8 +47,10 @@ internal sealed partial class WizardWindow
     {
         if (_capture is null)
         {
+            var windowHandle = TryGetPlatformHandle()?.Handle
+                               ?? throw new InvalidOperationException("The Device Lab window has no native handle.");
             LabTrace.Write("input capture: start");
-            _capture = await Task.Run(LabInputCapture.Start);
+            _capture = await Task.Run(() => LabInputCapture.Start(windowHandle));
             LabTrace.Write("input capture: running");
         }
 

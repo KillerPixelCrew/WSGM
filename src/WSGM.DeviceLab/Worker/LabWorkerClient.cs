@@ -99,8 +99,8 @@ internal sealed class LabWorkerClient : IDisposable
             authorization.DisposeLocalCopyOfClientHandle();
             authorization.Write(secret);
             authorization.Flush();
-            // The worker reads the secret up to end of stream before it says hello, so the pipe has to
-            // close now; held open until after the hello, both sides waited on each other forever.
+            // The worker reads to EOF before accepting the secret. Close this end before waiting
+            // for its greeting, or parent and worker wait on each other forever.
             // ReSharper disable once DisposeOnUsingVariable
             authorization.Dispose();
         }
@@ -115,9 +115,23 @@ internal sealed class LabWorkerClient : IDisposable
         _ = process.StandardError.BaseStream.CopyToAsync(System.IO.Stream.Null);
         process.StandardInput.AutoFlush = true;
         process.StandardInput.WriteLine(SelfWorkerAuthorization.Hash(secret));
-        var hello = process.StandardOutput.ReadLine();
-        if (hello is null || JsonSerializer.Deserialize<LabWorkerResponse>(hello, LabWorkerHost.WireOptions) is not
-                { Ok: true })
+        LabWorkerResponse? greeting;
+        try
+        {
+            var hello = process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30))
+                .GetAwaiter().GetResult();
+            greeting = hello is null
+                ? null
+                : JsonSerializer.Deserialize<LabWorkerResponse>(hello,
+                    LabWorkerHost.WireOptions);
+        }
+        catch (Exception ex) when (ex is TimeoutException or IOException or JsonException or InvalidOperationException)
+        {
+            client.Dispose();
+            throw new InvalidOperationException("The Device Lab hardware worker did not authenticate.", ex);
+        }
+
+        if (greeting is not { Ok: true })
         {
             client.Dispose();
             throw new InvalidOperationException("The Device Lab hardware worker did not authenticate.");

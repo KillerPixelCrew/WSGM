@@ -6,6 +6,18 @@ namespace WSGM.DeviceLab.Tests.Wizard;
 
 public sealed class LabButtonsTests
 {
+    [Fact]
+    public void DeviceIds_AreReservedBeforeConcurrentDiscoveryRegistersDevices()
+    {
+        using var capture = new LabInputCapture(0);
+        var ids = new string[1000];
+        Parallel.For(0, ids.Length, index => ids[index] = capture.NextId("hid-read"));
+
+        Assert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal("hid-read1000", capture.NextId("hid-read"));
+        Assert.Equal("hid0", capture.NextId("hid"));
+    }
+
     private static DeviceKnowledgeRecord Record(string id)
     {
         return DeviceKnowledgeBase.Default.Records.Single(record => record.Id == id);
@@ -150,13 +162,39 @@ public sealed class LabButtonsTests
     }
 
     [Fact]
+    public void Candidates_IncludeDirectInputAndDirectHidEvidence()
+    {
+        LabInputDevice directInput = new("dinput0", "directinput", "0DB0", "1902", 1, 5, null, false);
+        LabInputDevice hid = new("hid-read0", "hid-read", "0DB0", "1902", 1, 5, null, false);
+        LabInputStepRecord step = new()
+        {
+            Step = "buttons/a",
+            StartedMs = 0,
+            EndedMs = 500,
+            Events =
+            [
+                new LabInputEvent(100, "directinput", "dinput0", "buttons [0] pov [-1] axes [0,0]"),
+                new LabInputEvent(110, "hid-read", "hid-read0", "report 01, 4 bytes", "01040000", [1])
+            ]
+        };
+
+        var candidates = LabInputAnalysis.Candidates(step, [directInput, hid], null);
+
+        Assert.Contains(candidates, candidate => candidate.Source == "directinput"
+                                                 && candidate.Evidence.Contains("buttons 0"));
+        Assert.Contains(candidates, candidate => candidate.Source == "hid-read"
+                                                 && candidate.Evidence.Contains("report 01 byte 1: 04"));
+    }
+
+    [Fact]
     public void WithoutPointer_HidesTouchesButKeepsControllers()
     {
         LabInputCandidate touch = new("raw-input", "hid1", "hid 04F3:2C43 000D:0004", ["x"], 1, 1, null);
         LabInputCandidate mouse = new("hook", "injected", null, ["mouse message 0201 data 0"], 1, 1, null);
+        LabInputCandidate rawMouse = new("raw-input", "injected0", "injected (virtual)", ["mouse buttons 0001"], 1, 1, null);
         LabInputCandidate pad = new("xinput", "xinput0", "xinput 045E:028E", ["A"], 1, 1, null);
 
-        Assert.Equal([pad], LabInputAnalysis.WithoutPointer([touch, mouse, pad]));
+        Assert.Equal([pad], LabInputAnalysis.WithoutPointer([touch, mouse, rawMouse, pad]));
     }
 
     [Fact]

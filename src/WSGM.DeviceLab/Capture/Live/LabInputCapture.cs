@@ -34,7 +34,7 @@ internal sealed record LabInputDevice(
 /// <summary>One recorded input event.</summary>
 /// <param name="Ms">Milliseconds since the capture started.</param>
 /// <param name="Source">
-///     <c>raw-input</c>, <c>hook</c>, <c>xinput</c>, <c>wgi</c>, <c>wmi</c>, <c>power</c>, <c>device</c> or
+///     <c>raw-input</c>, <c>hid-read</c>, <c>directinput</c>, <c>hook</c>, <c>xinput</c>, <c>wgi</c>, <c>wmi</c>, <c>power</c>, <c>device</c> or
 ///     <c>app-command</c>.
 /// </param>
 /// <param name="Device">Device ID from <see cref="LabInputDevice.Id" />, when the source names one.</param>
@@ -112,6 +112,7 @@ internal sealed partial class LabInputCapture : IDisposable
     private readonly Dictionary<IntPtr, LabInputDevice> _byHandle = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly List<LabInputDevice> _devices = [];
+    private readonly Dictionary<string, int> _deviceIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _dropped = new(StringComparer.Ordinal);
     private readonly List<LabInputEvent> _events = [];
     private readonly Lock _gate = new();
@@ -131,8 +132,9 @@ internal sealed partial class LabInputCapture : IDisposable
     private string _step = "idle";
     private double _stepStarted;
 
-    private LabInputCapture()
+    internal LabInputCapture(nint windowHandle)
     {
+        _directInputWindow = windowHandle;
     }
 
     /// <summary>Devices seen so far.</summary>
@@ -184,6 +186,17 @@ internal sealed partial class LabInputCapture : IDisposable
         }
 
         _disposed = true;
+        HidCollectionReader[] readers;
+        lock (_gate)
+        {
+            readers = [.. _hidReaders];
+            _hidReaders.Clear();
+        }
+
+        foreach (var reader in readers)
+        {
+            reader.Dispose();
+        }
         foreach (var watcher in _watchers)
         {
             try
@@ -219,9 +232,9 @@ internal sealed partial class LabInputCapture : IDisposable
 
     /// <summary>Starts every source and returns once the message thread is running.</summary>
     /// <returns>The running capture.</returns>
-    public static LabInputCapture Start()
+    public static LabInputCapture Start(nint windowHandle)
     {
-        LabInputCapture capture = new();
+        LabInputCapture capture = new(windowHandle);
         capture._messageThread = new Thread(capture.MessageLoop) { IsBackground = true, Name = "Device Lab input" };
         capture._messageThread.SetApartmentState(ApartmentState.STA);
         capture._messageThread.Start();
@@ -233,6 +246,7 @@ internal sealed partial class LabInputCapture : IDisposable
 
         capture._pollThread = new Thread(capture.PollLoop) { IsBackground = true, Name = "Device Lab controller poll" };
         capture._pollThread.Start();
+        capture.StartHidCollections();
         capture.StartWmi();
         return capture;
     }
@@ -340,7 +354,11 @@ internal sealed partial class LabInputCapture : IDisposable
     {
         lock (_gate)
         {
-            _unavailable.Add($"{source}: {reason}");
+            var entry = $"{source}: {reason}";
+            if (!_unavailable.Contains(entry))
+            {
+                _unavailable.Add(entry);
+            }
         }
     }
 
@@ -354,17 +372,19 @@ internal sealed partial class LabInputCapture : IDisposable
         return device;
     }
 
-    private string NextId(string prefix)
+    internal string NextId(string prefix)
     {
         lock (_gate)
         {
-            return prefix + _devices.Count(device => device.Id.StartsWith(prefix, StringComparison.Ordinal));
+            _deviceIds.TryGetValue(prefix, out var next);
+            _deviceIds[prefix] = next + 1;
+            return prefix + next;
         }
     }
 
     // A HID report: stored whole when a byte outside the baseline noise changed, sampled when only noise
     // changed, and counted when nothing changed.
-    private void OnHidReport(LabInputDevice device, ReadOnlySpan<byte> report)
+    private void OnHidReport(LabInputDevice device, ReadOnlySpan<byte> report, string source = "raw-input")
     {
         var bytes = report.Length > MaximumReportBytes ? report[..MaximumReportBytes] : report;
         var key = device.Id + ":" + (bytes.Length > 0 ? bytes[0] : 0);
@@ -420,7 +440,7 @@ internal sealed partial class LabInputCapture : IDisposable
 
         var hex = Convert.ToHexString(bytes);
         Record(
-            new LabInputEvent(Math.Round(Now, 2), "raw-input", device.Id,
+            new LabInputEvent(Math.Round(Now, 2), source, device.Id,
                 $"report {(bytes.Length > 0 ? bytes[0] : 0):X2}, {bytes.Length} bytes", hex,
                 changed.Count > 0 ? changed : null, noiseOnly),
             !noiseOnly && changed.Count > 0);
@@ -428,25 +448,50 @@ internal sealed partial class LabInputCapture : IDisposable
 
     private void StartWmi()
     {
-        // Firmware and ACPI providers publish through root\wmi. Each subscription is optional; a refused
-        // one is recorded and never retried.
-        Watch(@"root\wmi", "SELECT * FROM __ExtrinsicEvent");
+        // Providers such as MSI reject a subscription to the base event class. Subscribe to their
+        // concrete event classes instead, including OEM providers unknown to the device records.
+        try
+        {
+            using ManagementObjectSearcher search = new(@"root\wmi",
+                "SELECT * FROM meta_class WHERE __this ISA '__ExtrinsicEvent'");
+            using var classes = search.Get();
+            foreach (ManagementBaseObject definition in classes)
+            {
+                using (definition)
+                {
+                    var name = Convert.ToString(definition["__CLASS"]);
+                    if (string.IsNullOrEmpty(name) || name.StartsWith("__", StringComparison.Ordinal)
+                        || !name.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
+                    {
+                        continue;
+                    }
+
+                    Watch(@"root\wmi", $"SELECT * FROM {name}");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
+        {
+            MarkUnavailable(@"wmi root\wmi event discovery", ex.Message);
+        }
         Watch(@"root\cimv2", "SELECT * FROM Win32_PowerManagementEvent");
         Watch(@"root\cimv2", "SELECT * FROM Win32_DeviceChangeEvent");
     }
 
     private void Watch(string scope, string query)
     {
+        ManagementEventWatcher? watcher = null;
         try
         {
-            ManagementEventWatcher watcher = new(new ManagementScope(scope), new WqlEventQuery(query));
+            watcher = new ManagementEventWatcher(new ManagementScope(scope), new WqlEventQuery(query));
             watcher.EventArrived += (_, args) => OnWmiEvent(args.NewEvent);
             watcher.Start();
             _watchers.Add(watcher);
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
         {
-            MarkUnavailable($"wmi {scope}", ex.Message);
+            watcher?.Dispose();
+            MarkUnavailable($"wmi {scope} {query}", ex.Message);
         }
     }
 
@@ -484,17 +529,33 @@ internal sealed partial class LabInputCapture : IDisposable
     // Polls XInput and Windows.Gaming.Input every 4 ms. Only changes are stored.
     private void PollLoop()
     {
+        DirectInputReader? directInput = null;
+        try
+        {
+            directInput = new DirectInputReader(this, _directInputWindow);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            MarkUnavailable("directinput", ex.Message);
+        }
+
         var packets = new uint[4];
         var results = new[] { uint.MaxValue, uint.MaxValue, uint.MaxValue, uint.MaxValue };
         var pads = new XInputGamepad[4];
         var padIds = new string?[4];
         var guide = true;
+        var xinputAvailable = true;
         Dictionary<RawGameController, (LabInputDevice Device, bool[] Buttons, int[] Switches, double[] Axes)>
             controllers = [];
         while (!_disposed)
         {
             for (uint slot = 0; slot < 4; slot++)
             {
+                if (!xinputAvailable)
+                {
+                    break;
+                }
+
                 uint result;
                 XInputState state;
                 try
@@ -520,7 +581,8 @@ internal sealed partial class LabInputCapture : IDisposable
                 catch (DllNotFoundException)
                 {
                     MarkUnavailable("xinput", "xinput1_4.dll is missing");
-                    return;
+                    xinputAvailable = false;
+                    break;
                 }
 
                 if (result != results[slot])
@@ -571,8 +633,21 @@ internal sealed partial class LabInputCapture : IDisposable
                 Thread.Sleep(1000);
             }
 
+            try
+            {
+                directInput?.Poll();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                MarkUnavailable("directinput", ex.Message);
+                directInput?.Dispose();
+                directInput = null;
+            }
+
             Thread.Sleep(4);
         }
+
+        directInput?.Dispose();
     }
 
     private void PollGameControllers(

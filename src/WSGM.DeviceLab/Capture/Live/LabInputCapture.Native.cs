@@ -324,7 +324,7 @@ internal sealed partial class LabInputCapture
 
             var prefix = kind == "injected" ? "injected" : kind == "hid" ? "hid" : kind == "keyboard" ? "kbd" : "mouse";
             device = new LabInputDevice(
-                prefix + _devices.Count(item => item.Id.StartsWith(prefix, StringComparison.Ordinal)),
+                NextId(prefix),
                 kind, vendor, product,
                 hid ? info.UsagePage : null, hid ? info.Usage : null,
                 path.Length == 0 ? null : path, isVirtual);
@@ -360,6 +360,10 @@ internal sealed partial class LabInputCapture
                             $"{(arrived ? "arrived" : "removed")}: {device.Kind} {device.VendorId}:{device.ProductId} {device.UsagePage:X4}:{device.Usage:X4}"),
                         false);
                     DeviceChanged?.Invoke(device, arrived);
+                    if (arrived)
+                    {
+                        QueueHidRescan();
+                    }
                     break;
                 }
                 case WmPowerBroadcast:

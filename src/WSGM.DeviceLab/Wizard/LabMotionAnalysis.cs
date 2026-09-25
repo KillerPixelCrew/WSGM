@@ -1351,7 +1351,11 @@ internal static class LabMotionAnalysis
         }
 
         List<string> parts = [sensors.Count > 0 ? Count(sensors.Count, "sensor") : "no Windows motion sensor"];
-        var maps = sensors.Where(item => item.Map is not null).ToList();
+        var maps = sensors.Where(item => item.Map is not null && item.MapClear).ToList();
+        if (sensors.Any(item => item.Map is not null && !item.MapClear))
+        {
+            parts.Add("ambiguous axis measurements need a repeat");
+        }
         if (maps.Count == 0)
         {
             if (sensors.Count > 0)

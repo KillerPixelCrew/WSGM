@@ -105,7 +105,7 @@ internal static partial class LabInputAnalysis
 
             string key;
             string? evidence;
-            if (item.Source == "raw-input" && item.Data is { } data)
+            if (item.Source is "raw-input" or "hid-read" && item.Data is { } data)
             {
                 if (item.Changed is not { Count: > 0 } changed)
                 {
@@ -113,7 +113,7 @@ internal static partial class LabInputAnalysis
                 }
 
                 var reportId = data.Length >= 2 ? data[..2] : "00";
-                key = $"raw-input|{item.Device}|report {reportId}";
+                key = $"{item.Source}|{item.Device}|report {reportId}";
                 var bytes = reportBytes.TryGetValue(key, out var existing) ? existing : reportBytes[key] = [];
                 foreach (var offset in changed)
                 {
@@ -145,7 +145,7 @@ internal static partial class LabInputAnalysis
 
                 continue;
             }
-            else if (item.Source == "wgi" && WgiButtons().Match(item.Detail) is { Success: true } wgi)
+            else if (item.Source is "wgi" or "directinput" && WgiButtons().Match(item.Detail) is { Success: true } wgi)
             {
                 key = $"wgi|{item.Device}";
                 evidence = wgi.Groups["buttons"].Value.Length > 0
@@ -325,7 +325,7 @@ internal static partial class LabInputAnalysis
             .. candidates.Where(candidate =>
                 candidate.DeviceDescription?.StartsWith("mouse", StringComparison.Ordinal) != true
                 && candidate.DeviceDescription?.Contains(" 000D:", StringComparison.Ordinal) != true
-                && !(candidate.Source == "hook" &&
+                && !(candidate.Source is "hook" or "raw-input" &&
                      candidate.Evidence.All(item => item.StartsWith("mouse", StringComparison.Ordinal))))
         ];
     }

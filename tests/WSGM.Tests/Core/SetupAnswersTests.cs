@@ -16,7 +16,7 @@ public sealed class SetupAnswersTests
         var exported = SetupAnswers.Export(config, false, ["Steam (HKCU Run)"]);
         var read = SetupAnswers.Parse(exported.ToUtf8Json());
         AppConfig applied = new();
-        read.ApplyTo(applied);
+        read.ApplyTo(applied, freshInstall: false);
 
         Assert.False(applied.StartAtSignIn);
         Assert.Equal(SessionStartMode.Desktop, applied.StartMode);
@@ -31,7 +31,7 @@ public sealed class SetupAnswersTests
     public void MinimalPreset_LeavesSteamAloneButKeepsWsgmReachable()
     {
         AppConfig config = new();
-        new SetupAnswers { Features = SetupFeatures.Minimal, StartMode = SessionStartMode.Game }.ApplyTo(config);
+        new SetupAnswers { Features = SetupFeatures.Minimal, StartMode = SessionStartMode.Game }.ApplyTo(config, freshInstall: true);
 
         Assert.False(config.SteamInputManagementEnabled);
         Assert.False(config.Cef.Enabled);
@@ -58,6 +58,36 @@ public sealed class SetupAnswersTests
 
         Assert.Empty(config.OtherManagersDisabled);
         Assert.True(SetupAnswers.Export(config, false, []).OtherManagersTakeover);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void FreshSetup_EnablesControllerManagementWithDeviceIntegration(bool integration, bool expected)
+    {
+        AppConfig config = new();
+        var answers = new SetupAnswers { Features = SetupFeatures.Full, DeviceIntegration = integration };
+
+        answers.ApplyTo(config, freshInstall: true);
+
+        Assert.Equal(expected, config.DeviceIntegration.ControllerManagementEnabled);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void ExistingSetup_PreservesControllerChoice(bool integration, bool management)
+    {
+        AppConfig config = new();
+        config.DeviceIntegration.ControllerManagementEnabled = management;
+        // The actual installation state wins over the exported answer's stale flag.
+        var answers = new SetupAnswers { Features = SetupFeatures.Full, DeviceIntegration = integration, FreshInstall = true };
+
+        answers.ApplyTo(config, freshInstall: false);
+
+        Assert.Equal(management, config.DeviceIntegration.ControllerManagementEnabled);
     }
 
     [Theory]

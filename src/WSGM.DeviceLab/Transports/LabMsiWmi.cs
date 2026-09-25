@@ -27,7 +27,14 @@ internal sealed record LabMsiOriginal(
     LabMsiState? Power,
     string? PowerUnavailable,
     int? ChargeRaw,
-    string? ChargeUnavailable);
+    string? ChargeUnavailable)
+{
+    /// <summary>Raw fan flags before testing.</summary>
+    public LabMsiFanState? Fans { get; init; }
+}
+
+/// <summary>Raw custom and full-speed flags, including firmware-owned bits.</summary>
+internal sealed record LabMsiFanState(byte Custom, byte FullSpeed);
 
 /// <summary>
 ///     The MSI_ACPI service the wizard calls through the hardware worker (<c>msi-wmi</c>, opened with a
@@ -69,6 +76,13 @@ internal interface ILabMsiWmi : IDisposable
     /// <param name="raw">The byte.</param>
     [LabWorkerWrite]
     void WriteChargeRaw(int raw);
+
+    /// <summary>Reads both fan mode flags.</summary>
+    LabMsiFanState ReadFans();
+
+    /// <summary>Writes fan mode flags and reads them back.</summary>
+    [LabWorkerWrite]
+    bool WriteFans(LabMsiFanState state);
 }
 
 /// <summary>The raw MSI_ACPI method calls, so the logic above them can be tested without hardware.</summary>
@@ -179,7 +193,31 @@ internal sealed class LabMsiWmi : ILabMsiWmi
             }
         }
 
-        return new LabMsiOriginal(power, powerUnavailable, charge, chargeUnavailable);
+        return new LabMsiOriginal(power, powerUnavailable, charge, chargeUnavailable)
+        {
+            Fans = _layout.FanCustom is not null && _layout.FanFullSpeed is not null ? ReadFans() : null
+        };
+    }
+
+    /// <inheritdoc />
+    public LabMsiFanState ReadFans()
+    {
+        return new LabMsiFanState(Get(_layout.FanCustom!.Value)[1], Get(_layout.FanFullSpeed!.Value)[1]);
+    }
+
+    /// <inheritdoc />
+    public bool WriteFans(LabMsiFanState state)
+    {
+        var current = ReadFans();
+        if (current.Custom != state.Custom)
+        {
+            WriteByte(_layout.FanCustom!.Value, state.Custom);
+        }
+        if (current.FullSpeed != state.FullSpeed)
+        {
+            WriteByte(_layout.FanFullSpeed!.Value, state.FullSpeed);
+        }
+        return ReadFans() == state;
     }
 
     /// <summary>
@@ -271,7 +309,8 @@ internal sealed class LabMsiWmi : ILabMsiWmi
     public void WriteChargeRaw(int raw)
     {
         var percent = raw & ChargePercentMask;
-        if (raw is < 0 or > 0xFF || percent < _layout.ChargeMinimum || percent > _layout.ChargeMaximum)
+        // BIOS can report 0x80 (no percentage configured). It must remain restorable verbatim.
+        if (raw is < 0 or > 0xFF || (percent != 0 && (percent < _layout.ChargeMinimum || percent > _layout.ChargeMaximum)))
         {
             throw new InvalidOperationException($"Refused MSI charge limit {percent} %: outside the record's range.");
         }

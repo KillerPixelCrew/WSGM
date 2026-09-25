@@ -11,6 +11,9 @@ Device Lab redistributes the following third-party components:
 - Tmds.DBus.Protocol 0.94.1. Copyright Tom Deseyn. Licensed under the MIT License.
 - System.Management 10.0.0 and its System.CodeDom 10.0.0 dependency. Copyright Microsoft Corporation
   and .NET Foundation contributors. Licensed under the MIT License.
+- Vortice.DirectInput and Vortice.DirectX 3.8.3. Copyright Amer Koleci and contributors. Licensed
+  under the MIT License. SharpGen.Runtime 2.4.2-beta is included as a dependency under the MIT
+  License.
 - The self-contained Microsoft .NET 10 runtime and framework assemblies. Copyright .NET Foundation
   contributors. Licensed under the MIT License.
 - The PawnIO 2.2.0 installer (`PawnIO_setup.exe`), embedded unmodified when the build acquired it.

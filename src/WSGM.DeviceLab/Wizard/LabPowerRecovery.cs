@@ -48,6 +48,12 @@ internal sealed record LabPowerChanges
     /// <summary>The raw MSI charge limit byte before the test.</summary>
     public int? MsiChargeRaw { get; init; }
 
+    /// <summary>The MSI fan mode flags before the full-speed test.</summary>
+    public LabMsiFanState? MsiFans { get; init; }
+
+    /// <summary>The exact committed Claw RGB profile before testing.</summary>
+    public byte[]? ClawLighting { get; init; }
+
     /// <summary>
     ///     When the lab first wrote the write-only Aura lighting. It cannot be read back, so recovery only
     ///     tells the tester to set their colour again.
@@ -61,9 +67,9 @@ internal sealed record LabPowerChanges
     {
         return changes is not null
                && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null
+                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null || changes.MsiFans is not null
                                                  || changes.AmdLimits is not null || changes.IntelLimits is not null
-                                                 || changes.AuraWrittenAt is not null);
+                                                 || changes.AuraWrittenAt is not null || changes.ClawLighting is not null);
     }
 
     /// <summary>Whether a readable setting is still recorded.</summary>
@@ -73,7 +79,7 @@ internal sealed record LabPowerChanges
     {
         return changes is not null
                && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null
+                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null || changes.MsiFans is not null || changes.ClawLighting is not null
                                                  || changes.AmdLimits is not null || changes.IntelLimits is not null);
     }
 }
@@ -177,12 +183,33 @@ internal static class LabPowerRecovery
         var plan = LabPowerPlan.For(DeviceKnowledgeBase.Default.Records.FirstOrDefault(record =>
             record.Id == recorded!.RecordId));
         List<string> problems = [];
+        if (recorded!.ClawLighting is { } profile)
+        {
+            try
+            {
+                using var rgb = worker.Open<ILabClawLighting>(LabClawLighting.Service.Name, log, recorded.RecordId);
+                var (current, token) = worker.Checkpoint<byte[]>(rgb, AlreadyRecorded);
+                if (current.SequenceEqual(profile) || rgb.Apply(profile))
+                {
+                    machine.Update(changes => changes with { Power = changes.Power! with { ClawLighting = null } });
+                    worker.Release(rgb, token);
+                }
+                else
+                {
+                    problems.Add("The original Claw RGB profile did not read back.");
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                problems.Add($"The original Claw RGB profile could not be restored: {ex.Message}");
+            }
+        }
         if (recorded!.AsusPower is not null || recorded.AsusChargeLimit is not null)
         {
             RestoreAsus(machine, worker, recorded, plan, log, problems);
         }
 
-        if (recorded.MsiPower is not null || recorded.MsiChargeRaw is not null)
+        if (recorded.MsiPower is not null || recorded.MsiChargeRaw is not null || recorded.MsiFans is not null)
         {
             RestoreMsi(machine, worker, recorded, plan, log, problems);
         }
@@ -292,10 +319,23 @@ internal static class LabPowerRecovery
             using var wmi = worker.Open<ILabMsiWmi>(LabMsiWmi.Service.Name, log, layout);
             var (_, token) = worker.Checkpoint<LabMsiOriginal>(wmi, AlreadyRecorded);
             var verified = true;
+            if (recorded.MsiFans is { } fans)
+            {
+                verified = wmi.WriteFans(fans);
+                if (verified)
+                {
+                    machine.Update(changes => changes with { Power = changes.Power! with { MsiFans = null } });
+                }
+                else
+                {
+                    problems.Add("The fan mode flags did not read back as they were.");
+                }
+            }
             if (recorded.MsiPower is { } power && layout.HasTdp)
             {
-                verified = wmi.RestorePower(power);
-                if (verified)
+                var powerRestored = wmi.RestorePower(power);
+                verified &= powerRestored;
+                if (powerRestored)
                 {
                     machine.Update(changes => changes with { Power = changes.Power! with { MsiPower = null } });
                 }

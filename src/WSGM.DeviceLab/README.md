@@ -32,10 +32,12 @@ someone who is not a developer. It asks for administrator rights once, then:
    chooses to try it (the motion stage does the same for gyro enables). It then learns what changes
    by itself, then asks for each control of the Xbox layout, the device's own buttons, back buttons,
    touchpads, stick touch, volume and power, holds and rear-button chords. Every input from every
-   device is recorded (Raw Input on every usage page, keyboard and mouse hooks, XInput with the
-   Guide button, Windows.Gaming.Input, WMI and power events) and attributed afterwards. Windows-key
-   shortcuts are swallowed while a step runs. A press step finishes by itself once the control is
-   quiet; any control can be redone.
+   device is recorded (Raw Input on every usage page, direct reads of every accessible HID input
+   collection, DirectInput game controllers, keyboard and mouse hooks, XInput with the Guide button,
+   Windows.Gaming.Input, concrete WMI provider events and power events) and attributed afterwards.
+   Unreadable collections are listed with their error. Windows-key shortcuts are swallowed while a
+   step runs. A press step finishes by itself once the control is quiet; Previous button and the
+   stage list can return to an earlier control or stage.
 5. **Motion sensors.** WinRT, the legacy Sensor API (including custom fields such as the Claw's), a
    CH340 serial IMU and controller HID reports, all at once: rest, six gravity poses, and pitch,
    roll and yaw. The axis map is worked out per source and compared with the known record.
@@ -54,16 +56,20 @@ someone who is not a developer. It asks for administrator rights once, then:
    device it tests TDP, the power profile, fan curves and the charge limit through the device's own
    interface, each read back and put back. For other AMD and Intel machines it tests the processor
    power limit through PawnIO's RyzenSMU module or KX, and never writes the EC. Lighting uses
-   Windows Dynamic Lighting, and the Ally's Aura interface where it applies.
+   Windows Dynamic Lighting, the Ally's Aura interface, and the Claw's committed RGB profile where
+   they apply. The Claw test runs both fans at full speed for five seconds and restores the original
+   mode flags. RGB testing restores the exact original profile, including after a cancelled test.
 8. **Sleep and wake.** The tester presses the power button; the wizard never sleeps the device
    itself. It checks that the controller, HID devices and sensors come back, that a press arrives,
    and whether a controller init survived. Curated controller init commands also run in the hardware
-   worker.
+   worker. On Modern Standby systems the display off/on cycle also advances the test; the evidence
+   names that signal separately from traditional suspend/resume and does not claim deep-idle
+   residency.
 9. **Finish and share.** Shows every file that will be shared, what was replaced (account names,
    user folders, device instance paths, network addresses) and what stays on the computer, then
    writes one `.wsgmlab` file, a ZIP of the redacted test folder.
 
-Each test is a folder under `Documents\WSGM Device Lab`. Selecting a stage in the list shows its
+Each new test is a dated folder next to `wsgm-device.exe`. Selecting a stage in the list shows its
 result; "Run again" starts a new attempt, and every attempt is kept, so a wrongly read button does
 not mean repeating the whole test. "Stop and save" (or Escape) ends the running step and keeps what
 was recorded. Changes the wizard makes to the machine are recorded in

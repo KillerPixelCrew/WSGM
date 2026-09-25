@@ -247,10 +247,10 @@ public static class Program
                 try
                 {
                     var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
-                    answers.ApplyTo(config);
+                    answers.ApplyTo(config, freshInstall);
                     ConfigStore.Save(config);
                     Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
-                             + $"configuration ({answers.Describe()}).");
+                             + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
                     if (answers.SteamAutostartTakeover)
                     {
                         // The user consented in setup; setup never sets this for a silent fresh install.

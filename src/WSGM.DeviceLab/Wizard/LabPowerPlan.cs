@@ -111,6 +111,12 @@ internal sealed record LabMsiLayout
     /// <summary>Fan table getter, when the record has a fan mechanism; its channel 0 carries RPM.</summary>
     public string? FanGetter { get; init; }
 
+    /// <summary>Custom fan mode flag address.</summary>
+    public byte? FanCustom { get; init; }
+
+    /// <summary>Full-speed fan mode flag address.</summary>
+    public byte? FanFullSpeed { get; init; }
+
     /// <summary>Whether the record has a TDP mechanism.</summary>
     public bool HasTdp => Sustained is not null && Boost is not null;
 }
@@ -446,7 +452,12 @@ internal sealed record LabPowerPlan
                     if (p.GetValueOrDefault("getTable") is { } getter &&
                         getter.StartsWith("Get_", StringComparison.Ordinal))
                     {
-                        layout = layout with { FanGetter = getter };
+                        layout = layout with
+                        {
+                            FanGetter = getter,
+                            FanCustom = Number(p, "customAddress") is <= 255 and var custom ? (byte)custom : null,
+                            FanFullSpeed = Number(p, "fullSpeedAddress") is <= 255 and var full ? (byte)full : null
+                        };
                     }
 
                     break;

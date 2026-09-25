@@ -19,6 +19,13 @@ namespace WSGM.DeviceLab.Gui;
 // and a redo runs the same init and liveness check first.
 internal sealed partial class WizardWindow
 {
+    private enum ButtonControlResult
+    {
+        Next,
+        Previous,
+        SkipRest
+    }
+
     private async Task RunButtonsAsync(LabProject project, StackPanel page)
     {
         var record = ConfirmedRecord(project);
@@ -49,6 +56,10 @@ internal sealed partial class WizardWindow
                 var line = Status("Setting up the controller...");
                 page.Children.Add(line);
                 initResult = await SendCuratedInitAsync(record!.Id, Lifetime);
+                if (initResult.Sent)
+                {
+                    await Task.Run(capture.RescanHidCollections);
+                }
                 restoreMode = init.Reversible && initResult.Sent;
                 line.Text = initResult.Sent
                     ? "The controller is set up."
@@ -62,6 +73,7 @@ internal sealed partial class WizardWindow
 
         // 1b. Without a curated record, HC's own mode commands for this device, only if the tester opts in.
         ModeCommandRun modes = new(project, attempt, "Buttons");
+        string? restoreProblem = null;
         try
         {
             await OfferModeCommandsAsync(modes, page, record, LabModeStages.Buttons);
@@ -101,10 +113,18 @@ internal sealed partial class WizardWindow
 
             if (!resumed)
             {
+                var skippedRest = false;
                 for (var i = 0; i < controls.Count; i++)
                 {
-                    if (!await RunControlAsync(project, page, capture, record, controls[i],
-                            $"{i + 1} of {controls.Count}"))
+                    var result = await RunControlAsync(project, page, capture, record, controls[i],
+                        $"{i + 1} of {controls.Count}", i > 0);
+                    if (result == ButtonControlResult.Previous)
+                    {
+                        i -= 2;
+                        continue;
+                    }
+
+                    if (result == ButtonControlResult.SkipRest)
                     {
                         // "Skip the rest": the remaining controls are marked, never counted as measured.
                         var remaining = controls.Skip(i + 1).ToList();
@@ -118,12 +138,13 @@ internal sealed partial class WizardWindow
                                     DateTimeOffset.UtcNow);
                             }
                         });
+                        skippedRest = true;
                         break;
                     }
                 }
 
                 // Buttons the plan did not know about.
-                for (var extra = 1; extra <= 12; extra++)
+                for (var extra = 1; !skippedRest && extra <= 12; extra++)
                 {
                     page.Children.Clear();
                     page.Children.Add(PageTitle("Any other buttons?"));
@@ -156,24 +177,33 @@ internal sealed partial class WizardWindow
         {
             capture.SwallowShortcuts = false;
             capture.Detailed = false;
-            await EndModeCommandsAsync(modes, page, true);
-        }
-
-        // 5. Put the controller back the way it was.
-        string? restoreProblem = null;
-        if (restoreMode)
-        {
-            page.Children.Clear();
-            page.Children.Add(PageTitle("Buttons"));
-            var line = Status("Putting the controller back the way it was...");
-            page.Children.Add(line);
-            restoreProblem = await RecoverControllerInitAsync(CancellationToken.None);
-            if (restoreProblem is not null)
+            try
             {
-                line.Text = $"The controller could not be put back: {restoreProblem}";
-                page.Children.Add(Warning(
-                    "Restart the device to reset the controller mode. The next time Device Lab starts it will try again."));
-                await AskAsync(page, "Continue");
+                await EndModeCommandsAsync(modes, page, true);
+            }
+            finally
+            {
+                // A stage cancellation must restore the mode too; the sidebar waits for this cleanup.
+                if (restoreMode)
+                {
+                    TextBlock? line = null;
+                    if (!Lifetime.IsCancellationRequested)
+                    {
+                        page.Children.Clear();
+                        page.Children.Add(PageTitle("Buttons"));
+                        line = Status("Putting the controller back the way it was...");
+                        page.Children.Add(line);
+                    }
+
+                    restoreProblem = await RecoverControllerInitAsync(CancellationToken.None);
+                    if (restoreProblem is not null && line is not null)
+                    {
+                        line.Text = $"The controller could not be put back: {restoreProblem}";
+                        page.Children.Add(Warning(
+                            "Restart the device to reset the controller mode. The next time Device Lab starts it will try again."));
+                        await AskAsync(page, "Continue");
+                    }
+                }
             }
         }
 
@@ -266,15 +296,15 @@ internal sealed partial class WizardWindow
 
     // Records one control until the tester says it is done or, once something reacted, the control has
     // been quiet for its window. "Do it again" starts a new attempt and keeps the earlier one. A step
-    // where nothing reacted is flagged and offered again, never stored silently. Returns false when the
-    // tester chose "Skip the rest".
-    private async Task<bool> RunControlAsync(
+    // where nothing reacted is flagged and offered again, never stored silently.
+    private async Task<ButtonControlResult> RunControlAsync(
         LabProject project,
         StackPanel page,
         LabInputCapture capture,
         DeviceKnowledgeRecord? record,
         LabControl control,
-        string progress)
+        string progress,
+        bool canGoBack = false)
     {
         var segment = $"{LabStages.Buttons}/{control.Id}";
         while (true)
@@ -299,7 +329,7 @@ internal sealed partial class WizardWindow
 
             void OnActivity(LabInputActivity activity)
             {
-                if (activity.Source == "hook" && activity.Detail.StartsWith("mouse", StringComparison.Ordinal))
+                if (activity.Source is "hook" or "raw-input" && activity.Detail.StartsWith("mouse", StringComparison.Ordinal))
                 {
                     return;
                 }
@@ -334,8 +364,16 @@ internal sealed partial class WizardWindow
             int answer;
             try
             {
-                answer = await AskAsync(page, quiet.Token, "Next", "Do it again", "This device does not have it",
-                    "Skip the rest");
+                string[] choices = canGoBack
+                    ? new[] { "Next", "Do it again", "This device does not have it", "Skip the rest", "Previous button" }
+                    : ["Next", "Do it again", "This device does not have it", "Skip the rest"];
+                answer = await AskAsync(page, quiet.Token, choices);
+            }
+            catch (OperationCanceledException) when (Lifetime.IsCancellationRequested)
+            {
+                var interrupted = capture.EndStep();
+                await Task.Run(() => project.WriteEvidence(directory, "input", interrupted));
+                throw;
             }
             finally
             {
@@ -359,7 +397,19 @@ internal sealed partial class WizardWindow
                     project.WriteEvidence(directory, "input", skipped);
                     project.Finish(segment, LabSegmentStatus.Skipped, "Skipped with the rest.", DateTimeOffset.UtcNow);
                 });
-                return false;
+                return ButtonControlResult.SkipRest;
+            }
+
+            if (answer == 4)
+            {
+                var previous = capture.EndStep();
+                await Task.Run(() =>
+                {
+                    project.WriteEvidence(directory, "input", previous);
+                    project.Finish(segment, LabSegmentStatus.NotStarted, "Moved to previous button.",
+                        DateTimeOffset.UtcNow);
+                });
+                return ButtonControlResult.Previous;
             }
 
             var step = capture.EndStep();
@@ -408,7 +458,7 @@ internal sealed partial class WizardWindow
             });
             if (answer != 1)
             {
-                return true;
+                return ButtonControlResult.Next;
             }
         }
     }
@@ -448,7 +498,10 @@ internal sealed partial class WizardWindow
         [
             .. devices.Where(device => device.Kind == "xinput").Select(device => device.Name ?? device.Id),
             .. devices.Where(device => device.Kind == "wgi").Select(device => device.Name ?? device.Id),
-            $"{devices.Count(device => device.Kind == "hid")} HID collections",
+            .. devices.Where(device => device.Kind is "directinput" or "hid-read")
+                .Select(device => device.Name ?? device.Id),
+            $"{devices.Count(device => device.Kind == "hid")} Raw Input HID collections",
+            $"{devices.Count(device => device.Kind == "hid-read")} direct HID readers",
             $"{devices.Count(device => device.Kind == "keyboard")} keyboards",
             "keyboard and mouse hooks",
             "WMI and power events"

@@ -22,6 +22,7 @@
     <PackageReference Include="System.Management" Version="10.0.12"/>
     <!-- Read-only EC, AMD SMU and Intel MSR access through PawnIO, the version Handheld Companion 1.3.1.6 ships (MPL-2.0). -->
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6"/>
+    <PackageReference Include="Vortice.DirectInput" Version="3.8.3"/>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference

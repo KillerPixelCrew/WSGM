@@ -54,6 +54,7 @@ internal static class LabPowerSummary
             "tdp" => "TDP",
             "power-profile" => "performance mode",
             "fan" => "fans",
+            "fan-full-speed" => "100% fan speed",
             "charge-limit" => "charge limit",
             _ => feature
         };

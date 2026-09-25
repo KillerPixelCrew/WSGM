@@ -74,6 +74,25 @@ internal sealed partial class WizardWindow
         TaskCompletionSource<bool> skipped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         double? suspendedAt = null;
         double? resumedAt = null;
+        var modernStandby = await Task.Run(LabSystemDump.SupportsModernStandby);
+        var detection = "suspend/resume notification";
+
+        void OnPowerActivity(LabInputActivity activity)
+        {
+            if (!modernStandby || activity.Source != "power")
+            {
+                return;
+            }
+            if (activity.Detail == "display-state = 0")
+            {
+                detection = "Modern Standby display off/on cycle";
+                OnSuspendResume(true);
+            }
+            else if (activity.Detail == "display-state = 1")
+            {
+                OnSuspendResume(false);
+            }
+        }
 
         void OnSuspendResume(bool suspending)
         {
@@ -94,6 +113,7 @@ internal sealed partial class WizardWindow
         page.Children.Add(row);
 
         capture.SuspendResume += OnSuspendResume;
+        capture.Activity += OnPowerActivity;
         capture.BeginStep($"{LabStages.Sleep}/cycle");
         Task finished;
         await using (Lifetime.Register(() =>
@@ -106,6 +126,7 @@ internal sealed partial class WizardWindow
         }
 
         capture.SuspendResume -= OnSuspendResume;
+        capture.Activity -= OnPowerActivity;
         page.Children.Remove(row);
         Lifetime.ThrowIfCancellationRequested();
         if (finished != resumed.Task)
@@ -181,6 +202,8 @@ internal sealed partial class WizardWindow
             project.WriteEvidence(attempt, "sleep", new
             {
                 Before = before,
+                Detection = detection,
+                DeepIdleResidencyMeasured = false,
                 SuspendedAtMs = suspendedAt,
                 ResumedAtMs = resumedAt,
                 After = after,
@@ -210,7 +233,7 @@ internal sealed partial class WizardWindow
 
         void OnActivity(LabInputActivity activity)
         {
-            if (activity.Source is "xinput" or "wgi" or "raw-input"
+            if (activity.Source is "xinput" or "wgi" or "raw-input" or "hid-read" or "directinput"
                 && !activity.Detail.StartsWith("mouse", StringComparison.Ordinal))
             {
                 pressed.TrySetResult($"{activity.Source}: {activity.Detail}");

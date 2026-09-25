@@ -44,7 +44,7 @@
       "provenance": {
         "source": "WsgmPlugin",
         "reference": "src/WSGM.Device.Msi.Claw8A2Vm/ClawHardware.cs",
-        "note": "DirectInput mode; the 64-byte report 0x01 carries the rear paddles."
+        "note": "DirectInput mode MCU command collection. Gamepad input and rumble use the separate 0001:0005 collection."
       }
     }
   ],
@@ -225,6 +225,8 @@
       "parameters": {
         "vendorId": "0DB0",
         "productId": "1902",
+        "usagePage": "0001",
+        "usage": "0005",
         "report": "05 01 00 00 <weak> <strong> 00 00 00 00 00"
       },
       "note": "DirectInput mode; weak and strong are 0-255.",

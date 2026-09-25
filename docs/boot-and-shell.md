@@ -475,6 +475,10 @@ repair starts from the values WSGM exports (`--export-setup-answers`), so it nev
 Settings. A quiet fresh install never takes over Steam's autostart; a quiet update keeps an accepted
 takeover. Quick Setup is retired, and WSGM Settings changes the choices afterwards.
 
+On a fresh installation, selecting Device Integration also enables controller management so the
+installed device plugin can supply controller input. Updates and repairs preserve the saved
+controller-management choice. Setup logs the resulting value alongside the applied answers.
+
 Full mode also turns off other handheld managers so WSGM is the only one driving the device:
 Handheld Companion (found by the logon task that runs it) and the maker's apps from Handheld
 Companion's own OEM lists, which are MSI Center M, Armoury Crate, Legion Space and the Zotac

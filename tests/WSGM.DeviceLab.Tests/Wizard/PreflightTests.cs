@@ -5,7 +5,7 @@ namespace WSGM.DeviceLab.Tests.Wizard;
 
 public sealed class PreflightTests
 {
-    private const string Self = @"C:\Tools\wsgm-device.exe";
+    private const string Self = @"\Device\HarddiskVolume3\Tools\wsgm-device.exe";
 
     private static string? Volume(string drive)
     {
@@ -16,7 +16,8 @@ public sealed class PreflightTests
     public void HidHidePaths_MatchAcrossBothNotations()
     {
         Assert.True(HidHideAllowance.Contains([@"\Device\HarddiskVolume3\Tools\wsgm-device.exe"], Self, Volume));
-        Assert.True(HidHideAllowance.Contains([Self.ToUpperInvariant()], Self, Volume));
+        Assert.True(HidHideAllowance.Contains([Self.ToUpperInvariant()], @"C:\Tools\wsgm-device.exe", Volume));
+        Assert.False(HidHideAllowance.Contains([@"C:\Tools\wsgm-device.exe"], Self, Volume));
     }
 
     [Fact]
@@ -39,6 +40,23 @@ public sealed class PreflightTests
         Assert.Equal(Self, result.Added);
         Assert.Equal(["C:\\Other\\app.exe", Self], device.Applications);
         Assert.Equal(1, device.Writes);
+    }
+
+    [Fact]
+    public void TryAllow_RepairsAnIneffectiveDosEntryAndRestoresOnlyItsOwnEntry()
+    {
+        using TemporaryDirectory temporary = new();
+        var state = new LabMachineState(Path.Combine(temporary.Root, "machine.json"));
+        const string stale = @"C:\Tools\wsgm-device.exe";
+        var device = new FakeHidHide([stale]);
+        var allowance = new HidHideAllowance(device, state, Self);
+
+        Assert.False(allowance.AlreadyAllowed(device.Read()));
+        Assert.Equal(Self, allowance.TryAllow().Added);
+        Assert.True(allowance.AlreadyAllowed(device.Read()));
+        Assert.Equal([stale, Self], device.Applications);
+        Assert.Null(allowance.RestoreRecorded());
+        Assert.Equal([stale], device.Applications);
     }
 
     [Fact]
@@ -79,10 +97,10 @@ public sealed class PreflightTests
         allowance.TryAllow();
 
         // Someone else allows the same executable in the other notation while the test runs.
-        device.Applications.Add(@"\Device\HarddiskVolume3\Tools\wsgm-device.exe");
+        device.Applications.Add(@"C:\Tools\wsgm-device.exe");
 
         Assert.Null(allowance.RestoreRecorded());
-        Assert.Equal([@"\Device\HarddiskVolume3\Tools\wsgm-device.exe"], device.Applications);
+        Assert.Equal([@"C:\Tools\wsgm-device.exe"], device.Applications);
         Assert.Null(state.Read().HidHideEntry);
     }
 

@@ -643,7 +643,7 @@ internal sealed partial class WizardWindow
             {
                 Feature = "charge-limit",
                 Transport = "atkacpi",
-                Outcome = matched ? "passed" : "failed",
+                Outcome = matched && restored ? "passed" : "failed",
                 Detail = matched ? $"Set to {target}% and read back." : $"Read back {readback}%, not {target}%.",
                 Original = current,
                 TestValue = target,
@@ -727,7 +727,8 @@ internal sealed partial class WizardWindow
                     {
                         AcLine = _pinnedAcLine,
                         MsiPower = captured.Power ?? changes.MsiPower,
-                        MsiChargeRaw = captured.ChargeRaw ?? changes.MsiChargeRaw
+                        MsiChargeRaw = captured.ChargeRaw ?? changes.MsiChargeRaw,
+                        MsiFans = captured.Fans ?? changes.MsiFans
                     });
                     WriteEvidenceOnce(project, attempt, $"original-msi-{passLabel}",
                         new { _pinnedAcLine, State = captured });
@@ -741,6 +742,10 @@ internal sealed partial class WizardWindow
             }
 
             var restored = true;
+            if (original.Fans is { } fans)
+            {
+                restored &= await RunMsiFansAsync(page, wmi, fans, tests);
+            }
             if (layout.HasTdp)
             {
                 if (original.Power is { } power)
@@ -767,6 +772,60 @@ internal sealed partial class WizardWindow
     }
 
     // The TDP test from the checkpoint's original; returns whether the limits were put back.
+    private async Task<bool> RunMsiFansAsync(StackPanel page, ILabMsiWmi wmi, LabMsiFanState original,
+        List<LabPowerTestResult> tests)
+    {
+        page.Children.Add(Heading("Full-speed fans (100%)"));
+        page.Children.Add(Status("Both fans will run at full speed for five seconds, then return to their original mode."));
+        if (await AskAsync(page, "Test full speed", "Skip") == 1)
+        {
+            _machine.Update(changes => changes with { Power = changes.Power! with { MsiFans = null } });
+            return true;
+        }
+
+        var restored = false;
+        var matched = false;
+        string? problem = null;
+        IReadOnlyList<LabFanReading> readings = [];
+        try
+        {
+            matched = await Task.Run(() => wmi.WriteFans(new LabMsiFanState(
+                (byte)(original.Custom & 0x7F), (byte)(original.FullSpeed | 0x80))));
+            await Task.Delay(5000, Lifetime);
+            readings = await Task.Run(wmi.FanSpeeds);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            problem = ex.Message;
+        }
+        finally
+        {
+            try
+            {
+                restored = await Task.Run(() => wmi.WriteFans(original));
+                if (restored)
+                {
+                    _machine.Update(changes => changes with { Power = changes.Power! with { MsiFans = null } });
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                problem = ex.Message;
+            }
+        }
+
+        tests.Add(new LabPowerTestResult
+        {
+            Feature = "fan-full-speed", Transport = "wmi-method", At = DateTimeOffset.UtcNow,
+            Outcome = matched && restored && problem is null ? "passed" : "failed",
+            Detail = problem ?? "Set both fans to full speed and captured RPM.",
+            Original = original, TestValue = 100, Readback = readings, Restored = restored
+        });
+        page.Children.Add(RestoreLine(matched, restored, "fan mode"));
+        Lifetime.ThrowIfCancellationRequested();
+        return restored;
+    }
+
     private async Task<bool> RunMsiTdpAsync(StackPanel page, LabPowerPlan plan, ILabMsiWmi wmi, LabMsiState original,
         List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
@@ -877,7 +936,7 @@ internal sealed partial class WizardWindow
             {
                 Feature = "charge-limit",
                 Transport = "wmi-method",
-                Outcome = matched ? "passed" : "failed",
+                Outcome = matched && restored ? "passed" : "failed",
                 Detail = matched
                     ? $"Set to {target}% and read back."
                     : $"Read back {readbackRaw & LabMsiWmi.ChargePercentMask}%.",
@@ -933,6 +992,7 @@ internal sealed partial class WizardWindow
         page.Children.Add(Heading("Lighting"));
         var found = await RunLampArrayAsync(page, log, lighting);
         found |= await RunAuraAsync(page, plan, log, lighting);
+        found |= await RunClawLightingAsync(page, plan, log, lighting);
         if (!found)
         {
             page.Children.Add(Status("No controllable lighting was found on this device."));

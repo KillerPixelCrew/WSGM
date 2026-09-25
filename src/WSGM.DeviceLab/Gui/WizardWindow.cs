@@ -61,10 +61,12 @@ internal sealed partial class WizardWindow : Window
     private bool _closeReady;
     private bool _closing;
     private bool _confirmingClose;
+    private bool _navigating;
     private Task _operation = Task.CompletedTask;
     private DeviceLabOwnerReservation? _owner;
     private LabProject? _project;
     private bool _refreshing;
+    private string? _requestedStage;
     private string? _running;
     private CancellationTokenSource _stage = new();
 
@@ -106,7 +108,15 @@ internal sealed partial class WizardWindow : Window
         {
             if (!_refreshing && _stages.SelectedItem is ListBoxItem { Tag: string id })
             {
-                ShowStage(id);
+                if (_operation.IsCompleted)
+                {
+                    ShowStage(id);
+                }
+                else
+                {
+                    _requestedStage = id;
+                    _ = NavigateToStageAsync();
+                }
             }
         };
         Closing += (_, args) =>
@@ -212,7 +222,7 @@ internal sealed partial class WizardWindow : Window
 
     private async Task CreateProjectAsync()
     {
-        var parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "WSGM Device Lab");
+        var parent = Path.GetDirectoryName(DeviceLabExecutable.CurrentPath)!;
         var directory = Path.Combine(parent, $"Device test {DateTime.Now:yyyy-MM-dd HHmmss}");
         var decision = DeviceLabOutputPathPolicy.Evaluate(directory, DeviceLabOutputTargetKind.Directory, Boundaries());
         if (!decision.IsAllowed)
@@ -234,6 +244,8 @@ internal sealed partial class WizardWindow : Window
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             Title = "Select a saved Device Lab test",
+            SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(
+                Path.GetDirectoryName(DeviceLabExecutable.CurrentPath)!),
             AllowMultiple = false
         });
         if (folders.Count > 0)
@@ -349,6 +361,35 @@ internal sealed partial class WizardWindow : Window
 
         page.Children.Add(Muted($"Run {state.Attempts} time(s), last on {state.UpdatedAt?.ToLocalTime():g}."));
         page.Children.Add(Buttons(Action("Run again", () => StartStage(id))));
+    }
+
+    private async Task NavigateToStageAsync()
+    {
+        if (_navigating)
+        {
+            return;
+        }
+
+        _navigating = true;
+        try
+        {
+            while (!_operation.IsCompleted)
+            {
+                var operation = _operation;
+                _stage.Cancel();
+                await operation;
+            }
+
+            if (!_closing && _requestedStage is { } id)
+            {
+                _requestedStage = null;
+                ShowStage(id);
+            }
+        }
+        finally
+        {
+            _navigating = false;
+        }
     }
 
     private void StartStage(string id, bool fromCompletedOperation = false)
@@ -850,7 +891,7 @@ internal sealed partial class WizardWindow : Window
             return;
         }
 
-        _stages.IsEnabled = false;
+        _stages.IsEnabled = _project is not null;
         if (!chained)
         {
             _stage.Dispose();

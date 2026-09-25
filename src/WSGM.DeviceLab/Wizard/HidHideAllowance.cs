@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using WSGM.Interop;
 
 namespace WSGM.DeviceLab.Wizard;
@@ -56,7 +57,7 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
     /// <returns>The allowance.</returns>
     public static HidHideAllowance ForMachine(LabMachineState state, string selfPath)
     {
-        return new HidHideAllowance(new NativeHidHideDevice(), state, selfPath);
+        return new HidHideAllowance(new NativeHidHideDevice(), state, ResolveApplicationPath(selfPath));
     }
 
     /// <summary>Reads HidHide's state.</summary>
@@ -80,6 +81,11 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
         {
             return new HidHideAllowResult(null,
                 "HidHide is in inverse mode, where the list denies instead of allows; adding this tool would hide devices from it.");
+        }
+
+        if (!selfPath.StartsWith(@"\Device\", StringComparison.OrdinalIgnoreCase))
+        {
+            return new HidHideAllowResult(null, "Could not resolve this executable to a HidHide NT device path.");
         }
 
         if (Contains(current.Applications, selfPath, DeviceForDrive))
@@ -160,7 +166,7 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
         return null;
     }
 
-    /// <summary>Whether a list already holds an application, in either path notation.</summary>
+    /// <summary>Whether a list holds the application's effective NT device path.</summary>
     /// <param name="entries">Entries as HidHide returned them.</param>
     /// <param name="value">Application path.</param>
     /// <param name="deviceForDrive">Maps a drive such as <c>C:</c> to its NT device, or null.</param>
@@ -169,10 +175,8 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
     {
         ArgumentNullException.ThrowIfNull(entries);
         var normalized = NormalizePath(value, deviceForDrive);
-        return entries.Any(entry => string.Equals(entry, value, StringComparison.OrdinalIgnoreCase)
-                                    || (normalized.Length > 0
-                                        && string.Equals(NormalizePath(entry, deviceForDrive), normalized,
-                                            StringComparison.OrdinalIgnoreCase)));
+        return normalized.StartsWith(@"\Device\", StringComparison.OrdinalIgnoreCase)
+               && entries.Any(entry => string.Equals(entry, normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Writes a path in NT device notation, which HidHide uses, keeping the volume.</summary>
@@ -206,6 +210,24 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
     {
         return string.Equals(entry, added, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static string ResolveApplicationPath(string path)
+    {
+        using var handle = Kernel32.CreateFileW(path, 0,
+            Kernel32.FileShareRead | Kernel32.FileShareWrite | Kernel32.FileShareDelete,
+            0, Kernel32.OpenExisting, 0, 0);
+        if (handle.IsInvalid)
+        {
+            return string.Empty;
+        }
+
+        var buffer = new char[32768];
+        var length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Length, 2);
+        return length > 0 && length < buffer.Length ? new string(buffer, 0, (int)length) : string.Empty;
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern uint GetFinalPathNameByHandle(SafeFileHandle file, [Out] char[] path, uint length, uint flags);
 
     private static string? DeviceForDrive(string drive)
     {
