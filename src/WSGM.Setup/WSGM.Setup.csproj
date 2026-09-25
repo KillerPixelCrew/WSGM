@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\WSGM\Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM.Setup</AssemblyName>
     <RootNamespace>WSGM.Setup</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -36,6 +37,7 @@
     <!-- WSGM's own colour tokens and text styles, linked rather than copied. -->
     <AvaloniaResource Include="..\WSGM\Themes\Palette.axaml" Link="Themes\Palette.axaml"/>
     <AvaloniaResource Include="..\WSGM\Themes\Typography.axaml" Link="Themes\Typography.axaml"/>
+    <AvaloniaResource Include="..\WSGM\Assets\wsgm.ico" Link="Assets\wsgm.ico"/>
   </ItemGroup>
   <ItemGroup Condition="'$(SetupPayload)' != ''">
     <!-- build.ps1 passes -p:SetupPayload=<payload.zip>: the app, controller stack, plugins and bundle.json. -->

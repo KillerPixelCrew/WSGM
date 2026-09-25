@@ -4,6 +4,7 @@
         x:Class="WSGM.Setup.UI.SetupWindow"
         x:DataType="ui:SetupViewModel"
         Title="WSGM Setup"
+        Icon="/Assets/wsgm.ico"
         Width="1280" Height="800" MinWidth="1024" MinHeight="640"
         WindowStartupLocation="CenterScreen"
         TransparencyLevelHint="AcrylicBlur, Blur"

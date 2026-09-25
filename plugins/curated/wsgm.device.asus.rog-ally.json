@@ -2,6 +2,6 @@
   "id": "wsgm.device.asus.rog-ally",
   "origin": "first-party",
   "validation": "blind",
-  "bundle": false,
+  "bundle": true,
   "project": "src/WSGM.Device.Asus.RogAlly"
 }
