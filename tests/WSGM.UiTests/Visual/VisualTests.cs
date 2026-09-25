@@ -167,10 +167,11 @@ public sealed class VisualTests
                 Badge("Integration", PluginBadgeTone.Neutral), Badge("Community", PluginBadgeTone.Community),
                 Badge("Blind", PluginBadgeTone.Warn)
             ], "Developer: rgb-dev@example.com", PluginPackageAction.Install, "rgb.wsgmpkg"),
-            new PluginPackageRowState("wsgm.device.asus.rog-ally", "ASUS ROG Ally X", PluginPackageSection.Unavailable,
+            new PluginPackageRowState("wsgm.device.asus.rog-ally", "ASUS ROG Ally family",
+                PluginPackageSection.Unavailable,
                 true,
                 [
-                    Badge("Not for this device", PluginBadgeTone.Neutral), Badge("v0.1.0", PluginBadgeTone.Neutral),
+                    Badge("Not for this device", PluginBadgeTone.Neutral), Badge("v0.2.0", PluginBadgeTone.Neutral),
                     Badge("Device", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
                     Badge("Blind", PluginBadgeTone.Warn)
                 ], "", PluginPackageAction.None, ""),

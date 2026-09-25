@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using WSGM.DeviceLab.Capture.Live;
@@ -28,7 +29,7 @@ internal sealed partial class WizardWindow
         if (init is { Reversible: true })
         {
             page.Children.Add(Status("Setting up the controller as in the buttons step..."));
-            initBefore = await SendCuratedInitAsync(record!.Id);
+            initBefore = await SendCuratedInitAsync(record!.Id, Lifetime);
         }
 
         try
@@ -39,7 +40,7 @@ internal sealed partial class WizardWindow
         {
             if (init is { Reversible: true })
             {
-                var problem = await RecoverControllerInitAsync();
+                var problem = await RecoverControllerInitAsync(CancellationToken.None);
                 if (problem is not null)
                 {
                     page.Children.Add(Warning(
@@ -158,7 +159,7 @@ internal sealed partial class WizardWindow
             if (modeAfterWake != LabControllerInit.TestMode(init))
             {
                 line.Text = "The controller lost its setup during sleep. Setting it up again...";
-                resent = await SendCuratedInitAsync(project.Manifest.Device.RecordId!);
+                resent = await SendCuratedInitAsync(project.Manifest.Device.RecordId!, Lifetime);
             }
         }
 

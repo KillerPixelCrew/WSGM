@@ -153,8 +153,7 @@ public sealed record SetupAnswers
             StartMode = config.StartMode,
             DeviceIntegration = config.DeviceIntegration.Enabled,
             SteamAutostartTakeover = config.SteamAutostartTakeoverAccepted,
-            // Current value: WSGM already turned something off. A fresh install takes the preset's.
-            OtherManagersTakeover = config.OtherManagersDisabled.Count > 0,
+            OtherManagersTakeover = config.OtherManagersTakeoverAccepted,
             OtherManagers = otherManagers ?? [],
             Features = new SetupFeatures
             {
@@ -189,6 +188,7 @@ public sealed record SetupAnswers
         config.StartMode = StartMode;
         config.DeviceIntegration.Enabled = DeviceIntegration;
         config.SteamAutostartTakeoverAccepted = SteamAutostartTakeover;
+        config.OtherManagersTakeoverAccepted = OtherManagersTakeover;
         config.SteamInputManagementEnabled = Features.SteamInputManagement;
         config.SteamInputLeaseEnabled = Features.SteamInputLease;
         config.Cef.Enabled = Features.SteamUi;

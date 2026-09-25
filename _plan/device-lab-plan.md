@@ -1,5 +1,9 @@
 # Device Lab attended wizard (AllyXLab consolidation)
 
+Status (2026-09-25): delivered. AllyXLab was retired in `829c5a5c`, and the work landed in one pull
+request rather than the seven listed under "Delivery"; `_plan/implementation-todo.md` tracks what is
+left. The text below is the plan as written, so its present tense about AllyXLab is historical.
+
 ## Context
 
 Device Lab (`src/WSGM.DeviceLab`, Avalonia + CLI) is a plugin authoring and diagnostics tool, and

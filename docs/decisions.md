@@ -214,6 +214,15 @@ start. The knowledge records the wizard works from are evidence, not a plugin: n
 reads them, and a device only becomes supported through a plugin built from them. AllyXLab was
 retired on 2026-09-25, once the wizard covered it.
 
+**Handheld Companion is the Ally plugin's primary reference, buttons included (2026-09-25).** The
+ROG Ally plugin was first built with HHD as the authority for buttons, because HC's button handling
+had been reported buggy. WSGM runs on Windows, and HC 1.3.1.6 is the reference that ships and is
+used on these devices under Windows, so its event semantics now lead: 0x93 is a separate Library
+control and 0xA7/0xA8 are M2 press and release. HHD stays the cross-check and the source for what HC
+does not do. Where HC's own data is internally inconsistent, as two of its controller tables are,
+HHD's bytes are used and the disagreement is written down. A Device Lab observation beats both. The
+per-fact record is `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
+
 **WSGM's own settings can be changed from Steam (2026-09-24).** A WSGM row in Steam's main menu
 opens a page with a limited set of WSGM's global settings: which Steam features WSGM injects, how it
 starts, Steam Input, and the installed plugins' settings. It is a second place to reach settings

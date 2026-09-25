@@ -31,7 +31,10 @@ Every command revalidates identity, service state, generations, deadline and ran
   the original limits and mode can be read and journalled first.
 - Fans: eight points, 20-110 °C, non-falling duties, clamped to 99. Refuse a write unless every
   present channel's original curve can be read and journalled. Keep an unverified restore in the
-  recovery record; do not retry it automatically.
+  recovery record; do not retry it automatically, and do not let it block the service. The next
+  explicit command for that capability is the user action that re-arms the original for release.
+- A write refused for lack of deadline budget has touched nothing: reject it, never fault the service
+  or mark a recovery entry failed for it.
 - Charge limit and Aura are persistent user choices: never journalled, never reverted on stop.
 - Controller tables are written as 64-byte 0x5A feature reports only while the controller is managed,
   journalled first, and replaced by the factory tables on release. They cannot be read back, so a

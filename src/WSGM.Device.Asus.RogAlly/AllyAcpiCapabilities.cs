@@ -171,7 +171,8 @@ internal sealed class AllyPowerCapability(IAsusAcpi acpi, AllyModel model)
 
     /// <summary>The write order that keeps SPL &lt;= SPPT &lt;= FPPT after every step.</summary>
     /// <remarks>
-    ///     Ported from the Ally X Lab's reviewed restore (<c>AsusControl.Restore</c>). With the current
+    ///     Ported from the retired Ally X Lab's reviewed restore (<c>tools/AllyXLab/AsusControl.cs</c>,
+    ///     <c>Restore</c>, removed in <c>829c5a5c</c>). With the current
     ///     limits unknown, HHD's fixed fast-slow-steady order is used.
     /// </remarks>
     internal static IReadOnlyList<(AsusAcpiId Id, int Watts)> WriteOrder(

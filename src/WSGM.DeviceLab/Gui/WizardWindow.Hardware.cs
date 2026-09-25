@@ -56,7 +56,8 @@ internal sealed partial class WizardWindow
         return _worker ??= await Task.Run(LabWorkerClient.Start);
     }
 
-    private async Task<LabInitResult> SendCuratedInitAsync(string recordId)
+    // Cancelling ends only the wait for the controller to come back; the command is never resent.
+    private async Task<LabInitResult> SendCuratedInitAsync(string recordId, CancellationToken cancellationToken)
     {
         var worker = await WorkerAsync();
         return await Task.Run(() =>
@@ -66,7 +67,7 @@ internal sealed partial class WizardWindow
             {
                 CuratedInitRecordId = recordId
             }));
-            var result = init.Send();
+            var result = init.Send(cancellationToken);
             worker.Release(init, token);
             _machine.Update(changes => changes with { CuratedInitRecordId = null });
             return result;
@@ -83,14 +84,22 @@ internal sealed partial class WizardWindow
         });
     }
 
-    private async Task<string?> RecoverControllerInitAsync()
+    private async Task<string?> RecoverControllerInitAsync(CancellationToken cancellationToken)
     {
         var modes = await Task.Run(() => LabModeCommands.HasPending ? LabModeCommands.RecoverPending() : null);
         if (!LabControllerInit.HasControllerModePending)
         {
-            return _machine.Read().CuratedInitRecordId is null
-                ? modes
-                : "A controller setup stopped before its result was known. Check the OEM button layout.";
+            if (_machine.Read().CuratedInitRecordId is null)
+            {
+                return modes;
+            }
+
+            // Nothing records what the setup changed, so it cannot be undone or checked: report it once
+            // and forget it rather than warn on every start. It is never resent.
+            await Task.Run(() => _machine.Update(changes => changes with { CuratedInitRecordId = null }));
+            const string unknown =
+                "A controller setup stopped before its result was known. Check the OEM button layout.";
+            return modes is null ? unknown : $"{unknown} {modes}";
         }
 
         var worker = await WorkerAsync();
@@ -99,7 +108,7 @@ internal sealed partial class WizardWindow
             using var init = worker.Open<ILabCuratedInitWorker>(LabCuratedInitWorker.Service.Name, null,
                 (string?)null);
             var (_, token) = worker.Checkpoint<int?>(init, _ => { });
-            var problem = init.RecoverControllerMode();
+            var problem = init.RecoverControllerMode(cancellationToken);
             if (problem is null)
             {
                 worker.Release(init, token);

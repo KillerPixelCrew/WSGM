@@ -18,9 +18,10 @@ a report corrects data rather than code.
 | ROG Xbox Ally X | RC73XA       | `rc73xa`      |
 
 Detection matches the SMBIOS baseboard manufacturer `ASUSTeK COMPUTER INC.` and one of those
-baseboard products exactly. Any other ASUS machine, and any other maker's board with the same name,
-is declined. Startup reads the identity again from the registry copy of SMBIOS and refuses to start
-if it no longer matches the detected model.
+baseboard products as whole strings, ignoring case and surrounding spaces. RC72L is admitted on the
+strength of HHD's product-name match, not an observed board. Any other ASUS machine, and any other
+maker's board with the same name, is declined. Startup reads the identity again from the registry
+copy of SMBIOS and refuses to start if it no longer matches the detected model.
 
 ## What each model gets
 
@@ -28,15 +29,15 @@ Built blind on all four, awaiting lab evidence. "HC" and "HHD" name the referenc
 
 | Capability                  | Ally                                   | Ally X   | Xbox Ally                    | Xbox Ally X   | Transport and reference                                                            |
 | --------------------------- | -------------------------------------- | -------- | ---------------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| Sustained power (SPL)       | 5-30                                   | 5-30     | 5-35                         | 5-35          | ATKACPI DEVS 0x001200A3 (HC)                                                       |
+| Sustained power (SPL)       | 5-30                                   | 5-30     | 5-20                         | 5-35          | ATKACPI DEVS 0x001200A3 (HC; Xbox Ally envelope from HHD)                          |
 | Boost power (SPPT and FPPT) | yes                                    | yes      | yes                          | yes           | ATKACPI 0x001200A0 and 0x001200C1 written together (HC)                            |
 | Performance mode            | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120075 Silent/Performance/Turbo (HC, HHD)                              |
-| Power presets               | 10/15/25                               | 13/17/25 | 13/17/25                     | 13/17/25      | HC's three profiles, mode first, then watts                                        |
+| Power presets               | 10/15/25                               | 13/17/25 | 6/15/20                      | 13/17/25      | HC's three profiles (HHD's watts on the Xbox Ally), mode first, then watts         |
 | Fan curve                   | yes                                    | yes      | yes                          | yes           | ATKACPI CPU/GPU (+ mid when present) curves (HC)                                   |
 | Fan readings                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00110013/0x00110014 (HC)                                                 |
 | Charge limit                | yes                                    | yes      | yes                          | yes           | ATKACPI 0x00120057 (HC)                                                            |
 | Aura lighting               | yes                                    | yes      | yes                          | yes           | HID report 0x5D (HC); Xbox models also put the lamp array in autonomous mode (HHD) |
-| Controller                  | yes                                    | yes      | yes                          | yes           | XInput (HC); Windows.Gaming.Input if the pad has no XInput slot                    |
+| Controller                  | yes                                    | yes      | yes                          | yes           | XInput (HC); Windows.Gaming.Input, without the Xbox button, if there is no slot    |
 | Rumble                      | yes                                    | yes      | yes                          | yes           | XInput (HC)                                                                        |
 | Motion                      | yes                                    | yes      | yes                          | yes           | WinRT sensors, legacy Sensor API fallback (HC), HC axis maps                       |
 | Front OEM buttons           | Command Center, Armoury Crate, Library | same     | Armoury Crate, Library, Xbox | same          | Vendor report 0x5A codes (HC); F21/F22 on the Xbox models (lab)                    |
@@ -60,28 +61,37 @@ does, written to every fan. "Custom" waits for the next curve command without ch
 "Automatic" writes back the curves captured before the first change. If any present fan's original
 curve cannot be read, the write is refused. A write is verified only when every present fan reads
 back the requested curve. An unverified restore remains in the recovery record and is not retried
-automatically.
+automatically; the fans stay usable, and the next fan command re-arms the captured original for the
+following release. Power restores work the same way.
 
 **Charge limit.** 40-100 %, verified by readback, and never reverted: it is a user setting.
 
 **Lighting.** Brightness in four steps, solid colour per stick ring, breathing between the two ring
-colours, colour cycle and rainbow at three speeds. Aura cannot be read back, so every lighting
-command is reported as applied but unverified, and WSGM's lighting restore owns reapplying it.
+colours, colour cycle and rainbow at three speeds. One colour goes out as HC's all-zone message; two
+different ring colours use HC's per-zone path, which always runs at the slow speed. Aura cannot be
+read back, so every lighting command is reported as applied but unverified, and WSGM's lighting
+restore owns reapplying it.
 
 **Controller.** When WSGM manages the controller, the plugin finds the XInput slot whose
 capabilities report VID 0B05 and one of the Ally product IDs, publishes the XUSB, GIP and XInput HID
-nodes for WSGM to hide, and writes HC's controller tables so that M1 and M2 send F18 and F17. It
-then reads the pad at 125 Hz, merges the OEM buttons and the IMU into each sample, and drives rumble
-through XInput. Release zeroes the motors, stops reading, and writes the factory M1/M2 tables back.
-Those tables cannot be read, so a release that touched them is reported as unverified even when
-every write was acknowledged.
+nodes for WSGM to hide, and writes the controller tables so that M1 and M2 send F18 and F17. It then
+reads the pad at 125 Hz, merges the OEM buttons and the IMU into each sample, and drives rumble
+through XInput. Without an XInput slot it reads the pad through Windows.Gaming.Input, which has no
+guide button, so the Xbox button is unavailable there. A pad with no node to hide is left alone,
+because Steam would otherwise see it beside the virtual one. Release zeroes the motors, stops
+reading, and writes the factory M1/M2 tables back. Those tables cannot be read, so a release that
+touched them is reported as unverified even when every write was acknowledged; a release with
+nothing acquired is clean. A reader that faults is released and acquired again on resume or when
+controller management is turned back on.
 
 **OEM buttons.** Front buttons come from the vendor collection's 0x5A reports. HC treats 0x93 as
-Library and 0xA7/0xA8 as M2 press/release; 0xA6 and 0x38 map to each model's front controls. A
-release-less press is latched into the controller sample for 150 ms. The Xbox models also get
-F21/F22 from a low-level keyboard hook, which is how the lab saw those buttons arrive, and their
-Xbox button maps to the QAM as in HHD. M1 and M2 are claimed by the same hook, only while the
-controller tables are applied.
+Library and 0xA7/0xA8 as M2 press/release; 0xA6 and 0x38 map to each model's front controls, and
+none reports a long press. A release-less press is latched into the controller sample for 150 ms.
+The Xbox models also get F21/F22 from a low-level keyboard hook, which is how the lab saw those
+buttons arrive, and on the XInput route their Xbox button maps to the QAM as in HHD. M1 and M2 are
+claimed by the same hook, only while the controller tables are applied; the hook is installed only
+while it has a key to claim. A button that reports on both the vendor collection and the keyboard is
+counted once. If the vendor reader stops, the fault is reported and the reader restarts on resume.
 
 **Motion.** WinRT gyrometer and accelerometer at their minimum report interval, or the legacy Sensor
 API's standard motion fields when WinRT has none. HC's axis map is applied once, then the Claw
@@ -93,7 +103,9 @@ All of it, in the order the Device Lab report should cover it; `PROVENANCE.md` h
 The parts most likely to need correcting:
 
 - The Xbox models' controller route. The RC73XA lab run saw neither an XInput slot nor a HID gamepad
-  collection, so the Windows.Gaming.Input fallback and the device nodes to hide are unproven there.
+  collection, so the plugin leaves that pad alone until a report names the node to hide. The
+  Windows.Gaming.Input fallback is unproven there and cannot report the Xbox button.
+- The Xbox Ally's power envelope: HHD's 20 W is used because HC's file repeats the Xbox Ally X's.
 - Whether the Xbox models send 0x5A vendor codes at all once the tables are written, or only the
   F21/F22 keys the lab saw.
 - The rear buttons' key codes and physical labels per side.

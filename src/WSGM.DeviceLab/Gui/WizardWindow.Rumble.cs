@@ -27,6 +27,9 @@ internal sealed partial class WizardWindow
     // Pulse page lengths; every one is within LabRumbleRoutes.LongestPulseMilliseconds.
     private const int MaxRumbleReplays = 2;
 
+    // How often the slider page asks the worker whether its stream failed.
+    private const int WorkerStreamPollMilliseconds = 250;
+
     private static readonly string[] FeltLabels = ["Felt it", "Didn't feel it"];
     private static readonly string[] FeltCodes = [FeltCode, NotFeltCode];
 
@@ -316,6 +319,7 @@ internal sealed partial class WizardWindow
 
         var streaming = stream.Run(stop.Token);
         string? streamError = null;
+        string? workerError = null;
         _ = streaming.ContinueWith(_ => OnUi(() =>
         {
             if (stream.Error is { } error)
@@ -323,6 +327,16 @@ internal sealed partial class WizardWindow
                 problem.Text = $"The rumble stopped: {error}";
             }
         }), TaskScheduler.Default);
+
+        // Slider frames to the worker get no reply, so ask it now and then whether its stream failed.
+        var watching = output is WorkerRumbleOutput watched
+            ? WatchWorkerStreamAsync(watched, stop.Token, error =>
+            {
+                workerError = error;
+                problem.Text = $"The rumble stopped: {error}";
+                stop.Cancel();
+            })
+            : Task.CompletedTask;
         try
         {
             await using (Lifetime.Register(() => done.TrySetCanceled(Lifetime)))
@@ -335,10 +349,25 @@ internal sealed partial class WizardWindow
             // Leaving the page stops the stream, which writes the zero before the next page starts.
             await stop.CancelAsync();
             await streaming;
-            var streamed = output is WorkerRumbleOutput workerOutput
-                ? await Task.Run(() => workerOutput.FlushStream())
-                : [];
-            streamError = stream.Error ?? streamed.FirstOrDefault(write => write.Error is not null)?.Error;
+            await watching;
+
+            // A worker lost while reading the evidence must not hide why the stream stopped.
+            IReadOnlyList<LabRumbleWrite> streamed = [];
+            string? flushError = null;
+            if (output is WorkerRumbleOutput workerOutput)
+            {
+                try
+                {
+                    streamed = await Task.Run(() => workerOutput.FlushStream());
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException)
+                {
+                    flushError = ex.Message;
+                }
+            }
+
+            streamError = stream.Error ?? workerError
+                ?? streamed.FirstOrDefault(write => write.Error is not null)?.Error ?? flushError;
             var zeroFailed = stream.ZeroFailed || streamed.Any(write => write.Purpose is "stream-stop" or "worker-zero"
                                                                         && write.Error is not null);
             session.SliderSessions.Add(new LabRumbleSliderSession(route.Id, stream.StartedAt, stream.StoppedAt,
@@ -348,6 +377,33 @@ internal sealed partial class WizardWindow
         if (streamError is not null)
         {
             throw new RumbleStoppedException($"The live rumble output failed: {streamError}");
+        }
+    }
+
+    // Polls the worker's stream state until the page stops or the stream fails. Runs on the UI thread,
+    // with the worker round trip off it; reports a failure, or a lost worker, once.
+    private static async Task WatchWorkerStreamAsync(WorkerRumbleOutput output, CancellationToken stop,
+        Action<string> failed)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(WorkerStreamPollMilliseconds, stop);
+                if (await Task.Run(output.StreamError, stop) is { } error)
+                {
+                    failed(error);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The page stopped the stream.
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        {
+            failed(ex.Message);
         }
     }
 
@@ -850,6 +906,11 @@ internal sealed partial class WizardWindow
         public void Dispose()
         {
             proxy.Dispose();
+        }
+
+        public string? StreamError()
+        {
+            return worker.StreamError(proxy);
         }
 
         public IReadOnlyList<LabRumbleWrite> FlushStream()

@@ -191,8 +191,9 @@ API and limits are in the library README.
 `src/WSGM.Device.Asus.RogAllyX` is renamed to `src/WSGM.Device.Asus.RogAlly` (package
 `wsgm.device.asus.rog-ally`) and replaces the passive scaffold with a working plugin for the ROG
 Ally RC71L, Ally X RC72LA/RC72L, Xbox Ally RC73YA and Xbox Ally X RC73XA. It was built without
-hardware from HHD (buttons) and the HC 1.3.1.6 Patreon build (everything else); every fact is cited
-in its `PROVENANCE.md`, and every per-model difference is one row in `AllyModels.cs`.
+hardware from the HC 1.3.1.6 Patreon build, buttons included, with HHD as the cross-check (see
+`docs/decisions.md`); every fact is cited in its `PROVENANCE.md`, and every per-model difference is
+one row in `AllyModels.cs`.
 
 - [x] Exact SMBIOS detection per model, with positive and negative fixtures.
 - [x] ATKACPI power (SPL, SPPT+FPPT, performance mode), presets, fan curves and readings, charge
@@ -203,6 +204,11 @@ in its `PROVENANCE.md`, and every per-model difference is one row in `AllyModels
 - [x] Aura lighting over report 0x5D, and the lamp-array step on the Xbox models.
 - [x] Glyph profiles `rog-ally` and `rog-xbox-ally` from handheld-controller-glyphs.
 - [x] Hardware-free tests in `tests/WSGM.Device.Asus.RogAlly.Tests`, written but not yet run.
+- [x] Review fixes (2026-09-25): Xbox Ally held to HHD's 20 W envelope; one press on both OEM
+      transports counted once; no long press declared; lamp-array step as a feature report; HC's
+      exact Aura paths; deadline shortfalls rejected without faulting; faults and unverified restores
+      no longer block a service for good; faulted readers reacquired; the keyboard hook installed
+      only with keys to claim; a never-acquired controller released clean.
 - [ ] Device Lab report from the remote tester on each model; fold its findings into `AllyModels.cs`
       and `PROVENANCE.md` ("What the Device Lab report must confirm").
 - [ ] Bundle the package (`plugins/curated/wsgm.device.asus.rog-ally.json`) once a report is reviewed.
@@ -409,15 +415,18 @@ generated Steam asset, ownership-claim and emitted-asset checks passed. Automate
 deferred until the maintainer reports manual testing. An attended pass over a real endpoint change,
 HDMI audio arrival and the Quick Access rows on a live client has not been run.
 
-## ROG Ally X portable tester (2026-09-15)
+## ROG Ally X portable tester (2026-09-15, retired 2026-09-25)
 
-The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides
+Historical. The Device Lab tester wizard replaced this tool, and `tools/AllyXLab` with its download
+was removed in `829c5a5c`; the text below describes it as it was.
+
+The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provided
 Windows identity/interface inventory, guided native button and motion captures, Claw-style rumble
 calibration phases, visual RGB checks and ASUS power/profile/fan write-readback-restoration steps.
 It used HHD as its primary reference and HC to cross-check the Windows ATKACPI transport. Current
 Ally plugin work uses HC as the primary Windows-native reference, including buttons. The tool and
-its guard tests are separate from the production solution and installer. The requested compiled EXE
-is tracked under `tools/AllyXLab/Downloads`; its README provides the direct download link.
+its guard tests were separate from the production solution and installer. The compiled EXE was
+tracked under `tools/AllyXLab/Downloads`.
 
 The Release single-file publish and guard-test project compilation passed with warnings-as-errors.
 Hardware actions remain experimental. Missing original readback blocks power/fan writes; RGB uses
@@ -469,9 +478,12 @@ without an output report, and no HID gamepad collection. Lighting and rumble are
 to report unavailable on it. The RC73YA Xbox Ally stays refused. This binary was published on Linux
 with Windows targeting; Windows UI and hardware acceptance are still pending.
 
-## ROG Ally X scaffold (2026-09-15)
+## ROG Ally X scaffold (2026-09-15, superseded)
 
-`src/WSGM.Device.Asus.RogAllyX` now contains a Device API 4 entry type, package manifest and MIT
+Historical. The scaffold became the working `src/WSGM.Device.Asus.RogAlly` plugin (see "ROG Ally
+family plugin" above); the text below describes it as it was.
+
+`src/WSGM.Device.Asus.RogAllyX` then contained a Device API 4 entry type, package manifest and MIT
 license, and is included in `WSGM.slnx`. It always declines detection, stays passive and rejects
 commands. Exact identity, transports, capabilities and hardware validation remain unimplemented.
 The maintainer has no local Ally X, but has arranged a remote tester. Current Ally plugin work uses

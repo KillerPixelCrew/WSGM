@@ -15,15 +15,21 @@ internal interface ILabCuratedInitWorker : IDisposable
     int? Original();
 
     /// <summary>Sends the curated command once.</summary>
+    /// <param name="cancellationToken">
+    ///     Ends the wait for the controller to come back; a command already sent stays sent and is not retried.
+    /// </param>
     [LabWorkerWrite]
-    LabInitResult Send();
+    LabInitResult Send(CancellationToken cancellationToken);
 
     /// <summary>Reads the current mode after sleep.</summary>
     int? CurrentMode();
 
     /// <summary>Restores a pending reversible mode change.</summary>
+    /// <param name="cancellationToken">
+    ///     Ends the wait for the controller to come back; a command already sent stays sent and is not retried.
+    /// </param>
     [LabWorkerWrite]
-    string? RecoverControllerMode();
+    string? RecoverControllerMode(CancellationToken cancellationToken);
 }
 
 /// <summary>Resolves a curated init from the worker's own reviewed knowledge base.</summary>
@@ -59,9 +65,9 @@ internal sealed class LabCuratedInitWorker : ILabCuratedInitWorker
     }
 
     /// <inheritdoc />
-    public LabInitResult Send()
+    public LabInitResult Send(CancellationToken cancellationToken)
     {
-        return LabControllerInit.Send(Plan(), CancellationToken.None);
+        return LabControllerInit.Send(Plan(), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -71,10 +77,9 @@ internal sealed class LabCuratedInitWorker : ILabCuratedInitWorker
     }
 
     /// <inheritdoc />
-    public string? RecoverControllerMode()
+    public string? RecoverControllerMode(CancellationToken cancellationToken)
     {
-        return LabControllerInit.RecoverControllerMode(
-            CancellationToken.None);
+        return LabControllerInit.RecoverControllerMode(cancellationToken);
     }
 
     private LabControllerInitPlan Plan()

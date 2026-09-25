@@ -46,7 +46,7 @@ public sealed class LabButtonsTests
         var plan = LabButtonPlan.For(Record("wsgm.xbox-rog-ally-x"));
 
         var oem = Assert.Single(plan, control => control.Id == "oem-left");
-        Assert.StartsWith("Command Center", oem.Name, StringComparison.Ordinal);
+        Assert.StartsWith("Armoury Crate", oem.Name, StringComparison.Ordinal);
         Assert.Equal("keys F21", oem.Known);
         Assert.Single(plan, control => control.Id == "back-left1");
         Assert.Single(plan, control => control.Id == "volume-up");

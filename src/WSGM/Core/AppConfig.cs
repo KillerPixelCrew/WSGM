@@ -779,6 +779,12 @@ public sealed class AppConfig
     public List<SteamAutostartRecord> SteamAutostartDisabled { get; set; } = [];
 
     /// <summary>
+    ///     Whether the user chose in setup to turn off other handheld managers. Kept apart from the records
+    ///     so the choice survives a run where nothing was found to turn off.
+    /// </summary>
+    public bool OtherManagersTakeoverAccepted { get; set; }
+
+    /// <summary>
     ///     Services and tasks of other handheld managers (Handheld Companion, the makers' apps) that setup's
     ///     Full mode turned off, so the uninstaller can put back exactly those (see Core\OtherManagers).
     /// </summary>

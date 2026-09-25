@@ -116,12 +116,18 @@ public sealed class AutostartSystem : IAutostartSystem
     /// <inheritdoc />
     public bool IsTaskEnabled(string taskPath)
     {
+        return ReadTaskEnabled(taskPath) ?? true;
+    }
+
+    /// <inheritdoc />
+    public bool? ReadTaskEnabled(string taskPath)
+    {
         return QueryTasks(taskPath).Select(entry =>
         {
             var ns = entry.Definition.Name.Namespace;
             var enabled = entry.Definition.Element(ns + "Settings")?.Element(ns + "Enabled")?.Value;
-            return !string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase);
-        }).FirstOrDefault(true);
+            return (bool?)!string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase);
+        }).FirstOrDefault();
     }
 
     /// <inheritdoc />
@@ -150,7 +156,7 @@ public sealed class AutostartSystem : IAutostartSystem
         {
             if (taskPath is not null)
             {
-                Log.Warn($"Steam autostart: querying task \"{taskPath}\" failed.");
+                Log.Info($"Autostart: task \"{taskPath}\" was not found or could not be read.");
             }
 
             yield break;

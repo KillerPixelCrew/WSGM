@@ -382,7 +382,9 @@ internal sealed partial class LegacyMotionSession : IDisposable
                     continue;
                 }
 
-                if (sensor.GetState(out var state) >= 0 && state == 0
+                // SENSOR_STATE READY (0), NO_DATA (2) and INITIALIZING (3) will deliver reports; HC does not
+                // check the state at all (WindowsSensorManager.Find), so only a sensor that cannot is skipped.
+                if (sensor.GetState(out var state) >= 0 && state is 0 or 2 or 3
                                                         && Supports(sensor, firstField)
                                                         && Supports(sensor, firstField + 1)
                                                         && Supports(sensor, firstField + 2))

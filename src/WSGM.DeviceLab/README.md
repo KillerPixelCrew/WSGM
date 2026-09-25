@@ -43,9 +43,11 @@ someone who is not a developer. It asks for administrator rights once, then:
    curated record gives it), checks which motor is on which side, then live sliders to mark the
    weakest rumble felt and a pulse page for the shortest pulse. Motors are zeroed after every pulse
    and on every exit. The wizard sends probes and pulses as checkpointed worker calls and live
-   slider levels over the worker's one-way stream. The worker zeroes a stream that goes quiet, and
-   the wizard collects the stream's write results when the slider stops. It records a route for
-   startup cleanup before the first write.
+   slider levels over the worker's one-way stream. The worker zeroes a stream that goes quiet, the
+   wizard asks it a few times a second whether a frame failed and shows the failure at once, and it
+   collects the stream's write results when the slider stops. It records a route for startup cleanup
+   before the first write; a recorded route that is no longer present is reported once and
+   forgotten.
 7. **Power, fans and lighting.** Telemetry on charger and on battery, with and without load, with
    fan RPM and temperatures from LibreHardwareMonitor on every device (read only; its controller and
    PSU groups stay off because their discovery writes to USB and serial devices). For a curated

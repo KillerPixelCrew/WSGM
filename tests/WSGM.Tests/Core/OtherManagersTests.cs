@@ -31,7 +31,29 @@ public sealed class OtherManagersTests
 
         Assert.Equal("msi-center-m", found.Manager.Id);
         Assert.Equal(["MSI Foundation Service"], found.Services);
-        Assert.Equal("MSI Center M: 1 service, starts at sign-in, running now", found.Describe());
+        // The catalog task has no sign-in trigger here, so it is not described as one.
+        Assert.Equal("MSI Center M: 1 service, 1 scheduled task, running now", found.Describe());
+    }
+
+    [Fact]
+    public void CatalogTasksThatDoNotExist_AreNotDetected()
+    {
+        // The live IsTaskEnabled reads a missing task as enabled; detection must not rely on it.
+        FakeAutostartSystem autostart = new() { MissingTasksReadEnabled = true };
+
+        Assert.Empty(OtherManagers.Detect(autostart, new FakeServices(), []));
+    }
+
+    [Fact]
+    public void Restore_TreatsATaskRemovedMeanwhileAsRestored()
+    {
+        FakeAutostartSystem autostart = new() { TaskWritesFail = true, MissingTasksReadEnabled = true };
+        OtherManagerRecord record = new() { ManagerId = "msi-center-m", Kind = "task", Name = @"\MSI_Center_M_Server" };
+
+        var restored = OtherManagers.Restore([record], autostart, new FakeServices());
+
+        Assert.Equal([record], restored);
+        Assert.Empty(autostart.Writes);
     }
 
     [Fact]

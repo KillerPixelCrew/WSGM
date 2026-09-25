@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -85,8 +86,17 @@ internal static class LabWorkerHost
 
         Write(new LabWorkerResponse { Id = 0, Ok = true });
         Dictionary<long, LabWorkerSession> sessions = [];
-        long next = 0;
+        LabWorkerCalls calls = new();
+        using BlockingCollection<LabWorkerRequest> queue = new();
         using Timer watchdog = new(_ => ZeroStale(sessions), null, 100, 100);
+
+        // Requests run in order on one thread, so this loop can still read a cancel while a call waits.
+        Thread dispatcher = new(() => Dispatch(queue, sessions, calls))
+        {
+            IsBackground = true,
+            Name = "Device Lab worker requests"
+        };
+        dispatcher.Start();
         try
         {
             while (Console.In.ReadLine() is { } line)
@@ -108,15 +118,22 @@ internal static class LabWorkerHost
                     continue;
                 }
 
-                lock (sessions)
+                if (request.Op == "cancel")
                 {
-                    Handle(request, sessions, ref next);
+                    calls.Cancel(request.Id);
+                    continue;
                 }
+
+                queue.Add(request);
             }
         }
         finally
         {
-            // Input closed: the wizard is done or gone. Put every streamed output at rest and close.
+            // Input closed: the wizard is done or gone. End any wait, finish what was queued, then put
+            // every streamed output at rest and close.
+            calls.CancelAll();
+            queue.CompleteAdding();
+            dispatcher.Join();
             lock (sessions)
             {
                 foreach (var session in sessions.Values)
@@ -132,7 +149,21 @@ internal static class LabWorkerHost
         return 0;
     }
 
-    private static void Handle(LabWorkerRequest request, Dictionary<long, LabWorkerSession> sessions, ref long next)
+    private static void Dispatch(BlockingCollection<LabWorkerRequest> queue,
+        Dictionary<long, LabWorkerSession> sessions, LabWorkerCalls calls)
+    {
+        long next = 0;
+        foreach (var request in queue.GetConsumingEnumerable())
+        {
+            lock (sessions)
+            {
+                Handle(request, sessions, calls, ref next);
+            }
+        }
+    }
+
+    private static void Handle(LabWorkerRequest request, Dictionary<long, LabWorkerSession> sessions,
+        LabWorkerCalls calls, ref long next)
     {
         LabPowerLog opening = new();
         LabWorkerSession? session = null;
@@ -168,10 +199,24 @@ internal static class LabWorkerHost
             {
                 case "call":
                 {
-                    var result = session.Call(request.Method!, request.Args);
+                    var call = calls.Begin(request.Id);
+                    JsonElement? result;
+                    try
+                    {
+                        result = session.Call(request.Method!, request.Args, call.Token);
+                    }
+                    finally
+                    {
+                        calls.End(call);
+                    }
+
                     Reply(request, session.TakeLog(), result);
                     return;
                 }
+                case "stream-status":
+                    Reply(request, session.TakeLog(),
+                        session.StreamError is { } failed ? JsonSerializer.SerializeToElement(failed) : null);
+                    return;
                 case "checkpoint":
                 {
                     var (token, original) = session.Checkpoint();
@@ -210,6 +255,14 @@ internal static class LabWorkerHost
         }
     }
 
+    /// <summary>A null return value or snapshot as no result, so both ends agree on what null looks like.</summary>
+    /// <param name="result">The serialized value.</param>
+    /// <returns>The value, or null.</returns>
+    internal static JsonElement? Result(JsonElement? result)
+    {
+        return result is { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } ? null : result;
+    }
+
     private static void Reply(LabWorkerRequest request, IReadOnlyList<LabWorkerLogEntry> log,
         JsonElement? result = null, long session = 0, string? token = null)
     {
@@ -217,7 +270,7 @@ internal static class LabWorkerHost
         {
             Id = request.Id,
             Ok = true,
-            Result = result,
+            Result = Result(result),
             Session = session,
             Token = token,
             Log = log

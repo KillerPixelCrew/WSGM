@@ -152,17 +152,18 @@ internal sealed partial class WizardWindow : Window
                 recovered.Add(power.Message);
             }
 
-            if (_options.Elevated && _machine.Read().Rumble.Count > 0
-                                  && await Task.Run(() => LabRumbleRecovery.RestoreRecorded(_machine,
-                                      _worker ?? throw new InvalidOperationException(
-                                          "The hardware worker is unavailable."))) is { } rumble)
+            if (_options.Elevated && _machine.Read().Rumble.Count > 0)
             {
-                recovered.Add(rumble);
+                var rumbleWorker = await WorkerAsync();
+                if (await Task.Run(() => LabRumbleRecovery.RestoreRecorded(_machine, rumbleWorker)) is { } rumble)
+                {
+                    recovered.Add(rumble);
+                }
             }
 
             if (LabControllerInit.HasPending || _machine.Read().CuratedInitRecordId is not null)
             {
-                var problem = await RecoverControllerInitAsync();
+                var problem = await RecoverControllerInitAsync(_lifetime.Token);
                 recovered.Add(problem is null
                     ? "The controller was switched back to the mode it had before an earlier test."
                     : $"The controller could not be switched back after an earlier test: {problem}");

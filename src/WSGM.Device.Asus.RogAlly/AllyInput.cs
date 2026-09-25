@@ -15,22 +15,94 @@ using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Asus.RogAlly;
 
+/// <summary>The transport an OEM button edge arrived on.</summary>
+internal enum AllyOemSource
+{
+    /// <summary>A 0x5A report on the ASUS vendor collection.</summary>
+    Vendor,
+
+    /// <summary>An F-key on the ASUS keyboard collection.</summary>
+    Keyboard
+}
+
 /// <summary>Buttons that reach the controller sample from outside the gamepad report.</summary>
 /// <remarks>
-///     The front OEM buttons arrive as vendor events with no release (HHD synthesizes the release after
-///     150 ms, <c>rog_ally/base.py:180-196</c>), and the rear buttons and the Xbox models' front buttons as
-///     keyboard keys with real edges. An event is latched for <see cref="HoldDuration" /> as the Claw
-///     plugin does; a key is held for as long as it is down.
+///     The front OEM buttons arrive as vendor events with no release (HC releases them after its
+///     <c>KeyPressDelay</c>, <c>ROGAlly.cs:485-505</c>; HHD after 150 ms, <c>rog_ally/base.py:180-196</c>),
+///     and the rear buttons and the Xbox models' front buttons as keyboard keys with real edges. An event
+///     is latched for <see cref="HoldDuration" /> as the Claw plugin does; a key is held for as long as it
+///     is down. The same physical button may report on both transports, so <see cref="Admit" /> passes
+///     only the first report of each press.
 /// </remarks>
 internal sealed class AllyOemButtonState
 {
     /// <summary>HHD's <c>MODE_DELAY</c>, the synthesized press length for a release-less event.</summary>
     internal static readonly TimeSpan HoldDuration = TimeSpan.FromMilliseconds(150);
 
+    private readonly Dictionary<string, ControlEdges> _controls = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private DateTimeOffset _guideUntil;
-    private CanonicalButtons _held;
+    private CanonicalButtons _heldByKeyboard;
+    private CanonicalButtons _heldByVendor;
     private DateTimeOffset _quickAccessUntil;
+
+    /// <summary>Decides whether one edge is a new report of its control, not the other transport's echo.</summary>
+    /// <param name="controlId">The OEM control the edge belongs to.</param>
+    /// <param name="source">The transport it arrived on.</param>
+    /// <param name="edge">Press or release.</param>
+    /// <param name="releases">Whether this source sends a release for its presses.</param>
+    /// <param name="now">When it arrived.</param>
+    /// <returns>True when the edge should change button state and be published.</returns>
+    public bool Admit(string controlId, AllyOemSource source, OemControlEdge edge, bool releases, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            if (!_controls.TryGetValue(controlId, out var control))
+            {
+                control = new ControlEdges();
+                _controls.Add(controlId, control);
+            }
+
+            var index = (int)source;
+            if (edge is OemControlEdge.Released)
+            {
+                var admitted = control.Admitted[index];
+                control.Down[index] = false;
+                control.Admitted[index] = false;
+                return admitted;
+            }
+
+            var other = 1 - index;
+            var echo = control.Down[other]
+                       || (control.LastPressSource == other && now - control.LastPress < HoldDuration);
+            control.Down[index] = releases;
+            control.Admitted[index] = releases && !echo;
+            if (echo)
+            {
+                return false;
+            }
+
+            control.LastPress = now;
+            control.LastPressSource = index;
+            return true;
+        }
+    }
+
+    /// <summary>Forgets one source's outstanding presses of the given controls, when it stops reporting them.</summary>
+    public void Forget(AllyOemSource source, params ReadOnlySpan<string> controlIds)
+    {
+        lock (_gate)
+        {
+            foreach (var controlId in controlIds)
+            {
+                if (_controls.TryGetValue(controlId, out var control))
+                {
+                    control.Down[(int)source] = false;
+                    control.Admitted[(int)source] = false;
+                }
+            }
+        }
+    }
 
     public void Latch(CanonicalButtons button, DateTimeOffset now)
     {
@@ -49,11 +121,29 @@ internal sealed class AllyOemButtonState
         }
     }
 
-    public void Hold(CanonicalButtons button, bool down)
+    /// <summary>Holds or releases buttons for one source; a button is down while either source holds it.</summary>
+    public void Hold(AllyOemSource source, CanonicalButtons button, bool down)
     {
         lock (_gate)
         {
-            _held = down ? _held | button : _held & ~button;
+            if (source is AllyOemSource.Vendor)
+            {
+                _heldByVendor = down ? _heldByVendor | button : _heldByVendor & ~button;
+            }
+            else
+            {
+                _heldByKeyboard = down ? _heldByKeyboard | button : _heldByKeyboard & ~button;
+            }
+        }
+    }
+
+    /// <summary>Releases buttons whichever source holds them.</summary>
+    public void Release(CanonicalButtons button)
+    {
+        lock (_gate)
+        {
+            _heldByVendor &= ~button;
+            _heldByKeyboard &= ~button;
         }
     }
 
@@ -61,9 +151,11 @@ internal sealed class AllyOemButtonState
     {
         lock (_gate)
         {
-            _held = CanonicalButtons.None;
+            _heldByVendor = CanonicalButtons.None;
+            _heldByKeyboard = CanonicalButtons.None;
             _guideUntil = default;
             _quickAccessUntil = default;
+            _controls.Clear();
         }
     }
 
@@ -71,11 +163,19 @@ internal sealed class AllyOemButtonState
     {
         lock (_gate)
         {
-            var buttons = _held;
+            var buttons = _heldByVendor | _heldByKeyboard;
             buttons |= now < _guideUntil ? CanonicalButtons.Guide : CanonicalButtons.None;
             buttons |= now < _quickAccessUntil ? CanonicalButtons.QuickAccess : CanonicalButtons.None;
             return buttons;
         }
+    }
+
+    private sealed class ControlEdges
+    {
+        public readonly bool[] Admitted = new bool[2];
+        public readonly bool[] Down = new bool[2];
+        public DateTimeOffset LastPress;
+        public int LastPressSource = -1;
     }
 }
 
@@ -85,7 +185,11 @@ internal enum AllyControllerRoute
     /// <summary>An XInput slot, HC's route for every Ally (<c>XboxAdaptiveController : XInputController</c>).</summary>
     XInput,
 
-    /// <summary>Windows.Gaming.Input, for a pad that has no XInput slot, as the Xbox Ally X lab run found.</summary>
+    /// <summary>
+    ///     Windows.Gaming.Input, for a pad that has no XInput slot. The RC73XA lab run saw neither an XInput
+    ///     slot nor a HID gamepad collection, so which route that model uses is unknown. This route has no
+    ///     guide button, and WSGM owns it only when a hideable XUSB, GIP or XInput HID node exists.
+    /// </summary>
     WindowsGamingInput
 }
 
@@ -274,7 +378,8 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
             _gamepad = gamepad;
             var cancellation = new CancellationTokenSource();
             _cancellation = cancellation;
-            _worker = new Thread(() => Run(topology.Route, cycleGeneration, publish, fault, cancellation.Token))
+            _worker = new Thread(() =>
+                Run(topology.Route, topology.XInputSlot, gamepad, cycleGeneration, publish, fault, cancellation.Token))
             {
                 IsBackground = true,
                 Name = "WSGM Ally controller reader"
@@ -292,21 +397,29 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
             _cancellation?.Cancel();
         }
 
-        if (worker is not null)
+        var stopped = worker is null || await Task.Run(() => worker.Join(TimeSpan.FromSeconds(1)),
+            CancellationToken.None).WaitAsync(cancellationToken).ConfigureAwait(false);
+        lock (_gate)
         {
-            var stopped = await Task.Run(() => worker.Join(TimeSpan.FromSeconds(1)), CancellationToken.None)
-                .WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (!stopped)
+            if (_worker == worker)
             {
-                throw new TimeoutException("The Ally controller reader did not stop within one second.");
+                _worker = null;
+                _slot = -1;
+                _gamepad = null;
+                // A reader that has not exited still waits on this token's handle; it is left to the
+                // collector rather than disposed under it.
+                if (stopped)
+                {
+                    _cancellation?.Dispose();
+                }
+
+                _cancellation = null;
             }
         }
 
-        lock (_gate)
+        if (!stopped)
         {
-            _worker = null;
-            _cancellation?.Dispose();
-            _cancellation = null;
+            throw new TimeoutException("The Ally controller reader did not stop within one second.");
         }
     }
 
@@ -407,6 +520,8 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
 
     private void Run(
         AllyControllerRoute route,
+        int slot,
+        Gamepad? gamepad,
         long cycleGeneration,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
         Action<Exception> fault,
@@ -422,10 +537,10 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
                 CanonicalControllerSample sample;
                 if (route is AllyControllerRoute.XInput)
                 {
-                    var result = XInputNative.XInputGetStateEx((uint)_slot, out var state);
+                    var result = XInputNative.XInputGetStateEx((uint)slot, out var state);
                     if (result != 0)
                     {
-                        throw new InvalidOperationException($"XInput slot {_slot} stopped answering ({result}).");
+                        throw new InvalidOperationException($"XInput slot {slot} stopped answering ({result}).");
                     }
 
                     sample = AllyControllerCodec.Decode(state, _model.XInputGuide, _oem.Current(now), ++sequence,
@@ -433,7 +548,7 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
                 }
                 else
                 {
-                    var reading = _gamepad!.GetCurrentReading();
+                    var reading = gamepad!.GetCurrentReading();
                     sample = new CanonicalControllerSample
                     {
                         Sequence = ++sequence,

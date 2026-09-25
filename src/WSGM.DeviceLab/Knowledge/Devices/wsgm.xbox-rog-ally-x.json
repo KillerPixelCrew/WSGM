@@ -77,7 +77,7 @@
   ],
   "buttons": [
     {
-      "name": "Command Center",
+      "name": "Armoury Crate",
       "wizardButton": "OemLeft",
       "source": "KeyboardChord",
       "pressKeys": ["F21"],
@@ -85,11 +85,11 @@
       "provenance": {
         "source": "LabObserved",
         "reference": "AllyXLab-20260915-171651-7db7c7/017-result.json",
-        "note": "VK 0x84, scan 0x6C, on the 0B05:1B4C keyboard collection. HC expects report 0x5A code 0xA6, which the run did not read."
+        "note": "VK 0x84, scan 0x6C, on the 0B05:1B4C keyboard collection. HC expects report 0x5A code 0xA6, which the run did not read. Named as in the plugin (src/WSGM.Device.Asus.RogAlly/AllyModels.cs XboxKeyboardFront, F21 Armoury Crate) and the rog-xbox-ally glyph theme (guide is armory-crate); this record called it Command Center before."
       }
     },
     {
-      "name": "Armoury Crate",
+      "name": "Library",
       "wizardButton": "OemRight",
       "source": "KeyboardChord",
       "pressKeys": ["F22"],
@@ -97,7 +97,7 @@
       "provenance": {
         "source": "LabObserved",
         "reference": "AllyXLab-20260915-171651-7db7c7/018-result.json",
-        "note": "VK 0x85, scan 0x6D."
+        "note": "VK 0x85, scan 0x6D. Named as in the plugin (AllyModels.cs XboxKeyboardFront, F22 Library) and the rog-xbox-ally glyph theme (qam is library); this record called it Armoury Crate before."
       }
     },
     {
@@ -177,13 +177,14 @@
         "slowId": "0x001200A0",
         "fastId": "0x001200C1",
         "minimumWatts": "5",
-        "maximumWatts": "25"
+        "maximumWatts": "35"
       },
       "hasReadback": true,
       "note": "HC treats RC73XA as an RC72LA subclass. The 0.2.1 run recorded a power baseline but no write.",
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs"
+        "reference": "src/WSGM.Device.Asus.RogAlly/AllyModels.cs (rc73xa, 5-35 W); _ref/HandheldCompanion/source/HandheldCompanion/HandheldCompanion.Devices/XboxROGAllyX.cs:14 (cTDP 15-35)",
+        "note": "The range is the plugin's: HC's cTDP ceiling of 35 W, with the plugin's 5 W floor."
       }
     },
     {
@@ -198,7 +199,7 @@
       "hasReadback": true,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs",
+        "reference": "tools/AllyXLab/AsusControl.cs at 8fa7510e",
         "note": "ASUS throttle_thermal_policy DEVS 0x00120075: 0 balanced, 1 turbo (performance), 2 silent, per asus-wmi and HHD. The fan-curve getter selector swaps 1 and 2 (AsusControl.GetCurve); that is a separate quirk, not the mode meaning."
       }
     },
@@ -217,7 +218,7 @@
       "hasReadback": true,
       "provenance": {
         "source": "HcDerived",
-        "reference": "tools/AllyXLab/AsusControl.cs"
+        "reference": "tools/AllyXLab/AsusControl.cs at 8fa7510e"
       }
     },
     {

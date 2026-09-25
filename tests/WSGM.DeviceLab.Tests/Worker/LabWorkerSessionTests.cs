@@ -98,6 +98,57 @@ public sealed class LabWorkerSessionTests
     }
 
     [Fact]
+    public void Stream_ReportsAFailedFrameUntilTheNextAcknowledgedCheckpoint()
+    {
+        var (session, _) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+
+        session.Stream(nameof(IFakeService.Stream), [Json(7)]);
+        Assert.Null(session.StreamError);
+        session.Stream(nameof(IFakeService.Stream), [Json(9)]);
+
+        Assert.Equal("The motor write failed.", session.StreamError);
+        session.Release(token);
+        var (next, _) = session.Checkpoint();
+        session.Acknowledge(next);
+        Assert.Null(session.StreamError);
+    }
+
+    [Fact]
+    public void Checkpoint_ANullSnapshotReachesTheWizardAsTheDefault()
+    {
+        FakeNullService service = new();
+        LabWorkerService registration = new("null", typeof(IFakeNullService), (_, _) => service);
+        using LabWorkerSession session = new(registration, service, new LabPowerLog(), () => _now);
+
+        var (token, original) = session.Checkpoint();
+        var line = JsonSerializer.Serialize(
+            new LabWorkerResponse { Id = 1, Ok = true, Result = LabWorkerHost.Result(original), Token = token },
+            LabWorkerHost.WireOptions);
+        var response = JsonSerializer.Deserialize<LabWorkerResponse>(line, LabWorkerHost.WireOptions)!;
+
+        Assert.Equal(JsonValueKind.Null, original.ValueKind);
+        Assert.Null(response.Result);
+        Assert.Null(LabWorkerClient.Snapshot<int?>(response.Result));
+        Assert.Null(LabWorkerClient.Snapshot<int?>(original));
+        Assert.Null(LabWorkerClient.Snapshot<string>(response.Result));
+        Assert.Equal(7, LabWorkerClient.Snapshot<int?>(Json(7)));
+    }
+
+    [Fact]
+    public void Call_BindsTheCallsCancellationTokenWithoutSendingIt()
+    {
+        var (session, _) = Open();
+        using CancellationTokenSource cancel = new();
+
+        Assert.False(session.Call(nameof(IFakeService.Wait), [Json(1)], cancel.Token)!.Value.GetBoolean());
+        cancel.Cancel();
+        Assert.True(session.Call(nameof(IFakeService.Wait), [Json(1)], cancel.Token)!.Value.GetBoolean());
+        Assert.Throws<ArgumentException>(() => session.Call(nameof(IFakeService.Wait), [Json(1), Json(2)]));
+    }
+
+    [Fact]
     public void Checkpoint_RefusesASecondWhileOneIsPendingOrArmed()
     {
         var (session, _) = Open();
@@ -177,6 +228,12 @@ public sealed class LabWorkerSessionTests
             .GetCustomAttribute<LabWorkerWriteAttribute>());
         Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.RecoverControllerMode))!
             .GetCustomAttribute<LabWorkerWriteAttribute>());
+
+        // The re-enumeration wait stays cancellable through the worker.
+        Assert.Equal(typeof(CancellationToken), typeof(ILabCuratedInitWorker)
+            .GetMethod(nameof(ILabCuratedInitWorker.Send))!.GetParameters().Single().ParameterType);
+        Assert.Equal(typeof(CancellationToken), typeof(ILabCuratedInitWorker)
+            .GetMethod(nameof(ILabCuratedInitWorker.RecoverControllerMode))!.GetParameters().Single().ParameterType);
     }
 
     private (LabWorkerSession Session, FakeService Service) Open()
@@ -204,6 +261,26 @@ public sealed class LabWorkerSessionTests
 
         [LabWorkerZero]
         void Zero();
+
+        bool Wait(int value, CancellationToken cancellationToken);
+    }
+
+    internal interface IFakeNullService : IDisposable
+    {
+        [LabWorkerSnapshot]
+        int? Original();
+    }
+
+    internal sealed class FakeNullService : IFakeNullService
+    {
+        public int? Original()
+        {
+            return null;
+        }
+
+        public void Dispose()
+        {
+        }
     }
 
     internal sealed class FakeService : IFakeService
@@ -213,6 +290,11 @@ public sealed class LabWorkerSessionTests
         public int Read()
         {
             return 7;
+        }
+
+        public bool Wait(int value, CancellationToken cancellationToken)
+        {
+            return cancellationToken.IsCancellationRequested;
         }
 
         public void Write(int value)
