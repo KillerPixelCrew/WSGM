@@ -74,7 +74,8 @@ public sealed record SetupFeatures
 /// <summary>A named starting point on setup's profile page.</summary>
 /// <param name="Features">Its feature switches.</param>
 /// <param name="SteamAutostartTakeover">Whether it takes over how Steam starts.</param>
-public sealed record SetupPreset(SetupFeatures Features, bool SteamAutostartTakeover);
+/// <param name="OtherManagersTakeover">Whether it turns off other handheld managers' autostart and services.</param>
+public sealed record SetupPreset(SetupFeatures Features, bool SteamAutostartTakeover, bool OtherManagersTakeover);
 
 /// <summary>
 ///     Everything setup asks about WSGM itself, as one JSON document. WSGM exports it from the current
@@ -107,11 +108,20 @@ public sealed record SetupAnswers
     /// <summary>Let WSGM start Steam instead of Windows. Applied only on the user's explicit consent.</summary>
     public bool SteamAutostartTakeover { get; init; }
 
+    /// <summary>
+    ///     Turn off how Handheld Companion and the device maker's apps start (their logon tasks and services),
+    ///     so WSGM is the one manager of the device. Applied only on the user's choice; uninstall restores it.
+    /// </summary>
+    public bool OtherManagersTakeover { get; init; }
+
     /// <summary>The feature switches.</summary>
     public required SetupFeatures Features { get; init; }
 
     /// <summary>Export only: the enabled Steam startup entries a takeover would turn off.</summary>
     public IReadOnlyList<string> SteamAutostartEntries { get; init; } = [];
+
+    /// <summary>Export only: the other handheld managers found here, one line each, for setup to name.</summary>
+    public IReadOnlyList<string> OtherManagers { get; init; } = [];
 
     /// <summary>Export only: the presets, keyed <c>full</c> and <c>minimal</c>.</summary>
     public IReadOnlyDictionary<string, SetupPreset> Presets { get; init; } =
@@ -121,16 +131,18 @@ public sealed record SetupAnswers
     public static IReadOnlyDictionary<string, SetupPreset> DefaultPresets { get; } =
         new Dictionary<string, SetupPreset>
         {
-            ["full"] = new(SetupFeatures.Full, true),
-            ["minimal"] = new(SetupFeatures.Minimal, false)
+            ["full"] = new(SetupFeatures.Full, true, true),
+            ["minimal"] = new(SetupFeatures.Minimal, false, false)
         };
 
     /// <summary>Reads the answers out of a configuration.</summary>
     /// <param name="config">The current configuration.</param>
     /// <param name="freshInstall">Whether the machine had no configuration.</param>
     /// <param name="steamAutostartEntries">Descriptions of the enabled Steam startup entries.</param>
+    /// <param name="otherManagers">Descriptions of the other handheld managers found here.</param>
     /// <returns>The answers, with the presets.</returns>
-    public static SetupAnswers Export(AppConfig config, bool freshInstall, IReadOnlyList<string> steamAutostartEntries)
+    public static SetupAnswers Export(AppConfig config, bool freshInstall, IReadOnlyList<string> steamAutostartEntries,
+        IReadOnlyList<string>? otherManagers = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(steamAutostartEntries);
@@ -141,6 +153,9 @@ public sealed record SetupAnswers
             StartMode = config.StartMode,
             DeviceIntegration = config.DeviceIntegration.Enabled,
             SteamAutostartTakeover = config.SteamAutostartTakeoverAccepted,
+            // Current value: WSGM already turned something off. A fresh install takes the preset's.
+            OtherManagersTakeover = config.OtherManagersDisabled.Count > 0,
+            OtherManagers = otherManagers ?? [],
             Features = new SetupFeatures
             {
                 SteamInputManagement = config.SteamInputManagementEnabled,
@@ -248,7 +263,8 @@ public sealed record SetupAnswers
         ];
         var off = features.Where(feature => !feature.On).Select(feature => feature.Name);
         return $"startAtSignIn={StartAtSignIn}, startMode={StartMode}, deviceIntegration={DeviceIntegration}, "
-               + $"steamAutostartTakeover={SteamAutostartTakeover}, off=[{string.Join(",", off)}]";
+               + $"steamAutostartTakeover={SteamAutostartTakeover}, otherManagersTakeover={OtherManagersTakeover}, "
+               + $"off=[{string.Join(",", off)}]";
     }
 }
 

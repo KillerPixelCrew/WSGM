@@ -473,6 +473,15 @@ repair starts from the values WSGM exports (`--export-setup-answers`), so it nev
 Settings. A quiet fresh install never takes over Steam's autostart; a quiet update keeps an accepted
 takeover. Quick Setup is retired, and WSGM Settings changes the choices afterwards.
 
+Full mode also turns off other handheld managers so WSGM is the only one driving the device:
+Handheld Companion (found by the logon task that runs it) and the maker's apps from Handheld
+Companion's own OEM lists, which are MSI Center M, Armoury Crate, Legion Space and the Zotac
+launcher (`Core\OtherManagers`). Their services are set to disabled and stopped, their tasks
+disabled, and a running window is asked to close but never ended. Each change is recorded in
+`config.json` before it is made, and `--uninstall-restore` puts back the exact start types and
+tasks. The profile page names what was found, Customize has the switch, Minimal leaves them alone,
+and a quiet fresh install never turns them off.
+
 A WSGM 1.0 install is removed first through its own Inno uninstaller (`/VERYSILENT`), and setup
 stops when that fails. Nothing from 1.0 is carried over. That uninstaller signals the uninstall
 event, on which WSGM leaves Steam running, so setup first stops WSGM through the update event: WSGM

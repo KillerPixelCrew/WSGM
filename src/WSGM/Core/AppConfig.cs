@@ -779,6 +779,12 @@ public sealed class AppConfig
     public List<SteamAutostartRecord> SteamAutostartDisabled { get; set; } = [];
 
     /// <summary>
+    ///     Services and tasks of other handheld managers (Handheld Companion, the makers' apps) that setup's
+    ///     Full mode turned off, so the uninstaller can put back exactly those (see Core\OtherManagers).
+    /// </summary>
+    public List<OtherManagerRecord> OtherManagersDisabled { get; set; } = [];
+
+    /// <summary>
     ///     Settle delay after explorer's shell window and taskbar both exist,
     ///     before the boot takeover cleanly shuts explorer down. Covers the logon prep
     ///     (Run keys, Startup folder, session services) that must complete once per

@@ -65,6 +65,7 @@ internal sealed class ProfilePage : Page
     private bool _desktopFirst;
     private bool _signIn;
     private bool _takeover;
+    private bool _managersTakeover;
 
     public ProfilePage(JsonObject answers)
     {
@@ -73,6 +74,10 @@ internal sealed class ProfilePage : Page
         _signIn = answers["startAtSignIn"]?.GetValue<bool>() ?? true;
         _desktopFirst = answers["startMode"]?.ToString() == "Desktop";
         _takeover = answers["steamAutostartTakeover"]?.GetValue<bool>() ?? false;
+        _managersTakeover = answers["otherManagersTakeover"]?.GetValue<bool>() ?? false;
+        OtherManagers = answers["otherManagers"] is JsonArray managers
+            ? [.. managers.Select(manager => manager?.ToString() ?? "").Where(line => line.Length > 0)]
+            : [];
         TakeoverEntries = answers["steamAutostartEntries"] is JsonArray entries
             ? string.Join("\n", entries.Select(entry => "• " + entry))
             : "";
@@ -82,6 +87,7 @@ internal sealed class ProfilePage : Page
             // A fresh install starts from the Full preset, as the mockup shows.
             features = full["features"]?.DeepClone() as JsonObject ?? features;
             _takeover = full["steamAutostartTakeover"]?.GetValue<bool>() ?? _takeover;
+            _managersTakeover = full["otherManagersTakeover"]?.GetValue<bool>() ?? _managersTakeover;
         }
 
         foreach (var (key, value) in features)
@@ -117,6 +123,42 @@ internal sealed class ProfilePage : Page
     public ObservableCollection<FeatureOption> Features { get; } = [];
     public string TakeoverEntries { get; }
     public bool HasTakeoverEntries => TakeoverEntries.Length > 0;
+
+    /// <summary>Handheld Companion and the maker's apps found here, one line each.</summary>
+    public IReadOnlyList<string> OtherManagers { get; }
+
+    /// <summary>Whether any other handheld manager was found.</summary>
+    public bool HasOtherManagers => OtherManagers.Count > 0;
+
+    /// <summary>The managers as a bulleted list, for the Customize page.</summary>
+    public string OtherManagerLines => string.Join("\n", OtherManagers.Select(line => "• " + line));
+
+    /// <summary>
+    ///     The Profile page's note while other managers would be turned off: which ones, and that uninstalling
+    ///     puts them back.
+    /// </summary>
+    public string OtherManagersNote => HasOtherManagers && _managersTakeover
+        ? "This also turns off how these start, so WSGM is the one manager of your device: "
+          + string.Join(", ", OtherManagers.Select(line => line.Split(':')[0]))
+          + ". Their windows are asked to close. Uninstalling WSGM turns them back on."
+        : "";
+
+    /// <summary>Whether the note is shown.</summary>
+    public bool HasOtherManagersNote => OtherManagersNote.Length > 0;
+
+    /// <summary>Turn off other handheld managers' autostart and services.</summary>
+    public bool OtherManagersTakeover
+    {
+        get => _managersTakeover;
+        set
+        {
+            if (Set(ref _managersTakeover, value))
+            {
+                _edited = true;
+                Changed();
+            }
+        }
+    }
     public override string Eyebrow => "Profile";
     public override string Title => "How should WSGM run?";
     public override string Lead => FromCurrent ? "These are your current settings. Change anything you like." : "";
@@ -199,6 +241,7 @@ internal sealed class ProfilePage : Page
         answers["startAtSignIn"] = SignIn;
         answers["startMode"] = _desktopFirst ? "Desktop" : "Game";
         answers["steamAutostartTakeover"] = Takeover;
+        answers["otherManagersTakeover"] = _managersTakeover;
         JsonObject features = new();
         foreach (var feature in Features)
         {
@@ -216,7 +259,10 @@ internal sealed class ProfilePage : Page
                                                     && Features.All(feature =>
                                                         features[feature.Key]?.GetValue<bool>() == feature.On)
                                                     && (preset["steamAutostartTakeover"]?.GetValue<bool>() ?? false) ==
-                                                    Takeover)
+                                                    Takeover
+                                                    && (!HasOtherManagers
+                                                        || (preset["otherManagersTakeover"]?.GetValue<bool>() ?? false)
+                                                        == _managersTakeover))
             {
                 return name;
             }
@@ -254,7 +300,9 @@ internal sealed class ProfilePage : Page
         _applying = false;
 
         _takeover = preset["steamAutostartTakeover"]?.GetValue<bool>() ?? false;
+        _managersTakeover = preset["otherManagersTakeover"]?.GetValue<bool>() ?? false;
         Raise(nameof(Takeover));
+        Raise(nameof(OtherManagersTakeover));
         Changed();
     }
 
@@ -264,6 +312,8 @@ internal sealed class ProfilePage : Page
         Raise(nameof(IsFull));
         Raise(nameof(IsMinimal));
         Raise(nameof(Chip));
+        Raise(nameof(OtherManagersNote));
+        Raise(nameof(HasOtherManagersNote));
     }
 
     private void UpdateEnabled()

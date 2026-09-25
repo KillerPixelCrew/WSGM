@@ -60,6 +60,7 @@ internal static class QuietSetup
         {
             // A silent fresh install never consents to taking over how Steam starts.
             answers["steamAutostartTakeover"] = false;
+            answers["otherManagersTakeover"] = false;
         }
 
         var device = DevicePlugin(options, engine);

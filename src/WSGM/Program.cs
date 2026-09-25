@@ -259,6 +259,18 @@ public static class Program
                         Log.Info($"Setup: Steam autostart takeover disabled {result.Disabled.Count}, "
                                  + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
                     }
+
+                    if (answers.OtherManagersTakeover)
+                    {
+                        // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
+                        // and --uninstall-restore puts it back.
+                        var result = OtherManagers.Disable(OtherManagers.Detect(), OtherManagers.Record);
+                        if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
+                        {
+                            Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
+                                     + $"running [{string.Join(", ", result.StillRunning)}].");
+                        }
+                    }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
                 {
@@ -537,7 +549,17 @@ public static class Program
                 Log.Warn("Setup answers: the Steam autostart scan failed: " + ex.Message);
             }
 
-            File.WriteAllBytes(path, SetupAnswers.Export(config, freshInstall, entries).ToUtf8Json());
+            IReadOnlyList<string> managers = [];
+            try
+            {
+                managers = [.. OtherManagers.Detect().Select(manager => manager.Describe())];
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn("Setup answers: the other-manager scan failed: " + ex.Message);
+            }
+
+            File.WriteAllBytes(path, SetupAnswers.Export(config, freshInstall, entries, managers).ToUtf8Json());
             return 0;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
