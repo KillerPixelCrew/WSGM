@@ -145,6 +145,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _services = services ?? SettingsServices.Windows();
         _queryDisplaysOnWorker = services is null;
+        InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
+        AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
+        UnavailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasUnavailablePackages));
         SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         TakeOverSteamAutostartCommand = new AsyncRelayCommand(TakeOverSteamAutostartAsync);
@@ -300,8 +303,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Metadata discovery failures; discovery never executes plugin code.</summary>
     public string CommonPluginDiscoveryError { get; private set; } = "";
 
-    /// <summary>Installed package files and the plugins the installed release bundles.</summary>
-    public ObservableCollection<PluginPackageRow> PluginPackages { get; } = [];
+    /// <summary>Package files in the Plugins folder.</summary>
+    public ObservableCollection<PluginPackageRow> InstalledPackages { get; } = [];
+
+    /// <summary>Plugins the installed release bundles that this machine can install.</summary>
+    public ObservableCollection<PluginPackageRow> AvailablePackages { get; } = [];
+
+    /// <summary>Bundled plugins for other hardware, and community plugins this release could not build.</summary>
+    public ObservableCollection<PluginPackageRow> UnavailablePackages { get; } = [];
+
+    /// <summary>Whether anything is installed.</summary>
+    public bool HasInstalledPackages => InstalledPackages.Count > 0;
+
+    /// <summary>Whether the release offers anything to install.</summary>
+    public bool HasAvailablePackages => AvailablePackages.Count > 0;
+
+    /// <summary>Whether the release bundles plugins this machine cannot use.</summary>
+    public bool HasUnavailablePackages => UnavailablePackages.Count > 0;
 
     /// <summary>Whether the installed setup is present to run Repair.</summary>
     public bool CanRepair => File.Exists(InstallLayout.SetupExe);
@@ -1298,11 +1316,20 @@ public sealed partial class SettingsViewModel : ObservableObject
             Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
         }
 
-        PluginPackages.Clear();
+        InstalledPackages.Clear();
+        AvailablePackages.Clear();
+        UnavailablePackages.Clear();
         foreach (var state in PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers))
         {
-            PluginPackages.Add(new PluginPackageRow(state, row => ActOnPackageAsync(row, bundle)));
+            PluginPackageRow row = new(state, action => ActOnPackageAsync(action, bundle));
+            (state.Section switch
+            {
+                PluginPackageSection.Installed => InstalledPackages,
+                PluginPackageSection.Available => AvailablePackages,
+                _ => UnavailablePackages
+            }).Add(row);
         }
+
     }
 
     private static Task<string> ActOnPackageAsync(PluginPackageRowState row, BundleManifest? bundle)
