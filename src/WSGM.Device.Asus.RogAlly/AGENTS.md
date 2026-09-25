@@ -44,9 +44,10 @@ Every command revalidates identity, service state, generations, deadline and ran
 - Charge limit and Aura are persistent user choices: never journalled, never reverted on stop.
 - Controller tables are HC's bytes in HC's order, written as 64-byte 0x5A feature reports only while
   the controller is managed, journalled first, and replaced by the factory tables on release. They go
-  to the collection that answers feature report 0x5A, as HC chooses it. Every table is sent even when
-  one is refused, as HC does; only a refused M1/M2 table keeps the rear keys off. They cannot be read
-  back, so a release that wrote them stays reported as unverified.
+  to the last collection with 64-byte features that answers report 0x5A, exactly as HC's `IsReady`
+  chooses it, and the button events are read from that same collection. Never select it by usage.
+  Every table is sent even when one is refused, as HC does; only a refused M1/M2 table keeps the rear
+  keys off. They cannot be read back, so a release that wrote them stays reported as unverified.
 - An uncertain write is never retried. HHD's timed re-send of the controller tables stays out.
 
 ## Input invariants

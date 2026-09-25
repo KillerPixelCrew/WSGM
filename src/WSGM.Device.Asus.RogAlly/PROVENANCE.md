@@ -41,12 +41,11 @@ exactly. The Xbox models' SMBIOS SKU was empty in the lab run, so the SKU is not
 | Slot identity through `XInputGetCapabilitiesEx` (ordinal 108)     | HC `XInputController.cs:53-89, 370-371`                                                                                        |
 | Rumble through `XInputSetState`, large motor left                 | HC `XInputController.cs:279-296`                                                                                               |
 | Windows.Gaming.Input fallback when no XInput slot exists          | Neither reference; the retired Ally X Lab's third motor route (`tools/AllyXLab/Motors.cs`, removed in `829c5a5c`)              |
-| Vendor collection FF31:0076 or FF31:0080, report 0x5A             | HC finds it by feature report 0x5A (`ROGAlly.cs:416-436`); HHD uses FF31:0080 (`rog_ally/base.py:383-393`)                     |
+| Vendor collection: the last with 64-byte features answering 0x5A  | HC `ROGAlly.cs:416-436` (`IsReady`), events and tables alike; HHD uses FF31:0080 on Linux (`rog_ally/base.py:383-393`)         |
 | Controller tables (game mode, button pairs, triggers, commit)     | HC `ROGAlly.cs:93-183`, byte for byte, in `ConfigureController` order (`ROGAlly.cs:646-668`)                                   |
 | Tables sent as 64-byte feature reports                            | HC `ROGAlly.cs:646-668` (`WriteFeatureReport(..., 64)`)                                                                        |
 | Tables restored with the factory M1/M2 block on release           | HC `ROGAlly.cs:396-400` (`ConfigureController(Remap: false)`) with HC's `M1M2Default`                                          |
-| Vendor collection (events and tables) answers feature 0x5A        | HC `ROGAlly.cs:416-436`; FF31:0076, then FF31:0080, when they answer                                                           |
-| Xbox Ally X events arrive on FF31:0076 (MI_02 Col01)              | Device Lab RC73XA run 2026-09-25: `5A A6` Armoury Crate, `5A 93` Library, none on FF31:0080                                    |
+| Xbox Ally X events arrive on FF31:0076 (MI_02 Col01)              | Device Lab RC73XA run 2026-09-25: `5A A6` Armoury Crate, `5A 93` Library, none on FF31:0080; consistent with HC's probe        |
 | Xbox Ally X M1/M2 send F18/F17 with no table written              | Device Lab RC73XA run 2026-09-25, `back-left1` F18 and `back-right1` F17 (`RearKeysNative`)                                    |
 | Front buttons also raise ATK WMI events 166 (0xA6) and 147 (0x93) | Device Lab RC73XA run 2026-09-25 (`AsusAtkWmiEvent`); unused, the HID report carries the code                                  |
 | Holding Armoury Crate or Library repeats F21 or F22               | Device Lab RC73XA run 2026-09-25 (`oem-left-hold`, `oem-right-hold`)                                                           |

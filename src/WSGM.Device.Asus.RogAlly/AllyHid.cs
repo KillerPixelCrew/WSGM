@@ -395,12 +395,10 @@ internal interface IAllyAuraHid : IAsyncDisposable
     ValueTask<bool> DisableDynamicLightingAsync(CancellationToken cancellationToken);
 }
 
-/// <summary>Windows transport for the vendor collection, usage page 0xFF31, usage 0x0080.</summary>
+/// <summary>Windows transport for the ASUS vendor collection that answers feature report 0x5A.</summary>
 /// <remarks>
-///     HC selects the collection whose feature report 0x5A reads (<c>ROGAlly.cs:422-436</c>) and HHD selects
-///     by usage (<c>rog_ally/base.py:383-393</c>); HC's probe leads and usage breaks ties. Configuration uses
-///     feature reports as HC does (<c>ROGAlly.cs:646-668</c>), because the Device Lab run found no output
-///     report on this collection on RC73XA.
+///     HC selects the collection whose feature report 0x5A reads (<c>ROGAlly.cs:416-436</c>), and so does this.
+///     Configuration uses feature reports as HC does (<c>ROGAlly.cs:646-668</c>).
 /// </remarks>
 internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productIds) : IAllyVendorHid
 {
@@ -517,12 +515,12 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>The vendor collection, chosen as HC chooses it: the one whose feature report 0x5A reads.</summary>
+    /// <summary>The vendor collection, chosen exactly as HC chooses it.</summary>
     /// <remarks>
-    ///     HC reads events from and writes the tables to that one collection (<c>ROGAlly.cs:416-436</c>). On
-    ///     the Xbox Ally X the Device Lab saw every 0x5A button event on FF31:0076 (MI_02 Col01) and none on
-    ///     FF31:0080 (Col04), which also refused the tables. So FF31:0076 leads, then FF31:0080, then any
-    ///     other collection that answers; usage alone is the last resort.
+    ///     HC's <c>IsReady</c> (<c>ROGAlly.cs:416-436</c>) walks every ASUS collection with 64-byte feature
+    ///     reports (<c>IDevice.GetHidDevices(..., 64)</c>) and keeps the last one whose feature report 0x5A
+    ///     reads; it reads the button events from and writes the tables to that collection. No usage is
+    ///     assumed: collections differ between models, which is why HC probes.
     /// </remarks>
     private AllyHidEndpoint? Find()
     {
@@ -538,11 +536,7 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
                 .Where(endpoint => endpoint.FeatureLength >= AllyProtocol.ConfigurationLength
                                    && AllyHidEnumerator.AnswersFeature(endpoint, AllyProtocol.VendorReportId))
                 .ToArray();
-            _endpoint = answering.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorEventUsage))
-                        ?? answering.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorUsage))
-                        ?? answering.LastOrDefault()
-                        ?? endpoints.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorEventUsage))
-                        ?? endpoints.FirstOrDefault(endpoint => IsUsage(endpoint, AllyProtocol.VendorUsage));
+            _endpoint = answering.LastOrDefault();
             if (_endpoint is not null)
             {
                 PluginTrace.Info("vendor-hid",
@@ -552,11 +546,6 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
 
             return _endpoint;
         }
-    }
-
-    private static bool IsUsage(AllyHidEndpoint endpoint, ushort usage)
-    {
-        return endpoint.UsagePage == AllyProtocol.VendorUsagePage && endpoint.Usage == usage;
     }
 
     private static async Task ReadLoopAsync(
