@@ -361,13 +361,16 @@ internal sealed class SetupEngine : IDisposable
         StopAndCapture(forUninstall);
         _shutdownApplied = true;
 
-        // WSGM's own pre-stop gives Steam ten seconds, and it only runs when WSGM was running. Whatever is
-        // left gets the same graceful request from setup and a longer wait; it is never terminated.
+        // An install, update or repair always closes Steam, so WSGM starts it with its own settings afterwards.
+        // WSGM's pre-stop gives Steam ten seconds and only runs when WSGM was running (on a retry, or after
+        // the old uninstaller, it is not); whatever is left gets the same graceful request from setup and a
+        // longer wait. Steam is never terminated. Only replacing an install refuses while Steam stays: its
+        // Steam Input helper may be loaded there. An uninstall leaves Steam alone, as WSGM's uninstall exit does.
         var existing = File.Exists(InstallLayout.AppExe);
         var includeSteam = !forUninstall && existing;
-        if (includeSteam)
+        if (!forUninstall && !WindowsSetup.CloseSteam(TimeSpan.FromSeconds(60)) && !existing)
         {
-            WindowsSetup.CloseSteam(TimeSpan.FromSeconds(60));
+            SetupLog.Warn("Steam stayed open; a fresh install continues, and WSGM starts Steam its own way next time.");
         }
 
         var blockers = WindowsSetup.Blockers(includeSteam);

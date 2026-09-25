@@ -175,25 +175,68 @@
         </UniformGrid>
         <ToggleSwitch IsChecked="{Binding SignIn}" OnContent="Start WSGM when you sign in"
                       OffContent="Start WSGM when you sign in" />
-        <ToggleButton IsChecked="{Binding Customize}" Content="Customize…" HorizontalAlignment="Left" />
-        <StackPanel Spacing="4" IsVisible="{Binding Customize}">
-          <ItemsControl ItemsSource="{Binding Features}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="ui:FeatureOption">
-                <StackPanel Margin="0,2">
-                  <ToggleSwitch IsChecked="{Binding On}" IsEnabled="{Binding Enabled}"
-                                OnContent="{Binding Label}" OffContent="{Binding Label}" />
-                  <TextBlock Classes="muted" Text="{Binding Description}" IsVisible="{Binding HasDescription}"
-                             Margin="0,0,0,4" />
-                </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+        <Button Content="Customize…" Command="{Binding CustomizeCommand}" HorizontalAlignment="Left" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="ui:CustomizePage">
+      <StackPanel Spacing="14">
+        <ItemsControl ItemsSource="{Binding Profile.Groups}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="14" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="ui:FeatureGroup">
+              <StackPanel Spacing="6">
+                <TextBlock Classes="section" Text="{Binding Name}" />
+                <Border Classes="card" Padding="0">
+                  <ItemsControl ItemsSource="{Binding Items}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="ui:FeatureOption">
+                        <Grid Classes="feature" Classes.child="{Binding IsChild}" ColumnDefinitions="*,Auto"
+                              ColumnSpacing="16" IsEnabled="{Binding Enabled}">
+                          <StackPanel Spacing="3" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Classes="row-title" Text="{Binding Label}" VerticalAlignment="Center" />
+                              <Border Classes="new" IsVisible="{Binding IsNew}" VerticalAlignment="Center">
+                                <TextBlock Text="NEW" />
+                              </Border>
+                            </StackPanel>
+                            <TextBlock Classes="muted" Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+                          </StackPanel>
+                          <ToggleSwitch Grid.Column="1" IsChecked="{Binding On}" OnContent="" OffContent=""
+                                        VerticalAlignment="Center" MinWidth="0" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <StackPanel Spacing="6">
           <TextBlock Classes="section" Text="STEAM AT SIGN-IN" />
-          <ToggleSwitch IsChecked="{Binding Takeover}" OnContent="Let WSGM start Steam" OffContent="Let WSGM start Steam" />
-          <TextBlock Classes="muted"
-                     Text="Windows stops starting Steam on its own. WSGM starts it instead, so Steam can reach elevated games and windows. These entries are switched off, not deleted, and uninstalling WSGM puts them back:" />
-          <TextBlock Classes="mono" Text="{Binding TakeoverEntries}" IsVisible="{Binding HasTakeoverEntries}" />
+          <Border Classes="card" Padding="0">
+            <Grid Classes="feature" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+              <StackPanel Spacing="3" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Classes="row-title" Text="Let WSGM start Steam" VerticalAlignment="Center" />
+                  <Border Classes="new" VerticalAlignment="Center">
+                    <TextBlock Text="NEW" />
+                  </Border>
+                </StackPanel>
+                <TextBlock Classes="muted"
+                           Text="Windows stops starting Steam on its own and WSGM starts it instead, so Steam can reach elevated games and windows. The entries are switched off, not deleted, and uninstalling WSGM puts them back." />
+                <TextBlock Classes="mono" Text="{Binding Profile.TakeoverEntries}"
+                           IsVisible="{Binding Profile.HasTakeoverEntries}" Margin="0,4,0,0" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding Profile.Takeover}" OnContent="" OffContent=""
+                            VerticalAlignment="Center" MinWidth="0" />
+            </Grid>
+          </Border>
         </StackPanel>
       </StackPanel>
     </DataTemplate>
@@ -233,7 +276,7 @@
             <TextBlock TextWrapping="Wrap"
                        Text="Your controller is shown to games again either way, even if HidHide stays installed." />
           </Border>
-          <ToggleButton IsChecked="{Binding Custom}" Content="Custom…" MinHeight="48" Padding="22,0"
+          <ToggleButton IsChecked="{Binding Custom}" Content="Custom…"
                         IsVisible="{Binding HasOwnedComponents}" />
           <StackPanel Spacing="6" IsVisible="{Binding Custom}">
             <TextBlock Classes="section" Text="DRIVERS" />

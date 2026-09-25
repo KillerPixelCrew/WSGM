@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -11,35 +12,55 @@ namespace WSGM.Setup.UI;
 /// </summary>
 internal sealed class ProfilePage : Page
 {
-    // Label, description and parent for each feature WSGM exports. An unknown feature still appears,
+    // Label, description, parent, group and whether WSGM 1.0 lacked it, for each feature WSGM exports. The
+    // NEW flags compare with WSGM 1.0.0 (the tree before db0b0527), which had the Steam Input lease, the
+    // shortcut, the gamepad chord, edge gestures and the boot splash. An unknown feature still appears,
     // under its own key, so a newer WSGM never has a switch setup cannot show.
-    private static readonly Dictionary<string, (string Label, string Description, string? Parent, string Group)> Known =
-        new()
-        {
-            ["steamInputManagement"] = ("Manage Steam Input",
-                "WSGM hands controllers to Steam in games and takes them back for its own menus.", null, "Steam Input"),
-            ["steamInputLease"] = ("Steam Input lease for WSGM's menus",
-                "Keeps Steam from turning the controller into a mouse while WSGM is in front.", null, "Steam Input"),
-            ["steamUi"] = ("Steam UI integration", "WSGM adds its own rows and tabs inside Steam's Big Picture.", null,
-                "Steam UI integration"),
-            ["libraryTabs"] = ("Library tabs per SD card", "", "steamUi", "Steam UI integration"),
-            ["cardManager"] = ("Card manager", "", "steamUi", "Steam UI integration"),
-            ["connectedLibraryCarousel"] =
-                ("Connected-library carousel on Home", "", "steamUi", "Steam UI integration"),
-            ["sdFormat"] = ("Format SD cards from Steam", "", "steamUi", "Steam UI integration"),
-            ["wifiIndicator"] = ("Wi-Fi indicator in the header", "", "steamUi", "Steam UI integration"),
-            ["nativeQuickAccess"] = ("WSGM rows in Quick Access", "", "steamUi", "Steam UI integration"),
-            ["downloadKeepAwake"] = ("Stay awake while downloading", "", "steamUi", "Steam UI integration"),
-            ["downloadQueueSort"] = ("Download queue sorting", "", "steamUi", "Steam UI integration"),
-            ["edgeGestures"] = ("Edge swipes", "Swipe in from the top edge to open the overlay.", null,
-                "Getting to WSGM"),
-            ["hotkey"] = ("Keyboard shortcut", "", null, "Getting to WSGM"),
-            ["gamepadChord"] = ("Gamepad chord", "", null, "Getting to WSGM"),
-            ["bootSplash"] = ("Boot splash", "Covers the desktop while Game Mode starts.", null, "Start")
-        };
+    private static readonly Dictionary<string, (string Label, string Description, string? Parent, string Group, bool
+        IsNew)> Known = new()
+    {
+        ["steamInputManagement"] = ("Manage Steam Input",
+            "WSGM places its Steam Input helper in Steam's own folder, so Steam loads it and WSGM never writes into "
+            + "Steam while it runs.", null, "Steam Input", true),
+        ["steamInputLease"] = ("Pause Steam Input for WSGM's menus",
+            "Keeps Steam from turning the controller into a mouse or keyboard while a WSGM menu is open.", null,
+            "Steam Input", false),
+        ["steamUi"] = ("Steam UI integration",
+            "Adds WSGM's features inside Steam's Big Picture. Turning it off hides everything below.", null,
+            "Steam UI integration", true),
+        ["libraryTabs"] = ("Library tabs",
+            "Your own filter tabs in the library, with the tab order you choose and Steam's tabs you don't need hidden.",
+            "steamUi", "Steam UI integration", true),
+        ["cardManager"] = ("SD card libraries",
+            "A library tab for each SD card, a badge on each game showing which card it is on, and labels that "
+            + "follow the card you insert.", "steamUi", "Steam UI integration", true),
+        ["connectedLibraryCarousel"] = ("Home shows what's installed",
+            "Home's carousel shows the games on the drives and cards attached right now, most recently played first.",
+            "steamUi", "Steam UI integration", true),
+        ["sdFormat"] = ("Format SD cards from Steam",
+            "Formats a new card and adds its library to Steam without leaving Big Picture.", "steamUi",
+            "Steam UI integration", true),
+        ["wifiIndicator"] = ("Wi-Fi in the header", "Shows the Wi-Fi signal in Big Picture's header.", "steamUi",
+            "Steam UI integration", true),
+        ["nativeQuickAccess"] = ("WSGM in Quick Access", "Adds WSGM's controls to Steam's Quick Access menu.",
+            "steamUi", "Steam UI integration", true),
+        ["downloadKeepAwake"] = ("Stay awake while downloading",
+            "Keeps the device out of standby while Steam is downloading, so downloads finish.", "steamUi",
+            "Steam UI integration", true),
+        ["downloadQueueSort"] = ("Sort the download queue",
+            "Adds name, size and type sorting to Big Picture's download queue.", "steamUi", "Steam UI integration",
+            true),
+        ["edgeGestures"] = ("Edge swipes",
+            "Swipe in from the top edge for WSGM, from the left for Steam's menu and from the right for Quick Access.",
+            null, "Getting to WSGM", false),
+        ["hotkey"] = ("Keyboard shortcut", "Opens WSGM with Ctrl+Alt+Home. You can change the keys in Settings.",
+            null, "Getting to WSGM", false),
+        ["gamepadChord"] = ("Controller button combination",
+            "Opens WSGM with a button combination you set in Settings.", null, "Getting to WSGM", false),
+        ["bootSplash"] = ("Boot splash", "Covers the desktop while Game Mode starts.", null, "Start", false)
+    };
 
     private readonly JsonObject _presets;
-    private bool _customize;
     private bool _desktopFirst;
     private bool _signIn;
     private bool _takeover;
@@ -64,17 +85,32 @@ internal sealed class ProfilePage : Page
 
         foreach (var (key, value) in features)
         {
-            var (label, description, parent, group) = Known.TryGetValue(key, out var known)
+            var (label, description, parent, group, isNew) = Known.TryGetValue(key, out var known)
                 ? known
-                : (key, "", null, "Other");
+                : (key, "", null, "Other", false);
             FeatureOption option = new(key, label, description, value?.GetValue<bool>() == true, parent)
-                { Group = group };
+                { Group = group, IsNew = isNew };
             option.PropertyChanged += (_, _) => Changed();
             Features.Add(option);
         }
 
         UpdateEnabled();
+        foreach (var group in Features.GroupBy(feature => feature.Group))
+        {
+            Groups.Add(new FeatureGroup(group.Key.ToUpperInvariant(), [.. group]));
+        }
+
+        CustomizeCommand = new Command(() => CustomizeRequested?.Invoke());
     }
+
+    /// <summary>Raised when the user opens the Customize page.</summary>
+    public event Action? CustomizeRequested;
+
+    /// <summary>Opens the Customize page.</summary>
+    public Command CustomizeCommand { get; }
+
+    /// <summary>The features by group, as the Customize page lists them.</summary>
+    public ObservableCollection<FeatureGroup> Groups { get; } = [];
 
     public bool FromCurrent { get; }
     public ObservableCollection<FeatureOption> Features { get; } = [];
@@ -153,12 +189,6 @@ internal sealed class ProfilePage : Page
         }
     }
 
-    public bool Customize
-    {
-        get => _customize;
-        set => Set(ref _customize, value);
-    }
-
     /// <summary>Writes the page's choices into the answers document.</summary>
     public void WriteTo(JsonObject answers)
     {
@@ -224,3 +254,20 @@ internal sealed class ProfilePage : Page
         }
     }
 }
+
+/// <summary>
+///     Every integration switch on its own page, grouped, each with what it does and a NEW badge where WSGM 1.0
+///     did not have it. It edits the profile page's state, so the level chip there follows.
+/// </summary>
+internal sealed class CustomizePage(ProfilePage profile) : Page
+{
+    public ProfilePage Profile { get; } = profile;
+    public override string Eyebrow => "Profile";
+    public override string Title => "Customize WSGM";
+
+    public override string Lead =>
+        "Turn each part on or off. NEW marks what WSGM 1.0 didn't have. You can change all of it later in WSGM Settings.";
+}
+
+/// <summary>One group of the Customize page.</summary>
+internal sealed record FeatureGroup(string Name, IReadOnlyList<FeatureOption> Items);

@@ -3,7 +3,10 @@
 This scope owns `WSGM.Setup.exe`: install composition, hardware-driven plugin and component
 selection, privilege boundaries, updates, repair, rollback and uninstall. Read docs/boot-and-shell.md,
 docs/elevation.md, and the relevant device or input document before changing behavior. The approved
-screen design is `docs/mockup.html`; keep flow, wording and layout aligned with it.
+screen design is `docs/mockup.html`; keep flow, wording and layout aligned with it. One
+deliberate change since (maintainer, 2026-09-25): Customize is its own page, not a panel on Profile.
+Each switch there has a short description, and a NEW badge marks what WSGM 1.0.0 (the tree before
+`db0b0527`) did not have. A feature added later gets the badge too.
 
 ## Invariants
 

@@ -516,9 +516,10 @@ is on screen. For that half the banner says to re-run setup and warns that a reb
    publishes `Local\WSGM.ShellAnchor.RecoverySettled`, through the same current-session filter.
    Without the acknowledgement it stays alive as the only remaining desktop-recovery owner; the
    `App` swap then fails on its locked image and setup rolls back.
-6. When an installed WSGM is being replaced and Steam is still running (WSGM's pre-stop ran out of
-   time, or WSGM was not running), setup sends Steam the same graceful `steam://exit` and waits up
-   to 60 s.
+6. Close Steam on every install, update and repair, so WSGM starts it with its own settings. WSGM's
+   pre-stop only runs when WSGM was running; whatever is left gets the same graceful `steam://exit`
+   from setup and up to 60 s. Steam is never terminated. A fresh install continues when Steam stays
+   open; replacing an install refuses (step 7). An uninstall leaves Steam alone.
 7. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
    the retired `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never
    terminates either tree.

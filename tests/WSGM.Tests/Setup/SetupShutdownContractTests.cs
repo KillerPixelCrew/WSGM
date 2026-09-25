@@ -59,7 +59,7 @@ public sealed class SetupShutdownContractTests
         var source = Source(@"src\WSGM.Setup\Engine\SetupEngine.cs");
         var legacy = source[source.IndexOf("\"Removing WSGM \" + legacy.Version", StringComparison.Ordinal)..];
 
-        AssertOrdered(legacy, "StopAndCapture(forUninstall: false)", "Registration.RunInnoUninstaller(");
+        AssertOrdered(legacy, "StopAndCapture(false)", "Registration.RunInnoUninstaller(");
     }
 
     [Fact]

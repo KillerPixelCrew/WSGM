@@ -102,7 +102,29 @@
     <Setter Property="CornerRadius" Value="6" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
-  <!-- Customize is a toggle; it takes the Button look, with its label centred like every other button. -->
+  <!-- Customize page rows: one per feature inside a group card, sub-features indented under their parent
+       and dimmed while it is off. -->
+  <Style Selector="Grid.feature">
+    <Setter Property="Margin" Value="20,14" />
+  </Style>
+  <Style Selector="Grid.feature.child">
+    <Setter Property="Margin" Value="48,12,20,12" />
+  </Style>
+  <Style Selector="Grid.feature:disabled">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+  <Style Selector="Border.new">
+    <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="6,1" />
+  </Style>
+  <Style Selector="Border.new > TextBlock">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="LetterSpacing" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource HcOnAccentBrush}" />
+  </Style>
+  <!-- Toggle buttons (the uninstall page's Custom…) take the Button look, label centred. -->
   <Style Selector="ToggleButton">
     <Setter Property="MinHeight" Value="48" />
     <Setter Property="Padding" Value="22,0" />
