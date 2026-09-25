@@ -76,6 +76,21 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
     private DispatcherTimer? _timer;
 
+    /// <summary>How often the state is re-read without a notification.</summary>
+    private static readonly TimeSpan SafetyPollInterval = TimeSpan.FromSeconds(10);
+
+    // Core Audio pushes changes; the timer is only a safety net. Each watch is bound to the
+    // endpoint that was the default when it started, so a default change restarts the volume watches.
+    private IDisposable? _endpointWatch;
+    private IDisposable? _captureVolumeWatch;
+    private IDisposable? _renderVolumeWatch;
+    private int _volumeWatchGeneration;
+
+    // A change notified while a refresh is running would be lost with the one-flight guard alone;
+    // the pending flags make the running refresh queue one more.
+    private bool _refreshPending;
+    private bool _refreshPendingEndpoints;
+
     private double _volumePercent;
     private int _volumeRevision;
 
@@ -229,6 +244,121 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
         _volumeWrite.Clear();
         _inputVolumeWrite.Clear();
+        StopWatches();
+    }
+
+    private void StopWatches()
+    {
+        Interlocked.Increment(ref _volumeWatchGeneration);
+        var watches = new[] { _endpointWatch, _renderVolumeWatch, _captureVolumeWatch };
+        _endpointWatch = null;
+        _renderVolumeWatch = null;
+        _captureVolumeWatch = null;
+        // Unregistering waits for an in-flight callback, and the callbacks post to this thread, so
+        // the disposal must not run on it.
+        _ = Task.Run(() =>
+        {
+            foreach (var watch in watches)
+            {
+                try
+                {
+                    watch?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Audio watch disposal failed: {ex.Message}");
+                }
+            }
+        });
+    }
+
+    /// <summary>Registers for Core Audio change notifications, replacing the volume watches.</summary>
+    /// <param name="endpoints">Whether the endpoint watch is (re)registered as well.</param>
+    private void StartWatches(bool endpoints)
+    {
+        var generation = Interlocked.Increment(ref _volumeWatchGeneration);
+        var previous = new[] { _renderVolumeWatch, _captureVolumeWatch };
+        _renderVolumeWatch = null;
+        _captureVolumeWatch = null;
+        _ = Task.Run(() =>
+        {
+            foreach (var watch in previous)
+            {
+                watch?.Dispose();
+            }
+
+            if (_disposed || Volatile.Read(ref _volumeWatchGeneration) != generation)
+            {
+                return;
+            }
+
+            var render = CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Render, OnVolumeNotified, out var renderWatch);
+            var capture = CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Capture, OnVolumeNotified, out var captureWatch);
+            IDisposable? endpointWatch = null;
+            var endpointResult = 0;
+            if (endpoints)
+            {
+                endpointResult = CoreAudio.StartEndpointWatch(OnEndpointNotified, out endpointWatch);
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_disposed || Volatile.Read(ref _volumeWatchGeneration) != generation)
+                {
+                    _ = Task.Run(() =>
+                    {
+                        renderWatch?.Dispose();
+                        captureWatch?.Dispose();
+                        endpointWatch?.Dispose();
+                    });
+                    return;
+                }
+
+                _renderVolumeWatch = renderWatch;
+                _captureVolumeWatch = captureWatch;
+                if (endpoints)
+                {
+                    _endpointWatch = endpointWatch;
+                }
+
+                if (render < 0 || capture < 0 || endpointResult < 0)
+                {
+                    Log.Change(
+                        "audio-watch",
+                        $"Audio change notifications unavailable (render=0x{render:X8}, capture=0x{capture:X8}, "
+                        + $"endpoints=0x{endpointResult:X8}); falling back to the {SafetyPollInterval.TotalSeconds:F0} s poll.");
+                }
+            });
+        });
+    }
+
+    private void OnVolumeNotified()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed)
+            {
+                QueueRefresh(false);
+            }
+        });
+    }
+
+    private void OnEndpointNotified(CoreAudio.AudioEndpointWatchEvent change)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (change.Change is CoreAudio.AudioEndpointChange.DefaultChanged)
+            {
+                StartWatches(false);
+            }
+
+            QueueRefresh(true);
+        });
     }
 
     /// <summary>
@@ -244,7 +374,11 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
         VolumeFeedback.Initialize();
         QueueRefresh(true);
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        StartWatches(true);
+        // Core Audio reports every change; this only catches a notification that never arrived.
+        // Polling once a second for the whole session was two COM round trips per second and an
+        // endpoint enumeration every five, with the overlay closed and a game in the foreground.
+        _timer = new DispatcherTimer { Interval = SafetyPollInterval };
         _timer.Tick += OnTick;
         _timer.Start();
     }
@@ -259,13 +393,20 @@ public sealed class AudioManager : ObservableObject, IDisposable
     private void OnTick(object? sender, EventArgs e)
     {
         _ticks++;
-        QueueRefresh(_ticks % 5 == 0);
+        QueueRefresh(_ticks % 6 == 0);
     }
 
     private void QueueRefresh(bool includeEndpoints)
     {
-        if (_disposed || Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
+        if (_disposed)
         {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
+        {
+            _refreshPending = true;
+            _refreshPendingEndpoints |= includeEndpoints;
             return;
         }
 
@@ -291,8 +432,22 @@ public sealed class AudioManager : ObservableObject, IDisposable
             finally
             {
                 Interlocked.Exchange(ref _refreshing, 0);
+                Dispatcher.UIThread.Post(RunPendingRefresh);
             }
         });
+    }
+
+    private void RunPendingRefresh()
+    {
+        if (!_refreshPending)
+        {
+            return;
+        }
+
+        var includeEndpoints = _refreshPendingEndpoints;
+        _refreshPending = false;
+        _refreshPendingEndpoints = false;
+        QueueRefresh(includeEndpoints);
     }
 
     private static Snapshot ReadSnapshot(
