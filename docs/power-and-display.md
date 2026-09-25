@@ -221,11 +221,13 @@ transition through the same validated, ordered write path as named presets. Manu
 inherited assignment create a per-game Custom override without changing the global default. Further
 changes update that source's Custom values; unchanged observations do not save or write hardware.
 Missing, stale or uncertain readings and partially failed applications never become saved Custom
-profiles. Each assignment dropdown displays Custom only when saved for that source. Custom is a
-reading; selecting a named preset replaces that source's Custom values. Editing an inactive
-assignment never reapplies the active preset. Automatic application pauses AutoTDP without
-overwriting the saved manual watt limit. Windows power-plan selection remains independent of these
-device preset assignments.
+profiles. Each assignment dropdown displays Custom when it is saved for that source, and the
+dropdown for the source in use also shows Custom while AutoTDP owns power. That is display only:
+AutoTDP's readings are never saved as Custom, and the saved assignment shows again once AutoTDP is
+off or paused by a manual change. Custom is a reading; selecting a named preset replaces that
+source's Custom values. Editing an inactive assignment never reapplies the active preset. Automatic
+application pauses AutoTDP without overwriting the saved manual watt limit. Windows power-plan
+selection remains independent of these device preset assignments.
 
 ## Game Mode display layouts
 
