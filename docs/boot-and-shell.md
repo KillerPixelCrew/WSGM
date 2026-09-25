@@ -516,10 +516,11 @@ is on screen. For that half the banner says to re-run setup and warns that a reb
    publishes `Local\WSGM.ShellAnchor.RecoverySettled`, through the same current-session filter.
    Without the acknowledgement it stays alive as the only remaining desktop-recovery owner; the
    `App` swap then fails on its locked image and setup rolls back.
-6. Close Steam on every install, update and repair, so WSGM starts it with its own settings. WSGM's
-   pre-stop only runs when WSGM was running; whatever is left gets the same graceful `steam://exit`
-   from setup and up to 60 s. Steam is never terminated. A fresh install continues when Steam stays
-   open; replacing an install refuses (step 7). An uninstall leaves Steam alone.
+6. Close Steam in every mode, so WSGM starts it with its own settings and an uninstall can remove
+   the Steam Input helper from Steam's folder. WSGM's pre-stop only covers an update while WSGM
+   runs; whatever is left gets the same graceful `steam://exit` from setup and up to 60 s. Steam is
+   never terminated. A fresh install continues when Steam stays open; with WSGM installed, setup
+   refuses (step 7).
 7. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
    the retired `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never
    terminates either tree.
@@ -544,13 +545,15 @@ again. `App.previous` is deleted after success.
 
 `WSGM.Setup.exe /uninstall` from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry points
 at. `Local\WSGM.ExitForUninstall` selects a fixed 20 s WSGM cleanup and does not stop Steam; an
-older build falls back to the update event. Then, in order and before any file is deleted: the Steam
-Input shim removal, the service `--uninstall` (stop and delete), `--unregister-shell` (a no-op on
-service installs, kept as the legacy restore), and `--uninstall-restore`. That last step first shows
-every device WSGM hid with HidHide again and takes WSGM's own executable off HidHide's allowlist
-(`HidHideOwnedDeltaManager.CleanupForUninstallAsync`), whether or not HidHide itself is removed
-afterwards. It exits 3 when HidHide did not read back clean, keeps the ownership ledger, and never
-retries; setup then names the still-hidden device paths.
+older build falls back to the update event. Setup then closes Steam itself (step 6 above), because
+the Steam Input helper cannot be removed while Steam has it loaded. Then, in order and before any
+file is deleted: the Steam Input shim removal, the service `--uninstall` (stop and delete),
+`--unregister-shell` (a no-op on service installs, kept as the legacy restore), and
+`--uninstall-restore`. That last step first shows every device WSGM hid with HidHide again and takes
+WSGM's own executable off HidHide's allowlist (`HidHideOwnedDeltaManager.CleanupForUninstallAsync`),
+whether or not HidHide itself is removed afterwards. It exits 3 when HidHide did not read back
+clean, keeps the ownership ledger, and never retries; setup then names the still-hidden device
+paths.
 
 The uninstall options: **Keep my settings and data** (on by default) keeps `%LOCALAPPDATA%\WSGM` and
 the logs; **Custom** lists USB/IP and HidHide when setup installed them, each deselectable so it

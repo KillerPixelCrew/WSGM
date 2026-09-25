@@ -32,7 +32,8 @@ Each switch there has a short description, and a NEW badge marks what WSGM 1.0.0
   contract with the running WSGM. Keep their names, access rights, waits and order; the setup
   contract tests pin them.
 - Setup asks running WSGM to perform its bounded Steam and launch-wrapper pre-stop. Steam that is
-  still running gets the same graceful `steam://exit` from setup, never a termination; setup never
+  still running, in any mode including uninstall, gets the same graceful `steam://exit` from setup,
+  never a termination; setup never
   terminates Steam or a wrapper, and refuses replacement while either still owns a live game tree.
   Force stops are limited to WSGM's own images in setup's session.
 - Steam Input shim cleanup must ask the runtime ownership logic to reconcile it. Never delete or
