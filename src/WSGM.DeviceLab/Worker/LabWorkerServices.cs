@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Worker;
 
@@ -11,12 +12,14 @@ internal static class LabWorkerServices
 {
     /// <summary>The services by name.</summary>
     public static IReadOnlyDictionary<string, LabWorkerService> All { get; } =
-        new LabWorkerService[]
+        new[]
         {
-            Transports.LabAtkAcpi.Service,
-            Transports.LabMsiWmi.Service,
-            Transports.LabAuraLighting.Service,
-            Transports.LabAmdSmu.Service,
-            Transports.LabIntelKx.Service
+            LabAtkAcpi.Service,
+            LabMsiWmi.Service,
+            LabAuraLighting.Service,
+            LabAmdSmu.Service,
+            LabIntelKx.Service,
+            LabRumbleWorker.Service,
+            LabCuratedInitWorker.Service
         }.ToDictionary(service => service.Name);
 }

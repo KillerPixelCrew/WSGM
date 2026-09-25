@@ -5,9 +5,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Media;
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -72,7 +72,8 @@ internal sealed partial class WizardWindow
             var choice = await AskAsync(page, choices);
             if (choices[choice] == "Skip this step")
             {
-                await Task.Run(() => project.Finish(LabStages.Motion, LabSegmentStatus.Skipped, "Skipped by the tester.",
+                await Task.Run(() => project.Finish(LabStages.Motion, LabSegmentStatus.Skipped,
+                    "Skipped by the tester.",
                     DateTimeOffset.UtcNow));
                 skipped = true;
                 return;

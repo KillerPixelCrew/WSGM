@@ -116,11 +116,11 @@ internal sealed partial class LabInputCapture : IDisposable
     private readonly List<LabInputEvent> _events = [];
     private readonly Lock _gate = new();
     private readonly Dictionary<string, byte[]> _lastReports = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, HashSet<int>> _noise = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long[]> _motion = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<int>> _noise = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _noiseStored = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _repeated = new(StringComparer.Ordinal);
     private readonly ManualResetEventSlim _ready = new();
+    private readonly Dictionary<string, int> _repeated = new(StringComparer.Ordinal);
     private readonly List<string> _unavailable = [];
     private readonly List<ManagementEventWatcher> _watchers = [];
     private bool _baseline;
@@ -174,6 +174,39 @@ internal sealed partial class LabInputCapture : IDisposable
     ///     significant ones, for stick, trigger and touchpad steps.
     /// </summary>
     public bool Detailed { get; set; }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        foreach (var watcher in _watchers)
+        {
+            try
+            {
+                watcher.Stop();
+                watcher.Dispose();
+            }
+            catch (Exception ex) when (ex is ManagementException or COMException or InvalidOperationException)
+            {
+                // Stopping a watcher whose provider went away is not an error worth reporting.
+            }
+        }
+
+        _watchers.Clear();
+        if (_messageThreadId != 0)
+        {
+            PostThreadMessage(_messageThreadId, WmQuit, 0, 0);
+        }
+
+        _messageThread?.Join(TimeSpan.FromSeconds(5));
+        _pollThread?.Join(TimeSpan.FromSeconds(2));
+        _ready.Dispose();
+    }
 
     /// <summary>Raised on a capture thread for anything a person could have caused.</summary>
     public event Action<LabInputActivity>? Activity;
@@ -263,39 +296,6 @@ internal sealed partial class LabInputCapture : IDisposable
         {
             return _noise.ToDictionary(pair => pair.Key, IReadOnlyList<int> (pair) => [.. pair.Value.Order()]);
         }
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        foreach (var watcher in _watchers)
-        {
-            try
-            {
-                watcher.Stop();
-                watcher.Dispose();
-            }
-            catch (Exception ex) when (ex is ManagementException or COMException or InvalidOperationException)
-            {
-                // Stopping a watcher whose provider went away is not an error worth reporting.
-            }
-        }
-
-        _watchers.Clear();
-        if (_messageThreadId != 0)
-        {
-            PostThreadMessage(_messageThreadId, WmQuit, 0, 0);
-        }
-
-        _messageThread?.Join(TimeSpan.FromSeconds(5));
-        _pollThread?.Join(TimeSpan.FromSeconds(2));
-        _ready.Dispose();
     }
 
     private void Record(LabInputEvent value, bool activity)
@@ -485,7 +485,7 @@ internal sealed partial class LabInputCapture : IDisposable
     private void PollLoop()
     {
         var packets = new uint[4];
-        var results = new uint[] { uint.MaxValue, uint.MaxValue, uint.MaxValue, uint.MaxValue };
+        var results = new[] { uint.MaxValue, uint.MaxValue, uint.MaxValue, uint.MaxValue };
         var pads = new XInputGamepad[4];
         var padIds = new string?[4];
         var guide = true;
@@ -614,7 +614,7 @@ internal sealed partial class LabInputCapture : IDisposable
             var pressed = string.Join(",", buttons.Select((down, i) => (down, i)).Where(item => item.down)
                 .Select(item => item.i));
             Record(new LabInputEvent(Math.Round(Now, 2), "wgi", previous.Device.Id,
-                $"buttons [{pressed}] switches [{string.Join(",", switchValues)}] axes [{string.Join(",", axes.Select(axis => axis.ToString("0.00")))}]"),
+                    $"buttons [{pressed}] switches [{string.Join(",", switchValues)}] axes [{string.Join(",", axes.Select(axis => axis.ToString("0.00")))}]"),
                 true);
         }
     }
@@ -630,7 +630,8 @@ internal sealed partial class LabInputCapture : IDisposable
             {
                 vendor = caps.VendorId.ToString("X4");
                 product = caps.ProductId.ToString("X4");
-                detail = $"type {caps.Type}, subtype {caps.SubType}, flags {caps.Flags:X4}, version {caps.ProductVersion:X4}";
+                detail =
+                    $"type {caps.Type}, subtype {caps.SubType}, flags {caps.Flags:X4}, version {caps.ProductVersion:X4}";
             }
         }
         catch (EntryPointNotFoundException)

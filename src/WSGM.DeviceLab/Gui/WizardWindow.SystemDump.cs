@@ -12,7 +12,8 @@ internal sealed partial class WizardWindow
     // fails is shown as one muted line and recorded; it never fails the stage.
     private async Task RunSystemDumpAsync(LabProject project, StackPanel page)
     {
-        page.Children.Add(Status("Reading details about this device. Nothing is changed. This can take a minute or two."));
+        page.Children.Add(
+            Status("Reading details about this device. Nothing is changed. This can take a minute or two."));
         if (!_options.Elevated)
         {
             page.Children.Add(Muted("Some details need administrator rights and may be missing."));

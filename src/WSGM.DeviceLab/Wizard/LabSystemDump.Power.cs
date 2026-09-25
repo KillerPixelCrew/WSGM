@@ -47,7 +47,8 @@ internal static partial class LabSystemDump
             "InstanceName", "Active", "PowerOnline", "Charging", "Discharging", "Critical", "ChargeRate",
             "DischargeRate", "RemainingCapacity", "Voltage"
         ], issues, token);
-        var cycles = WmiSection("root\\wmi", "BatteryCycleCount", ["InstanceName", "Active", "CycleCount"], issues, token);
+        var cycles = WmiSection("root\\wmi", "BatteryCycleCount", ["InstanceName", "Active", "CycleCount"], issues,
+            token);
         var thermal = WmiSection("root\\wmi", "MSAcpi_ThermalZoneTemperature",
         [
             "InstanceName", "Active", "CurrentTemperature", "CriticalTripPoint", "PassiveTripPoint",
@@ -242,8 +243,6 @@ internal static partial class LabSystemDump
         };
     }
 
-    private delegate uint OverlayReader(out Guid overlay);
-
     [LibraryImport("powrprof.dll")]
     private static partial uint PowerEnumerate(
         IntPtr rootKey,
@@ -286,6 +285,8 @@ internal static partial class LabSystemDump
 
     [LibraryImport("kernel32.dll")]
     private static partial IntPtr LocalFree(IntPtr memory);
+
+    private delegate uint OverlayReader(out Guid overlay);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SystemPowerStatus

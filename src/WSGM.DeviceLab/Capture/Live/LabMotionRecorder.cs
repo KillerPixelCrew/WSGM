@@ -1,3 +1,4 @@
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -5,13 +6,12 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32.SafeHandles;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sensors;
 using Windows.Foundation;
 using WSGM.DeviceLab.Knowledge;
-using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 using WSGM.DeviceLab.Wizard;
+using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -219,12 +219,12 @@ internal sealed partial class LabMotionRecorder : IDisposable
         [];
 
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly Dictionary<string, double[]> _previous = [];
-    private readonly Dictionary<string, double[]> _scratch = [];
     private readonly List<LabHidSensorCollection> _hid = [];
     private readonly List<LabMotionSensorInfo> _listed = [];
-    private readonly List<Action> _unsubscribe = [];
+    private readonly Dictionary<string, double[]> _previous = [];
+    private readonly Dictionary<string, double[]> _scratch = [];
     private readonly List<string> _unavailable = [];
+    private readonly List<Action> _unsubscribe = [];
     private bool _disposed;
     private int _hidUnopened;
 
@@ -245,6 +245,42 @@ internal sealed partial class LabMotionRecorder : IDisposable
     public IReadOnlyList<LabMotionSensorInfo> Sampled => [.. _channels.Select(item => item.Info)];
 
     private double Now => _clock.Elapsed.TotalMilliseconds;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        foreach (var unsubscribe in _unsubscribe)
+        {
+            try
+            {
+                unsubscribe();
+            }
+            catch (Exception ex) when (ex is COMException or InvalidOperationException or ObjectDisposedException)
+            {
+                // A sensor that went away cannot be unsubscribed; its object is released with the process.
+            }
+        }
+
+        _unsubscribe.Clear();
+        var sources = _channels.Select(item => item.Source).OfType<IMotionSource>().Distinct().ToList();
+        foreach (var source in sources)
+        {
+            source.RequestStop();
+        }
+
+        foreach (var source in sources)
+        {
+            source.StopAndRelease();
+        }
+
+        _channels.Clear();
+    }
 
     /// <summary>Finds and opens every source. Blocking; run it off the UI thread.</summary>
     /// <param name="record">
@@ -332,7 +368,8 @@ internal sealed partial class LabMotionRecorder : IDisposable
                 if (_previous.TryGetValue(info.Id, out var before))
                 {
                     acceleration = Math.Max(acceleration,
-                        Math.Sqrt(vector.Zip(before).Sum(pair => (pair.First - pair.Second) * (pair.First - pair.Second))));
+                        Math.Sqrt(vector.Zip(before)
+                            .Sum(pair => (pair.First - pair.Second) * (pair.First - pair.Second))));
                 }
 
                 _previous[info.Id] = vector;
@@ -364,42 +401,6 @@ internal sealed partial class LabMotionRecorder : IDisposable
         return steps;
     }
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        foreach (var unsubscribe in _unsubscribe)
-        {
-            try
-            {
-                unsubscribe();
-            }
-            catch (Exception ex) when (ex is COMException or InvalidOperationException or ObjectDisposedException)
-            {
-                // A sensor that went away cannot be unsubscribed; its object is released with the process.
-            }
-        }
-
-        _unsubscribe.Clear();
-        var sources = _channels.Select(item => item.Source).OfType<IMotionSource>().Distinct().ToList();
-        foreach (var source in sources)
-        {
-            source.RequestStop();
-        }
-
-        foreach (var source in sources)
-        {
-            source.StopAndRelease();
-        }
-
-        _channels.Clear();
-    }
-
     private async Task OpenWinRtAsync(CancellationToken cancellationToken)
     {
         try
@@ -409,7 +410,8 @@ internal sealed partial class LabMotionRecorder : IDisposable
                 .AsTask(cancellationToken);
             foreach (var device in accelerometers)
             {
-                var id = $"winrt-accelerometer{_listed.Count(item => item.Kind == LabMotionSensorKind.Accelerometer && item.Source == "winrt")}";
+                var id =
+                    $"winrt-accelerometer{_listed.Count(item => item.Kind == LabMotionSensorKind.Accelerometer && item.Source == "winrt")}";
                 try
                 {
                     var sensor = await Accelerometer.FromIdAsync(device.Id).AsTask(cancellationToken);
@@ -432,7 +434,8 @@ internal sealed partial class LabMotionRecorder : IDisposable
                 .AsTask(cancellationToken);
             foreach (var device in gyrometers)
             {
-                var id = $"winrt-gyrometer{_listed.Count(item => item.Kind == LabMotionSensorKind.Gyrometer && item.Source == "winrt")}";
+                var id =
+                    $"winrt-gyrometer{_listed.Count(item => item.Kind == LabMotionSensorKind.Gyrometer && item.Source == "winrt")}";
                 try
                 {
                     var sensor = await Gyrometer.FromIdAsync(device.Id).AsTask(cancellationToken);
@@ -904,23 +907,23 @@ internal sealed partial class LabMotionRecorder : IDisposable
     private sealed class LegacyPoller : IMotionSource
     {
         private const long PollTicks = -20_000;
+        private readonly uint? _appliedInterval;
         private readonly LabMotionChannel _channel;
+        private readonly int[] _counters;
         private readonly PropertyKey[] _keys;
         private readonly double[] _last;
         private readonly Func<double> _now;
         private readonly uint? _originalInterval;
-        private readonly uint? _appliedInterval;
         private readonly ISensor _sensor;
         private readonly int[] _types;
         private readonly double[] _values;
-        private readonly int[] _counters;
         private long _failures;
         private bool _hasLast;
-        private volatile bool _sawIdentity;
-        private volatile bool _sawNoIdentity;
         private string? _lastMessage;
         private int _lastResult;
         private long _lastTicks = long.MinValue;
+        private volatile bool _sawIdentity;
+        private volatile bool _sawNoIdentity;
         private volatile bool _stop;
         private Thread? _thread;
 
@@ -956,13 +959,6 @@ internal sealed partial class LabMotionRecorder : IDisposable
 
         public IReadOnlyList<int>? FieldTypes => [.. _types];
 
-        public void Start(string id)
-        {
-            _thread = new Thread(Run) { IsBackground = true, Name = $"Device Lab motion {id}" };
-            _thread.SetApartmentState(ApartmentState.MTA);
-            _thread.Start();
-        }
-
         public void ResetCounters()
         {
             Interlocked.Exchange(ref _failures, 0);
@@ -997,6 +993,13 @@ internal sealed partial class LabMotionRecorder : IDisposable
             }
 
             Release(_sensor);
+        }
+
+        public void Start(string id)
+        {
+            _thread = new Thread(Run) { IsBackground = true, Name = $"Device Lab motion {id}" };
+            _thread.SetApartmentState(ApartmentState.MTA);
+            _thread.Start();
         }
 
         private void RestoreInterval()

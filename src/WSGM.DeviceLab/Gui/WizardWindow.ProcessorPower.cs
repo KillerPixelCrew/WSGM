@@ -63,7 +63,8 @@ internal sealed partial class WizardWindow
         if (!LabPawnIoModule.RyzenSmuBundled)
         {
             tests.Add(Failed("processor-power", "ryzen-smu", "unavailable: this build has no RyzenSMU module"));
-            page.Children.Add(Muted("This build does not include the RyzenSMU module, so the processor power limit was not tested."));
+            page.Children.Add(Muted(
+                "This build does not include the RyzenSMU module, so the processor power limit was not tested."));
             return;
         }
 
@@ -86,8 +87,10 @@ internal sealed partial class WizardWindow
         {
             if (!identity.Supported)
             {
-                tests.Add(Failed("processor-power", "ryzen-smu", $"{identity.CodeNameText} is not a supported mobile processor"));
-                page.Children.Add(Muted($"{identity.CodeNameText} has no known power-limit commands, so it was not tested."));
+                tests.Add(Failed("processor-power", "ryzen-smu",
+                    $"{identity.CodeNameText} is not a supported mobile processor"));
+                page.Children.Add(
+                    Muted($"{identity.CodeNameText} has no known power-limit commands, so it was not tested."));
                 return;
             }
 
@@ -102,7 +105,8 @@ internal sealed partial class WizardWindow
                 {
                     tests.Add(Failed("processor-power", "ryzen-smu",
                         $"the PM table did not give stable, plausible limits ({original.Stapm}/{original.Fast}/{original.Slow} W)"));
-                    page.Children.Add(Muted("The current processor power limits could not be read reliably, so nothing was changed."));
+                    page.Children.Add(Muted(
+                        "The current processor power limits could not be read reliably, so nothing was changed."));
                     return;
                 }
             }
@@ -123,19 +127,26 @@ internal sealed partial class WizardWindow
                 {
                     if (!LabPowerRecovery.Same(captured, stable))
                     {
-                        throw new InvalidOperationException("The processor power limits changed while they were recorded.");
+                        throw new InvalidOperationException(
+                            "The processor power limits changed while they were recorded.");
                     }
 
                     LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
                         changes => changes with { AcLine = _pinnedAcLine, AmdLimits = captured });
                     project.WriteEvidence(attempt, $"original-amd-{passLabel}",
-                        new { _pinnedAcLine, identity.CodeNameText, SmuVersion = $"0x{identity.SmuVersion:X8}", Limits = captured });
+                        new
+                        {
+                            _pinnedAcLine, identity.CodeNameText, SmuVersion = $"0x{identity.SmuVersion:X8}",
+                            Limits = captured
+                        });
                 }));
             }
-            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException or IOException)
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException
+                                           or IOException)
             {
                 tests.Add(Failed("processor-power", "ryzen-smu", ex.Message));
-                page.Children.Add(Muted($"The current processor power limits could not be recorded, so nothing was changed: {ex.Message}"));
+                page.Children.Add(Muted(
+                    $"The current processor power limits could not be recorded, so nothing was changed: {ex.Message}"));
                 return;
             }
 
@@ -164,7 +175,8 @@ internal sealed partial class WizardWindow
                     Feature = "processor-power",
                     Transport = "ryzen-smu",
                     Outcome = matched ? "applied-readback-matched" : "readback-mismatch",
-                    Detail = $"{SourceName(passLabel)}: {identity.CodeNameText}, set {target.Stapm}/{target.Fast}/{target.Slow} W, SMU echoed {string.Join("/", responses)} mW.",
+                    Detail =
+                        $"{SourceName(passLabel)}: {identity.CodeNameText}, set {target.Stapm}/{target.Fast}/{target.Slow} W, SMU echoed {string.Join("/", responses)} mW.",
                     Original = original,
                     TestValue = target,
                     Readback = readbacks,
@@ -188,14 +200,18 @@ internal sealed partial class WizardWindow
                 page.Children.Add(RestoreLine(true, outcome.Restored, "processor power limit"));
                 if (!outcome.Restored)
                 {
-                    page.Children.Add(Warning(outcome.Message + " Restart the device to reset the processor power limit."));
+                    page.Children.Add(Warning(outcome.Message +
+                                              " Restart the device to reset the processor power limit."));
                 }
                 else
                 {
                     await ReleaseQuietlyAsync(worker, smu, token);
                 }
 
-                tests.Add((result ?? Failed("processor-power", "ryzen-smu", "stopped")) with { Restored = outcome.Restored });
+                tests.Add((result ?? Failed("processor-power", "ryzen-smu", "stopped")) with
+                {
+                    Restored = outcome.Restored
+                });
             }
         }
     }
@@ -229,7 +245,8 @@ internal sealed partial class WizardWindow
                 {
                     tests.Add(Failed("processor-power", "kx",
                         $"the limits were not stable or plausible (MCHBAR PL1 {original.MchbarPl1Watts} W, MSR PL1 {original.MsrPl1Watts} W)"));
-                    page.Children.Add(Muted("The current processor power limits could not be read reliably, so nothing was changed."));
+                    page.Children.Add(Muted(
+                        "The current processor power limits could not be read reliably, so nothing was changed."));
                     return;
                 }
             }
@@ -250,18 +267,21 @@ internal sealed partial class WizardWindow
                 {
                     if (captured != stable)
                     {
-                        throw new InvalidOperationException("The processor power limits changed while they were recorded.");
+                        throw new InvalidOperationException(
+                            "The processor power limits changed while they were recorded.");
                     }
 
                     LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
                         changes => changes with { AcLine = _pinnedAcLine, IntelLimits = captured });
-                    project.WriteEvidence(attempt, $"original-intel-{passLabel}", new { _pinnedAcLine, Limits = captured });
+                    project.WriteEvidence(attempt, $"original-intel-{passLabel}",
+                        new { _pinnedAcLine, Limits = captured });
                 }));
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException)
             {
                 tests.Add(Failed("processor-power", "kx", ex.Message));
-                page.Children.Add(Muted($"The current processor power limits could not be recorded, so nothing was changed: {ex.Message}"));
+                page.Children.Add(Muted(
+                    $"The current processor power limits could not be recorded, so nothing was changed: {ex.Message}"));
                 return;
             }
 
@@ -284,13 +304,15 @@ internal sealed partial class WizardWindow
 
                 var matched = problem is null
                               && readbacks.All(readback => Math.Abs(readback.MchbarPl1Watts - target) < 0.5
-                                                           && (original.MsrLocked || Math.Abs(readback.MsrPl1Watts - target) < 0.5));
+                                                           && (original.MsrLocked ||
+                                                               Math.Abs(readback.MsrPl1Watts - target) < 0.5));
                 result = new LabPowerTestResult
                 {
                     Feature = "processor-power",
                     Transport = "kx",
                     Outcome = matched ? "applied-readback-matched" : "readback-mismatch",
-                    Detail = $"{SourceName(passLabel)}: set PL1 {target} W{(original.MsrLocked ? " (MSR 0x610 is locked, so only the MCHBAR mirror was written)" : string.Empty)}. {problem}",
+                    Detail =
+                        $"{SourceName(passLabel)}: set PL1 {target} W{(original.MsrLocked ? " (MSR 0x610 is locked, so only the MCHBAR mirror was written)" : string.Empty)}. {problem}",
                     Original = original,
                     TestValue = target,
                     Readback = readbacks,
@@ -311,7 +333,8 @@ internal sealed partial class WizardWindow
                 page.Children.Add(RestoreLine(true, outcome.Restored, "processor power limit"));
                 if (!outcome.Restored)
                 {
-                    page.Children.Add(Warning(outcome.Message + " Restart the device to reset the processor power limit."));
+                    page.Children.Add(Warning(outcome.Message +
+                                              " Restart the device to reset the processor power limit."));
                 }
                 else
                 {

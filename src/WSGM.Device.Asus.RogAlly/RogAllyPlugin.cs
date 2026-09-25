@@ -66,6 +66,7 @@ public sealed class RogAllyPlugin : IDevicePlugin
     private readonly SemaphoreSlim _commandSerializer = new(1, 1);
     private readonly AllyHardwareServices _hardware;
     private bool _active;
+    private IAllyAuraHid? _aura;
     private AllyOemButtonState? _buttons;
     private ChargeLimitService? _charge;
     private ControllerService? _controller;
@@ -89,7 +90,6 @@ public sealed class RogAllyPlugin : IDevicePlugin
     private IAllyControllerSource? _source;
     private IAllyVendorHid? _vendor;
     private VendorEventService? _vendorEvents;
-    private IAllyAuraHid? _aura;
 
     /// <summary>Creates the production plugin with Windows transports.</summary>
     // ReSharper disable once UnusedMember.Global
@@ -312,7 +312,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
             return new PluginStartResult
             {
                 State = PluginOperationalState.Passive,
-                Reason = new CapabilityReason(CapabilityReasonCode.ResourceReleased, "The Ally services have not been started.")
+                Reason = new CapabilityReason(CapabilityReasonCode.ResourceReleased,
+                    "The Ally services have not been started.")
             };
         }
 
@@ -327,7 +328,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 Block(journalFailure, _power, _fans, _controller);
             }
 
-            foreach (var service in _services.Where(service => service.Suspendable || service.State is not AllyServiceState.Owned))
+            foreach (var service in _services.Where(service =>
+                         service.Suspendable || service.State is not AllyServiceState.Owned))
             {
                 await AcquireAsync(service, Context(context.Deadline), cancellationToken).ConfigureAwait(false);
             }
@@ -370,7 +372,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
         foreach (var service in _services)
         {
             var state = service.State.ToString();
-            values[service.ServiceId] = state.Length <= MaxDiagnosticValueLength ? state : state[..MaxDiagnosticValueLength];
+            values[service.ServiceId] =
+                state.Length <= MaxDiagnosticValueLength ? state : state[..MaxDiagnosticValueLength];
         }
 
         return ValueTask.FromResult(new PluginDiagnostics { Values = values });
@@ -569,7 +572,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
         {
             await TryRetractAsync(() => _host.PublishPhysicalDevicesAsync([], null, CancellationToken.None))
                 .ConfigureAwait(false);
-            await TryRetractAsync(() => _host.PublishOemControlsAsync([], CancellationToken.None)).ConfigureAwait(false);
+            await TryRetractAsync(() => _host.PublishOemControlsAsync([], CancellationToken.None))
+                .ConfigureAwait(false);
             if (_descriptorSet is { } published)
             {
                 await TryRetractAsync(() => _host.PublishDescriptorsAsync(new CapabilityDescriptorSet
@@ -629,7 +633,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
             AllyServiceResult result;
             try
             {
-                result = await Invoke(service, () => service.ReleaseAsync(context, cancellationToken), cancellationToken)
+                result = await Invoke(service, () => service.ReleaseAsync(context, cancellationToken),
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -694,14 +699,14 @@ public sealed class RogAllyPlugin : IDevicePlugin
         List<CapabilityDescriptor> descriptors =
         [
             Integer(CapabilityIds.PowerSustained, CapabilityRole.PowerSustainedLimit, DisplayKey.SustainedPowerLimit,
-                model.MinimumWatts, model.MaximumWatts, CapabilityUnit.Watt, true, SectionIds.Power,
-                CategoryIds.Limits, 0) with
-            {
-                PowerPresets = AllyModels.PowerPresets(model),
-                PairedPowerLimitId = CapabilityIds.PowerBoost,
-                Prominence = CapabilityProminence.Primary,
-                LayoutPair = new CapabilityLayoutPair(CapabilityIds.PowerBoost)
-            },
+                    model.MinimumWatts, model.MaximumWatts, CapabilityUnit.Watt, true, SectionIds.Power,
+                    CategoryIds.Limits, 0) with
+                {
+                    PowerPresets = AllyModels.PowerPresets(model),
+                    PairedPowerLimitId = CapabilityIds.PowerBoost,
+                    Prominence = CapabilityProminence.Primary,
+                    LayoutPair = new CapabilityLayoutPair(CapabilityIds.PowerBoost)
+                },
             Integer(CapabilityIds.PowerBoost, CapabilityRole.PowerSlowLimit, DisplayKey.BoostPowerLimit,
                 model.MinimumWatts, model.MaximumWatts, CapabilityUnit.Watt, true, SectionIds.Power,
                 CategoryIds.Limits, 1),
@@ -709,15 +714,15 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 [Scenarios.Silent, Scenarios.Performance, Scenarios.Turbo], true, true, SectionIds.Power,
                 CategoryIds.Limits, 2),
             Integer(CapabilityIds.ChargeLimit, CapabilityRole.ChargeLimit, DisplayKey.ChargeLimit,
-                AllyChargeLimitCapability.MinimumPercent, AllyChargeLimitCapability.MaximumPercent,
-                CapabilityUnit.Percent, true, SectionIds.Power, CategoryIds.Charging, 0) with
-            {
-                Persistence = CapabilityPersistence.DevicePersistent
-            },
+                    AllyChargeLimitCapability.MinimumPercent, AllyChargeLimitCapability.MaximumPercent,
+                    CapabilityUnit.Percent, true, SectionIds.Power, CategoryIds.Charging, 0) with
+                {
+                    Persistence = CapabilityPersistence.DevicePersistent
+                },
             // Write-only: the firmware has no readable "custom curve active" flag.
             Choice(CapabilityIds.FanMode, CapabilityRole.FanMode, DisplayKey.FanMode,
                 [FanModes.Automatic, FanModes.Custom], false, true, SectionIds.Power, CategoryIds.Fans, 0),
-            new CapabilityDescriptor
+            new()
             {
                 CapabilityId = CapabilityIds.FanCurve,
                 Role = CapabilityRole.FanCurve,
@@ -734,41 +739,43 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 Persistence = CapabilityPersistence.Volatile
             },
             Integer(CapabilityIds.FanReading, CapabilityRole.Telemetry, DisplayKey.Custom, 0, 100,
-                CapabilityUnit.Percent, false, SectionIds.Info, CategoryIds.Readings, 0, CapabilityInstances.Cpu) with
-            {
-                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "CPU fan" }
-            },
+                    CapabilityUnit.Percent, false, SectionIds.Info, CategoryIds.Readings, 0,
+                    CapabilityInstances.Cpu) with
+                {
+                    Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "CPU fan" }
+                },
             Integer(CapabilityIds.FanReading, CapabilityRole.Telemetry, DisplayKey.Custom, 0, 100,
-                CapabilityUnit.Percent, false, SectionIds.Info, CategoryIds.Readings, 1, CapabilityInstances.Gpu) with
-            {
-                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "GPU fan" }
-            },
+                    CapabilityUnit.Percent, false, SectionIds.Info, CategoryIds.Readings, 1,
+                    CapabilityInstances.Gpu) with
+                {
+                    Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "GPU fan" }
+                },
             // Aura is write-only (HC and HHD both only write it), so none of these declare a read.
             Integer(CapabilityIds.LightingBrightness, CapabilityRole.LightingBrightness, DisplayKey.Brightness, 0, 100,
-                CapabilityUnit.Percent, true, SectionIds.Lighting, null, 0) with
-            {
-                SupportsRead = false,
-                Persistence = CapabilityPersistence.Unknown
-            },
+                    CapabilityUnit.Percent, true, SectionIds.Lighting, null, 0) with
+                {
+                    SupportsRead = false,
+                    Persistence = CapabilityPersistence.Unknown
+                },
             Choice(CapabilityIds.LightingEffect, CapabilityRole.LightingEffect, DisplayKey.LightingEffect,
-                [Effects.Solid, Effects.Breathing, Effects.ColorCycle, Effects.Rainbow], false, true,
-                SectionIds.Lighting, null, 1) with
-            {
-                Persistence = CapabilityPersistence.Unknown
-            },
+                    [Effects.Solid, Effects.Breathing, Effects.ColorCycle, Effects.Rainbow], false, true,
+                    SectionIds.Lighting, null, 1) with
+                {
+                    Persistence = CapabilityPersistence.Unknown
+                },
             Integer(CapabilityIds.LightingSpeed, CapabilityRole.LightingEffectSpeed, DisplayKey.LightingEffectSpeed,
-                0, 100, CapabilityUnit.Percent, true, SectionIds.Lighting, null, 2) with
-            {
-                SupportsRead = false,
-                Persistence = CapabilityPersistence.Unknown
-            },
+                    0, 100, CapabilityUnit.Percent, true, SectionIds.Lighting, null, 2) with
+                {
+                    SupportsRead = false,
+                    Persistence = CapabilityPersistence.Unknown
+                },
             Color(CapabilityInstances.Left, "Left stick ring", 0),
             Color(CapabilityInstances.Right, "Right stick ring", 1),
             Choice(CapabilityIds.Controller, CapabilityRole.ControllerSource, DisplayKey.Controller,
                 SourceOwnershipChoices, true, false, SectionIds.Info, CategoryIds.Ownership, 0),
             Choice(CapabilityIds.Motion, CapabilityRole.MotionSource, DisplayKey.Motion, SourceOwnershipChoices, true,
                 false, SectionIds.Info, CategoryIds.Ownership, 1),
-            new CapabilityDescriptor
+            new()
             {
                 CapabilityId = CapabilityIds.Rumble,
                 Role = CapabilityRole.HapticSink,
@@ -806,7 +813,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
 
         if (command.ApplyPowerPair && descriptor.PairedPowerLimitId is null)
         {
-            return AllyResults.Rejected(command, CapabilityReasonCode.Unsupported, "This capability declares no power pair.");
+            return AllyResults.Rejected(command, CapabilityReasonCode.Unsupported,
+                "This capability declares no power pair.");
         }
 
         AllyIdentityState identity;
@@ -864,24 +872,45 @@ public sealed class RogAllyPlugin : IDevicePlugin
         {
             case CapabilityIds.PowerSustained:
                 AllyWriteBudget.Require(command.Deadline, "power limit");
-                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
-                return await _power.Capability!.ApplySustainedAsync(command, value.IntegerValue!.Value, cancellationToken)
+                if (!await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
+                {
+                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
+                        "The current power limits and mode must be readable before they can be changed.");
+                }
+
+                return await _power.Capability!
+                    .ApplySustainedAsync(command, value.IntegerValue!.Value, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.PowerBoost:
                 AllyWriteBudget.Require(command.Deadline, "power limit");
-                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
+                if (!await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
+                {
+                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
+                        "The current power limits and mode must be readable before they can be changed.");
+                }
+
                 return await _power.Capability!.ApplyBoostAsync(command, value.IntegerValue!.Value, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.Scenario:
                 AllyWriteBudget.Require(command.Deadline, "performance mode");
-                await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
+                if (!await _power!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
+                {
+                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
+                        "The current power limits and mode must be readable before they can be changed.");
+                }
+
                 return await _power.Capability!.ApplyScenarioAsync(command, value.ChoiceValue!, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.ChargeLimit:
                 return _charge!.Capability!.Apply(command, value.IntegerValue!.Value);
             case CapabilityIds.FanCurve:
                 AllyWriteBudget.Require(command.Deadline, "fan curve");
-                await _fans!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
+                if (!await _fans!.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
+                {
+                    return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
+                        "The current fan curves must be readable before they can be changed.");
+                }
+
                 return await _fans.Capability!.ApplyCurveAsync(command, value.CurveValue, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.FanMode:
@@ -889,13 +918,14 @@ public sealed class RogAllyPlugin : IDevicePlugin
                     .ConfigureAwait(false);
             case CapabilityIds.LightingBrightness:
                 return await _lighting!.ApplyAsync(command,
-                    state => state with { Brightness = value.IntegerValue!.Value }, cancellationToken).ConfigureAwait(false);
+                        state => state with { Brightness = value.IntegerValue!.Value }, cancellationToken)
+                    .ConfigureAwait(false);
             case CapabilityIds.LightingSpeed:
                 return await _lighting!.ApplyAsync(command,
                     state => state with { Speed = value.IntegerValue!.Value }, cancellationToken).ConfigureAwait(false);
             case CapabilityIds.LightingEffect:
                 return await _lighting!.ApplyAsync(command,
-                    state => state with { Effect = Effects.Parse(value.ChoiceValue!) }, cancellationToken)
+                        state => state with { Effect = Effects.Parse(value.ChoiceValue!) }, cancellationToken)
                     .ConfigureAwait(false);
             case CapabilityIds.LightingColor:
                 return await _lighting!.ApplyAsync(command, state => command.InstanceId == CapabilityInstances.Left
@@ -916,17 +946,18 @@ public sealed class RogAllyPlugin : IDevicePlugin
         if (mode == FanModes.Automatic)
         {
             AllyWriteBudget.Require(command.Deadline, "fan mode");
-            await fans.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false);
+            if (!await fans.PrepareWriteAsync(identity, cancellationToken).ConfigureAwait(false))
+            {
+                return AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
+                    "The current fan curves must be readable before they can be changed.");
+            }
+
             return await fans.Capability!.ApplyAutomaticAsync(command, fans.Original, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        // Custom takes effect with the curve WSGM sends next; there is no separate firmware switch.
-        return fans.LastObserved?.Cpu is { } curve
-            ? await fans.Capability!.ApplyCurveAsync(command, AllyFanCapability.Decode(curve), cancellationToken)
-                .ConfigureAwait(false)
-            : AllyResults.Rejected(command, CapabilityReasonCode.PrerequisiteMissing,
-                "Send a fan curve to switch the fans to custom control.");
+        // There is no custom-mode firmware switch. The next curve command changes the fans.
+        return AllyResults.Unverified(command, "Custom mode is ready; send a fan curve to change the fans.");
     }
 
     private AllyService? ServiceFor(string capabilityId)
@@ -1077,9 +1108,13 @@ public sealed class RogAllyPlugin : IDevicePlugin
                     ? CapabilityValue.Integer(percent)
                     : null;
             case CapabilityIds.FanCurve:
-                return _fans?.LastObserved?.Cpu is { } curve ? CapabilityValue.Curve(AllyFanCapability.Decode(curve)) : null;
+                return _fans?.LastObserved?.Cpu is { } curve
+                    ? CapabilityValue.Curve(AllyFanCapability.Decode(curve))
+                    : null;
             case CapabilityIds.FanReading:
-                var reading = descriptor.InstanceId == CapabilityInstances.Cpu ? _fans?.LastFans.Cpu : _fans?.LastFans.Gpu;
+                var reading = descriptor.InstanceId == CapabilityInstances.Cpu
+                    ? _fans?.LastFans.Cpu
+                    : _fans?.LastFans.Gpu;
                 return reading is { } fan && InRange(fan, descriptor) ? CapabilityValue.Integer(fan) : null;
             case CapabilityIds.Rumble:
                 return CapabilityValue.None();
@@ -1148,7 +1183,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
                     continue;
                 }
 
-                if (!await _commandSerializer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false))
+                if (!await _commandSerializer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken)
+                        .ConfigureAwait(false))
                 {
                     continue;
                 }
@@ -1206,7 +1242,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
         }
     }
 
-    private async ValueTask<bool> PublishAfterCommandAsync(CapabilityCommand command, CancellationToken cancellationToken)
+    private async ValueTask<bool> PublishAfterCommandAsync(CapabilityCommand command,
+        CancellationToken cancellationToken)
     {
         using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _observationToken);
         var remaining = command.Deadline - DateTimeOffset.UtcNow;
@@ -1234,7 +1271,9 @@ public sealed class RogAllyPlugin : IDevicePlugin
 
         foreach (var entry in _journal.OutstandingEntries)
         {
-            var current = entry.ServiceId == AllyServiceIds.Controller ? AllyServiceIds.McuFirmware : identity.FirmwareIdentity;
+            var current = entry.ServiceId == AllyServiceIds.Controller
+                ? AllyServiceIds.McuFirmware
+                : identity.FirmwareIdentity;
             var action = AllyRecoveryJournal.Decide(entry, current);
             var service = entry.ServiceId switch
             {
@@ -1288,7 +1327,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
                 capability.Probe();
                 return await capability.RestoreAsync(fans, cancellationToken).ConfigureAwait(false);
             case AllyServiceIds.Controller when _vendor is not null
-                                                && await _vendor.IsAvailableAsync(cancellationToken).ConfigureAwait(false):
+                                                && await _vendor.IsAvailableAsync(cancellationToken)
+                                                    .ConfigureAwait(false):
                 foreach (var report in AllyProtocol.DefaultConfiguration)
                 {
                     await _vendor.WriteConfigurationAsync(report, cancellationToken).ConfigureAwait(false);
@@ -1336,7 +1376,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
         {
             State = state,
             Reason = firstUnhealthy?.Reason ?? (owned == 0
-                ? new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing, "No Ally hardware service could be acquired.")
+                ? new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing,
+                    "No Ally hardware service could be acquired.")
                 : null)
         };
     }
@@ -1353,7 +1394,8 @@ public sealed class RogAllyPlugin : IDevicePlugin
             };
         }
 
-        return _services.FirstOrDefault(service => service.State is AllyServiceState.ReleasedUnverified) is { } unverified
+        return _services.FirstOrDefault(service => service.State is AllyServiceState.ReleasedUnverified) is
+            { } unverified
             ? new PluginStopResult
             {
                 Status = PluginStopStatus.Unverified,

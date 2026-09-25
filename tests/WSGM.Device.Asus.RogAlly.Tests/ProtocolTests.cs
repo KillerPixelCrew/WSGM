@@ -21,19 +21,21 @@ public sealed class ProtocolTests
     }
 
     [Fact]
-    public void ClassicLayoutFollowsHhdButtonCodes()
+    public void ClassicLayoutPreservesHcButtonCodes()
     {
         var ally = AllyModels.ById("rc72la")!;
 
-        Assert.Equal(new AllyVendorAction(OemControlIds.CommandCenter, OemPressKind.Short, CanonicalButtons.Guide),
+        Assert.Equal(
+            new AllyVendorAction(OemControlIds.CommandCenter, OemPressKind.Short, CanonicalButtons.QuickAccess),
             AllyModels.VendorAction(ally, 0xA6));
-        Assert.Equal(new AllyVendorAction(OemControlIds.ArmouryCrate, OemPressKind.Short, CanonicalButtons.QuickAccess),
+        Assert.Equal(new AllyVendorAction(OemControlIds.ArmouryCrate, OemPressKind.Short, CanonicalButtons.Guide),
             AllyModels.VendorAction(ally, 0x38));
-        // HHD merges 0x93 into the QAM; HC's separate Library button is not followed.
-        Assert.Equal(AllyModels.VendorAction(ally, 0x38), AllyModels.VendorAction(ally, 0x93));
-        Assert.Equal(new AllyVendorAction(OemControlIds.ArmouryCrate, OemPressKind.Long, CanonicalButtons.None),
+        Assert.Equal(new AllyVendorAction(OemControlIds.Library, OemPressKind.Short, CanonicalButtons.None),
+            AllyModels.VendorAction(ally, 0x93));
+        Assert.Equal(new AllyVendorAction(OemControlIds.M2, OemPressKind.Short, CanonicalButtons.RearPaddle2),
             AllyModels.VendorAction(ally, 0xA7));
-        Assert.Null(AllyModels.VendorAction(ally, 0xA8));
+        Assert.Equal(new AllyVendorAction(OemControlIds.M2, OemPressKind.Short, CanonicalButtons.RearPaddle2,
+            OemControlEdge.Released), AllyModels.VendorAction(ally, 0xA8));
         Assert.Null(AllyModels.VendorAction(ally, 0xA5));
     }
 
@@ -61,7 +63,8 @@ public sealed class ProtocolTests
         Assert.Equal(AllyProtocol.GameModeConfiguration.Count, AllyProtocol.DefaultConfiguration.Count);
         // Only the M1/M2 table differs between taking and releasing the controller.
         var differing = Enumerable.Range(0, AllyProtocol.GameModeConfiguration.Count)
-            .Where(index => !AllyProtocol.GameModeConfiguration[index].SequenceEqual(AllyProtocol.DefaultConfiguration[index]))
+            .Where(index => !AllyProtocol.GameModeConfiguration[index]
+                .SequenceEqual(AllyProtocol.DefaultConfiguration[index]))
             .ToArray();
         Assert.Equal([8], differing);
         Assert.Equal([0x5A, 0xD1, 0x01, 0x01, 0x01], AllyProtocol.GameModeConfiguration[0][..5]);

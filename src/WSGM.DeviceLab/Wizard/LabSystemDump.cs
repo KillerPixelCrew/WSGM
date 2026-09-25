@@ -160,9 +160,11 @@ internal static partial class LabSystemDump
 
         void AddCount(string id, string one, string many)
         {
-            if (results.FirstOrDefault(result => result.Id == id) is { Status: not LabSystemDumpSectionStatus.Failed } found)
+            if (results.FirstOrDefault(result => result.Id == id) is
+                { Status: not LabSystemDumpSectionStatus.Failed } found)
             {
-                parts.Add(found.Count == 1 ? $"1 {one}" : $"{found.Count.ToString(CultureInfo.InvariantCulture)} {many}");
+                parts.Add(
+                    found.Count == 1 ? $"1 {one}" : $"{found.Count.ToString(CultureInfo.InvariantCulture)} {many}");
             }
         }
     }

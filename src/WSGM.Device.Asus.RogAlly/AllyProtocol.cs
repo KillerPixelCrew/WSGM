@@ -117,6 +117,7 @@ internal static class AllyProtocol
     /// <remarks>HC's <c>Close</c> calls <c>ConfigureController(Remap: false)</c> (<c>ROGAlly.cs:396-400</c>).</remarks>
     public static IReadOnlyList<byte[]> DefaultConfiguration { get; } =
         [.. FrontTables, RearDefaultMapping, Triggers, .. Commit];
+
     /// <summary>Reads one vendor input report and returns its event code.</summary>
     /// <remarks>HHD reads <c>rep[1]</c> after checking <c>rep[0] == 0x5A</c> (<c>base.py:176-179</c>).</remarks>
     public static bool TryReadVendorEvent(ReadOnlySpan<byte> report, out byte code)

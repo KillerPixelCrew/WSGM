@@ -4,37 +4,6 @@ namespace WSGM.Tests.Core;
 
 public sealed class OtherManagersTests
 {
-    private sealed class FakeServices : IServiceSystem
-    {
-        internal Dictionary<string, (int Start, bool Delayed)> Services { get; } = new(StringComparer.OrdinalIgnoreCase);
-        internal List<string> Calls { get; } = [];
-
-        public int? ReadStart(string service, out bool delayed)
-        {
-            delayed = Services.TryGetValue(service, out var state) && state.Delayed;
-            return Services.TryGetValue(service, out state) ? state.Start : null;
-        }
-
-        public bool SetStart(string service, int start, bool delayed)
-        {
-            Calls.Add($"{service}={start}{(delayed ? " delayed" : "")}");
-            Services[service] = (start, delayed);
-            return true;
-        }
-
-        public bool Stop(string service)
-        {
-            Calls.Add("stop " + service);
-            return true;
-        }
-
-        public bool Start(string service)
-        {
-            Calls.Add("start " + service);
-            return true;
-        }
-    }
-
     [Fact]
     public void HandheldCompanion_IsFoundByTheLogonTaskThatRunsIt_WhateverTheTaskIsCalled()
     {
@@ -119,5 +88,38 @@ public sealed class OtherManagersTests
     public void ExecutableName_ReadsQuotedAndPlainCommands(string command, string name)
     {
         Assert.Equal(name, OtherManagers.ExecutableName(command));
+    }
+
+    private sealed class FakeServices : IServiceSystem
+    {
+        internal Dictionary<string, (int Start, bool Delayed)> Services { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        internal List<string> Calls { get; } = [];
+
+        public int? ReadStart(string service, out bool delayed)
+        {
+            delayed = Services.TryGetValue(service, out var state) && state.Delayed;
+            return Services.TryGetValue(service, out state) ? state.Start : null;
+        }
+
+        public bool SetStart(string service, int start, bool delayed)
+        {
+            Calls.Add($"{service}={start}{(delayed ? " delayed" : "")}");
+            Services[service] = (start, delayed);
+            return true;
+        }
+
+        public bool Stop(string service)
+        {
+            Calls.Add("stop " + service);
+            return true;
+        }
+
+        public bool Start(string service)
+        {
+            Calls.Add("start " + service);
+            return true;
+        }
     }
 }

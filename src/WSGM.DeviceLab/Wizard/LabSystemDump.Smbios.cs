@@ -125,7 +125,8 @@ internal static partial class LabSystemDump
         }
 
         List<string> issues = [];
-        var version = $"{raw[1].ToString(CultureInfo.InvariantCulture)}.{raw[2].ToString(CultureInfo.InvariantCulture)}";
+        var version =
+            $"{raw[1].ToString(CultureInfo.InvariantCulture)}.{raw[2].ToString(CultureInfo.InvariantCulture)}";
         var declared = BinaryPrimitives.ReadUInt32LittleEndian(raw[4..8]);
         var data = raw[8..];
         if (declared < data.Length)
@@ -252,7 +253,9 @@ internal static partial class LabSystemDump
                     TypeName = SmbiosTypeNames.GetValueOrDefault(item.Type),
                     Handle = Hex((uint)item.Handle, 4),
                     Length = item.Length,
-                    Data = item.Type < 128 && item.Length > 4 ? Convert.ToHexString(item.Formatted, 4, item.Length - 4) : null,
+                    Data = item.Type < 128 && item.Length > 4
+                        ? Convert.ToHexString(item.Formatted, 4, item.Length - 4)
+                        : null,
                     Strings = item.Strings
                 })
             ]

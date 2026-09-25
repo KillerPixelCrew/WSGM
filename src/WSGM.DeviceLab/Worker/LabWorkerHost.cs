@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using WSGM.DeviceLab.Application;
@@ -57,6 +58,9 @@ internal static class LabWorkerHost
 
     private static readonly Lock Output = new();
 
+    /// <summary>One-line JSON for the pipe, with the project's naming.</summary>
+    internal static JsonSerializerOptions WireOptions { get; } = new(LabProject.JsonOptions) { WriteIndented = false };
+
     /// <summary>Runs the worker until its input closes.</summary>
     /// <param name="args">Worker arguments.</param>
     /// <returns>Exit code.</returns>
@@ -73,8 +77,8 @@ internal static class LabWorkerHost
 
         var hello = Console.In.ReadLine();
         if (!CryptographicOperations.FixedTimeEquals(
-                System.Text.Encoding.ASCII.GetBytes(hello ?? string.Empty),
-                System.Text.Encoding.ASCII.GetBytes(SelfWorkerAuthorization.Hash(secret))))
+                Encoding.ASCII.GetBytes(hello ?? string.Empty),
+                Encoding.ASCII.GetBytes(SelfWorkerAuthorization.Hash(secret))))
         {
             return 64;
         }
@@ -94,7 +98,8 @@ internal static class LabWorkerHost
                 }
                 catch (JsonException ex)
                 {
-                    Write(new LabWorkerResponse { Id = -1, Ok = false, Error = ex.Message, ErrorType = nameof(JsonException) });
+                    Write(new LabWorkerResponse
+                        { Id = -1, Ok = false, Error = ex.Message, ErrorType = nameof(JsonException) });
                     continue;
                 }
 
@@ -136,24 +141,25 @@ internal static class LabWorkerHost
             switch (request.Op)
             {
                 case "open":
-                    {
-                        var service = LabWorkerServices.All.GetValueOrDefault(request.Service ?? string.Empty)
-                                      ?? throw new InvalidOperationException($"Unknown worker service '{request.Service}'.");
-                        var id = ++next;
-                        session = new LabWorkerSession(service, service.Open(request.Args, opening), opening);
-                        sessions[id] = session;
-                        Reply(request, session.TakeLog(), session: id);
-                        return;
-                    }
+                {
+                    var service = LabWorkerServices.All.GetValueOrDefault(request.Service ?? string.Empty)
+                                  ?? throw new InvalidOperationException(
+                                      $"Unknown worker service '{request.Service}'.");
+                    var id = ++next;
+                    session = new LabWorkerSession(service, service.Open(request.Args, opening), opening);
+                    sessions[id] = session;
+                    Reply(request, session.TakeLog(), session: id);
+                    return;
+                }
                 case "stream":
+                {
+                    if (sessions.TryGetValue(request.Session, out var streamed))
                     {
-                        if (sessions.TryGetValue(request.Session, out var streamed))
-                        {
-                            streamed.Stream(request.Method!, request.Args);
-                        }
-
-                        return;
+                        streamed.Stream(request.Method!, request.Args);
                     }
+
+                    return;
+                }
             }
 
             session = sessions.GetValueOrDefault(request.Session)
@@ -161,17 +167,17 @@ internal static class LabWorkerHost
             switch (request.Op)
             {
                 case "call":
-                    {
-                        var result = session.Call(request.Method!, request.Args);
-                        Reply(request, session.TakeLog(), result);
-                        return;
-                    }
+                {
+                    var result = session.Call(request.Method!, request.Args);
+                    Reply(request, session.TakeLog(), result);
+                    return;
+                }
                 case "checkpoint":
-                    {
-                        var (token, original) = session.Checkpoint();
-                        Reply(request, session.TakeLog(), original, token: token);
-                        return;
-                    }
+                {
+                    var (token, original) = session.Checkpoint();
+                    Reply(request, session.TakeLog(), original, token: token);
+                    return;
+                }
                 case "ack":
                     session.Acknowledge(request.Token);
                     Reply(request, session.TakeLog());
@@ -251,7 +257,4 @@ internal static class LabWorkerHost
 
         return null;
     }
-
-    /// <summary>One-line JSON for the pipe, with the project's naming.</summary>
-    internal static JsonSerializerOptions WireOptions { get; } = new(LabProject.JsonOptions) { WriteIndented = false };
 }

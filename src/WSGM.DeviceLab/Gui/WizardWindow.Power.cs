@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
@@ -28,6 +30,17 @@ internal sealed partial class WizardWindow
 
     private static readonly string[] SeenColours = ["Red", "Green", "Blue", "Off", "Nothing changed"];
     private static readonly string[] LouderAnswers = ["Yes", "No", "Not sure"];
+
+    // The charger state a write is pinned to, set by the pre-write gate. A write is abandoned if the
+    // charger state changes, because a limit captured on one power source must not be replayed on the
+    // other.
+    private int _pinnedAcLine = -1;
+
+    // The curated record the stage's device writes belong to; its identity is rechecked before each write.
+    private DeviceKnowledgeRecord? _powerRecord;
+
+    // The power stage's LibreHardwareMonitor session; open only while the stage runs.
+    private LabLhmSensors? _powerSensors;
 
     /// <summary>Whether a power, fan or charge change is recorded that has not been confirmed as put back.</summary>
     /// <remarks>
@@ -108,7 +121,8 @@ internal sealed partial class WizardWindow
             {
                 page.Children.Add(Muted(
                     "No test for this build covers: "
-                    + string.Join(", ", plan.Untested.Select(mechanism => $"{mechanism.Feature} ({mechanism.Transport})"))
+                    + string.Join(", ",
+                        plan.Untested.Select(mechanism => $"{mechanism.Feature} ({mechanism.Transport})"))
                     + ". They are recorded for the maintainer."));
             }
 
@@ -142,7 +156,8 @@ internal sealed partial class WizardWindow
 
         var summary = $"{LabPowerSummary.Power(tests, "power, temperatures and fans measured")}. "
                       + $"{LabPowerSummary.Lighting(lighting, lightingFound)}.";
-        await Task.Run(() => project.Finish(LabStages.Power, LabSegmentStatus.Completed, summary, DateTimeOffset.UtcNow));
+        await Task.Run(() =>
+            project.Finish(LabStages.Power, LabSegmentStatus.Completed, summary, DateTimeOffset.UtcNow));
 
         var pending = LabPowerChanges.PowerPending(_machine.Read().Power);
         page.Children.Add(Buttons(
@@ -150,7 +165,8 @@ internal sealed partial class WizardWindow
             Action(pending ? "Continue anyway" : "Continue", () => Next(LabStages.Power))));
     }
 
-    private async Task<IReadOnlyList<LabPowerSample>> RunTelemetryAsync(StackPanel page, LabPowerPlan plan, string label)
+    private async Task<IReadOnlyList<LabPowerSample>> RunTelemetryAsync(StackPanel page, LabPowerPlan plan,
+        string label)
     {
         var sample = await Task.Run(() => ReadTelemetry(label, plan));
         page.Children.Add(Status($"Now: {LabPowerTelemetry.Describe(sample)}."));
@@ -231,7 +247,8 @@ internal sealed partial class WizardWindow
         page.Children.Add(Status(
             "Fan and power control on this device go through the embedded controller; this build only records telemetry for it."));
         var registers = plan.EmbeddedController
-            .SelectMany(mechanism => mechanism.Parameters.Select(pair => $"{mechanism.Feature}: {pair.Key} = {pair.Value}"))
+            .SelectMany(mechanism =>
+                mechanism.Parameters.Select(pair => $"{mechanism.Feature}: {pair.Key} = {pair.Value}"))
             .ToArray();
         if (registers.Length > 0)
         {
@@ -340,7 +357,8 @@ internal sealed partial class WizardWindow
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
-            page.Children.Add(Status($"The ASUS power interface did not open, so its tests were skipped: {ex.Message}"));
+            page.Children.Add(
+                Status($"The ASUS power interface did not open, so its tests were skipped: {ex.Message}"));
             return;
         }
 
@@ -368,12 +386,14 @@ internal sealed partial class WizardWindow
                         AsusPower = captured.Power ?? changes.AsusPower,
                         AsusChargeLimit = captured.ChargeLimit ?? changes.AsusChargeLimit
                     });
-                    WriteEvidenceOnce(project, attempt, $"original-asus-{passLabel}", new { _pinnedAcLine, State = captured });
+                    WriteEvidenceOnce(project, attempt, $"original-asus-{passLabel}",
+                        new { _pinnedAcLine, State = captured });
                 }));
             }
             catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
             {
-                page.Children.Add(Warning($"The current settings could not be recorded, so nothing was changed: {ex.Message}"));
+                page.Children.Add(
+                    Warning($"The current settings could not be recorded, so nothing was changed: {ex.Message}"));
                 return;
             }
 
@@ -424,14 +444,16 @@ internal sealed partial class WizardWindow
                 return;
             }
 
-            page.Children.Add(Status($"Setting the power limit to {watts} watts for ten seconds, then putting it back..."));
+            page.Children.Add(
+                Status($"Setting the power limit to {watts} watts for ten seconds, then putting it back..."));
             try
             {
                 await Task.Run(() => acpi.SetLimits(original, watts));
                 var layout = plan.Asus;
                 var (matched, readbacks) = await ReadbackSamplesAsync(() =>
                 {
-                    int spl = acpi.Get(layout.Spl!.Value), sppt = acpi.Get(layout.Sppt!.Value),
+                    int spl = acpi.Get(layout.Spl!.Value),
+                        sppt = acpi.Get(layout.Sppt!.Value),
                         fppt = acpi.Get(layout.Fppt!.Value);
                     return (new { Spl = spl, Sppt = sppt, Fppt = fppt, Fans = acpi.FanSpeeds() },
                         spl == watts && sppt == watts && fppt == watts);
@@ -557,7 +579,8 @@ internal sealed partial class WizardWindow
                     TesterAnswer = LouderAnswers[answer]
                 });
             }
-            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or FormatException)
+            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException
+                                           or FormatException)
             {
                 tests.Add(Failed("fan", "atkacpi", ex.Message));
                 page.Children.Add(Warning($"The fan test stopped: {ex.Message}"));
@@ -574,7 +597,8 @@ internal sealed partial class WizardWindow
         {
             Power = restored && changes.Power is not null ? changes.Power with { AsusPower = null } : changes.Power
         }));
-        foreach (var test in tests.Where(test => test.Transport == "atkacpi" && test.Feature != "charge-limit").ToArray())
+        foreach (var test in tests.Where(test => test.Transport == "atkacpi" && test.Feature != "charge-limit")
+                     .ToArray())
         {
             tests[tests.IndexOf(test)] = test with { Restored = restored };
         }
@@ -647,7 +671,7 @@ internal sealed partial class WizardWindow
                 if (acpi.TryGet(chargeId) != original)
                 {
                     acpi.Set(chargeId, original);
-                    System.Threading.Thread.Sleep(150);
+                    Thread.Sleep(150);
                 }
 
                 return acpi.TryGet(chargeId) == original;
@@ -705,12 +729,14 @@ internal sealed partial class WizardWindow
                         MsiPower = captured.Power ?? changes.MsiPower,
                         MsiChargeRaw = captured.ChargeRaw ?? changes.MsiChargeRaw
                     });
-                    WriteEvidenceOnce(project, attempt, $"original-msi-{passLabel}", new { _pinnedAcLine, State = captured });
+                    WriteEvidenceOnce(project, attempt, $"original-msi-{passLabel}",
+                        new { _pinnedAcLine, State = captured });
                 }));
             }
             catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
             {
-                page.Children.Add(Warning($"The current settings could not be recorded, so nothing was changed: {ex.Message}"));
+                page.Children.Add(
+                    Warning($"The current settings could not be recorded, so nothing was changed: {ex.Message}"));
                 return;
             }
 
@@ -793,7 +819,8 @@ internal sealed partial class WizardWindow
         }
 
         var restored = await RestoreMsiPowerAsync(wmi, original);
-        foreach (var test in tests.Where(test => test is { Transport: "wmi-method", Feature: "tdp", Restored: null }).ToArray())
+        foreach (var test in tests.Where(test => test is { Transport: "wmi-method", Feature: "tdp", Restored: null })
+                     .ToArray())
         {
             tests[tests.IndexOf(test)] = test with { Restored = restored };
         }
@@ -823,7 +850,8 @@ internal sealed partial class WizardWindow
     {
         if (checkpoint.ChargeRaw is not { } originalRaw)
         {
-            page.Children.Add(Muted($"The charge limit could not be read, so it was not tested: {checkpoint.ChargeUnavailable}"));
+            page.Children.Add(
+                Muted($"The charge limit could not be read, so it was not tested: {checkpoint.ChargeUnavailable}"));
             return true;
         }
 
@@ -850,7 +878,9 @@ internal sealed partial class WizardWindow
                 Feature = "charge-limit",
                 Transport = "wmi-method",
                 Outcome = matched ? "passed" : "failed",
-                Detail = matched ? $"Set to {target}% and read back." : $"Read back {readbackRaw & LabMsiWmi.ChargePercentMask}%.",
+                Detail = matched
+                    ? $"Set to {target}% and read back."
+                    : $"Read back {readbackRaw & LabMsiWmi.ChargePercentMask}%.",
                 Original = currentPercent,
                 TestValue = target,
                 Readback = readbackRaw & LabMsiWmi.ChargePercentMask,
@@ -1042,7 +1072,11 @@ internal sealed partial class WizardWindow
                 return true;
             }
 
-            string[] zones = ["both rings", "left ring outer half", "left ring inner half", "right ring inner half", "right ring outer half"];
+            string[] zones =
+            [
+                "both rings", "left ring outer half", "left ring inner half", "right ring inner half",
+                "right ring outer half"
+            ];
             string[] colours = ["red", "green", "blue"];
             var stopped = false;
             try
@@ -1125,7 +1159,7 @@ internal sealed partial class WizardWindow
         // write is retried automatically.
         page.Children.Add(Warning(
             "Some settings could not be confirmed as put back: " + outcome.Message
-            + " You can set them again in the device's own app, or press the button to try once more."));
+                                                                 + " You can set them again in the device's own app, or press the button to try once more."));
         Button retry = new() { Content = "Try restoring again" };
         retry.Click += (_, _) => Run(page, async () =>
         {
@@ -1139,17 +1173,6 @@ internal sealed partial class WizardWindow
         page.Children.Add(Buttons(retry));
     }
 
-    // The charger state a write is pinned to, set by the pre-write gate. A write is abandoned if the
-    // charger state changes, because a limit captured on one power source must not be replayed on the
-    // other.
-    private int _pinnedAcLine = -1;
-
-    // The curated record the stage's device writes belong to; its identity is rechecked before each write.
-    private Knowledge.DeviceKnowledgeRecord? _powerRecord;
-
-    // The power stage's LibreHardwareMonitor session; open only while the stage runs.
-    private LabLhmSensors? _powerSensors;
-
     // Called immediately before every device write: the charger state is unchanged and the machine is
     // still the confirmed device with the BIOS, EC and vendor endpoints captured at the start.
     private async Task<bool> PowerUnchangedAsync(StackPanel page, List<LabPowerTestResult> tests, string feature,
@@ -1157,8 +1180,10 @@ internal sealed partial class WizardWindow
     {
         if (!await Task.Run(() => LabPowerGate.PowerSourceUnchanged(_pinnedAcLine)))
         {
-            tests.Add(Failed(feature, transport, "The charger was plugged in or unplugged during the test, so it stopped."));
-            page.Children.Add(Warning("The charger state changed during the test, so it stopped before the next step."));
+            tests.Add(Failed(feature, transport,
+                "The charger was plugged in or unplugged during the test, so it stopped."));
+            page.Children.Add(
+                Warning("The charger state changed during the test, so it stopped before the next step."));
             return false;
         }
 
@@ -1193,7 +1218,7 @@ internal sealed partial class WizardWindow
                 {
                     var (values, matches) = read();
                     var same = matches && ac == _pinnedAcLine;
-                    return ((object)new
+                    return (new
                     {
                         Sample = index,
                         At = DateTimeOffset.UtcNow,
@@ -1273,7 +1298,8 @@ internal sealed partial class WizardWindow
     private static TextBlock RestoreLine(bool matched, bool restored, string what)
     {
         return !restored
-            ? Warning($"The {what} could not be confirmed as put back. Set it again in the device's own app, or use the button below.")
+            ? Warning(
+                $"The {what} could not be confirmed as put back. Set it again in the device's own app, or use the button below.")
             : matched
                 ? Status($"The {what} was tested and put back.")
                 : Warning($"The {what} did not read back as the test value, but it was put back.");

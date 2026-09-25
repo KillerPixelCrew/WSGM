@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using WSGM.DeviceLab.Application;
@@ -8,6 +9,12 @@ namespace WSGM.DeviceLab.Wizard;
 /// <summary>Changes the wizard made to this machine that outlive a session until they are undone.</summary>
 internal sealed record LabMachineChanges
 {
+    /// <summary>Motor routes that may need a zero after a worker stopped unexpectedly.</summary>
+    public IReadOnlyList<LabPendingRumbleRoute> Rumble { get; init; } = [];
+
+    /// <summary>A curated init whose result was not confirmed before the wizard stopped.</summary>
+    public string? CuratedInitRecordId { get; init; }
+
     /// <summary>The HidHide allowed-application entry the lab added, or null.</summary>
     public string? HidHideEntry { get; init; }
 
@@ -33,6 +40,9 @@ internal sealed record LabMachineChanges
     /// </summary>
     public LabPowerChanges? Power { get; init; }
 }
+
+/// <summary>One motor route recorded before the first worker write.</summary>
+internal sealed record LabPendingRumbleRoute(string? RecordId, string RouteId, string Target);
 
 /// <summary>
 ///     Persists <see cref="LabMachineChanges" /> outside any project, so a killed or crashed session is

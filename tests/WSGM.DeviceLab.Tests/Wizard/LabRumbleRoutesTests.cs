@@ -1,13 +1,14 @@
 using System.Text.Json;
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 
 public sealed class LabRumbleRoutesTests
 {
-    private const string SecretPath = @"\\?\hid#vid_0b05&pid_1b4c&mi_02#7&2d7f1a3&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+    private const string SecretPath =
+        @"\\?\hid#vid_0b05&pid_1b4c&mi_02#7&2d7f1a3&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
     [Fact]
     public void UnknownMotorRoutesAreRefused()

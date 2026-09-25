@@ -151,7 +151,7 @@ internal static class AsusAcpiProtocol
         for (var index = 0; index < 8; index++)
         {
             if (curve[index] is < 20 or > 110 || curve[8 + index] > 100
-                                             || (index > 0 && curve[index] < curve[index - 1]))
+                                              || (index > 0 && curve[index] < curve[index - 1]))
             {
                 return false;
             }

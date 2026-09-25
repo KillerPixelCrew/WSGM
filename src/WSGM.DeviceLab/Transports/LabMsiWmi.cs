@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
@@ -22,7 +23,10 @@ internal sealed record LabMsiState(int Sustained, int Boost, int Scenario);
 /// <param name="PowerUnavailable">Why <paramref name="Power" /> is missing, when the record declares it.</param>
 /// <param name="ChargeRaw">The raw charge limit byte, when the record has one and it reads.</param>
 /// <param name="ChargeUnavailable">Why <paramref name="ChargeRaw" /> is missing, when the record declares it.</param>
-internal sealed record LabMsiOriginal(LabMsiState? Power, string? PowerUnavailable, int? ChargeRaw,
+internal sealed record LabMsiOriginal(
+    LabMsiState? Power,
+    string? PowerUnavailable,
+    int? ChargeRaw,
     string? ChargeUnavailable);
 
 /// <summary>
@@ -107,10 +111,6 @@ internal sealed class LabMsiWmi : ILabMsiWmi
     /// <summary>The bits of the charge register that hold the percentage; bit 7 is a firmware flag.</summary>
     public const byte ChargePercentMask = 0x7F;
 
-    /// <summary>The worker service registration.</summary>
-    public static LabWorkerService Service { get; } = new("msi-wmi", typeof(ILabMsiWmi),
-        (args, log) => Open(LabWorkerService.Arg<LabMsiLayout>(args, 0), log));
-
     private readonly ILabMsiWmiChannel _channel;
     private readonly LabMsiLayout _layout;
     private readonly LabPowerLog _log;
@@ -126,30 +126,14 @@ internal sealed class LabMsiWmi : ILabMsiWmi
         _log = log ?? throw new ArgumentNullException(nameof(log));
     }
 
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("msi-wmi", typeof(ILabMsiWmi),
+        (args, log) => Open(LabWorkerService.Arg<LabMsiLayout>(args, 0), log));
+
     /// <inheritdoc />
     public void Dispose()
     {
         _channel.Dispose();
-    }
-
-    /// <summary>Finds the one active MSI_ACPI instance and checks it answers.</summary>
-    /// <param name="layout">Accessors from the curated record.</param>
-    /// <param name="log">Where every call is logged.</param>
-    /// <returns>The transport.</returns>
-    public static LabMsiWmi Open(LabMsiLayout layout, LabPowerLog log)
-    {
-        var channel = WmiChannel.Open();
-        try
-        {
-            var version = channel.Get("Get_WMI", 0);
-            log.Add("wmi-open", new { Class = ClassName, Version = Convert.ToHexString(version) });
-            return new LabMsiWmi(channel, layout, log);
-        }
-        catch
-        {
-            channel.Dispose();
-            throw;
-        }
     }
 
     /// <summary>Reads PL1, PL2 and the scenario.</summary>
@@ -162,18 +146,6 @@ internal sealed class LabMsiWmi : ILabMsiWmi
         LabMsiState state = new(sustained, boost, scenario);
         _log.Add("snapshot", state);
         return state;
-    }
-
-    /// <summary>Two reads a moment apart; refuses a state another program is changing.</summary>
-    /// <returns>The stable state.</returns>
-    public LabMsiState StablePower()
-    {
-        var first = ReadPower();
-        System.Threading.Thread.Sleep(150);
-        return first == ReadPower()
-            ? first
-            : throw new InvalidOperationException(
-                "The power settings changed by themselves. Another program may be controlling them.");
     }
 
     /// <inheritdoc />
@@ -221,7 +193,8 @@ internal sealed class LabMsiWmi : ILabMsiWmi
     {
         if (sustained < _layout.MinimumWatts || boost > _layout.MaximumWatts || sustained > boost)
         {
-            throw new InvalidOperationException($"Refused MSI limits {sustained}/{boost} W: outside the record's range.");
+            throw new InvalidOperationException(
+                $"Refused MSI limits {sustained}/{boost} W: outside the record's range.");
         }
 
         if (sustained > current.Boost)
@@ -306,15 +279,6 @@ internal sealed class LabMsiWmi : ILabMsiWmi
         WriteByte(_layout.Charge!.Value, (byte)raw);
     }
 
-    /// <summary>Puts the percentage into the register, carrying the flag bit through unchanged.</summary>
-    /// <param name="currentRaw">The register now.</param>
-    /// <param name="percent">The percentage.</param>
-    /// <returns>The new register value.</returns>
-    public static int EncodeCharge(int currentRaw, int percent)
-    {
-        return (currentRaw & ~ChargePercentMask & 0xFF) | (percent & ChargePercentMask);
-    }
-
     /// <summary>Reads both fans' RPM from the fan table's channel 0, as the plugin does.</summary>
     /// <returns>Readings, or none when the record has no fan getter or the read fails.</returns>
     public IReadOnlyList<LabFanReading> FanSpeeds()
@@ -338,6 +302,47 @@ internal sealed class LabMsiWmi : ILabMsiWmi
             _log.Add("fan-read-unavailable", ex.Message);
             return [];
         }
+    }
+
+    /// <summary>Finds the one active MSI_ACPI instance and checks it answers.</summary>
+    /// <param name="layout">Accessors from the curated record.</param>
+    /// <param name="log">Where every call is logged.</param>
+    /// <returns>The transport.</returns>
+    public static LabMsiWmi Open(LabMsiLayout layout, LabPowerLog log)
+    {
+        var channel = WmiChannel.Open();
+        try
+        {
+            var version = channel.Get("Get_WMI", 0);
+            log.Add("wmi-open", new { Class = ClassName, Version = Convert.ToHexString(version) });
+            return new LabMsiWmi(channel, layout, log);
+        }
+        catch
+        {
+            channel.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Two reads a moment apart; refuses a state another program is changing.</summary>
+    /// <returns>The stable state.</returns>
+    public LabMsiState StablePower()
+    {
+        var first = ReadPower();
+        Thread.Sleep(150);
+        return first == ReadPower()
+            ? first
+            : throw new InvalidOperationException(
+                "The power settings changed by themselves. Another program may be controlling them.");
+    }
+
+    /// <summary>Puts the percentage into the register, carrying the flag bit through unchanged.</summary>
+    /// <param name="currentRaw">The register now.</param>
+    /// <param name="percent">The percentage.</param>
+    /// <returns>The new register value.</returns>
+    public static int EncodeCharge(int currentRaw, int percent)
+    {
+        return (currentRaw & ~ChargePercentMask & 0xFF) | (percent & ChargePercentMask);
     }
 
     /// <summary>Whether an exception is one a WMI call can raise.</summary>

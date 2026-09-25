@@ -61,11 +61,11 @@ internal sealed class ProfilePage : Page
 
     private readonly JsonObject _presets;
     private bool _applying;
-    private bool _edited;
     private bool _desktopFirst;
+    private bool _edited;
+    private bool _managersTakeover;
     private bool _signIn;
     private bool _takeover;
-    private bool _managersTakeover;
 
     public ProfilePage(JsonObject answers)
     {
@@ -159,6 +159,7 @@ internal sealed class ProfilePage : Page
             }
         }
     }
+
     public override string Eyebrow => "Profile";
     public override string Title => "How should WSGM run?";
     public override string Lead => FromCurrent ? "These are your current settings. Change anything you like." : "";

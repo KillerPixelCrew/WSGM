@@ -27,12 +27,12 @@ moving machine policy into the SDK.
 
 ## Know the device projects
 
-| Project                                | State                                                                                                                                           |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/WSGM.Device.Msi.Claw8A2Vm`        | The hardware-tested plugin and the reference implementation. Read its `AGENTS.md` before changing it.                                           |
-| `src/WSGM.Device.Asus.RogAlly`         | All four ROG Allys, built blind from HHD (buttons) and HC (everything else). `AllyModels.cs` holds every per-model fact; `PROVENANCE.md` cites each one. |
-| `src/WSGM.Device.HandheldCompanion`    | Design scaffold with no entry type, so it cannot be installed. Its named-pipe `docs/ipc-protocol.md` is a proposal, not retired DeviceHost IPC. |
-| `src/WSGM.DeviceLab`                    | Evidence tool. Use `wsgm-device-lab`.                                                                                                           |
+| Project                             | State                                                                                                                                                                                  |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/WSGM.Device.Msi.Claw8A2Vm`     | The hardware-tested plugin and the reference implementation. Read its `AGENTS.md` before changing it.                                                                                  |
+| `src/WSGM.Device.Asus.RogAlly`      | All four ROG Allys, built blind with HC 1.3.1.6 as the primary Windows reference and HHD as a cross-check. `AllyModels.cs` holds every per-model fact; `PROVENANCE.md` cites each one. |
+| `src/WSGM.Device.HandheldCompanion` | Design scaffold with no entry type, so it cannot be installed. Its named-pipe `docs/ipc-protocol.md` is a proposal, not retired DeviceHost IPC.                                        |
+| `src/WSGM.DeviceLab`                | Evidence tool. Use `wsgm-device-lab`.                                                                                                                                                  |
 
 Only one device package can be installed at a time. With Device Integration off, no Device plugin
 lifecycle, controller target, Device hardware write or AutoTDP runs, while core, common plugins and

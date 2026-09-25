@@ -44,10 +44,12 @@ internal static partial class LabReview
         };
     }
 
-    private static void ReviewButtons(LabReviewArchive archive, DeviceKnowledgeRecord? record, List<LabReviewItem> items)
+    private static void ReviewButtons(LabReviewArchive archive, DeviceKnowledgeRecord? record,
+        List<LabReviewItem> items)
     {
         var prefix = LabStages.Buttons + "/";
-        foreach (var segment in archive.Segments.Where(segment => segment.Id.StartsWith(prefix, StringComparison.Ordinal)))
+        foreach (var segment in archive.Segments.Where(segment =>
+                     segment.Id.StartsWith(prefix, StringComparison.Ordinal)))
         {
             items.Add(ReviewButton(archive, segment, segment.Id[prefix.Length..], record));
         }
@@ -62,7 +64,8 @@ internal static partial class LabReview
         var field = $"button:{controlId}";
         DeviceButtonKnowledge[] beliefs =
         [
-            .. record?.Buttons.Where(button => LabButtonPlan.Slug(button.WizardButton ?? button.Name) == controlId) ?? []
+            .. record?.Buttons.Where(button => LabButtonPlan.Slug(button.WizardButton ?? button.Name) == controlId) ??
+               []
         ];
         var specific = beliefs.Where(button => button.Source is not DeviceButtonSourceKind.Declared).ToArray();
         var recordText = beliefs.Length == 0 ? null : string.Join("; ", beliefs.Select(DescribeButton));
@@ -108,7 +111,8 @@ internal static partial class LabReview
                 }
                 : baseItem with
                 {
-                    Verdict = LabReviewVerdict.Observed, Observed = "not on this device", Detail = "Skipped by the tester."
+                    Verdict = LabReviewVerdict.Observed, Observed = "not on this device",
+                    Detail = "Skipped by the tester."
                 };
         }
 
@@ -116,13 +120,18 @@ internal static partial class LabReview
         {
             return baseItem with
             {
-                Detail = flagged ? "Nothing reacted, and the tester kept the attempt." : $"The attempt ended with '{answer}'."
+                Detail = flagged
+                    ? "Nothing reacted, and the tester kept the attempt."
+                    : $"The attempt ended with '{answer}'."
             };
         }
 
         if (detailed && beliefs.Length == 0)
         {
-            return baseItem with { Verdict = LabReviewVerdict.Observed, Detail = "Analog or surface control; ranges are listed." };
+            return baseItem with
+            {
+                Verdict = LabReviewVerdict.Observed, Detail = "Analog or surface control; ranges are listed."
+            };
         }
 
         var agreeing = specific.FirstOrDefault(belief => Agrees(belief, observed));
@@ -187,9 +196,9 @@ internal static partial class LabReview
             case DeviceButtonSourceKind.HidReport:
                 return belief is { ReportId: { } report, ByteOffset: { } offset, Mask: { } mask }
                        && observed.Hid.Any(bit => bit.ReportId == report && bit.Offset == offset
-                                                  && (belief.MatchesValue
-                                                      ? bit.Values.Contains(mask)
-                                                      : (bit.Changed & mask) != 0));
+                                                                         && (belief.MatchesValue
+                                                                             ? bit.Values.Contains(mask)
+                                                                             : (bit.Changed & mask) != 0));
             case DeviceButtonSourceKind.Gamepad:
                 return observed.Gamepad.Count > 0;
             default:
@@ -215,7 +224,8 @@ internal static partial class LabReview
 
         if (observed.WmiValues.Count == 1)
         {
-            return (Button(DeviceButtonSourceKind.WmiEvent) with { EventCode = (int)observed.WmiValues[0] }, "WMI event");
+            return (Button(DeviceButtonSourceKind.WmiEvent) with { EventCode = (int)observed.WmiValues[0] },
+                "WMI event");
         }
 
         if (observed.WmiValues.Count > 1)
@@ -289,8 +299,9 @@ internal static partial class LabReview
             var evidenceLines = LabReviewArchive.Strings(candidate["evidence"]).ToArray();
             if (lines.Count < CandidateLines)
             {
-                lines.Add($"{source} {description} {evidenceLines.FirstOrDefault()}{(role is null ? string.Empty : $" [{role}]")}"
-                    .Replace("  ", " ", StringComparison.Ordinal).Trim());
+                lines.Add(
+                    $"{source} {description} {evidenceLines.FirstOrDefault()}{(role is null ? string.Empty : $" [{role}]")}"
+                        .Replace("  ", " ", StringComparison.Ordinal).Trim());
             }
 
             var pointer = description is not null
@@ -303,7 +314,8 @@ internal static partial class LabReview
                     case "wmi":
                         foreach (Match match in WmiProperty().Matches(line))
                         {
-                            if (long.TryParse(match.Groups["value"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            if (long.TryParse(match.Groups["value"].Value, NumberStyles.Integer,
+                                    CultureInfo.InvariantCulture,
                                     out var value)
                                 && value is >= int.MinValue and <= int.MaxValue
                                 && !wmi.Contains(value))
@@ -367,11 +379,18 @@ internal static partial class LabReview
     [GeneratedRegex(@"(?<name>\w*(?:[Ee]vt|[Ee]vent|[Cc]ode)\w*)=(?<value>-?\d+)(?=;|$)")]
     private static partial Regex WmiProperty();
 
-    [GeneratedRegex(@"^report (?<id>[0-9A-Fa-f]{2}) byte (?<offset>\d{1,4}): (?<values>[0-9A-Fa-f]{2}(?: [0-9A-Fa-f]{2}){0,15})$")]
+    [GeneratedRegex(
+        @"^report (?<id>[0-9A-Fa-f]{2}) byte (?<offset>\d{1,4}): (?<values>[0-9A-Fa-f]{2}(?: [0-9A-Fa-f]{2}){0,15})$")]
     private static partial Regex HidChange();
 
     /// <summary>One vendor HID byte that changed during a step.</summary>
-    private sealed record HidBit(int ReportId, int Offset, int Changed, IReadOnlyList<int> Values, string? Device, string? Role);
+    private sealed record HidBit(
+        int ReportId,
+        int Offset,
+        int Changed,
+        IReadOnlyList<int> Values,
+        string? Device,
+        string? Role);
 
     /// <summary>What a button step recorded, reduced to comparable facts.</summary>
     private sealed record ObservedInput(

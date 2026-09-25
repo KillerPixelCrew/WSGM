@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Interop;
 
@@ -21,8 +22,7 @@ internal sealed record LabRumbleHidEndpoint(
     ushort UsagePage,
     ushort Usage,
     ushort OutputLength,
-    [property: System.Text.Json.Serialization.JsonIgnore]
-    string Path);
+    [property: JsonIgnore] string Path);
 
 /// <summary>The Windows calls the rumble stage makes: HID enumeration and writes, and XInput.</summary>
 internal static class LabRumbleNative
@@ -63,7 +63,7 @@ internal static class LabRumbleNative
                 }
 
                 if (InterfacePath(set, ref data) is { } path && Describe(path) is { } endpoint
-                                                           && endpoint.VendorId == vendorId)
+                                                             && endpoint.VendorId == vendorId)
                 {
                     endpoints.Add(endpoint);
                 }

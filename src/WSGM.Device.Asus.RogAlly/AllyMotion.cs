@@ -129,11 +129,6 @@ internal sealed class MotionPump : IDisposable
         _pump = PumpAsync(publish, _cancellation.Token);
     }
 
-    public void Post(MotionSample sample)
-    {
-        _samples.Writer.TryWrite(sample);
-    }
-
     public void Dispose()
     {
         _samples.Writer.TryComplete();
@@ -148,6 +143,11 @@ internal sealed class MotionPump : IDisposable
         }
 
         _cancellation.Dispose();
+    }
+
+    public void Post(MotionSample sample)
+    {
+        _samples.Writer.TryWrite(sample);
     }
 
     private async Task PumpAsync(Func<MotionSample, ValueTask> publish, CancellationToken cancellationToken)
@@ -174,9 +174,9 @@ internal sealed class WinRtMotionSession : IDisposable
 {
     private readonly Accelerometer _accelerometer;
     private readonly uint _accelerometerInterval;
+    private readonly Lock _gate = new();
     private readonly Gyrometer _gyrometer;
     private readonly uint _gyrometerInterval;
-    private readonly Lock _gate = new();
     private readonly MotionPump _pump;
     private readonly AllyMotionTransform _transform;
     private Vector3 _acceleration;
@@ -383,9 +383,9 @@ internal sealed partial class LegacyMotionSession : IDisposable
                 }
 
                 if (sensor.GetState(out var state) >= 0 && state == 0
-                                                       && Supports(sensor, firstField)
-                                                       && Supports(sensor, firstField + 1)
-                                                       && Supports(sensor, firstField + 2))
+                                                        && Supports(sensor, firstField)
+                                                        && Supports(sensor, firstField + 1)
+                                                        && Supports(sensor, firstField + 2))
                 {
                     return sensor;
                 }
@@ -461,7 +461,7 @@ internal sealed partial class LegacyMotionSession : IDisposable
             }
 
             if (!TryNumber(report, firstField, out var x) || !TryNumber(report, firstField + 1, out var y)
-                                                         || !TryNumber(report, firstField + 2, out var z))
+                                                          || !TryNumber(report, firstField + 2, out var z))
             {
                 return false;
             }

@@ -123,7 +123,12 @@ internal readonly record struct AllyKeyboardControl(uint VirtualKey, string Cont
 /// <param name="ControlId">WSGM OEM control it becomes.</param>
 /// <param name="Press">Short or long press.</param>
 /// <param name="Button">Canonical button to latch, or none for an event-only code.</param>
-internal readonly record struct AllyVendorAction(string ControlId, OemPressKind Press, CanonicalButtons Button);
+/// <param name="Edge">Press or release edge for controls that report both.</param>
+internal readonly record struct AllyVendorAction(
+    string ControlId,
+    OemPressKind Press,
+    CanonicalButtons Button,
+    OemControlEdge Edge = OemControlEdge.Pressed);
 
 internal static class AllyModels
 {
@@ -219,9 +224,9 @@ internal static class AllyModels
             BaseboardProducts = ["RC73YA"],
             ControllerProductIds = AllyProductIds,
             Layout = AllyFrontLayout.Xbox,
-            // HC XboxROGAlly.cs:14 cTDP 15-35, but its own Silent preset is 13 W. HHD
-            // adjustor/core/const.py:292-305 gives 4-20 W (OC 25). The HC maximum is kept and the
-            // minimum lowered so HC's presets validate; the lab report must settle this row.
+            // HC XboxROGAlly.cs:14 declares 35 W and its Silent preset is 13 W. HC's maximum is
+            // authoritative for this Windows implementation; the BIOS enforces its own limit.
+            // The minimum is lowered so HC's presets validate.
             MinimumWatts = 5,
             MaximumWatts = 35,
             Presets = AllyXPresets,
@@ -282,11 +287,9 @@ internal static class AllyModels
 
     /// <summary>What one vendor report code means on a model, or null for a code it ignores.</summary>
     /// <remarks>
-    ///     HHD is the authority for these buttons (rog_ally/base.py:180-214): 0xA6 is the guide
-    ///     ("mode"), 0x38 and 0x93 are the QAM ("keyboard"), 0xA7 is the right button's hold and 0xA8
-    ///     its release, which HHD ignores. HC maps 0x93 to a separate Library button and 0xA7/0xA8 to M2
-    ///     (ROGAlly.cs:53-83, 485-505); that is recorded in PROVENANCE.md and not followed here, except
-    ///     that the Xbox layout's physical Library button is what HHD's QAM codes come from.
+    ///     HC maps 0x93 to a separate Library control and 0xA7/0xA8 to M2 press/release
+    ///     (ROGAlly.cs:53-83, 485-505). HHD merges 0x38/0x93 and ignores 0xA8; HC's Windows
+    ///     behavior is followed until Device Lab can distinguish the paths on each model.
     /// </remarks>
     public static AllyVendorAction? VendorAction(AllyModel model, byte code)
     {
@@ -295,9 +298,15 @@ internal static class AllyModels
             : (OemControlIds.CommandCenter, OemControlIds.ArmouryCrate);
         return code switch
         {
-            0xA6 => new AllyVendorAction(left, OemPressKind.Short, CanonicalButtons.Guide),
-            0x38 or 0x93 => new AllyVendorAction(right, OemPressKind.Short, CanonicalButtons.QuickAccess),
-            0xA7 => new AllyVendorAction(right, OemPressKind.Long, CanonicalButtons.None),
+            0xA6 => new AllyVendorAction(left, OemPressKind.Short,
+                model.Layout is AllyFrontLayout.Xbox ? CanonicalButtons.Guide : CanonicalButtons.QuickAccess),
+            0x38 => new AllyVendorAction(right, OemPressKind.Short,
+                model.Layout is AllyFrontLayout.Xbox ? CanonicalButtons.QuickAccess : CanonicalButtons.Guide),
+            0x93 => new AllyVendorAction(OemControlIds.Library, OemPressKind.Short,
+                model.Layout is AllyFrontLayout.Xbox ? CanonicalButtons.QuickAccess : CanonicalButtons.None),
+            0xA7 => new AllyVendorAction(OemControlIds.M2, OemPressKind.Short, CanonicalButtons.RearPaddle2),
+            0xA8 => new AllyVendorAction(OemControlIds.M2, OemPressKind.Short, CanonicalButtons.RearPaddle2,
+                OemControlEdge.Released),
             _ => null
         };
     }
@@ -317,6 +326,7 @@ internal static class AllyModels
             [
                 Oem(OemControlIds.CommandCenter, "Command Center", OemControlPlacement.Front, false, false),
                 Oem(OemControlIds.ArmouryCrate, "Armoury Crate", OemControlPlacement.Front, true, false),
+                Oem(OemControlIds.Library, "Library", OemControlPlacement.Front, false, false),
                 Oem(OemControlIds.M1, "M1", OemControlPlacement.Rear, false, true),
                 Oem(OemControlIds.M2, "M2", OemControlPlacement.Rear, false, true)
             ];

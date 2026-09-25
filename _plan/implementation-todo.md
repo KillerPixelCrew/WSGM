@@ -153,15 +153,18 @@ merged; everything after them landed in one change on master at the maintainer's
       to its wizard home by an audit before deletion.
 - [ ] Attended run on the Claw by the maintainer, and on the Xbox Ally X by the remote tester.
 - [ ] Test suites and the full gate, after the manual runs (written, not run).
-- [x] Hardware worker: power, fan, charge, lighting and processor writes run in an elevated
+- [x] Hardware worker: power, fan, charge, lighting, processor, rumble and curated controller init
+      writes run in an elevated
       `__lab-worker` process in a kill-on-close job, behind AllyXLab's checkpoint handshake (the
       worker captures the original, the wizard records it, writes are refused until it is
       acknowledged within five seconds). Transports live in `Transports/`, live capture in
       `Capture/Live/`.
 - [x] `KnownMsiClaw` replaced by the knowledge base; LibreHardwareMonitor fan RPM and temperatures
       in every power sample; opt-in HC mode and IMU-enable commands for non-curated devices.
-- [ ] Rumble output and the curated controller init still run in the wizard process, not through
-      the worker's streaming message.
+- [x] Rumble output and the curated controller init are registered worker services. The wizard
+      calls their typed interfaces through the checkpointed worker. Probe and pulse writes return
+      their result; slider frames use a one-way stream after checkpoint acknowledgement, with
+      worker zero on silence and frame results collected when the slider stops.
 - Motion and init commands for non-curated devices are opt-in only; curated devices use their
   record.
 
@@ -411,7 +414,8 @@ HDMI audio arrival and the Quick Access rows on a live client has not been run.
 The maintainer requested a single EXE for an attended remote tester. `tools/AllyXLab` provides
 Windows identity/interface inventory, guided native button and motion captures, Claw-style rumble
 calibration phases, visual RGB checks and ASUS power/profile/fan write-readback-restoration steps.
-It uses HHD as primary reference and HC to cross-check the Windows ATKACPI transport. The tool and
+It used HHD as its primary reference and HC to cross-check the Windows ATKACPI transport. Current
+Ally plugin work uses HC as the primary Windows-native reference, including buttons. The tool and
 its guard tests are separate from the production solution and installer. The requested compiled EXE
 is tracked under `tools/AllyXLab/Downloads`; its README provides the direct download link.
 
@@ -470,8 +474,9 @@ with Windows targeting; Windows UI and hardware acceptance are still pending.
 `src/WSGM.Device.Asus.RogAllyX` now contains a Device API 4 entry type, package manifest and MIT
 license, and is included in `WSGM.slnx`. It always declines detection, stays passive and rejects
 commands. Exact identity, transports, capabilities and hardware validation remain unimplemented.
-The maintainer has no local Ally X, but has arranged a remote tester. HHD is the primary implementation reference, especially
-for buttons, because the maintainer reports buggy HC button handling. Reference-derived work must
+The maintainer has no local Ally X, but has arranged a remote tester. Current Ally plugin work uses
+HC as the primary Windows-native reference, including buttons; HHD fills gaps HC does not cover.
+Reference-derived work must
 remain distinct from hardware validation. It is not installed or shipped by the installer. See its
 README for the bring-up sequence. HHD and HC are cloned under ignored `_ref` paths; the plugin
 reference note pins both revisions and records source-derived controls and conflicting behavior.

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace WSGM.DeviceLab.Wizard;
@@ -48,7 +50,8 @@ internal static partial class LabSystemDump
         List<LabWmiClass> classes = [];
         var scope = Scope("root\\wmi");
         var clock = Stopwatch.StartNew();
-        using (ManagementObjectSearcher searcher = new(scope, new ObjectQuery("SELECT * FROM meta_class"), Enumeration()))
+        using (ManagementObjectSearcher searcher = new(scope, new ObjectQuery("SELECT * FROM meta_class"),
+                   Enumeration()))
         {
             foreach (var item in searcher.Get())
             {
@@ -95,7 +98,7 @@ internal static partial class LabSystemDump
                 classes[index] = entry with { Instances = CountInstances(scope, entry.Name, context.Cancellation) };
             }
             catch (Exception ex) when (ex is ManagementException or TimeoutException or UnauthorizedAccessException
-                                           or System.Runtime.InteropServices.COMException)
+                                           or COMException)
             {
                 classes[index] = entry with { Problem = ex.Message.Trim() };
             }
@@ -108,7 +111,8 @@ internal static partial class LabSystemDump
 
         context.WmiClasses = classes;
         var presence = VendorClassPresence(classes, issues);
-        context.Write("wmi", new { Namespace = "root\\wmi", VendorClasses = presence, Classes = classes, Issues = issues });
+        context.Write("wmi",
+            new { Namespace = "root\\wmi", VendorClasses = presence, Classes = classes, Issues = issues });
         return Result("wmi", classes.Count, Plural(classes.Count, "class", "classes"), issues);
     }
 
@@ -123,12 +127,15 @@ internal static partial class LabSystemDump
         List<object> presence = [];
         foreach (var name in (string[])["MSI_ACPI", "SuRwECRegInterface"])
         {
-            var found = classes.FirstOrDefault(entry => string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase));
+            var found = classes.FirstOrDefault(entry =>
+                string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase));
             presence.Add(new { Name = name, Present = found is not null, found?.Methods, found?.Instances });
         }
 
-        var lenovo = classes.Where(entry => entry.Name.StartsWith("LENOVO_", StringComparison.OrdinalIgnoreCase)).ToList();
-        presence.Add(new { Name = "LENOVO_*", Present = lenovo.Count > 0, Classes = lenovo.Select(entry => entry.Name).ToList() });
+        var lenovo = classes.Where(entry => entry.Name.StartsWith("LENOVO_", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        presence.Add(new
+            { Name = "LENOVO_*", Present = lenovo.Count > 0, Classes = lenovo.Select(entry => entry.Name).ToList() });
         return presence;
     }
 
@@ -154,7 +161,7 @@ internal static partial class LabSystemDump
                 // Absent from both namespaces; the root\wmi entry already says so.
             }
             catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException
-                                           or System.Runtime.InteropServices.COMException)
+                                           or COMException)
             {
                 AddIssue(issues, $@"root\cimv2 {name}: {ex.Message.Trim()}");
             }
@@ -192,7 +199,8 @@ internal static partial class LabSystemDump
     private static int CountInstances(ManagementScope scope, string className, CancellationToken cancellation)
     {
         var count = 0;
-        using ManagementObjectSearcher searcher = new(scope, new ObjectQuery($"SELECT * FROM {className}"), Enumeration());
+        using ManagementObjectSearcher searcher = new(scope, new ObjectQuery($"SELECT * FROM {className}"),
+            Enumeration());
         foreach (var item in searcher.Get())
         {
             item.Dispose();
@@ -219,7 +227,8 @@ internal static partial class LabSystemDump
         CancellationToken cancellation)
     {
         List<Dictionary<string, object?>> rows = [];
-        using ManagementObjectSearcher searcher = new(Scope(ns), new ObjectQuery($"SELECT * FROM {className}"), Enumeration());
+        using ManagementObjectSearcher searcher = new(Scope(ns), new ObjectQuery($"SELECT * FROM {className}"),
+            Enumeration());
         foreach (var item in searcher.Get())
         {
             using (item)
@@ -258,7 +267,7 @@ internal static partial class LabSystemDump
             return WmiRows(ns, className, allowed, cancellation);
         }
         catch (Exception ex) when (ex is ManagementException or TimeoutException or UnauthorizedAccessException
-                                       or System.Runtime.InteropServices.COMException)
+                                       or COMException)
         {
             AddIssue(issues, $"{className}: {ex.Message.Trim()}");
             return new { Problem = ex.Message.Trim() };
@@ -270,9 +279,10 @@ internal static partial class LabSystemDump
         return value switch
         {
             null => null,
-            string or bool or byte or sbyte or short or ushort or int or uint or long or ulong or float or double => value,
+            string or bool or byte or sbyte or short or ushort or int or uint or long or ulong or float
+                or double => value,
             char character => character.ToString(),
-            DateTime time => time.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            DateTime time => time.ToString("O", CultureInfo.InvariantCulture),
             Array array when array.Length <= 256 => array.Cast<object?>().Select(JsonValue).ToList(),
             Array array => $"({array.Length} values)",
             _ => value.ToString()

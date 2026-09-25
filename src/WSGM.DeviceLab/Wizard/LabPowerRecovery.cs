@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Transports;
@@ -60,9 +61,9 @@ internal sealed record LabPowerChanges
     {
         return changes is not null
                && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                  || changes.MsiPower is not null || changes.MsiChargeRaw is not null
-                                                  || changes.AmdLimits is not null || changes.IntelLimits is not null
-                                                  || changes.AuraWrittenAt is not null);
+                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null
+                                                 || changes.AmdLimits is not null || changes.IntelLimits is not null
+                                                 || changes.AuraWrittenAt is not null);
     }
 
     /// <summary>Whether a readable setting is still recorded.</summary>
@@ -72,8 +73,8 @@ internal sealed record LabPowerChanges
     {
         return changes is not null
                && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                  || changes.MsiPower is not null || changes.MsiChargeRaw is not null
-                                                  || changes.AmdLimits is not null || changes.IntelLimits is not null);
+                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null
+                                                 || changes.AmdLimits is not null || changes.IntelLimits is not null);
     }
 }
 
@@ -210,7 +211,8 @@ internal static class LabPowerRecovery
     {
         if (plan.Asus is not { } layout)
         {
-            problems.Add("The device record the test used is missing from this build, so the ASUS settings were not put back.");
+            problems.Add(
+                "The device record the test used is missing from this build, so the ASUS settings were not put back.");
             return;
         }
 
@@ -247,7 +249,7 @@ internal static class LabPowerRecovery
                 if (acpi.TryGet(chargeId) != charge)
                 {
                     acpi.Set(chargeId, charge);
-                    System.Threading.Thread.Sleep(150);
+                    Thread.Sleep(150);
                 }
 
                 var readback = acpi.TryGet(chargeId);
@@ -280,7 +282,8 @@ internal static class LabPowerRecovery
     {
         if (plan.Msi is not { } layout)
         {
-            problems.Add("The device record the test used is missing from this build, so the MSI settings were not put back.");
+            problems.Add(
+                "The device record the test used is missing from this build, so the MSI settings were not put back.");
             return;
         }
 
@@ -343,9 +346,12 @@ internal static class LabPowerRecovery
             var (now, token) = worker.Checkpoint<LabAmdLimits>(smu, AlreadyRecorded);
             if (!Same(now, original))
             {
-                log.Add("restore-write", new { Feature = "processor-power", Transport = "ryzen-smu", Original = original,
-                    Responses = smu.WriteLimits(original) });
-                System.Threading.Thread.Sleep(1000);
+                log.Add("restore-write", new
+                {
+                    Feature = "processor-power", Transport = "ryzen-smu", Original = original,
+                    Responses = smu.WriteLimits(original)
+                });
+                Thread.Sleep(1000);
                 now = smu.ReadLimits();
             }
 
@@ -357,7 +363,8 @@ internal static class LabPowerRecovery
             }
             else
             {
-                problems.Add($"The processor power limits read back as {now.Stapm}/{now.Fast}/{now.Slow} W, not {original.Stapm}/{original.Fast}/{original.Slow} W.");
+                problems.Add(
+                    $"The processor power limits read back as {now.Stapm}/{now.Fast}/{now.Slow} W, not {original.Stapm}/{original.Fast}/{original.Slow} W.");
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException
@@ -377,8 +384,11 @@ internal static class LabPowerRecovery
             var (_, token) = worker.Checkpoint<LabIntelLimits>(kx, AlreadyRecorded);
             var problem = kx.Restore(original);
             var now = kx.Read();
-            log.Add("restore-readback", new { Feature = "processor-power", Transport = "kx", Expected = original,
-                Observed = now, Problem = problem, Log = kx.CommandLog() });
+            log.Add("restore-readback", new
+            {
+                Feature = "processor-power", Transport = "kx", Expected = original,
+                Observed = now, Problem = problem, Log = kx.CommandLog()
+            });
             if (now.MchbarPl1 == original.MchbarPl1 && (original.MsrLocked || now.Msr610 == original.Msr610))
             {
                 machine.Update(changes => changes with { Power = changes.Power! with { IntelLimits = null } });
@@ -410,7 +420,8 @@ internal static class LabPowerRecovery
     /// <returns>True when all three limits agree.</returns>
     public static bool Same(LabAmdLimits a, LabAmdLimits b)
     {
-        return Math.Abs(a.Stapm - b.Stapm) <= 0.5 && Math.Abs(a.Fast - b.Fast) <= 0.5 && Math.Abs(a.Slow - b.Slow) <= 0.5;
+        return Math.Abs(a.Stapm - b.Stapm) <= 0.5 && Math.Abs(a.Fast - b.Fast) <= 0.5 &&
+               Math.Abs(a.Slow - b.Slow) <= 0.5;
     }
 
     /// <summary>
@@ -426,7 +437,8 @@ internal static class LabPowerRecovery
         ArgumentNullException.ThrowIfNull(change);
         machine.Update(changes =>
         {
-            var current = changes.Power ?? new LabPowerChanges { RecordId = recordId, RecordedAt = DateTimeOffset.UtcNow };
+            var current = changes.Power ?? new LabPowerChanges
+                { RecordId = recordId, RecordedAt = DateTimeOffset.UtcNow };
             if (current.RecordId != recordId && LabPowerChanges.AnyPending(current))
             {
                 throw new InvalidOperationException(

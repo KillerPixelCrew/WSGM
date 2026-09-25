@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
-using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Knowledge;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -167,7 +167,8 @@ internal static partial class LabInputAnalysis
             {
                 foreach (var (offset, values) in bytes.OrderBy(pair => pair.Key))
                 {
-                    group.Evidence.Add($"{key[(key.LastIndexOf('|') + 1)..]} byte {offset}: {string.Join(" ", values)}");
+                    group.Evidence.Add(
+                        $"{key[(key.LastIndexOf('|') + 1)..]} byte {offset}: {string.Join(" ", values)}");
                 }
             }
         }
@@ -178,7 +179,9 @@ internal static partial class LabInputAnalysis
                 .OrderBy(group => group.First)
                 .Select(group =>
                 {
-                    var device = group.Device is not null && byId.TryGetValue(group.Device, out var found) ? found : null;
+                    var device = group.Device is not null && byId.TryGetValue(group.Device, out var found)
+                        ? found
+                        : null;
                     return new LabInputCandidate(
                         group.Source,
                         group.Device,
@@ -322,7 +325,8 @@ internal static partial class LabInputAnalysis
             .. candidates.Where(candidate =>
                 candidate.DeviceDescription?.StartsWith("mouse", StringComparison.Ordinal) != true
                 && candidate.DeviceDescription?.Contains(" 000D:", StringComparison.Ordinal) != true
-                && !(candidate.Source == "hook" && candidate.Evidence.All(item => item.StartsWith("mouse", StringComparison.Ordinal))))
+                && !(candidate.Source == "hook" &&
+                     candidate.Evidence.All(item => item.StartsWith("mouse", StringComparison.Ordinal))))
         ];
     }
 
@@ -334,7 +338,8 @@ internal static partial class LabInputAnalysis
         return candidates.Count == 0
             ? "Nothing reacted."
             : string.Join("; ", candidates.Take(4).Select(candidate =>
-                $"{candidate.Source} {candidate.DeviceDescription ?? string.Empty} {candidate.Evidence.FirstOrDefault()}".Trim()));
+                $"{candidate.Source} {candidate.DeviceDescription ?? string.Empty} {candidate.Evidence.FirstOrDefault()}"
+                    .Trim()));
     }
 
     private static void Add(
@@ -381,6 +386,21 @@ internal static partial class LabInputAnalysis
         return int.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
     }
 
+    [GeneratedRegex(@"^key (?<name>\S+) \(.*\) (?<edge>down|up)")]
+    private static partial Regex KeyEdge();
+
+    [GeneratedRegex(@"LT (?<lt>\d+) RT (?<rt>\d+) L (?<lx>-?\d+),(?<ly>-?\d+) R (?<rx>-?\d+),(?<ry>-?\d+)")]
+    private static partial Regex XInputState();
+
+    [GeneratedRegex(@"^key (?<name>\S+) .*(?:down|up)")]
+    private static partial Regex KeyPattern();
+
+    [GeneratedRegex(@"^buttons [0-9A-F]{4} \[(?<names>[^\]]*)\]")]
+    private static partial Regex XInputButtons();
+
+    [GeneratedRegex(@"^buttons \[(?<buttons>[^\]]*)\]")]
+    private static partial Regex WgiButtons();
+
     private sealed class KeyTally(string source, string? device, string key)
     {
         public string Source { get; } = source;
@@ -399,19 +419,4 @@ internal static partial class LabInputAnalysis
 
         public bool Swallowed { get; set; }
     }
-
-    [GeneratedRegex(@"^key (?<name>\S+) \(.*\) (?<edge>down|up)")]
-    private static partial Regex KeyEdge();
-
-    [GeneratedRegex(@"LT (?<lt>\d+) RT (?<rt>\d+) L (?<lx>-?\d+),(?<ly>-?\d+) R (?<rx>-?\d+),(?<ry>-?\d+)")]
-    private static partial Regex XInputState();
-
-    [GeneratedRegex(@"^key (?<name>\S+) .*(?:down|up)")]
-    private static partial Regex KeyPattern();
-
-    [GeneratedRegex(@"^buttons [0-9A-F]{4} \[(?<names>[^\]]*)\]")]
-    private static partial Regex XInputButtons();
-
-    [GeneratedRegex(@"^buttons \[(?<buttons>[^\]]*)\]")]
-    private static partial Regex WgiButtons();
 }

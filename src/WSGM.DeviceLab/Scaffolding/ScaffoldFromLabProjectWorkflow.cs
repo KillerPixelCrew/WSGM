@@ -64,10 +64,12 @@ internal static class ScaffoldFromLabProjectWorkflow
     /// <summary>File extension of a lab report.</summary>
     public const string Extension = ".wsgmlab";
 
-    private static readonly (string Template, string Output) ProfileTemplate = ("DeviceProfile.cs.template", "DeviceProfile.cs");
+    private static readonly (string Template, string Output) ProfileTemplate = ("DeviceProfile.cs.template",
+        "DeviceProfile.cs");
 
     // Example roles the minimal template's in-memory example publishes; the host refuses unlisted roles.
-    private static readonly CapabilityRole[] ExampleRoles = [CapabilityRole.GenericToggle, CapabilityRole.GenericReadOnly];
+    private static readonly CapabilityRole[] ExampleRoles =
+        [CapabilityRole.GenericToggle, CapabilityRole.GenericReadOnly];
 
     private static readonly JsonSerializerOptions RuleJson = new()
     {
@@ -150,10 +152,12 @@ internal static class ScaffoldFromLabProjectWorkflow
             CapabilitiesJson = "["
                                + string.Join(", ", roles.Concat(ExampleRoles).Distinct().Select(role => $"\"{role}\""))
                                + "]",
-            Templates = [new ScaffoldFromCaptureWorkflow.TemplateFile(ProfileTemplate.Template, ProfileTemplate.Output)],
+            Templates =
+                [new ScaffoldFromCaptureWorkflow.TemplateFile(ProfileTemplate.Template, ProfileTemplate.Output)],
             Tokens = tokens
         };
-        var scaffold = ScaffoldFromCaptureWorkflow.Write(identity, outputDirectory, boundaries, extras, cancellationToken);
+        var scaffold =
+            ScaffoldFromCaptureWorkflow.Write(identity, outputDirectory, boundaries, extras, cancellationToken);
         List<string> maps = [];
         if (record.Motion?.Gyrometer is not null)
         {
@@ -209,7 +213,8 @@ internal static class ScaffoldFromLabProjectWorkflow
                                           && string.Equals(usb.VendorId, parts[0], StringComparison.OrdinalIgnoreCase)
                                           && string.Equals(usb.ProductId, parts[1], StringComparison.OrdinalIgnoreCase)
                                           && (parts.Length == 2
-                                              || string.Equals(usb.DeviceRelease, parts[2], StringComparison.OrdinalIgnoreCase)))
+                                              || string.Equals(usb.DeviceRelease, parts[2],
+                                                  StringComparison.OrdinalIgnoreCase)))
             ];
         }
         else
@@ -227,7 +232,8 @@ internal static class ScaffoldFromLabProjectWorkflow
 
         if (candidates.Length != 1)
         {
-            var choices = string.Join(", ", endpoints.Take(16).Select(usb => $"{usb.VendorId}:{usb.ProductId}:{usb.DeviceRelease}"));
+            var choices = string.Join(", ",
+                endpoints.Take(16).Select(usb => $"{usb.VendorId}:{usb.ProductId}:{usb.DeviceRelease}"));
             throw new InvalidDataException(candidates.Length == 0
                 ? $"No HID endpoint with an exact VID, PID and release matches. Endpoints: {(choices.Length == 0 ? "none" : choices)}."
                 : $"The report has {candidates.Length} candidate controller endpoints. Select one with --usb-instance VID:PID[:release]: {choices}.");
@@ -237,7 +243,8 @@ internal static class ScaffoldFromLabProjectWorkflow
         return new PluginScaffoldIdentity
         {
             SystemManufacturer = LabReview.CleanIdentity(firmware.SystemManufacturer)
-                                 ?? throw new InvalidDataException("The report has no exact SMBIOS system manufacturer."),
+                                 ?? throw new InvalidDataException(
+                                     "The report has no exact SMBIOS system manufacturer."),
             BaseboardProduct = LabReview.CleanIdentity(firmware.BaseboardProduct)
                                ?? throw new InvalidDataException("The report has no exact baseboard product."),
             SystemSku = LabReview.CleanIdentity(firmware.SystemSku)
@@ -285,8 +292,8 @@ internal static class ScaffoldFromLabProjectWorkflow
         }
 
         if (review.Items.Any(item => item.Area == "buttons" && item.Verdict is LabReviewVerdict.Confirmed
-                                                                 or LabReviewVerdict.New or LabReviewVerdict.Observed
-                                     && item.Observed != "not on this device"))
+                                                                or LabReviewVerdict.New or LabReviewVerdict.Observed
+                                                            && item.Observed != "not on this device"))
         {
             roles.Add(CapabilityRole.ControllerSource);
         }
@@ -308,6 +315,7 @@ internal static class ScaffoldFromLabProjectWorkflow
     private static string RuleCode(HardwareMatchRule rule)
     {
         List<string> fields = [];
+
         void Add(string name, string? value)
         {
             if (value is not null)

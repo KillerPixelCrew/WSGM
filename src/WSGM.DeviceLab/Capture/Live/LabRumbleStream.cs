@@ -13,7 +13,8 @@ namespace WSGM.DeviceLab.Capture.Live;
 ///     The current frame is written every <see cref="IntervalMilliseconds" /> while it is not zero, and
 ///     once when it changes. A frame left unchanged for <see cref="IdleStopMilliseconds" /> is replaced by
 ///     zero, so a forgotten slider cannot rumble forever. When the stream stops, for any reason, it writes
-///     an explicit zero. A failed write ends the stream and is never retried.
+///     an explicit zero. A synchronous write failure ends the stream and is never retried. The
+///     worker's one-way slider frames are checked against worker evidence after the stream stops.
 /// </remarks>
 internal sealed class LabRumbleStream
 {
@@ -82,7 +83,8 @@ internal sealed class LabRumbleStream
                 LabRumbleFrame target;
                 lock (_gate)
                 {
-                    if (!_target.IsZero && _clock.Elapsed - _changedAt > TimeSpan.FromMilliseconds(IdleStopMilliseconds))
+                    if (!_target.IsZero &&
+                        _clock.Elapsed - _changedAt > TimeSpan.FromMilliseconds(IdleStopMilliseconds))
                     {
                         _target = LabRumbleFrame.Zero;
                         IdleStops++;

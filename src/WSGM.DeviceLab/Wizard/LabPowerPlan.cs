@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Knowledge;
@@ -124,6 +125,9 @@ internal sealed record LabAuraLayout(ushort VendorId, ushort ProductId, ushort U
 /// <summary>What the power stage may test on the confirmed device, derived from its knowledge record.</summary>
 internal sealed record LabPowerPlan
 {
+    /// <summary>Percentage points AllyXLab raised each fan duty by for its fan test.</summary>
+    public const int FanDutyIncrease = 15;
+
     /// <summary>The record, or null for an unknown device.</summary>
     public DeviceKnowledgeRecord? Record { get; init; }
 
@@ -210,7 +214,7 @@ internal sealed record LabPowerPlan
     /// <returns>Watts.</returns>
     public static int TestWatts(int minimum, int maximum)
     {
-        return minimum + ((maximum - minimum) / 4);
+        return minimum + (maximum - minimum) / 4;
     }
 
     /// <summary>
@@ -238,9 +242,6 @@ internal sealed record LabPowerPlan
     {
         return original == 80 ? 90 : 80;
     }
-
-    /// <summary>Percentage points AllyXLab raised each fan duty by for its fan test.</summary>
-    public const int FanDutyIncrease = 15;
 
     /// <summary>
     ///     The fan test curve: the original temperatures with every duty raised by
@@ -442,7 +443,8 @@ internal sealed record LabPowerPlan
 
                     break;
                 case "fan":
-                    if (p.GetValueOrDefault("getTable") is { } getter && getter.StartsWith("Get_", StringComparison.Ordinal))
+                    if (p.GetValueOrDefault("getTable") is { } getter &&
+                        getter.StartsWith("Get_", StringComparison.Ordinal))
                     {
                         layout = layout with { FanGetter = getter };
                     }
@@ -584,7 +586,7 @@ internal static class LabPowerIdentity
                 [.. endpoints.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)]);
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException
-                                       or System.Runtime.InteropServices.COMException)
+                                       or COMException)
         {
             return null;
         }
@@ -620,7 +622,7 @@ internal static class LabPowerIdentity
             };
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException
-                                       or System.Runtime.InteropServices.COMException)
+                                       or COMException)
         {
             return null;
         }

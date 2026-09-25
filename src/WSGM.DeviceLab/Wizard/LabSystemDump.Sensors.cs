@@ -57,25 +57,29 @@ internal static partial class LabSystemDump
                 () => Accelerometer.GetDeviceSelector(AccelerometerReadingType.Standard),
                 () => Accelerometer.GetDefault()?.DeviceId,
                 id => Wait(Accelerometer.FromIdAsync(id), context.Cancellation) is { } sensor
-                    ? Sensor("accelerometer", id, sensor.MinimumReportInterval, sensor.MaxBatchSize, sensor.ReadingTransform)
+                    ? Sensor("accelerometer", id, sensor.MinimumReportInterval, sensor.MaxBatchSize,
+                        sensor.ReadingTransform)
                     : Missing("accelerometer", id)),
             ("gyrometer",
                 Gyrometer.GetDeviceSelector,
                 () => Gyrometer.GetDefault()?.DeviceId,
                 id => Wait(Gyrometer.FromIdAsync(id), context.Cancellation) is { } sensor
-                    ? Sensor("gyrometer", id, sensor.MinimumReportInterval, sensor.MaxBatchSize, sensor.ReadingTransform)
+                    ? Sensor("gyrometer", id, sensor.MinimumReportInterval, sensor.MaxBatchSize,
+                        sensor.ReadingTransform)
                     : Missing("gyrometer", id)),
             ("inclinometer",
                 () => Inclinometer.GetDeviceSelector(SensorReadingType.Absolute),
                 () => Inclinometer.GetDefault()?.DeviceId,
                 id => Wait(Inclinometer.FromIdAsync(id), context.Cancellation) is { } sensor
-                    ? Sensor("inclinometer", id, sensor.MinimumReportInterval, sensor.MaxBatchSize, sensor.ReadingTransform)
+                    ? Sensor("inclinometer", id, sensor.MinimumReportInterval, sensor.MaxBatchSize,
+                        sensor.ReadingTransform)
                     : Missing("inclinometer", id)),
             ("orientation",
                 () => OrientationSensor.GetDeviceSelector(SensorReadingType.Absolute),
                 () => OrientationSensor.GetDefault()?.DeviceId,
                 id => Wait(OrientationSensor.FromIdAsync(id), context.Cancellation) is { } sensor
-                    ? Sensor("orientation", id, sensor.MinimumReportInterval, sensor.MaxBatchSize, sensor.ReadingTransform)
+                    ? Sensor("orientation", id, sensor.MinimumReportInterval, sensor.MaxBatchSize,
+                        sensor.ReadingTransform)
                     : Missing("orientation", id)),
             ("compass",
                 Compass.GetDeviceSelector,
@@ -133,7 +137,8 @@ internal static partial class LabSystemDump
         // Sensor-class device nodes, from the device tree, catch sensors that WinRT does not list.
         var sensorDevices = context.Devices
             .Where(device => string.Equals(device.Class, "Sensor", StringComparison.OrdinalIgnoreCase))
-            .Select(device => new { device.InstanceId, device.FriendlyName, device.Description, device.Service, device.HardwareIds })
+            .Select(device => new
+                { device.InstanceId, device.FriendlyName, device.Description, device.Service, device.HardwareIds })
             .ToList();
         // The legacy COM Sensor API lists sensors WinRT hides, and every supported field, which is
         // where vendor custom fields show up.

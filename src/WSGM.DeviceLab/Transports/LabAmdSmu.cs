@@ -56,11 +56,17 @@ internal interface ILabAmdSmu : IDisposable
 /// </remarks>
 internal sealed class LabAmdSmu : ILabAmdSmu
 {
-    /// <summary>The worker service registration.</summary>
-    public static LabWorkerService Service { get; } = new("amd-smu", typeof(ILabAmdSmu), (_, _) => Open());
-
     /// <summary>Lowest limit the test ever writes.</summary>
     public const double MinimumTestWatts = 5;
+
+    // PawnIO module codename numbers (HandheldCompanion.Processors.AMD.CpuCodeName).
+    private static readonly Dictionary<uint, string> Names = new()
+    {
+        [1] = "Renoir", [2] = "Picasso", [6] = "Raven Ridge", [7] = "Raven Ridge 2", [10] = "Rembrandt",
+        [12] = "Van Gogh", [13] = "Cezanne", [15] = "Dali", [22] = "Lucienne", [23] = "Phoenix",
+        [24] = "Phoenix 2", [25] = "Mendocino", [30] = "Hawk Point", [31] = "Strix Point", [32] = "Strix Halo",
+        [33] = "Krackan Point"
+    };
 
     private readonly LabPawnIoModule _module;
 
@@ -70,6 +76,9 @@ internal sealed class LabAmdSmu : ILabAmdSmu
         CodeName = codeName;
         SmuVersion = smuVersion;
     }
+
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("amd-smu", typeof(ILabAmdSmu), (_, _) => Open());
 
     /// <summary>The module's codename number.</summary>
     public uint CodeName { get; }
@@ -83,15 +92,6 @@ internal sealed class LabAmdSmu : ILabAmdSmu
     /// <summary>The set-command IDs for this codename, or null when the part is not supported.</summary>
     public (uint Stapm, uint Fast, uint Slow)? Commands => CommandsFor(CodeName);
 
-    // PawnIO module codename numbers (HandheldCompanion.Processors.AMD.CpuCodeName).
-    private static readonly Dictionary<uint, string> Names = new()
-    {
-        [1] = "Renoir", [2] = "Picasso", [6] = "Raven Ridge", [7] = "Raven Ridge 2", [10] = "Rembrandt",
-        [12] = "Van Gogh", [13] = "Cezanne", [15] = "Dali", [22] = "Lucienne", [23] = "Phoenix",
-        [24] = "Phoenix 2", [25] = "Mendocino", [30] = "Hawk Point", [31] = "Strix Point", [32] = "Strix Halo",
-        [33] = "Krackan Point"
-    };
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -102,6 +102,51 @@ internal sealed class LabAmdSmu : ILabAmdSmu
     public LabAmdIdentity Identity()
     {
         return new LabAmdIdentity(CodeName, CodeNameText, SmuVersion, Commands is not null);
+    }
+
+    /// <summary>Reads the limits the SMU is enforcing, from a fresh PM table.</summary>
+    /// <returns>The limits.</returns>
+    public LabAmdLimits ReadLimits()
+    {
+        var words = WithPciBus(() =>
+        {
+            _module.Execute("ioctl_resolve_pm_table", [], 2);
+            _module.Execute("ioctl_update_pm_table", [], 0);
+            return _module.Execute("ioctl_read_pm_table", [], 4);
+        });
+        if (words.Length < 3)
+        {
+            throw new InvalidOperationException("The PM table was shorter than expected.");
+        }
+
+        var floats = new float[words.Length * 2];
+        Buffer.BlockCopy(words, 0, floats, 0, floats.Length * sizeof(float));
+        return new LabAmdLimits(Math.Round(floats[0], 2), Math.Round(floats[2], 2), Math.Round(floats[4], 2));
+    }
+
+    /// <summary>Writes all three limits once each. Never retried; the caller reads back.</summary>
+    /// <param name="limits">Limits in watts.</param>
+    /// <returns>Each command's first response word, which the SMU echoes as the accepted milliwatts.</returns>
+    public IReadOnlyList<long> WriteLimits(LabAmdLimits limits)
+    {
+        var commands = Commands ??
+                       throw new InvalidOperationException($"{CodeNameText} is not a supported mobile APU.");
+        List<long> responses = [];
+        foreach (var (command, watts) in new[]
+                     { (commands.Stapm, limits.Stapm), (commands.Fast, limits.Fast), (commands.Slow, limits.Slow) })
+        {
+            if (watts is < MinimumTestWatts or > 150)
+            {
+                throw new ArgumentOutOfRangeException(nameof(limits), $"{watts} W is outside the tested range.");
+            }
+
+            var milliwatts = (long)Math.Round(watts * 1000);
+            var response = WithPciBus(() =>
+                _module.Execute("ioctl_send_smu_command", [command, milliwatts, 0, 0, 0, 0, 0], 6));
+            responses.Add(response.Length > 0 ? response[0] : -1);
+        }
+
+        return responses;
     }
 
     /// <summary>The set-command IDs HC uses for a codename; null for anything that is not a mobile APU.</summary>
@@ -135,26 +180,6 @@ internal sealed class LabAmdSmu : ILabAmdSmu
         }
     }
 
-    /// <summary>Reads the limits the SMU is enforcing, from a fresh PM table.</summary>
-    /// <returns>The limits.</returns>
-    public LabAmdLimits ReadLimits()
-    {
-        var words = WithPciBus(() =>
-        {
-            _module.Execute("ioctl_resolve_pm_table", [], 2);
-            _module.Execute("ioctl_update_pm_table", [], 0);
-            return _module.Execute("ioctl_read_pm_table", [], 4);
-        });
-        if (words.Length < 3)
-        {
-            throw new InvalidOperationException("The PM table was shorter than expected.");
-        }
-
-        var floats = new float[words.Length * 2];
-        Buffer.BlockCopy(words, 0, floats, 0, floats.Length * sizeof(float));
-        return new LabAmdLimits(Math.Round(floats[0], 2), Math.Round(floats[2], 2), Math.Round(floats[4], 2));
-    }
-
     /// <summary>Whether limits read from the PM table look like limits, so the layout is the one expected.</summary>
     /// <param name="limits">Limits read.</param>
     /// <returns>True when every value is between 3 and 150 W and fast is at least slow.</returns>
@@ -162,28 +187,6 @@ internal sealed class LabAmdSmu : ILabAmdSmu
     {
         return limits.Stapm is >= 3 and <= 150 && limits.Fast is >= 3 and <= 150 && limits.Slow is >= 3 and <= 150
                && limits.Fast + 0.5 >= limits.Slow;
-    }
-
-    /// <summary>Writes all three limits once each. Never retried; the caller reads back.</summary>
-    /// <param name="limits">Limits in watts.</param>
-    /// <returns>Each command's first response word, which the SMU echoes as the accepted milliwatts.</returns>
-    public IReadOnlyList<long> WriteLimits(LabAmdLimits limits)
-    {
-        var commands = Commands ?? throw new InvalidOperationException($"{CodeNameText} is not a supported mobile APU.");
-        List<long> responses = [];
-        foreach (var (command, watts) in new[] { (commands.Stapm, limits.Stapm), (commands.Fast, limits.Fast), (commands.Slow, limits.Slow) })
-        {
-            if (watts is < MinimumTestWatts or > 150)
-            {
-                throw new ArgumentOutOfRangeException(nameof(limits), $"{watts} W is outside the tested range.");
-            }
-
-            var milliwatts = (long)Math.Round(watts * 1000);
-            var response = WithPciBus(() => _module.Execute("ioctl_send_smu_command", [command, milliwatts, 0, 0, 0, 0, 0], 6));
-            responses.Add(response.Length > 0 ? response[0] : -1);
-        }
-
-        return responses;
     }
 
     // The same machine-wide PCI mutex LibreHardwareMonitor and Handheld Companion take, so a monitoring

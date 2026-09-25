@@ -43,7 +43,7 @@ public sealed class PluginTests
         var sustained = descriptors.Descriptors.Single(item => item.Role == CapabilityRole.PowerSustainedLimit);
         Assert.Equal(model.MinimumWatts, sustained.Minimum);
         Assert.Equal(model.MaximumWatts, sustained.Maximum);
-        Assert.Equal(4, host.OemControlSets.Last().Count);
+        Assert.Equal(model.Layout is AllyFrontLayout.Classic ? 5 : 4, host.OemControlSets.Last().Count);
         Assert.Single(host.PhysicalDeviceSets);
     }
 
@@ -93,6 +93,73 @@ public sealed class PluginTests
     }
 
     [Fact]
+    public async Task CustomFanModeLeavesEachCapturedCurveUntouched()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        var result = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Choice(FanModes.Custom), CapabilityIds.FanMode),
+            CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Empty(hardware.Acpi.BufferWrites);
+        Assert.Equal(AllyFanCapability.DefaultGpuCurve, hardware.Acpi.Curve(AsusAcpiId.GpuFanCurve));
+    }
+
+    [Fact]
+    public async Task UnreadablePowerAndFanOriginalsRefuseWrites()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        hardware.Acpi.ScalarsReadable = false;
+        hardware.Acpi.SetCurve(AsusAcpiId.CpuFanCurve, new byte[16]);
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+
+        var power = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Integer(20)), CancellationToken.None);
+        var fan = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(
+                CapabilityValue.Curve(AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve)),
+                CapabilityIds.FanCurve), CancellationToken.None);
+
+        Assert.Equal(CommandOutcome.Rejected, power.Outcome);
+        Assert.Equal(CommandOutcome.Rejected, fan.Outcome);
+        Assert.Empty(hardware.Acpi.Writes);
+        Assert.Empty(hardware.Acpi.BufferWrites);
+    }
+
+    [Fact]
+    public async Task UnverifiedFanRestoreKeepsItsRecoveryEntry()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        var points = AllyFanCapability.Decode(AllyFanCapability.DefaultGpuCurve);
+        _ = await plugin.ExecuteCommandAsync(
+            AcpiCapabilityTests.Command(CapabilityValue.Curve(points), CapabilityIds.FanCurve),
+            CancellationToken.None);
+        hardware.Acpi.IgnoreWritesTo = AsusAcpiId.CpuFanCurve;
+
+        _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+            DateTimeOffset.UtcNow.AddSeconds(10)), CancellationToken.None);
+        await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
+
+        var entry = Assert.Single(journal.OutstandingEntries);
+        Assert.Equal(AllyServiceIds.Fans, entry.ServiceId);
+        Assert.Equal(AllyRecoveryStatus.RestoredUnverified, entry.Status);
+        Assert.Equal(AllyReconciliationAction.Block,
+            AllyRecoveryJournal.Decide(entry, entry.FirmwareIdentity));
+    }
+
+    [Fact]
     public async Task ReleaseWritesTheFactoryTablesAndStaysUnverified()
     {
         using var directory = new TemporaryDirectory();
@@ -111,6 +178,26 @@ public sealed class PluginTests
         Assert.Equal(AllyProtocol.RearDefaultMapping, hardware.Vendor.Reports[8]);
         Assert.DoesNotContain(AllyModels.VkF18, hardware.Keyboard.Watched);
         Assert.Equal((0f, 0f), hardware.Controller.Rumble.Last());
+        Assert.False(hardware.Controller.Running);
+    }
+
+    [Fact]
+    public async Task FailedRumbleZeroStillRestoresControllerTables()
+    {
+        using var directory = new TemporaryDirectory();
+        var hardware = new AllyFakeHardware();
+        var host = new TestPluginHostAdapter(1);
+        await using var plugin = hardware.CreatePlugin();
+        _ = await plugin.StartAsync(Start(host, directory, "rc72la"), CancellationToken.None);
+        hardware.Vendor.Reports.Clear();
+        hardware.Controller.FailRumble = true;
+
+        var release = await plugin.ReleaseControllerAsync(
+            new PluginControllerReleaseContext(HandoffScope.ControllerOnly, DateTimeOffset.UtcNow.AddSeconds(10)),
+            CancellationToken.None);
+
+        Assert.Equal(ControllerHandoffResult.ReleasedUnverified, release.Result);
+        Assert.Equal(AllyProtocol.DefaultConfiguration.Count, hardware.Vendor.Reports.Count);
         Assert.False(hardware.Controller.Running);
     }
 
@@ -144,10 +231,13 @@ public sealed class PluginTests
         await hardware.Vendor.RaiseAsync(0xA7);
         await hardware.Vendor.RaiseAsync(0xA8);
 
-        Assert.Equal(2, host.OemEvents.Count);
-        Assert.Equal((OemControlIds.CommandCenter, OemPressKind.Short), (host.OemEvents[0].ControlId, host.OemEvents[0].Press));
-        Assert.Equal((OemControlIds.ArmouryCrate, OemPressKind.Long), (host.OemEvents[1].ControlId, host.OemEvents[1].Press));
-        Assert.Equal(CanonicalButtons.A | CanonicalButtons.Guide, host.ControllerSamples.Last().Buttons);
+        Assert.Equal(3, host.OemEvents.Count);
+        Assert.Equal((OemControlIds.CommandCenter, OemPressKind.Short),
+            (host.OemEvents[0].ControlId, host.OemEvents[0].Press));
+        Assert.Equal((OemControlIds.M2, OemControlEdge.Pressed), (host.OemEvents[1].ControlId, host.OemEvents[1].Edge));
+        Assert.Equal((OemControlIds.M2, OemControlEdge.Released),
+            (host.OemEvents[2].ControlId, host.OemEvents[2].Edge));
+        Assert.Equal(CanonicalButtons.A | CanonicalButtons.QuickAccess, host.ControllerSamples.Last().Buttons);
     }
 
     [Fact]
@@ -166,8 +256,10 @@ public sealed class PluginTests
         await hardware.Keyboard.PressAsync(AllyModels.VkF17, true);
 
         Assert.Equal(
-            [(OemControlIds.M1, OemControlEdge.Pressed), (OemControlIds.M1, OemControlEdge.Released),
-                (OemControlIds.M2, OemControlEdge.Pressed)],
+            [
+                (OemControlIds.M1, OemControlEdge.Pressed), (OemControlIds.M1, OemControlEdge.Released),
+                (OemControlIds.M2, OemControlEdge.Pressed)
+            ],
             host.OemEvents.Select(item => (item.ControlId, item.Edge)));
         Assert.Equal(CanonicalButtons.RearPaddle1, host.ControllerSamples.Last().Buttons);
     }

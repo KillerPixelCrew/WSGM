@@ -1,6 +1,6 @@
+using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
-using WSGM.DeviceLab.Capture.Live;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 
@@ -24,7 +24,7 @@ public sealed class LabMotionAnalysisTests
     [Fact]
     public void Analyze_DeducesTheAxisMapFromPosesAndTurns()
     {
-        var summary = LabMotionAnalysis.Analyze([Accelerometer, Gyrometer], Steps(gravitySign: -1), [], null, 0);
+        var summary = LabMotionAnalysis.Analyze([Accelerometer, Gyrometer], Steps(-1), [], null, 0);
 
         var accelerometer = Assert.Single(summary.Sensors, item => item.Kind == LabMotionSensorKind.Accelerometer);
         var gyro = Assert.Single(summary.Sensors, item => item.Kind == LabMotionSensorKind.Gyrometer);
@@ -42,7 +42,7 @@ public sealed class LabMotionAnalysisTests
     [Fact]
     public void Analyze_FlipsASpecificForceAccelerometerToMatchItsGyro()
     {
-        var summary = LabMotionAnalysis.Analyze([Accelerometer, Gyrometer], Steps(gravitySign: 1), [], null, 0);
+        var summary = LabMotionAnalysis.Analyze([Accelerometer, Gyrometer], Steps(1), [], null, 0);
 
         var accelerometer = Assert.Single(summary.Sensors, item => item.Kind == LabMotionSensorKind.Accelerometer);
         AssertMap(Die, accelerometer.Map);
@@ -52,7 +52,7 @@ public sealed class LabMotionAnalysisTests
     [Fact]
     public void Analyze_ReportsGravityCandidatesPerRawAxis()
     {
-        var summary = LabMotionAnalysis.Analyze([Accelerometer], Steps(gravitySign: -1), [], null, 0);
+        var summary = LabMotionAnalysis.Analyze([Accelerometer], Steps(-1), [], null, 0);
 
         var accelerometer = Assert.Single(summary.Sensors);
         var rawX = Assert.Single(accelerometer.GravityAxes, axis => axis.Axis == "X");
@@ -78,7 +78,8 @@ public sealed class LabMotionAnalysisTests
         Assert.Equal("2 sensors; axis map matches the known record", summary.Summary);
         Assert.Empty(summary.Disagreements);
 
-        DeviceAxisMap flippedZ = new() { Swap = hc.Swap, Sign = new Dictionary<string, int> { ["Z"] = -1, ["X"] = -1, ["Y"] = -1 } };
+        DeviceAxisMap flippedZ = new()
+            { Swap = hc.Swap, Sign = new Dictionary<string, int> { ["Z"] = -1, ["X"] = -1, ["Y"] = -1 } };
         var differing = Record(new DeviceMotionKnowledge { Accelerometer = hc, Gyrometer = flippedZ });
         summary = LabMotionAnalysis.Analyze([Accelerometer, Gyrometer], Steps(-1), [], differing, 0);
         Assert.Equal("2 sensors; differs from the known record on Z (gyro)", summary.Summary);
@@ -175,13 +176,14 @@ public sealed class LabMotionAnalysisTests
                 var bytes = new byte[16];
                 bytes[0] = 0x01;
                 bytes[12] = (byte)(i * 37);
-                var value = (short)((step.Axis == 'Z' ? step.Sign * 4000 : 0) + (noise++ % 3) - 1);
+                var value = (short)((step.Axis == 'Z' ? step.Sign * 4000 : 0) + noise++ % 3 - 1);
                 bytes[5] = (byte)value;
                 bytes[6] = (byte)(value >> 8);
                 events.Add(new LabInputEvent(i, "raw-input", "hid0", "report", Convert.ToHexString(bytes)));
             }
 
-            steps.Add((step, new LabInputStepRecord { Step = step.Id, StartedMs = 0, EndedMs = 3000, Events = events }));
+            steps.Add((step,
+                new LabInputStepRecord { Step = step.Id, StartedMs = 0, EndedMs = 3000, Events = events }));
         }
 
         var candidates = LabMotionAnalysis.ReportCandidates(steps,

@@ -8,8 +8,8 @@ using System.Text.Json;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using WSGM.DeviceLab.Application;
-using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Knowledge;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -63,8 +63,13 @@ internal sealed record LabPendingControllerMode(
 internal static class LabControllerInit
 {
     private static readonly string StatePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "WSGM Device Lab", "wizard", "controller-mode.json");
+        Path.GetDirectoryName(LabMachineState.ForCurrentUser.Path)!, "controller-mode.json");
+
+    /// <summary>Whether a controller mode change or an opt-in mode command is waiting to be undone.</summary>
+    public static bool HasPending => HasControllerModePending || LabModeCommands.HasPending;
+
+    /// <summary>Whether a controller mode change is waiting to be undone.</summary>
+    public static bool HasControllerModePending => File.Exists(StatePath);
 
     /// <summary>The init the record offers, if any.</summary>
     /// <param name="record">Confirmed knowledge record.</param>
@@ -224,12 +229,6 @@ internal static class LabControllerInit
             : null;
     }
 
-    /// <summary>Whether a controller mode change or an opt-in mode command is waiting to be undone.</summary>
-    public static bool HasPending => HasControllerModePending || LabModeCommands.HasPending;
-
-    /// <summary>Whether a controller mode change is waiting to be undone.</summary>
-    public static bool HasControllerModePending => File.Exists(StatePath);
-
     private static LabInitResult SwitchMode(
         IReadOnlyDictionary<string, string> parameters,
         ushort vendor,
@@ -252,7 +251,7 @@ internal static class LabControllerInit
         }
 
         var template = parameters["report"].Replace("<mode>", mode.ToString("X2"), StringComparison.Ordinal);
-        var bytes = Bytes(template, Math.Max((int)endpoint.OutputLength, template.Split(' ').Length));
+        var bytes = Bytes(template, Math.Max(endpoint.OutputLength, template.Split(' ').Length));
         long result;
         using (var handle = LabRumbleNative.OpenForWrite(endpoint))
         {
@@ -262,12 +261,13 @@ internal static class LabControllerInit
         var line = $"{template}: {(result == 0 ? "ok" : $"error {result}")}";
         if (result != 0)
         {
-            return new LabInitResult(false, [line], before, ProductIds(vendor), "The controller refused the mode switch.");
+            return new LabInitResult(false, [line], before, ProductIds(vendor),
+                "The controller refused the mode switch.");
         }
 
         // Switching re-enumerates the controller; wait for the product ID of the new mode.
         var deadline = DateTime.UtcNow.AddSeconds(15);
-        IReadOnlyList<string> after = before;
+        var after = before;
         while (DateTime.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
         {
             Thread.Sleep(250);
@@ -327,12 +327,16 @@ internal static class LabControllerInit
     {
         var page = Hex(parameters.GetValueOrDefault("usagePage") ?? defaultPage);
         var usage = Hex(parameters.GetValueOrDefault("usage") ?? defaultUsage);
-        return LabRumbleNative.HidEndpoints(vendor).FirstOrDefault(item => item.UsagePage == page && item.Usage == usage);
+        return LabRumbleNative.HidEndpoints(vendor)
+            .FirstOrDefault(item => item.UsagePage == page && item.Usage == usage);
     }
 
     private static IReadOnlyList<string> ProductIds(ushort vendor)
     {
-        return [.. LabRumbleNative.HidEndpoints(vendor).Select(item => item.ProductId.ToString("X4")).Distinct().Order()];
+        return
+        [
+            .. LabRumbleNative.HidEndpoints(vendor).Select(item => item.ProductId.ToString("X4")).Distinct().Order()
+        ];
     }
 
     private static ushort Hex(string value)

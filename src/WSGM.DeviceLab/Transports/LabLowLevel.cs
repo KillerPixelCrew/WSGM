@@ -174,7 +174,7 @@ internal static class LabLowLevel
         {
             ct.ThrowIfCancellationRequested();
             msr = new IntelMsr();
-            if (!msr.ReadMsr(0x610, out ulong value))
+            if (!msr.ReadMsr(0x610, out var value))
             {
                 return new LabIntelPowerInfo(null, null, null, null, "MSR 0x610 could not be read.");
             }

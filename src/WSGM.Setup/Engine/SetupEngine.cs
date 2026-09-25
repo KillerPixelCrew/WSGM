@@ -122,6 +122,11 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Whether the uninstall could not confirm the controller is visible again.</summary>
     public IReadOnlyList<string> StillHiddenDevices { get; private set; } = [];
 
+    // The informational version carries the commit, so the log says exactly which build ran.
+    private static string Build =>
+        typeof(SetupEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? "unknown build";
+
     public void Dispose()
     {
         _owner?.Dispose();
@@ -150,9 +155,10 @@ internal sealed class SetupEngine : IDisposable
                 engine.InstalledPluginIds);
         }
 
-        SetupLog.Info($"Setup {engine.ThisVersion} ({Build}, {Environment.ProcessPath}): kind={engine.Kind}, installed={engine.InstalledVersion}, "
-                      + $"legacy={engine.Legacy?.Version ?? "none"}, steam={engine.SteamInstalled}, "
-                      + $"payload={engine.Payload?.Source ?? "none"}.");
+        SetupLog.Info(
+            $"Setup {engine.ThisVersion} ({Build}, {Environment.ProcessPath}): kind={engine.Kind}, installed={engine.InstalledVersion}, "
+            + $"legacy={engine.Legacy?.Version ?? "none"}, steam={engine.SteamInstalled}, "
+            + $"payload={engine.Payload?.Source ?? "none"}.");
         return engine;
     }
 
@@ -201,11 +207,6 @@ internal sealed class SetupEngine : IDisposable
         return RequiredComponents(choices).Contains(SetupComponent.ControllerStack)
                && (!InstalledComponents.UsbipPresent() || !InstalledComponents.HidHidePresent());
     }
-
-    // The informational version carries the commit, so the log says exactly which build ran.
-    private static string Build =>
-        typeof(SetupEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-        ?? "unknown build";
 
     /// <summary>The steps of an install, update or repair.</summary>
     public IReadOnlyList<SetupStep> PlanInstall(InstallChoices choices)

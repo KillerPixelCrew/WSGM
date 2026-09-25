@@ -24,12 +24,14 @@ internal static partial class LabSystemDump
     // own, with the vendor WMI classes probed.
     private static LabSystemDumpSectionResult CollectInventory(LabSystemDumpContext context)
     {
-        var inventory = WindowsInventoryCollector.Collect(DateTimeOffset.UtcNow, InventoryWmiProbes, context.Cancellation);
+        var inventory =
+            WindowsInventoryCollector.Collect(DateTimeOffset.UtcNow, InventoryWmiProbes, context.Cancellation);
         DurableFile.WriteNewText(
             Path.Combine(context.Attempt, "inventory.json"),
             DeviceLabJson.Serialize(inventory) + "\n");
         var issues = inventory.CollectionIssues.Select(issue => $"{issue.Lane}: {issue.Error}").ToList();
-        var present = inventory.WmiClasses.Count(entry => entry.Access is WmiAccess.Available or WmiAccess.AccessDenied);
+        var present =
+            inventory.WmiClasses.Count(entry => entry.Access is WmiAccess.Available or WmiAccess.AccessDenied);
         return Result("inventory", inventory.UsbInterfaces.Count,
             $"{Plural(inventory.UsbInterfaces.Count, "USB or HID interface", "USB or HID interfaces")}, "
             + $"{Plural(present, "vendor WMI class", "vendor WMI classes")}", issues);

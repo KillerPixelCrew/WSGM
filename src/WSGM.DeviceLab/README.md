@@ -36,23 +36,27 @@ someone who is not a developer. It asks for administrator rights once, then:
    Guide button, Windows.Gaming.Input, WMI and power events) and attributed afterwards. Windows-key
    shortcuts are swallowed while a step runs. A press step finishes by itself once the control is
    quiet; any control can be redone.
-5. **Motion sensors.** WinRT, the legacy Sensor API (including custom fields such as the Claw's),
-   a CH340 serial IMU and controller HID reports, all at once: rest, six gravity poses, and pitch,
+5. **Motion sensors.** WinRT, the legacy Sensor API (including custom fields such as the Claw's), a
+   CH340 serial IMU and controller HID reports, all at once: rest, six gravity poses, and pitch,
    roll and yaw. The axis map is worked out per source and compared with the known record.
 6. **Rumble.** Tries every route (XInput, Windows.Gaming.Input, and the device's own report where a
    curated record gives it), checks which motor is on which side, then live sliders to mark the
    weakest rumble felt and a pulse page for the shortest pulse. Motors are zeroed after every pulse
-   and on every exit.
+   and on every exit. The wizard sends probes and pulses as checkpointed worker calls and live
+   slider levels over the worker's one-way stream. The worker zeroes a stream that goes quiet, and
+   the wizard collects the stream's write results when the slider stops. It records a route for
+   startup cleanup before the first write.
 7. **Power, fans and lighting.** Telemetry on charger and on battery, with and without load, with
-   fan RPM and temperatures from LibreHardwareMonitor on every device (read only; its controller
-   and PSU groups stay off because their discovery writes to USB and serial devices). For a
-   curated device it tests TDP, the power profile, fan curves and the charge limit through the
-   device's own interface, each read back and put back. For other AMD and Intel machines it tests
-   the processor power limit through PawnIO's RyzenSMU module or KX, and never writes the EC.
-   Lighting uses Windows Dynamic Lighting, and the Ally's Aura interface where it applies.
+   fan RPM and temperatures from LibreHardwareMonitor on every device (read only; its controller and
+   PSU groups stay off because their discovery writes to USB and serial devices). For a curated
+   device it tests TDP, the power profile, fan curves and the charge limit through the device's own
+   interface, each read back and put back. For other AMD and Intel machines it tests the processor
+   power limit through PawnIO's RyzenSMU module or KX, and never writes the EC. Lighting uses
+   Windows Dynamic Lighting, and the Ally's Aura interface where it applies.
 8. **Sleep and wake.** The tester presses the power button; the wizard never sleeps the device
    itself. It checks that the controller, HID devices and sensors come back, that a press arrives,
-   and whether a controller init survived.
+   and whether a controller init survived. Curated controller init commands also run in the hardware
+   worker.
 9. **Finish and share.** Shows every file that will be shared, what was replaced (account names,
    user folders, device instance paths, network addresses) and what stays on the computer, then
    writes one `.wsgmlab` file, a ZIP of the redacted test folder.
@@ -73,8 +77,8 @@ wsgm-device promote test.wsgmlab --out new-record.json # a curated record with l
 wsgm-device scaffold --from test.wsgmlab --out-dir my-plugin
 ```
 
-`wsgm-device gui` opens the developer tabs described below instead, including a "Lab report" tab
-for the same review. For a remote tester, publish one self-contained file:
+`wsgm-device gui` opens the developer tabs described below instead, including a "Lab report" tab for
+the same review. For a remote tester, publish one self-contained file:
 
 ```powershell
 .\eng\publish-device-lab.ps1 -Portable -OutputRoot publish/DeviceLabPortable

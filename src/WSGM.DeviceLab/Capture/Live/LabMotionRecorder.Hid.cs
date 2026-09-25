@@ -137,7 +137,8 @@ internal sealed partial class LabMotionRecorder
         {
             var error = Marshal.GetLastPInvokeError();
             handle.Dispose();
-            _listed.AddRange(infos.Select(info => info with { Problem = $"could not be opened for reading (error {error})" }));
+            _listed.AddRange(infos.Select(info =>
+                info with { Problem = $"could not be opened for reading (error {error})" }));
             return;
         }
 
@@ -213,12 +214,6 @@ internal sealed partial class LabMotionRecorder
 
         public string Freshness => "input report";
 
-        public void Start(string id)
-        {
-            _thread = new Thread(Run) { IsBackground = true, Name = $"Device Lab motion {id}" };
-            _thread.Start();
-        }
-
         public void ResetCounters()
         {
             Interlocked.Exchange(ref _failures, 0);
@@ -238,6 +233,12 @@ internal sealed partial class LabMotionRecorder
             {
                 _handle.Dispose();
             }
+        }
+
+        public void Start(string id)
+        {
+            _thread = new Thread(Run) { IsBackground = true, Name = $"Device Lab motion {id}" };
+            _thread.Start();
         }
 
         private unsafe void Run()

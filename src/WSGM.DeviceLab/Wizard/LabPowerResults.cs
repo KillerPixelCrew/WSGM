@@ -88,7 +88,8 @@ internal static class LabPowerSummary
         var passed = ran.Where(test => IsPass(test.Outcome) && test.Restored == true)
             .Select(test => Name(test.Feature)).Distinct().ToArray();
         var failed = ran.Where(test => !IsPass(test.Outcome)).Select(test => Name(test.Feature)).Distinct().ToArray();
-        var unrestored = ran.Where(test => test.Restored == false).Select(test => Name(test.Feature)).Distinct().ToArray();
+        var unrestored = ran.Where(test => test.Restored == false).Select(test => Name(test.Feature)).Distinct()
+            .ToArray();
         if (passed.Length > 0)
         {
             parts.Add($"{Capital(List(passed))} tested and restored");

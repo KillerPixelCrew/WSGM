@@ -11,7 +11,8 @@ public sealed class LabPowerRecoveryTests
     {
         Assert.False(LabPowerChanges.AnyPending(null));
 
-        var withCharge = new LabPowerChanges { RecordId = "r", RecordedAt = DateTimeOffset.UtcNow, MsiChargeRaw = 0xE0 };
+        var withCharge = new LabPowerChanges
+            { RecordId = "r", RecordedAt = DateTimeOffset.UtcNow, MsiChargeRaw = 0xE0 };
         Assert.True(LabPowerChanges.AnyPending(withCharge));
         Assert.True(LabPowerChanges.PowerPending(withCharge));
 

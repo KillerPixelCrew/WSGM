@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -38,6 +42,8 @@ internal sealed partial class WizardWindow : Window
 
     private readonly CancellationTokenSource _lifetime = new();
 
+    private readonly LabMachineState _machine = LabMachineState.ForCurrentUser;
+
     private readonly TextBox _note = new()
     {
         PlaceholderText = "Anything to add? For example: the left stick feels loose.",
@@ -47,7 +53,6 @@ internal sealed partial class WizardWindow : Window
         Height = 80
     };
 
-    private readonly LabMachineState _machine = LabMachineState.ForCurrentUser;
     private readonly WizardOptions _options;
     private readonly ContentControl _page = new();
     private readonly LabPawnIo _pawnIo;
@@ -59,9 +64,9 @@ internal sealed partial class WizardWindow : Window
     private Task _operation = Task.CompletedTask;
     private DeviceLabOwnerReservation? _owner;
     private LabProject? _project;
+    private bool _refreshing;
     private string? _running;
     private CancellationTokenSource _stage = new();
-    private bool _refreshing;
 
     public WizardWindow(WizardOptions options)
     {
@@ -89,7 +94,8 @@ internal sealed partial class WizardWindow : Window
         side.Children.Add(Muted("Notes for the developer"));
         side.Children.Add(_note);
         side.Children.Add(Action("Save note", SaveNote));
-        side.Children.Add(Buttons(Action("Open test folder", OpenProjectFolder), Action("Help and licences", ShowHelp)));
+        side.Children.Add(Buttons(Action("Open test folder", OpenProjectFolder),
+            Action("Help and licences", ShowHelp)));
         root.Children.Add(side);
         ScrollViewer scroller = new() { Content = _page };
         Grid.SetColumn(scroller, 1);
@@ -119,7 +125,7 @@ internal sealed partial class WizardWindow : Window
         Opened += (_, _) => Start();
         KeyDown += (_, args) =>
         {
-            if (args.Key == Avalonia.Input.Key.Escape)
+            if (args.Key == Key.Escape)
             {
                 StopStage();
             }
@@ -140,14 +146,23 @@ internal sealed partial class WizardWindow : Window
             // Undo what a killed session left applied: power settings and a switched controller mode.
             List<string> recovered = [];
             if (_options.Elevated && await WorkerAsync() is var worker
-                                  && await Task.Run(() => LabPowerRecovery.RestoreRecorded(_machine, worker)) is { } power)
+                                  && await Task.Run(() => LabPowerRecovery.RestoreRecorded(_machine, worker)) is
+                                      { } power)
             {
                 recovered.Add(power.Message);
             }
 
-            if (LabControllerInit.HasPending)
+            if (_options.Elevated && _machine.Read().Rumble.Count > 0
+                                  && await Task.Run(() => LabRumbleRecovery.RestoreRecorded(_machine,
+                                      _worker ?? throw new InvalidOperationException(
+                                          "The hardware worker is unavailable."))) is { } rumble)
             {
-                var problem = await Task.Run(() => LabControllerInit.RecoverPending(_lifetime.Token));
+                recovered.Add(rumble);
+            }
+
+            if (LabControllerInit.HasPending || _machine.Read().CuratedInitRecordId is not null)
+            {
+                var problem = await RecoverControllerInitAsync();
                 recovered.Add(problem is null
                     ? "The controller was switched back to the mode it had before an earlier test."
                     : $"The controller could not be switched back after an earlier test: {problem}");
@@ -748,6 +763,7 @@ internal sealed partial class WizardWindow : Window
             page.Children.Add(Warning(
                 "A power or fan setting from this test is still recorded as not put back. Restart Device Lab to restore it, or restart the device."));
         }
+
         page.Children.Add(Heading($"{preview.Files.Count} files, {preview.Files.Sum(file => file.Bytes) / 1024} KiB"));
         page.Children.Add(Muted(string.Join(Environment.NewLine,
             preview.Files.Select(file => $"{file.Path}  ({file.Bytes} bytes)"))));
@@ -810,7 +826,8 @@ internal sealed partial class WizardWindow : Window
         saved.Text = $"Saved to {path}. Send this file back.";
         if (saved.Parent is Panel panel)
         {
-            panel.Children.Add(Buttons(Action("Show the report in its folder", () => OpenInExplorer("/select," + Quote(path)))));
+            panel.Children.Add(Buttons(Action("Show the report in its folder",
+                () => OpenInExplorer("/select," + Quote(path)))));
         }
     }
 
@@ -1014,8 +1031,8 @@ internal sealed partial class WizardWindow : Window
 
     private static void OpenInExplorer(string arguments)
     {
-        System.Diagnostics.Process.Start(
-            new System.Diagnostics.ProcessStartInfo("explorer.exe", arguments) { UseShellExecute = false });
+        Process.Start(
+            new ProcessStartInfo("explorer.exe", arguments) { UseShellExecute = false });
     }
 
     private static string Quote(string path)
@@ -1052,7 +1069,7 @@ internal sealed partial class WizardWindow : Window
         try
         {
             using var stream = File.OpenRead(DeviceLabExecutable.CurrentPath);
-            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+            return Convert.ToHexString(SHA256.HashData(stream));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1063,8 +1080,8 @@ internal sealed partial class WizardWindow : Window
     private static string? SourceRevision()
     {
         var informational = typeof(WizardWindow).Assembly
-            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false)
+            .OfType<AssemblyInformationalVersionAttribute>()
             .FirstOrDefault()?.InformationalVersion;
         var plus = informational?.IndexOf('+') ?? -1;
         return plus >= 0 ? informational![(plus + 1)..] : null;

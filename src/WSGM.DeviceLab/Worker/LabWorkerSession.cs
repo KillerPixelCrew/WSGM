@@ -35,6 +35,7 @@ internal sealed class LabWorkerSession(
     private string? _pending;
     private DateTime _pendingSince;
     private int _sent;
+    private bool _streamFailed;
 
     /// <summary>Whether writes are accepted now.</summary>
     public bool Armed => _armed is not null;
@@ -94,7 +95,7 @@ internal sealed class LabWorkerSession(
     public void Stream(string name, IReadOnlyList<JsonElement> args)
     {
         var method = Method(name);
-        if (method.GetCustomAttribute<LabWorkerStreamAttribute>() is null)
+        if (method.GetCustomAttribute<LabWorkerStreamAttribute>() is null || _armed is null || _streamFailed)
         {
             return;
         }
@@ -106,7 +107,8 @@ internal sealed class LabWorkerSession(
         }
         catch (TargetInvocationException)
         {
-            // A failed frame is not retried; the next frame or the watchdog zero follows.
+            // A failed frame is uncertain. Zero once and ignore later slider frames.
+            _streamFailed = true;
             ZeroQuietly();
         }
     }
@@ -148,6 +150,7 @@ internal sealed class LabWorkerSession(
 
         _armed = _pending;
         _pending = null;
+        _streamFailed = false;
     }
 
     /// <summary>Ends the checkpoint after a verified restore; writes are refused again.</summary>

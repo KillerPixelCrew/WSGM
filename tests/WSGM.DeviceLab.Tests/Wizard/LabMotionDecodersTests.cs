@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
-using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Knowledge;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 
@@ -17,7 +17,7 @@ public sealed class LabMotionDecodersTests
         hid[2] = 0x09;
         BinaryPrimitives.WriteInt16LittleEndian(hid.AsSpan(24), 16384);
         BinaryPrimitives.WriteInt16LittleEndian(hid.AsSpan(30), -3277);
-        byte[] report = unnumbered ? [0, .. hid] : hid;
+        var report = unnumbered ? [0, .. hid] : hid;
         var accelerometer = new double[3];
         var gyrometer = new double[3];
 
@@ -101,7 +101,10 @@ public sealed class LabMotionDecodersTests
             Id = "test.x1",
             DisplayName = "X1",
             Status = DeviceKnowledgeStatus.Extracted,
-            Hazards = ["The X1 opens its own CH340 serial port (115200) for LED control. Do not probe it as a serial IMU."]
+            Hazards =
+            [
+                "The X1 opens its own CH340 serial port (115200) for LED control. Do not probe it as a serial IMU."
+            ]
         };
 
         Assert.True(LabMotionDecoders.SerialAssignedToControl(record));

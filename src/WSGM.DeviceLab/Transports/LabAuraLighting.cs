@@ -62,10 +62,8 @@ internal interface ILabAura : IDisposable
 /// </summary>
 internal sealed class LabAuraLighting : ILabAura
 {
-    /// <summary>The worker service registration. Opening fails when there is not exactly one endpoint.</summary>
-    public static LabWorkerService Service { get; } = new("aura", typeof(ILabAura),
-        (args, log) => Open(LabWorkerService.Arg<LabAuraLayout>(args, 0), log)
-                       ?? throw new InvalidOperationException("The device's own lighting interface was not found."));
+    /// <summary>The number of lighting zones this test steps through (both rings, then the four half-rings).</summary>
+    public const int ZoneCount = 5;
 
     private readonly SafeFileHandle _handle;
     private readonly LabPowerLog _log;
@@ -77,6 +75,11 @@ internal sealed class LabAuraLighting : ILabAura
         _log = log;
     }
 
+    /// <summary>The worker service registration. Opening fails when there is not exactly one endpoint.</summary>
+    public static LabWorkerService Service { get; } = new("aura", typeof(ILabAura),
+        (args, log) => Open(LabWorkerService.Arg<LabAuraLayout>(args, 0), log)
+                       ?? throw new InvalidOperationException("The device's own lighting interface was not found."));
+
     /// <summary>The endpoint in use.</summary>
     public LabAuraEndpoint Endpoint { get; }
 
@@ -84,6 +87,46 @@ internal sealed class LabAuraLighting : ILabAura
     public void Dispose()
     {
         _handle.Dispose();
+    }
+
+    /// <inheritdoc />
+    public LabAuraOriginal Original()
+    {
+        return new LabAuraOriginal(Endpoint,
+            "Write-only lighting: the colour cannot be read, so the tester sets it again in Armoury Crate.");
+    }
+
+    /// <summary>Shows one colour on one zone: AllyXLab's init, brightness, static colour and apply.</summary>
+    /// <param name="zone">0 both rings, 1 left outer, 2 left inner, 3 right inner, 4 right outer.</param>
+    /// <param name="channel">0 red, 1 green, 2 blue.</param>
+    public void Colour(int zone, int channel)
+    {
+        if (zone is < 0 or >= ZoneCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(zone));
+        }
+
+        if (channel is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel));
+        }
+
+        Output([0x5A, .. Encoding.ASCII.GetBytes("ASUS Tech.Inc.")]);
+        Output([0x5A, 0xBA, 0xC5, 0xC4, 1]);
+        var colour = new byte[64];
+        colour[0] = 0x5A;
+        colour[1] = 0xB3;
+        colour[2] = (byte)zone;
+        colour[4 + channel] = 80;
+        Output(colour);
+        Output([0x5A, 0xB5]);
+        Output([0x5A, 0xB4]);
+    }
+
+    /// <summary>Turns the brightness to off, as AllyXLab does after every flash.</summary>
+    public void Off()
+    {
+        Output([0x5A, 0xBA, 0xC5, 0xC4, 0]);
     }
 
     /// <summary>Opens the exact endpoint the record names; refuses when there is not exactly one.</summary>
@@ -139,49 +182,6 @@ internal sealed class LabAuraLighting : ILabAura
         return new LabAuraLighting(handle, endpoint, log);
     }
 
-    /// <inheritdoc />
-    public LabAuraOriginal Original()
-    {
-        return new LabAuraOriginal(Endpoint,
-            "Write-only lighting: the colour cannot be read, so the tester sets it again in Armoury Crate.");
-    }
-
-    /// <summary>The number of lighting zones this test steps through (both rings, then the four half-rings).</summary>
-    public const int ZoneCount = 5;
-
-    /// <summary>Shows one colour on one zone: AllyXLab's init, brightness, static colour and apply.</summary>
-    /// <param name="zone">0 both rings, 1 left outer, 2 left inner, 3 right inner, 4 right outer.</param>
-    /// <param name="channel">0 red, 1 green, 2 blue.</param>
-    public void Colour(int zone, int channel)
-    {
-        if (zone is < 0 or >= ZoneCount)
-        {
-            throw new ArgumentOutOfRangeException(nameof(zone));
-        }
-
-        if (channel is < 0 or > 2)
-        {
-            throw new ArgumentOutOfRangeException(nameof(channel));
-        }
-
-        Output([0x5A, .. Encoding.ASCII.GetBytes("ASUS Tech.Inc.")]);
-        Output([0x5A, 0xBA, 0xC5, 0xC4, 1]);
-        var colour = new byte[64];
-        colour[0] = 0x5A;
-        colour[1] = 0xB3;
-        colour[2] = (byte)zone;
-        colour[4 + channel] = 80;
-        Output(colour);
-        Output([0x5A, 0xB5]);
-        Output([0x5A, 0xB4]);
-    }
-
-    /// <summary>Turns the brightness to off, as AllyXLab does after every flash.</summary>
-    public void Off()
-    {
-        Output([0x5A, 0xBA, 0xC5, 0xC4, 0]);
-    }
-
     private void Output(byte[] bytes)
     {
         var padded = new byte[Endpoint.OutputBytes];
@@ -190,7 +190,8 @@ internal sealed class LabAuraLighting : ILabAura
         if (!WriteFile(_handle, padded, (uint)padded.Length, out var written, IntPtr.Zero) || written != padded.Length)
         {
             _log.Add("hid-output-failed", new { Error = Marshal.GetLastWin32Error(), Written = written });
-            throw new IOException("The lighting write failed or was short; its effect is unknown and it was not tried again.");
+            throw new IOException(
+                "The lighting write failed or was short; its effect is unknown and it was not tried again.");
         }
 
         _log.Add("hid-output-returned", new { Written = written, Verified = false });
@@ -266,48 +267,6 @@ internal sealed class LabAuraLighting : ILabAura
         return endpoints;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct InterfaceData
-    {
-        public uint Size;
-        public Guid Guid;
-        public uint Flags;
-        public UIntPtr Reserved;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Attributes
-    {
-        public uint Size;
-        public ushort Vid;
-        public ushort Pid;
-        public ushort Version;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Caps
-    {
-        public ushort Usage;
-        public ushort Page;
-        public ushort Input;
-        public ushort Output;
-        public ushort Feature;
-
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
-        public ushort[] Reserved;
-
-        public ushort Nodes;
-        public ushort InputButtons;
-        public ushort InputValues;
-        public ushort InputIndices;
-        public ushort OutputButtons;
-        public ushort OutputValues;
-        public ushort OutputIndices;
-        public ushort FeatureButtons;
-        public ushort FeatureValues;
-        public ushort FeatureIndices;
-    }
-
     [DllImport("hid.dll")]
     private static extern void HidD_GetHidGuid(out Guid guid);
 
@@ -351,4 +310,46 @@ internal sealed class LabAuraLighting : ILabAura
     [DllImport("setupapi.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetupDiDestroyDeviceInfoList(IntPtr set);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct InterfaceData
+    {
+        public uint Size;
+        public Guid Guid;
+        public uint Flags;
+        public UIntPtr Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Attributes
+    {
+        public uint Size;
+        public ushort Vid;
+        public ushort Pid;
+        public ushort Version;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Caps
+    {
+        public ushort Usage;
+        public ushort Page;
+        public ushort Input;
+        public ushort Output;
+        public ushort Feature;
+
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public ushort[] Reserved;
+
+        public ushort Nodes;
+        public ushort InputButtons;
+        public ushort InputValues;
+        public ushort InputIndices;
+        public ushort OutputButtons;
+        public ushort OutputValues;
+        public ushort OutputIndices;
+        public ushort FeatureButtons;
+        public ushort FeatureValues;
+        public ushort FeatureIndices;
+    }
 }

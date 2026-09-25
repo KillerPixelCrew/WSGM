@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Security;
 using System.Text;
 using Microsoft.Win32;
 
@@ -129,7 +130,7 @@ internal static partial class LabSystemDump
 
         var freeSync = false;
         var adaptiveSync = false;
-        var extensions = Math.Min(edid[126], (edid.Length / 128) - 1);
+        var extensions = Math.Min(edid[126], edid.Length / 128 - 1);
         for (var block = 1; block <= extensions; block++)
         {
             var extension = edid.Slice(block * 128, 128);
@@ -231,7 +232,7 @@ internal static partial class LabSystemDump
             return key?.GetValue("EDID") is byte[] { Length: <= 4096 } edid ? ParseEdid(edid) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or System.Security.SecurityException or ArgumentException)
+                                       or SecurityException or ArgumentException)
         {
             return null;
         }

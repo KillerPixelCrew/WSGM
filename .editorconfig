@@ -22,6 +22,12 @@ dotnet_diagnostic.IDE0005.severity = warning
 # formatter disagrees on a few constructs and must not fail the build over them.
 dotnet_diagnostic.IDE0055.severity = none
 
+# Rider groups Windows.* with System.* while Roslyn otherwise sorts Microsoft.* before Windows.*.
+# Use alphabetical imports in files that need both namespaces so both cleanup engines agree.
+[src/WSGM.DeviceLab/Capture/Live/{LabMotionRecorder,LabRumbleRoutes}.cs]
+dotnet_sort_system_directives_first = false
+resharper_csharp_sort_usings_with_system_first = false
+
 [*.{axaml,xml,csproj,props,slnx}]
 indent_size = 2
 

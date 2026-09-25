@@ -28,7 +28,7 @@ internal sealed record LabIntelLimits(int MchbarPl1, int MchbarPl2, ulong Msr610
     public double MsrPl2Watts => ((Msr610 >> 32) & 0x7FFF) * PowerUnitWatts;
 
     /// <summary>Whether MSR 0x610 is locked (bit 63) until reset.</summary>
-    public bool MsrLocked => (Msr610 >> 63) != 0;
+    public bool MsrLocked => Msr610 >> 63 != 0;
 }
 
 /// <summary>
@@ -75,10 +75,6 @@ internal interface ILabIntelKx : IDisposable
 /// </remarks>
 internal sealed class LabIntelKx : ILabIntelKx
 {
-    /// <summary>The worker service registration.</summary>
-    public static LabWorkerService Service { get; } = new("intel-kx", typeof(ILabIntelKx),
-        (args, _) => Open(args.Count > 0 ? LabWorkerService.Arg<double?>(args, 0) : null));
-
     private static readonly string[] MchbarCandidates = ["0xFEDC0000", "0xFED10000"];
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
 
@@ -95,6 +91,10 @@ internal sealed class LabIntelKx : ILabIntelKx
         _held = held;
         _powerUnitWatts = powerUnitWatts;
     }
+
+    /// <summary>The worker service registration.</summary>
+    public static LabWorkerService Service { get; } = new("intel-kx", typeof(ILabIntelKx),
+        (args, _) => Open(args.Count > 0 ? LabWorkerService.Arg<double?>(args, 0) : null));
 
     /// <summary>The MCHBAR base in use, as KX writes it, for example <c>0xFEDC</c>.</summary>
     public string? MchbarPrefix { get; private set; }
@@ -120,6 +120,50 @@ internal sealed class LabIntelKx : ILabIntelKx
     public IReadOnlyList<string> CommandLog()
     {
         return [.. Log];
+    }
+
+    /// <summary>Reads the MCHBAR mirror and MSR 0x610.</summary>
+    /// <returns>The limits, with the power unit the transport was opened with.</returns>
+    public LabIntelLimits Read()
+    {
+        var prefix = MchbarPrefix ?? throw new InvalidOperationException("The MCHBAR could not be found.");
+        var pl1 = Return("/rdmem16", prefix + "59A0") ??
+                  throw new InvalidOperationException("MCHBAR PL1 could not be read.");
+        var pl2 = Return("/rdmem16", prefix + "59A4") ??
+                  throw new InvalidOperationException("MCHBAR PL2 could not be read.");
+        var msr = ReadMsr(0x610) ?? throw new InvalidOperationException("MSR 0x610 could not be read.");
+        return new LabIntelLimits((int)pl1, (int)pl2, msr, _powerUnitWatts);
+    }
+
+    /// <summary>Writes PL1 in both places, keeping every other bit. Never retried; the caller reads back.</summary>
+    /// <param name="original">State read just before.</param>
+    /// <param name="watts">New PL1.</param>
+    /// <returns>Null when both writes reported success; otherwise what failed.</returns>
+    public string? WritePl1(LabIntelLimits original, double watts)
+    {
+        var units = (int)Math.Round(watts / original.PowerUnitWatts);
+        if (units is <= 0 or > 0x7FFF)
+        {
+            throw new ArgumentOutOfRangeException(nameof(watts));
+        }
+
+        var mem = (int)(((uint)original.MchbarPl1 & 0xFFFF8000u) | (uint)units);
+        var problem = WriteMem16(MchbarPrefix + "59A0", mem);
+        if (problem is not null || original.MsrLocked)
+        {
+            return problem;
+        }
+
+        return WriteMsr(0x610, (original.Msr610 & ~0x7FFFUL) | (uint)units);
+    }
+
+    /// <summary>Puts back the exact original MCHBAR PL1 and MSR 0x610 values.</summary>
+    /// <param name="original">State read before the test.</param>
+    /// <returns>Null when both writes reported success; otherwise what failed.</returns>
+    public string? Restore(LabIntelLimits original)
+    {
+        var problem = WriteMem16(MchbarPrefix + "59A0", original.MchbarPl1);
+        return original.MsrLocked ? problem : problem ?? WriteMsr(0x610, original.Msr610);
     }
 
     /// <summary>Extracts and checks KX.exe, then finds the MCHBAR.</summary>
@@ -159,53 +203,13 @@ internal sealed class LabIntelKx : ILabIntelKx
         return kx;
     }
 
-    /// <summary>Reads the MCHBAR mirror and MSR 0x610.</summary>
-    /// <returns>The limits, with the power unit the transport was opened with.</returns>
-    public LabIntelLimits Read()
-    {
-        var prefix = MchbarPrefix ?? throw new InvalidOperationException("The MCHBAR could not be found.");
-        var pl1 = Return("/rdmem16", prefix + "59A0") ?? throw new InvalidOperationException("MCHBAR PL1 could not be read.");
-        var pl2 = Return("/rdmem16", prefix + "59A4") ?? throw new InvalidOperationException("MCHBAR PL2 could not be read.");
-        var msr = ReadMsr(0x610) ?? throw new InvalidOperationException("MSR 0x610 could not be read.");
-        return new LabIntelLimits((int)pl1, (int)pl2, msr, _powerUnitWatts);
-    }
-
-    /// <summary>Writes PL1 in both places, keeping every other bit. Never retried; the caller reads back.</summary>
-    /// <param name="original">State read just before.</param>
-    /// <param name="watts">New PL1.</param>
-    /// <returns>Null when both writes reported success; otherwise what failed.</returns>
-    public string? WritePl1(LabIntelLimits original, double watts)
-    {
-        var units = (int)Math.Round(watts / original.PowerUnitWatts);
-        if (units is <= 0 or > 0x7FFF)
-        {
-            throw new ArgumentOutOfRangeException(nameof(watts));
-        }
-
-        var mem = (int)(((uint)original.MchbarPl1 & 0xFFFF8000u) | (uint)units);
-        var problem = WriteMem16(MchbarPrefix + "59A0", mem);
-        if (problem is not null || original.MsrLocked)
-        {
-            return problem;
-        }
-
-        return WriteMsr(0x610, (original.Msr610 & ~0x7FFFUL) | (uint)units);
-    }
-
-    /// <summary>Puts back the exact original MCHBAR PL1 and MSR 0x610 values.</summary>
-    /// <param name="original">State read before the test.</param>
-    /// <returns>Null when both writes reported success; otherwise what failed.</returns>
-    public string? Restore(LabIntelLimits original)
-    {
-        var problem = WriteMem16(MchbarPrefix + "59A0", original.MchbarPl1);
-        return original.MsrLocked ? problem : problem ?? WriteMsr(0x610, original.Msr610);
-    }
-
     private string? WriteMem16(string address, int value)
     {
         var text = $"0x{value:X4}";
         var returned = Return("/wrmem16", address, text);
-        return returned == value ? null : $"KX wrote {text} to {address} but returned {returned?.ToString(CultureInfo.InvariantCulture) ?? "nothing"}.";
+        return returned == value
+            ? null
+            : $"KX wrote {text} to {address} but returned {returned?.ToString(CultureInfo.InvariantCulture) ?? "nothing"}.";
     }
 
     private string? WriteMsr(uint index, ulong value)
@@ -280,7 +284,8 @@ internal sealed class LabIntelKx : ILabIntelKx
             return [];
         }
 
-        List<string> lines = [.. output.Result.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)];
+        List<string> lines =
+            [.. output.Result.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)];
         Log.Add($"{string.Join(' ', arguments)} -> exit {process.ExitCode}: {string.Join(" | ", lines)}");
         return lines;
     }
@@ -291,7 +296,7 @@ internal sealed class LabIntelKx : ILabIntelKx
         var msr = new IntelMsr();
         try
         {
-            return msr.ReadMsr(0x606, out ulong value)
+            return msr.ReadMsr(0x606, out var value)
                 ? 1.0 / (1 << (int)(value & 0xF))
                 : throw new InvalidOperationException("MSR 0x606 could not be read through PawnIO.");
         }

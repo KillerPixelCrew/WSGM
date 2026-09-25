@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+using WSGM.Device.Asus.RogAlly.Tests.Fakes;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Packaging;
@@ -105,6 +106,6 @@ public sealed class DetectionTests
 
     private sealed class AllyFakesPlugin
     {
-        public RogAllyPlugin Plugin { get; } = new Fakes.AllyFakeHardware().CreatePlugin();
+        public RogAllyPlugin Plugin { get; } = new AllyFakeHardware().CreatePlugin();
     }
 }

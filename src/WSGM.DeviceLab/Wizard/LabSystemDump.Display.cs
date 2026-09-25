@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -101,7 +102,10 @@ internal static partial class LabSystemDump
 
             if (seen.Add((mode.PelsWidth, mode.PelsHeight, mode.DisplayFrequency, mode.BitsPerPel)))
             {
-                modes.Add(new { Width = mode.PelsWidth, Height = mode.PelsHeight, Hz = mode.DisplayFrequency, Bits = mode.BitsPerPel });
+                modes.Add(new
+                {
+                    Width = mode.PelsWidth, Height = mode.PelsHeight, Hz = mode.DisplayFrequency, Bits = mode.BitsPerPel
+                });
             }
         }
 
@@ -122,7 +126,7 @@ internal static partial class LabSystemDump
                 1 => "portrait (90)",
                 2 => "landscape flipped (180)",
                 3 => "portrait flipped (270)",
-                _ => mode.DisplayOrientation.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                _ => mode.DisplayOrientation.ToString(CultureInfo.InvariantCulture)
             },
             X = mode.PositionX,
             Y = mode.PositionY
@@ -151,7 +155,8 @@ internal static partial class LabSystemDump
 
             paths = new byte[pathCount * PathInfoBytes];
             modes = new byte[modeCount * ModeInfoBytes];
-            var result = QueryDisplayConfig(QdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
+            var result = QueryDisplayConfig(QdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes,
+                IntPtr.Zero);
             if (result == 0)
             {
                 break;
@@ -200,9 +205,11 @@ internal static partial class LabSystemDump
                     2 => "90",
                     3 => "180",
                     4 => "270",
-                    _ => rotation.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    _ => rotation.ToString(CultureInfo.InvariantCulture)
                 },
-                RefreshHz = refreshDenominator == 0 ? (double?)null : Math.Round((double)refreshNumerator / refreshDenominator, 3)
+                RefreshHz = refreshDenominator == 0
+                    ? (double?)null
+                    : Math.Round((double)refreshNumerator / refreshDenominator, 3)
             });
         }
 
@@ -296,7 +303,8 @@ internal static partial class LabSystemDump
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool EnumDisplayDevicesW(string? device, uint index, ref DisplayDevice displayDevice, uint flags);
+    private static extern bool EnumDisplayDevicesW(string? device, uint index, ref DisplayDevice displayDevice,
+        uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -107,7 +107,8 @@ internal sealed partial class WizardWindow
         await Task.Run(() => run.Project.WriteEvidence(run.Attempt, "mode-commands-end", new
         {
             Commands = run.Sessions.Select(session => session.Evidence()),
-            Note = "None of these controllers can report the restored state back; a restore counts once its reports were written.",
+            Note =
+                "None of these controllers can report the restored state back; a restore counts once its reports were written.",
             Problems = problems
         }));
         if (quiet || problems.Count == 0 || line is null)
@@ -116,7 +117,8 @@ internal sealed partial class WizardWindow
         }
 
         line.Text = $"The controller could not be put back: {string.Join(" ", problems)}";
-        page.Children.Add(Warning("Restart the device to reset the controller. The next time Device Lab starts it will try again."));
+        page.Children.Add(Warning(
+            "Restart the device to reset the controller. The next time Device Lab starts it will try again."));
         await AskAsync(page, "Continue");
     }
 

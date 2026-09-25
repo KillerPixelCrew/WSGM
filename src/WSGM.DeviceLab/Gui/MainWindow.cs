@@ -416,7 +416,8 @@ internal sealed class MainWindow : Window
         var report = PathInput("lab-report", PathSelectionKind.OpenFile);
         var record = PathInput("lab-record", PathSelectionKind.SaveFile);
         var project = PathInput("lab-scaffold", PathSelectionKind.NewFolder, suggestedName: "new-device-plugin");
-        TextBox fields = new() { PlaceholderText = "Field IDs to promote, comma-separated; empty promotes every confirmation" };
+        TextBox fields = new()
+            { PlaceholderText = "Field IDs to promote, comma-separated; empty promotes every confirmation" };
         Button review = new() { Content = "Review against the knowledge base" };
         review.Click += async (_, _) =>
         {

@@ -1,5 +1,5 @@
-using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
 
@@ -59,10 +59,14 @@ public sealed class LabRumbleHidLayoutTests
         LabRumbleRouteCalibration calibration = new() { Route = "xinput:0", Name = "XInput", Swapped = false };
         foreach (var side in new[] { "left", "right" })
         {
-            LabRumbleSideCalibration calibrated = new() { Side = side, Channel = side, MinimumStartIntensityPercent = 18 };
-            calibrated.Pulses.Add(new LabRumblePulseTrial { Strength = "full", Percent = 100, Milliseconds = 10, Felt = false });
-            calibrated.Pulses.Add(new LabRumblePulseTrial { Strength = "full", Percent = 100, Milliseconds = 25, Felt = true });
-            calibrated.Pulses.Add(new LabRumblePulseTrial { Strength = "lowest", Percent = 18, Milliseconds = 10, Felt = true });
+            LabRumbleSideCalibration calibrated = new()
+                { Side = side, Channel = side, MinimumStartIntensityPercent = 18 };
+            calibrated.Pulses.Add(new LabRumblePulseTrial
+                { Strength = "full", Percent = 100, Milliseconds = 10, Felt = false });
+            calibrated.Pulses.Add(new LabRumblePulseTrial
+                { Strength = "full", Percent = 100, Milliseconds = 25, Felt = true });
+            calibrated.Pulses.Add(new LabRumblePulseTrial
+                { Strength = "lowest", Percent = 18, Milliseconds = 10, Felt = true });
             calibration.Sides.Add(calibrated);
         }
 
@@ -76,8 +80,10 @@ public sealed class LabRumbleHidLayoutTests
     public void Summary_NamesEachSideWhenTheyDiffer()
     {
         LabRumbleRouteCalibration calibration = new() { Route = "xinput:0", Name = "XInput", Swapped = true };
-        calibration.Sides.Add(new LabRumbleSideCalibration { Side = "left", Channel = "right", MinimumStartIntensityPercent = 18 });
-        calibration.Sides.Add(new LabRumbleSideCalibration { Side = "right", Channel = "left", MinimumStartIntensityPercent = 22 });
+        calibration.Sides.Add(new LabRumbleSideCalibration
+            { Side = "left", Channel = "right", MinimumStartIntensityPercent = 18 });
+        calibration.Sides.Add(new LabRumbleSideCalibration
+            { Side = "right", Channel = "left", MinimumStartIntensityPercent = 22 });
 
         Assert.Equal("XInput works; left and right motors are swapped, floor left 18 %, right 22 %.",
             LabRumbleSummary.Describe(1, ["XInput"], [calibration]));

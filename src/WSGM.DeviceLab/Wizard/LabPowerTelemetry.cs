@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Text;
 using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Wizard;
@@ -209,7 +210,9 @@ internal static class LabPowerTelemetry
 
         foreach (var fan in sample.Fans)
         {
-            parts.Add(fan.Unit == "rpm" ? $"{fan.Name.ToLowerInvariant()} {fan.Value} rpm" : $"{fan.Name.ToLowerInvariant()} reading {fan.Value}");
+            parts.Add(fan.Unit == "rpm"
+                ? $"{fan.Name.ToLowerInvariant()} {fan.Value} rpm"
+                : $"{fan.Name.ToLowerInvariant()} reading {fan.Value}");
         }
 
         // LHM's tachometers are named per chip ("Fan #1"); label them so they are not taken for the
@@ -273,7 +276,7 @@ internal static class LabPowerTelemetry
             {
                 if (Int(row, "CurrentTemperature") is { } tenthsKelvin and > 0)
                 {
-                    zones.Add(new LabThermalZone(Text(row, "InstanceName") ?? "zone", (tenthsKelvin / 10.0) - 273.15,
+                    zones.Add(new LabThermalZone(Text(row, "InstanceName") ?? "zone", tenthsKelvin / 10.0 - 273.15,
                         "MSAcpi_ThermalZoneTemperature"));
                 }
             }
@@ -290,7 +293,7 @@ internal static class LabPowerTelemetry
             {
                 if (Int(row, "HighPrecisionTemperature") is { } tenthsKelvin and > 0)
                 {
-                    zones.Add(new LabThermalZone(Text(row, "Name") ?? "zone", (tenthsKelvin / 10.0) - 273.15,
+                    zones.Add(new LabThermalZone(Text(row, "Name") ?? "zone", tenthsKelvin / 10.0 - 273.15,
                         "ThermalZoneInformation"));
                 }
             }
@@ -384,7 +387,7 @@ internal static class LabPowerTelemetry
                 var text = new byte[bytes];
                 if (PowerReadFriendlyName(IntPtr.Zero, ref scheme, IntPtr.Zero, IntPtr.Zero, text, ref bytes) == 0)
                 {
-                    name = System.Text.Encoding.Unicode.GetString(text).TrimEnd('\0');
+                    name = Encoding.Unicode.GetString(text).TrimEnd('\0');
                 }
             }
 
@@ -484,6 +487,27 @@ internal static class LabPowerTelemetry
         return row.GetValueOrDefault(name) is bool value ? value : null;
     }
 
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint CallNtPowerInformation(int level, IntPtr input, uint inputBytes, IntPtr output,
+        uint outputBytes);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerGetActiveScheme(IntPtr root, out IntPtr scheme);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerReadFriendlyName(IntPtr root, ref Guid scheme, IntPtr subgroup, IntPtr setting,
+        byte[]? buffer, ref uint bytes);
+
+    [DllImport("powrprof.dll")]
+    private static extern uint PowerGetEffectiveOverlayScheme(out Guid mode);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct SystemPowerStatus
     {
@@ -505,25 +529,4 @@ internal static class LabPowerTelemetry
         public uint MaxIdleState;
         public uint CurrentIdleState;
     }
-
-    [DllImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint CallNtPowerInformation(int level, IntPtr input, uint inputBytes, IntPtr output,
-        uint outputBytes);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerGetActiveScheme(IntPtr root, out IntPtr scheme);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerReadFriendlyName(IntPtr root, ref Guid scheme, IntPtr subgroup, IntPtr setting,
-        byte[]? buffer, ref uint bytes);
-
-    [DllImport("powrprof.dll")]
-    private static extern uint PowerGetEffectiveOverlayScheme(out Guid mode);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr LocalFree(IntPtr memory);
 }

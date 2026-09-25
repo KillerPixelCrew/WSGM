@@ -119,7 +119,8 @@ internal static class LabPromote
     /// <param name="knowledge">Knowledge base the record must fit into.</param>
     /// <returns>The record, the applied items and the disagreements left out.</returns>
     /// <exception cref="InvalidDataException">A field is unknown or not promotable, or the record is invalid.</exception>
-    public static (DeviceKnowledgeRecord Record, IReadOnlyList<LabReviewItem> Applied, IReadOnlyList<string> NotPromoted)
+    public static (DeviceKnowledgeRecord Record, IReadOnlyList<LabReviewItem> Applied, IReadOnlyList<string> NotPromoted
+        )
         Build(LabReviewResult review, IReadOnlyCollection<string> fields, DeviceKnowledgeBase knowledge)
     {
         ArgumentNullException.ThrowIfNull(review);
@@ -154,7 +155,8 @@ internal static class LabPromote
         return JsonSerializer.Serialize(record, WriteOptions) + "\n";
     }
 
-    private static List<LabReviewItem> Select(LabReviewResult review, IReadOnlyCollection<string> fields, bool needsIdentity)
+    private static List<LabReviewItem> Select(LabReviewResult review, IReadOnlyCollection<string> fields,
+        bool needsIdentity)
     {
         List<LabReviewItem> selected;
         if (fields.Count == 0)
@@ -189,7 +191,8 @@ internal static class LabPromote
         // A new record cannot exist without an identity rule.
         if (needsIdentity && !selected.Any(item => item.Proposal is LabIdentityProposal))
         {
-            var identity = review.Items.FirstOrDefault(item => item is { Promotable: true, Proposal: LabIdentityProposal });
+            var identity =
+                review.Items.FirstOrDefault(item => item is { Promotable: true, Proposal: LabIdentityProposal });
             if (identity is null)
             {
                 throw new InvalidDataException(
@@ -231,7 +234,8 @@ internal static class LabPromote
                     {
                         Source = DeviceKnowledgeSource.LabConfirmed,
                         Reference = ReportReference(review),
-                        Note = $"Curated from the extracted {source.Id} with the Device Lab wizard's evidence. Facts not marked LabConfirmed are still HC-derived."
+                        Note =
+                            $"Curated from the extracted {source.Id} with the Device Lab wizard's evidence. Facts not marked LabConfirmed are still HC-derived."
                     }
                 ]
             };
@@ -278,31 +282,31 @@ internal static class LabPromote
                     Provenance = [.. record.Provenance, Provenance(review, item, null, "Identity rule")]
                 };
             case LabButtonProposal { Original: var original, Button: var button }:
-                {
-                    var updated = button with { Provenance = Provenance(review, item, original?.Provenance, "Button") };
-                    return record with { Buttons = Replace(record.Buttons, original, updated) };
-                }
+            {
+                var updated = button with { Provenance = Provenance(review, item, original?.Provenance, "Button") };
+                return record with { Buttons = Replace(record.Buttons, original, updated) };
+            }
             case LabMechanismProposal { Original: var original, Mechanism: var mechanism }:
+            {
+                var updated = mechanism with
                 {
-                    var updated = mechanism with
-                    {
-                        Provenance = Provenance(review, item, original?.Provenance, "Mechanism")
-                    };
-                    return record with { Mechanisms = Replace(record.Mechanisms, original, updated) };
-                }
+                    Provenance = Provenance(review, item, original?.Provenance, "Mechanism")
+                };
+                return record with { Mechanisms = Replace(record.Mechanisms, original, updated) };
+            }
             case LabAxisProposal { Kind: var kind, Map: var map }:
+            {
+                var motion = record.Motion ?? new DeviceMotionKnowledge();
+                motion = kind == "gyrometer" ? motion with { Gyrometer = map } : motion with { Accelerometer = map };
+                return record with
                 {
-                    var motion = record.Motion ?? new DeviceMotionKnowledge();
-                    motion = kind == "gyrometer" ? motion with { Gyrometer = map } : motion with { Accelerometer = map };
-                    return record with
+                    Motion = motion with
                     {
-                        Motion = motion with
-                        {
-                            Provenance = Provenance(review, item, record.Motion?.Provenance,
-                                kind == "gyrometer" ? "Gyrometer map" : "Accelerometer map")
-                        }
-                    };
-                }
+                        Provenance = Provenance(review, item, record.Motion?.Provenance,
+                            kind == "gyrometer" ? "Gyrometer map" : "Accelerometer map")
+                    }
+                };
+            }
             case LabCapabilityProposal { Capability: var capability }:
                 return record with
                 {
@@ -348,7 +352,8 @@ internal static class LabPromote
         var note = $"{what} {verdict} in the Device Lab wizard. {item.Detail}".Trim();
         if (earlier is not null && earlier.Source is not DeviceKnowledgeSource.LabConfirmed)
         {
-            note += $" Earlier: {earlier.Source} {earlier.Reference}{(earlier.Note is null ? string.Empty : $" ({earlier.Note})")}.";
+            note +=
+                $" Earlier: {earlier.Source} {earlier.Reference}{(earlier.Note is null ? string.Empty : $" ({earlier.Note})")}.";
         }
         else if (earlier is not null)
         {
@@ -386,7 +391,8 @@ internal static class LabPromote
             else if (property.PropertyType != typeof(string)
                      && typeof(IEnumerable).IsAssignableFrom(property.PropertyType))
             {
-                property.ShouldSerialize = (_, value) => value is IEnumerable enumerable && enumerable.GetEnumerator().MoveNext();
+                property.ShouldSerialize = (_, value) =>
+                    value is IEnumerable enumerable && enumerable.GetEnumerator().MoveNext();
             }
         }
     }

@@ -142,33 +142,39 @@ public sealed class VisualTests
 
     private static PluginPackageRowState[] PluginRows()
     {
-        PluginBadge Badge(string text, PluginBadgeTone tone) => new(text, tone);
+        PluginBadge Badge(string text, PluginBadgeTone tone)
+        {
+            return new PluginBadge(text, tone);
+        }
+
         return
         [
-            new("wsgm.device.msi.claw-8-a2vm", "MSI Claw 8 AI+ A2VM", PluginPackageSection.Installed, true,
+            new PluginPackageRowState("wsgm.device.msi.claw-8-a2vm", "MSI Claw 8 AI+ A2VM",
+                PluginPackageSection.Installed, true,
                 [
                     Badge("Installed", PluginBadgeTone.Good), Badge("v1.2.0", PluginBadgeTone.Neutral),
                     Badge("Device", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
                     Badge("Hardware-tested", PluginBadgeTone.Good)
                 ], "", PluginPackageAction.Remove, "claw.wsgmpkg"),
-            new("wsgm.ir", "IR Blaster", PluginPackageSection.Installed, false,
-                [
-                    Badge("Removing", PluginBadgeTone.Warn), Badge("v0.2.0", PluginBadgeTone.Neutral),
-                    Badge("Integration", PluginBadgeTone.Neutral), Badge("Local build", PluginBadgeTone.Neutral)
-                ], "Removed at the next start.", PluginPackageAction.None, "ir.wsgmpkg"),
-            new("example.rgb", "RGB Sync", PluginPackageSection.Available, false,
-                [
-                    Badge("Available", PluginBadgeTone.Info), Badge("v0.4.1", PluginBadgeTone.Neutral),
-                    Badge("Integration", PluginBadgeTone.Neutral), Badge("Community", PluginBadgeTone.Community),
-                    Badge("Blind", PluginBadgeTone.Warn)
-                ], "Developer: rgb-dev@example.com", PluginPackageAction.Install, "rgb.wsgmpkg"),
-            new("wsgm.device.asus.rog-ally", "ASUS ROG Ally X", PluginPackageSection.Unavailable, true,
+            new PluginPackageRowState("wsgm.ir", "IR Blaster", PluginPackageSection.Installed, false,
+            [
+                Badge("Removing", PluginBadgeTone.Warn), Badge("v0.2.0", PluginBadgeTone.Neutral),
+                Badge("Integration", PluginBadgeTone.Neutral), Badge("Local build", PluginBadgeTone.Neutral)
+            ], "Removed at the next start.", PluginPackageAction.None, "ir.wsgmpkg"),
+            new PluginPackageRowState("example.rgb", "RGB Sync", PluginPackageSection.Available, false,
+            [
+                Badge("Available", PluginBadgeTone.Info), Badge("v0.4.1", PluginBadgeTone.Neutral),
+                Badge("Integration", PluginBadgeTone.Neutral), Badge("Community", PluginBadgeTone.Community),
+                Badge("Blind", PluginBadgeTone.Warn)
+            ], "Developer: rgb-dev@example.com", PluginPackageAction.Install, "rgb.wsgmpkg"),
+            new PluginPackageRowState("wsgm.device.asus.rog-ally", "ASUS ROG Ally X", PluginPackageSection.Unavailable,
+                true,
                 [
                     Badge("Not for this device", PluginBadgeTone.Neutral), Badge("v0.1.0", PluginBadgeTone.Neutral),
                     Badge("Device", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
                     Badge("Blind", PluginBadgeTone.Warn)
                 ], "", PluginPackageAction.None, ""),
-            new("example.fans", "example.fans", PluginPackageSection.Unavailable, false,
+            new PluginPackageRowState("example.fans", "example.fans", PluginPackageSection.Unavailable, false,
                 [Badge("Outdated", PluginBadgeTone.Bad), Badge("Community", PluginBadgeTone.Community)],
                 "No build for WSGM 2.0.0. Developer: fans-dev@example.com", PluginPackageAction.None, "")
         ];
