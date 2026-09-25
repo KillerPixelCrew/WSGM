@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Transports;
 
@@ -85,11 +86,16 @@ internal sealed class LabPawnIoModule : IDisposable
         Encoding.ASCII.GetBytes(name, request);
         Buffer.BlockCopy(input, 0, request, FunctionNameLength, input.Length * sizeof(long));
         var response = new byte[Math.Max(outputLength, 0) * sizeof(long)];
+        LabTrace.Write($"pawnio {name}: call");
         if (!DeviceIoControl(_handle, ExecuteFunction, request, (uint)request.Length, response,
                 (uint)response.Length, out var returned, IntPtr.Zero))
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), $"PawnIO {name} failed.");
+            var error = Marshal.GetLastWin32Error();
+            LabTrace.Write($"pawnio {name}: failed, error {error}");
+            throw new Win32Exception(error, $"PawnIO {name} failed.");
         }
+
+        LabTrace.Write($"pawnio {name}: returned");
 
         var words = new long[returned / sizeof(long)];
         Buffer.BlockCopy(response, 0, words, 0, words.Length * sizeof(long));
@@ -98,6 +104,7 @@ internal sealed class LabPawnIoModule : IDisposable
 
     private static LabPawnIoModule Load(byte[] module)
     {
+        LabTrace.Write($"pawnio load module: {module.Length} bytes");
         var handle = CreateFileW(DevicePath, 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
         if (handle.IsInvalid)
         {

@@ -112,6 +112,11 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   races Windows' EC driver and the firmware. It was the leading suspect when an ROG Xbox Ally X
   hard-reset twice after the system dump (2026-09-25). The dump saves the ACPI tables instead.
 - The sleep stage waits for the tester's power button; the wizard never requests sleep itself.
+- `Application/LabTrace` writes `wsgm-device.log` beside the executable, write-through, one line
+  per step before the step runs, shared by the wizard and the worker under a named mutex. Log every
+  new stage, dump section, worker operation and native hardware call there before it starts, so a
+  hard reset leaves the last step on disk. Never log per-frame or per-sample work, and never log
+  device paths, serials or user folders.
 - Hardware stages (buttons, motion, rumble, power, sleep) start through `RunHardware`, which refuses
   without the preflight owner reservation. Output writes (rumble, TDP, fans, charge limit, lighting)
   use only generic Windows APIs or a Curated record's typed mechanism whose endpoint is present;

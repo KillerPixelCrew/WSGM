@@ -70,6 +70,13 @@ was recorded. Changes the wizard makes to the machine are recorded in
 `%LOCALAPPDATA%\WSGM Device Lab\wizard` before they are made, so a session that was killed is put
 back the next time the wizard starts.
 
+The wizard and its hardware worker also write `wsgm-device.log` beside `wsgm-device.exe` (or in the
+temp folder when that folder cannot be written). Every line is on disk before the step it names
+runs, so after a crash or a hard reset its last lines say which stage, dump section, worker call or
+PawnIO function was running. It names steps only, never device paths, serials or user folders, and
+is not part of the shared report: ask the tester to send it alongside. Above 4 MB it is moved to
+`wsgm-device.previous.log` when the tool starts.
+
 A returned report is read with the developer commands:
 
 ```powershell

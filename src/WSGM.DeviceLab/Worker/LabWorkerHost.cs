@@ -155,9 +155,22 @@ internal static class LabWorkerHost
         long next = 0;
         foreach (var request in queue.GetConsumingEnumerable())
         {
+            // Streamed frames and their status polls are high-rate and never logged.
+            var logged = request.Op is not ("stream" or "stream-status");
+            var what = $"{request.Op} {request.Service ?? $"session {request.Session}"} {request.Method}".TrimEnd();
+            if (logged)
+            {
+                LabTrace.Write($"worker {what}: start");
+            }
+
             lock (sessions)
             {
                 Handle(request, sessions, calls, ref next);
+            }
+
+            if (logged)
+            {
+                LabTrace.Write($"worker {what}: returned");
             }
         }
     }
@@ -244,6 +257,7 @@ internal static class LabWorkerHost
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             var inner = ex is TargetInvocationException { InnerException: { } cause } ? cause : ex;
+            LabTrace.Write($"worker {request.Op} {request.Method}: failed, {LabTrace.Describe(inner)}");
             Write(new LabWorkerResponse
             {
                 Id = request.Id,

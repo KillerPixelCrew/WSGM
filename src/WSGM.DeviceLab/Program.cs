@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Cli;
 using WSGM.DeviceLab.Gui;
 using WSGM.DeviceLab.Probes;
@@ -16,6 +17,7 @@ internal static class Program
     {
         if (args.Length == 0 || string.Equals(args[0], "wizard", StringComparison.Ordinal))
         {
+            LabTrace.Start("wizard");
             return RunWizard(args.Length == 0 ? [] : args[1..]);
         }
 
@@ -26,6 +28,7 @@ internal static class Program
 
         if (string.Equals(args[0], LabWorkerHost.Mode, StringComparison.Ordinal))
         {
+            LabTrace.Start("worker");
             return LabWorkerHost.Run(args[1..]);
         }
 
@@ -49,6 +52,7 @@ internal static class Program
         var projectIndex = Array.IndexOf(rest, "--project");
         var project = projectIndex >= 0 && projectIndex + 1 < rest.Length ? rest[projectIndex + 1] : null;
         var outcome = WizardElevation.EnsureElevated(["wizard", .. rest], relaunched);
+        LabTrace.Write($"elevation: {outcome}");
         return outcome switch
         {
             WizardElevationOutcome.Relaunched => 0,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Transports;
 
@@ -73,6 +74,7 @@ internal sealed class LabLhmSensors : IDisposable
 
     private readonly Lock _gate = new();
     private Computer? _computer;
+    private bool _updatedOnce;
 
     private LabLhmSensors(Computer? computer, string? problem)
     {
@@ -150,11 +152,19 @@ internal sealed class LabLhmSensors : IDisposable
                     Collect(hardware, 0);
                 }
 
+                _updatedOnce = true;
+
                 void Collect(IHardware hardware, int depth)
                 {
                     if (depth > MaxDepth || ++visited > MaxHardware)
                     {
                         return;
+                    }
+
+                    // Only a session's first reading is logged; later ones repeat it every poll.
+                    if (!_updatedOnce)
+                    {
+                        LabTrace.Write($"lhm first update {hardware.HardwareType}");
                     }
 
                     hardware.Update();
@@ -221,11 +231,14 @@ internal sealed class LabLhmSensors : IDisposable
         };
         try
         {
+            LabTrace.Write("lhm open: start (CPU and GPU groups)");
             computer.Open();
+            LabTrace.Write("lhm open: done");
             return new LabLhmSensors(computer, null);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            LabTrace.Write($"lhm open: failed, {LabTrace.Describe(ex)}");
             Close(computer);
             return new LabLhmSensors(null, $"it did not open: {ex.Message}");
         }

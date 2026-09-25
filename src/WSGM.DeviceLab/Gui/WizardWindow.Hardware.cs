@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Transports;
@@ -44,7 +45,14 @@ internal sealed partial class WizardWindow
     /// <summary>The shared input capture, started on first use and stopped when the window closes.</summary>
     private async Task<LabInputCapture> CaptureAsync()
     {
-        return _capture ??= await Task.Run(LabInputCapture.Start);
+        if (_capture is null)
+        {
+            LabTrace.Write("input capture: start");
+            _capture = await Task.Run(LabInputCapture.Start);
+            LabTrace.Write("input capture: running");
+        }
+
+        return _capture;
     }
 
     /// <summary>
@@ -53,12 +61,20 @@ internal sealed partial class WizardWindow
     /// </summary>
     private async Task<LabWorkerClient> WorkerAsync()
     {
-        return _worker ??= await Task.Run(LabWorkerClient.Start);
+        if (_worker is null)
+        {
+            LabTrace.Write("hardware worker: start");
+            _worker = await Task.Run(LabWorkerClient.Start);
+            LabTrace.Write("hardware worker: running");
+        }
+
+        return _worker;
     }
 
     // Cancelling ends only the wait for the controller to come back; the command is never resent.
     private async Task<LabInitResult> SendCuratedInitAsync(string recordId, CancellationToken cancellationToken)
     {
+        LabTrace.Write($"controller init {recordId}: send");
         var worker = await WorkerAsync();
         return await Task.Run(() =>
         {

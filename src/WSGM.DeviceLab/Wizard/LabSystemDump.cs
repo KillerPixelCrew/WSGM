@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -122,16 +123,21 @@ internal static partial class LabSystemDump
     public static LabSystemDumpSectionResult Run(LabSystemDumpSection section, LabSystemDumpContext context)
     {
         context.Cancellation.ThrowIfCancellationRequested();
+        LabTrace.Write($"dump {section.Id}: start");
         try
         {
-            return section.Collect(context);
+            var result = section.Collect(context);
+            LabTrace.Write($"dump {section.Id}: {result.Status}, {result.Summary}");
+            return result;
         }
         catch (OperationCanceledException) when (context.Cancellation.IsCancellationRequested)
         {
+            LabTrace.Write($"dump {section.Id}: cancelled");
             throw;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            LabTrace.Write($"dump {section.Id}: failed, {LabTrace.Describe(ex)}");
             return new LabSystemDumpSectionResult
             {
                 Id = section.Id,

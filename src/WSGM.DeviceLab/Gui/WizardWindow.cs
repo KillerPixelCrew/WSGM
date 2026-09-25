@@ -359,6 +359,7 @@ internal sealed partial class WizardWindow : Window
         }
 
         _running = id;
+        LabTrace.Write($"stage {id}: start{(fromCompletedOperation ? " (chained)" : string.Empty)}");
         RefreshStages(id);
         var page = Page(LabStages.All.Single(stage => stage.Id == id).Title, string.Empty);
         _page.Content = page;
@@ -870,16 +871,20 @@ internal sealed partial class WizardWindow : Window
 
     private async Task RunCore(Panel? errors, Func<Task> work)
     {
+        var running = _running;
         try
         {
             await work();
+            LabTrace.Write($"stage {running}: operation finished");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
             // The window is closing.
+            LabTrace.Write($"stage {running}: cancelled, window closing");
         }
         catch (OperationCanceledException) when (_stage.IsCancellationRequested)
         {
+            LabTrace.Write($"stage {running}: stopped by the tester");
             // "Stop and save": everything recorded so far stays; the interrupted step is marked not done.
             var page = Page("Stopped",
                 "Everything recorded so far is saved. Pick any step in the list to continue or redo it.");
@@ -888,6 +893,7 @@ internal sealed partial class WizardWindow : Window
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            LabTrace.Write($"stage {running}: failed, {LabTrace.Describe(ex)}");
             if (errors is not null)
             {
                 errors.Children.Add(Warning(
