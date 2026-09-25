@@ -230,7 +230,8 @@ the exact log lines, budgets and dates it summarizes.
 
 1. Download and run **`WSGM-Setup-<version>.exe`** from the
    [latest release](https://github.com/KillerPixelCrew/WSGM/releases/latest). It asks for
-   administrator rights once and needs no network. Keyboard, touch and a gamepad all work.
+   administrator rights once. Keyboard, touch and a gamepad all work. It needs no network, except to
+   download RivaTuner Statistics Server when you want it and it is not installed yet.
 2. Setup checks your hardware. When a bundled device plugin matches it, setup says so and installs
    that plugin, plus the virtual controller (VIIPER, the USB/IP driver and HidHide) when the plugin
    needs it; the driver step restarts USB and asks for a reboot. With no match you get plain WSGM.

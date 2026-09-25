@@ -67,6 +67,31 @@ public sealed class DevicePowerAssignmentsTests
         Assert.Equal(1, rig.Saves);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AutoTdpShowsCustomForTheSourceInUseAndNeverSavesItsLimits(bool ac)
+    {
+        Rig rig = new() { Device = { OnAc = ac } };
+        var assignments = rig.Create();
+        await assignments.ReconcileAsync(CancellationToken.None);
+
+        rig.AutoTdpOwnsPower = true;
+        ChangeValue(rig, 0, new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = ac ? 29 : 9 });
+        await assignments.ReconcileAsync(CancellationToken.None);
+
+        var shown = assignments.Snapshot();
+        Assert.Equal("custom", ac ? shown.AcPreset : shown.BatteryPreset);
+        Assert.Equal(ac ? "battery" : "extreme", ac ? shown.BatteryPreset : shown.AcPreset);
+        Assert.Equal(0, rig.Saves);
+        Assert.Equal("extreme", rig.Config.Global.AcPowerPreset!.PresetId);
+        Assert.Equal("battery", rig.Config.Global.BatteryPowerPreset!.PresetId);
+
+        rig.AutoTdpOwnsPower = false;
+        shown = assignments.Snapshot();
+        Assert.Equal(ac ? "extreme" : "battery", ac ? shown.AcPreset : shown.BatteryPreset);
+    }
+
     private static void ChangeValue(Rig rig, int index, CapabilityValue value)
     {
         var view = rig.Device.Views[index];
@@ -502,6 +527,7 @@ public sealed class DevicePowerAssignmentsTests
                 { AcPowerPreset = Reference("extreme"), BatteryPowerPreset = Reference("battery") }
         };
 
+        internal bool AutoTdpOwnsPower;
         internal long Cycle = 1;
         internal bool Enabled = true;
         internal string Plugin = "fixture";
@@ -511,7 +537,9 @@ public sealed class DevicePowerAssignmentsTests
 
         internal DevicePowerAssignments Create()
         {
-            return new DevicePowerAssignments(Device.Create(),
+            var presets = Device.Create();
+            presets.AutomaticPowerOwner = () => AutoTdpOwnsPower;
+            return new DevicePowerAssignments(presets,
                 () => new DevicePowerAssignmentContext(Snapshot(), Plugin, Cycle, Enabled, Device.OnAc),
                 (context, ac, reference) =>
                 {

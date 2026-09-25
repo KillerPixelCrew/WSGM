@@ -8,10 +8,17 @@ frametime reader and the AutoTDP policy. The Steam QAM projection of these value
 
 ## Boundary
 
-WSGM treats RTSS as an optional external application. It does not download, install, redistribute,
-repair, update or remove RTSS, and ships none of the RTSS SDK, headers, DLLs, profiles or licence
-text. Using the profile API of the user's own installation is the accepted boundary; compatibility,
-truthful readback and coexistence remain ordinary engineering gates.
+WSGM treats RTSS as an optional external application and ships none of the RTSS SDK, headers, DLLs,
+installers, profiles or licence text. Using the profile API of the installed RTSS is the accepted
+boundary; compatibility, truthful readback and coexistence remain ordinary engineering gates.
+
+Setup's `rtss` switch, which Full turns on, is the one exception to "never installs": when it is on
+and no RTSS is registered, setup downloads one pinned Guru3D build (`RtssInstaller`: 7.3.7, the file
+and SHA-256 winget's `Guru3D.RTSS` manifest pins), refuses it unless the hash matches, and runs its
+installer silently. The installer is signed by Micro-Star International, like the reference
+installation. A failed download or install is reported on the progress page, is not retried, and
+does not stop setup. WSGM never repairs, updates or removes RTSS, and uninstall leaves it in place
+because other programs use it too. The switch itself is `Performance.Enabled`.
 
 RTSS state is independent of Device Integration. One session-owned `PerformanceService` feeds both
 the WSGM overlay and the native Steam QAM; neither owns a separate RTSS adapter. RTSS absence or
@@ -365,10 +372,12 @@ original boost value, including unequal manual limits. Restoration across a devi
 refused. No automatic target is persisted into profile configuration.
 
 The service also supplies runtime ownership to the shared power-preset projection. Both QAM and
-Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset. A
-manual or assigned power change cancels pending automatic dispatch and updates the restoration
-target; disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost
-companion pauses the pair without saving observed sustained wattage as a new primary preference.
+Overlay show Custom while AutoTDP owns power, even if a momentary readback matches a named preset,
+both as the active profile and in the assignment dropdown for the source in use. None of that is
+saved: the assignment loop never turns AutoTDP's readings into a Custom assignment. A manual or
+assigned power change cancels pending automatic dispatch and updates the restoration target;
+disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost companion
+pauses the pair without saving observed sustained wattage as a new primary preference.
 
 ## Remaining live work
 

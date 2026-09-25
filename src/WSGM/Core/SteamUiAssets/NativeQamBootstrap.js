@@ -6544,28 +6544,6 @@
       if (typeof enabled !== "boolean" || enabled === state.enabled) return;
       void sendCommand(definition, definition.command, { enabled }).catch(() => {});
     };
-    // One "Use global" action under a row whose value the running game's profile supplies. Steam's own
-    // DialogButton in Steam's own row, so it takes focus like every other Quick Access control. A
-    // client where the button cannot be resolved still shows the marker, which is the part that
-    // tells the user what they are looking at.
-    const pushIf = (list, item) => {
-      if (item) list.push(item);
-    };
-    const useGlobalButton = (controlRuntime, definition, overrideId, key) =>
-      overrideId && controlRuntime.dialogButton
-        ? controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key },
-            controlRuntime.react.createElement(
-              controlRuntime.dialogButton,
-              {
-                onClick: () =>
-                  void sendCommand(definition, "useGlobal", { id: overrideId }).catch(() => {}),
-              },
-              "Use global",
-            ),
-          )
-        : null;
     const uniqueFunction = (exports, requiredTokens) => {
       const matches = Object.values(exports).filter(
         (value) =>
@@ -6634,31 +6612,25 @@
       // The icon renderer is built once per control runtime and closes over Steam's React, so a row
       // asks for a glyph by name and never touches element construction itself.
       const icon = createIconRenderer(react);
-      const dialogButton = controls.dialogButton;
-      return {
-        react,
-        slider,
-        dropdown,
-        toggle,
-        labelField,
-        section,
-        row,
-        localize,
-        icon,
-        dialogButton,
-      };
+      return { react, slider, dropdown, toggle, labelField, section, row, localize, icon };
     };
     const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
-    // The host's setting id while the running game's own profile supplies a row's value. It is only
-    // carried back by Use global, so anything that is not a bounded string means no override.
+    // The host's setting id while the running game's own profile supplies a row's value. The row only
+    // tests it for presence, so anything that is not a non-blank bounded string means no override.
     const normalizeOverrideId = (value) =>
-      // Blank is refused the way the host's payload reader refuses it, so a row never offers an
-      // action that can only fail.
       typeof value === "string" && value.trim().length > 0 && value.length <= 200 ? value : null;
-    // The game-override marker leads a row's own description, so the one place a row explains itself
-    // also says that this value is the game's rather than the host's global one.
-    const overrideDescription = (overrideId, text) =>
-      overrideId ? (text ? "Game override · " + text : "Game override") : text || undefined;
+    // Steam's accent blue, the colour its own UI uses for a highlighted state.
+    const OverrideColor = "#1a9fff";
+    // A row whose value the running game's profile supplies says so in its own description, in Steam's
+    // accent colour, so a changed value stands out from the global ones without adding a control.
+    const overrideDescription = (controlRuntime, overrideId, text) =>
+      overrideId
+        ? controlRuntime.react.createElement(
+            "span",
+            { style: { color: OverrideColor } },
+            text ? "Game override · " + text : "Game override",
+          )
+        : text || undefined;
     // Deliberately small. Everything the row needs is a switch position and a reason, because the
     // device capability behind it answers in exactly those terms.
     const normalizeVrrState = (value) => {
@@ -7139,7 +7111,7 @@
             "Variable refresh rate",
           ),
           icon: controlRuntime.icon("pulse"),
-          description: overrideDescription(state.overrideId, state.statusText),
+          description: overrideDescription(controlRuntime, state.overrideId, state.statusText),
           checked: state.enabled,
           // Controlled: the switch shows what the device reports, so a write the panel refuses
           // leaves it where the hardware actually is rather than where it was clicked.
@@ -7147,12 +7119,7 @@
           disabled: isBusy(state.progress),
           onChange: toggleCommand(definition, state),
         });
-        return controlRuntime.react.createElement(
-          controlRuntime.react.Fragment,
-          null,
-          toggle,
-          useGlobalButton(controlRuntime, definition, state.overrideId, "steam-ui-vrr-use-global"),
-        );
+        return toggle;
       };
     const createAutoTdpControl = (controlRuntime) =>
       function SteamUiAutoTdpControl() {
@@ -7314,7 +7281,7 @@
             label,
             icon: controlRuntime.icon(iconName),
             layout: "below",
-            description: overrideDescription(overrideId, description),
+            description: overrideDescription(controlRuntime, overrideId, description),
             rgOptions: options.filter(
               (option) => option.data !== "custom" || selected === "custom",
             ),
@@ -7419,20 +7386,14 @@
           selectedOption: selected,
           onChange: setTarget,
           disabled: isBusy(state.progress) || options.length < 2,
-          description: overrideDescription(state.overrideId, (state.statusText || "") + restart),
+          description: overrideDescription(
+            controlRuntime,
+            state.overrideId,
+            (state.statusText || "") + restart,
+          ),
           layout: "below",
         });
-        return controlRuntime.react.createElement(
-          controlRuntime.react.Fragment,
-          null,
-          dropdown,
-          useGlobalButton(
-            controlRuntime,
-            definition,
-            state.overrideId,
-            "steam-ui-controller-use-global",
-          ),
-        );
+        return dropdown;
       };
     const createResolutionControl = (controlRuntime) =>
       function SteamUiResolutionControl() {
@@ -7580,9 +7541,10 @@
         // Off is zero, and the slider never shows it: the cap the user chose has to survive being
         // switched off and back on, so the switch below writes zero and the slider keeps sitting
         // where it was. That is how SteamOS's own "Disable Frame Limit" behaves next to its Frame
-        // Limit slider, and it is why the slider can start at a cap worth playing at.
+        // Limit slider. With no cap chosen yet it sits at the highest one, because no limit means
+        // the most the display can run, so switching the limit on costs nothing until it is moved.
         const capped = state.limitEnabled && echoed.value > 0;
-        const cappedValue = echoed.value > 0 ? echoed.value : (state.minimumFps ?? 0);
+        const cappedValue = echoed.value > 0 ? echoed.value : (state.maximumFps ?? 0);
         // Recomputed every render, which is what makes it track a value still being dragged.
         const pairedHz = state.refreshForCap.get(cappedValue);
         // The row's second mode. With the cap off the slider IS the refresh rate — the whole reason
@@ -7654,7 +7616,11 @@
           showValue: !refreshMode,
           showBookendLabels: !refreshMode,
           disabled: isBusy(state.progress),
-          description: overrideDescription(state.overrideId, state.fault || state.statusText),
+          description: overrideDescription(
+            controlRuntime,
+            state.overrideId,
+            state.fault || state.statusText,
+          ),
           onChange: refreshMode ? refreshEchoed.onChange : echoed.onChange,
           onChangeComplete: (next) =>
             refreshMode
@@ -7666,12 +7632,6 @@
           null,
           slider,
           disableSwitch,
-          useGlobalButton(
-            controlRuntime,
-            definition,
-            state.overrideId,
-            "steam-ui-frame-limit-use-global",
-          ),
         );
       };
     const rgbToHsv = (color) => {
@@ -7780,6 +7740,7 @@
               controlled: true,
               disabled: busy,
               description: overrideDescription(
+                controlRuntime,
                 state.modeOverrideId,
                 error || "Coordinate sustained and boost limits with one target.",
               ),
@@ -7802,10 +7763,6 @@
                   });
               },
             }),
-          );
-          pushIf(
-            rows,
-            useGlobalButton(controlRuntime, definition, state.modeOverrideId, "mode-use-global"),
           );
         }
         for (const [key, label, iconName, range, echo, command] of [
@@ -7859,6 +7816,7 @@
                 showBookendLabels: true,
                 disabled: busy || !range.available,
                 description: overrideDescription(
+                  controlRuntime,
                   range.overrideId,
                   error ||
                     (state.unified
@@ -7869,10 +7827,6 @@
                 onChangeComplete: (next) => echo.onChangeComplete(next, commit),
               }),
             ),
-          );
-          pushIf(
-            rows,
-            useGlobalButton(controlRuntime, definition, range.overrideId, `${key}-use-global`),
           );
         }
         if (!rows.length) return note("powerLimit", "no usable power limit");
@@ -7934,22 +7888,13 @@
             showValue: true,
             showBookendLabels: true,
             disabled: isBusy(range.progress),
-            description: overrideDescription(range.overrideId, range.statusText),
+            description: overrideDescription(controlRuntime, range.overrideId, range.statusText),
             onChange: chargeEcho.onChange,
             onChangeComplete: (next) =>
               chargeEcho.onChangeComplete(next, (percent) =>
                 send(definition.chargeCommand, { percent }),
               ),
           });
-          pushIf(
-            rows,
-            useGlobalButton(
-              controlRuntime,
-              definition,
-              range.overrideId,
-              "steam-ui-charge-use-global",
-            ),
-          );
         }
         const chargingRows = rows.splice(0);
         if (state.lightingBrightness?.available && brightnessEcho.value !== null) {
@@ -7966,22 +7911,13 @@
             showValue: true,
             showBookendLabels: true,
             disabled: isBusy(range.progress),
-            description: overrideDescription(range.overrideId, range.statusText),
+            description: overrideDescription(controlRuntime, range.overrideId, range.statusText),
             onChange: brightnessEcho.onChange,
             onChangeComplete: (next) =>
               brightnessEcho.onChangeComplete(next, (percent) =>
                 send(definition.brightnessCommand, { percent }),
               ),
           });
-          pushIf(
-            rows,
-            useGlobalButton(
-              controlRuntime,
-              definition,
-              range.overrideId,
-              "steam-ui-brightness-use-global",
-            ),
-          );
         }
         if (zone && hsv && controlRuntime.toggle) {
           rows.push(
@@ -8026,18 +7962,9 @@
                   }
                 },
                 disabled: options.length < 2,
-                description: overrideDescription(zone.overrideId, zone.statusText),
+                description: overrideDescription(controlRuntime, zone.overrideId, zone.statusText),
                 layout: "below",
               }),
-            ),
-          );
-          pushIf(
-            rows,
-            useGlobalButton(
-              controlRuntime,
-              definition,
-              zone.overrideId,
-              "steam-ui-zone-use-global",
             ),
           );
           const stagedColor = hsvToRgb(

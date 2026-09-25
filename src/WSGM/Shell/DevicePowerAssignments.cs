@@ -70,10 +70,14 @@ internal sealed class DevicePowerAssignments(
         var layer = game ?? current.Profiles.Config.Global;
         var ac = layer.AcPowerPreset;
         var battery = layer.BatteryPowerPreset;
+        // While AutoTDP owns the power limits, the source in use reads Custom: no preset is in force.
+        // It is shown, never saved, so switching AutoTDP off shows the saved assignment again.
+        var automatic = presets.AutomaticPowerOwner?.Invoke() == true ? current.OnAc : null;
         return new DevicePowerAssignmentState(
             game is null ? "Global assignments" : "Per-game assignments (unset values use global)",
-            ac is not null && ac.PluginId == current.PluginId ? ac.PresetId : null,
-            battery is not null && battery.PluginId == current.PluginId ? battery.PresetId : null, _status,
+            automatic == true ? "custom" : ac is not null && ac.PluginId == current.PluginId ? ac.PresetId : null,
+            automatic == false ? "custom"
+            : battery is not null && battery.PluginId == current.PluginId ? battery.PresetId : null, _status,
             game is null, current.Resolve(true).Source, current.Resolve(false).Source);
     }
 
@@ -210,6 +214,13 @@ internal sealed class DevicePowerAssignments(
 
         if (alreadyAttempted)
         {
+            // AutoTDP's limits move on their own; saving them would turn its output into the user's
+            // Custom profile.
+            if (presets.AutomaticPowerOwner?.Invoke() == true)
+            {
+                return;
+            }
+
             var changed = assignment.CustomValues is { } custom
                 ? state.Values != custom
                 : state.Current != assignment.PresetId;

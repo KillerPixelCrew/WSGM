@@ -49,6 +49,10 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   recoverable order. The HidHide cleanup always runs, even when HidHide stays installed; an
   unverified cleanup is reported with the device paths and keeps the ownership ledger. A driver that
   was present before WSGM is never offered for removal.
+- RTSS is the only component setup downloads. It installs RTSS only when the answers' `rtss`
+  switch is on and no RTSS is registered, fetches exactly the build `RtssInstaller` pins, runs it only
+  when the SHA-256 matches, never retries a failed download or install, and never lets that step
+  stop setup. Uninstall leaves RTSS installed. Bump the version, URL, entry name and hash together.
 - A WSGM 1.0 install is removed through its own Inno uninstaller before 2.0 installs. Setup never
   installs on top of it and never carries its files over.
 

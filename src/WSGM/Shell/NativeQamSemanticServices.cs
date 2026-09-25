@@ -33,7 +33,7 @@ internal static class NativeQamUi
     /// <summary>The setting id a row carries while the running game's profile supplies its value.</summary>
     /// <param name="layers">The profile layers, or null when there is no profile owner.</param>
     /// <param name="key">The setting the row shows.</param>
-    /// <returns>The id Use global sends back, or null when the value is not the game's.</returns>
+    /// <returns>The id that marks the row as the game's, or null when the value is not the game's.</returns>
     internal static string? OverrideId(ProfileLayers? layers, ProfileSettingKey key)
     {
         return layers?.Source(key) is ProfileSource.Game ? key.Id : null;
@@ -41,7 +41,7 @@ internal static class NativeQamUi
 
     /// <summary>The setting id of a device capability while the running game's profile supplies it.</summary>
     /// <param name="view">The capability and its projection.</param>
-    /// <returns>The id Use global sends back, or null.</returns>
+    /// <returns>The id that marks the row as the game's, or null.</returns>
     internal static string? DeviceOverrideId(DeviceCapabilityView view)
     {
         return view.Projection.DesiredSource is ProfileSource.Game
@@ -368,7 +368,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
 
     /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
     /// <remarks>
-    ///     The last cap the service still holds when there is one, else the lowest offered notch —
+    ///     The last cap the service still holds when there is one, else the highest offered notch —
     ///     which is also the value the projection shows on the disabled slider, so the cap that takes
     ///     effect is the number the user was already looking at.
     /// </remarks>
@@ -377,7 +377,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         var desired = _service.Current.Desired.FrameLimit ?? 0;
         return desired > 0
             ? desired
-            : NativeQamPerfProjection.LowestOption(PerfSupport?.Invoke().FrameLimitOptions ?? []);
+            : NativeQamPerfProjection.HighestOption(PerfSupport?.Invoke().FrameLimitOptions ?? []);
     }
 
     /// <summary>Whether a delta field only restates the value WSGM already wants.</summary>

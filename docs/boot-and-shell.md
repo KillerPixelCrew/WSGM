@@ -454,7 +454,9 @@ single-user-device design. Setup keeps its own machine records in `%ProgramData%
 `components.json` (the drivers it installed), `bundle.json` (the installed bundle) and `setup.log`.
 
 The setup carries everything: the application, the controller stack (VIIPER, the USB/IP driver,
-HidHide) and every bundled plugin. It needs no network. The approved screen design is
+HidHide) and every bundled plugin. The one thing it downloads is RivaTuner Statistics Server, only
+when the RTSS switch is on and RTSS is missing; offline, that step fails on its own and the rest of
+the install completes (see [RTSS integration](rtss.md#boundary)). The approved screen design is
 `src\WSGM.Setup\docs\mockup.html`.
 
 ### What gets installed
@@ -481,6 +483,10 @@ disabled, and a running window is asked to close but never ended. Each change is
 `config.json` before it is made, and `--uninstall-restore` puts back the exact start types and
 tasks. The profile page names what was found, Customize has the switch, Minimal leaves them alone,
 and a quiet fresh install never turns them off.
+
+Full also turns on RTSS performance controls (`Performance.Enabled`), and setup installs RTSS when
+none is registered. Minimal leaves the switch off. A quiet fresh install keeps WSGM's default, which
+is off, so it downloads nothing.
 
 A WSGM 1.0 install is removed first through its own Inno uninstaller (`/VERYSILENT`), and setup
 stops when that fails. Nothing from 1.0 is carried over. That uninstaller signals the uninstall
