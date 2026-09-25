@@ -92,5 +92,5 @@ Windows/Steam/hardware adapter.
 Follow the root AGENTS.md manual-first timing: build and deliver a requested development deployment
 before running test suites. After the maintainer reports manual testing, run the relevant tests and
 gate. Reconcile affected docs/plans/guidance. Do not use `-Fix` in a dirty tree unless the task
-includes reviewing all formatting changes. `build.ps1` is for an explicitly requested
-installer/release handoff, not ordinary verification.
+includes reviewing all formatting changes. `build.ps1` is for an explicitly requested setup/release
+handoff, not ordinary verification.

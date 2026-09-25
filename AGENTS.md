@@ -284,14 +284,13 @@ Before `gh pr create`, and before a later push that changes anything under `src`
 This supersedes the manual-first deferral for the pull-request step only. Deploying and committing
 for the maintainer's manual test still come first and do not wait for the gate.
 
-Use build.ps1 only when an installer or full release staging is required. It builds the Steam
-assets, native components, all three applications, staged device/controller payloads, and the Inno
-Setup installer:
+Use build.ps1 only when a setup or full release staging is required. It builds the Steam assets,
+native components, all three applications, the plugin bundle and the controller payload, and
+publishes the single-file WSGM setup that carries them:
 
     .\build.ps1
 
-The Version property in src/WSGM/WSGM.csproj is the release version source. build.ps1 passes it to
-Inno Setup; keep the installer's direct-ISCC fallback and the app manifest identity aligned without
-copying a version into contributor guidance. eng/check-version-sync.ps1, run by build.ps1 and
-eng/verify.ps1, fails when they drift. The installer is written under publish with the version in
-its filename.
+The Version property in src/WSGM/WSGM.csproj is the release version source. WSGM.Setup reads it
+from there; keep the app manifest identity aligned without copying a version into contributor
+guidance. eng/check-version-sync.ps1, run by build.ps1 and eng/verify.ps1, fails when they drift.
+The setup is written under publish with the version in its filename.

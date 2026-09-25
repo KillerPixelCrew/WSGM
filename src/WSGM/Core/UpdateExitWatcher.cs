@@ -23,8 +23,8 @@ public static class UpdateExitWatcher
 {
     // CROSS-VERSION CONTRACT — do not rename this event and do not narrow the
     // 0x00100002 grant below. During an update the event object is created by the
-    // OLD running build; the new installer only opens it BY NAME and signals it
-    // (installer\WSGM.iss:216, StopRunningInstances — OpenEventW with
+    // OLD running build; the new setup only opens it BY NAME and signals it
+    // (src\WSGM.Setup\Engine\WindowsSetup.cs RequestExit — OpenEventW with
     // EVENT_MODIFY_STATE, then SetEvent). If either drifts, a future upgrade can no
     // longer stop WSGM gracefully, Steam is never asked to exit, and the injected
     // Steam Input payload stays mapped. No test can cover that pairing — only an

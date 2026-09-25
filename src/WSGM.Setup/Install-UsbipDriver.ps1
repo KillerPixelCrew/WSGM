@@ -187,8 +187,8 @@ function Write-OutcomeStatus {
             "message=$(ConvertTo-BoundedIniValue $Message 512)"
         )
         $content = ($lines -join "`r`n") + "`r`n"
-        # UTF-16LE with a BOM is deliberate: Inno Setup's GetIniString then reads non-ASCII
-        # diagnostic text correctly through the Windows profile API.
+        # UTF-16LE with a BOM is deliberate: WSGM setup detects the BOM and reads non-ASCII
+        # diagnostic text correctly, as the Windows profile API also would.
         $encoding = New-Object Text.UnicodeEncoding($false, $true)
         $encodedBytes = $encoding.GetPreamble().Length + $encoding.GetByteCount($content)
         if ($encodedBytes -gt 4096) {

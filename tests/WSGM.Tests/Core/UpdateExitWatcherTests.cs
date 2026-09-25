@@ -3,8 +3,8 @@ using WSGM.Core;
 namespace WSGM.Tests.Core;
 
 // The exit event's name and its DACL are a cross-version contract: during an
-// upgrade the object is created by the OLD build and the new installer only opens
-// it by name (installer\WSGM.iss StopRunningInstances, OpenEventW with
+// upgrade the object is created by the OLD build and the new setup only opens
+// it by name (WSGM.Setup WindowsSetup.RequestExit, OpenEventW with
 // EVENT_MODIFY_STATE). These tests pin the descriptor text without touching the
 // real token, any kernel object, or %LOCALAPPDATA%.
 public sealed class UpdateExitWatcherTests

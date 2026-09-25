@@ -1,0 +1,2012 @@
+<title>WSGM Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* WSGM is dark-only; this mockup commits to its single look (tokens from src/WSGM/Themes/Palette.axaml). */
+  :root {
+    color-scheme: dark;
+    --ground: #161616;
+    --bg: #232323;
+    --card: #2c2c2c;
+    --card-border: #343434;
+    --card-hover: #383838;
+    --header: #282828;
+    --control: #3a3a3a;
+    --control-border: #454545;
+    --control-hover: #484848;
+    --text: #ffffff;
+    --text-2: #d6d6d6;
+    --muted: #b8b8b8;
+    --accent: #ff9d3d;
+    --on-accent: #000000;
+    --danger: #ffa0a0;
+    --warning: #ffc66d;
+    --success: #a3dca3;
+    --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font: 14px/1.45 var(--font);
+    padding-inline: 16px;
+    padding-block: 16px 24px;
+  }
+
+  /* ---------- mockup chrome (outside the device) ---------- */
+  .chrome {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    gap: 12px;
+  }
+  .chrome h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  .chrome h1 span {
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    align-items: center;
+  }
+  .control-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .control-group > .lbl {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .seg {
+    display: inline-flex;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 2px;
+    flex-wrap: wrap;
+  }
+  .seg button {
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .seg button:hover {
+    background: var(--card-hover);
+    color: var(--text);
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--control);
+    color: var(--text);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .seg button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .note kbd {
+    font: 500 11px var(--mono);
+    background: var(--card);
+    border: 1px solid var(--control-border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 5px;
+    color: var(--text-2);
+  }
+
+  .stage {
+    position: relative;
+    width: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px #000,
+      0 0 0 9px #0b0b0b,
+      0 20px 60px rgba(0, 0, 0, 0.6);
+    margin-top: 8px;
+  }
+  .device-caption {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- the device screen ---------- */
+  .screen {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+    overflow: hidden;
+    /* stands in for the live desktop behind DWM blur */
+    background:
+      radial-gradient(60% 70% at 18% 20%, #1f4a5a 0%, transparent 60%),
+      radial-gradient(50% 60% at 85% 80%, #5a3418 0%, transparent 65%),
+      radial-gradient(40% 40% at 70% 15%, #2d2350 0%, transparent 70%), #101418;
+  }
+  .glass {
+    position: absolute;
+    inset: 0;
+    background: rgba(31, 31, 31, 0.8);
+    backdrop-filter: blur(36px) saturate(1.15);
+    -webkit-backdrop-filter: blur(36px) saturate(1.15);
+    display: grid;
+    grid-template-columns: 312px 1fr;
+    grid-template-rows: 1fr 52px;
+  }
+  .screen.wide .glass {
+    grid-template-columns: 380px 1fr;
+  }
+
+  .rail {
+    grid-row: 1;
+    background: rgba(40, 40, 40, 0.55);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 36px 28px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    min-height: 0;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--on-accent);
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+  }
+  .brand-name {
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.3px;
+    line-height: 1.1;
+  }
+  .brand-sub {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .steps li {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .steps li .dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid var(--control-border);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .steps li.done {
+    color: var(--text-2);
+  }
+  .steps li.done .dot {
+    background: var(--control);
+    border-color: var(--control);
+    color: var(--success);
+  }
+  .steps li.current {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+  }
+  .steps li.current .dot {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .rail-foot {
+    margin-top: auto;
+    display: grid;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .rail-foot .path {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-2);
+    word-break: break-all;
+  }
+
+  .content {
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 44px 56px 20px;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: #555 transparent;
+  }
+  .inner {
+    max-width: 780px;
+    display: grid;
+    gap: 20px;
+  }
+  .screen.wide .inner {
+    max-width: 920px;
+  }
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .title {
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 4px 0 0;
+    text-wrap: balance;
+    letter-spacing: -0.2px;
+  }
+  .lead {
+    font-size: 16px;
+    color: var(--text-2);
+    margin: 0;
+    max-width: 62ch;
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 16px 56px 22px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .actions .spacer {
+    margin-right: auto;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .hints {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    background: rgba(22, 22, 22, 0.85);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 26px;
+    padding: 0 28px;
+    font-size: 14px;
+    color: var(--text-2);
+  }
+  .hints .left {
+    margin-right: auto;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .glyph {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #111;
+    background: #e8e8e8;
+  }
+  .glyph.a {
+    background: #7bd07b;
+  }
+  .glyph.b {
+    background: #f08a8a;
+  }
+  .glyph.x {
+    background: #7fb2f0;
+  }
+  .glyph.y {
+    background: #f0d27b;
+  }
+
+  /* ---------- controls inside the screen ---------- */
+  .btn {
+    font: 600 15px var(--font);
+    min-height: 48px;
+    padding: 0 22px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text);
+    background: var(--control);
+    border: 1px solid var(--control-border);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .btn:hover {
+    background: var(--control-hover);
+  }
+  .btn.primary {
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: var(--accent);
+  }
+  .btn.primary:hover {
+    filter: brightness(1.06);
+  }
+  .btn.danger {
+    background: #5a2a2a;
+    border-color: #7a3a3a;
+    color: #ffe0e0;
+  }
+  .btn .glyph {
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
+  }
+  .btn.primary .glyph {
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--on-accent);
+  }
+  .f:focus {
+    outline: none;
+  }
+  .f:focus-visible,
+  .f.kfocus {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--accent);
+  }
+
+  .card {
+    background: rgba(44, 44, 44, 0.72);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    display: grid;
+    gap: 14px;
+  }
+  .card-head {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .card-head .grow {
+    flex: 1;
+    min-width: 0;
+  }
+  .card-title {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .card-sub {
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .mono {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  .device-icon {
+    width: 56px;
+    height: 40px;
+    border-radius: 10px;
+    border: 2px solid var(--control-border);
+    position: relative;
+    flex: none;
+    margin-top: 2px;
+  }
+  .device-icon::before,
+  .device-icon::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--control-border);
+    transform: translateY(-50%);
+  }
+  .device-icon::before {
+    left: 6px;
+  }
+  .device-icon::after {
+    right: 6px;
+  }
+  .device-icon i {
+    position: absolute;
+    inset: 7px 18px;
+    border-radius: 3px;
+    background: rgba(255, 157, 61, 0.35);
+  }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .badge {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid;
+    letter-spacing: 0.2px;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .badge.first {
+    color: var(--text-2);
+    border-color: #555;
+  }
+  .badge.community {
+    color: #c9b6ff;
+    border-color: #5b4d86;
+  }
+  .badge.tested {
+    color: var(--success);
+    border-color: #4c6b4c;
+  }
+  .badge.blind {
+    color: var(--warning);
+    border-color: #7a6334;
+  }
+  .badge.outdated {
+    color: var(--danger);
+    border-color: #7a4444;
+  }
+
+  .banner {
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 12px;
+    align-items: start;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--card-border);
+    font-size: 14.5px;
+    color: var(--text-2);
+  }
+  .banner strong {
+    color: var(--text);
+    display: block;
+    font-size: 15.5px;
+    margin-bottom: 2px;
+  }
+  .banner .ic {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: #111;
+  }
+  .banner.good {
+    border-color: #3f5c3f;
+    background: rgba(163, 220, 163, 0.07);
+  }
+  .banner.good .ic {
+    background: var(--success);
+  }
+  .banner.warn {
+    border-color: #6b5730;
+    background: rgba(255, 198, 109, 0.07);
+  }
+  .banner.warn .ic {
+    background: var(--warning);
+  }
+  .banner.bad {
+    border-color: #6b3a3a;
+    background: rgba(255, 160, 160, 0.07);
+  }
+  .banner.bad .ic {
+    background: var(--danger);
+  }
+  .banner.info .ic {
+    background: #9ec3f0;
+  }
+
+  .section-h {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--accent);
+    border-bottom: 1px solid var(--card-border);
+    padding: 0 0 6px 2px;
+    margin-top: 4px;
+  }
+  .rows {
+    display: grid;
+    gap: 2px;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: center;
+    min-height: 56px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background: transparent;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    width: 100%;
+  }
+  .row:nth-child(even) {
+    background: rgba(35, 35, 35, 0.7);
+  }
+  button.row {
+    cursor: pointer;
+  }
+  button.row:hover {
+    background: rgba(56, 56, 56, 0.8);
+  }
+  .row.f:focus-visible,
+  .row.f.kfocus {
+    box-shadow: none;
+    border-color: var(--accent);
+  }
+  .row .rt {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .row .rd {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+  .row.disabled {
+    opacity: 0.45;
+  }
+  .item {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    gap: 12px;
+    align-items: start;
+  }
+  .item .tick {
+    color: var(--success);
+    font-weight: 700;
+    line-height: 1.45;
+  }
+  .item .rt {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .item .rd {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .item .ver {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    padding-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .switch {
+    width: 48px;
+    height: 26px;
+    border-radius: 13px;
+    background: var(--control);
+    border: 1px solid var(--control-border);
+    position: relative;
+    flex: none;
+    transition: background 0.15s;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition:
+      transform 0.15s,
+      background 0.15s;
+  }
+  [aria-checked="true"] .switch {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  [aria-checked="true"] .switch::after {
+    transform: translateX(22px);
+    background: var(--on-accent);
+  }
+  .check {
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    border: 2px solid var(--control-border);
+    display: grid;
+    place-items: center;
+    flex: none;
+    font-size: 14px;
+    font-weight: 800;
+    color: transparent;
+  }
+  [aria-checked="true"] .check {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .choices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .choice {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    display: grid;
+    gap: 6px;
+    align-content: start;
+    background: rgba(44, 44, 44, 0.72);
+    border: 2px solid var(--card-border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    min-height: 108px;
+  }
+  .choice:hover {
+    background: rgba(56, 56, 56, 0.85);
+  }
+  .choice[aria-checked="true"] {
+    border-color: var(--accent);
+    background: rgba(255, 157, 61, 0.08);
+  }
+  .choice .ct {
+    font-size: 17px;
+    font-weight: 600;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .choice .ct .radio {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--control-border);
+    flex: none;
+  }
+  .choice[aria-checked="true"] .ct .radio {
+    border-color: var(--accent);
+    background: radial-gradient(circle, var(--accent) 45%, transparent 50%);
+  }
+  .choice .cd {
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .choice.f:focus-visible,
+  .choice.f.kfocus {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px #fff;
+  }
+  .chip {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid rgba(255, 157, 61, 0.45);
+    border-radius: 999px;
+    padding: 1px 8px;
+    margin-left: auto;
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .tile {
+    min-height: 150px;
+  }
+  .tile .ic2 {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--control);
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .progress-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--control);
+    overflow: hidden;
+  }
+  .progress-bar > i {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width 0.35s ease;
+  }
+  .tasks {
+    display: grid;
+    gap: 2px;
+  }
+  .task {
+    display: grid;
+    grid-template-columns: 26px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    min-height: 46px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .task .st {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 13px;
+    border-radius: 50%;
+  }
+  .task.done {
+    color: var(--text-2);
+  }
+  .task.done .st {
+    color: var(--success);
+  }
+  .task.fail {
+    color: var(--text);
+  }
+  .task.fail .st {
+    color: #111;
+    background: var(--danger);
+  }
+  .task.skip .st {
+    color: var(--muted);
+  }
+  .task.run {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .task.run .st {
+    border: 2.5px solid var(--control-border);
+    border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+  }
+  .task .tn {
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .task.fail .tn {
+    color: var(--danger);
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .task.run .st {
+      animation: none;
+      border-top-color: var(--control-border);
+    }
+    .progress-bar > i {
+      transition: none;
+    }
+  }
+
+  .kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 18px;
+    font-size: 13.5px;
+  }
+  .kv dt {
+    color: var(--muted);
+  }
+  .kv dd {
+    margin: 0;
+    color: var(--text-2);
+  }
+  .paths {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+    display: grid;
+    gap: 4px;
+    word-break: break-all;
+  }
+  .muted {
+    color: var(--muted);
+  }
+  .small {
+    font-size: 13px;
+  }
+  .customize {
+    display: grid;
+    gap: 14px;
+  }
+  .level-badge {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+  }
+</style>
+
+<div class="chrome">
+  <h1>WSGM Setup <span>· clickable mockup for #117 / #175 / #180, sample data</span></h1>
+  <div class="controls">
+    <div class="control-group" role="group" aria-label="Flow">
+      <span class="lbl">Flow</span>
+      <div class="seg" id="flowSeg"></div>
+    </div>
+    <div class="control-group" role="group" aria-label="Hardware" id="hwGroup">
+      <span class="lbl">Hardware</span>
+      <div class="seg" id="hwSeg"></div>
+    </div>
+    <div class="control-group" role="group" aria-label="Outcome">
+      <span class="lbl">Outcome</span>
+      <div class="seg" id="outSeg"></div>
+    </div>
+    <div class="control-group" role="group" aria-label="Screen">
+      <span class="lbl">Screen</span>
+      <div class="seg" id="resSeg"></div>
+    </div>
+  </div>
+  <div class="note">
+    Click through, or use the keyboard as the gamepad: <kbd>←↑→↓</kbd> move focus,
+    <kbd>Enter</kbd> is A, <kbd>Esc</kbd> is B.
+  </div>
+  <div class="stage" id="stage"><div class="screen" id="screen"></div></div>
+  <div class="device-caption" id="caption"></div>
+</div>
+
+<script>
+  (() => {
+    // ---------------- sample data ----------------
+    const OLD_VER = "2.0.0",
+      VER = "2.1.0",
+      NEXT_VER = "2.2.0";
+    const HW = {
+      match: {
+        label: "Supported",
+        device: "MSI Claw 8 AI+ A2VM",
+        ident: "MS-1T52 · board 1T52.1 · Intel Core Ultra 7 258V",
+        plugins: [
+          {
+            id: "claw",
+            name: "MSI Claw 8 AI+ A2VM support",
+            ver: "1.2.0",
+            origin: "first",
+            validation: "tested",
+            provides: "Power limits, fans, charge limit, lighting and the two OEM buttons",
+            controller: true,
+          },
+        ],
+      },
+      multiple: {
+        label: "Two matches",
+        device: "ASUS ROG Xbox Ally X",
+        ident: "RC73XA · Ryzen AI Z2 Extreme",
+        plugins: [
+          {
+            id: "xally",
+            name: "ROG Xbox Ally X support",
+            ver: "0.3.0",
+            origin: "community",
+            validation: "blind",
+            exact: true,
+            provides: "Power limits, fans, Armoury Crate buttons",
+            controller: true,
+            contact: "github.com/allyx-dev",
+          },
+          {
+            id: "rogfam",
+            name: "ASUS ROG handhelds",
+            ver: "1.0.0",
+            origin: "community",
+            validation: "tested",
+            exact: false,
+            provides: "Power limits and fans for ROG Ally models (family match)",
+            controller: false,
+            contact: "github.com/rog-handhelds",
+          },
+        ],
+      },
+      none: {
+        label: "No match",
+        device: "Lenovo Legion Go S",
+        ident: "83L3 · Ryzen Z2 Go",
+        plugins: [],
+      },
+      community: {
+        label: "Community · blind",
+        device: "AYANEO KUN",
+        ident: "AYANEO KUN · Ryzen 7 7840U",
+        plugins: [
+          {
+            id: "kun",
+            name: "AYANEO KUN support",
+            ver: "0.5.1",
+            origin: "community",
+            validation: "blind",
+            provides: "Power limits, fan curve and the AYANEO button",
+            controller: true,
+            contact: "github.com/kun-wsgm",
+          },
+        ],
+      },
+    };
+    const COMMON = {
+      name: "IR Blaster",
+      ver: "0.2.0",
+      origin: "first",
+      desc: "Learn and send infrared codes through a USB IR adapter",
+    };
+
+    const FLOWS = {
+      install: { label: "Install" },
+      inno: { label: "Move from old installer" },
+      upgrade: { label: "Update" },
+      repair: { label: "Repair" },
+      uninstall: { label: "Uninstall" },
+    };
+    const RES = {
+      claw: { label: "Claw 8 · 1920×1200 at 150%", w: 1280, h: 800 },
+      desk: { label: "Desktop · 1920×1080 at 100%", w: 1920, h: 1080 },
+    };
+
+    const CUSTOM_GROUPS = [
+      {
+        h: "Steam Input",
+        items: [
+          [
+            "steamInput",
+            "Manage Steam Input",
+            "WSGM hands controllers to Steam in games and takes them back for its own menus",
+          ],
+          [
+            "lease",
+            "Steam Input lease for desktop apps",
+            "Keeps Steam from turning the controller into a mouse while WSGM is in front",
+          ],
+        ],
+      },
+      {
+        h: "Steam UI integration",
+        items: [
+          [
+            "cef",
+            "Steam UI integration",
+            "WSGM adds its own rows and tabs inside Steam's Big Picture",
+          ],
+          ["tabs", "Library tabs per SD card", "", "cef"],
+          ["cards", "Card manager", "", "cef"],
+          ["carousel", "Connected-library carousel on Home", "", "cef"],
+          ["sdformat", "Format SD cards from Steam", "", "cef"],
+          ["wifi", "Wi-Fi indicator in the header", "", "cef"],
+          ["qam", "WSGM rows in Quick Access", "", "cef"],
+          ["dlawake", "Stay awake while downloading", "", "cef"],
+          ["dlsort", "Download queue sorting", "", "cef"],
+        ],
+      },
+      {
+        h: "Getting to WSGM",
+        items: [
+          ["gestures", "Edge swipes", "Swipe in from the top edge to open the overlay"],
+          ["hotkey", "Keyboard shortcut", "Ctrl + Alt + W"],
+          ["chord", "Gamepad chord", "Hold View + Menu"],
+        ],
+      },
+      {
+        h: "Start",
+        items: [["splash", "Boot splash", "Covers the desktop while Game Mode starts"]],
+      },
+    ];
+    const FULL = {
+      steamInput: 1,
+      lease: 1,
+      cef: 1,
+      tabs: 1,
+      cards: 1,
+      carousel: 1,
+      sdformat: 1,
+      wifi: 1,
+      qam: 1,
+      dlawake: 1,
+      dlsort: 1,
+      gestures: 1,
+      hotkey: 1,
+      chord: 1,
+      splash: 1,
+      takeover: 1,
+    };
+    const MINIMAL = {
+      ...Object.fromEntries(Object.keys(FULL).map((k) => [k, 0])),
+      gestures: 1,
+      hotkey: 1,
+      chord: 1,
+      splash: 1,
+    };
+    // What an existing install had configured (upgrade / repair / inno start from this, not from defaults).
+    const CURRENT = {
+      level: "full",
+      start: "steam",
+      signin: true,
+      toggles: { ...FULL, carousel: 0, dlsort: 0 },
+    };
+
+    // ---------------- state ----------------
+    const S = {
+      flow: "install",
+      hw: "match",
+      outcome: "ok",
+      res: "claw",
+      step: 0,
+      customize: false,
+      profile: null,
+      pick: null,
+      installPlugin: true,
+      ir: false,
+      keepData: true,
+      uninstallCustom: false,
+      rmUsbip: true,
+      rmHidhide: true,
+      tasks: null,
+      runTimer: null,
+      confirmUninstall: false,
+    };
+    function freshProfile(fromCurrent) {
+      return fromCurrent
+        ? {
+            level: CURRENT.level,
+            start: CURRENT.start,
+            signin: CURRENT.signin,
+            toggles: { ...CURRENT.toggles },
+            fromCurrent: true,
+          }
+        : { level: "full", start: "steam", signin: true, toggles: { ...FULL }, fromCurrent: false };
+    }
+    function reset() {
+      clearInterval(S.runTimer);
+      S.runTimer = null;
+      S.step = 0;
+      S.customize = false;
+      S.tasks = null;
+      S.confirmUninstall = false;
+      const existing = S.flow !== "install";
+      S.profile = freshProfile(existing);
+      const hw = HW[S.hw];
+      S.pick = hw.plugins.length === 1 ? hw.plugins[0].id : null;
+      S.installPlugin = true;
+      S.ir = false;
+      S.keepData = true;
+      S.uninstallCustom = false;
+      S.rmUsbip = true;
+      S.rmHidhide = true;
+    }
+
+    const hwData = () => (S.flow === "install" ? HW[S.hw] : HW.match);
+    const chosenPlugin = () => {
+      const hw = hwData();
+      if (S.flow !== "install") return hw.plugins[0];
+      if (!S.installPlugin) return null;
+      return hw.plugins.find((p) => p.id === S.pick) || null;
+    };
+    const needsDrivers = () => {
+      const p = chosenPlugin();
+      return !!(p && p.controller);
+    };
+    const levelOf = (t) => {
+      const eq = (o) => Object.keys(FULL).every((k) => !!t[k] === !!o[k]);
+      return eq(FULL) ? "full" : eq(MINIMAL) ? "minimal" : "custom";
+    };
+
+    function stepsFor() {
+      switch (S.flow) {
+        case "install":
+          return [
+            "welcome",
+            "hardware",
+            "profile",
+            ...(needsDrivers() ? ["drivers"] : []),
+            "progress",
+            "summary",
+          ];
+        case "inno":
+          return ["move", "hardware", "profile", "progress", "summary"];
+        case "upgrade":
+          return ["update", "profile", "progress", "summary"];
+        case "repair":
+          return ["maintain", "profile", "progress", "summary"];
+        case "uninstall":
+          return ["uninstall", "progress", "summary"];
+      }
+    }
+    const STEP_LABEL = {
+      welcome: "Welcome",
+      move: "New location",
+      update: "What's new",
+      maintain: "Choose",
+      hardware: "Hardware",
+      profile: "Profile",
+      drivers: "Drivers",
+      progress: "Install",
+      summary: "Done",
+      uninstall: "Uninstall",
+    };
+
+    // ---------------- helpers ----------------
+    const esc = (s) =>
+      String(s).replace(
+        /[&<>"]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+      );
+    const originBadge = (o) =>
+      o === "first"
+        ? `<span class="badge first">First-party</span>`
+        : `<span class="badge community">Community</span>`;
+    const valBadge = (v) =>
+      v === "tested"
+        ? `<span class="badge tested">Hardware-tested</span>`
+        : `<span class="badge blind">Blind</span>`;
+    const glyph = (g) => `<span class="glyph ${g.toLowerCase()}">${g}</span>`;
+    const btn = (label, act, cls = "", g = "") =>
+      `<button class="btn f ${cls}" data-act="${act}">${g ? glyph(g) : ""}${esc(label)}</button>`;
+    const toggleRow = (key, title, desc, checked, disabled) => `
+    <button class="row f ${disabled ? "disabled" : ""}" role="switch" aria-checked="${checked}" data-toggle="${key}" ${disabled ? 'aria-disabled="true"' : ""}>
+      <span><div class="rt">${esc(title)}</div>${desc ? `<div class="rd">${esc(desc)}</div>` : ""}</span>
+      <span class="switch"></span>
+    </button>`;
+    const checkRow = (key, title, desc, checked) => `
+    <button class="row f" role="checkbox" aria-checked="${checked}" data-check="${key}">
+      <span><div class="rt">${esc(title)}</div>${desc ? `<div class="rd">${desc}</div>` : ""}</span>
+      <span class="check">✓</span>
+    </button>`;
+    const banner = (kind, icon, title, body) =>
+      `<div class="banner ${kind}"><span class="ic">${icon}</span><div><strong>${title}</strong>${body || ""}</div></div>`;
+
+    // ---------------- screens ----------------
+    const SCREENS = {
+      welcome() {
+        return {
+          eyebrow: `WSGM ${VER}`,
+          title: "Set up WSGM",
+          lead: "Game Mode for Windows handhelds. Setup checks your hardware, asks how you want WSGM to start, and installs everything in one go.",
+          body: `
+          <div class="card">
+            <dl class="kv">
+              <dt>Installs to</dt><dd class="mono">C:\\Program Files\\WSGM</dd>
+              <dt>Steam</dt><dd><span style="color:var(--success)">Found</span> <span class="mono">C:\\Program Files (x86)\\Steam</span></dd>
+              <dt>Needs</dt><dd>About 330 MB. No internet connection.</dd>
+            </dl>
+          </div>
+          <p class="muted small" style="margin:0">WSGM and Steam close while setup runs. Your games keep running only if you close them yourself first.</p>`,
+          actions: [btn("Get started", "next", "primary", "A")],
+        };
+      },
+
+      move() {
+        return {
+          eyebrow: `WSGM ${OLD_VER} → ${VER}`,
+          title: "WSGM is moving to Program Files",
+          lead: "This version installs WSGM for the whole machine instead of inside your user folder. Setup moves it for you.",
+          body: `
+          <div class="card">
+            <dl class="kv">
+              <dt>Found</dt><dd>WSGM ${OLD_VER}, installed with the old installer</dd>
+              <dt>From</dt><dd class="mono">C:\\Users\\Player\\AppData\\Local\\WSGM\\bin</dd>
+              <dt>To</dt><dd class="mono">C:\\Program Files\\WSGM\\App</dd>
+            </dl>
+          </div>
+          ${banner("good", "✓", "Your settings stay where they are", `<div>Profiles, per-game settings, learned device data and artwork stay in your user folder. Steam launch options and shortcuts that point at the old location are updated.</div>`)}
+          ${banner("info", "i", "WSGM and Steam close during the move", `<div>Setup asks Steam to exit normally. If a game is running, close it first.</div>`)}`,
+          actions: [btn("Move WSGM", "next", "primary", "A")],
+        };
+      },
+
+      update() {
+        return {
+          eyebrow: `WSGM ${VER} → ${NEXT_VER}`,
+          title: "Update WSGM",
+          lead: "Everything is updated together: WSGM itself and the plugins it ships with.",
+          body: `
+          <div class="card">
+            <div class="section-h">What changes</div>
+            <div class="item"><span class="tick">↑</span><div><div class="rt">WSGM</div><div class="rd">Faster Steam UI start, fixes for SD card tabs</div></div><span class="ver">${VER} → ${NEXT_VER}</span></div>
+            <div class="item"><span class="tick">↑</span><div><div class="rt">MSI Claw 8 AI+ A2VM support</div><div class="rd">Fan curve keeps its last point after sleep</div></div><span class="ver">1.2.0 → 1.2.1</span></div>
+            <div class="item"><span class="tick" style="color:var(--muted)">=</span><div><div class="rt">IR Blaster</div><div class="rd">No changes</div></div><span class="ver">0.2.0</span></div>
+          </div>
+          ${banner("warn", "!", "RGB Sync has no build for WSGM " + NEXT_VER, `<div>Its source didn't build against the new version, so it stops loading after this update. Its developer can fix it: <span class="mono">github.com/rgbsync-dev</span>. Staying on ${VER} keeps it working.</div><div class="badges" style="margin-top:8px"><span class="badge community">Community</span><span class="badge outdated">Outdated for ${NEXT_VER}</span></div>`)}`,
+          actions: [btn("Stay on " + VER, "cancel"), btn("Update anyway", "next", "primary", "A")],
+        };
+      },
+
+      maintain() {
+        return {
+          eyebrow: `WSGM ${VER} is installed`,
+          title: "What do you want to do?",
+          lead: "",
+          body: `
+          <div class="tiles">
+            <button class="choice tile f" data-act="next" aria-checked="false"><span class="ic2">⟳</span><span class="ct">Repair</span><span class="cd">Reinstall WSGM and its plugin, reinstall missing drivers, and review your profile.</span></button>
+            <button class="choice tile f" data-act="gouninstall" aria-checked="false"><span class="ic2">✕</span><span class="ct">Uninstall</span><span class="cd">Remove WSGM. You choose what stays.</span></button>
+            <button class="choice tile f" data-act="cancel" aria-checked="false"><span class="ic2">←</span><span class="ct">Close</span><span class="cd">Leave everything as it is.</span></button>
+          </div>`,
+          actions: [],
+        };
+      },
+
+      hardware() {
+        const hw = hwData();
+        const identity = `
+        <div class="card-head">
+          <span class="device-icon"><i></i></span>
+          <div class="grow"><div class="card-title">${esc(hw.device)}</div><div class="mono">${esc(hw.ident)}</div></div>
+        </div>`;
+        const irRow = checkRow(
+          "ir",
+          `${COMMON.name}`,
+          `${esc(COMMON.desc)} <span class="mono">${COMMON.ver}</span>`,
+          S.ir,
+        );
+        const optional = `<div class="section-h">Optional</div><div class="rows">${irRow}</div>`;
+
+        if (S.flow === "inno") {
+          const p = hw.plugins[0];
+          return {
+            eyebrow: "Hardware",
+            title: "Your hardware support moves too",
+            lead: "The plugin you already have is replaced by the build that ships with this version.",
+            body: `<div class="card">${identity}
+              <div class="item"><span class="tick">↑</span><div><div class="rt">${esc(p.name)}</div><div class="badges" style="margin-top:4px">${originBadge(p.origin)}${valBadge(p.validation)}</div></div><span class="ver">1.1.0 → ${p.ver}</span></div>
+              <div class="item"><span class="tick">✓</span><div><div class="rt">USB/IP and HidHide</div><div class="rd">Already installed. Nothing to restart.</div></div><span class="ver"></span></div>
+            </div>`,
+            actions: [btn("Back", "back", "", "B"), btn("Continue", "next", "primary", "A")],
+          };
+        }
+
+        if (!hw.plugins.length) {
+          return {
+            eyebrow: "Hardware",
+            title: "No hardware support for this device yet",
+            lead: "WSGM installs and works without it. Power limits, fans and the virtual controller stay off.",
+            body: `<div class="card">${identity}</div>
+            ${banner("info", "i", "Support can arrive with a later update", `<div>When a WSGM release includes a plugin for this device, the update installs it for you.</div>`)}
+            ${optional}`,
+            actions: [btn("Back", "back", "", "B"), btn("Continue", "next", "primary", "A")],
+          };
+        }
+
+        if (hw.plugins.length > 1) {
+          const cards = hw.plugins
+            .map(
+              (p) => `
+          <button class="choice f" role="radio" aria-checked="${S.pick === p.id}" data-pick="${p.id}">
+            <span class="ct"><span class="radio"></span>${esc(p.name)} <span class="mono" style="margin-left:auto">${p.ver}</span></span>
+            <span class="cd">${esc(p.provides)}</span>
+            <span class="badges">${originBadge(p.origin)}${valBadge(p.validation)}${p.exact ? `<span class="badge first">Exact match</span>` : `<span class="badge first">Family match</span>`}</span>
+          </button>`,
+            )
+            .join("");
+          const p = chosenPlugin();
+          return {
+            eyebrow: "Hardware",
+            title: "Two plugins support this device",
+            lead: "Only one can be installed. The exact match is usually the better choice.",
+            body: `<div class="card">${identity}</div><div class="choices">${cards}</div>
+            ${p ? installList(p) : `<p class="muted small" style="margin:0">Pick one to see what gets installed.</p>`}
+            ${optional}`,
+            actions: [
+              btn("Back", "back", "", "B"),
+              `<button class="btn f primary" data-act="next" ${p ? "" : "disabled style='opacity:.5'"}>${glyph("A")}Continue</button>`,
+            ],
+          };
+        }
+
+        const p = hw.plugins[0];
+        const blindNote =
+          p.validation === "blind"
+            ? banner(
+                "warn",
+                "!",
+                "Not tested on this hardware by the WSGM team",
+                `<div>This plugin was built from reference material and reviewed as source. Report problems to its developer: <span class="mono">${esc(p.contact)}</span></div>`,
+              )
+            : "";
+        return {
+          eyebrow: "Hardware",
+          title: "Good news! Your hardware is supported.",
+          lead: "",
+          body: `
+          <div class="card">${identity}
+            <div class="row" style="background:transparent;padding:0;min-height:0">
+              <span><div class="rt">${esc(p.name)} <span class="mono">${p.ver}</span></div><div class="rd">${esc(p.provides)}</div>
+              <div class="badges" style="margin-top:8px">${originBadge(p.origin)}${valBadge(p.validation)}</div></span>
+              <span></span>
+            </div>
+          </div>
+          ${blindNote}
+          <div class="rows">${checkRow("plugin", "Install hardware support", "Without it, WSGM installs as it would on unsupported hardware.", S.installPlugin)}</div>
+          ${S.installPlugin ? installList(p) : ""}
+          ${optional}`,
+          actions: [btn("Back", "back", "", "B"), btn("Continue", "next", "primary", "A")],
+        };
+      },
+
+      profile() {
+        const P = S.profile,
+          lvl = levelOf(P.toggles);
+        const levelChoice = (id, t, d) => `
+        <button class="choice f" role="radio" aria-checked="${lvl === id}" data-level="${id}">
+          <span class="ct"><span class="radio"></span>${t}</span><span class="cd">${d}</span></button>`;
+        const startChoice = (id, t, d) => `
+        <button class="choice f" role="radio" aria-checked="${P.start === id}" data-start="${id}">
+          <span class="ct"><span class="radio"></span>${t}</span><span class="cd">${d}</span></button>`;
+        const custom = S.customize
+          ? `
+        <div class="customize">
+          ${CUSTOM_GROUPS.map(
+            (g) =>
+              `<div class="section-h">${g.h}</div><div class="rows">${g.items
+                .map(([k, t, d, parent]) =>
+                  toggleRow(k, t, d, !!P.toggles[k], parent && !P.toggles[parent]),
+                )
+                .join("")}</div>`,
+          ).join("")}
+          <div class="section-h">Steam at sign-in</div>
+          <div class="rows">${toggleRow("takeover", "Let WSGM start Steam", "Windows stops starting Steam on its own. WSGM starts it instead, so Steam can reach elevated games and windows. Removes Steam's entry under HKCU\\…\\Run.", !!P.toggles.takeover)}</div>
+        </div>`
+          : "";
+        return {
+          eyebrow: "Profile",
+          title: "How should WSGM run?",
+          lead: P.fromCurrent ? "These are your current settings. Change anything you like." : "",
+          body: `
+          <div class="section-h" style="display:flex;align-items:center">Integration ${lvl === "custom" ? `<span class="chip">Customized</span>` : P.fromCurrent ? `<span class="chip">Current</span>` : ""}</div>
+          <div class="choices">
+            ${levelChoice("full", "Full", "Everything on: Steam Input handling, Steam UI integration, and WSGM starting Steam for you.")}
+            ${levelChoice("minimal", "Minimal", "The WSGM session only. Steam stays exactly as it is.")}
+          </div>
+          <div class="section-h">Start</div>
+          <div class="choices">
+            ${startChoice("steam", "Steam first", "Signs in straight to Steam's Big Picture, like a console.")}
+            ${startChoice("desktop", "Desktop first", "Signs in to the Windows desktop. Game Mode is one tap away.")}
+          </div>
+          <div class="rows">${toggleRow("signin", "Start WSGM when you sign in", "", P.signin)}</div>
+          <div><button class="btn f" data-act="customize">${S.customize ? "Hide details" : "Customize…"}</button></div>
+          ${custom}`,
+          actions: [btn("Back", "back", "", "B"), btn("Continue", "next", "primary", "A")],
+        };
+      },
+
+      drivers() {
+        return {
+          eyebrow: "Drivers",
+          title: "Your controls will drop out for a moment",
+          lead: "The virtual controller needs two drivers. Installing one of them restarts every USB hub.",
+          body: `
+          ${banner("warn", "!", "Controller, touch screen and keyboard disconnect for a few seconds", `<div>They come back on their own. Don't turn the device off while it happens.</div>`)}
+          ${banner("info", "↻", "Restart needed afterwards", `<div>The virtual controller starts working after Windows restarts. You can restart at the end of setup or later.</div>`)}
+          <div class="card">
+            <div class="item"><span class="tick">＋</span><div><div class="rt">USB/IP driver</div><div class="rd">usbip-win2, signed by Microsoft. VIIPER attaches the virtual controller through it.</div></div><span class="ver">0.9.8.0</span></div>
+            <div class="item"><span class="tick">＋</span><div><div class="rt">HidHide</div><div class="rd">Hides the built-in controller from games so they see one controller, not two.</div></div><span class="ver">1.5.230</span></div>
+          </div>`,
+          actions: [btn("Back", "back", "", "B"), btn("Install", "next", "primary", "A")],
+        };
+      },
+
+      uninstall() {
+        const confirm = S.confirmUninstall;
+        const custom = S.uninstallCustom
+          ? `
+        <div class="section-h">Drivers</div>
+        <div class="rows">
+          ${checkRow("rmUsbip", "Remove the USB/IP driver", "Installed by WSGM setup. Removing it restarts every USB hub.", S.rmUsbip)}
+          ${checkRow("rmHidhide", "Remove HidHide", "Installed by WSGM setup. Keep it if another app uses it.", S.rmHidhide)}
+        </div>`
+          : "";
+        return {
+          eyebrow: `WSGM ${VER}`,
+          title: confirm ? "Uninstall WSGM now?" : "Uninstall WSGM",
+          lead: confirm
+            ? "WSGM and Steam close. The program files are deleted."
+            : "WSGM, its plugins and its sign-in service are removed. Windows settings WSGM changed are put back.",
+          body: confirm
+            ? `
+          <div class="card">
+            <div class="item"><span class="tick">✕</span><div><div class="rt">WSGM and its plugins</div><div class="rd mono">C:\\Program Files\\WSGM</div></div></div>
+            <div class="item"><span class="tick">${S.keepData ? "✓" : "✕"}</span><div><div class="rt">${S.keepData ? "Settings and data are kept" : "Settings and data are deleted"}</div></div></div>
+            <div class="item"><span class="tick">${S.rmUsbip ? "✕" : "✓"}</span><div><div class="rt">USB/IP driver ${S.rmUsbip ? "is removed" : "stays"}</div></div></div>
+            <div class="item"><span class="tick">${S.rmHidhide ? "✕" : "✓"}</span><div><div class="rt">HidHide ${S.rmHidhide ? "is removed" : "stays"}</div></div></div>
+          </div>`
+            : `
+          <div class="rows">${checkRow("keepData", "Keep my settings and data", "Profiles, per-game settings, learned device data, artwork and logs stay. Reinstalling picks them up again.", S.keepData)}</div>
+          ${banner("good", "✓", "Your controller is un-hidden either way", `<div>Anything WSGM hid from games is shown again first, even if HidHide stays installed.</div>`)}
+          <div><button class="btn f" data-act="uninstallCustom">${S.uninstallCustom ? "Hide details" : "Custom…"}</button></div>
+          ${custom}`,
+          actions: confirm
+            ? [btn("Back", "back", "", "B"), btn("Uninstall", "next", "danger", "A")]
+            : [
+                btn("Cancel", "cancel", "", "B"),
+                btn("Continue", "confirmUninstall", "primary", "A"),
+              ],
+        };
+      },
+
+      progress() {
+        if (!S.tasks) startTasks();
+        const done = S.tasks.filter((t) => t.state !== "wait" && t.state !== "run").length;
+        const pct = Math.round((done / S.tasks.length) * 100);
+        const running = S.tasks.find((t) => t.state === "run");
+        const isUn = S.flow === "uninstall";
+        return {
+          eyebrow: isUn ? "Uninstalling" : "Installing",
+          title: running ? running.label + "…" : isUn ? "Removing WSGM" : "Installing WSGM",
+          lead: running && running.hint ? running.hint : "",
+          body: `
+          <div class="progress-bar" aria-label="Progress"><i style="width:${pct}%"></i></div>
+          <div class="tasks">${S.tasks
+            .map(
+              (t) => `
+            <div class="task ${t.state}"><span class="st">${t.state === "done" ? "✓" : t.state === "fail" ? "!" : t.state === "skip" ? "–" : ""}</span>
+            <span>${esc(t.label)}${t.note ? `<div class="tn">${esc(t.note)}</div>` : ""}</span><span class="tn">${t.state === "skip" ? "Skipped" : ""}</span></div>`,
+            )
+            .join("")}</div>`,
+          actions: [`<span class="spacer">Keep the device on and plugged in.</span>`],
+          noHints: true,
+        };
+      },
+
+      summary() {
+        const failed = S.tasks && S.tasks.find((t) => t.state === "fail");
+        if (S.flow === "uninstall") {
+          if (failed) {
+            return {
+              eyebrow: "Uninstall finished with a problem",
+              title: "Your controller may still be hidden",
+              lead: "WSGM is removed, but setup couldn't confirm that HidHide shows these devices again. Setup didn't retry, so nothing was changed twice.",
+              body: `
+              <div class="paths"><span>HID\\VID_0DB0&amp;PID_1901&amp;MI_02\\8&amp;2A5C1F3E&amp;0&amp;0000</span><span>USB\\VID_0DB0&amp;PID_1901\\6&amp;1B4E90C2&amp;0&amp;2</span></div>
+              ${banner("info", "i", "How to fix it", `<div>Open <strong style="display:inline;font-size:inherit">HidHide Configuration Client</strong>, go to Devices, and untick these two. Or reinstall WSGM and uninstall again, which tries once more.</div>`)}
+              <p class="muted small" style="margin:0">The list of what WSGM hid is kept in <span class="mono">%LOCALAPPDATA%\\WSGM\\hidhide-ownership.json</span> even though you chose to delete your data, so a reinstall can finish the job.</p>`,
+              actions: [btn("Close", "restart", "primary", "A")],
+            };
+          }
+          return {
+            eyebrow: "Done",
+            title: "WSGM is uninstalled",
+            lead: S.keepData
+              ? "Your settings and data are still there if you install WSGM again."
+              : "Your settings and data were deleted.",
+            body: `<div class="card">${summaryItems()}</div>
+            ${S.rmUsbip ? banner("info", "↻", "Restart to finish removing the USB/IP driver", "") : ""}`,
+            actions: [
+              S.rmUsbip ? btn("Restart later", "restart") : "",
+              btn(S.rmUsbip ? "Restart now" : "Close", "restart", "primary", "A"),
+            ],
+          };
+        }
+        const needRestart = S.flow === "install" && needsDrivers();
+        const failBanner = failed
+          ? banner(
+              "bad",
+              "!",
+              "The USB/IP driver didn't install",
+              `<div>Its installer exited with code 1603. WSGM works without it, but the virtual controller stays off. Run <strong style="display:inline;font-size:inherit">Repair</strong> from Windows Settings → Apps to try again.<div class="mono" style="margin-top:6px">%ProgramData%\\WSGM\\usbip-install.log</div></div>`,
+            )
+          : "";
+        const title = {
+          install: "WSGM is ready",
+          inno: "WSGM has moved",
+          upgrade: `WSGM ${NEXT_VER} is installed`,
+          repair: "WSGM is repaired",
+        }[S.flow];
+        return {
+          eyebrow: failed ? "Done, with one problem" : "Done",
+          title,
+          lead: "",
+          body: `${failBanner}<div class="card">${summaryItems()}</div>
+          ${needRestart && !failed ? banner("info", "↻", "Restart to turn on the virtual controller", `<div>Everything else works now.</div>`) : ""}`,
+          actions:
+            needRestart && !failed
+              ? [
+                  btn("Start WSGM, restart later", "restart"),
+                  btn("Restart now", "restart", "primary", "A"),
+                ]
+              : [btn("Start WSGM", "restart", "primary", "A")],
+        };
+      },
+    };
+
+    function installList(p) {
+      const drivers = p.controller
+        ? `
+      <div class="item"><span class="tick">＋</span><div><div class="rt">Virtual controller</div><div class="rd">VIIPER, the USB/IP driver and HidHide, because this plugin provides controller input and rumble.</div></div><span class="ver"></span></div>`
+        : "";
+      return `<div class="card">
+      <div class="section-h">What gets installed</div>
+      <div class="item"><span class="tick">＋</span><div><div class="rt">WSGM</div></div><span class="ver">${VER}</span></div>
+      <div class="item"><span class="tick">＋</span><div><div class="rt">${esc(p.name)}</div></div><span class="ver">${p.ver}</span></div>
+      ${drivers}</div>`;
+    }
+
+    function summaryItems() {
+      return S.tasks
+        .map(
+          (t) =>
+            `<div class="item"><span class="tick" style="${t.state === "fail" ? "color:var(--danger)" : t.state === "skip" ? "color:var(--muted)" : ""}">${t.state === "fail" ? "!" : t.state === "skip" ? "–" : "✓"}</span><div><div class="rt" style="font-weight:500">${esc(t.done || t.label)}</div></div><span class="ver">${t.state === "skip" ? "skipped" : ""}</span></div>`,
+        )
+        .join("");
+    }
+
+    // ---------------- task runner ----------------
+    function taskList() {
+      const p = chosenPlugin(),
+        fail = S.outcome === "fail";
+      const T = (label, done, extra = {}) => ({ label, done, state: "wait", ...extra });
+      switch (S.flow) {
+        case "install":
+          return [
+            T("Copying WSGM", "WSGM " + VER + " installed"),
+            T("Registering the sign-in service", "Sign-in service registered"),
+            ...(p ? [T("Installing " + p.name, p.name + " " + p.ver + " installed")] : []),
+            ...(S.ir ? [T("Installing IR Blaster", "IR Blaster installed")] : []),
+            T("Applying your profile", "Profile applied"),
+            ...(p && p.controller
+              ? [
+                  T("Installing the USB/IP driver", "USB/IP driver installed", {
+                    hint: "Your controls drop out for a few seconds now.",
+                    fail,
+                    note: fail ? "Installer exited with code 1603" : "",
+                  }),
+                  T("Installing HidHide", "HidHide installed"),
+                ]
+              : []),
+            T("Adding Start menu entries", "Start menu entries added"),
+          ];
+        case "inno":
+          return [
+            T("Closing WSGM and Steam", "WSGM and Steam closed"),
+            T("Copying WSGM to Program Files", "WSGM " + VER + " installed in Program Files"),
+            T("Moving the sign-in service", "Sign-in service points at the new location"),
+            T("Updating the Claw 8 plugin", "Claw 8 plugin 1.2.0 installed"),
+            T(
+              "Updating Steam launch options and shortcuts",
+              "14 launch options and 3 shortcuts updated",
+            ),
+            T("Applying your profile", "Profile applied"),
+            T("Removing the old installer", "Old installer and its files removed"),
+          ];
+        case "upgrade":
+          return [
+            T("Closing WSGM and Steam", "WSGM and Steam closed"),
+            T("Updating WSGM", "WSGM " + NEXT_VER + " installed"),
+            T("Updating plugins", "Claw 8 plugin 1.2.1 installed"),
+            T("RGB Sync", "RGB Sync stops loading (no build for " + NEXT_VER + ")", {
+              skipIt: true,
+            }),
+            T("Applying your profile", "Profile applied"),
+          ];
+        case "repair":
+          return [
+            T("Closing WSGM and Steam", "WSGM and Steam closed"),
+            T("Reinstalling WSGM", "WSGM " + VER + " reinstalled"),
+            T("Reinstalling the Claw 8 plugin", "Claw 8 plugin reinstalled"),
+            T("Checking drivers", "USB/IP and HidHide present"),
+            T("Applying your profile", "Profile applied"),
+          ];
+        case "uninstall":
+          return [
+            T("Closing WSGM and Steam", "WSGM and Steam closed"),
+            T("Showing your controller to games again", "Controller shown to games again", {
+              fail,
+              note: fail ? "HidHide didn't confirm the change" : "",
+            }),
+            T("Removing the Steam Input shim", "Steam Input shim removed"),
+            T("Removing the sign-in service", "Sign-in service removed"),
+            T("Restoring Windows settings", "Windows settings restored"),
+            ...(S.rmUsbip
+              ? [
+                  T("Removing the USB/IP driver", "USB/IP driver removed", {
+                    hint: "Your controls drop out for a few seconds now.",
+                  }),
+                ]
+              : []),
+            ...(S.rmHidhide ? [T("Removing HidHide", "HidHide removed")] : []),
+            T("Deleting program files", "Program files deleted"),
+            ...(S.keepData ? [] : [T("Deleting settings and data", "Settings and data deleted")]),
+          ];
+      }
+    }
+    function startTasks() {
+      S.tasks = taskList();
+      let i = 0;
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const tick = () => {
+        if (i > 0) {
+          const prev = S.tasks[i - 1];
+          prev.state = prev.fail ? "fail" : prev.skipIt ? "skip" : "done";
+        }
+        if (i < S.tasks.length) {
+          S.tasks[i].state = "run";
+          i++;
+          render();
+        } else {
+          clearInterval(S.runTimer);
+          S.runTimer = null;
+          S.step++;
+          render();
+        }
+      };
+      // First task starts immediately without re-entering render(); the interval drives the rest.
+      S.tasks[0].state = "run";
+      i = 1;
+      S.runTimer = setInterval(tick, reduce ? 450 : 850);
+    }
+
+    // ---------------- rendering ----------------
+    const screenEl = document.getElementById("screen");
+    let lastKey = "",
+      keyboardMode = false;
+
+    function render() {
+      const steps = stepsFor();
+      if (S.step >= steps.length) S.step = steps.length - 1;
+      const id = steps[S.step];
+      const scr = SCREENS[id]();
+      const res = RES[S.res];
+      screenEl.style.width = res.w + "px";
+      screenEl.style.height = res.h + "px";
+      screenEl.classList.toggle("wide", S.res === "desk");
+
+      const railSteps = steps
+        .map(
+          (s, i) =>
+            `<li class="${i < S.step ? "done" : i === S.step ? "current" : ""}"><span class="dot">${i < S.step ? "✓" : i + 1}</span>${STEP_LABEL[s]}</li>`,
+        )
+        .join("");
+      const focusKey =
+        document.activeElement && screenEl.contains(document.activeElement)
+          ? focusSignature(document.activeElement)
+          : null;
+      const sameScreen = lastKey === S.flow + ":" + id;
+      const scrollTop = sameScreen ? screenEl.querySelector(".scroll")?.scrollTop || 0 : 0;
+
+      screenEl.innerHTML = `
+      <div class="glass">
+        <aside class="rail">
+          <div class="brand"><span class="brand-mark">W</span><div><div class="brand-name">WSGM</div><div class="brand-sub">Setup ${S.flow === "upgrade" ? NEXT_VER : VER}</div></div></div>
+          <ol class="steps">${railSteps}</ol>
+          <div class="rail-foot">
+            <span>Installs to</span><span class="path">C:\\Program Files\\WSGM</span>
+          </div>
+        </aside>
+        <section class="content">
+          <div class="scroll"><div class="inner">
+            <div><div class="eyebrow">${esc(scr.eyebrow)}</div><h2 class="title">${esc(scr.title)}</h2></div>
+            ${scr.lead ? `<p class="lead">${esc(scr.lead)}</p>` : ""}
+            ${scr.body}
+          </div></div>
+          ${scr.actions.filter(Boolean).length ? `<div class="actions">${scr.actions.join("")}</div>` : ""}
+        </section>
+        <footer class="hints">
+          <span class="left">${S.flow === "uninstall" ? "Uninstall" : FLOWS[S.flow].label} · step ${S.step + 1} of ${steps.length}</span>
+          ${
+            scr.noHints
+              ? `<span class="hint muted">Working…</span>`
+              : `
+          <span class="hint">${glyph("A")}Select</span>
+          <span class="hint">${glyph("B")}Back</span>`
+          }
+        </footer>
+      </div>`;
+
+      const scroll = screenEl.querySelector(".scroll");
+      if (scroll) scroll.scrollTop = scrollTop;
+      if (sameScreen && focusKey) {
+        const again = [...screenEl.querySelectorAll(".f")].find(
+          (el) => focusSignature(el) === focusKey,
+        );
+        if (again) focusEl(again, false);
+      } else if (!sameScreen && keyboardMode) {
+        const primary =
+          screenEl.querySelector(".btn.primary.f:not([disabled])") || screenEl.querySelector(".f");
+        if (primary) focusEl(primary, false);
+      }
+      lastKey = S.flow + ":" + id;
+      renderChrome();
+      fit();
+    }
+    const focusSignature = (el) =>
+      ["act", "toggle", "check", "pick", "level", "start"]
+        .map((k) => el.dataset[k] || "")
+        .join("|");
+    function focusEl(el, scrollIntoView = true) {
+      screenEl.querySelectorAll(".kfocus").forEach((n) => n.classList.remove("kfocus"));
+      el.focus({ preventScroll: !scrollIntoView });
+      if (keyboardMode) el.classList.add("kfocus");
+      if (scrollIntoView) el.scrollIntoView({ block: "nearest" });
+    }
+
+    function renderChrome() {
+      const seg = (el, items, cur, onPick) => {
+        el.innerHTML = Object.entries(items)
+          .map(
+            ([k, v]) =>
+              `<button type="button" aria-pressed="${k === cur}" data-k="${k}">${esc(v.label || v)}</button>`,
+          )
+          .join("");
+        el.onclick = (e) => {
+          const b = e.target.closest("button[data-k]");
+          if (b) onPick(b.dataset.k);
+        };
+      };
+      seg(document.getElementById("flowSeg"), FLOWS, S.flow, (k) => {
+        S.flow = k;
+        reset();
+        render();
+      });
+      seg(document.getElementById("hwSeg"), HW, S.hw, (k) => {
+        S.hw = k;
+        reset();
+        render();
+      });
+      document.getElementById("hwGroup").hidden = S.flow !== "install";
+      seg(
+        document.getElementById("outSeg"),
+        { ok: "Success", fail: S.flow === "uninstall" ? "Cleanup unverified" : "Driver fails" },
+        S.outcome,
+        (k) => {
+          S.outcome = k;
+          reset();
+          render();
+        },
+      );
+      document.getElementById("outSeg").parentElement.hidden = !["install", "uninstall"].includes(
+        S.flow,
+      );
+      seg(document.getElementById("resSeg"), RES, S.res, (k) => {
+        S.res = k;
+        render();
+      });
+      const r = RES[S.res];
+      document.getElementById("caption").textContent =
+        `${r.label} · shown at ${r.w}×${r.h} logical pixels, scaled to fit`;
+    }
+
+    function fit() {
+      const stage = document.getElementById("stage");
+      const r = RES[S.res];
+      const k = stage.clientWidth / r.w;
+      screenEl.style.transform = `scale(${k})`;
+      stage.style.height = Math.round(r.h * k) + "px";
+    }
+    addEventListener("resize", fit);
+
+    // ---------------- actions ----------------
+    function go(delta) {
+      const steps = stepsFor();
+      const n = Math.max(0, Math.min(steps.length - 1, S.step + delta));
+      if (steps[S.step] === "progress" && delta < 0) return;
+      S.step = n;
+      render();
+    }
+    screenEl.addEventListener("click", (e) => {
+      const el = e.target.closest(
+        "[data-act],[data-toggle],[data-check],[data-pick],[data-level],[data-start]",
+      );
+      if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
+      const d = el.dataset,
+        P = S.profile;
+      if (d.act === "next") {
+        if (
+          stepsFor()[S.step] === "hardware" &&
+          !chosenPlugin() &&
+          HW[S.hw].plugins.length > 1 &&
+          S.installPlugin
+        )
+          return;
+        go(1);
+      } else if (d.act === "back") {
+        if (S.confirmUninstall) {
+          S.confirmUninstall = false;
+          render();
+        } else go(-1);
+      } else if (d.act === "cancel") {
+        reset();
+        render();
+      } else if (d.act === "restart") {
+        reset();
+        render();
+      } else if (d.act === "customize") {
+        S.customize = !S.customize;
+        render();
+      } else if (d.act === "uninstallCustom") {
+        S.uninstallCustom = !S.uninstallCustom;
+        render();
+      } else if (d.act === "confirmUninstall") {
+        S.confirmUninstall = true;
+        render();
+      } else if (d.act === "gouninstall") {
+        S.flow = "uninstall";
+        reset();
+        render();
+      } else if (d.toggle) {
+        if (d.toggle === "signin") P.signin = !P.signin;
+        else P.toggles[d.toggle] = P.toggles[d.toggle] ? 0 : 1;
+        render();
+      } else if (d.check) {
+        if (d.check === "ir") S.ir = !S.ir;
+        else if (d.check === "plugin") S.installPlugin = !S.installPlugin;
+        else S[d.check] = !S[d.check];
+        render();
+      } else if (d.pick) {
+        S.pick = d.pick;
+        render();
+      } else if (d.level) {
+        P.toggles = { ...(d.level === "full" ? FULL : MINIMAL) };
+        render();
+      } else if (d.start) {
+        P.start = d.start;
+        render();
+      }
+    });
+
+    // ---------------- gamepad-style keyboard navigation ----------------
+    function visibleFocusables() {
+      return [...screenEl.querySelectorAll(".f")].filter(
+        (el) => !el.disabled && el.offsetParent !== null,
+      );
+    }
+    function move(dir) {
+      const items = visibleFocusables();
+      if (!items.length) return;
+      const cur = screenEl.contains(document.activeElement) ? document.activeElement : null;
+      if (!cur) {
+        focusEl(screenEl.querySelector(".btn.primary.f") || items[0]);
+        return;
+      }
+      const a = cur.getBoundingClientRect(),
+        ac = { x: a.left + a.width / 2, y: a.top + a.height / 2 };
+      let best = null,
+        bestScore = Infinity;
+      for (const el of items) {
+        if (el === cur) continue;
+        const b = el.getBoundingClientRect(),
+          bc = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+        const dx = bc.x - ac.x,
+          dy = bc.y - ac.y;
+        const along = dir === "up" ? -dy : dir === "down" ? dy : dir === "left" ? -dx : dx;
+        const across = dir === "up" || dir === "down" ? Math.abs(dx) : Math.abs(dy);
+        if (along <= 1) continue;
+        const score = along + across * 2.2;
+        if (score < bestScore) {
+          bestScore = score;
+          best = el;
+        }
+      }
+      if (best) focusEl(best);
+    }
+    document.addEventListener("keydown", (e) => {
+      const inChrome = e.target.closest && e.target.closest(".controls");
+      if (inChrome) return;
+      const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+      if (map[e.key]) {
+        e.preventDefault();
+        keyboardMode = true;
+        move(map[e.key]);
+        return;
+      }
+      if (e.key === "Escape" || e.key === "Backspace") {
+        e.preventDefault();
+        keyboardMode = true;
+        const back = screenEl.querySelector('[data-act="back"],[data-act="cancel"]');
+        if (back) back.click();
+        return;
+      }
+      if (e.key === "Enter" && !screenEl.contains(document.activeElement)) {
+        e.preventDefault();
+        keyboardMode = true;
+        const p = screenEl.querySelector(".btn.primary.f");
+        if (p) focusEl(p);
+      }
+    });
+    document.addEventListener("pointerdown", () => {
+      keyboardMode = false;
+      screenEl.querySelectorAll(".kfocus").forEach((n) => n.classList.remove("kfocus"));
+    });
+
+    reset();
+    render();
+  })();
+</script>

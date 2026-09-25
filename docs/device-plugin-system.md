@@ -878,8 +878,8 @@ framework-dependent `win-x64`, strips symbols, copies `glyphs\` verbatim and req
 runs `wsgm-device validate` and `wsgm-device pack`. WSGM's `eng\build-bundle.ps1` publishes Device
 Lab, invokes that packer, checks the archive's path safety, extracts a copy, requires the licence,
 notices and provenance files, compares the glyph count with the source tree, validates again, and
-stages the archive itself as `Packages\<id>-<version>.wsgmpkg`. The Inno installer still targets the
-retired unpacked slot until the custom setup (#117) replaces it; use `eng\dev-deploy.ps1` meanwhile.
+stages the archive itself as `Packages\<id>-<version>.wsgmpkg`, which the setup carries and installs
+when the hardware matches. `eng\dev-deploy.ps1` drops a fresh build into the Plugins folder.
 
 ## 19. Device Lab
 

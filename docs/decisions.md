@@ -11,11 +11,13 @@ Product-level decisions the other docs assume. Each entry says what was decided 
 to the doc that holds the mechanism. Nothing here is a how-to; when a decision and a mechanism doc
 disagree, fix the mechanism doc.
 
-**The installer is admin; the app stays per-user.** `installer\WSGM.iss` is
-`PrivilegesRequired=admin` because the machine service demands it, while `{localappdata}` and HKCU
-belong to the elevating account. This is a single-user-device design. The update and uninstall
-ordering, the exit events and the `NeedRestart` rule live in `docs\boot-and-shell.md`, "Install,
-update and uninstall".
+**The product lives in Program Files; state stays per-user.** WSGM setup is one elevated process
+because the machine service and the drivers demand it. It installs WSGM, its plugins and a copy of
+itself under `%ProgramFiles%\WSGM`, while `%LOCALAPPDATA%\WSGM` and HKCU belong to the elevating
+account. This is a single-user-device design. The setup carries every accepted plugin and installs
+only the one the hardware matches, so there is no plugin repository and no hot plugin upgrade; the
+updater always updates WSGM whole. The update and uninstall ordering, the exit events and the
+restart rule live in `docs\boot-and-shell.md`, "Install, update and uninstall".
 
 **The HKCU Winlogon shell replacement is retired.** Running the session without Explorer ever
 initializing broke touch features; the Explorer-first service boot is the device-verified fix

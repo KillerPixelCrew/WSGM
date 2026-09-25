@@ -64,7 +64,34 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
             `--uninstall-restore` with the controller hidden. After that, the `PluginOffersTests`,
             `SetupAnswersTests`, `HidHideOwnershipTests`, `DevicePrerequisitesTests` and Settings
             UI suites.
-- [ ] PR 4: `WSGM.Setup` replaces Inno.
+- [ ] PR 4 (`feat/custom-setup`, stacked on PR 3), implemented, awaiting the manual test:
+      - [x] `src\WSGM.Setup`: a self-contained single-file Avalonia setup in one elevated process,
+            driven by keyboard, touch and XInput gamepad. Screens follow the approved mockup, kept
+            as `src\WSGM.Setup\docs\mockup.html`: welcome, WSGM 1.0 removal, hardware, profile with
+            Customize, drivers, progress and summary; update with the version list and the outdated
+            community warning; the repair and uninstall chooser; uninstall options.
+      - [x] The engine ports every Inno step in order: the Steam check, the service stop, the exit
+            events with the same names and waits, the session-scoped force stop, the anchor
+            retirement, the blocker refusal, the device-owner reservation, the staged `App` swap
+            through `App.previous` with rollback, the answers, the service install, the USB/IP
+            script and its status file, HidHide, the Installed apps entry and shortcuts. Setup
+            starts WSGM directly after the install, as Inno did.
+      - [x] Uninstall: the shim, service, shell and `--uninstall-restore` steps, keep-data on by
+            default, USB/IP and HidHide removable only when setup installed them
+            (`components.json`), the still-hidden device paths on an unverified HidHide cleanup,
+            and the setup folder deleted after exit.
+      - [x] `/quiet` with `/update`, `/repair`, `/uninstall`, `/answers=`, `/plugin=`,
+            `/removedata`, `/keepcomponents` and `/payload=`; documented exit codes.
+      - [x] `build.ps1` assembles the payload from an explicit allowlist and publishes
+            `WSGM-Setup-<version>.exe`. `installer\` is gone: `Install-UsbipDriver.ps1` and the
+            guidance moved to `src\WSGM.Setup`, the version, pin and staging checks and the
+            workflows no longer read the iss, and `eng\dev-deploy.ps1` swaps into
+            `%ProgramFiles%\WSGM\App` behind one elevation prompt.
+      - [x] `InstallerShutdownContractTests` is replaced by `SetupShutdownContractTests`, beside
+            `SetupOptionsTests` and `UsbipOutcomeTests`.
+      - [ ] Manual test: clean install on the Claw, update to a newer setup, repair, uninstall with
+            WSGM broken, uninstall keeping HidHide (controller visible afterwards), `/quiet` via
+            dev-deploy, install with Wi-Fi off. After that, the `WSGM.Tests.Setup` suites.
 - [ ] PR 5: updater.
 
 ## Device Lab attended wizard (2026-09-24, in progress)

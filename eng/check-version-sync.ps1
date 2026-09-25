@@ -3,12 +3,10 @@
     Fails when a hand-maintained copy of the WSGM version disagrees with WSGM.csproj.
 
 .DESCRIPTION
-    The csproj <Version> is the release version source. Two other files carry a copy that
-    nothing stamps on a local build: the SxS assembly identity in src\WSGM\app.manifest, and the
-    installer's direct-ISCC fallback in installer\WSGM.iss. A hand-built installer then shipped a
-    WSGM.exe whose manifest claimed another version, or an installer named and registered for an
-    older one. The release workflow stamps all three from the tag; this check keeps local builds
-    and the committed tree consistent too.
+    The csproj <Version> is the release version source. One other file carries a copy that nothing
+    stamps on a local build: the SxS assembly identity in src\WSGM\app.manifest. WSGM.Setup reads
+    the csproj directly. The release workflow stamps both from the tag; this check keeps local
+    builds and the committed tree consistent too.
 
     The manifest identity takes the numeric core of the version padded to four parts, which is
     exactly what the release workflow derives.
@@ -41,17 +39,9 @@ elseif ($Matches[1] -ne $manifestExpected) {
     $problems.Add("src\WSGM\app.manifest assemblyIdentity is $($Matches[1]); WSGM.csproj $version needs $manifestExpected.")
 }
 
-$installer = Get-Content -LiteralPath (Join-Path $root "installer\WSGM.iss") -Raw
-if ($installer -notmatch '#define\s+AppVersion\s+"([^"]+)"') {
-    $problems.Add("installer\WSGM.iss has no AppVersion fallback.")
-}
-elseif ($Matches[1] -ne $version) {
-    $problems.Add("installer\WSGM.iss AppVersion fallback is $($Matches[1]); WSGM.csproj is $version.")
-}
-
 if ($problems.Count -gt 0) {
     $problems | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     throw "Version copies disagree with WSGM.csproj."
 }
 
-Write-Host "Version $version is consistent across the csproj, app manifest and installer."
+Write-Host "Version $version is consistent across the csproj and the app manifest."

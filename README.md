@@ -182,8 +182,8 @@ with no desktop on it. **You can always get it back:**
 2. Choose **Task Manager**, then **Run new task**.
 3. Type one of:
    - `explorer.exe` to bring the desktop back for this session, or
-   - `%LOCALAPPDATA%\WSGM\bin\WSGM.exe --restore-shell` to turn the sign-in start **off** and start
-     the desktop, so the next sign-in is an ordinary Windows one.
+   - `"%ProgramFiles%\WSGM\App\WSGM.exe" --restore-shell` to turn the sign-in start **off** and
+     start the desktop, so the next sign-in is an ordinary Windows one.
 
 There are also safety nets that run by themselves. The boot takeover keeps the desktop if it cannot
 end Explorer cleanly, the service starts Explorer if WSGM crashes without one, and three failed
@@ -230,19 +230,18 @@ the exact log lines, budgets and dates it summarizes.
 
 1. Download and run **`WSGM-Setup-<version>.exe`** from the
    [latest release](https://github.com/KillerPixelCrew/WSGM/releases/latest). It asks for
-   administrator rights once, to register the logon service.
-2. Pick an install mode:
-   - **Minimal** boots into Game Mode with nothing device-specific. The right choice on any handheld
-     or PC WSGM has no package for.
-   - **MSI Claw 8 AI+ A2VM** adds the device integration and the virtual controller, for that exact
-     handheld. It offers the USB/IP and HidHide driver step, which needs a reboot.
-   - **Desktop first** starts WSGM with Windows and waits in the notification area, with Game Mode
-     one press away whenever you want it.
+   administrator rights once and needs no network. Keyboard, touch and a gamepad all work.
+2. Setup checks your hardware. When a bundled device plugin matches it, setup says so and installs
+   that plugin, plus the virtual controller (VIIPER, the USB/IP driver and HidHide) when the plugin
+   needs it; the driver step restarts USB and asks for a reboot. With no match you get plain WSGM.
+   Then pick:
+   - **Full** or **Minimal**: every integration on, or the WSGM session only.
+   - **Steam first** boots into Game Mode; **Desktop first** starts WSGM with Windows and waits in
+     the notification area, with Game Mode one press away.
+   - **Customize** switches each integration on or off, including taking over how Steam starts.
 
-   The mode decides where the first run starts and whether the device integration is on. Everything
-   it chooses is a normal setting afterwards, and re-running setup to repair or upgrade never
-   changes what you set. **Custom** picks components by hand and leaves the settings at their
-   defaults.
+   Everything setup asks is a normal setting afterwards, and running setup again to repair or update
+   never changes what you set.
 
 3. Open WSGM. Steam is detected automatically, and you can add startup apps from the suggestions,
    which detect Handheld Companion and friends too. Every first-run choice was already asked by
@@ -250,10 +249,11 @@ the exact log lines, budgets and dates it summarizes.
    to start Steam; WSGM Settings changes any of them later.
 
 **Upgrading:** run the newer setup. **Uninstalling:** Windows Settings > Apps > WSGM. It restores
-every machine setting it changed and removes its files.
+every machine setting it changed, always shows your controller to games again, and removes its
+files. It keeps your settings unless you untick that, and can leave USB/IP or HidHide installed.
 
-Building from source: `.\build.ps1` (needs the .NET SDK, Rust with the MSVC toolchain, Go, Git, a
-cgo-capable GCC, and Inno Setup 6), which produces `publish\WSGM-Setup-<version>.exe`.
+Building from source: `.\build.ps1` (needs the .NET SDK, Rust with the MSVC toolchain, Go, Git and a
+cgo-capable GCC), which produces `publish\WSGM-Setup-<version>.exe`.
 
 ## Credits
 

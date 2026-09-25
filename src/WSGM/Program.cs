@@ -124,7 +124,7 @@ public static class Program
             return 0;
         }
 
-        // Quiet shell-registration restore for the Inno uninstaller: no explorer
+        // Quiet shell-registration restore for the setup's uninstall: no explorer
         // start, no UI — the uninstaller drives everything else.
         if (flags.Contains("--unregister-shell"))
         {

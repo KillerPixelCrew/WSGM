@@ -4,7 +4,7 @@ namespace WSGM.LogonService;
 
 /// <summary>
 ///     Entry point: SCM dispatcher by default, elevated install/uninstall
-///     one-shots for the Inno installer.
+///     one-shots for WSGM setup.
 /// </summary>
 internal static class Program
 {

@@ -1,7 +1,6 @@
-# Dev-only deploy: publish WSGM and swap it into the local install WITHOUT the installer.
+# Dev-only deploy: publish WSGM and swap it into the local install WITHOUT running setup.
 #
-# The installer round-trip costs minutes and a UAC prompt for what is, on the dev box, a file
-# copy. Steam must restart anyway so the injected bootstrap and any WSGM-defined
+# The setup round-trip costs minutes for what is, on the dev box, a file copy. Steam must restart anyway so the injected bootstrap and any WSGM-defined
 # SteamClient.System.* namespaces are rebuilt from scratch — a bridge left over from the previous
 # build keeps running the OLD injected script until Steam restarts, and a fix then appears to do
 # nothing (see docs\steam-cef.md).
@@ -10,9 +9,10 @@
 # watching when Steam's SharedJSContext appears.
 #
 # This script is for the attended dev loop only. It is not part of any release path, CI never
-# calls it, and it deliberately does not touch WSGM.LogonService.exe (Program Files, elevation,
-# and it changes rarely). Unless -SkipPlugin or -Desktop is given, it rebuilds the Claw device
-# package and swaps it into the administrator-owned plugin slot behind one elevation prompt.
+# calls it, and it deliberately does not touch WSGM.LogonService.exe (it changes rarely, and the
+# service holds it). WSGM lives under %ProgramFiles%\WSGM\App, so the swap runs behind one
+# elevation prompt. Unless -SkipPlugin or -Desktop is given, the same prompt also drops a freshly
+# built Claw device package into %ProgramFiles%\WSGM\Plugins.
 [CmdletBinding()]
 param(
     # Skip the publish and swap whatever publish\App already holds — for iterating on the swap
@@ -58,11 +58,12 @@ if ($Desktop) {
 
 $root = Split-Path -Parent $PSScriptRoot
 $appPublish = Join-Path $root 'publish\App'
-$binDirectory = Join-Path $env:LOCALAPPDATA 'WSGM\bin'
+$appDirectory = Join-Path $env:ProgramFiles 'WSGM\App'
+$pluginsRoot = Join-Path $env:ProgramFiles 'WSGM\Plugins'
 $steamExe = 'C:\Program Files (x86)\Steam\steam.exe'
 
-if (-not (Test-Path -LiteralPath $binDirectory)) {
-    throw "No installed WSGM at $binDirectory - run the real installer once first."
+if (-not (Test-Path -LiteralPath (Join-Path $appDirectory 'WSGM.exe'))) {
+    throw "No installed WSGM at $appDirectory - run WSGM setup once first."
 }
 
 if (-not $SkipBuild) {
@@ -159,65 +160,37 @@ do {
     Start-Sleep -Milliseconds 250
 } while ($stopDeadline.Elapsed -lt [TimeSpan]::FromSeconds(10))
 
-Write-Host "== Swapping files into $binDirectory ==" -ForegroundColor Cyan
-# WSGM.exe plus everything the publish stages beside it that the installer would also place in
-# {app}: the launch wrapper and the native helper DLLs. The ShellAnchor is the same binary under
-# the shell-registration name; leaving it stale would run two different builds in one session.
-# The exe copies retry briefly: a killed process releases its image lock a beat after the process
-# object dies, and the watchdog respawn can hold it for a moment more. Each failed attempt stops the
-# named process in this session again.
-function Copy-WithRetry([string]$Source, [string]$Destination, [string]$ProcessName) {
-    for ($attempt = 1; $attempt -le 10; $attempt++) {
-        try {
-            Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
-            return $true
-        } catch [System.IO.IOException] {
-            Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
-                Where-Object SessionId -eq $sessionId |
-                Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
-            Start-Sleep -Milliseconds 500
-        }
-    }
-    return $false
-}
-
-if (-not (Copy-WithRetry $newExe (Join-Path $binDirectory 'WSGM.exe') 'WSGM')) {
-    throw "WSGM.exe stayed locked through 10 copy attempts - is something else holding $binDirectory\WSGM.exe?"
-}
-$anchor = Join-Path $binDirectory 'WSGM.ShellAnchor.exe'
-# A desktop session keeps a live anchor process (Explorer's launch parent) that holds this image. It
-# is inert after Explorer is up, so stop it rather than shipping a stale anchor.
-if ((Test-Path -LiteralPath $anchor) -and -not (Copy-WithRetry $newExe $anchor 'WSGM.ShellAnchor')) {
-    throw "WSGM.ShellAnchor.exe stayed locked through 10 copy attempts."
-}
-# WSGM.deps.json is in this list because the host reads it to decide what may be loaded at all. A
-# swap that copies a new assembly but leaves the old dependency manifest produces the worst possible
-# failure: the DLL is sitting in the directory and the runtime still reports
-# "Could not load file or assembly", so every diagnostic points at a file that is plainly present.
-# That is exactly what a dev-deploy did on the reference Claw on 2026-09-11, the first swap after
-# WSGM.Plugin.Sdk became a project reference — WSGM crashed on start, and the manifest in bin was
-# six weeks older than the assembly beside it. runtimeconfig.json travels with it for the same
-# reason: both are generated by the publish and both describe the set that was just copied.
+# What the setup payload would place in App: WSGM.exe, the launch wrappers and the managed and native
+# libraries. The ShellAnchor is the same binary under the shell-registration name; leaving it stale
+# would run two different builds in one session. WSGM.deps.json is in this list because the host
+# reads it to decide what may be loaded at all. A swap that copies a new assembly but leaves the old
+# dependency manifest produces the worst possible failure: the DLL is sitting in the directory and
+# the runtime still reports "Could not load file or assembly", so every diagnostic points at a file
+# that is plainly present. That is exactly what a dev-deploy did on the reference Claw on
+# 2026-09-11, the first swap after WSGM.Plugin.Sdk became a project reference. runtimeconfig.json
+# travels with it for the same reason: both describe the set that was just copied.
+$copies = [Collections.Generic.List[object]]::new()
+$copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = 'WSGM' })
+$copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.ShellAnchor' })
 foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
     'WSGM.runtimeconfig.json') {
-    Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $binDirectory $_.Name) -Force
-        }
+    foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
+        $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
+    }
 }
 
+$packageFile = ''
+$packageId = ''
 if (-not $SkipPlugin) {
-    # The installed device plugin is a separate package under Program Files that the WSGM bin swap
-    # never touches, so a dev loop that changes the SDK leaves a stale plugin the running host
-    # rejects as api-incompatible (device features silently gone). Rebuild it from the device
-    # projects in this checkout exactly as the installer does, then copy the package file into the
-    # protected Plugins folder. Only this step needs elevation, so it is the one UAC prompt of a dev
-    # deploy.
-    Write-Host '== Staging device plugin from WSGM source ==' -ForegroundColor Cyan
+    # The device plugin is a separate package file the App swap never touches, so a dev loop that
+    # changes the SDK leaves a stale plugin the running host rejects as api-incompatible (device
+    # features silently gone). Rebuild it from the device projects in this checkout exactly as the
+    # release bundle does.
+    Write-Host '== Packing the device plugin from WSGM source ==' -ForegroundColor Cyan
     $pluginStage = Join-Path $root 'publish\DevDeviceComponents'
     Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
-    # The staging script fails by throwing; $LASTEXITCODE after a script call only repeats its last
-    # native command. A staging run that returns without a package is caught by the count below.
+    # The bundle script fails by throwing; $LASTEXITCODE after a script call only repeats its last
+    # native command. A run that returns without a package is caught by the count below.
     & "$root\eng\build-bundle.ps1" -OutputRoot $pluginStage -Only 'wsgm.device.msi.claw-8-a2vm' `
         -SkipTools -SkipCommunity
 
@@ -228,33 +201,67 @@ if (-not $SkipPlugin) {
     }
     $packageFile = $stagedPackage[0].FullName
     $packageId = ($stagedPackage[0].BaseName -replace '-[0-9][0-9.]*$', '')
-    $pluginsRoot = Join-Path $env:ProgramFiles 'WSGM\Plugins'
+}
 
-    Write-Host "== Installing device plugin $packageId (elevation required) ==" -ForegroundColor Cyan
-    # WSGM is stopped, so no package file is held open. Copy beside the target and rename so the
-    # folder never holds a half-written package, then drop every other build of this id, which a dev
-    # deploy owns. Nothing else in the folder is touched.
-    $install = @"
-`$ErrorActionPreference = 'Stop'
-`$pluginsRoot = '$pluginsRoot'
-`$packageFile = '$packageFile'
-`$packageId = '$packageId'
-New-Item -ItemType Directory -Path `$pluginsRoot -Force | Out-Null
-`$target = Join-Path `$pluginsRoot (Split-Path -Leaf `$packageFile)
-`$incoming = "`$target.incoming"
-Copy-Item -LiteralPath `$packageFile -Destination `$incoming -Force
-Get-ChildItem -LiteralPath `$pluginsRoot -File -Filter "`$packageId-*.wsgmpkg" |
-    Where-Object { `$_.FullName -ne `$target } |
-    Remove-Item -Force
-Move-Item -LiteralPath `$incoming -Destination `$target -Force
-"@
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($install))
-    $elevated = Start-Process -FilePath 'powershell.exe' `
-        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) `
-        -Verb RunAs -Wait -PassThru
-    if ($elevated.ExitCode -ne 0) {
-        throw "Elevated device plugin install failed (exit $($elevated.ExitCode))."
+Write-Host "== Swapping files into $appDirectory (elevation required) ==" -ForegroundColor Cyan
+$request = Join-Path $root 'publish\dev-deploy-request.json'
+[ordered]@{
+    SessionId = $sessionId
+    AppDirectory = $appDirectory
+    Copies = $copies
+    PluginsRoot = $pluginsRoot
+    PackageFile = $packageFile
+    PackageId = $packageId
+} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $request -Encoding UTF8
+
+# The exe copies retry briefly: a killed process releases its image lock a beat after the process
+# object dies, and the watchdog respawn can hold it for a moment more. Each failed attempt stops the
+# named process in this session again. A desktop session keeps a live anchor process (Explorer's
+# launch parent) that holds its image; it is inert once Explorer is up, so it is stopped rather than
+# left stale. The plugin is copied beside its target and renamed so the folder never holds a
+# half-written package, then every other build of that id, which a dev deploy owns, is removed.
+# Nothing else in the folder is touched.
+$swap = @'
+param([string]$RequestPath)
+$ErrorActionPreference = 'Stop'
+$request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+foreach ($copy in $request.Copies) {
+    $target = Join-Path $request.AppDirectory $copy.Name
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $copy.Source -Destination $target -Force -ErrorAction Stop
+            break
+        } catch [System.IO.IOException] {
+            if ($attempt -ge 10 -or -not $copy.Process) {
+                throw "$($copy.Name) stayed locked through $attempt copy attempts."
+            }
+            Get-Process -Name $copy.Process -ErrorAction SilentlyContinue |
+                Where-Object SessionId -eq $request.SessionId |
+                Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 500
+        }
     }
+}
+if ($request.PackageFile) {
+    New-Item -ItemType Directory -Path $request.PluginsRoot -Force | Out-Null
+    $target = Join-Path $request.PluginsRoot (Split-Path -Leaf $request.PackageFile)
+    $incoming = "$target.incoming"
+    Copy-Item -LiteralPath $request.PackageFile -Destination $incoming -Force
+    Get-ChildItem -LiteralPath $request.PluginsRoot -File -Filter "$($request.PackageId)-*.wsgmpkg" |
+        Where-Object { $_.FullName -ne $target } |
+        Remove-Item -Force
+    Move-Item -LiteralPath $incoming -Destination $target -Force
+}
+'@
+$swapScript = Join-Path $root 'publish\dev-deploy-swap.ps1'
+Set-Content -LiteralPath $swapScript -Value $swap -Encoding UTF8
+$elevated = Start-Process -FilePath 'powershell.exe' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$swapScript`"", '-RequestPath', "`"$request`"") `
+    -Verb RunAs -Wait -PassThru
+if ($elevated.ExitCode -ne 0) {
+    throw "Elevated swap failed (exit $($elevated.ExitCode))."
+}
+if ($packageId) {
     Write-Host "Device plugin $packageId installed." -ForegroundColor Green
 }
 
@@ -264,7 +271,7 @@ if ($NoRestart) {
 }
 
 Write-Host "== Starting WSGM $WsgmArguments, then Steam Big Picture ==" -ForegroundColor Cyan
-Start-Process -FilePath (Join-Path $binDirectory 'WSGM.exe') -ArgumentList $WsgmArguments
+Start-Process -FilePath (Join-Path $appDirectory 'WSGM.exe') -ArgumentList $WsgmArguments
 Start-Sleep -Seconds 6
 if (-not (Get-Process WSGM -ErrorAction SilentlyContinue)) {
     throw 'WSGM did not stay running after the swap - check %LOCALAPPDATA%\WSGM\wsgm.log.'
