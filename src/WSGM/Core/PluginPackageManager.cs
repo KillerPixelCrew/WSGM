@@ -22,21 +22,64 @@ public enum PluginPackageAction
     Remove
 }
 
-/// <summary>One line of the Plugins page.</summary>
+/// <summary>The colour a badge takes on the Plugins page.</summary>
+public enum PluginBadgeTone
+{
+    /// <summary>Facts with no judgement: version, kind, a local build.</summary>
+    Neutral,
+
+    /// <summary>First-party.</summary>
+    Accent,
+
+    /// <summary>Community.</summary>
+    Community,
+
+    /// <summary>Available to install.</summary>
+    Info,
+
+    /// <summary>Installed, hardware-tested.</summary>
+    Good,
+
+    /// <summary>Blind, or being removed.</summary>
+    Warn,
+
+    /// <summary>Refused or outdated.</summary>
+    Bad
+}
+
+/// <summary>One badge on a Plugins page row.</summary>
+/// <param name="Text">What it says.</param>
+/// <param name="Tone">Its colour.</param>
+public sealed record PluginBadge(string Text, PluginBadgeTone Tone);
+
+/// <summary>Which part of the Plugins page a row belongs to.</summary>
+public enum PluginPackageSection
+{
+    /// <summary>A file in the Plugins folder, loaded or not.</summary>
+    Installed,
+
+    /// <summary>Bundled with this release and installable here.</summary>
+    Available,
+
+    /// <summary>Bundled but not for this hardware, or outdated.</summary>
+    Unavailable
+}
+
+/// <summary>One plugin on the Plugins page.</summary>
 /// <param name="Id">Plugin id.</param>
 /// <param name="Name">Display name.</param>
-/// <param name="Version">Version, or empty for an unreadable file.</param>
-/// <param name="Status">Installed, available, not for this hardware, superseded or refused.</param>
-/// <param name="Badges">Origin and validation, or "Local build" when the file is not from the bundle.</param>
+/// <param name="Section">Installed, available or unavailable.</param>
+/// <param name="IsDevice">Whether it is a device plugin rather than an integration.</param>
+/// <param name="Badges">Status first, then version, kind, origin and validation.</param>
 /// <param name="Notice">What needs attention, or empty.</param>
 /// <param name="Action">The one action the row offers.</param>
 /// <param name="PackagePath">The installed file, or the bundled file to install.</param>
 public sealed record PluginPackageRowState(
     string Id,
     string Name,
-    string Version,
-    string Status,
-    string Badges,
+    PluginPackageSection Section,
+    bool IsDevice,
+    IReadOnlyList<PluginBadge> Badges,
     string Notice,
     PluginPackageAction Action,
     string PackagePath);
@@ -64,52 +107,60 @@ internal static class PluginPackageManager
         List<PluginPackageRowState> rows = [];
         var pending = PendingPluginRemovals.Read();
 
-        void AddInstalled(string path, string id, string name, string version, IReadOnlyList<SetupComponent> needs)
+        void AddInstalled(string path, string id, string name, string version, bool isDevice,
+            IReadOnlyList<SetupComponent> needs, string? refusal)
         {
             var bundled = bundle?.ByHash(Hash(path));
             var removal = pending.Contains(path, StringComparer.OrdinalIgnoreCase);
-            var notice = removal
-                ? "Removed at the next start."
-                : needs.Count == 0
-                    ? ""
-                    : "Needs " + string.Join(", ", needs.Select(SetupComponents.DisplayName))
-                               + ". Run Repair if it is missing.";
-            rows.Add(new PluginPackageRowState(id, name, version, removal ? "Removing" : "Installed",
-                bundled is null ? "Local build" : Badges(bundled), notice,
+            var status = refusal is not null
+                ? new PluginBadge("Refused", PluginBadgeTone.Bad)
+                : removal
+                    ? new PluginBadge("Removing", PluginBadgeTone.Warn)
+                    : new PluginBadge("Installed", PluginBadgeTone.Good);
+            var notice = refusal
+                         ?? (removal
+                             ? "Removed at the next start."
+                             : needs.Count == 0
+                                 ? ""
+                                 : "Needs " + string.Join(", ", needs.Select(SetupComponents.DisplayName))
+                                            + ". Run Repair if it is missing.");
+            IReadOnlyList<PluginBadge> origin = bundled is null
+                ? [new PluginBadge("Local build", PluginBadgeTone.Neutral)]
+                : Provenance(bundled);
+            rows.Add(new PluginPackageRowState(id, name, PluginPackageSection.Installed, isDevice,
+                [status, .. Facts(version, isDevice), .. origin], notice,
                 removal ? PluginPackageAction.None : PluginPackageAction.Remove, path));
         }
 
         if (catalog.Device.InstalledPackage is { Manifest: { } device } installed)
         {
-            AddInstalled(installed.PackagePath, device.Id, device.Name, device.Version,
-                SetupComponents.Required(device.Capabilities));
-            if (!installed.Valid)
-            {
-                rows[^1] = rows[^1] with
-                {
-                    Status = "Refused",
-                    Notice = installed.Detail ?? installed.RejectionCode ?? "The package did not pass validation."
-                };
-            }
+            AddInstalled(installed.PackagePath, device.Id, device.Name, device.Version, true,
+                SetupComponents.Required(device.Capabilities),
+                installed.Valid
+                    ? null
+                    : installed.Detail ?? installed.RejectionCode ?? "The package did not pass validation.");
         }
 
         foreach (var file in catalog.Device.Inventory.PackageFiles.Where(_ => catalog.Device.ErrorCode is not null))
         {
-            rows.Add(new PluginPackageRowState(Path.GetFileNameWithoutExtension(file), Path.GetFileName(file), "",
-                "Refused", "", "More than one device plugin is installed. Remove all but one.",
-                PluginPackageAction.Remove, file));
+            rows.Add(new PluginPackageRowState(Path.GetFileNameWithoutExtension(file), Path.GetFileName(file),
+                PluginPackageSection.Installed, true, [new PluginBadge("Refused", PluginBadgeTone.Bad)],
+                "More than one device plugin is installed. Remove all but one.", PluginPackageAction.Remove, file));
         }
 
         foreach (var common in catalog.Common)
         {
-            AddInstalled(common.PackagePath, common.Manifest.Id, common.Manifest.Name, common.Manifest.Version, []);
+            AddInstalled(common.PackagePath, common.Manifest.Id, common.Manifest.Name, common.Manifest.Version,
+                false, [], null);
         }
 
         rows.AddRange(catalog.Superseded.Select(superseded => new PluginPackageRowState(superseded.Id,
-            Path.GetFileName(superseded.PackagePath), "", "Superseded", "", superseded.Reason,
-            PluginPackageAction.Remove, superseded.PackagePath)));
-        rows.AddRange(catalog.Errors.Select(error => new PluginPackageRowState("", error.Split(':')[0], "", "Refused",
-            "", error, PluginPackageAction.None, "")));
+            Path.GetFileName(superseded.PackagePath), PluginPackageSection.Installed, false,
+            [new PluginBadge("Superseded", PluginBadgeTone.Neutral)], superseded.Reason, PluginPackageAction.Remove,
+            superseded.PackagePath)));
+        rows.AddRange(catalog.Errors.Select(error => new PluginPackageRowState("", error.Split(':')[0],
+            PluginPackageSection.Installed, false, [new PluginBadge("Refused", PluginBadgeTone.Bad)], error,
+            PluginPackageAction.None, "")));
 
         if (bundle is null || offers is null)
         {
@@ -120,22 +171,35 @@ internal static class PluginPackageManager
         foreach (var offer in offers.DeviceCandidates.Where(offer => !offer.Installed))
         {
             var blocked = installedDevice is not null;
-            rows.Add(new PluginPackageRowState(offer.Plugin.Id, offer.Plugin.Name, offer.Plugin.Version,
-                "Available for this device", Badges(offer.Plugin),
+            rows.Add(new PluginPackageRowState(offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available,
+                true,
+                [
+                    new PluginBadge("For this device", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, true),
+                    .. Provenance(offer.Plugin)
+                ],
                 blocked ? $"Remove {installedDevice} first: only one device plugin runs." : Contact(offer.Plugin),
                 blocked ? PluginPackageAction.None : PluginPackageAction.Install,
                 Path.Combine(bundledPackages, offer.Plugin.File)));
         }
 
         rows.AddRange(offers.Common.Where(offer => !offer.Installed).Select(offer => new PluginPackageRowState(
-            offer.Plugin.Id, offer.Plugin.Name, offer.Plugin.Version, "Available", Badges(offer.Plugin),
+            offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available, false,
+            [
+                new PluginBadge("Available", PluginBadgeTone.Info), .. Facts(offer.Plugin.Version, false),
+                .. Provenance(offer.Plugin)
+            ],
             Contact(offer.Plugin), PluginPackageAction.Install, Path.Combine(bundledPackages, offer.Plugin.File))));
         rows.AddRange(offers.NotForThisHardware.Select(plugin => new PluginPackageRowState(plugin.Id, plugin.Name,
-            plugin.Version, "Not for this hardware", Badges(plugin), "", PluginPackageAction.None, "")));
-        rows.AddRange(bundle.Outdated.Select(outdated => new PluginPackageRowState(outdated.Id, outdated.Id, "",
-            "Outdated", "Community",
-            $"No build for WSGM {bundle.WsgmVersion}." +
-            (outdated.Contact is null ? "" : $" Developer: {outdated.Contact}"),
+            PluginPackageSection.Unavailable, true,
+            [
+                new PluginBadge("Not for this device", PluginBadgeTone.Neutral), .. Facts(plugin.Version, true),
+                .. Provenance(plugin)
+            ], "", PluginPackageAction.None, "")));
+        rows.AddRange(bundle.Outdated.Select(outdated => new PluginPackageRowState(outdated.Id, outdated.Id,
+            PluginPackageSection.Unavailable, false,
+            [new PluginBadge("Outdated", PluginBadgeTone.Bad), new PluginBadge("Community", PluginBadgeTone.Community)],
+            $"No build for WSGM {bundle.WsgmVersion}."
+            + (outdated.Contact is null ? "" : $" Developer: {outdated.Contact}"),
             PluginPackageAction.None, "")));
         return rows;
     }
@@ -194,10 +258,29 @@ internal static class PluginPackageManager
                && full.IndexOf(Path.DirectorySeparatorChar, prefix.Length) < 0;
     }
 
-    private static string Badges(BundledPlugin plugin)
+    // Version and kind: facts every row with a manifest carries.
+    private static IEnumerable<PluginBadge> Facts(string version, bool isDevice)
     {
-        return (plugin.Community ? "Community" : "First-party") + " · "
-                                                                + (plugin.HardwareTested ? "Hardware-tested" : "Blind");
+        if (version.Length > 0)
+        {
+            yield return new PluginBadge("v" + version, PluginBadgeTone.Neutral);
+        }
+
+        yield return new PluginBadge(isDevice ? "Device" : "Integration", PluginBadgeTone.Neutral);
+    }
+
+    // Origin and validation, which only the maintainer's curation sets.
+    private static PluginBadge[] Provenance(BundledPlugin plugin)
+    {
+        return
+        [
+            plugin.Community
+                ? new PluginBadge("Community", PluginBadgeTone.Community)
+                : new PluginBadge("First-party", PluginBadgeTone.Accent),
+            plugin.HardwareTested
+                ? new PluginBadge("Hardware-tested", PluginBadgeTone.Good)
+                : new PluginBadge("Blind", PluginBadgeTone.Warn)
+        ];
     }
 
     private static string Contact(BundledPlugin plugin)
