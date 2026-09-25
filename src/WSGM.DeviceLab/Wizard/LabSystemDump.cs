@@ -66,7 +66,7 @@ internal sealed record LabSystemDumpContext(
 
     /// <summary>
     ///     Whether the preflight's device owner reservation is held, so no WSGM device integration can
-    ///     touch the embedded controller or processor registers while they are read.
+    ///     touch the processor's power firmware while it is read.
     /// </summary>
     public bool OwnerReserved { get; init; }
 
@@ -85,10 +85,13 @@ internal sealed record LabSystemDumpContext(
 
 /// <summary>
 ///     The read-only system dump: ACPI tables, SMBIOS, the device tree, HID collections, serial ports,
-///     WMI, sensors, the EC registers, display, battery and power, CPU, memory and CPU power limits.
+///     WMI, sensors, display, battery and power, CPU, memory and the processor's power firmware.
 ///     Nothing on the machine is changed.
 /// </summary>
 /// <remarks>
+///     The embedded controller is described by the saved ACPI tables and never read directly: raw
+///     0x62/0x66 port access races Windows' own EC driver and the firmware, and a full register scan
+///     was the leading suspect when an ROG Xbox Ally X hard-reset twice after this dump (2026-09-25).
 ///     Every section is optional. A section that throws is recorded as failed and the next one still
 ///     runs, so one broken provider never costs the tester the rest of the dump. Serial numbers, UUIDs,
 ///     asset tags, licence tables and MAC addresses are never collected.
@@ -106,7 +109,6 @@ internal static partial class LabSystemDump
         new("wmi", "WMI classes", CollectWmi),
         new("inventory", "Device summary", CollectInventory),
         new("sensors", "Sensors", CollectSensors),
-        new("ec", "Embedded controller", CollectEc),
         new("display", "Display", CollectDisplay),
         new("battery-power", "Battery and power", CollectBatteryPower),
         new("cpu", "Processor and memory", CollectCpu),

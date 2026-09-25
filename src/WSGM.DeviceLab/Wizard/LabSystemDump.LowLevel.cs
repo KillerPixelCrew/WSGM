@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
@@ -14,63 +13,7 @@ internal static partial class LabSystemDump
 
     private const string NoOwnerSummary = "skipped: run \"Get ready\" first";
 
-    // A read-only dump of the 256 ACPI EC registers, to line up with the DSDT's EC OperationRegion.
-    private static LabSystemDumpSectionResult CollectEc(LabSystemDumpContext context)
-    {
-        if (!context.Elevated)
-        {
-            return Skipped("ec", "Reading the embedded controller needs administrator rights.");
-        }
-
-        if (!context.OwnerReserved)
-        {
-            return Skipped("ec", NoOwner, NoOwnerSummary);
-        }
-
-        var dump = LabLowLevel.ReadEcRegisters(context.Cancellation);
-        List<string> issues = dump.Problem is { } problem ? [problem] : [];
-        context.Write("ec", new
-        {
-            dump.Source,
-            dump.Problem,
-            Rows = dump.Registers is { } registers ? EcRows(registers) : null,
-            dump.Registers
-        });
-        return dump.Registers is { Count: > 0 } read
-            ? Result("ec", read.Count, Plural(read.Count, "register read", "registers read"), issues)
-            : new LabSystemDumpSectionResult
-            {
-                Id = "ec",
-                Status = LabSystemDumpSectionStatus.Failed,
-                Summary = "could not be read",
-                Issues = issues.Count > 0 ? issues : ["No registers were returned."]
-            };
-    }
-
-    /// <summary>Formats EC registers as sixteen per row, <c>"00: 12 34 ..."</c>, for reading beside the DSDT.</summary>
-    /// <param name="registers">Register values; a negative value means that register could not be read.</param>
-    /// <returns>One line per sixteen registers.</returns>
-    public static List<string> EcRows(IReadOnlyList<int> registers)
-    {
-        List<string> rows = [];
-        for (var start = 0; start < registers.Count; start += 16)
-        {
-            StringBuilder row = new(start.ToString("X2", CultureInfo.InvariantCulture) + ":");
-            for (var index = start; index < Math.Min(start + 16, registers.Count); index++)
-            {
-                row.Append(' ');
-                row.Append(registers[index] is >= 0 and <= 0xFF
-                    ? registers[index].ToString("X2", CultureInfo.InvariantCulture)
-                    : "??");
-            }
-
-            rows.Add(row.ToString());
-        }
-
-        return rows;
-    }
-
-    // AMD: the SMU codename and version. Intel: the MCHBAR base and MSR 0x610 (package power limits).
+    // AMD: the SMU codename and version. Intel: MSR 0x610 (package power limits).
     private static LabSystemDumpSectionResult CollectCpuPower(LabSystemDumpContext context)
     {
         if (!context.Elevated)
@@ -92,8 +35,6 @@ internal static partial class LabSystemDump
                 Vendor = vendor,
                 smu.CodeName,
                 smu.SmuVersion,
-                smu.MailboxSet,
-                smu.PmTable,
                 smu.Problem
             });
             return smu.CodeName is null && smu.SmuVersion is null

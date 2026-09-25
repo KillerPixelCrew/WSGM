@@ -245,15 +245,10 @@ public sealed class LabSystemDumpTests
     }
 
     [Fact]
-    public void EcRows_FormatsSixteenPerRowAndMarksUnreadRegisters()
+    public void Sections_NeverReadTheEmbeddedController()
     {
-        var registers = Enumerable.Range(0, 32).Select(value => value == 17 ? -1 : value).ToList();
-
-        var rows = LabSystemDump.EcRows(registers);
-
-        Assert.Equal(2, rows.Count);
-        Assert.StartsWith("00: 00 01 02", rows[0]);
-        Assert.StartsWith("10: 10 ?? 12", rows[1]);
+        // A raw 0x62/0x66 register scan was the leading suspect in two hard resets of an ROG Xbox Ally X.
+        Assert.DoesNotContain(LabSystemDump.Sections, section => section.Id == "ec");
     }
 
     [Fact]

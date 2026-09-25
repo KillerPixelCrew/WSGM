@@ -24,8 +24,8 @@ someone who is not a developer. It asks for administrator rights once, then:
 3. **System details.** Read-only: every ACPI table (from the registry, so every SSDT is kept, and
    never MSDM or SLIC), SMBIOS with serials, UUIDs and asset tags removed, the device tree, every
    HID collection with its caps, serial ports, WMI classes and methods, WinRT and legacy sensors
-   with every field, the 256 EC registers, the AMD SMU or Intel power-limit registers, display,
-   battery and power settings.
+   with every field, the AMD SMU identity or Intel power-limit registers, display, battery and power
+   settings. It never reads the embedded controller's registers; the ACPI tables describe it.
 4. **Buttons.** Runs a known device's controller init first (the Claw mode switch is switched back
    afterwards; the Ally button tables only on the tester's choice), or, for a device without a
    curated record, offers Handheld Companion's own mode commands one by one, each only if the tester

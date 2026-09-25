@@ -7,11 +7,11 @@ using LibreHardwareMonitor.Hardware;
 namespace WSGM.DeviceLab.Transports;
 
 /// <summary>One LibreHardwareMonitor sensor value.</summary>
-/// <param name="Hardware">Hardware name, for example the Super I/O chip or the CPU.</param>
-/// <param name="HardwareIdentifier">LHM hardware identifier, for example <c>/lpc/it8613e</c>.</param>
+/// <param name="Hardware">Hardware name, for example the CPU or GPU.</param>
+/// <param name="HardwareIdentifier">LHM hardware identifier, for example <c>/amdcpu/0</c>.</param>
 /// <param name="HardwareType">LHM hardware type.</param>
-/// <param name="Name">Sensor name, for example <c>Fan #1</c>.</param>
-/// <param name="Identifier">LHM sensor identifier, for example <c>/lpc/it8613e/fan/0</c>.</param>
+/// <param name="Name">Sensor name, for example <c>Core (Tctl/Tdie)</c>.</param>
+/// <param name="Identifier">LHM sensor identifier, for example <c>/amdcpu/0/temperature/2</c>.</param>
 /// <param name="Value">Value in the sensor type's unit (RPM, °C or percent), or null when not read.</param>
 internal sealed record LabLhmSensor(
     string Hardware,
@@ -45,14 +45,18 @@ internal sealed record LabLhmReading
 /// </summary>
 /// <remarks>
 ///     <para>
-///         It opens LHM's <c>Computer</c> once with the motherboard (Super I/O and EC tachometers), CPU and
-///         GPU groups, updates it for each reading, and closes it on dispose. It only reads sensor values; it
-///         never calls a control's <c>SetSoftware</c> or <c>SetDefault</c>, so LHM has nothing to restore.
+///         It opens LHM's <c>Computer</c> once with the CPU and GPU groups, the ones Handheld Companion
+///         uses, updates it for each reading, and closes it on dispose. It only reads sensor values; it never
+///         calls a control's <c>SetSoftware</c> or <c>SetDefault</c>, so LHM has nothing to restore.
 ///     </para>
 ///     <para>
-///         The controller and PSU groups stay off: their discovery sends commands to every FTDI serial port
-///         and to vendor USB HID devices (fan hubs, pumps, PSUs), which is a write to hardware the lab did not
-///         identify. Port and SMU access goes through PawnIO; without it LHM reports fewer sensors.
+///         The motherboard group stays off: its discovery writes Super I/O enter-configuration sequences to
+///         LPC ports and reads EC tachometers through the 0x62/0x66 ports, which on a handheld reach the
+///         embedded controller that Windows' EC driver and the firmware are using. It was on when an ROG Xbox
+///         Ally X hard-reset twice after the system dump (2026-09-25). The controller and PSU groups stay off
+///         too: their discovery sends commands to every FTDI serial port and to vendor USB HID devices (fan
+///         hubs, pumps, PSUs), which is a write to hardware the lab did not identify. SMU access goes through
+///         PawnIO; without it LHM reports fewer sensors.
 ///     </para>
 ///     <para>
 ///         LHM is not thread-safe, so every call on a session is serialized. Opening can take seconds and
@@ -209,7 +213,7 @@ internal sealed class LabLhmSensors : IDisposable
     {
         Computer computer = new()
         {
-            IsMotherboardEnabled = true,
+            IsMotherboardEnabled = false,
             IsCpuEnabled = true,
             IsGpuEnabled = true,
             IsControllerEnabled = false,

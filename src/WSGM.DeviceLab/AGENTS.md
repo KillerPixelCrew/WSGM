@@ -103,9 +103,14 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   collection that matches exactly, and never retried; a reversible one is recorded before it is
   sent and undone at the stage end and on the next start. Never add an EC write, a factory reset
   or a command whose meaning is unknown; list it as withheld instead.
-- `Transports/LabLhmSensors` reads fan RPM and temperatures through LibreHardwareMonitor for every
-  device. It never sets a control, and its controller and PSU groups stay off because their
-  discovery writes to FTDI serial ports and vendor USB HID devices.
+- `Transports/LabLhmSensors` reads temperatures (and any fan RPM the CPU or GPU reports) through
+  LibreHardwareMonitor for every device, with only the CPU and GPU groups on. It never sets a
+  control. The motherboard group stays off because its discovery writes Super I/O ports and reads
+  the EC; the controller and PSU groups stay off because their discovery writes to FTDI serial
+  ports and vendor USB HID devices.
+- Never read the embedded controller directly either, not even one register: raw 0x62/0x66 access
+  races Windows' EC driver and the firmware. It was the leading suspect when an ROG Xbox Ally X
+  hard-reset twice after the system dump (2026-09-25). The dump saves the ACPI tables instead.
 - The sleep stage waits for the tester's power button; the wizard never requests sleep itself.
 - Hardware stages (buttons, motion, rumble, power, sleep) start through `RunHardware`, which refuses
   without the preflight owner reservation. Output writes (rumble, TDP, fans, charge limit, lighting)

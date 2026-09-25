@@ -51,8 +51,9 @@ internal interface ILabAmdSmu : IDisposable
 ///     Raven and Dali. The module picks the mailbox for the codename. Limits are read back from the PM
 ///     table (float 0 STAPM, 2 fast, 4 slow, as ryzenadj reads them), never by sending a set command
 ///     with 0, which is how HC "reads" them and which writes a zero limit. Desktop parts are refused:
-///     their IDs and limits differ, and they are not handhelds. It runs only inside the hardware worker,
-///     behind <see cref="ILabAmdSmu" />.
+///     their IDs and limits differ, and they are not handhelds. Limits are read and written only inside
+///     the hardware worker, behind <see cref="ILabAmdSmu" />; the system dump opens it directly for
+///     <see cref="Identity" /> alone.
 /// </remarks>
 internal sealed class LabAmdSmu : ILabAmdSmu
 {
