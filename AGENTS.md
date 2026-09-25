@@ -138,10 +138,13 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - Before creating a PR, verify its head, intended base and actual diff. If the change is already on
   the base branch, report that state and obtain repair direction before changing branches or
   history. Do not manufacture review-base branches or substitute a different base to produce a PR.
-- Keep a pull request reviewable. A diff nobody can hold in their head does not get reviewed
-  properly, by a person or by a model. Split work that has natural seams into cohesive dependent
-  PRs; each stack base must be the branch of a real preceding PR. Preserve the maintainer's task
-  branch as the final head and document the merge order.
+- Deliver a feature as one complete pull request. Do not plan or open a stack of dependent PRs
+  unless the maintainer asks for one; each extra PR repeats the cleanup, the gate, the description
+  and the merges, and a partial slice leaves stubbed features on the default branch. Never report a
+  feature as done while any part of it is still a stub or placeholder.
+- When the maintainer does ask for a stack, each base must be the branch of a real preceding PR,
+  each title starts with `[stacked on #N]`, the maintainer's task branch stays the final head, and
+  the merge order is documented.
 - Reverting shared commits, rewriting published history, deleting remote branches or moving work
   to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
   exact local and remote state and propose a concrete repair before making further Git mutations.
@@ -258,7 +261,7 @@ Before `gh pr create`, and before a later push that changes anything under `src`
 
    Commit, then run `.\eng\verify.ps1` on that exact branch head and push only when it passes.
    The layout step diffs the working tree, so any uncommitted change under `src` or `tests` fails
-   it. For a stacked set, run it on the branch the change lands in, then merge that branch upward
+   it. For a stacked set the maintainer asked for, run it on the branch the change lands in, then merge that branch upward
    and push the rest without a second full run unless the merge itself changed code. For these
    pushes this section overrides the follow-up rule above.
 
