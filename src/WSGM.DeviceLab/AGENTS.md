@@ -87,7 +87,11 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
 - Input capture records every input from every device and attributes it afterwards. Never filter by
   device, VID/PID or usage page at capture time; the knowledge base may rank sources, not narrow them.
   `Capture/Live/LabInputCapture` is the one capture: Raw Input on every usage page present, low-level hooks,
-  XInput, Windows.Gaming.Input, WMI events, power and device changes. While a button step runs it
+  XInput, Windows.Gaming.Input, WMI events, power and device changes. WMI is the one exception to
+  "every source": it subscribes only to the vendor event classes a shipping manager already uses
+  (`VendorWmiEvents`) plus Windows' own. Subscribing enables the event in the owning driver, and
+  enabling every `root\wmi` class bugchecked an ROG Xbox Ally X three times (0x44, 2026-09-25).
+  While a button step runs it
   swallows Windows-key and Alt+Tab shortcuts after recording them, so a firmware chord cannot
   minimize the wizard; it suppresses nothing else. Presses are counted by key-up.
   Storage per step is bounded; baseline-noise reports are sampled and everything else that did not

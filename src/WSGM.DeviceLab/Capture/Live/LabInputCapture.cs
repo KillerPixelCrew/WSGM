@@ -453,36 +453,42 @@ internal sealed partial class LabInputCapture : IDisposable
             !noiseOnly && changed.Count > 0);
     }
 
+    // Vendor WMI event classes a shipping manager already subscribes to on its own devices, so enabling
+    // them runs firmware paths that are exercised every day. Handheld Companion 1.3.1.6 subscribes to
+    // MSI_Event on the Claw (ClawA1M.cs) and to nothing on ASUS, whose buttons arrive over HID.
+    private static readonly string[] VendorWmiEvents = ["MSI_Event"];
+
     private void StartWmi()
     {
-        // Providers such as MSI reject a subscription to the base event class. Subscribe to their
-        // concrete event classes instead, including OEM providers unknown to the device records.
+        // Never subscribe to every root\wmi event class. Each subscription makes Windows send the owning
+        // driver an enable request, and on an ROG Xbox Ally X one of them completed that request twice:
+        // bugcheck 0x44 in nt!WmipSendEnableDisableRequest from WmiPrvSE, three times on 2026-09-25.
+        foreach (var name in VendorWmiEvents)
+        {
+            if (WmiClassExists(@"root\wmi", name))
+            {
+                Watch(@"root\wmi", $"SELECT * FROM {name}");
+            }
+        }
+
+        Watch(@"root\wmi", "SELECT * FROM WmiMonitorBrightnessEvent");
+        Watch(@"root\cimv2", "SELECT * FROM Win32_PowerManagementEvent");
+        Watch(@"root\cimv2", "SELECT * FROM Win32_DeviceChangeEvent");
+    }
+
+    private bool WmiClassExists(string scope, string name)
+    {
         try
         {
-            using ManagementObjectSearcher search = new(@"root\wmi",
-                "SELECT * FROM meta_class WHERE __this ISA '__ExtrinsicEvent'");
+            using ManagementObjectSearcher search = new(scope, $"SELECT * FROM meta_class WHERE __CLASS = '{name}'");
             using var classes = search.Get();
-            foreach (ManagementBaseObject definition in classes)
-            {
-                using (definition)
-                {
-                    var name = Convert.ToString(definition["__CLASS"]);
-                    if (string.IsNullOrEmpty(name) || name.StartsWith("__", StringComparison.Ordinal)
-                        || !name.All(character => char.IsAsciiLetterOrDigit(character) || character == '_'))
-                    {
-                        continue;
-                    }
-
-                    Watch(@"root\wmi", $"SELECT * FROM {name}");
-                }
-            }
+            return classes.Count > 0;
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
         {
-            MarkUnavailable(@"wmi root\wmi event discovery", ex.Message);
+            MarkUnavailable($"wmi {scope} {name}", ex.Message);
+            return false;
         }
-        Watch(@"root\cimv2", "SELECT * FROM Win32_PowerManagementEvent");
-        Watch(@"root\cimv2", "SELECT * FROM Win32_DeviceChangeEvent");
     }
 
     private void Watch(string scope, string query)
