@@ -119,11 +119,13 @@ public sealed unsafe class TrayHost : IDisposable
             return null;
         }
 
-        if (ExplorerControl.IsRunningInSession())
+        if (ExplorerControl.IsDesktopShellRunning())
         {
-            // Explorer's own Shell_TrayWnd is (or will be) live; competing means a
-            // Z-order war (see class doc). Refuse loudly instead.
-            Log.Warn("Tray host not created: explorer is running in this session.");
+            // Explorer's own Shell_TrayWnd is live; competing means a Z-order war (see class
+            // doc). Refuse loudly instead. Only the desktop shell counts: a folder window or the
+            // retired shell process still winding down after its taskbar is gone owns no
+            // Shell_TrayWnd, and refusing on it failed every return to Game Mode (2026-09-25).
+            Log.Warn("Tray host not created: Explorer's desktop shell is running in this session.");
             return null;
         }
 

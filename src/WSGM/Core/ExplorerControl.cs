@@ -64,7 +64,7 @@ public static class ExplorerControl
     ///     exists only opens a File Explorer window. WSGM's own tray host also creates a
     ///     Shell_TrayWnd, which is why the owner must be the canonical explorer.exe.
     /// </remarks>
-    private static bool IsDesktopShellRunning()
+    internal static bool IsDesktopShellRunning()
     {
         var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
         if (!IsCurrentSessionWindow(taskbar))
