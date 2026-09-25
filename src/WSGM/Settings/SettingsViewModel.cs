@@ -242,6 +242,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         CefConnectedLibraryCarousel = _config.Cef.ConnectedLibraryCarousel;
         CefCarouselShowUninstalled = _config.Cef.CarouselShowUninstalled;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
+        CheckForUpdates = _config.CheckForUpdates;
+        LoadUpdateState();
         ResuspendUnexplainedWakes = _config.ResuspendUnexplainedWakes;
         var standby = _services.ReadStandby();
         ModernStandbyStatusText = standby.ArmedWakeSources.Count == 0
@@ -2130,6 +2132,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.Cef.ConnectedLibraryCarousel = CefConnectedLibraryCarousel;
         config.Cef.CarouselShowUninstalled = CefCarouselShowUninstalled;
         config.MuteWhileDisplayOff = MuteWhileDisplayOff;
+        config.CheckForUpdates = CheckForUpdates;
         config.ResuspendUnexplainedWakes = ResuspendUnexplainedWakes;
         config.LogVerbosity = VerboseLogging ? LogVerbosity.Verbose : LogVerbosity.Normal;
         config.Hotkey = _hotkey;
@@ -3062,7 +3065,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<ModernStandbyReport> ReadStandby,
         Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
         Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart,
-        Func<string?, AudioDiscovery>? ReadAudio = null)
+        Func<string?, AudioDiscovery>? ReadAudio = null,
+        Func<UpdateState>? ReadUpdates = null)
     {
         internal static SettingsServices Windows()
         {
@@ -3094,7 +3098,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 sources => SteamAutostartService.Apply(sources, true),
                 // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
                 // rather than whatever this machine has plugged in.
-                AudioDiscovery.Read);
+                AudioDiscovery.Read,
+                // The last update check, from the user's profile; a test that omits it sees none.
+                () => UpdateChecker.ReadState());
         }
 
         /// <summary>

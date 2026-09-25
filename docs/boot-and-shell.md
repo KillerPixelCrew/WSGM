@@ -541,6 +541,24 @@ restarts the WSGM image that was running, from wherever it ran, in the recorded 
 that its own uninstaller already removed cannot be restarted; setup says so and asks to run it
 again. `App.previous` is deleted after success.
 
+### Updates
+
+While the session runs, `Shell\UpdateMonitor` asks GitHub for the latest WSGM release once a day
+(`Core\UpdateChecker`), two minutes after start at the earliest, and only when **Check for updates**
+is on in Settings > System. The latest-release endpoint never returns a prerelease, and a failed or
+offline check changes nothing. The result is kept in `%LOCALAPPDATA%\WSGM\update.json`, which
+Settings reads; nothing is downloaded until the user asks.
+
+Before offering a release, the check reads its `bundle.json`. An installed community plugin the new
+bundle does not carry, because its pinned commit did not build against the new SDK, is named with
+its developer contact, and staying on the current version is recommended. It is a warning, not a
+block: after the update the new WSGM refuses that file for its `wsgmVersion`.
+
+**Update** asks for confirmation, because the setup closes Steam and WSGM. It then downloads the
+setup to `%ProgramData%\WSGM\Updates`, compares it with the release's `.sha256` file, deletes it on
+a mismatch, and runs `WSGM.Setup.exe /quiet /update`. The quiet update keeps the user's answers and
+device plugin, and restarts WSGM in the mode it was running in.
+
 ### Uninstall
 
 `WSGM.Setup.exe /uninstall` from `%ProgramFiles%\WSGM\Setup`, which the Installed apps entry points

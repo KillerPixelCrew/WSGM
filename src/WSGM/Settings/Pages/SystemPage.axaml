@@ -59,6 +59,47 @@
               </ComboBox>
             </StackPanel>
           </Border>
+
+          <Border Classes="section-header">
+            <TextBlock Text="UPDATES" />
+          </Border>
+          <Border Classes="setting-row alt">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="Check for updates" Classes="setting-title" />
+                <TextBlock
+                  Text="Looks for a newer WSGM release once a day and shows it here. Nothing is downloaded or installed until you choose to update."
+                  Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" IsChecked="{Binding CheckForUpdates}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock Text="{Binding UpdateStatusText}" Classes="caption" TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <Button Content="Check now" Command="{Binding CheckForUpdatesNowCommand}"
+                          IsEnabled="{Binding !UpdateBusy}" />
+                  <Button Content="Update" Command="{Binding RequestUpdateCommand}" IsVisible="{Binding UpdateAvailable}"
+                          IsEnabled="{Binding !UpdateBusy}" />
+                </StackPanel>
+              </Grid>
+              <TextBlock Text="{Binding UpdateWarningText}" IsVisible="{Binding HasUpdateWarning}" TextWrapping="Wrap"
+                         Foreground="{StaticResource HcWarningBrush}" />
+              <!-- The update closes Steam, so a game in progress would lose unsaved state. -->
+              <StackPanel Spacing="6" IsVisible="{Binding UpdateConfirmPending}">
+                <TextBlock
+                  Text="Updating closes Steam and WSGM. Save and quit any game first. WSGM starts again when the update is done."
+                  Classes="caption" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Update now" Command="{Binding ApplyUpdateCommand}" />
+                  <Button Content="Cancel" Command="{Binding CancelUpdateCommand}" />
+                </StackPanel>
+              </StackPanel>
+            </StackPanel>
+          </Border>
         </StackPanel>
 
         <StackPanel Grid.Column="2">

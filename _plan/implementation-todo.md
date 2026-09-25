@@ -92,7 +92,15 @@ https://claude.ai/artifact/Es8vqd9TjDNUBuBgpyXM3G. Delivered as five stacked PRs
       - [ ] Manual test: clean install on the Claw, update to a newer setup, repair, uninstall with
             WSGM broken, uninstall keeping HidHide (controller visible afterwards), `/quiet` via
             dev-deploy, install with Wi-Fi off. After that, the `WSGM.Tests.Setup` suites.
-- [ ] PR 5: updater.
+- [ ] PR 5 (`feat/setup-and-updates`, stacked on PR 4), implemented, awaiting the manual test:
+      - [x] `Core\UpdateChecker` reads the latest GitHub release (prereleases and releases without a
+            setup and its `.sha256` are ignored), compares versions, reads the release's
+            `bundle.json` for dropped community plugins, downloads and verifies the setup, and runs
+            `/quiet /update`. `Shell\UpdateMonitor` checks once a day while the session runs.
+      - [x] Settings > System > UPDATES: the Check for updates toggle (`AppConfig.CheckForUpdates`,
+            on by default), the last result, Check now, and Update with a confirmation that it
+            closes Steam. The overlay notice waits for the overlay redesign in #114.
+      - [ ] Manual test: update to a test release. After that, `UpdateCheckerTests`.
 
 ## Device Lab attended wizard (2026-09-24, in progress)
 

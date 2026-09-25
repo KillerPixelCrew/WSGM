@@ -248,9 +248,10 @@ the exact log lines, budgets and dates it summarizes.
    setup, including taking over the Run entries, Startup shortcuts or scheduled tasks Windows uses
    to start Steam; WSGM Settings changes any of them later.
 
-**Upgrading:** run the newer setup. **Uninstalling:** Windows Settings > Apps > WSGM. It restores
-every machine setting it changed, always shows your controller to games again, and removes its
-files. It keeps your settings unless you untick that, and can leave USB/IP or HidHide installed.
+**Upgrading:** WSGM checks for a new release once a day and offers it in Settings > System, or run
+the newer setup yourself. **Uninstalling:** Windows Settings > Apps > WSGM. It restores every
+machine setting it changed, always shows your controller to games again, and removes its files. It
+keeps your settings unless you untick that, and can leave USB/IP or HidHide installed.
 
 Building from source: `.\build.ps1` (needs the .NET SDK, Rust with the MSVC toolchain, Go, Git and a
 cgo-capable GCC), which produces `publish\WSGM-Setup-<version>.exe`.
