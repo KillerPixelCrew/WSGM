@@ -69,6 +69,21 @@ public sealed class SteamGlyphCssTests
     }
 
     [Fact]
+    public void TheTrackpadsPageIsHiddenOnlyWhenBothTrackpadsAreAbsent()
+    {
+        // The configurator's page list has a "Trackpads" entry that is neither a section nor a row,
+        // so a Claw could still open the page and edit pads it does not have.
+        SteamInputGlyphPresentation both = new("no-trackpads", 1, [], [],
+            [GlyphControlId.LeftTrackpad, GlyphControlId.RightTrackpad], []);
+        SteamInputGlyphPresentation one = new("one-trackpad", 1, [], [], [GlyphControlId.LeftTrackpad], []);
+
+        var expected = $"[id*=\"{SteamGlyphCss.TrackpadsPageRoute}\"]";
+        Assert.Contains(expected, SteamGlyphCss.Build(both, true), StringComparison.Ordinal);
+        Assert.DoesNotContain(expected, SteamGlyphCss.Build(one, true), StringComparison.Ordinal);
+        Assert.DoesNotContain(expected, SteamGlyphCss.Build(both, false), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TheInlineDeckSilhouetteIsPaintedOverWithTheFullControllerArtwork()
     {
         // The controller-diagram pickers draw the Deck as an inline svg of fifty-odd paths, so a

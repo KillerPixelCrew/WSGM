@@ -1121,6 +1121,14 @@
   // live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
   // pathological tree, not to limit a legitimate search.
   const MaximumMountedNodes = 60000;
+  // Whether a publication carries something the wrappers have not drawn yet. Publications repeat
+  // the same state every round, several times a second while the host has anything to say, and a
+  // gate that re-rendered on each one asked the router's class ancestor to render again each time.
+  // That render re-runs every route under it: Steam's controller configurator restarts its edit
+  // session on each render of its route and threw away the user's bindings every few seconds
+  // (2026-09-26). A wrapper reads its state from a closure, so the only publications that need a
+  // render are the ones that changed it.
+  const publicationChanged = (previous, next) => JSON.stringify(previous) !== JSON.stringify(next);
   // One claimed component's mounted instances, for the life of a gate's install.
   //
   // Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that
@@ -3238,9 +3246,14 @@
         const items = Array.isArray(state?.items)
           ? state.items.filter(validItem).slice(0, MaximumItems)
           : [];
-        desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+        const next = {
+          items,
+          revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
+        };
         // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-        // see on its own.
+        // see on its own, and an unchanged one needs no render at all.
+        if (!publicationChanged(desired, next)) return;
+        desired = next;
         mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
@@ -4906,15 +4919,18 @@
         );
         const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
         rejectedRoutes = named.length - routable.length;
-        desired = {
+        const next = {
           items: routable.slice(0, MaximumEntries),
           hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
         };
-        // The wrappers read `desired` from their closure, so a publication changes nothing React
-        // can see on its own. A host Steam has recreated since install is adopted here; it sits
-        // under a React root with no class above it, so its entries show when the menu next opens.
-        mounted.rerender();
+        // A host Steam has recreated since install is adopted here; it sits under a React root
+        // with no class above it, so its entries show when the menu next opens.
         hosts.adopt();
+        // The wrappers read `desired` from their closure, so a publication changes nothing React
+        // can see on its own, and an unchanged one needs no render at all.
+        if (!publicationChanged(desired, next)) return;
+        desired = next;
+        mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -5421,7 +5437,7 @@
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
         const declared = Array.isArray(state?.pages) ? state.pages : [];
-        pages = declared
+        const next = declared
           .filter(
             (page) =>
               page &&
@@ -5435,7 +5451,10 @@
           )
           .slice(0, MaximumPages);
         // The wrappers read `pages` from their closure, so a publication changes nothing React can
-        // see on its own.
+        // see on its own. Only a changed list earns a render: the class above the router is the one
+        // asked, and its render re-runs every route, the configurator's edit session included.
+        if (!publicationChanged(pages, next)) return;
+        pages = next;
         mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
