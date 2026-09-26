@@ -42,7 +42,7 @@ create` defaults to the wrong repository. Always pass `--repo KillerPixelCrew/VI
 
 - `clib`, the C library WSGM binds: add and attach as separate calls, port plug-out on remove,
   per-type input fast paths, raw feedback callbacks drained before removal, panic recovery at the
-  cgo boundary, a single-P `GOMAXPROCS`, and the device-type aliases.
+  cgo boundary, a capped `GOMAXPROCS`, and the device-type aliases.
 - `internal/server/usb`: persistent per-endpoint interrupt-IN workers, hardware-paced completions,
   per-device NAK-idle endpoints, a paced repeat of a report the host already has, and an
   allocation-free completion path for devices that implement `usb.InterruptInSource`, in place of
