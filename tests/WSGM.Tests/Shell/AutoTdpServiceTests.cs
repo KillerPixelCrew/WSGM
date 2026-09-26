@@ -12,6 +12,15 @@ public sealed class AutoTdpServiceTests
 
     private const string GameExecutable = @"C:\Games\game.exe";
 
+    /// <summary>The window length RTSS produces at a one-second averaging interval.</summary>
+    private const uint WindowMs = 1016;
+
+    /// <summary>Settled windows the controller needs before its first downward probe.</summary>
+    private const int DwellWindows = 10;
+
+    /// <summary>Windows a raise is judged over before the dwell toward a probe starts again.</summary>
+    private const int RaiseJudgeWindows = 3;
+
     [Fact]
     public async Task ManualPowerIntentCancelsAnAdmittedAutomaticWriteAndKeepsItsNewRestoreTarget()
     {
@@ -523,10 +532,10 @@ public sealed class AutoTdpServiceTests
             var lines = await File.ReadAllLinesAsync(file);
             Assert.Equal(AutoTdpTraceCsv.Header, lines[0]);
             var replayed = AutoTdpTraceReplay.Run(file);
-            Assert.Contains(replayed, decision => decision.Recorded.Action == AutoTdpAction.Raise);
-            Assert.Contains(replayed, decision => decision.Recorded.Action == AutoTdpAction.Probe);
-            Assert.Contains(replayed, decision => decision.Recorded.Action == AutoTdpAction.Restore);
-            Assert.All(replayed, decision => Assert.Equal(decision.Recorded, decision.Replayed));
+            Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Raise);
+            Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Probe);
+            Assert.Contains(replayed, decision => decision.Recorded?.Action == AutoTdpAction.Restore);
+            Assert.All(replayed, decision => Assert.Equal(decision.Recorded!, decision.Replayed));
             Assert.Contains(lines, line => line.Contains(",disabled,", StringComparison.Ordinal));
         }
         finally
@@ -582,25 +591,27 @@ public sealed class AutoTdpServiceTests
         }
     }
 
-    /// <summary>Three misses raise, a comfortable run probes down, and misses during the probe reject it.</summary>
+    /// <summary>Three misses raise, a settled run probes down, and misses during the probe reject it.</summary>
     private static async Task RunRaiseProbeAndRejectAsync(Harness harness)
     {
         harness.Service.Apply(true);
-        harness.Frametimes.Live = [Rendering(22)];
-        for (var tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        await RunWindowsAsync(harness, AutoTdpController.SustainedMisses, 22);
+        await RunWindowsAsync(
+            harness,
+            AutoTdpController.SettleWindows + RaiseJudgeWindows + DwellWindows,
+            10);
+        await RunWindowsAsync(harness, AutoTdpController.SettleWindows, 10);
+        await RunWindowsAsync(harness, 2, 22);
+    }
+
+    /// <summary>Ticks the service through a run of windows at one frametime.</summary>
+    private static async Task RunWindowsAsync(Harness harness, int count, double frametimeMs)
+    {
+        harness.Frametimes.Live = [Rendering(frametimeMs)];
+        for (var tick = 0; tick < count; tick++)
         {
             await harness.Service.TickAsync(CancellationToken.None);
         }
-
-        harness.Frametimes.Live = [Rendering(10)];
-        for (var tick = 0; tick < AutoTdpController.SettleWindows + AutoTdpController.SettledWindows
-                                 + AutoTdpController.SettleWindows; tick++)
-        {
-            await harness.Service.TickAsync(CancellationToken.None);
-        }
-
-        harness.Frametimes.Live = [Rendering(22)];
-        await harness.Service.TickAsync(CancellationToken.None);
     }
 
     private static async Task WaitForWriteCountAsync(Harness harness, int count)
@@ -834,13 +845,40 @@ public sealed class AutoTdpServiceTests
 
     private sealed record Write(string CapabilityId, CapabilityValue Value);
 
+    /// <summary>
+    ///     RTSS as the controller sees it: a new measurement window on every read.
+    /// </summary>
+    /// <remarks>
+    ///     The window bounds are the measurement's identity, and a reader that returned the same ones
+    ///     twice would be telling the controller nothing new happened — which is exactly what it does
+    ///     with a genuinely repeated read, and not what these tests mean.
+    /// </remarks>
     private sealed class FakeFrametimeSource : IFrametimeSource
     {
+        private uint _tick = 100_000;
+
         internal IReadOnlyList<RtssFrametimeSample> Live { get; set; } = [];
 
         public IReadOnlyList<RtssFrametimeSample> ReadLive()
         {
-            return Live;
+            if (Live.Count == 0)
+            {
+                return Live;
+            }
+
+            var start = _tick;
+            _tick += WindowMs;
+            return
+            [
+                .. Live.Select(sample => sample with
+                {
+                    WindowStartTicks = start,
+                    WindowEndTicks = start + WindowMs,
+                    Frames = Math.Max(1u, (uint)(WindowMs / sample.MeanFrametimeMs)),
+                    FrameTimeRaw = (uint)(sample.MeanFrametimeMs * 1000),
+                    AgeMs = 16
+                })
+            ];
         }
     }
 

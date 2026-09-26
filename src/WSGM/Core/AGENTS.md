@@ -23,7 +23,10 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
 - Capability writes are serialized. If the outcome is uncertain, surface it; do not automatically retry a potentially
   successful write.
 - AutoTDP decisions are frametime-driven. CPU or GPU utilization may explain telemetry but must not become the control
-  signal or create a persistent power floor.
+  signal or create a persistent power floor. It has exactly four uses, each skipped when no sensor provider is
+  publishing: defer a raise whose windows were all late on an idle GPU, tell a loading stall from real work, count a
+  power step as answered, and downgrade a probe failure to inconclusive. Nothing AutoTDP learns outlives the current
+  operating point; see `docs\autotdp-controller.md`.
 
 ## Steam boundaries
 

@@ -491,6 +491,8 @@ public sealed class PerformanceServiceTests
 
         public List<RtssOsdPowerStatus> PowerStatuses { get; } = [];
 
+        public RtssOsdMetrics Sensors { get; set; } = RtssOsdMetrics.Empty;
+
         public RtssProbe Probe { get; set; } = ReadyProbe;
 
         public Dictionary<string, PerformanceValues> Values { get; } = new(StringComparer.OrdinalIgnoreCase)
@@ -516,6 +518,11 @@ public sealed class PerformanceServiceTests
         public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
         {
             PowerStatuses.Add(status);
+        }
+
+        public RtssOsdMetrics SampleSensors()
+        {
+            return Sensors;
         }
 
         public bool ProfileExists(string rtssProfileName)

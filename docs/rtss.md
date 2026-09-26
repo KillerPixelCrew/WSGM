@@ -328,29 +328,35 @@ draws, so that step remains attended.
 ## AutoTDP policy
 
 `AutoTdpController` (`Core\AutoTdp.cs`) holds the whole control policy and is pure: every input is
-an argument, every decision a return value. `AutoTdpReplay` in `tests\WSGM.Tests` runs a recorded
-trace through it with no device involved; an oscillation reported from a handheld is reproduced by
-replaying its trace. The 2026-09-26 traces for issue 181 showed this policy's failed-probe floor and
-learned-floor start keeping the limit high; its replacement is designed in
-`docs\autotdp-controller.md` and this section describes the controller until that lands. The policy:
+an argument, every decision a return value. `AutoTdpTraceReplay` in `tests\WSGM.Tests` runs a
+recorded trace through it with no device involved; an oscillation reported from a handheld is
+reproduced by replaying its trace. `docs\autotdp-controller.md` is the full description, including
+the evidence behind each rule. In short:
 
-- A window counts as a miss above 1.05x its deadline and as headroom at or below 0.92x. Zero
-  tolerance would raise power on every healthy capped game, because a cap is enforced by sleeping.
-- Three consecutive misses raise one step; eight consecutive comfortable windows probe one step
-  down. The asymmetry is deliberate: raising costs battery and fixes stutter, lowering saves battery
-  and risks stutter.
-- A probe that produces a miss restores the previous limit and records it as that context's learned
-  floor, so a later settled period cannot probe back into the same stutter. Without that the limit
-  oscillates for as long as the game runs.
-- A capped window that is not missing is treated as headroom, so a menu at the frame cap descends
-  rather than driving power to maximum.
-- A successful probe updates the remembered starting limit but permits another lower probe. Only a
-  failed probe establishes a lower boundary. At that boundary or the device minimum, the controller
-  stays Holding; sustained misses at maximum stay `Can't Reach` until delivery recovers.
-- Every write is followed by two settling windows. Missing telemetry resets the streaks rather than
-  being read as comfort. A context change discards the evidence gathered for the previous one.
+- Nothing is learned. No floor survives a probe, a context or a session, and control starts from the
+  limit the hardware reports. The floors this replaced held a handheld at 24 W through 25 minutes of
+  capped 60 FPS play (Claw, 2026-09-26).
+- A window counts as a miss above 1.05x its deadline and as headroom at or below 0.92x, or anywhere
+  in the 0.97x to 1.05x band a limiter holds a healthy game in. Zero tolerance would raise power on
+  every capped game, because a cap is enforced by sleeping.
+- A window whose last frame, ratio or length says a present hiatus happened is severe, and so is a
+  tick whose gap since the last present has passed 15 target frames. Severe evidence quarantines the
+  controller: a probe in flight is restored unjudged, a raise chain is dropped, and three ordinary
+  windows are required before anything is judged again.
+- Three consecutive missed windows raise one step. Each step is then judged over three windows
+  against the ratio it started from, and a chain ends after three steps delivery did not answer.
+- Ten seconds of settled window time probe one step down. A probe tolerates one late window, fails
+  on two of the last three, and a failure that correlates with power doubles the wait before the
+  next probe at that limit, to a minute. The step is always offered again.
+- Utilization never commands a wattage. It defers a raise whose windows were all late on an idle
+  GPU, separates a loading stall from real work, counts a step as answered, and downgrades a probe
+  failure to inconclusive. Every one of those is skipped when no sensor provider is publishing.
+- Dwells are sums of fresh window time, so a repeated RTSS read, a missed tick or a slow write
+  cannot shorten one. Every write is followed by two settling windows and two seconds.
 - A manual power change pauses control until AutoTDP is switched off and on again. Taking the limit
   back from a user who just moved the slider is the most confusing thing this feature could do.
+- The context is the application and its deadline together, so changing the frame cap starts over
+  rather than judging the new deadline on the old one's windows.
 
 The deadline comes only from verified, active RTSS frame-limit readback. A desired cap, an
 unverified write and a default 60 Hz target cannot substitute for an active limiter. The service's

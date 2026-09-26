@@ -313,8 +313,8 @@ internal sealed class AutoTdpController
     private double _elapsedMs;
     private bool _hasElapsed;
     private bool _hasWindow;
-    private double _lastFreshElapsedMs;
     private double _lastGapMs;
+    private double _lastPresentElapsedMs;
     private bool _lastHiatus;
     private double _lastRatio = double.NaN;
     private string? _lastUtilization;
@@ -461,7 +461,7 @@ internal sealed class AutoTdpController
         }
 
         var fresh = TakeFreshWindow(observation);
-        var gap = GapMs(observation, fresh);
+        var gap = _elapsedMs - _lastPresentElapsedMs;
         _lastGapMs = gap;
         _lastHiatus = observation.HasTarget && gap >= NominalWindowMs + HiatusMs(observation);
         if (_lastHiatus)
@@ -481,7 +481,7 @@ internal sealed class AutoTdpController
                 _previousMissed = false;
             }
 
-            return Hold(_hasWindow ? "window-repeat" : "no-telemetry");
+            return Hold(observation.Window is null ? "no-telemetry" : "window-repeat");
         }
 
         if (!observation.HasTarget || !fresh.IsMeasured)
@@ -557,10 +557,16 @@ internal sealed class AutoTdpController
         if (!_hasElapsed)
         {
             _hasElapsed = true;
-            _lastFreshElapsedMs = observation.ElapsedMs;
+            _lastPresentElapsedMs = observation.ElapsedMs;
         }
 
         _elapsedMs = observation.ElapsedMs;
+        if (observation.Window is { } window)
+        {
+            // When the last frame was presented, on the caller's clock. Taken from every read, not
+            // only a fresh one, because a window whose age keeps growing is the stall itself.
+            _lastPresentElapsedMs = Math.Max(_lastPresentElapsedMs, observation.ElapsedMs - window.AgeMs);
+        }
     }
 
     /// <summary>Returns the window only when it is one this controller has not judged.</summary>
@@ -579,21 +585,7 @@ internal sealed class AutoTdpController
         _hasWindow = true;
         _lastWindowStart = window.StartTicks;
         _lastWindowEnd = window.EndTicks;
-        _lastFreshElapsedMs = observation.ElapsedMs;
         return window;
-    }
-
-    /// <summary>Time since a frame was last presented, from RTSS while it still reports, then from the clock.</summary>
-    private double GapMs(AutoTdpObservation observation, AutoTdpWindow? fresh)
-    {
-        if (fresh is not null)
-        {
-            return fresh.AgeMs;
-        }
-
-        return observation.Window is { } window
-            ? Math.Max(window.AgeMs, _elapsedMs - _lastFreshElapsedMs)
-            : _elapsedMs - _lastFreshElapsedMs;
     }
 
     private AutoTdpWindowClass Classify(AutoTdpWindow window, AutoTdpObservation observation)

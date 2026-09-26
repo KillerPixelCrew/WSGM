@@ -40,4 +40,7 @@
     <Compile Include="../Shared/SplashConfigBuilder.cs" Link="Shared/SplashConfigBuilder.cs"/>
     <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs"/>
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures/AutoTdp/*.csv" CopyToOutputDirectory="PreserveNewest"/>
+  </ItemGroup>
 </Project>

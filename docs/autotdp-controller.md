@@ -1,9 +1,8 @@
 # AutoTDP controller design
 
-Status: design for issue 181, written 2026-09-26 from the four baseline traces captured that day.
-Until it lands, the shipping controller is the one described under "AutoTDP policy" in
-`docs\rtss.md`. When the implementation is committed this document becomes the description of
-`AutoTdpController` and that section is reduced to a pointer.
+This is what `AutoTdpController` does and why, written 2026-09-26 from four baseline traces captured
+that day for issue 181. `docs\rtss.md` summarises it beside the rest of the RTSS integration. The
+live validation the issue asks for is still outstanding.
 
 ## What the traces established
 
@@ -50,14 +49,15 @@ in time, described below.
 
 Each tick the service reads what it reads today and passes it in one sample:
 
-| Field                                   | Source                                                            | Use                                                                    |
-| --------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Window identity                         | RTSS `dwTime0`, `dwTime1`                                         | Dedupe. A window already judged is skipped entirely.                   |
-| Window duration, frames, mean frametime | RTSS window                                                       | Ratio and severity.                                                    |
-| Target frametime                        | Verified RTSS frame limit                                         | Deadline. Part of the context key.                                     |
-| Capped                                  | Mean within 0.97 to 1.05 of target                                | Headroom while the limiter holds the game.                             |
-| GPU load, CPU load                      | `RtssOsdMetricsSource`, when the OSD's sensor provider is running | Tertiary evidence. Absent values disable only the rules that use them. |
-| Limits                                  | Plugin descriptor                                                 | Minimum, maximum, step.                                                |
+| Field                                   | Source                                               | Use                                                                    |
+| --------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| Window identity                         | RTSS `dwTime0`, `dwTime1`                            | Dedupe. A window already judged is skipped entirely.                   |
+| Window duration, frames, mean frametime | RTSS window                                          | Ratio and severity.                                                    |
+| Target frametime                        | Verified RTSS frame limit                            | Deadline. Part of the context key.                                     |
+| Last frame                              | RTSS `dwFrameTime`, microseconds                     | A hiatus that ended inside the window.                                 |
+| Sample age                              | RTSS window                                          | Time since the last present, for a hiatus still in progress.           |
+| GPU load, CPU load                      | `RtssOsdMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
+| Limits                                  | Plugin descriptor                                    | Minimum, maximum, step.                                                |
 
 Time is measured from RTSS window timestamps, not from tick count, so tick jitter and missed ticks
 neither speed up nor slow down a dwell. Every dwell below is a sum of fresh window durations.
@@ -71,15 +71,22 @@ for, measured in target frames.
 
 A hiatus is a gap in presents of at least `HiatusFrames` target frames, 15 by default and never
 under 250 ms, so a 60 FPS target quarantines at 250 ms and a 30 FPS target at 500 ms. Ordinary
-hitches of 95 to 185 ms stay in the normal statistics. Two fields expose it:
+hitches of 95 to 185 ms stay in the normal statistics.
 
-- In progress: the tick reads the same window as the previous tick and its age exceeds the nominal
-  window length by the hiatus threshold. No frame has been presented for that long. The controller
-  enters Quarantine on that tick, before the stall's own window has closed, and the trace records
-  the gap so far. The gap keeps growing on each tick while the stall lasts; a repeat with an age
-  inside the nominal length is tick phase drift and means nothing.
-- Completed: a fresh window whose last-frame time is at or above the threshold contained a hiatus
-  that ended inside it. The window is severe.
+**In progress** is measured on one clock: the time since the last frame was presented. Every read
+that carries a window says when that was, as the read's timestamp minus the window's age, and the
+controller keeps the latest such answer. Past the nominal window length plus the hiatus threshold —
+1250 ms at a 60 FPS target — no frame has been presented for long enough to quarantine, and the
+controller does so on that tick, before the stall's own window has closed.
+
+The single clock matters because the telemetry itself disappears mid-stall: RTSS drops an
+application's entry once it is two seconds stale, so a long stall is first a window whose age keeps
+growing and then no window at all. Measuring the gap rather than reading it off the sample carries
+the detection across that boundary. Ordinary tick phase drift reads 984 to 1032 ms and is not a
+hiatus.
+
+**Completed** is the last-frame time: a fresh window whose final frame took at least the threshold
+contained a hiatus that ended inside it, and the window is severe.
 
 Persistence comes from the quarantine rules, not from the detector: leaving takes three ordinary
 windows, and a stall that keeps going is judged by the persistent-stall rule. A hiatus is detected
@@ -93,8 +100,8 @@ For a fresh window with ratio `r = mean / target`:
 | ----------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Severe      | last frame at or above the hiatus threshold, or `r >= 1.5`, or duration `>= 1.4 x` nominal (1000 ms plus one target frame) | A stall, hiatus or loading interval. Contaminated.   |
 | Missed      | `r > 1.05` and not severe                                                                                                  | Delivery below target. Evidence, once sustained.     |
-| On target   | `1.0 < r <= 1.05` and not capped                                                                                           | Meeting the deadline without headroom.               |
-| Comfortable | `r <= 0.92`, or capped and not missed                                                                                      | Headroom, or the limiter holding the game at target. |
+| On target   | `0.92 < r < 0.97`                                                                                                          | Beating the deadline, but with nothing to give away. |
+| Comfortable | `r <= 0.92`, or `0.97 <= r <= 1.05`                                                                                        | Headroom, or the limiter holding the game at target. |
 
 The ratio and duration conditions are the backstop for a stall the last-frame field did not happen
 to hold, such as a loading interval of many slow frames rather than one long one. A repeated window,
@@ -222,14 +229,15 @@ within three seconds, since a power-limited miss repeats every window.
 
 ### Probe backoff
 
-The only memory. It belongs to the current operating point and multiplies the stability dwell: 1x,
-2x, 4x, 8x, capped at 12x (120 s). It resets to 1x when the limit rises, when the context changes,
-and when a quarantine ends, since a loading interval usually means a new area whose need is unknown.
-It is not persisted and there is no floor: a probe is always eventually retried.
+The only memory. It belongs to the current operating point and doubles the stability dwell on a
+confirmed failure: 10, 20, 40, then 60 seconds. It resets whenever the limit changes at all, when
+the context changes, and when a quarantine ends, since a loading interval usually means a new area
+whose need is unknown. It is not persisted and there is no floor: a probe is always eventually
+retried.
 
 The cost in a static power-bound scene is one failed probe per backoff period, about 4 s at a few
-FPS below target. The cap trades that against how quickly a lighter scene is discovered. 120 s is
-the proposed value; it is a constant, and replay will show what the traces prefer.
+FPS below target. The cap trades that against how quickly a lighter scene is discovered. A minute
+was chosen with the maintainer on 2026-09-26.
 
 ## Cadence and bounds
 
@@ -240,7 +248,7 @@ the proposed value; it is a constant, and replay will show what the traces prefe
 | Raise evidence                  | 3 consecutive fresh missed windows, at least 3 s.                                |
 | Raise chain                     | 1 step per write, re-judged over 3 windows; at most 3 steps without improvement. |
 | Probe evidence                  | 6 fresh windows to accept; 2 misses in 3 to fail.                                |
-| Stability dwell before a probe  | 10 s, times the backoff, at most 120 s.                                          |
+| Stability dwell before a probe  | 10 s, doubling on a confirmed probe failure, at most 60 s.                       |
 | Step size                       | The device step. Always one step per write.                                      |
 | Minimum interval between writes | 2 s.                                                                             |
 
@@ -253,32 +261,40 @@ Control starts from the limit the hardware reports, or the last written value on
 readback, or the ceiling. No stored value replaces it. An unapplied write re-bases the same way, as
 today.
 
-## What the service changes
+## What the service owns
 
-- Passes the window identity, duration, frames and the metrics sample into the controller sample.
-  Metrics are read before the decision, at most once per second as the source already caches.
-- Removes the learned-floor start and the two floor dictionaries.
-- Extends the trace with the new state, the window class, the raise baseline and step count, the
-  probe failure count and backoff, quarantine entry and exit, and which utilization rule fired.
-  Columns are appended; the replay reads by name.
-- Does not start the OSD sensor provider. AutoTDP uses GPU load when the OSD already publishes it.
-  Whether AutoTDP should start the provider on its own is a separate decision.
+- It hands the controller the raw window — its identity, duration, frames, mean, last frame and age
+  — rather than a classification, so every judgement belongs to the policy and a replayed file needs
+  only the recorded inputs.
+- One clock per tick, shared by the controller and the trace, so `elapsed_ms` is the exact value the
+  controller was given and a replay reproduces a timing decision.
+- Sensors are read once, before the decision, and the same sample goes on the trace row. The source
+  is the one the OSD renderer already owns, reached through `IRtssAdapter.SampleSensors`, so there
+  is a single mapping handle, a single cached read per second, and a single attempt to start RTSS's
+  sensor provider. AutoTDP requires RTSS regardless, so starting the provider is in scope.
+- Every tick reaches the controller once control has started, including ticks with no renderer at
+  all. A quarantine has to outlive the telemetry that triggered it.
+- The context key carries the deadline as well as the application.
 
 ## Verification
 
 Replay first, hardware second:
 
-- The four 2026-09-26 traces replayed through the new controller must show: no raise on a window
-  with GPU load under 40 %, no floor holds, start at the observed 37 W, and a descent from 37 W to
-  the capped operating point in the two high-start traces.
+- Fixtures in `tests\WSGM.Tests\Fixtures\AutoTdp` drive the controller through the recorded shapes:
+  steady capped play descends, late frames on a saturated GPU climb a step at a time, and a loading
+  stall on an idle GPU changes nothing. Their provenance is in the README beside them.
 - Unit tests per rule: repeated window skipped, a repeat inside the nominal length is phase drift, a
-  repeat past the hiatus threshold quarantines on that tick, a last frame at the threshold is severe
-  and one below it is not, three-second gap resets streaks, severe window interrupts a probe without
-  confirming it, two-of-three failure, single-miss tolerance, backoff doubling and its three resets,
-  raise chain stops after three unimproved steps, GPU deferral expires after six windows, persistent
-  stall with low GPU never raises, persistent stall with no GPU value raises at most three steps,
-  quarantine recovery discards its misses, capped windows still probe, at-maximum and at-minimum
-  holds, manual pause and stop unchanged.
+  gap past the hiatus threshold quarantines on that tick, a renderer that disappears stays
+  quarantined, a last frame at the threshold is severe and one below it is not, a window far past
+  its deadline is severe even when its last frame was fast, one hitch inside the dwell is tolerated
+  and two are not, severe window interrupts a probe without holding it against the step,
+  two-of-three probe failure, single-miss tolerance, backoff doubling and its reset on a raise, the
+  raise chain stopping after three unanswered steps and leaving the hold when delivery returns, GPU
+  deferral and its expiry, persistent stall with low GPU never raising, persistent stall with no GPU
+  value raising, quarantine recovery discarding its misses, capped windows still probing, descent to
+  the minimum, at-maximum and at-minimum holds, a frame-cap change starting over, manual pause and
+  stop unchanged.
 - Then the issue's live checks on the Claw with the trace on: Cult of the Lamb from a high start
   through loading screens, a sustained power-limited scene, a second target frame rate, and the
-  manual reference run.
+  manual reference run. The four 2026-09-26 captures replay too, and are the attended check that the
+  reported session no longer holds its limit.
