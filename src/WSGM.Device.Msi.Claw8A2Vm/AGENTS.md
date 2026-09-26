@@ -28,7 +28,7 @@ release unless explicitly asked.
 
 `src/WSGM.Device.Sdk` and `src/WSGM.DeviceLab` live in the same WSGM repository. The plugin references the one SDK
 project, and packaging uses Device Lab from the same checkout. Deliver contract, tool, and plugin changes in one WSGM
-pull request.
+commit.
 
 ## Exact device boundary
 

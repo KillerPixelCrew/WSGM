@@ -270,6 +270,9 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     ///     The slowest interval worth asking for, in ms. The accelerometer is only ever read once per
     ///     gyrometer report, so its driver minimum of 2 ms bought nothing and, with event delivery,
     ///     cost five hundred callbacks a second in the driver host and the notification thread.
+    ///     Read off the virtual Deck with a raw HID handle, the accelerometer value changes about 80
+    ///     times a second at either request, in alternating 8 and 16 ms steps, so the floor changes
+    ///     nothing the consumer receives (docs/perf, 2026-09-26).
     /// </param>
     private static IntervalState ConfigureFastestInterval(ISensor? sensor, string name, uint floor = 0)
     {

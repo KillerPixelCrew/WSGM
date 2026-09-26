@@ -435,7 +435,7 @@ what it wrote, the duplicate in the other notation was left behind on restore. `
 Device Lab (`src\WSGM.DeviceLab`) is one optional developer tool with GUI and CLI modes over the
 same operations. The main solution builds it and the installer's optional `devicelab` component
 publishes it from the same WSGM commit. Change it together with the SDK and plugin consumers in one
-pull request.
+commit.
 
 Read-only is the default. One explicit attended action may invoke plugin-owned snapshot, readback or
 restore code; it has no `--yes`, bulk, CI, imported-recipe, trial-hash, receipt, evidence-promotion

@@ -78,8 +78,12 @@ report (by hardware counter) with the latest accelerometer report, and hands it 
 `MotionReadingPipeline` for offset correction and the bounded channel. Polling the sensors every 2
 ms cost the plugin 12 % of WSGM's idle CPU and the Intel driver host 5 % of a core, four polls in
 five returning the previous report (docs/perf). The 2 ms poll on a dedicated worker remains only as
-the fallback when a sink cannot be registered, and the log says which path is active. Event delivery
-has not had a hardware pass yet: gyro responsiveness, drift after a stop and start, and the driver
+the fallback when a sink cannot be registered, and the log says which path is active. The gyrometer
+asks for its 10 ms driver minimum and the accelerometer for the gyrometer's interval rather than its
+own 2 ms minimum. Read off the virtual Deck with a raw HID handle, the accelerometer value changes
+about 80 times a second at either request, in alternating 8 and 16 ms steps, so the slower request
+saves the callbacks and changes nothing Steam receives (docs/perf, 2026-09-26). Event delivery has
+not had a hardware pass yet: gyro responsiveness, drift after a stop and start, and the driver
 host's CPU want a manual check.
 
 The worker only exists while WSGM says something reads motion. `SetMotionDemandAsync` releases the

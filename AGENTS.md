@@ -74,11 +74,10 @@ repository guidance, plans and skills, including branch and pull-request instruc
 - When a maintainer has approved a requested implementation and an applicable design or plan already
   exists, begin implementation immediately. Treat that approval as sufficient for the execution
   method; continue without asking for another plan review or execution-choice prompt.
-- Preserve the task branch and use the branch/PR workflow below, in nested repositories as well.
-- Dependency pin-only updates are the exception: commit and push them directly to the default
-  branch, with no branch or pull request, including in nested repositories. Verify the target
-  commits are already pushed and merged, follow the dependency order below, and keep unrelated
-  changes out of those commits.
+- Commit directly to the default branch and push it, in nested repositories as well; see "Branch
+  ownership and publishing". Never create a branch or a pull request on your own initiative.
+- Dependency pin-only updates go the same way. Verify the target commits are already pushed and
+  merged, follow the dependency order below, and keep unrelated changes out of those commits.
 - Do not create tags, releases, or compatibility layers unless the maintainer asks for them.
 - Write documentation, command examples, issues, commit messages, and pull requests in natural,
   concise language. Avoid canned AI phrasing, filler, and em dashes.
@@ -125,34 +124,29 @@ repository guidance, plans and skills, including branch and pull-request instruc
 
 ### Branch ownership and publishing
 
-- At task start, record the current branch, upstream and working-tree status. Continue on the
-  maintainer-selected branch; an existing non-default checkout is the task branch unless directed
-  otherwise. Preserve its name even when it does not use the usual branch prefix.
-- Use a task branch and PR into the intended base by default. If starting on the default branch or
-  detached HEAD with no selected task branch, create a task branch from the current commit before
-  making changes. Do not switch an existing task branch to the default branch to satisfy a plan,
-  skill or general workflow preference.
-- Before every commit and push, verify that the checked-out branch and explicit push destination
-  match the task branch. A request to "push" or "create a PR" means publish that branch and open or
-  update its PR; it does not authorize merging or writing to the default branch. Direct commits or
-  pushes to the default branch require an explicit maintainer instruction for the current task,
-  except dependency pin-only updates, which always go there directly.
-- Before creating a PR, verify its head, intended base and actual diff. If the change is already on
-  the base branch, report that state and obtain repair direction before changing branches or
-  history. Do not manufacture review-base branches or substitute a different base to produce a PR.
-- Deliver a feature as one complete pull request. Do not plan or open a stack of dependent PRs
-  unless the maintainer asks for one; each extra PR repeats the cleanup, the gate, the description
-  and the merges, and a partial slice leaves stubbed features on the default branch. Never report a
-  feature as done while any part of it is still a stub or placeholder.
-- When the maintainer does ask for a stack, each base must be the branch of a real preceding PR,
-  each title starts with `[stacked on #N]`, the maintainer's task branch stays the final head, and
-  the merge order is documented.
+- Work on the default branch: `master` in WSGM, `wsgm` in external/viiper, and the default branch
+  of each other submodule. Do not create a task branch, a review-base branch or a pull request
+  unless the maintainer asks for one in the current task. The maintainer works alone on this
+  repository and reviews commits on the default branch; a task branch created on an agent's own
+  initiative was rejected on 2026-09-26 after it had already been pushed, and had to be deleted.
+- If the maintainer has checked out a non-default branch, continue on it and preserve its name. Do
+  not switch it to the default branch or move work between branches without direction.
+- At task start, record the current branch, upstream and working-tree status. Before every commit
+  and push, verify that the checked-out branch and the push destination are the branch the
+  maintainer selected.
+- Commit and push as the work reaches usable states rather than holding everything for the end.
+  Each commit carries one coherent change together with its documentation.
+- When the maintainer does ask for a pull request, deliver the feature as one complete pull
+  request; do not plan or open a stack of dependent PRs unless asked, since each extra PR repeats
+  the cleanup, the gate, the description and the merges. In a requested stack each base is the
+  branch of a real preceding PR, each title starts with `[stacked on #N]`, and the merge order is
+  documented. Never report a feature as done while any part of it is still a stub or placeholder.
 - Reverting shared commits, rewriting published history, deleting remote branches or moving work
   to another branch requires explicit maintainer direction. When a Git mistake occurs, report the
   exact local and remote state and propose a concrete repair before making further Git mutations.
   Carry out an already authorized repair without asking again.
-- Leave the workspace on the task branch. After pushing, verify its upstream matches and report
-  the actual branch and PR, with any remaining work or unrelated edits stated accurately.
+- After pushing, verify the upstream matches and report the branch and commit, with any remaining
+  work or unrelated edits stated accurately.
 
 ### Submodule ownership
 
@@ -169,7 +163,7 @@ The direct submodules are:
 - external/windows-device-control
 
 The device projects use src/WSGM.Device.Sdk directly. Update contracts, consumers, tests, and
-documentation in the same WSGM pull request. No device gitlinks or nested SDK copies remain.
+documentation in the same WSGM commit. No device gitlinks or nested SDK copies remain.
 Synchronize or fetch the remaining submodules only when the task requires current remote state;
 never use an update command to overwrite local submodule work.
 
@@ -204,10 +198,9 @@ maintainer reports having tested that change manually, unless they explicitly re
 This includes focused suites, full suites, coverage, and test-bearing gates such as eng/verify.ps1
 and Steam asset ownership claims. Writing regression tests may accompany implementation; executing
 them waits. Compilation, asset generation/drift checks, formatting, syntax and guidance checks may
-run before manual testing. Do not hold a requested development deployment or a commit to a local or
-pushed task branch for test-suite completion. State which tests are deferred. CI stays unchanged.
-Opening a pull request, or pushing to a branch that has one, is the exception: see "Before a pull
-request is opened or updated".
+run before manual testing. Do not hold a requested development deployment or a commit for
+test-suite completion. State which tests are deferred. CI stays unchanged. A pull request the
+maintainer asked for is the exception: see "When the maintainer asks for a pull request".
 
 This timing rule applies to scoped contributor guides and skills as well: their test and gate
 instructions describe what to run after manual testing, not a prerequisite for the first deployment.
@@ -239,10 +232,11 @@ following variant writes formatting changes and must be reviewed:
 
     .\eng\verify.ps1 -Fix
 
-### Before a pull request is opened or updated
+### When the maintainer asks for a pull request
 
-CI runs `eng/verify.ps1` on every push to a pull request, and a red run is a defect of the change,
-not something to leave for the maintainer.
+This section applies only to a pull request the maintainer requested; the default is a direct
+commit to the default branch. CI runs `eng/verify.ps1` on every push to a pull request, and a red
+run is a defect of the change, not something to leave for the maintainer.
 
 The full gate takes about twenty minutes, so run it once per pull request, not once per push.
 Before `gh pr create`, and before a later push that changes anything under `src`, `tests`,

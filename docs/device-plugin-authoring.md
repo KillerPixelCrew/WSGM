@@ -13,7 +13,7 @@ Related:
 
 Both tools an author needs are MIT projects in WSGM: `src\WSGM.Device.Sdk` is the contract and
 `src\WSGM.DeviceLab` is the tool. They build against the same SDK source; contract and consumer
-changes are reviewed together in one pull request.
+changes land together in one commit.
 
 ## 1. Create and implement
 
