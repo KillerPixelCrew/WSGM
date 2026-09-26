@@ -223,6 +223,17 @@ picks the newest file there whose content is a Neptune chord layout rather than 
 presents the Claw as a Steam Deck composite, so the editor reverts each change while WSGM is running
 (dev box, 2026-09-26; also reported for real Decks running Windows).
 
+The template is part of Steam's client package, and Steam's bootstrapper checks every package file's
+size on each start ("Verifying file sizes only" in `logs\bootstrap_log.txt`; only executables are
+hashed). A size mismatch makes it reinstall the whole package, about ten seconds on every start (dev
+box, 2026-09-26,
+`BVerifyInstalledFiles: controller_base\chord_neptune.vdf is 6674 bytes, expected 6222`). The mirror
+therefore writes the layout with its indentation stripped and padded with line breaks to exactly
+Valve's byte count; the KeyValues parser does not care. Valve's file is about a third whitespace, so
+a layout fits until it holds roughly half again as many bindings as the default; one that does not
+fit even without any whitespace is not mirrored, and the log says so once. The mirror also watches
+the template itself, so a file the bootstrapper or a client update puts back is mirrored again.
+
 `SteamGuideChordMirror` works around it by keeping the template equal to the autosave. While the
 Steam Deck target is active and "Keep guide button chord edits" (Device Integration settings, on by
 default) is on, it watches the config tree, and mirrors each chord autosave for the Neptune

@@ -35,6 +35,15 @@ namespace WSGM.Core;
 ///         the next start. A Steam client update that replaces the template is noticed by the template
 ///         no longer carrying an autosave's <c>progenitor</c> line; the backup is refreshed from it.
 ///     </para>
+///     <para>
+///         The template is part of Steam's client package, and Steam's bootstrapper checks every
+///         package file's size on each start ("Verifying file sizes only" in bootstrap_log.txt; only
+///         executables are hashed). A size mismatch makes it reinstall the whole package, about ten
+///         seconds on every start (Claw, 2026-09-26). The mirror therefore writes the layout with its
+///         indentation stripped and padded with whitespace to exactly Valve's byte count, which the
+///         KeyValues parser does not care about. A layout that does not fit even without any
+///         whitespace is not mirrored, and says so once in the log.
+///     </para>
 /// </remarks>
 public sealed class SteamGuideChordMirror : IDisposable
 {
@@ -62,9 +71,10 @@ public sealed class SteamGuideChordMirror : IDisposable
     private Timer? _debounce;
     private bool _disposed;
     private bool _enabled = true;
-    private string? _mirroredHash;
+    private string? _overflowHash;
     private int _retries;
     private bool _targetActive;
+    private FileSystemWatcher? _templateWatcher;
     private FileSystemWatcher? _watcher;
 
     /// <summary>Creates a mirror over one Steam installation.</summary>
@@ -209,10 +219,21 @@ public sealed class SteamGuideChordMirror : IDisposable
             _watcher.Created += OnAutosaveChanged;
             _watcher.Renamed += OnAutosaveChanged;
             _watcher.EnableRaisingEvents = true;
+            // Steam's bootstrapper or a client update can put Valve's file back; mirror again then.
+            _templateWatcher = new FileSystemWatcher(Path.GetDirectoryName(_template)!, TemplateFileName)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size
+            };
+            _templateWatcher.Changed += OnTemplateChanged;
+            _templateWatcher.Created += OnTemplateChanged;
+            _templateWatcher.Renamed += OnTemplateChanged;
+            _templateWatcher.EnableRaisingEvents = true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             Log.Warn($"Guide chord mirror could not watch '{_configsRoot}': {ex.Message}");
+            _templateWatcher?.Dispose();
+            _templateWatcher = null;
             _watcher?.Dispose();
             _watcher = null;
             return false;
@@ -235,7 +256,14 @@ public sealed class SteamGuideChordMirror : IDisposable
         _watcher.EnableRaisingEvents = false;
         _watcher.Dispose();
         _watcher = null;
-        _mirroredHash = null;
+        if (_templateWatcher is not null)
+        {
+            _templateWatcher.EnableRaisingEvents = false;
+            _templateWatcher.Dispose();
+            _templateWatcher = null;
+        }
+
+        _overflowHash = null;
     }
 
     private void OnAutosaveChanged(object sender, FileSystemEventArgs e)
@@ -245,6 +273,16 @@ public sealed class SteamGuideChordMirror : IDisposable
             return;
         }
 
+        QueueReconcile();
+    }
+
+    private void OnTemplateChanged(object sender, FileSystemEventArgs e)
+    {
+        QueueReconcile();
+    }
+
+    private void QueueReconcile()
+    {
         lock (_gate)
         {
             if (_watcher is null)
@@ -308,27 +346,43 @@ public sealed class SteamGuideChordMirror : IDisposable
             return;
         }
 
-        var hash = Hash(text);
-        if (hash == _mirroredHash)
-        {
-            return;
-        }
-
         try
         {
             EnsureBackupUnderGate();
-            if (File.Exists(_template) && Hash(File.ReadAllText(_template, Encoding.UTF8)) == hash)
+            var backup = _template + BackupSuffix;
+            if (!File.Exists(backup))
             {
-                _mirroredHash = hash;
+                return;
+            }
+
+            // Steam's bootstrapper checks the package file's size on every start; see the remarks.
+            var size = checked((int)new FileInfo(backup).Length);
+            var mirror = FitToSize(text, size);
+            var revision = Revision.Match(text) is { Success: true } match ? match.Groups[1].Value : "?";
+            if (mirror is null)
+            {
+                var hash = Hash(text);
+                if (hash != _overflowHash)
+                {
+                    _overflowHash = hash;
+                    Log.Warn(
+                        $"Guide chord layout (revision {revision}) does not fit Steam's {size}-byte template even " +
+                        "without whitespace; not mirrored, or Steam would reinstall its package on every start.");
+                }
+
+                return;
+            }
+
+            _overflowHash = null;
+            if (File.Exists(_template) && File.ReadAllText(_template, Encoding.UTF8) == mirror)
+            {
                 return;
             }
 
             var temporary = _template + ".wsgm-tmp";
-            File.WriteAllText(temporary, text, new UTF8Encoding(false));
+            File.WriteAllText(temporary, mirror, new UTF8Encoding(false));
             File.Move(temporary, _template, true);
             File.Delete(marker);
-            _mirroredHash = hash;
-            var revision = Revision.Match(text) is { Success: true } match ? match.Groups[1].Value : "?";
             Log.Change("steam-chord-mirror", $"Guide chord layout mirrored into Steam's template (revision {revision}).");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -391,7 +445,6 @@ public sealed class SteamGuideChordMirror : IDisposable
                 File.WriteAllText(_template + ResetMarkerSuffix, DateTimeOffset.UtcNow.ToString("O"));
             }
 
-            _mirroredHash = null;
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -399,6 +452,123 @@ public sealed class SteamGuideChordMirror : IDisposable
             Log.Warn($"Valve's chord template could not be restored: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    ///     Rewrites a layout to exactly <paramref name="size" /> UTF-8 bytes: the indentation is
+    ///     dropped first, then every separator between quoted tokens if that still does not fit, and
+    ///     line breaks pad the rest. Comments are dropped either way.
+    /// </summary>
+    /// <param name="text">The VDF text.</param>
+    /// <param name="size">The byte count Steam's package manifest records for the template.</param>
+    /// <returns>The padded text, or null when the layout does not fit even without whitespace.</returns>
+    internal static string? FitToSize(string text, int size)
+    {
+        var tokens = Tokenize(text);
+        for (var level = 0; level < 2; level++)
+        {
+            var compact = Emit(tokens, level);
+            var bytes = Encoding.UTF8.GetByteCount(compact);
+            if (bytes > size)
+            {
+                continue;
+            }
+
+            StringBuilder padded = new(compact, size);
+            padded.Append('\n', size - bytes);
+            return padded.ToString();
+        }
+
+        return null;
+    }
+
+    private static List<(string Text, bool Quoted)> Tokenize(string text)
+    {
+        List<(string, bool)> tokens = [];
+        var i = 0;
+        while (i < text.Length)
+        {
+            var c = text[i];
+            if (char.IsWhiteSpace(c))
+            {
+                i++;
+                continue;
+            }
+
+            if (c == '/' && i + 1 < text.Length && text[i + 1] == '/')
+            {
+                while (i < text.Length && text[i] != '\n')
+                {
+                    i++;
+                }
+
+                continue;
+            }
+
+            if (c is '{' or '}')
+            {
+                tokens.Add((c.ToString(), false));
+                i++;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                var start = i;
+                i++;
+                while (i < text.Length && text[i] != '"')
+                {
+                    i += text[i] == '\\' ? 2 : 1;
+                }
+
+                i = Math.Min(i + 1, text.Length);
+                tokens.Add((text[start..i], true));
+                continue;
+            }
+
+            var wordStart = i;
+            while (i < text.Length && !char.IsWhiteSpace(text[i]) && text[i] is not ('{' or '}' or '"'))
+            {
+                i++;
+            }
+
+            tokens.Add((text[wordStart..i], false));
+        }
+
+        return tokens;
+    }
+
+    private static string Emit(List<(string Text, bool Quoted)> tokens, int level)
+    {
+        StringBuilder builder = new();
+        var previous = (Text: "", Quoted: false);
+        var keyPending = false;
+        foreach (var token in tokens)
+        {
+            if (builder.Length > 0)
+            {
+                builder.Append(Separator(previous, token, level, keyPending));
+            }
+
+            builder.Append(token.Text);
+            var brace = token.Text is "{" or "}";
+            keyPending = !brace && !keyPending;
+            previous = token;
+        }
+
+        return builder.ToString();
+    }
+
+    private static string Separator((string Text, bool Quoted) previous, (string Text, bool Quoted) next, int level, bool keyPending)
+    {
+        // Level 0 keeps one pair per line with a tab between key and value; level 1 keeps a space
+        // only where two unquoted tokens would otherwise merge.
+        if (level == 1)
+        {
+            return !previous.Quoted && !next.Quoted && previous.Text is not ("{" or "}") && next.Text is not ("{" or "}") ? " " : "";
+        }
+
+        return keyPending && next.Text is not ("{" or "}") ? "\t" : "\n";
     }
 
     /// <summary>
