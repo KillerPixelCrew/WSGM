@@ -25,6 +25,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     /// </remarks>
     private const int MaximumFrameLimit = 280;
 
+    /// <summary>The processor boost row's id, shared with the value writer.</summary>
+    internal const string CpuBoostRowId = "cpu-boost";
+
     /// <summary>The five overlay notches, named as WSGM renders them.</summary>
     /// <remarks>
     ///     These are WSGM's own OSD levels from <c>Core\RtssOsd.cs</c>, not Valve's wire enum — the
@@ -43,6 +46,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
     private readonly ProfileService _profiles;
+    private readonly ApplicationPerformanceReconciler? _reconciler;
     private readonly PerformanceService _service;
     private bool _disposed;
 
@@ -53,16 +57,26 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     ///     the Quick Access row. Null while no display has been enumerated — overlay-test has no
     ///     pairing service at all — and the slider then falls back to what RTSS alone will accept.
     /// </param>
+    /// <param name="reconciler">
+    ///     The carrier of the per-application processor boost mode, which this projects as a third
+    ///     row. Null, or one without processor boost, leaves the section to RTSS alone.
+    /// </param>
     internal PerformanceOverlayBridge(
         PerformanceService service,
         ProfileService profiles,
-        Func<(int Minimum, int Maximum)?>? panelFrameLimitRange = null)
+        Func<(int Minimum, int Maximum)?>? panelFrameLimitRange = null,
+        ApplicationPerformanceReconciler? reconciler = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _panelFrameLimitRange = panelFrameLimitRange ?? (static () => null);
+        _reconciler = reconciler is { CpuBoostAvailable: true } ? reconciler : null;
         _service.StateChanged += OnStateChanged;
         _profiles.Changed += OnProfilesChanged;
+        if (_reconciler is not null)
+        {
+            _reconciler.CpuBoostChanged += OnCpuBoostChanged;
+        }
     }
 
     /// <summary>Every saved game profile.</summary>
@@ -108,6 +122,10 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         _disposed = true;
         _service.StateChanged -= OnStateChanged;
         _profiles.Changed -= OnProfilesChanged;
+        if (_reconciler is not null)
+        {
+            _reconciler.CpuBoostChanged -= OnCpuBoostChanged;
+        }
     }
 
     public event Action? Changed;
@@ -115,7 +133,27 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     public IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_reconciler is not null)
+        {
+            // Windows is read when the panel opens, not on every render: the row then shows what
+            // is in effect rather than what the last transition wrote, without a native call on
+            // the UI thread.
+            _ = RefreshCpuBoostAsync();
+        }
+
         return _service.AcquireObservation();
+    }
+
+    private async Task RefreshCpuBoostAsync()
+    {
+        try
+        {
+            await _reconciler!.RefreshCpuBoostAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Processor boost readback failed: {ex.Message}");
+        }
     }
 
     internal Task<string> SaveProfileAsync(string? id, string name, IReadOnlyList<string> processNames,
@@ -149,14 +187,26 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     public PerformanceOverlaySnapshot Snapshot()
     {
         var state = Current;
-        if (!_service.Enabled)
+        var cpuBoost = BuildCpuBoostRow(state);
+        if (!_service.Enabled && cpuBoost is null)
         {
             return new PerformanceOverlaySnapshot(false, string.Empty, [], []);
         }
 
         var capabilities = state.Probe.Capabilities;
         var ready = state.Probe.Availability == RtssAvailability.Ready && capabilities is not null;
-        List<DescriptorRow> rows =
+        List<DescriptorRow> rows = [];
+        if (cpuBoost is not null)
+        {
+            rows.Add(cpuBoost);
+        }
+
+        if (!_service.Enabled)
+        {
+            return new PerformanceOverlaySnapshot(true, "RTSS integration is off.", rows, BuildProfileRows(state));
+        }
+
+        rows.InsertRange(0,
         [
             BuildRow(
                     "frame-limit",
@@ -184,8 +234,13 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                         ? nameof(ProfileField.OverlayLevel)
                         : null
                 }
-        ];
-        List<DescriptorRow> profileRows =
+        ]);
+        return new PerformanceOverlaySnapshot(true, DescribeStatus(state), rows, BuildProfileRows(state));
+    }
+
+    private List<DescriptorRow> BuildProfileRows(PerformanceState state)
+    {
+        return
         [
             BuildApplicationRow(state),
             BuildActiveProfileRow(state),
@@ -211,12 +266,51 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 "Reset performance profile",
                 state.ApplicationProfileEnabled
                     ? "Clear every value this game overrides, so it uses Global again."
-                    : "Clear the Global frame limit, overlay, power and refresh values.",
+                    : "Clear the Global frame limit, overlay, power, refresh and processor boost values.",
                 "Reset",
                 true,
                 DescriptorStatus.None)
         ];
-        return new PerformanceOverlaySnapshot(true, DescribeStatus(state), rows, profileRows);
+    }
+
+    /// <summary>The processor boost row, or null while this session has no readback to show.</summary>
+    /// <remarks>
+    ///     Windows policy, not RTSS: the row exists with RTSS off and with device integration off. The
+    ///     value shown is the layer's preference when one is set, else what Windows reports, so a
+    ///     game override reads as the mode the game asked for even before the transition wrote it.
+    /// </remarks>
+    private DescriptorRow? BuildCpuBoostRow(PerformanceState state)
+    {
+        if (_reconciler?.CpuBoostStatus is not { Supported: true } status)
+        {
+            return null;
+        }
+
+        var preference = _profiles.Current.Layers.Value(values => values.CpuBoost);
+        var effective = preference.Value ?? status.OnAc;
+        var layer = preference.Source switch
+        {
+            ProfileSource.Game when state.Target?.RtssProfileName is { Length: > 0 } profile =>
+                $"Game override · {profile}",
+            ProfileSource.Game => "Game override",
+            ProfileSource.Global => "From Global",
+            _ => "Not set · Windows keeps its own value"
+        };
+        var sources = status.OnAc == status.OnBattery
+            ? "Applies to both plugged in and battery."
+            : "Plugged in and battery currently differ; choosing sets both.";
+        return BuildRow(
+                CpuBoostRowId,
+                "CPU boost mode",
+                $"{layer} · {sources}",
+                effective is { } mode ? CpuBoost.NameFor(mode) : "Not set by WSGM",
+                true,
+                DescriptorStatus.Available) with
+            {
+                Options = [.. CpuBoost.Offered.Select(option => new DescriptorOption((int)option.Mode, option.Name))],
+                Value = effective is { } current ? (int)current : null,
+                OverrideId = preference.Source is ProfileSource.Game ? nameof(ProfileField.CpuBoost) : null
+            };
     }
 
     /// <summary>Writes an exact value to the control one of the value rows owns.</summary>
@@ -241,6 +335,17 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             {
                 await _profiles.SetGameEnabledAsync(value == 1, target.ApplicationId, cancellationToken)
                     .ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        if (rowId == CpuBoostRowId)
+        {
+            var mode = (CpuBoostMode)value;
+            if (_reconciler is not null && Enum.IsDefined(mode))
+            {
+                await _reconciler.SetCpuBoostFromUserAsync(mode, cancellationToken).ConfigureAwait(false);
             }
 
             return;
@@ -347,6 +452,11 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     private void OnStateChanged(PerformanceState _)
+    {
+        Changed?.Invoke();
+    }
+
+    private void OnCpuBoostChanged()
     {
         Changed?.Invoke();
     }

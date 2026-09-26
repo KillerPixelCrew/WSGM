@@ -70,6 +70,9 @@ public sealed class ProfileValues
     /// <summary>Variable refresh.</summary>
     public bool? VariableRefreshRate { get; set; }
 
+    /// <summary>Windows' processor boost mode.</summary>
+    public CpuBoostMode? CpuBoost { get; set; }
+
     /// <summary>Device power preset on AC.</summary>
     public DevicePowerPresetReference? AcPowerPreset { get; set; }
 

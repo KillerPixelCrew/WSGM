@@ -69,6 +69,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly NativeQamHybridCoreService _hybridCores = new(HybridCores.Windows);
 
+    /// <summary>The processor boost row's backend, or null when this session cannot write Windows power policy.</summary>
+    private readonly NativeQamCpuBoostService? _cpuBoost;
+
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge = new();
 
@@ -181,6 +184,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     WSGM's settings behind its page in Steam and its row in Steam's main menu, or null in
     ///     overlay-test.
     /// </param>
+    /// <param name="cpuBoost">
+    ///     The per-game processor boost mode behind Steam's Performance dropdown, or null in overlay-test.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -202,9 +208,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ProfileService? profiles = null,
         SteamArtworkBrowserSource? artwork = null,
         GameLibraryService? libraryImport = null,
-        WsgmSteamSettingsService? wsgmSettings = null)
+        WsgmSteamSettingsService? wsgmSettings = null,
+        NativeQamCpuBoostService? cpuBoost = null)
     {
         _storage = storage;
+        _cpuBoost = cpuBoost;
         _displayTimeouts = displayTimeouts;
         _pluginSteamUi = pluginSteamUi;
         _pluginModules = pluginSteamUi?.ReadModules() ?? [];
@@ -972,6 +980,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.
+        if (_cpuBoost is { } cpuBoost)
+        {
+            // Beside the core preference, and equally independent of a device plugin: it is Windows
+            // power policy carried per game.
+            modules.Add(SteamCpuBoostRow.Module(Enabled, cpuBoost.ReadAsync, cpuBoost));
+        }
+
         modules.Add(SteamGameContextMenuSurface.Module(
             HostSteamUiEnabled,
             () => new ValueTask<SteamGameContextMenuState?>(_gameContextMenu.ReadState()),

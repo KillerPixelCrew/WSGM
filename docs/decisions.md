@@ -257,3 +257,11 @@ never in parallel; a new id confirmed by a before/after diff of Steam's own libr
 authority over what the call returned; and an unconfirmed or ambiguous result stops the run and is
 never retried, because the entry may already exist. If Steam is not running, the importer refuses
 rather than falling back. CEF is still barred from diagnosing packaged games.
+
+**CPU boost is HC's control, carried per game (2026-09-26).** An Xbox Ally X tester asked for
+Armoury Crate's and Handheld Companion's CPU boost option in the Performance quick settings, since
+some games want it on and others off. WSGM ports HC's mechanism unchanged, HC's five modes written
+to Windows' processor boost setting on both power sources with the scheme re-activated, and makes it
+a profile value like the frame limit rather than a global switch, so the choice follows the game. It
+is Windows power policy, so it lives beside the processor core preference on the overlay's
+Performance section and Steam's Performance tab and needs no device plugin.

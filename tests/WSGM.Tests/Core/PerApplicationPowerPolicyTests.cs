@@ -99,4 +99,43 @@ public sealed class PerApplicationPowerPolicyTests
 
         Assert.Equal(PerAppVrrAction.Leave, decision.Action);
     }
+
+    [Fact]
+    public void CpuBoostPreferredModeIsApplied()
+    {
+        var decision = PerApplicationCpuBoostPolicy.DecideOnTargetChange(
+            CpuBoostMode.Disabled,
+            false,
+            CpuBoostMode.Enabled);
+
+        Assert.Equal(PerAppCpuBoostAction.Apply, decision.Action);
+        Assert.Equal(CpuBoostMode.Disabled, decision.Mode);
+    }
+
+    [Fact]
+    public void CpuBoostNoModeReturnsToTheBaselineWhenAProfileHadImposedOne()
+    {
+        var decision = PerApplicationCpuBoostPolicy.DecideOnTargetChange(
+            null,
+            true,
+            CpuBoostMode.Aggressive);
+
+        Assert.Equal(PerAppCpuBoostAction.Apply, decision.Action);
+        Assert.Equal(CpuBoostMode.Aggressive, decision.Mode);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void CpuBoostNoModeLeavesWindowsAloneWithoutSomethingToRestore(bool imposed, bool knownBaseline)
+    {
+        // Nothing imposed: nothing is WSGM's to take back. Imposed over an unknown baseline (a mode
+        // WSGM does not offer): restoring would mean guessing.
+        var decision = PerApplicationCpuBoostPolicy.DecideOnTargetChange(
+            null,
+            imposed,
+            knownBaseline ? CpuBoostMode.Enabled : null);
+
+        Assert.Equal(PerAppCpuBoostAction.Leave, decision.Action);
+    }
 }

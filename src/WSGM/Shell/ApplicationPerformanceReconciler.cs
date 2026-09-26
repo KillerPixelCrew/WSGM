@@ -8,8 +8,9 @@ using WSGM.Device.Sdk.Capabilities;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Carries the running application's per-game power limit and variable refresh preference
-///     to the device, and saves values set by hand to the profile layer in force.
+///     Carries the running application's per-game power limit, variable refresh preference and
+///     processor boost mode to the device and to Windows, and saves values set by hand to the
+///     profile layer in force.
 /// </summary>
 /// <remarks>
 ///     The session decides when this runs; this remembers what it imposed, so a value one
@@ -18,15 +19,32 @@ namespace WSGM.Shell;
 /// <param name="profiles">The profile owner the values are read from and saved to.</param>
 /// <param name="readCoordinator">Reads the device coordinator, or null without device integration.</param>
 /// <param name="readAutoTdp">Reads AutoTDP, or null when it is not running.</param>
+/// <param name="cpuBoost">Windows' processor boost mode, or null when this session must not write it.</param>
 internal sealed class ApplicationPerformanceReconciler(
     ProfileService profiles,
     Func<DeviceCoordinator?> readCoordinator,
-    Func<AutoTdpService?> readAutoTdp)
+    Func<AutoTdpService?> readAutoTdp,
+    CpuBoost? cpuBoost = null)
 {
+    private readonly Lock _cpuBoostGate = new();
+    private CpuBoostMode? _cpuBoostBaseline;
+    private bool _cpuBoostImposed;
+    private volatile CpuBoostStatus? _cpuBoostStatus;
+    private bool _cpuBoostUnsupportedLogged;
     private string _lastReconciledApplicationId = "(uninitialised)";
+    private string _lastReconciledCpuBoostKey = "(uninitialised)";
     private bool _profilePowerImposed;
     private bool _profilePowerPaired;
     private bool _profileVrrImposed;
+
+    /// <summary>Raised after the processor boost readback changes, from whichever thread read it.</summary>
+    internal event Action? CpuBoostChanged;
+
+    /// <summary>Whether this session can read and write the processor boost mode at all.</summary>
+    internal bool CpuBoostAvailable => cpuBoost is not null;
+
+    /// <summary>The last processor boost readback, or null before the first read.</summary>
+    internal CpuBoostStatus? CpuBoostStatus => _cpuBoostStatus;
 
     /// <summary>
     ///     Restores the power limit and variable-refresh state the incoming application prefers, and takes
@@ -56,6 +74,13 @@ internal sealed class ApplicationPerformanceReconciler(
         var applicationId = snapshot.Active.ApplicationId;
         var manual = layers.ManualTdp();
         var vrrPreference = layers.Value(values => values.VariableRefreshRate).Value;
+        // Windows policy, so it runs with or without a device plugin and keeps its own identity:
+        // the device key below is deliberately not recorded while no capability exists.
+        await ReconcileApplicationCpuBoostAsync(
+            layers.Value(values => values.CpuBoost).Value,
+            applicationId,
+            cancellationToken).ConfigureAwait(false);
+
         var identityKey = $"{applicationId}|{manual}|{vrrPreference}";
         if (string.Equals(identityKey, _lastReconciledApplicationId, StringComparison.Ordinal))
         {
@@ -208,6 +233,152 @@ internal sealed class ApplicationPerformanceReconciler(
             Log.Info(
                 $"Per-application variable refresh {(decision.Enabled ? "enabled" : "disabled")} for "
                 + $"{applicationId ?? "the global profile"}.");
+        }
+    }
+
+    private async Task ReconcileApplicationCpuBoostAsync(
+        CpuBoostMode? effective,
+        string? applicationId,
+        CancellationToken cancellationToken)
+    {
+        if (cpuBoost is null)
+        {
+            return;
+        }
+
+        var key = $"{applicationId}|{effective}";
+        if (string.Equals(key, _lastReconciledCpuBoostKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastReconciledCpuBoostKey = key;
+        var decision = PerApplicationCpuBoostPolicy.DecideOnTargetChange(
+            effective,
+            _cpuBoostImposed,
+            _cpuBoostBaseline);
+        if (decision.Action is not PerAppCpuBoostAction.Apply)
+        {
+            // Nothing preferred and nothing to take back. The imposed flag still clears, so a
+            // mode that was never WSGM's to restore is not restored on some later transition.
+            _cpuBoostImposed = false;
+            return;
+        }
+
+        if (await ApplyCpuBoostAsync(decision.Mode, cancellationToken).ConfigureAwait(false))
+        {
+            _cpuBoostImposed = effective is not null;
+            Log.Info(
+                $"Per-application processor boost {CpuBoost.NameFor(decision.Mode)} for "
+                + $"{applicationId ?? "the global profile"}.");
+        }
+    }
+
+    /// <summary>Reads the processor boost mode from Windows and publishes it to both surfaces.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The readback, or null when this session has no processor boost.</returns>
+    internal async Task<CpuBoostStatus?> RefreshCpuBoostAsync(CancellationToken cancellationToken = default)
+    {
+        if (cpuBoost is null)
+        {
+            return null;
+        }
+
+        var status = await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cpuBoost.Read();
+        }, cancellationToken).ConfigureAwait(false);
+        PublishCpuBoost(status);
+        return status;
+    }
+
+    /// <summary>Applies a processor boost mode the user chose and saves it to the layer in force.</summary>
+    /// <param name="mode">The mode the user chose.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether Windows confirmed the mode.</returns>
+    /// <remarks>
+    ///     The user-facing counterpart to the transition's own write. Saving happens here rather than
+    ///     in a device hook, because Windows has no manual funnel of its own: both the overlay row and
+    ///     the Quick Access row come through this one method.
+    /// </remarks>
+    internal async Task<bool> SetCpuBoostFromUserAsync(CpuBoostMode mode, CancellationToken cancellationToken)
+    {
+        if (!await ApplyCpuBoostAsync(mode, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        _cpuBoostImposed = true;
+        var current = profiles.Current.Layers.Value(values => values.CpuBoost).Value;
+        if (current != mode)
+        {
+            await profiles.SetAsync(values => values.CpuBoost = mode, $"CpuBoost={mode}",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>Writes one mode to Windows, keeping the mode found before WSGM's first write.</summary>
+    private async Task<bool> ApplyCpuBoostAsync(CpuBoostMode mode, CancellationToken cancellationToken)
+    {
+        if (cpuBoost is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await Task.Run(() =>
+            {
+                lock (_cpuBoostGate)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var before = cpuBoost.Read();
+                    if (!before.Supported)
+                    {
+                        if (!_cpuBoostUnsupportedLogged)
+                        {
+                            _cpuBoostUnsupportedLogged = true;
+                            Log.Warn("Processor boost mode is not exposed by the active power scheme.");
+                        }
+
+                        PublishCpuBoost(before);
+                        return false;
+                    }
+
+                    if (!_cpuBoostImposed)
+                    {
+                        // The value to come back to once no layer prefers one. Null when Windows holds
+                        // a mode WSGM does not offer, in which case nothing is restored.
+                        _cpuBoostBaseline = before.OnAc;
+                    }
+
+                    cpuBoost.Apply(mode, cancellationToken);
+                    PublishCpuBoost(cpuBoost.Read());
+                    return true;
+                }
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Processor boost {CpuBoost.NameFor(mode)} was not applied: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void PublishCpuBoost(CpuBoostStatus status)
+    {
+        var previous = _cpuBoostStatus;
+        _cpuBoostStatus = status;
+        if (previous != status)
+        {
+            CpuBoostChanged?.Invoke();
         }
     }
 

@@ -283,8 +283,9 @@ public sealed class ShellSession : IAsyncDisposable
         // user's configuration.
         _profiles = new ProfileService(config.Profiles,
             overlayTestOnly ? MutateSimulatedProfilesAsync() : MutateProfilesAsync);
+        // Overlay-test must not write Windows power policy, so it gets no processor boost.
         _applicationProfiles = new ApplicationPerformanceReconciler(_profiles, () => _deviceCoordinator,
-            () => _autoTdp);
+            () => _autoTdp, overlayTestOnly ? null : CpuBoost.Windows);
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef is { Enabled: true, WifiIndicator: true };
         _downloadSortEnabled = config.Cef is { Enabled: true, DownloadQueueSort: true };
@@ -852,7 +853,8 @@ public sealed class ShellSession : IAsyncDisposable
         _performanceOverlay = new PerformanceOverlayBridge(
             _performance,
             _profiles,
-            () => _refreshPairing?.FrameLimitRange());
+            () => _refreshPairing?.FrameLimitRange(),
+            _applicationProfiles);
         StartProfileFanOut();
         _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
         AttachOsdPowerStatus();
@@ -1486,7 +1488,10 @@ public sealed class ShellSession : IAsyncDisposable
                 // Null in overlay-test, which has no Steam client to read artwork for or write it to.
                 _artwork,
                 _libraryImport,
-                _wsgmSettings);
+                _wsgmSettings,
+                _applicationProfiles.CpuBoostAvailable
+                    ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)
+                    : null);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {
                 // A plugin starting, stopping or taking a setting changes the Plugins page.

@@ -151,6 +151,25 @@ unknown or removed GUIDs and requires a fresh read after an uncertain write. The
 and disables input while its request is pending. The toolkit owns row placement and command
 validation; WSGM owns Windows access.
 
+### Processor boost mode
+
+`Core\CpuBoost` is Handheld Companion's "CPU boost mode" as a per-game profile value, ported because
+some games run better with boost off (Doom: The Dark Ages) and others with it on (Sonic Frontiers).
+It writes Windows' `PERFBOOSTMODE` processor setting exactly as HC does
+(`PerformanceManager.RequestPerfBoostMode`, `PowerScheme.WritePowerCfg`): HC's five choices,
+Disabled, Enabled, Aggressive, Efficient enabled and Efficient aggressive, as values 0 to 4; the
+setting revealed in Windows' own power options; plugged-in and battery written to the same value on
+the active scheme; the scheme re-activated so the policy takes effect; and the value read back. A
+scheme whose read is refused offers nothing. Windows' modes 5 and 6 are shown as "not set by WSGM".
+
+The value is a `ProfileValues.CpuBoost` layer like the frame limit: a game profile that sets it wins
+while that game runs, Global applies otherwise, and an unset layer leaves Windows alone.
+`ApplicationPerformanceReconciler` carries it on every running-application change, with or without a
+device plugin, and restores the mode it found before its first write once no layer prefers one. The
+overlay's Performance section (Device > Power, present with RTSS and device integration off) and
+Steam's Performance tab (`steam-ui.cpu-boost`) show and set the same value through that one carrier;
+both mark a game override and offer the way back to Global.
+
 ## Device power presets
 
 Steam QAM → Performance offers AC and battery profile assignments when the plugin declares presets.

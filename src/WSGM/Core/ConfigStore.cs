@@ -336,6 +336,7 @@ public static class ConfigStore
         }
 
         RepairEnum(values, "ControllerTarget", ManagedControllerTarget.SteamDeckComposite);
+        RepairOptionalEnum<CpuBoostMode>(values, "CpuBoost");
         foreach (var entry in (values["Device"] as JsonArray ?? []).OfType<JsonObject>())
         {
             RepairCapabilityValueJson(entry["Value"] as JsonObject);
@@ -401,6 +402,22 @@ public static class ConfigStore
             && !Enum.TryParse<T>(text, true, out _))
         {
             value[property] = fallback.ToString();
+        }
+    }
+
+    /// <summary>
+    ///     An unknown name for a profile value that may be unset is dropped rather than replaced:
+    ///     a layer that sets nothing falls back to the layer below, which is what an unreadable
+    ///     value should do, not invent a preference the user never chose.
+    /// </summary>
+    private static void RepairOptionalEnum<T>(JsonObject value, string property)
+        where T : struct, Enum
+    {
+        if (value[property] is JsonValue node
+            && node.TryGetValue<string>(out var text)
+            && !Enum.TryParse<T>(text, true, out _))
+        {
+            value.Remove(property);
         }
     }
 

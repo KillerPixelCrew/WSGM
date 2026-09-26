@@ -29,6 +29,7 @@ Global wattage. A game that sets only its button colour keeps the Global ring co
 | `FrameLimit`, `OverlayLevel`          | `PerformanceService` (RTSS)                                                 |
 | manual power values                   | `ApplicationPerformanceReconciler`, the coordinator's power pair            |
 | `VariableRefreshRate`                 | `ApplicationPerformanceReconciler`                                          |
+| `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)           |
 | `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                    |
 | `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                              |
 | `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                  |
@@ -65,8 +66,8 @@ its values, so switching back on restores them.
 
 "Reset to default" clears every value in the game profile when it is on, so the game inherits
 everything and keeps its binding. When it is off it clears only the Performance tab's Global values:
-frame limit, overlay level, the manual power values and VRR. It never reaches lighting or other
-device values.
+frame limit, overlay level, the manual power values, VRR and the processor boost mode. It never
+reaches lighting or other device values.
 
 A game without a Steam AppID still gets its profile. Valve's header needs an AppID, so there it
 reads as global; WSGM's own rows still show the game layer.
