@@ -123,6 +123,39 @@ replaced by "Motion only on request", which follows the consumer's own IMU-mode 
 Deck target (see device-integration.md), so an idle desktop with no gyro layout has the stream off
 by default. That run, and the in-game scenarios, are the next captures.
 
+## Inside VIIPER: what one controller report costs
+
+The trace above could only say that `libviiper.dll` was 40 % of WSGM's idle CPU and 55 % of its
+wakeups. It is a Go c-shared library with no PDB, so its threads show as "(no stack)" and the frames
+that do resolve are the Go scheduler. Measuring inside it needed its own harness:
+`internal/server/usb/urbcycle_bench_test.go` in the submodule runs the real USB/IP server with the
+Steam Deck device and drives it from a second process that behaves like usbip-win2, then reports
+process cycles, thread context switches and heap allocations per completed URB.
+
+    cd external\viiper
+    $env:VIIPER_URB_BENCH = "1"; go test .\internal\server\usb -run TestURBCycleCost -v
+
+The cost was the emulation's own heartbeat. A Steam Deck controller endpoint declares a 6 ms
+`bInterval`, and every 6 ms with no fresh input the server built two contexts, called into the
+device, let it allocate a report from unchanged state, copied that into a replay cache and wrote it
+to the loopback socket. Nothing consumed any of it while the pad sat untouched on a desk.
+
+Measured on the Claw, an idle Steam Deck endpoint with no input at all:
+
+| Configuration                          | Completions/s | Mcycles/s | Context switches/s | Allocations per completion |
+| -------------------------------------- | ------------: | --------: | -----------------: | -------------------------: |
+| Before: 4 Ps, repeat every 6 ms        |           146 |       193 |              1,548 |                         23 |
+| Allocation-free completions, 1 P       |           146 |       107 |                678 |                          1 |
+| Plus a 64 ms idle repeat (now default) |          15.5 |        14 |                 78 |                          1 |
+
+With input flowing at 125 Hz the completion rate is unchanged: fresh input never waits for a timer,
+so the idle repeat costs no input latency. `VIIPER_IDLE_KEEPALIVE_INTERVAL=0` in WSGM's environment
+restores the 6 ms repeat without a rebuild. The fork's `docs/wsgm-idle-endpoints.md` has the policy
+and the per-endpoint detail.
+
+These are figures for the VIIPER process in isolation, on one machine. A WSGM capture that shows the
+same reduction in `WSGM.exe` has not been recorded yet.
+
 ## Budgets
 
 Proposed for the maintainer's decision; not agreed yet.
@@ -140,7 +173,7 @@ those are the product working.
 
 | Finding                                                  | Cost at idle                                          | Status                                                                                                                                                                                                                                                                                                                     |
 | -------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| VIIPER keepalive replay and completions with no consumer | 40 % CPU, 55 % wakeups                                | partly fixed: an unchanged frame is no longer submitted, so an untouched pad costs no cgo call or Go wakeup per report; the 6 ms replay needs a VIIPER pprof and an attended check of NAK-idle against Steam                                                                                                               |
+| VIIPER keepalive replay and completions with no consumer | 40 % CPU, 55 % wakeups                                | fixed: an unchanged frame is no longer submitted, and the replay of a report the host already has now costs a timer and a socket write every 64 ms instead of a context pair, a device call, a report allocation and a write every 6 ms (see "Inside VIIPER" below); a WSGM capture has not been re-recorded               |
 | Per-sample thread-pool hops                              | 35 % CPU, 25 % wakeups                                | partly fixed: the pool's spin-then-sleep is off and an unchanged frame no longer reaches VIIPER; routing a sample on its publishing thread was tried and reverted, because a route runs WSGM's own observers and one that blocks would stall the plugin's HID reader; the drain hop and the HID completion-port hop remain |
 | Power preset replayed on every foreground change         | WMI writes and readbacks per window switch, WmiPrvSE  | fixed: the same assignment resolving for another application is not re-applied while the device still shows it                                                                                                                                                                                                             |
 | Steam running-application poll every 2 s over CEF        | part of the steamwebhelper 1.8 %                      | open: `RunningApplicationTarget` polls the client; Steam's app lifetime notifications would make it event-driven                                                                                                                                                                                                           |
