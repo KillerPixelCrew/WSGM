@@ -11,22 +11,18 @@ namespace WSGM.Device.Msi.Claw8A2Vm;
 internal sealed class WindowsClawMotionSource : IClawMotionSource
 {
     /// <summary>
-    ///     Report a refined zero-rate offset only once it has moved by more than the residual a single
-    ///     rest window can resolve, so a settling estimate does not fill the log with noise.
-    /// </summary>
-    private const float MinimumLoggedBiasChange = 0.05f;
-
-    /// <summary>
-    ///     Roughly ten seconds of reports. Reaching this without a measured offset means the device
-    ///     never held still, which is the decisive fact behind an uncorrected drift complaint.
-    /// </summary>
-    private const ulong UncalibratedReportSampleCount = 1000;
-
-    /// <summary>
-    ///     Poll faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
-    ///     cannot routinely skip a hardware report. The counter prevents duplicate publication.
+    ///     The polling fallback's period, used only when the Sensor API refuses an event sink. It
+    ///     polls faster than the physical sensor's 10 ms minimum report interval so scheduler jitter
+    ///     cannot routinely skip a hardware report; the counter prevents duplicate publication.
     /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(2);
+
+    /// <summary>
+    ///     Outlives the worker sessions on purpose. WSGM stops the stream whenever nothing reads
+    ///     motion and starts it again when a game takes focus; a calibrator that restarted with the
+    ///     session would send that game two seconds of uncorrected drift before the first rest window.
+    /// </summary>
+    private readonly StationaryGyroBiasCalibrator _calibrator = new();
 
     private readonly Lock _gate = new();
     private readonly Func<Func<MotionSample, ValueTask>, MotionWorkerSession?> _open;
@@ -39,7 +35,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         Func<Func<MotionSample, ValueTask>, MotionWorkerSession?>? open = null,
         TimeSpan? stopTimeout = null)
     {
-        _open = open ?? OpenSession;
+        _open = open ?? (publish => OpenSession(publish, _calibrator));
         _stopTimeout = stopTimeout ?? TimeSpan.FromSeconds(2);
     }
 
@@ -97,7 +93,9 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static MotionWorkerSession? OpenSession(Func<MotionSample, ValueTask> publish)
+    private static MotionWorkerSession? OpenSession(
+        Func<MotionSample, ValueTask> publish,
+        StationaryGyroBiasCalibrator calibrator)
     {
         var sensors = LegacyPhysicalMotionSensors.TryOpen();
         if (sensors is null)
@@ -112,13 +110,47 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
             SingleWriter = true
         });
         CancellationTokenSource cancellation = new();
-        var producer = Task.Factory.StartNew(
-            () => Produce(sensors, samples.Writer, cancellation.Token),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+        MotionReadingPipeline pipeline = new(calibrator);
+        Task producer;
+        if (sensors.TrySubscribe(reading => pipeline.Push(reading, samples.Writer), out var error))
+        {
+            // The driver pushes each report; the producer only has to end the stream on stop.
+            producer = ObserveEventsAsync(sensors, samples.Writer, cancellation.Token);
+        }
+        else
+        {
+            PluginTrace.Info(
+                "motion",
+                $"Physical IMU events unavailable ({error}); polling every {PollInterval.TotalMilliseconds:F0} ms instead.");
+            producer = Task.Factory.StartNew(
+                () => Produce(sensors, samples.Writer, pipeline, cancellation.Token),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+        }
+
         var pump = PumpAsync(samples.Reader, publish, cancellation.Token);
         return new MotionWorkerSession(sensors, cancellation, producer, pump);
+    }
+
+    private static async Task ObserveEventsAsync(
+        LegacyPhysicalMotionSensors sensors,
+        ChannelWriter<MotionSample> writer,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            // Returns once no callback is in flight, so the writer completes after the last sample.
+            sensors.Unsubscribe();
+            writer.TryComplete();
+        }
     }
 
     /// <summary>Builds one canonical sample from physical LSM6DSO sensor-space vectors.</summary>
@@ -158,13 +190,10 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     private static void Produce(
         LegacyPhysicalMotionSensors sensors,
         ChannelWriter<MotionSample> writer,
+        MotionReadingPipeline pipeline,
         CancellationToken cancellationToken)
     {
-        StationaryGyroBiasCalibrator calibrator = new();
-        ulong freshIndex = 0;
         var readFailed = false;
-        Vector3? reportedBias = null;
-        var uncalibratedReported = false;
         try
         {
             // Sensor COM calls are synchronous and can block. Keep them on one sleeping worker
@@ -198,36 +227,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
                     continue;
                 }
 
-                freshIndex++;
-                // This IMU's zero-rate offset reaches the wire as a permanent rotation no target
-                // removes: the Deck's own gyro is offset-free in hardware, so Steam integrates
-                // whatever arrives. Correcting it here is the only place it can be corrected.
-                var corrected = calibrator.Correct(
-                    reading.AngularVelocity,
-                    reading.Acceleration);
-                if (calibrator.Bias is { } bias)
-                {
-                    if (reportedBias is not { } priorBias
-                        || (bias - priorBias).Length() > MinimumLoggedBiasChange)
-                    {
-                        reportedBias = bias;
-                        PluginTrace.Info(
-                            "motion",
-                            $"Physical gyroscope zero-rate offset measured at "
-                            + $"({bias.X:F3}, {bias.Y:F3}, {bias.Z:F3}) degrees/second.");
-                    }
-                }
-                else if (!uncalibratedReported && freshIndex >= UncalibratedReportSampleCount)
-                {
-                    uncalibratedReported = true;
-                    PluginTrace.Info(
-                        "motion",
-                        $"Physical gyroscope is still uncorrected after {freshIndex} reports: no "
-                        + $"{StationaryGyroBiasCalibrator.WindowSampleCount}-report rest window has "
-                        + "occurred yet, so its zero-rate offset remains unmeasured.");
-                }
-
-                writer.TryWrite(CreateSample(corrected, reading.Timestamp, reading.Acceleration));
+                pipeline.Push(reading, writer);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -247,6 +247,72 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         await foreach (var sample in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             await publish(sample).ConfigureAwait(false);
+        }
+    }
+}
+
+/// <summary>
+///     Turns physical readings into canonical samples: offset correction, the two log lines the
+///     offset earns, and the write into the bounded channel. Shared by the event sink and the
+///     polling fallback, so both paths correct and report the same way.
+/// </summary>
+internal sealed class MotionReadingPipeline(StationaryGyroBiasCalibrator calibrator)
+{
+    /// <summary>
+    ///     Report a refined zero-rate offset only once it has moved by more than the residual a single
+    ///     rest window can resolve, so a settling estimate does not fill the log with noise.
+    /// </summary>
+    private const float MinimumLoggedBiasChange = 0.05f;
+
+    /// <summary>
+    ///     Roughly ten seconds of reports. Reaching this without a measured offset means the device
+    ///     never held still, which is the decisive fact behind an uncorrected drift complaint.
+    /// </summary>
+    private const ulong UncalibratedReportSampleCount = 1000;
+
+    private readonly Lock _gate = new();
+    private ulong _freshIndex;
+    private Vector3? _reportedBias;
+    private bool _uncalibratedReported;
+
+    /// <summary>Corrects one fresh reading and queues it for publication.</summary>
+    /// <param name="reading">A fresh physical reading; duplicates are filtered before this.</param>
+    /// <param name="writer">The bounded, drop-oldest channel the pump reads.</param>
+    /// <remarks>Serialized: the Sensor API may dispatch its callbacks on more than one thread.</remarks>
+    public void Push(PhysicalMotionReading reading, ChannelWriter<MotionSample> writer)
+    {
+        lock (_gate)
+        {
+            _freshIndex++;
+            // This IMU's zero-rate offset reaches the wire as a permanent rotation no target
+            // removes: the Deck's own gyro is offset-free in hardware, so Steam integrates
+            // whatever arrives. Correcting it here is the only place it can be corrected.
+            var corrected = calibrator.Correct(
+                reading.AngularVelocity,
+                reading.Acceleration);
+            if (calibrator.Bias is { } bias)
+            {
+                if (_reportedBias is not { } priorBias
+                    || (bias - priorBias).Length() > MinimumLoggedBiasChange)
+                {
+                    _reportedBias = bias;
+                    PluginTrace.Info(
+                        "motion",
+                        $"Physical gyroscope zero-rate offset measured at "
+                        + $"({bias.X:F3}, {bias.Y:F3}, {bias.Z:F3}) degrees/second.");
+                }
+            }
+            else if (!_uncalibratedReported && _freshIndex >= UncalibratedReportSampleCount)
+            {
+                _uncalibratedReported = true;
+                PluginTrace.Info(
+                    "motion",
+                    $"Physical gyroscope is still uncorrected after {_freshIndex} reports: no "
+                    + $"{StationaryGyroBiasCalibrator.WindowSampleCount}-report rest window has "
+                    + "occurred yet, so its zero-rate offset remains unmeasured.");
+            }
+
+            writer.TryWrite(WindowsClawMotionSource.CreateSample(corrected, reading.Timestamp, reading.Acceleration));
         }
     }
 }

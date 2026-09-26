@@ -132,6 +132,18 @@ internal static class SteamGlyphCss
     /// </remarks>
     internal const string DialogCheckboxClass = "DialogCheckbox_Container";
 
+    /// <summary>The route token in the id of the configurator's "Trackpads" entry in its page list.</summary>
+    /// <remarks>
+    ///     The configurator's left column lists one entry per page, and the trackpads page is neither
+    ///     a control section nor a binding row: its entry is a hashed-class panel whose id ends in this
+    ///     route, read off the reference Claw on 2026-09-26 as
+    ///     <c>«r134»/app/443510/controllerconfigurator/touchpads</c>. It kept the trackpads page reachable
+    ///     on a device with no trackpads while every section rule above had already hidden the pads
+    ///     themselves, and edits made on that page reverted as soon as they were made. The route is
+    ///     Valve's own, not a build hash.
+    /// </remarks>
+    internal const string TrackpadsPageRoute = "/controllerconfigurator/touchpads";
+
     /// <summary>The view box of Valve's inline Steam Deck silhouette.</summary>
     /// <remarks>
     ///     The controller-diagram pickers draw the Deck as an inline <c>&lt;svg&gt;</c> of some fifty
@@ -472,6 +484,13 @@ internal static class SteamGlyphCss
             .Where(selector => selector.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
+        // The trackpads page itself, through its entry in the configurator's page list. Only when
+        // the device has neither pad: a device with one still needs the page.
+        if (absent.Contains(GlyphControlId.LeftTrackpad) && absent.Contains(GlyphControlId.RightTrackpad))
+        {
+            selectors = [.. selectors, $"[id*=\"{Attribute(TrackpadsPageRoute)}\"]"];
+        }
+
         if (selectors.Length == 0)
         {
             return 0;

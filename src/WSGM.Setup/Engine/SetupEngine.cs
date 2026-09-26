@@ -293,6 +293,8 @@ internal sealed class SetupEngine : IDisposable
             new("Closing WSGM and Steam", "WSGM and Steam closed", true, step => StopRuntime(step, true)),
             new("Removing the Steam Input shim", "Steam Input shim removed", false,
                 _ => !File.Exists(app) || WindowsSetup.Run(app, "--remove-steam-input-shim") == 0),
+            new("Restoring Steam's guide chord template", "Steam's guide chord template restored", false,
+                _ => !File.Exists(app) || WindowsSetup.Run(app, "--restore-steam-chord-template") == 0),
             new("Removing the sign-in service", "Sign-in service removed", false,
                 _ => WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--uninstall") == 0),
             new("Restoring the shell registration", "Shell registration restored", false,

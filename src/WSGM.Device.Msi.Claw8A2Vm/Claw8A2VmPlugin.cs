@@ -148,6 +148,13 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     private LightingService? _lighting;
     private ClawA2VmLightingCapability? _lightingCapability;
     private MotionService? _motion;
+
+    /// <summary>
+    ///     WSGM's last word on whether anything reads motion. True until the host says otherwise, so a
+    ///     host that never sends the signal gets the stream it always had.
+    /// </summary>
+    private bool _motionWanted = true;
+
     private CancellationTokenSource? _observationLoop;
     private CancellationToken _observationToken;
     private OemEventService? _oem;
@@ -586,6 +593,57 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     }
 
     /// <inheritdoc />
+    public async ValueTask SetMotionDemandAsync(
+        PluginMotionDemandContext context,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        await _commandSerializer.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _motionWanted = context.Wanted;
+            if (_motion is null || !_active || _quiescing)
+            {
+                // Remembered only: start and resume walk the services and honour the flag there.
+                return;
+            }
+
+            switch (context.Wanted)
+            {
+                case true when _motion.State is ClawServiceState.Idle:
+                    // Reacquisition reopens the Sensor API handles; the zero-rate offset measured
+                    // earlier in this process survives inside the source, so the first samples are
+                    // corrected rather than drifting until the next rest window.
+                    await StartOneAsync(
+                        _motion,
+                        () => _motion.AcquireAsync(OperationContext(context.Deadline), cancellationToken),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+                case false when _motion.State is ClawServiceState.Owned:
+                    await OperateOneAsync(
+                        _motion,
+                        () => _motion.ReleaseAsync(OperationContext(context.Deadline), cancellationToken),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+                default:
+                    return;
+            }
+
+            PluginTrace.Change(
+                "motion",
+                "demand",
+                context.Wanted
+                    ? "Motion stream started: WSGM reports a consumer."
+                    : "Motion stream stopped: WSGM reports nothing reads motion.");
+            await PublishCapabilityStatesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _commandSerializer.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask<PluginStopResult> StopAsync(
         PluginStopContext context,
         CancellationToken cancellationToken)
@@ -919,6 +977,12 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
     {
         foreach (var service in _cycleServices)
         {
+            if (service == _motion && !_motionWanted)
+            {
+                // WSGM said nothing reads motion; the source stays closed until it says otherwise.
+                continue;
+            }
+
             await StartOneAsync(
                 service,
                 () => service.AcquireAsync(context, cancellationToken),
@@ -2598,7 +2662,11 @@ public sealed class Claw8A2VmPlugin : IDevicePlugin
 
     private PluginStartResult CurrentStartResult()
     {
-        var requiredServices = _cycleServices.Where(service => service != _controller || _controller.Enabled).ToArray();
+        // A service WSGM asked to keep off is not a service that failed.
+        var requiredServices = _cycleServices
+            .Where(service => service != _controller || _controller.Enabled)
+            .Where(service => service != _motion || _motionWanted)
+            .ToArray();
         var owned = requiredServices.Count(service => service.State is ClawServiceState.Owned);
         var unhealthy = requiredServices.Any(service => service.State is not ClawServiceState.Owned);
         var firstUnhealthy = requiredServices.FirstOrDefault(service => service.State is not ClawServiceState.Owned);

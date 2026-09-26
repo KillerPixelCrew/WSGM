@@ -195,6 +195,18 @@ public static class Program
             return 0;
         }
 
+        if (flags.Contains("--restore-steam-chord-template"))
+        {
+            // Uninstall: Valve's guide chord template back in place, the backup gone. Nothing to do
+            // without Steam or without a backup, and both are success.
+            if (Steam.InstallDirectory is { } steamDirectory)
+            {
+                SteamGuideChordMirror.RestoreInstalledSteam(steamDirectory);
+            }
+
+            return 0;
+        }
+
         // Read-only radio diagnostic. Run it on the device, in the session being
         // diagnosed, and read the verdict out of wsgm.log — it answers what the
         // documentation cannot: whether radio control works elevated with no

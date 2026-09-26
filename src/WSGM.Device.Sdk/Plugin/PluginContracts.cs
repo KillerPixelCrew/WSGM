@@ -108,6 +108,26 @@ public interface IDevicePlugin : IAsyncDisposable
         PluginControllerManagementContext context,
         CancellationToken cancellationToken);
 
+    /// <summary>Tells the plugin whether anything downstream reads motion right now.</summary>
+    /// <param name="context">Whether motion is wanted, the current generation, and the deadline.</param>
+    /// <param name="cancellationToken">Cancels the transition.</param>
+    /// <returns>A task completing once the motion source is stopped or running again.</returns>
+    /// <remarks>
+    ///     Gyroscope and accelerometer samples are the highest-rate data a plugin moves, and on a
+    ///     handheld every read costs the game a cycle. WSGM sends <c>Wanted = false</c> while no
+    ///     application runs, while the managed target has no motion report, or while controller
+    ///     management is off, and <c>true</c> again before a game that may use motion gets it. A plugin
+    ///     should stop reading the hardware on <c>false</c>, not just drop samples, and resume quickly
+    ///     and without a calibration jump on <c>true</c>. Until the first call the plugin behaves as if
+    ///     motion is wanted. The default implementation ignores the signal.
+    /// </remarks>
+    ValueTask SetMotionDemandAsync(
+        PluginMotionDemandContext context,
+        CancellationToken cancellationToken)
+    {
+        return ValueTask.CompletedTask;
+    }
+
     /// <summary>Restores and releases every remaining resource.</summary>
     /// <param name="context">Terminal reason and cleanup deadline.</param>
     /// <param name="cancellationToken">Cancels waiting at the host deadline.</param>
@@ -234,6 +254,15 @@ public sealed record PluginControllerReleaseContext(HandoffScope Scope, DateTime
 /// <param name="Deadline">UTC transition deadline.</param>
 public sealed record PluginControllerManagementContext(
     bool Enabled,
+    long CycleGeneration,
+    DateTimeOffset Deadline);
+
+/// <summary>Whether motion samples have a consumer, inside a continuing device cycle.</summary>
+/// <param name="Wanted">Whether the motion source should be running.</param>
+/// <param name="CycleGeneration">The generation the request belongs to.</param>
+/// <param name="Deadline">UTC deadline for stopping or restarting the source.</param>
+public sealed record PluginMotionDemandContext(
+    bool Wanted,
     long CycleGeneration,
     DateTimeOffset Deadline);
 

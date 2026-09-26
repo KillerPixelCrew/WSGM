@@ -60,6 +60,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly PluginHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DeviceLightingRestore _lightingRestore = new();
+    private readonly Lock _motionDemandGate = new();
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly Mutex _ownerMutex;
     private readonly PluginHost _pluginHost;
@@ -83,6 +84,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private bool _intentionalStop;
     private int _lightingRestoreScheduled;
     private Action<bool>? _manualVariableRefreshOverride;
+    private bool _motionDemandDirty;
+    private Task? _motionDemandTask;
+    private bool _motionDemandWanted = true;
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private PluginRegistration? _pluginRegistration;
     private Task _resumeRestore = Task.CompletedTask;
@@ -133,6 +137,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Environment.ProcessPath
                 ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
             new ControllerProcessPriority());
+        Controllers.MotionDemandChanged += QueueMotionDemand;
+        Controllers.ApplyMotionStreamMode(config.DeviceIntegration.MotionStream);
         _powerAssignmentTask = ObservePowerAssignmentsAsync();
     }
 
@@ -447,6 +453,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _pluginSettings.ApplyConfig(config);
             UpdateCapabilityDesiredContext();
             UpdateOemConfiguration();
+            Controllers.ApplyMotionStreamMode(config.DeviceIntegration.MotionStream);
             await Controllers.ApplySelectionAsync(
                 CurrentControllerSelection(),
                 _runningApplicationId,
@@ -1744,6 +1751,75 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Log.Info(
             $"Controller management: state={status.State}, target={status.Target}, "
             + $"source={status.TargetSource}, uiSource={status.UiSource}, detail={status.Detail}");
+        // The plugin starts every cycle assuming motion is wanted, and the demand may not have
+        // changed while it started (the change event only fires on a transition), so the current
+        // answer is sent explicitly once management is up.
+        QueueMotionDemand(Controllers.MotionWanted);
+    }
+
+    /// <summary>Forwards the latest motion demand to the plugin, coalescing rapid changes.</summary>
+    /// <param name="wanted">Whether anything downstream reads motion.</param>
+    /// <remarks>
+    ///     Fire-and-forget on purpose: the demand changes inside the controller manager's transition
+    ///     gate, and the plugin call takes the runtime's lifecycle gate, which the coordinator may be
+    ///     holding for the very operation that changed the demand. One task drains to the latest
+    ///     value; a failure is logged and the next transition tries again.
+    /// </remarks>
+    private void QueueMotionDemand(bool wanted)
+    {
+        lock (_motionDemandGate)
+        {
+            _motionDemandWanted = wanted;
+            _motionDemandDirty = true;
+            if (_motionDemandTask is { IsCompleted: false })
+            {
+                return;
+            }
+
+            _motionDemandTask = ForwardMotionDemandAsync();
+        }
+    }
+
+    private async Task ForwardMotionDemandAsync()
+    {
+        while (true)
+        {
+            bool wanted;
+            lock (_motionDemandGate)
+            {
+                if (!_motionDemandDirty)
+                {
+                    _motionDemandTask = null;
+                    return;
+                }
+
+                _motionDemandDirty = false;
+                wanted = _motionDemandWanted;
+            }
+
+            var client = _client;
+            if (client is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await client.SetMotionDemandAsync(
+                    wanted,
+                    DateTimeOffset.UtcNow.AddSeconds(5),
+                    _lifetime.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn(
+                    $"The plugin did not apply the motion demand ({(wanted ? "wanted" : "not wanted")}): {ex.Message}");
+            }
+        }
     }
 
     /// <summary>Applies a running-application change from the one shared monitor.</summary>

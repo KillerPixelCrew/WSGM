@@ -64,6 +64,9 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        // Before the handles go: a sink left registered on a released sensor is a callback into
+        // a freed object.
+        Unsubscribe();
         lock (_gate)
         {
             RestoreInterval(_gyrometer, ExpectedGyrometerName, _gyrometerInterval);
@@ -254,11 +257,21 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
         lock (_gate)
         {
             _gyrometerInterval = ConfigureFastestInterval(_gyrometer, ExpectedGyrometerName);
-            _accelerometerInterval = ConfigureFastestInterval(_accelerometer, ExpectedAccelerometerName);
+            _accelerometerInterval = ConfigureFastestInterval(
+                _accelerometer,
+                ExpectedAccelerometerName,
+                _gyrometerInterval.Applied);
         }
     }
 
-    private static IntervalState ConfigureFastestInterval(ISensor? sensor, string name)
+    /// <param name="sensor">The sensor to configure.</param>
+    /// <param name="name">The sensor's name for the log.</param>
+    /// <param name="floor">
+    ///     The slowest interval worth asking for, in ms. The accelerometer is only ever read once per
+    ///     gyrometer report, so its driver minimum of 2 ms bought nothing and, with event delivery,
+    ///     cost five hundred callbacks a second in the driver host and the notification thread.
+    /// </param>
+    private static IntervalState ConfigureFastestInterval(ISensor? sensor, string name, uint floor = 0)
     {
         if (sensor is null
             || !TryReadUnsignedProperty(sensor, CurrentReportInterval, out var original)
@@ -268,7 +281,7 @@ internal sealed partial class LegacyPhysicalMotionSensors : IDisposable
             return default;
         }
 
-        var requested = minimum == 0 ? 10u : minimum;
+        var requested = Math.Max(minimum == 0 ? 10u : minimum, floor);
         if (original == requested)
         {
             PluginTrace.Info("motion", $"{name} report interval is {requested} ms.");

@@ -61,6 +61,17 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>The last frame the library accepted for the current device, and its length.</summary>
+    /// <remarks>
+    ///     A frame identical to the last one is not sent again. VIIPER already replays the last
+    ///     report at the endpoint's interval while no fresh input arrives, so the host sees the same
+    ///     stream either way, and an untouched pad at 125 Hz stopped costing a cgo transition and a
+    ///     Go-side wakeup per report (docs/perf). Zero length means nothing has been accepted for
+    ///     this device yet.
+    /// </remarks>
+    private readonly byte[] _lastFrame = new byte[SteamDeckNeptuneReport.Length];
+
     private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private uint _deviceId;
     private ManagedControllerTarget? _deviceKind;
@@ -68,6 +79,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private uint _fastHandle;
     private long _generation;
     private bool _initialized;
+    private int _lastFrameLength;
     private long? _removalUnverifiedGeneration;
     private GCHandle _self;
     private HidTargetHandle? _target;
@@ -144,6 +156,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             Check(NativeViiper.DeviceAdd(BusId, deviceType, out var deviceId), "add the device");
             Volatile.Write(ref _deviceId, deviceId);
             _deviceKind = kind;
+            _lastFrameLength = 0;
             try
             {
                 // Neutral before attach: the host enumerates the device and starts polling
@@ -622,6 +635,14 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return false;
         }
 
+        var encoded = frame[..length];
+        if (_lastFrameLength == length && encoded.SequenceEqual(_lastFrame.AsSpan(0, length)))
+        {
+            // Unchanged input: the library keeps replaying the report it already holds. A device
+            // that vanished meanwhile is noticed by the next changed frame or its feedback path.
+            return true;
+        }
+
         int status;
         fixed (byte* data = frame)
         {
@@ -630,8 +651,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
         if (status == NativeViiper.Ok)
         {
+            encoded.CopyTo(_lastFrame);
+            _lastFrameLength = length;
             return true;
         }
+
+        _lastFrameLength = 0;
 
         // The host keeps whatever report it last accepted — a held button included — so a rejected
         // submission must be loud enough to diagnose from a pasted log.
@@ -661,6 +686,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         Volatile.Write(ref _deviceId, 0);
         _fastHandle = 0;
         _deviceKind = null;
+        _lastFrameLength = 0;
         var removed = false;
         Log.Info($"Virtual controller removal started: {kind} as VIIPER device {BusId}:{deviceId}.");
         SafeNative(

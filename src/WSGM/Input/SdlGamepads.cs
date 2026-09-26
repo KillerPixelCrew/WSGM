@@ -74,6 +74,13 @@ internal static unsafe class SdlGamepads
             SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
             // Real Steam Controller grips (parity with the old Valve HID reader).
             SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+            // No background joystick thread. SDL's thread polls the XInput slots every 300 ms for
+            // the whole session, two to three percent of a core on the Claw with the pad hidden
+            // behind HidHide, and after a resume on 2026-09-26 it looped at a full core until the
+            // overlay opened and pumped SDL on the UI thread (docs/perf). Device changes are
+            // noticed when WSGM polls, which is exactly when it can use a pad: the notification
+            // window SDL creates here lives on the UI thread, whose message loop dispatches to it.
+            SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "0");
 
             if (!SDL_InitSubSystem(SDL_InitFlags.SDL_INIT_GAMEPAD))
             {

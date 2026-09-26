@@ -90,6 +90,9 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
+
+    private MotionStreamMode _motionStream = MotionStreamMode.Always;
+    private bool _motionWanted = true;
     private List<CanonicalControllerSample> _pendingSamples = [];
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
@@ -102,6 +105,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     private long _sourceGeneration;
     private List<CanonicalControllerSample>? _spareSamples = [];
     private bool _steamCapture;
+    private bool _steamGameRunning;
     private bool _steamOwnershipPaused;
     private CanonicalButtons _syntheticButtons;
 
@@ -128,6 +132,25 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     /// <summary>Current state of controller management.</summary>
     internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
+
+    /// <summary>Whether anything downstream reads motion samples right now.</summary>
+    /// <remarks>
+    ///     True only while management is active on a target that carries a motion report, and, in
+    ///     <see cref="MotionStreamMode.InGame" />, while Steam reports a running app. A foreground
+    ///     desktop window counts as an application for the profile layers but not here. The
+    ///     plugin is told on every change through <see cref="MotionDemandChanged" /> so it can stop
+    ///     reading the sensors rather than publish samples nobody encodes.
+    /// </remarks>
+    internal bool MotionWanted
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _motionWanted;
+            }
+        }
+    }
 
     /// <summary>Why the current state holds, for logs and the overlay.</summary>
     private string Detail { get; set; } = "Controller management has not started.";
@@ -190,6 +213,44 @@ internal sealed class ControllerManager : IAsyncDisposable
         _transition.Dispose();
         _routeGate.Dispose();
         _sampleAvailable.Dispose();
+    }
+
+    /// <summary>Raised when <see cref="MotionWanted" /> changes, with the new value.</summary>
+    internal event Action<bool>? MotionDemandChanged;
+
+    /// <summary>Applies the configured motion stream mode and re-evaluates the demand.</summary>
+    /// <param name="mode">The mode from the device integration settings.</param>
+    internal void ApplyMotionStreamMode(MotionStreamMode mode)
+    {
+        lock (_stateGate)
+        {
+            _motionStream = mode;
+        }
+
+        UpdateMotionDemand();
+    }
+
+    private void UpdateMotionDemand()
+    {
+        bool wanted;
+        lock (_stateGate)
+        {
+            wanted = State is ControllerManagementState.Active
+                     && Effective is { } effective
+                     && effective.Target is not ManagedControllerTarget.Xbox360
+                     && (_motionStream is MotionStreamMode.Always || _steamGameRunning);
+            if (wanted == _motionWanted)
+            {
+                return;
+            }
+
+            _motionWanted = wanted;
+        }
+
+        Log.Info(wanted
+            ? "Motion stream wanted: a managed target with a motion report is active."
+            : "Motion stream not wanted: nothing downstream reads motion.");
+        MotionDemandChanged?.Invoke(wanted);
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>
@@ -397,6 +458,13 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            lock (_stateGate)
+            {
+                // A foreground desktop window is an application for the profile layers, but only a
+                // Steam app id is a game for the motion demand: on the desktop nothing reads motion.
+                _steamGameRunning = snapshot.SteamAppId is not null;
+            }
+
             return await ReconcileTargetUnderGateAsync(snapshot.ApplicationId, snapshot.RtssProfileName,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -470,10 +538,20 @@ internal sealed class ControllerManager : IAsyncDisposable
             _pendingSamples.Add(sample);
         }
 
+        // Always through the drain worker, one pool wakeup per report. Routing on the publishing
+        // thread instead was tried and reverted: a route runs WSGM's own observers, and one that
+        // blocks would stall the plugin's HID reader behind it.
         if (signal)
         {
             _sampleAvailable.Release();
         }
+    }
+
+    private static void LogRouteFault(Exception ex)
+    {
+        Log.Change(
+            "controller-sample-route-fault",
+            $"Controller sample route recovered after {ex.GetType().Name}: {ex.Message}");
     }
 
     private async Task DrainSamplesAsync()
@@ -507,9 +585,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    Log.Change(
-                        "controller-sample-route-fault",
-                        $"Controller sample route recovered after {ex.GetType().Name}: {ex.Message}");
+                    LogRouteFault(ex);
                 }
             }
 
@@ -1046,6 +1122,24 @@ internal sealed class ControllerManager : IAsyncDisposable
         string? executable,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            return await ReconcileTargetCoreUnderGateAsync(applicationId, executable, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            // Every exit changed something the demand depends on: the application, the target, or
+            // the state after a failed replacement.
+            UpdateMotionDemand();
+        }
+    }
+
+    private async Task<ControllerManagerStatus> ReconcileTargetCoreUnderGateAsync(
+        string? applicationId,
+        string? executable,
+        CancellationToken cancellationToken)
+    {
         var resolved = ControllerTargetSelection.Resolve(
             _selection.Profiles,
             applicationId,
@@ -1148,6 +1242,7 @@ internal sealed class ControllerManager : IAsyncDisposable
 
         var status = Snapshot();
         StatusChanged?.Invoke(status);
+        UpdateMotionDemand();
         return status;
     }
 }

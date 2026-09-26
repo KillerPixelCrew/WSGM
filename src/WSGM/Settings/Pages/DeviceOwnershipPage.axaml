@@ -35,6 +35,30 @@
         <Border Classes="setting-row alt">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Motion only in game" Classes="setting-title" />
+              <TextBlock
+                Text="Read the gyroscope and accelerometer only while a game is running. The stream is always off while controller management is off or the managed target has no motion report."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceMotionOnlyInGame}"
+                          IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="Keep guide button chord edits" Classes="setting-title" />
+              <TextBlock
+                Text="Steam discards edits to the guide button chord layout on a Steam Deck type controller. With this on, WSGM keeps Steam's chord template equal to your last save while the Steam Deck target is active; the editor's reset to defaults still works."
+                Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceKeepGuideChordEdits}"
+                          IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
               <TextBlock Text="AutoTDP" Classes="setting-title" />
               <TextBlock
                 Text="Move the power limit from measured frame delivery: more power when frames miss their deadline, less when they have room to spare. A manual power change pauses it until you turn it back on."

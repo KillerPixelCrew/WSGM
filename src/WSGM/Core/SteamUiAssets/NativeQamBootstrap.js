@@ -1121,6 +1121,14 @@
   // live tree and the popups are shallower, so this is generous; it exists to stop a cyclic or
   // pathological tree, not to limit a legitimate search.
   const MaximumMountedNodes = 60000;
+  // Whether a publication carries something the wrappers have not drawn yet. Publications repeat
+  // the same state every round, several times a second while the host has anything to say, and a
+  // gate that re-rendered on each one asked the router's class ancestor to render again each time.
+  // That render re-runs every route under it: Steam's controller configurator restarts its edit
+  // session on each render of its route and threw away the user's bindings every few seconds
+  // (2026-09-26). A wrapper reads its state from a closure, so the only publications that need a
+  // render are the ones that changed it.
+  const publicationChanged = (previous, next) => JSON.stringify(previous) !== JSON.stringify(next);
   // One claimed component's mounted instances, for the life of a gate's install.
   //
   // Adoption walks the tree once and keeps the fibers it adopted. Everything after that is over that
@@ -3241,9 +3249,14 @@
         const items = Array.isArray(state?.items)
           ? state.items.filter(validItem).slice(0, MaximumItems)
           : [];
-        desired = { items, revision: Number.isSafeInteger(state?.revision) ? state.revision : 0 };
+        const next = {
+          items,
+          revision: Number.isSafeInteger(state?.revision) ? state.revision : 0,
+        };
         // The wrapper reads `desired` from its closure, so a publication changes nothing React can
-        // see on its own.
+        // see on its own, and an unchanged one needs no render at all.
+        if (!publicationChanged(desired, next)) return;
+        desired = next;
         mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
@@ -4909,15 +4922,18 @@
         );
         const routable = named.filter((item) => item.route == null || isNavigableRoute(item.route));
         rejectedRoutes = named.length - routable.length;
-        desired = {
+        const next = {
           items: routable.slice(0, MaximumEntries),
           hidden: hidden.filter((value) => typeof value === "string").slice(0, MaximumEntries),
         };
-        // The wrappers read `desired` from their closure, so a publication changes nothing React
-        // can see on its own. A host Steam has recreated since install is adopted here; it sits
-        // under a React root with no class above it, so its entries show when the menu next opens.
-        mounted.rerender();
+        // A host Steam has recreated since install is adopted here; it sits under a React root
+        // with no class above it, so its entries show when the menu next opens.
         hosts.adopt();
+        // The wrappers read `desired` from their closure, so a publication changes nothing React
+        // can see on its own, and an unchanged one needs no render at all.
+        if (!publicationChanged(desired, next)) return;
+        desired = next;
+        mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
@@ -5424,7 +5440,7 @@
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
         const declared = Array.isArray(state?.pages) ? state.pages : [];
-        pages = declared
+        const next = declared
           .filter(
             (page) =>
               page &&
@@ -5438,7 +5454,10 @@
           )
           .slice(0, MaximumPages);
         // The wrappers read `pages` from their closure, so a publication changes nothing React can
-        // see on its own.
+        // see on its own. Only a changed list earns a render: the class above the router is the one
+        // asked, and its render re-runs every route, the configurator's edit session included.
+        if (!publicationChanged(pages, next)) return;
+        pages = next;
         mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
@@ -9406,6 +9425,288 @@
   }
   registerSteamPageRenderer("artwork-browser", renderArtworkBrowserPage);
   registerGate("artworkBrowser", createArtworkBrowser());
+  // The guide button chord layout's "reset to defaults", reported to the host.
+  //
+  // WSGM keeps Steam's last-resort chord template (`controller_base/chord_neptune.vdf`) equal to the
+  // user's autosaved layout, because Steam's editor reloads that template after every autosave for a
+  // Steam Deck type controller and threw the edits away (see SteamGuideChordMirror). With the template
+  // mirrored, the editor's reset loads the mirror instead of Valve's defaults. The editor resets by
+  // calling SteamClient.Input.SetSelectedConfigForApp(443510, controllerIndex, "default://…") from
+  // Steam's configurator store in this context, three seconds before it reloads, so the call is the
+  // place to tell the host to put Valve's file back in time.
+  //
+  // The wrapper forwards every call unchanged and only sends the command for the chord pseudo-app's
+  // default selection while the host says the mirror is active. Removal puts the original function
+  // back, and only if the wrapper is still the one installed.
+  function createWsgmChordReset() {
+    const patchId = "wsgm.chord-reset";
+    const ChordAppId = 443510;
+    let installed = false;
+    let active = false;
+    let hooked = false;
+    let original = null;
+    let unsubscribe = null;
+    let lastError = "";
+    let resets = 0;
+    const input = () => globalThis.SteamClient?.Input;
+    const hook = () => {
+      if (hooked) return true;
+      const target = input();
+      if (!target || typeof target.SetSelectedConfigForApp !== "function") {
+        lastError = "SteamClient.Input.SetSelectedConfigForApp is absent";
+        return false;
+      }
+      const wrapped = target.SetSelectedConfigForApp;
+      const wrapper = function (appId, controllerIndex, url, ...rest) {
+        if (
+          active &&
+          Number(appId) === ChordAppId &&
+          typeof url === "string" &&
+          url.startsWith("default://")
+        ) {
+          resets++;
+          request(patchId, "reset", null).catch(() => {});
+        }
+        return wrapped.apply(this, [appId, controllerIndex, url, ...rest]);
+      };
+      wrapper.__wsgmWrapped = wrapped;
+      target.SetSelectedConfigForApp = wrapper;
+      original = wrapped;
+      hooked = true;
+      return true;
+    };
+    const unhook = () => {
+      if (!hooked) return;
+      const target = input();
+      if (target && target.SetSelectedConfigForApp?.__wsgmWrapped === original) {
+        target.SetSelectedConfigForApp = original;
+      }
+      original = null;
+      hooked = false;
+    };
+    const install = () => {
+      if (installed) return { ok: true, installed: true };
+      if (!hook()) return { ok: false, error: lastError };
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        active = !!state?.active;
+      });
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      active = false;
+      unhook();
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      hooked,
+      active,
+      subscribed: !!unsubscribe,
+      resets,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("wsgmChordReset", createWsgmChordReset());
+  // The virtual controller's capabilities, as Steam's UI sees them.
+  //
+  // Steam's controller pages decide what to draw from each controller's capability bits, which the
+  // client reports per controller type: a Steam Deck controller always carries ATTRIBCAP_TRACKPAD and
+  // ATTRIBCAP_CAPJOYSTICK, so WSGM's Steam Deck target puts trackpad and stick-touch settings in front
+  // of a handheld that has neither. The glyph stylesheet hides the rows it can anchor on a glyph, but
+  // the configurator's quick settings ("right trackpad behavior", its sensitivity and inversion) are
+  // plain labelled fields with nothing to anchor, and every such list grows with each client build.
+  //
+  // Every store reads the list through one generated RPC namespace, SteamInputManager.GetControllerList,
+  // and converts each entry's `capabilities` with BigInt. This wraps that one function and clears the
+  // bits the host names on the controller the host names (its vendor and product id), so the pages
+  // draw the handheld the device plugin describes. The native side and the layouts are untouched: the
+  // mask only changes what this UI process believes. After hooking, unhooking or a mask change, the
+  // list's query cache is invalidated and the two stores that hold the list are asked to query it
+  // again, the same call they make on Steam's own list-changed notification.
+  function createWsgmControllerCaps() {
+    const patchId = "wsgm.controller-caps";
+    const ServiceTokens = ["SteamInputManager.GetControllerList#1", "GetControllerListHandler"];
+    const isService = (value) =>
+      !!value &&
+      typeof value === "object" &&
+      typeof value.GetControllerList === "function" &&
+      typeof value.RegisterForNotifyControllerListChanged === "function";
+    // The stores that hold a copy of the list and draw the controller pages from it: the controller
+    // store and the configurator store. Each is found by what it is; a store that has moved is
+    // skipped, not guessed. Both read through react-query under this key with an infinite stale time,
+    // so the cache is invalidated first or their query answers from it without reaching the RPC
+    // (live-verified 2026-09-26: two refreshes, nothing masked, until the key was invalidated).
+    const ListQueryKey = ["ControllerList"];
+    const StoreFingerprints = [
+      [
+        ["GetControllerBySerial", "m_unboundControllerList"],
+        (value) =>
+          typeof value?.GetControllerBySerial === "function" &&
+          typeof value?.DoControllerListQuery === "function",
+      ],
+      [
+        ["m_pendingEditingConfiguration", "EnsureEditingConfiguration"],
+        (value) =>
+          typeof value?.EnsureEditingConfiguration === "function" &&
+          typeof value?.DoControllerListQuery === "function",
+      ],
+    ];
+    let installed = false;
+    let hooked = false;
+    let service = null;
+    let original = null;
+    let unsubscribe = null;
+    let resolver = null;
+    let lastError = "";
+    let mask = 0n;
+    let vendorId = 0;
+    let productId = 0;
+    let masked = 0;
+    let refreshed = 0;
+    const applyState = (state) => {
+      try {
+        mask = BigInt(state?.mask ?? 0);
+      } catch {
+        mask = 0n;
+      }
+      vendorId = Number(state?.vendorId ?? 0);
+      productId = Number(state?.productId ?? 0);
+    };
+    const maskList = (list) => {
+      if (mask === 0n || !list || typeof list !== "object" || !Array.isArray(list.controllers))
+        return list;
+      for (const controller of list.controllers) {
+        if (
+          !controller ||
+          Number(controller.vendor_id) !== vendorId ||
+          Number(controller.product_id) !== productId
+        )
+          continue;
+        let caps;
+        try {
+          caps = BigInt(controller.capabilities ?? 0);
+        } catch {
+          continue;
+        }
+        const cleared = caps & ~mask;
+        if (cleared !== caps) {
+          controller.capabilities = cleared.toString();
+          masked++;
+        }
+      }
+      return list;
+    };
+    // The response object is Steam's protobuf wrapper: Body() is the message, toObject() the plain
+    // shape every mapper reads. Both are replaced on the instance only, so the wrapper's own type stays
+    // as it was.
+    const maskResponse = (response) => {
+      if (
+        !response ||
+        typeof response.Body !== "function" ||
+        typeof response.BSuccess !== "function"
+      )
+        return response;
+      try {
+        if (!response.BSuccess()) return response;
+        const body = response.Body();
+        if (!body || typeof body.toObject !== "function") return response;
+        const toObject = body.toObject.bind(body);
+        body.toObject = () => maskList(toObject());
+        response.Body = () => body;
+      } catch {
+        // A response shaped differently than expected is handed on as it is.
+      }
+      return response;
+    };
+    const hook = () => {
+      if (hooked) return true;
+      try {
+        resolver ??= getWebpackRuntime("controller-caps");
+        service = resolver.exported(ServiceTokens, isService);
+      } catch (error) {
+        lastError = String(error);
+        return false;
+      }
+      const wrapped = service.GetControllerList;
+      const wrapper = function (...args) {
+        const result = wrapped.apply(this, args);
+        return result && typeof result.then === "function"
+          ? result.then(maskResponse)
+          : maskResponse(result);
+      };
+      wrapper.__wsgmWrapped = wrapped;
+      service.GetControllerList = wrapper;
+      original = wrapped;
+      hooked = true;
+      return true;
+    };
+    const unhook = () => {
+      if (!hooked) return;
+      if (service && service.GetControllerList?.__wsgmWrapped === original) {
+        service.GetControllerList = original;
+      }
+      service = null;
+      original = null;
+      hooked = false;
+    };
+    const refresh = () => {
+      if (!resolver) return;
+      invalidateQuery(resolver, ListQueryKey);
+      for (const [tokens, predicate] of StoreFingerprints) {
+        try {
+          const store = resolver.exported(tokens, predicate);
+          const pending = store.DoControllerListQuery();
+          if (pending && typeof pending.catch === "function") pending.catch(() => {});
+          refreshed++;
+        } catch {
+          // A store that is absent or has moved keeps its list until Steam's own notification.
+        }
+      }
+    };
+    const install = () => {
+      if (installed) return { ok: true, installed: true };
+      if (!hook()) return { ok: false, error: lastError };
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, (state) => {
+        const before = `${mask}/${vendorId}/${productId}`;
+        applyState(state);
+        if (`${mask}/${vendorId}/${productId}` !== before) refresh();
+      });
+      refresh();
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      unhook();
+      mask = 0n;
+      refresh();
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      hooked,
+      subscribed: !!unsubscribe,
+      mask: mask.toString(),
+      vendorId,
+      productId,
+      masked,
+      refreshed,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("wsgmControllerCaps", createWsgmControllerCaps());
   // The Game Library's page in Steam: bring games from other launchers into Steam.
   //
   // Rendered entirely with Steam's own component exports, so it behaves like the rest of Big Picture

@@ -127,6 +127,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
+    private readonly SteamGuideChordMirror? _chordMirror;
     private volatile bool _carouselShowUninstalled;
     private volatile bool _disposed;
     private volatile bool _downloadSortEnabled;
@@ -188,6 +189,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <param name="cpuBoost">
     ///     The per-game processor boost mode behind Steam's Performance dropdown, or null in overlay-test.
     /// </param>
+    /// <param name="chordMirror">
+    ///     The guide-chord mirror the editor's reset restores Valve's template through, or null in
+    ///     overlay-test.
+    /// </param>
     internal SteamUiSessionHost(
         ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
@@ -210,7 +215,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SteamArtworkBrowserSource? artwork = null,
         GameLibraryService? libraryImport = null,
         WsgmSteamSettingsService? wsgmSettings = null,
-        NativeQamCpuBoostService? cpuBoost = null)
+        NativeQamCpuBoostService? cpuBoost = null,
+        SteamGuideChordMirror? chordMirror = null)
     {
         _storage = storage;
         _cpuBoost = cpuBoost;
@@ -223,6 +229,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _artwork = artwork;
         _libraryImport = libraryImport;
         _wsgmSettings = wsgmSettings;
+        _chordMirror = chordMirror;
         _gameContextMenu = new SteamGameContextMenuBackend(
             pluginSteamUi,
             artwork is null ? null : artwork.OpenAsync,
@@ -334,6 +341,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _libraryImport.Changed += QueueStatePublication;
         }
 
+        if (_chordMirror is not null)
+        {
+            _chordMirror.Changed += QueueStatePublication;
+        }
+
         if (_wsgmSettings is not null)
         {
             _wsgmSettings.Changed += QueueStatePublication;
@@ -371,6 +383,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_libraryImport is not null)
         {
             _libraryImport.Changed -= QueueStatePublication;
+        }
+
+        if (_chordMirror is not null)
+        {
+            _chordMirror.Changed -= QueueStatePublication;
         }
 
         if (_wsgmSettings is not null)
@@ -710,6 +727,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         QueueSynchronization();
+        // The capability hook's mask follows the profile's absent controls.
+        QueueStatePublication();
     }
 
     internal async Task DisableAsync()
@@ -978,6 +997,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     _carouselShowUninstalled)),
                 _homeCarousel)
         ];
+
+        if (_chordMirror is { } chordMirror)
+        {
+            // The hook exists whenever the mirror does; its state says whether a reset needs
+            // reporting, so a session with the mirror off installs the hook and never hears from it.
+            modules.Add(SteamChordResetSurface.Module(HostSteamUiEnabled, chordMirror));
+        }
+
+        // The controller's capabilities as Steam's pages read them. Declared unconditionally: the
+        // state carries an empty mask until a profile marks a whole pair of controls absent.
+        modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => _glyphDeliveryState.Current));
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.

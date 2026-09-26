@@ -57,26 +57,37 @@ them and routes user intent back as commands. WSGM never touches the device.
 
 This one is a worked example of the parts that are easy to get wrong:
 
-| File                              | What it demonstrates                                                              |
-| --------------------------------- | --------------------------------------------------------------------------------- |
-| `Claw8A2VmPlugin.cs`              | the lifecycle: detect, start, command, settings, stop                             |
-| `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                           |
-| `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                      |
-| `WindowsHidTransports.cs`         | HID transports for OEM controls and lighting                                      |
-| `WindowsMotionSource.cs`          | legacy Sensor API IMU polling, freshness, and zero-rate offset correction         |
-| `LegacyPhysicalMotionSensors.cs`  | the exact Intel ISS/LSM6DSO COM identity, fields, interval ownership and cleanup  |
-| `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                         |
-| `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders       |
-| `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync |
-| `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                   |
+| File                              | What it demonstrates                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Claw8A2VmPlugin.cs`              | the lifecycle: detect, start, command, settings, stop                                        |
+| `ClawCapabilities.cs`             | publishing capabilities and reporting refusals honestly                                      |
+| `MsiWmiPlatform.cs`               | the vendor WMI surface behind power and fans                                                 |
+| `WindowsHidTransports.cs`         | HID transports for OEM controls and lighting                                                 |
+| `WindowsMotionSource.cs`          | the motion worker session, the polling fallback and zero-rate offset correction              |
+| `LegacyPhysicalMotionSensors.cs`  | the exact Intel ISS/LSM6DSO COM identity, fields, interval ownership, event sink and cleanup |
+| `ArcSyncTransport.cs`             | variable refresh through Intel's Graphics Control Library                                    |
+| `Intel3dFeatureTransport.cs`      | the pinned IGCL 3D-feature ABI behind Endurance Gaming and prebuilt shaders                  |
+| `IntelGraphicsMemoryTransport.cs` | driver settings that are registry values rather than API calls: GPU memory, VSync            |
+| `ClawRecoveryJournal.cs`          | leaving the device safe when a cycle ends badly                                              |
 
 ## Motion
 
-Motion acquisition runs on one dedicated worker with a cancellable 2 ms wait after each synchronous
-sensor read. It no longer schedules a shared thread-pool continuation every 2 ms or tries to catch
-up after a slow read. The bounded publication channel, the sensor counter checks, calibration and
-resampling are all unchanged. CPU and gyro responsiveness after that scheduling change still want a
-manual check.
+Motion reports arrive by Sensor API event: `LegacyPhysicalMotionSensors.Events.cs` registers an
+`ISensorEvents` sink on both sensors for `SENSOR_EVENT_DATA_UPDATED`, pairs each fresh gyrometer
+report (by hardware counter) with the latest accelerometer report, and hands it to the shared
+`MotionReadingPipeline` for offset correction and the bounded channel. Polling the sensors every 2
+ms cost the plugin 12 % of WSGM's idle CPU and the Intel driver host 5 % of a core, four polls in
+five returning the previous report (docs/perf). The 2 ms poll on a dedicated worker remains only as
+the fallback when a sink cannot be registered, and the log says which path is active. Event delivery
+has not had a hardware pass yet: gyro responsiveness, drift after a stop and start, and the driver
+host's CPU want a manual check.
+
+The worker only exists while WSGM says something reads motion. `SetMotionDemandAsync` releases the
+motion service on `Wanted = false` and reacquires it on `true`; start and resume skip the service
+while the last answer was `false`, and a skipped service does not count as unhealthy. The zero-rate
+offset calibrator lives on the source, not the worker, so a restart carries the measured offset
+instead of drifting until the next rest window. Until WSGM has sent the signal once, the stream runs
+as it always did.
 
 Motion shutdown waits up to two seconds and honours caller cancellation. If a worker is still
 running, the session keeps its sensor until both workers finish and refuses another start. Cleanup

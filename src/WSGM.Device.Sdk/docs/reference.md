@@ -18,7 +18,7 @@ Related:
 | Assembly / package | `WSGM.Device.Sdk`                                                                 |
 | Target framework   | `net10.0-windows`, matching the host that loads the plugin                        |
 | Dependencies       | none; a plugin inherits nothing from the SDK                                      |
-| API version        | `DeviceApi.Version = 7`; WSGM, Device Lab and every plugin require an exact match |
+| API version        | `DeviceApi.Version = 8`; WSGM, Device Lab and every plugin require an exact match |
 | Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                       |
 | Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                             |
 | Documentation      | every public member is documented; an undocumented member fails the build         |
@@ -38,6 +38,7 @@ no transport, handle, path, script or UI travels in either direction.
    ExecuteCommandAsync(CapabilityCommand)             one semantic write or action
    ApplyHapticOutputAsync(HapticOutputFrame)          virtual-target output → physical motors
    SetControllerManagementAsync(...)                  controller ownership on/off inside a cycle
+   SetMotionDemandAsync(...)                          whether anything reads motion right now
    SuspendAsync / ResumeAsync                         quiesce for sleep/lock, revalidate after
    ReleaseControllerAsync(...)                        make-safe handoff of the physical pad
    GetDiagnosticsAsync()                              bounded key/value facts
@@ -90,6 +91,7 @@ proceeds with its own cleanup and records the plugin's answer as unverified.
 | `ApplyHapticOutputAsync(HapticOutputFrame, ct)`                       | Whenever the virtual target emits output.                                                                              | Drive the motors; drop the frame if its `TargetGeneration` is not current. Never trace per frame.                                                                                                                                       |
 | `ReleaseControllerAsync(PluginControllerReleaseContext, ct)`          | During the make-safe handoff, controller-only or full deactivation.                                                    | Stop reading, close handles, restore the original controller mode, verify re-enumeration, report the furthest `ControllerHandoffStep` reached and an honest `ControllerHandoffResult`.                                                  |
 | `SetControllerManagementAsync(PluginControllerManagementContext, ct)` | When the user toggles controller management while the cycle continues.                                                 | Acquire (under the fresh generation) or release the physical controller only; republish the controller and haptic capability states.                                                                                                    |
+| `SetMotionDemandAsync(PluginMotionDemandContext, ct)`                 | When motion gains or loses a consumer: a game starts or exits, the target changes, controller management toggles.      | Stop reading the sensors on `Wanted = false`, not just drop samples; restart quickly and without a calibration jump on `true`. Until the first call, behave as if wanted. The default implementation is a no-op.                        |
 | `StopAsync(PluginStopContext, ct)`                                    | At the end of the cycle, for one of the `PluginStopReason` values.                                                     | Restore every temporarily changed hardware state, release everything, report `Clean`, `Unverified` or `Failed` truthfully.                                                                                                              |
 | `DisposeAsync()`                                                      | After stop, before the collectible load context unloads.                                                               | Release whatever survived stop. Must not throw.                                                                                                                                                                                         |
 
@@ -639,7 +641,7 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
   "id": "wsgm.device.msi.claw-8-a2vm",
   "name": "MSI Claw 8 AI+ A2VM",
   "version": "1.2.0",
-  "apiVersion": 7,
+  "apiVersion": 8,
   "entryAssembly": "WSGM.Device.Msi.Claw8A2Vm.dll",
   "entryType": "WSGM.Device.Msi.Claw8A2Vm.Claw8A2VmPlugin",
   "hardware": [
