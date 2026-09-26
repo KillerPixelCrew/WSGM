@@ -82,9 +82,10 @@ the fallback when a sink cannot be registered, and the log says which path is ac
 asks for its 10 ms driver minimum and the accelerometer for the gyrometer's interval rather than its
 own 2 ms minimum. Read off the virtual Deck with a raw HID handle, the accelerometer value changes
 about 80 times a second at either request, in alternating 8 and 16 ms steps, so the slower request
-saves the callbacks and changes nothing Steam receives (docs/perf, 2026-09-26). Event delivery has
-not had a hardware pass yet: gyro responsiveness, drift after a stop and start, and the driver
-host's CPU want a manual check.
+saves the callbacks and changes nothing Steam receives; at 2 ms the extra callbacks also cost the
+gyrometer, whose distinct values fell from 125 to 76 a second (docs/perf, 2026-09-26). Event
+delivery has not had a hardware pass yet: gyro responsiveness, drift after a stop and start, and the
+driver host's CPU want a manual check.
 
 The worker only exists while WSGM says something reads motion. `SetMotionDemandAsync` releases the
 motion service on `Wanted = false` and reacquires it on `true`; start and resume skip the service

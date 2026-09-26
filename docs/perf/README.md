@@ -186,17 +186,27 @@ time with whatever state it has, the way a host reads real hardware, and the Dec
 its packet number once per report sent, as the firmware does. The regression test is
 `TestCompletionsStayOnTheEndpointGrid` in `internal/server/usb`.
 
-The same capture on the fixed build, 30 s of slow panning: 4,971 reports, 87 % of the gaps between
-5.5 and 6.5 ms, 0.3 % under 3 ms, and no report repeating a packet number. The maintainer reported
-the panning a lot better before seeing the numbers.
+The same capture on the fixed build, 30 s of slow panning: 5,000 reports, 97 % of the gaps between
+5.5 and 6.5 ms, none under 3 ms, no report repeating a packet number, and 125 distinct gyro values a
+second. The maintainer reported the panning a lot better before seeing the numbers.
 
 **The Claw accelerometer was checked and cleared.** The stutter showed on panning and not on
 vertical movement, and Steam's default Player Space gyro weights yaw and roll by a gravity vector it
 takes from the accelerometer while pitch uses none, so the accelerometer's pairing with the
 gyrometer's 10 ms interval (instead of its 2 ms driver minimum) was the suspect. The captures say
 otherwise: the accelerometer value changes about 80 times a second at either request, in alternating
-8 and 16 ms steps, before the fix at 10 ms and after it at 2 ms. The pairing stays. Why the cadence
-defect read as horizontal-only is not explained; the defect is gone.
+8 and 16 ms steps. Asking for 2 ms was worse: its five hundred callbacks a second cost the
+gyrometer, whose distinct values fell from 125 to 76 a second on that build. The pairing stays. Why
+the cadence defect read as horizontal-only is not explained; the defect is gone.
+
+**The remaining ripple was the sample cadence against the poll cadence.** "A lot better, not
+perfect": with the grid in place, 1,261 of 5,000 reports still carried the same gyro sample as the
+one before, because a 125 Hz gyro on a 6 ms endpoint puts every fourth sample into two reports.
+Steam integrates per report with a fixed step, so that is a 25 % velocity ripple at 42 Hz. Handheld
+Companion does not have it because its whole target ticks at 125 Hz, the same rate as the sensor.
+VIIPER's Deck device now reports the mean gyro rate since the previous report, holding each sample
+until the next one arrives, so the sum of the reported rates equals the rotation the samples
+described for any sensor and poll cadence (`device/steamdeck/gyroresampler.go`, VIIPER wsgm).
 
 ## Budgets
 
