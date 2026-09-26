@@ -330,7 +330,9 @@ draws, so that step remains attended.
 `AutoTdpController` (`Core\AutoTdp.cs`) holds the whole control policy and is pure: every input is
 an argument, every decision a return value. `AutoTdpReplay` in `tests\WSGM.Tests` runs a recorded
 trace through it with no device involved; an oscillation reported from a handheld is reproduced by
-replaying its trace. The policy:
+replaying its trace. The 2026-09-26 traces for issue 181 showed this policy's failed-probe floor and
+learned-floor start keeping the limit high; its replacement is designed in
+`docs\autotdp-controller.md` and this section describes the controller until that lands. The policy:
 
 - A window counts as a miss above 1.05x its deadline and as headroom at or below 0.92x. Zero
   tolerance would raise power on every healthy capped game, because a cap is enforced by sleeping.

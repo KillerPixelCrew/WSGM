@@ -54,6 +54,7 @@ that evidence is in `packaged-game-launcher.md`.
 | `device-security.md`                       | the one-page boundary checklist                                                                                                  |
 | `..\src\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract                                                                                                          |
 | `rtss.md`                                  | RivaTuner Statistics Server: frame limit, on-screen display, frametimes, AutoTDP                                                 |
+| `autotdp-controller.md`                    | the AutoTDP controller design for issue 181: window classes, states, cadence, probe backoff                                      |
 | `power-and-display.md`                     | Game Mode display layouts, Windows power schemes, core preference, screen-off mute, keep-awake, standby wake, refresh rates, VRR |
 | `radios.md`                                | what WSGM decides about Wi-Fi, Bluetooth and audio. The Windows calls themselves live in `..\external\windows-device-control`    |
 | `perf/README.md`                           | what WSGM costs at idle and in game on the Claw, the scenarios and budgets, and how a run is recorded with `tools\PerfLab`       |
