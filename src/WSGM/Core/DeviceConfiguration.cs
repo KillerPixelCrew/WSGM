@@ -71,6 +71,14 @@ public sealed class DeviceIntegrationConfig
     /// </remarks>
     public MotionStreamMode MotionStream { get; set; } = MotionStreamMode.Always;
 
+    /// <summary>Whether edits to Steam's guide button chord layout are kept for a Steam Deck target.</summary>
+    /// <remarks>
+    ///     Steam reloads its own chord template after every autosave for that controller type and
+    ///     discards the edit; see <see cref="SteamGuideChordMirror" /> for the workaround this
+    ///     switches on. Off restores Valve's template.
+    /// </remarks>
+    public bool KeepGuideChordEdits { get; set; } = true;
+
     /// <summary>How the active handheld glyph profile is selected.</summary>
     public DeviceGlyphSelection GlyphSelection { get; set; } = DeviceGlyphSelection.Automatic;
 

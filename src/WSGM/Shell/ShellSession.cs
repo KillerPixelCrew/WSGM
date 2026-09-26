@@ -100,6 +100,8 @@ public sealed class ShellSession : IAsyncDisposable
     ///     disagree with the taskbar about which device is default.
     /// </remarks>
     private AudioManager? _audio;
+    private SteamGuideChordMirror? _chordMirror;
+    private bool _steamDeckTargetActive;
 
     /// <summary>Serializes profile and live advanced-format writes against the session audio manager.</summary>
     private AudioProfileService? _audioProfiles;
@@ -977,6 +979,9 @@ public sealed class ShellSession : IAsyncDisposable
         _audio = new AudioManager();
         _audio.Start();
         _audioProfiles = new AudioProfileService(_audio);
+        // Follows the managed controller target: it only has work while a Steam Deck type target
+        // exists, and it puts Valve's file back when that target goes.
+        _chordMirror = SteamGuideChordMirror.ForInstalledSteam();
 
         // Not started here: scanning is expensive and belongs to whichever surface is showing a
         // network list. The manager exists for the whole session so Steam's Internet page can
@@ -1373,6 +1378,14 @@ public sealed class ShellSession : IAsyncDisposable
         // and WSGM's own surfaces stopped answering a controller SDL could already see.
         canonicalSource.Controllers.StatusChanged += status =>
         {
+            // The guide chord mirror follows the target: Steam only reloads its chord template
+            // for a Steam Deck type controller, and the mirror restores Valve's file otherwise.
+            _steamDeckTargetActive = status is
+            {
+                State: ControllerManagementState.Active,
+                Target: ManagedControllerTarget.SteamDeckComposite
+            };
+            _chordMirror?.Apply(_config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
             if (status.State is ControllerManagementState.Active)
             {
                 return;
@@ -1486,7 +1499,8 @@ public sealed class ShellSession : IAsyncDisposable
                 // Null in overlay-test, which has no Steam client to read artwork for or write it to.
                 _artwork,
                 _libraryImport,
-                _wsgmSettings);
+                _wsgmSettings,
+                _chordMirror);
             if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
             {
                 // A plugin starting, stopping or taking a setting changes the Plugins page.
@@ -2922,6 +2936,7 @@ public sealed class ShellSession : IAsyncDisposable
                         _artwork?.ConfigurationChanged();
                         _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
+                        _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);
                         _keepAwake?.ApplyConfig(
@@ -3449,6 +3464,8 @@ public sealed class ShellSession : IAsyncDisposable
         // After the Steam host and the overlay, both of which hold them.
         try
         {
+            // Valve's chord template goes back when WSGM leaves; the next start mirrors again.
+            _chordMirror?.Dispose();
             if (_audioProfiles is not null)
             {
                 await _audioProfiles.DisposeAsync();

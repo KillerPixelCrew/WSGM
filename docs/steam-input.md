@@ -211,6 +211,30 @@ the overlay's 150 ms deferred close and resumes focus-based ownership once the o
 the handoff; releasing during that overlap drops and re-revokes the controller (device-observed,
 2026-08-12).
 
+## Guide button chord edits
+
+Steam's guide-chord editor (the pseudo-app 443510) does not keep edits for a Steam Deck controller
+on Windows. Every editor session starts by loading Valve's last-resort template,
+`controller_base\chord_neptune.vdf`, from disk, so the autosave Steam writes under
+`steamapps\common\Steam Controller Configs\<account>\config\443510\controller_neptune.vdf` is
+replaced by the template again three to four seconds later. WSGM presents the Claw as a Steam Deck
+composite, so the editor reverts each change while WSGM is running (dev box, 2026-09-26; also
+reported for real Decks running Windows).
+
+`SteamGuideChordMirror` works around it by keeping the template equal to the autosave. While the
+Steam Deck target is active and "Keep guide button chord edits" (Device Integration settings, on by
+default) is on, it watches the config tree, and mirrors each chord autosave for the Neptune
+controller into the template file with an atomic replace, 150 ms after the write settles. Valve's
+own file is kept beside it as `chord_neptune.vdf.wsgm-original`; a template that Steam replaced in
+an update becomes the new backup. Turning the setting off, ending the Steam Deck target, disposing
+the session, uninstall and `WSGM.exe --restore-steam-chord-template` all put Valve's file back.
+
+The editor's "Reset to defaults" selects the template through
+`SteamClient.Input.SetSelectedConfigForApp`, which would load the mirror. The `chord-reset.ts`
+fragment wraps that call, and WSGM restores Valve's template before Steam reads it. A reset marker
+beside the backup keeps the autosave that preceded the reset from being mirrored again; only a newer
+autosave is.
+
 ## Measured cost
 
 Verified end to end with `steam-input-lease.exe` and a real Steam Controller (dev box, 2026-08-12):

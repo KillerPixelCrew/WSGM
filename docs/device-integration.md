@@ -288,6 +288,15 @@ the first samples after a restart are corrected. A plugin built against an older
 signal and streams as before. The demand is a runtime signal, not a setting the plugin owns, which
 is why it is a contract member rather than a declared plugin setting.
 
+### The Steam Deck target loses guide chord edits without help
+
+Steam's guide-chord editor reloads Valve's on-disk template on every edit session for a Steam Deck
+controller on Windows, so edits made while the Steam Deck target is active revert within seconds.
+While that target is active, the shell runs the guide chord mirror described in docs/steam-input.md,
+"Guide button chord edits": the "Keep guide button chord edits" setting in Device Integration, on by
+default, keeps the template equal to the autosave and restores Valve's file on reset, target loss,
+disable and uninstall.
+
 ### A target replacement must plug out the usbip client attachment, not only the server device
 
 Attach records the driver-assigned port, and removal issues `IOCTL_PLUGOUT_HARDWARE` for that port
