@@ -32,6 +32,9 @@ public sealed class AutoTdpControllerTests
         AutoTdpReplay.ResetClock();
     }
 
+    /// <summary>Comfortable windows needed to serve the first dwell at a given operating point.</summary>
+    private static int DwellWindows => 10;
+
     [Fact]
     public void ASingleMissedWindowDoesNotRaisePower()
     {
@@ -78,7 +81,7 @@ public sealed class AutoTdpControllerTests
         var controller = Started(15);
 
         // 3 misses raise once, then three unanswered steps of judgement end the chain.
-        var decisions = Run(controller, AutoTdpController.SustainedMisses + (3 * 5), Late);
+        var decisions = Run(controller, AutoTdpController.SustainedMisses + 3 * 5, Late);
 
         Assert.Equal(3, decisions.Count(decision => decision.Action is AutoTdpAction.Raise));
         Assert.Equal(21, controller.Watts);
@@ -90,7 +93,7 @@ public sealed class AutoTdpControllerTests
     public void AnUnresponsiveHoldEndsAsSoonAsDeliveryRecovers()
     {
         var controller = Started(15);
-        Run(controller, AutoTdpController.SustainedMisses + (3 * 5), Late);
+        Run(controller, AutoTdpController.SustainedMisses + 3 * 5, Late);
 
         var recovered = Run(controller, 1, Capped);
 
@@ -592,9 +595,6 @@ public sealed class AutoTdpControllerTests
         });
         Assert.Equal(17, controller.Watts);
     }
-
-    /// <summary>Comfortable windows needed to serve the first dwell at a given operating point.</summary>
-    private static int DwellWindows => 10;
 
     private static AutoTdpStatus Status(AutoTdpDecision decision)
     {

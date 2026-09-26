@@ -219,6 +219,7 @@ internal static class AutoTdpTraceReplay
             }
 
             var fields = ParseLine(line);
+
             string Field(string name)
             {
                 return index.TryGetValue(name, out var position) && position < fields.Count

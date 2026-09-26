@@ -491,7 +491,7 @@ public sealed class PerformanceServiceTests
 
         public List<RtssOsdPowerStatus> PowerStatuses { get; } = [];
 
-        public RtssOsdMetrics Sensors { get; set; } = RtssOsdMetrics.Empty;
+        public RtssOsdMetrics Sensors { get; } = RtssOsdMetrics.Empty;
 
         public RtssProbe Probe { get; set; } = ReadyProbe;
 
