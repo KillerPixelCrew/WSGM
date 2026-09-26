@@ -37,14 +37,14 @@ internal sealed class ApplicationPerformanceReconciler(
     private bool _profilePowerPaired;
     private bool _profileVrrImposed;
 
-    /// <summary>Raised after the processor boost readback changes, from whichever thread read it.</summary>
-    internal event Action? CpuBoostChanged;
-
     /// <summary>Whether this session can read and write the processor boost mode at all.</summary>
     internal bool CpuBoostAvailable => cpuBoost is not null;
 
     /// <summary>The last processor boost readback, or null before the first read.</summary>
     internal CpuBoostStatus? CpuBoostStatus => _cpuBoostStatus;
+
+    /// <summary>Raised after the processor boost readback changes, from whichever thread read it.</summary>
+    internal event Action? CpuBoostChanged;
 
     /// <summary>
     ///     Restores the power limit and variable-refresh state the incoming application prefers, and takes

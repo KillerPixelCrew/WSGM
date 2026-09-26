@@ -21,14 +21,14 @@ internal interface ICpuBoostApi
 /// <summary>Adapts the reusable library to WSGM's policy test seam.</summary>
 internal sealed partial class WindowsCpuBoostApi : ICpuBoostApi
 {
+    /// <summary>HC's <c>SetAttribute(..., 2u)</c>: <c>POWER_ATTRIBUTE_SHOW_AOAC</c>, which also clears the hidden bit.</summary>
+    private const uint ShowAttributes = 2;
+
     /// <summary>The processor power settings subgroup, HC <c>PowerSubGroup.SUB_PROCESSOR</c>.</summary>
     internal static readonly Guid ProcessorSubgroup = new("54533251-82be-4824-96c1-47b60b740d00");
 
     /// <summary>Processor performance boost mode, HC <c>PowerSetting.PERFBOOSTMODE</c>.</summary>
     internal static readonly Guid BoostModeSetting = new("be337238-0d82-4146-a960-4f3749d470c7");
-
-    /// <summary>HC's <c>SetAttribute(..., 2u)</c>: <c>POWER_ATTRIBUTE_SHOW_AOAC</c>, which also clears the hidden bit.</summary>
-    private const uint ShowAttributes = 2;
 
     public Guid ReadActiveScheme()
     {

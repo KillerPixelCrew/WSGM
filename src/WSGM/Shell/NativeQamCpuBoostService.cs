@@ -63,7 +63,10 @@ internal sealed class NativeQamCpuBoostService(ApplicationPerformanceReconciler 
             : "Plugged in and battery currently differ; choosing sets both.";
         return new SteamCpuBoostState(
             true,
-            [.. CpuBoost.Offered.Select(option => new SteamPowerProfileOption(CpuBoost.IdFor(option.Mode), option.Name))],
+            [
+                .. CpuBoost.Offered.Select(option =>
+                    new SteamPowerProfileOption(CpuBoost.IdFor(option.Mode), option.Name))
+            ],
             effective is { } mode ? CpuBoost.IdFor(mode) : string.Empty,
             $"{scope} {sources}",
             preference.Source is ProfileSource.Game ? nameof(ProfileField.CpuBoost) : null);

@@ -46,6 +46,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamUiBridgeHost _bridge;
     private readonly NativeQamBrightnessService _brightness;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
+
+    /// <summary>The processor boost row's backend, or null when this session cannot write Windows power policy.</summary>
+    private readonly NativeQamCpuBoostService? _cpuBoost;
+
     private readonly DeviceCoordinatorNativeQamDeviceControlsService _deviceControls;
 
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
@@ -68,9 +72,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly HomeCarouselBackend _homeCarousel = new();
 
     private readonly NativeQamHybridCoreService _hybridCores = new(HybridCores.Windows);
-
-    /// <summary>The processor boost row's backend, or null when this session cannot write Windows power policy.</summary>
-    private readonly NativeQamCpuBoostService? _cpuBoost;
 
     /// <summary>Hears the library badge's Home layout report.</summary>
     private readonly LibraryBadgeBackend _libraryBadge = new();
