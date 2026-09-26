@@ -151,6 +151,18 @@ internal static partial class NativeMethods
     internal const nint PbtApmResumeSuspend = 0x7;
 
     /// <summary>
+    ///     PBT_APMRESUMECRITICAL — the system resumed after a suspend this process never saw.
+    /// </summary>
+    /// <remarks>
+    ///     Windows sends this instead of <see cref="PbtApmResumeSuspend" /> to an application that
+    ///     did not receive <see cref="PbtApmSuspend" /> before the machine went down. On a modern
+    ///     standby handheld that is the ordinary case rather than the exception: the Desktop Activity
+    ///     Moderator freezes desktop processes for the whole S0 idle period, so the suspend broadcast
+    ///     that precedes the transition to hibernate is never pumped (Claw, 2026-09-26).
+    /// </remarks>
+    internal const nint PbtApmResumeCritical = 0x6;
+
+    /// <summary>
     ///     PBT_APMRESUMEAUTOMATIC — the system resumed, possibly with no user present.
     ///     Windows always sends this one on resume and adds PBT_APMRESUMESUSPEND when the user
     ///     caused it, so both must be treated as the same "hardware is back" signal.

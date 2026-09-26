@@ -13,6 +13,10 @@ changing these paths.
 - Disabling device integration completes the ordered make-safe sequence before disposing the plugin. No manager may
   recreate a disabled integration.
 - Capability writes are serialized. An uncertain write is reported and is not retried automatically.
+- A system suspend within two seconds of a resume is the stale half of a modern standby wake and is dropped. These
+  handhelds resume a hibernation image into S0 idle and leave it a second later, so one wake delivers resume, suspend
+  and resume; acting on the middle one tore the virtual controller down on an awake machine. See
+  `docs\device-integration.md`.
 - TrayHost never coexists with Explorer's tray. Preserve the WM_COPYDATA UIPI allowance that lets unelevated
   applications reach elevated WSGM.
 - Removable-card ownership is keyed by contentId rather than drive letter. Steam VDF edits are shape-checked,

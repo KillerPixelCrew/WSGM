@@ -33,6 +33,12 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>What Steam UI calls report while the transport waits for Big Picture.</summary>
     private const string SteamUiHeldReason = "Steam UI transport held until Big Picture exists.";
 
+    /// <summary>How close to a resume a suspend has to be before it is treated as its stale partner.</summary>
+    private static readonly TimeSpan SpuriousSuspendWindow = TimeSpan.FromSeconds(2);
+
+    /// <summary>Enough Stopwatch ticks that a session which never resumed reads as long awake.</summary>
+    private static readonly long LongAgo = Stopwatch.Frequency * 3600;
+
     private readonly ApplicationPerformanceReconciler _applicationProfiles;
 
     // One gate for the whole master-switch workflow: a retraction is three CEF
@@ -151,6 +157,9 @@ public sealed class ShellSession : IAsyncDisposable
     private long _devicePowerRequestGeneration;
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
+
+    /// <summary>When the system last told this process it had resumed.</summary>
+    private long _systemResumeTimestamp = Stopwatch.GetTimestamp() - LongAgo;
 
     private DisplayChangeWindow? _displayChangeWindow;
 
@@ -2464,14 +2473,47 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void OnSystemSuspending()
     {
+        var sinceResume = Stopwatch.GetElapsedTime(
+            Interlocked.Read(ref _systemResumeTimestamp)).TotalMilliseconds;
+        if (IsSuspendContradictedByResume(sinceResume))
+        {
+            Log.Info(
+                "Device cycle suspend skipped (system suspending): the system resumed "
+                + $"{sinceResume:F0} ms ago, so this suspend belongs to a standby window that has "
+                + "already ended.");
+            return;
+        }
+
         QueueDevicePowerTransition(true, "system suspending");
     }
 
     private void OnSystemResumed()
     {
+        Interlocked.Exchange(ref _systemResumeTimestamp, Stopwatch.GetTimestamp());
         QueueDevicePowerTransition(false, "system resumed");
         QueueDesktopActions(false);
         RepairAfterResume();
+    }
+
+    /// <summary>Whether a suspend notification is the stale half of a wake that already happened.</summary>
+    /// <param name="millisecondsSinceResume">Time since the last observed system resume.</param>
+    /// <returns><see langword="true" /> when the suspend must not be acted on.</returns>
+    /// <remarks>
+    ///     A modern standby machine resumes a hibernation image <em>into</em> S0 idle and leaves it
+    ///     again about a second later, so one wake delivers a resume, a suspend and a second resume
+    ///     within a few hundred milliseconds. Acting on the suspend in the middle made the Claw tear
+    ///     its virtual controller down on a machine that was already awake, and Steam did not find the
+    ///     replacement for over three minutes (2026-09-26, six wakes in two days).
+    ///     <para>
+    ///         Nothing in the notification says which standby window it belongs to, so proximity to the
+    ///         wake is the evidence. The observed gap was under 300 ms against a window Windows logged
+    ///         as one second; a real sleep cannot follow a wake this closely, and if one somehow did,
+    ///         skipping its quiesce leaves the device running rather than leaving it unsafe.
+    ///     </para>
+    /// </remarks>
+    internal static bool IsSuspendContradictedByResume(double millisecondsSinceResume)
+    {
+        return millisecondsSinceResume < SpuriousSuspendWindow.TotalMilliseconds;
     }
 
     /// <summary>Re-establishes the state a sleep invalidates without announcing it.</summary>

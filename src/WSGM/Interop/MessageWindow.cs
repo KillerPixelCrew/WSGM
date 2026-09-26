@@ -137,10 +137,12 @@ public sealed unsafe class MessageWindow : IDisposable
 
     /// <summary>Raised on the Avalonia UI thread when the system resumed from suspend.</summary>
     /// <remarks>
-    ///     Raised for PBT_APMRESUMEAUTOMATIC and PBT_APMRESUMESUSPEND alike. Windows sends the first
-    ///     on every resume and adds the second only when the user caused it, so a subscriber that
-    ///     listened for one of them would miss half the wakes; it can fire twice for one resume and
-    ///     subscribers must be idempotent.
+    ///     Raised for PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND and PBT_APMRESUMECRITICAL alike.
+    ///     Windows sends the first on every resume and adds the second only when the user caused it,
+    ///     so a subscriber that listened for one of them would miss half the wakes; it can fire
+    ///     several times for one resume and subscribers must be idempotent. The critical code is the
+    ///     one a process gets when it never saw the suspend, which on a modern standby machine is the
+    ///     normal way a hibernate ends rather than a failure.
     /// </remarks>
     public event Action? SystemResumed;
 
@@ -546,7 +548,8 @@ public sealed unsafe class MessageWindow : IDisposable
                 Dispatcher.UIThread.Post(() => instance.SystemSuspending?.Invoke());
                 return 1;
             case NativeMethods.WmPowerBroadcast
-                when wParam is NativeMethods.PbtApmResumeAutomatic or NativeMethods.PbtApmResumeSuspend:
+                when wParam is NativeMethods.PbtApmResumeAutomatic or NativeMethods.PbtApmResumeSuspend
+                    or NativeMethods.PbtApmResumeCritical:
                 Dispatcher.UIThread.Post(() => instance.SystemResumed?.Invoke());
                 return 1;
             case NativeMethods.WmWtsSessionChange when instance._sessionNotify:

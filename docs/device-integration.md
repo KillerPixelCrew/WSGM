@@ -104,6 +104,33 @@ duplicate of anything with process-wide state is a fault no later cleanup can un
 
 ## Lifecycle and recovery
 
+### A modern standby wake must not quiesce the device
+
+A handheld that sleeps does not go to S3. It enters S0 idle, the Desktop Activity Moderator freezes
+WSGM's threads for the whole idle period, and Windows hibernates from there. On the way back the
+image is resumed **into** S0 idle and leaves it again about a second later, so Windows logs
+Kernel-Power 506 and 507 one second apart on the wake and delivers a resume, a suspend and a second
+resume to the process within a few hundred milliseconds.
+
+Nothing in `PBT_APMSUSPEND` says which standby window it belongs to. Acting on the one in the middle
+made the Claw run its controller make-safe on a machine that was already awake: the virtual pad and
+the HidHide entry were removed, the suspend then failed on a deadline that had expired during the
+hibernation, and the resume that followed restarted the whole cycle. Steam did not open the
+replacement pad for over three minutes. That happened on all six wakes recorded across 2026-09-25
+and 26.
+
+`ShellSession` therefore drops a system suspend that arrives within two seconds of a system resume,
+and a wake of this shape becomes a no-op for the device cycle: the plugin, the virtual pad and
+HidHide are left exactly as the hibernation image restored them. A suspend that follows ordinary use
+is unaffected and still quiesces the cycle. If Windows ever does re-sleep within that window, the
+cost is a device left running through a short idle period, not a device left unsafe.
+
+WSGM also treats `PBT_APMRESUMECRITICAL` as a resume. Windows sends it instead of
+`PBT_APMRESUMESUSPEND` to a process that never received the suspend, which on this hardware is the
+ordinary way a hibernate ends rather than an error.
+
+### The serialized cycle
+
 The runtime has one serialized lifecycle: detect, start, suspend, resume, stop and diagnostics.
 Resume advances a cycle generation before new state or commands are accepted, and stale publications
 are refused rather than allowed to cross a resume or controller-reacquisition boundary. Full release
