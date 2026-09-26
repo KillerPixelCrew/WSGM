@@ -88,9 +88,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     private volatile bool _disposed;
     private bool _forwardingBlocked;
 
-    /// <summary>The sample being routed on its publishing thread, while it has not completed.</summary>
-    private Task? _inlineRoute;
-
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
 
@@ -99,10 +96,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     private List<CanonicalControllerSample> _pendingSamples = [];
 
     private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
-
-    /// <summary>Whether a sample is in flight, inline or through the drain worker.</summary>
-    /// <remarks>Guarded by <c>_sampleGate</c>. While set, new samples queue instead of routing inline.</remarks>
-    private bool _routing;
 
     private ControllerSelection _selection = new(
         false,
@@ -211,19 +204,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
 
         _router.TargetFaulted -= OnRouterTargetFaulted;
-        // An inline route still in flight holds the route gate this method is about to dispose.
-        if (Volatile.Read(ref _inlineRoute) is { } inline)
-        {
-            try
-            {
-                await inline.ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                LogRouteFault(ex);
-            }
-        }
-
         _sampleAvailable.Release();
         await _sampleDrain.ConfigureAwait(false);
         // Order matters here exactly as it does in the make-safe sequence: the router removes the
@@ -534,6 +514,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     internal void Submit(CanonicalControllerSample sample)
     {
+        bool signal;
         lock (_sampleGate)
         {
             if (_disposed)
@@ -553,72 +534,17 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return;
             }
 
-            if (_routing)
-            {
-                _pendingSamples.Add(sample);
-                return;
-            }
-
-            _routing = true;
+            signal = _pendingSamples.Count == 0;
+            _pendingSamples.Add(sample);
         }
 
-        // Routed on the publishing thread. With the route gate free, which is the steady state,
-        // RouteAsync completes synchronously and an idle pad no longer wakes a pool worker per
-        // report (docs/perf: the drain hop was one of three or four per sample). Samples arriving
-        // while this one is in flight queue behind it and the drain worker takes them in order.
-        Task<bool> route;
-        try
+        // Always through the drain worker, one pool wakeup per report. Routing on the publishing
+        // thread instead was tried and reverted: a route runs WSGM's own observers, and one that
+        // blocks would stall the plugin's HID reader behind it.
+        if (signal)
         {
-            route = RouteAsync(sample, CancellationToken.None);
+            _sampleAvailable.Release();
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            LogRouteFault(ex);
-            OnRouteCompleted();
-            return;
-        }
-
-        if (route.IsCompleted)
-        {
-            if (route.Exception is { } faulted)
-            {
-                LogRouteFault(faulted.InnerException ?? faulted);
-            }
-
-            OnRouteCompleted();
-            return;
-        }
-
-        Volatile.Write(ref _inlineRoute, route);
-        _ = route.ContinueWith(
-            completed =>
-            {
-                if (completed.Exception is { } faulted)
-                {
-                    LogRouteFault(faulted.InnerException ?? faulted);
-                }
-
-                Volatile.Write(ref _inlineRoute, null);
-                OnRouteCompleted();
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-    }
-
-    private void OnRouteCompleted()
-    {
-        lock (_sampleGate)
-        {
-            if (_pendingSamples.Count == 0)
-            {
-                _routing = false;
-                return;
-            }
-        }
-
-        // Still routing: the drain worker owns the queue until it runs dry.
-        _sampleAvailable.Release();
     }
 
     private static void LogRouteFault(Exception ex)
@@ -633,46 +559,40 @@ internal sealed class ControllerManager : IAsyncDisposable
         while (true)
         {
             await _sampleAvailable.WaitAsync().ConfigureAwait(false);
-            bool disposed;
-            while (true)
+            List<CanonicalControllerSample> batch;
+            lock (_sampleGate)
             {
-                List<CanonicalControllerSample> batch;
-                lock (_sampleGate)
+                if (_pendingSamples.Count == 0)
                 {
-                    if (_pendingSamples.Count == 0)
+                    if (_disposed)
                     {
-                        _routing = false;
-                        disposed = _disposed;
-                        break;
+                        return;
                     }
 
-                    batch = _pendingSamples;
-                    _pendingSamples = _spareSamples ?? [];
-                    _spareSamples = null;
+                    continue;
                 }
 
-                foreach (var sample in batch)
-                {
-                    try
-                    {
-                        await RouteAsync(sample, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is not OutOfMemoryException)
-                    {
-                        LogRouteFault(ex);
-                    }
-                }
+                batch = _pendingSamples;
+                _pendingSamples = _spareSamples ?? [];
+                _spareSamples = null;
+            }
 
-                batch.Clear();
-                lock (_sampleGate)
+            foreach (var sample in batch)
+            {
+                try
                 {
-                    _spareSamples ??= batch;
+                    await RouteAsync(sample, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    LogRouteFault(ex);
                 }
             }
 
-            if (disposed)
+            batch.Clear();
+            lock (_sampleGate)
             {
-                return;
+                _spareSamples ??= batch;
             }
         }
     }
