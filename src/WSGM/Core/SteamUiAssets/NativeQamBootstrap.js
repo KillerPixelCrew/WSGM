@@ -9475,8 +9475,8 @@
   // bits the host names on the controller the host names (its vendor and product id), so the pages
   // draw the handheld the device plugin describes. The native side and the layouts are untouched: the
   // mask only changes what this UI process believes. After hooking, unhooking or a mask change, the
-  // three stores that cache the list are asked to query it again, the same call they make on Steam's
-  // own list-changed notification.
+  // list's query cache is invalidated and the two stores that hold the list are asked to query it
+  // again, the same call they make on Steam's own list-changed notification.
   function createWsgmControllerCaps() {
     const patchId = "wsgm.controller-caps";
     const ServiceTokens = ["SteamInputManager.GetControllerList#1", "GetControllerListHandler"];
@@ -9485,8 +9485,12 @@
       typeof value === "object" &&
       typeof value.GetControllerList === "function" &&
       typeof value.RegisterForNotifyControllerListChanged === "function";
-    // The stores that hold a copy of the list: the controller store, the configurator store and the
-    // gamepad input store. Each is found by what it is; a store that has moved is skipped, not guessed.
+    // The stores that hold a copy of the list and draw the controller pages from it: the controller
+    // store and the configurator store. Each is found by what it is; a store that has moved is
+    // skipped, not guessed. Both read through react-query under this key with an infinite stale time,
+    // so the cache is invalidated first or their query answers from it without reaching the RPC
+    // (live-verified 2026-09-26: two refreshes, nothing masked, until the key was invalidated).
+    const ListQueryKey = ["ControllerList"];
     const StoreFingerprints = [
       [
         ["GetControllerBySerial", "m_unboundControllerList"],
@@ -9498,12 +9502,6 @@
         ["m_pendingEditingConfiguration", "EnsureEditingConfiguration"],
         (value) =>
           typeof value?.EnsureEditingConfiguration === "function" &&
-          typeof value?.DoControllerListQuery === "function",
-      ],
-      [
-        ["OnControllerListChanged", "activeButtons"],
-        (value) =>
-          typeof value?.OnControllerListChanged === "function" &&
           typeof value?.DoControllerListQuery === "function",
       ],
     ];
@@ -9607,6 +9605,7 @@
     };
     const refresh = () => {
       if (!resolver) return;
+      invalidateQuery(resolver, ListQueryKey);
       for (const [tokens, predicate] of StoreFingerprints) {
         try {
           const store = resolver.exported(tokens, predicate);

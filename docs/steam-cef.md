@@ -165,10 +165,10 @@ is a stylesheet rule:
   every store reads the list through, `SteamInputManager.GetControllerList`, and clears
   `ATTRIBCAP_TRACKPAD` when the profile marks both pads absent and `ATTRIBCAP_CAPJOYSTICK` when it
   marks both stick touches absent, on the controller with Valve's vendor and product id only. The
-  three stores that cache the list are asked to query it again after the hook changes. The grip bits
-  stay untouched until a device confirms which of Steam's two names L5/R5. Nothing native and no
-  layout file changes; the stylesheet rules stay as a second line for builds that read a cached
-  list.
+  list query cache is invalidated and the two stores that hold the list are asked to query it again
+  after the hook changes. The grip bits stay untouched until a device confirms which of Steam's two
+  names L5/R5. Nothing native and no layout file changes; the stylesheet rules stay as a second line
+  for builds that read a cached list.
 
 The device-specific half of the theme is custom properties only (`--controller-image`,
 `--button-guide-image`, `--button-l4-image` and so on); every selector lives in the shared sheet.
