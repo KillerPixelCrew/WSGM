@@ -88,6 +88,25 @@ public sealed class SteamGuideChordMirrorTests
     }
 
     [Fact]
+    public void TheNewestChordLayoutIsMirroredWhateverSteamNamedIt()
+    {
+        using Rig rig = new();
+        rig.WriteAutosave(Autosave(20));
+        using var mirror = rig.Create();
+        mirror.Apply(true, true);
+
+        Thread.Sleep(20);
+        rig.WriteAutosave(Autosave(24), "28de-1205-43fa5b1.vdf");
+        Thread.Sleep(20);
+        // A newer file for another controller type does not outrank the chord layout.
+        rig.WriteAutosave(Autosave(30).Replace("controller_neptune", "controller_ps5", StringComparison.Ordinal),
+            "controller_ps5.vdf");
+        mirror.Reconcile();
+
+        Assert.Equal(Autosave(24), rig.Template);
+    }
+
+    [Fact]
     public void ALayoutForAnotherControllerOrWithoutAChordProgenitorIsNotMirrored()
     {
         using Rig rig = new();
@@ -155,9 +174,9 @@ public sealed class SteamGuideChordMirrorTests
 
         private string TemplatePath => Path.Combine(Steam, "controller_base", SteamGuideChordMirror.TemplateFileName);
 
-        private string AutosavePath => Path.Combine(
+        private string AutosaveDirectory => Path.Combine(
             Steam, "steamapps", "common", "Steam Controller Configs", "12345678", "config",
-            SteamGuideChordMirror.ChordAppId.ToString(), "controller_neptune.vdf");
+            SteamGuideChordMirror.ChordAppId.ToString());
 
         public void Dispose()
         {
@@ -174,10 +193,10 @@ public sealed class SteamGuideChordMirrorTests
             File.WriteAllText(TemplatePath, text);
         }
 
-        internal void WriteAutosave(string text)
+        internal void WriteAutosave(string text, string fileName = "controller_neptune.vdf")
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(AutosavePath)!);
-            File.WriteAllText(AutosavePath, text);
+            Directory.CreateDirectory(AutosaveDirectory);
+            File.WriteAllText(Path.Combine(AutosaveDirectory, fileName), text);
         }
     }
 }

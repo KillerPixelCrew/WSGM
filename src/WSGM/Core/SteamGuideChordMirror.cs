@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -14,9 +15,10 @@ namespace WSGM.Core;
 /// </summary>
 /// <remarks>
 ///     <para>
-///         Steam's controller layout editor autosaves the guide button chord layout to
-///         <c>Steam Controller Configs\&lt;account&gt;\config\443510\controller_neptune.vdf</c>
-///         (443510 is the chord pseudo-app), then restarts its edit session because the selection
+///         Steam's controller layout editor autosaves the guide button chord layout under
+///         <c>Steam Controller Configs\&lt;account&gt;\config\443510\</c> (443510 is the chord
+///         pseudo-app), as <c>controller_neptune.vdf</c> or as a file named after the pad's vendor,
+///         product and serial, then restarts its edit session because the selection
 ///         changed. For a Steam Deck type controller that restart ignores the selection and parses
 ///         <c>controller_base\chord_neptune.vdf</c>, the "last resort" template, three to four seconds
 ///         after the save. Every edit therefore vanished from the editor and was written back as
@@ -42,7 +44,7 @@ public sealed class SteamGuideChordMirror : IDisposable
     internal const string TemplateFileName = "chord_neptune.vdf";
     internal const string BackupSuffix = ".wsgm-original";
     internal const string ResetMarkerSuffix = ".wsgm-reset";
-    private const string AutosaveFileName = "controller_neptune.vdf";
+    private const string AutosavePattern = "*.vdf";
     private const int MaximumLayoutBytes = 4 * 1024 * 1024;
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(150);
 
@@ -198,7 +200,7 @@ public sealed class SteamGuideChordMirror : IDisposable
 
         try
         {
-            _watcher = new FileSystemWatcher(_configsRoot, AutosaveFileName)
+            _watcher = new FileSystemWatcher(_configsRoot, AutosavePattern)
             {
                 IncludeSubdirectories = true,
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size
@@ -259,37 +261,42 @@ public sealed class SteamGuideChordMirror : IDisposable
 
     private void ReconcileUnderGate()
     {
-        var autosave = NewestAutosave();
-        if (autosave is null)
+        string? autosave = null;
+        string? text = null;
+        foreach (var candidate in AutosaveCandidates())
         {
-            return;
-        }
-
-        string text;
-        try
-        {
-            if (new FileInfo(autosave).Length > MaximumLayoutBytes)
+            try
             {
-                Log.Warn($"Guide chord autosave '{autosave}' is larger than a layout can be; ignored.");
+                if (new FileInfo(candidate).Length > MaximumLayoutBytes)
+                {
+                    Log.Warn($"Guide chord autosave '{candidate}' is larger than a layout can be; ignored.");
+                    continue;
+                }
+
+                var read = File.ReadAllText(candidate, Encoding.UTF8);
+                if (!IsChordLayout(read))
+                {
+                    continue;
+                }
+
+                autosave = candidate;
+                text = read;
+                break;
+            }
+            catch (IOException) when (_retries < 5 && _debounce is not null)
+            {
+                // Still being written. A few more looks, then the next write wins.
+                _retries++;
+                _debounce.Change(Debounce, Timeout.InfiniteTimeSpan);
                 return;
             }
-
-            text = File.ReadAllText(autosave, Encoding.UTF8);
-        }
-        catch (IOException) when (_retries < 5 && _debounce is not null)
-        {
-            // Still being written. Three more looks, then the next write wins.
-            _retries++;
-            _debounce.Change(Debounce, Timeout.InfiniteTimeSpan);
-            return;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn($"Guide chord autosave could not be read: {ex.Message}");
-            return;
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn($"Guide chord autosave '{candidate}' could not be read: {ex.Message}");
+            }
         }
 
-        if (!IsChordLayout(text))
+        if (autosave is null || text is null)
         {
             return;
         }
@@ -394,25 +401,32 @@ public sealed class SteamGuideChordMirror : IDisposable
         }
     }
 
-    private string? NewestAutosave()
+    /// <summary>
+    ///     Every layout Steam keeps for the chord pseudo-app, newest write first. Steam names the
+    ///     autosave <c>controller_neptune.vdf</c> or, once it knows the pad, after the pad's vendor,
+    ///     product and serial (<c>28de-1205-&lt;serial&gt;.vdf</c>), so the name cannot pick the file;
+    ///     the content does.
+    /// </summary>
+    private List<string> AutosaveCandidates()
     {
         if (!Directory.Exists(_configsRoot))
         {
-            return null;
+            return [];
         }
 
         try
         {
             return Directory.EnumerateDirectories(_configsRoot)
-                .Select(account => Path.Combine(account, "config", ChordAppId.ToString(), AutosaveFileName))
-                .Where(File.Exists)
+                .Select(account => Path.Combine(account, "config", ChordAppId.ToString()))
+                .Where(Directory.Exists)
+                .SelectMany(app => Directory.EnumerateFiles(app, AutosavePattern))
                 .OrderByDescending(File.GetLastWriteTimeUtc)
-                .FirstOrDefault();
+                .ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Log.Warn($"Guide chord autosaves could not be listed: {ex.Message}");
-            return null;
+            return [];
         }
     }
 

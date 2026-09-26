@@ -216,10 +216,12 @@ the handoff; releasing during that overlap drops and re-revokes the controller (
 Steam's guide-chord editor (the pseudo-app 443510) does not keep edits for a Steam Deck controller
 on Windows. Every editor session starts by loading Valve's last-resort template,
 `controller_base\chord_neptune.vdf`, from disk, so the autosave Steam writes under
-`steamapps\common\Steam Controller Configs\<account>\config\443510\controller_neptune.vdf` is
-replaced by the template again three to four seconds later. WSGM presents the Claw as a Steam Deck
-composite, so the editor reverts each change while WSGM is running (dev box, 2026-09-26; also
-reported for real Decks running Windows).
+`steamapps\common\Steam Controller Configs\<account>\config\443510\` is replaced by the template
+again three to four seconds later. That autosave is `controller_neptune.vdf` or, once Steam knows
+the pad, a file named after its vendor, product and serial (`28de-1205-<serial>.vdf`), so the mirror
+picks the newest file there whose content is a Neptune chord layout rather than going by name. WSGM
+presents the Claw as a Steam Deck composite, so the editor reverts each change while WSGM is running
+(dev box, 2026-09-26; also reported for real Decks running Windows).
 
 `SteamGuideChordMirror` works around it by keeping the template equal to the autosave. While the
 Steam Deck target is active and "Keep guide button chord edits" (Device Integration settings, on by
