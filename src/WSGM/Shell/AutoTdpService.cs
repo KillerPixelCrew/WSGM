@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -70,6 +71,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     private readonly IFrametimeSource _frametimes;
     private readonly Lock _gate = new();
+    private readonly Func<RtssOsdMetrics>? _metrics;
+    private readonly long _startTimestamp = Stopwatch.GetTimestamp();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<double> _targetFrametimeMs;
     private readonly AutoTdpTraceRecorder? _trace;
@@ -105,7 +108,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Func<IReadOnlyList<DeviceCapabilityView>> capabilities,
         Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> writeAsync,
         Func<double> targetFrametimeMs,
-        AutoTdpTraceRecorder? trace = null)
+        AutoTdpTraceRecorder? trace = null,
+        Func<RtssOsdMetrics>? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(frametimes);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -116,6 +120,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         _writeAsync = writeAsync;
         _targetFrametimeMs = targetFrametimeMs;
         _trace = trace;
+        _metrics = metrics;
     }
 
     /// <summary>Current projection.</summary>
@@ -593,7 +598,10 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 _applicationWrites.Token);
         }
 
-        var row = _trace?.Begin(AutoTdpTraceEvent.Tick);
+        // One clock for the tick, shared by the controller and the trace, so a replayed file feeds
+        // the controller exactly the elapsed time the live one saw.
+        var elapsedMs = Stopwatch.GetElapsedTime(_startTimestamp).TotalMilliseconds;
+        var row = _trace?.Begin(AutoTdpTraceEvent.Tick, elapsedMs);
         using (writeCancellation)
         {
             try
@@ -603,6 +611,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     runningGeneration,
                     writeCancellation,
                     cancellationToken,
+                    elapsedMs,
                     row).ConfigureAwait(false);
             }
             finally
@@ -623,12 +632,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="runningGeneration">The snapshot generation that may publish its result.</param>
     /// <param name="writeCancellation">Cancels the write when this application is retired.</param>
     /// <param name="cancellationToken">Cancels the AutoTDP worker or caller.</param>
+    /// <param name="elapsedMs">This tick's reading of the control clock.</param>
     /// <param name="trace">The trace row this tick fills, or null when the trace is off.</param>
     private async Task TickForApplicationAsync(
         RunningApplicationTargetSnapshot? running,
         long runningGeneration,
         CancellationTokenSource writeCancellation,
         CancellationToken cancellationToken,
+        double elapsedMs,
         AutoTdpTraceRow? trace)
     {
         if (trace is not null)
@@ -675,19 +686,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        if (SelectSample(running, trace) is not { } frametime)
-        {
-            Publish(
-                AutoTdpState.Idle,
-                current,
-                null,
-                null,
-                running?.ApplicationId,
-                "No application is rendering.",
-                expectedRunningGeneration: runningGeneration);
-            return;
-        }
-
+        var frametime = SelectSample(running, trace);
         var target = _targetFrametimeMs();
         if (trace is not null)
         {
@@ -700,7 +699,29 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        var context = ContextKey(running, frametime);
+        // Read once, before the decision, and hand the same sample to the trace. The controller
+        // consumes GPU load, so a value read after the write would describe the wrong window.
+        var metrics = ReadMetrics();
+        if (trace is not null)
+        {
+            trace.Metrics = metrics;
+        }
+
+        if (frametime is null && !_controllerStarted)
+        {
+            // Nothing has rendered yet, so there is no context to control and nothing to preserve.
+            Publish(
+                AutoTdpState.Idle,
+                current,
+                null,
+                null,
+                running?.ApplicationId,
+                "No application is rendering.",
+                expectedRunningGeneration: runningGeneration);
+            return;
+        }
+
+        var context = ContextKey(running, frametime, target);
         AutoTdpDecision decision;
         bool rebased;
         bool started;
@@ -713,14 +734,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
             rebased = _resync && _controllerStarted;
             started = !_controllerStarted || _resync;
-            if (trace is not null)
-            {
-                // What the controller already knew about this context before this window, so a
-                // replay of this file can start from the same learning.
-                trace.PriorLearnedFloor = _controller.LearnedFloor(context);
-                trace.PriorFailedProbeFloor = _controller.FailedProbeFloor(context);
-            }
-
             if (started)
             {
                 // Either the first window of this generation, or the window after a write that
@@ -733,15 +746,19 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 _controller.Start(current, limits, context);
             }
 
-            var capped = IsCapped(frametime, target);
             var previousWatts = _controller.Watts;
-            decision = _controller.Evaluate(
-                new AutoTdpSample(frametime.MeanFrametimeMs, target, capped, context),
+            decision = _controller.Observe(
+                new AutoTdpObservation(
+                    elapsedMs,
+                    context,
+                    target,
+                    ToWindow(frametime),
+                    metrics.GpuLoadPercent,
+                    metrics.CpuLoadPercent),
                 limits);
             if (trace is not null)
             {
                 trace.ContextKey = context;
-                trace.Capped = capped;
                 trace.ControllerStarted = started;
                 trace.StartWatts = started ? current : null;
                 trace.Rebased = rebased;
@@ -794,7 +811,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 Publish(
                     AutoTdpState.Unavailable,
                     current,
-                    frametime.MeanFrametimeMs,
+                    frametime?.MeanFrametimeMs,
                     target,
                     running?.ApplicationId,
                     "The power limit did not accept the last write; control holds for one window.",
@@ -806,7 +823,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Publish(
             _controller.IsPaused ? AutoTdpState.Paused : AutoTdpState.Controlling,
             decision.Watts,
-            frametime.MeanFrametimeMs,
+            frametime?.MeanFrametimeMs,
             target,
             running?.ApplicationId,
             decision.Reason,
@@ -1218,19 +1235,66 @@ internal sealed class AutoTdpService : IAsyncDisposable
         trace.PostPairedObservedWatts = FindPairedPower(power)?.Projection.State.ObservedValue?.IntegerValue;
     }
 
-    private static bool IsCapped(RtssFrametimeSample sample, double targetFrametimeMs)
+    /// <summary>Samples the sensors, never letting a failing provider stop a control decision.</summary>
+    /// <returns>What the sensor provider published, or an empty sample.</returns>
+    /// <remarks>
+    ///     Utilization is advisory: every rule that consults it is skipped when the value is absent, so
+    ///     an unavailable provider makes the controller frametime-only rather than wrong.
+    /// </remarks>
+    private RtssOsdMetrics ReadMetrics()
     {
-        return sample.MeanFrametimeMs >= targetFrametimeMs * 0.97
-               && sample.MeanFrametimeMs <= targetFrametimeMs * AutoTdpController.MissRatio;
+        if (_metrics is null)
+        {
+            return RtssOsdMetrics.Empty;
+        }
+
+        try
+        {
+            return _metrics();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or InvalidOperationException)
+        {
+            Log.Change("autotdp-sensors", $"AutoTDP sensors unavailable: {ex.Message}");
+            return RtssOsdMetrics.Empty;
+        }
     }
 
+    /// <summary>The RTSS window in the shape the controller judges, or null when nothing rendered.</summary>
+    private static AutoTdpWindow? ToWindow(RtssFrametimeSample? sample)
+    {
+        return sample is null
+            ? null
+            : new AutoTdpWindow(
+                sample.WindowStartTicks,
+                sample.WindowEndTicks,
+                sample.Frames,
+                sample.MeanFrametimeMs,
+                sample.FrameTimeRaw > 0 ? sample.FrameTimeRaw / 1000d : null,
+                sample.AgeMs);
+    }
+
+    /// <summary>The application and deadline the controller's evidence belongs to.</summary>
+    /// <param name="running">The running-application snapshot, when one identified a game.</param>
+    /// <param name="sample">The RTSS renderer, used only when Steam gave no identity.</param>
+    /// <param name="targetFrametimeMs">The active deadline.</param>
+    /// <returns>The context key.</returns>
+    /// <remarks>
+    ///     The deadline is part of the identity. A session that moved a game from a 120 FPS cap to a
+    ///     60 FPS one kept one key across both, so evidence gathered for the harder problem went on
+    ///     constraining the easier one (Claw, 2026-09-26).
+    /// </remarks>
     private static string ContextKey(
         RunningApplicationTargetSnapshot? running,
-        RtssFrametimeSample sample)
+        RtssFrametimeSample? sample,
+        double targetFrametimeMs)
     {
-        return running?.ApplicationId is { Length: > 0 } identity
-            ? identity
-            : $"process:{Path.GetFileName(sample.ExecutablePath)}";
+        var identity = running?.ApplicationId is { Length: > 0 } application
+            ? application
+            : $"process:{Path.GetFileName(sample?.ExecutablePath ?? string.Empty)}";
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{identity}|{targetFrametimeMs:F2}ms");
     }
 
     private void Publish(

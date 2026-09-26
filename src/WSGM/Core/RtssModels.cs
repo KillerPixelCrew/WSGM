@@ -166,6 +166,15 @@ internal interface IRtssAdapter : IAsyncDisposable
     /// <param name="status">Current sustained limit and AutoTDP activity.</param>
     void ApplyOsdPowerStatus(RtssOsdPowerStatus status);
 
+    /// <summary>Reads what RTSS's sensor provider currently publishes.</summary>
+    /// <returns>The latest sample, or an empty one when nothing is published.</returns>
+    /// <remarks>
+    ///     One source for the whole session. The OSD draws from it and AutoTDP classifies stalls with
+    ///     it, and sharing keeps that to a single mapping handle, a single cached read per second, and
+    ///     a single attempt to start the provider.
+    /// </remarks>
+    RtssOsdMetrics SampleSensors();
+
     /// <summary>Whether RTSS already holds a profile with this exact name.</summary>
     /// <param name="rtssProfileName">The application profile name; empty means the global profile.</param>
     /// <remarks>

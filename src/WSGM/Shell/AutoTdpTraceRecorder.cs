@@ -14,9 +14,10 @@ namespace WSGM.Shell;
 /// <summary>Owns the AutoTDP trace: one CSV per control generation while the trace is switched on.</summary>
 /// <remarks>
 ///     <see cref="AutoTdpService" /> fills a row with what it already knows; this adds the context
-///     around it — timing, Windows power state, sensors, probe numbering, duplicate RTSS windows — and
-///     queues it. Nothing here feeds back into control. Sensors are sampled after the decision and
-///     its write, so a slow sensor read delays the row, never the decision.
+///     around it — timing, Windows power state, probe numbering, duplicate RTSS windows — and queues
+///     it. Nothing here feeds back into control. The sensor sample arrives on the row because the
+///     controller consumes GPU load and the service reads it once, before the decision; what is left
+///     here is Windows power state, which nothing judges.
 ///     <para>
 ///         One background task owns the file and writes every row. A manual change on the UI thread only
 ///         appends to a queue and never waits for the disk.
@@ -138,14 +139,20 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
 
     /// <summary>Starts a row, or returns null when nothing is recorded.</summary>
     /// <param name="kind">What caused the row.</param>
+    /// <param name="elapsedMs">The caller's control clock, when it owns one.</param>
     /// <returns>The row to fill and commit.</returns>
-    internal AutoTdpTraceRow? Begin(AutoTdpTraceEvent kind)
+    /// <remarks>
+    ///     A tick passes its own clock so the recorded <c>elapsed_ms</c> is the exact value the
+    ///     controller was given, which is what lets a replayed file reproduce a timing decision.
+    /// </remarks>
+    internal AutoTdpTraceRow? Begin(AutoTdpTraceEvent kind, double? elapsedMs = null)
     {
         return _enabled
             ? new AutoTdpTraceRow
             {
                 Event = kind,
-                WallClock = DateTimeOffset.UtcNow
+                WallClock = DateTimeOffset.UtcNow,
+                ControlClockMs = elapsedMs
             }
             : null;
     }
@@ -199,7 +206,8 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
 
             row.TraceId = _traceId;
             row.Row = ++_row;
-            row.ElapsedMs = Stopwatch.GetElapsedTime(_startTimestamp, now).TotalMilliseconds;
+            row.ElapsedMs = row.ControlClockMs
+                            ?? Stopwatch.GetElapsedTime(_startTimestamp, now).TotalMilliseconds;
             if (tick)
             {
                 row.TickIntervalMs = Since(_lastTickTimestamp, now);
@@ -214,7 +222,7 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
                 _probeId++;
             }
 
-            if (row.Controller?.IsProbing == true
+            if (row.Controller?.Phase is AutoTdpPhase.Probing
                 || row.Decision?.Action is AutoTdpAction.Probe or AutoTdpAction.Restore)
             {
                 row.ProbeId = _probeId;
@@ -350,10 +358,11 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
     private sealed record Entry(AutoTdpTraceRow? Row, string? TraceId, TaskCompletionSource? Drained);
 }
 
-/// <summary>Samples the Windows power state and sensors for AutoTDP trace rows.</summary>
+/// <summary>Samples the Windows power state, and the sensors when the control path did not.</summary>
 /// <remarks>
-///     Read-only. The sensor source only reads what RTSS's provider already publishes and never starts
-///     it, so enabling the trace starts no process.
+///     Read-only. The control path reads the sensors before its decision and puts the sample on the
+///     row, and that value wins; this source is the fallback for a host that supplied none, and it
+///     only reads what RTSS's provider already publishes rather than starting one of its own.
 /// </remarks>
 internal sealed class AutoTdpTraceSystemContext : IDisposable
 {
@@ -388,6 +397,11 @@ internal sealed class AutoTdpTraceSystemContext : IDisposable
         catch (Win32Exception)
         {
             // The trace records what it could read; a missing power field stays empty.
+        }
+
+        if (row.Metrics is not null)
+        {
+            return;
         }
 
         try

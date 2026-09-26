@@ -180,6 +180,13 @@ internal sealed class PerformanceService : IAsyncDisposable
         _adapter.ApplyOsdPowerStatus(status);
     }
 
+    /// <summary>Reads the session's one sensor sample, for AutoTDP as well as the OSD.</summary>
+    /// <returns>The latest sample, or an empty one after disposal or without a provider.</returns>
+    internal RtssOsdMetrics SampleSensors()
+    {
+        return _disposed ? RtssOsdMetrics.Empty : _adapter.SampleSensors();
+    }
+
     internal IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

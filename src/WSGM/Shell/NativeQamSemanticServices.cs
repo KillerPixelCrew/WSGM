@@ -1420,7 +1420,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 AutoTdpState.Unavailable => "failed",
                 _ => string.Empty
             },
-            SteamUiText.Bound(status.Detail));
+            SteamUiText.Bound(AutoTdpReason.Describe(status.Detail)));
     }
 
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views)

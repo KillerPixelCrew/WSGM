@@ -1421,6 +1421,18 @@ internal sealed class RtssOsdRenderer : IDisposable
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
     internal int Level => _level;
 
+    /// <summary>Reads the shared sensor sample, whatever the renderer's own level is.</summary>
+    /// <returns>The latest sample, cached for a second by the source.</returns>
+    /// <remarks>
+    ///     AutoTDP classifies stalls with the same sample the OSD draws, so the source, its cache and
+    ///     its provider-start cooldown are shared rather than duplicated. At OSD level 0 the render
+    ///     loop never samples, and this is then the only caller keeping the source current.
+    /// </remarks>
+    internal RtssOsdMetrics SampleSensors()
+    {
+        return _disposed ? RtssOsdMetrics.Empty : _metrics.Sample();
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {

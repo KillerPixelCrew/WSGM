@@ -959,7 +959,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 true);
         }
 
-        var detail = status?.Detail ?? "Starting.";
+        var detail = status is null ? "Starting." : AutoTdpReason.Describe(status.Detail);
         var trailing = status?.Watts is { } watts
             ? watts.ToString(CultureInfo.InvariantCulture) + " W"
             : "ON";

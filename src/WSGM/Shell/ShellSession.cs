@@ -885,7 +885,8 @@ public sealed class ShellSession : IAsyncDisposable
                     () => deviceCoordinator.InstalledPackage?.Manifest is { } manifest
                         ? (manifest.Id, manifest.Version)
                         : (null, null),
-                    new AutoTdpTraceSystemContext()));
+                    new AutoTdpTraceSystemContext()),
+                () => _performance?.SampleSensors() ?? RtssOsdMetrics.Empty);
             var autoTdp = _autoTdp;
             autoTdp.SetTraceEnabled(_config.AutoTdpTraceEnabled);
             deviceCoordinator.AttachAutoTdpAvailability(() => autoTdp.Availability);
@@ -3998,9 +3999,11 @@ public sealed class ShellSession : IAsyncDisposable
             AutoTdpState.Idle => "Waiting",
             AutoTdpState.Paused => "Paused",
             AutoTdpState.Controlling when status.Detail is "at-maximum" => "Can't Reach",
-            AutoTdpState.Controlling when status.Detail is "settling" or "settling-headroom" =>
-                "Settling",
+            AutoTdpState.Controlling when status.Detail is "settling" => "Settling",
             AutoTdpState.Controlling when status.Detail is "probe-pending" => "Testing",
+            AutoTdpState.Controlling when status.Detail is "quarantine-hiatus" or "quarantine-stall"
+                or "quarantine-recovery" => "Stalled",
+            AutoTdpState.Controlling when status.Detail is "unresponsive" => "Holding",
             AutoTdpState.Controlling => status.Action switch
             {
                 AutoTdpAction.Raise => "Raising",

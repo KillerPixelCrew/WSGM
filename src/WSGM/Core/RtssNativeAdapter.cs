@@ -44,6 +44,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     }
 
     /// <inheritdoc />
+    public RtssOsdMetrics SampleSensors()
+    {
+        return _osd.SampleSensors();
+    }
+
+    /// <inheritdoc />
     public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
     {
         _osd.ApplyPowerStatus(status);
@@ -378,6 +384,13 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
     public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
     {
         // No renderer here; the simulated adapter never draws.
+    }
+
+    /// <inheritdoc />
+    public RtssOsdMetrics SampleSensors()
+    {
+        // No provider either. Absent utilization simply narrows AutoTDP to frame delivery.
+        return RtssOsdMetrics.Empty;
     }
 
     /// <inheritdoc />

@@ -46,6 +46,9 @@ internal sealed class AutoTdpTraceRow
 
     internal double ElapsedMs { get; set; }
 
+    /// <summary>The control clock the caller judged this tick on, when it owns one.</summary>
+    internal double? ControlClockMs { get; init; }
+
     internal DateTimeOffset WallClock { get; set; }
 
     internal double? TickIntervalMs { get; set; }
@@ -102,8 +105,6 @@ internal sealed class AutoTdpTraceRow
 
     internal long? WindowGapMs { get; set; }
 
-    internal bool? Capped { get; set; }
-
     internal bool? ControllerStarted { get; set; }
 
     /// <summary>
@@ -115,10 +116,6 @@ internal sealed class AutoTdpTraceRow
     internal bool? Rebased { get; set; }
 
     internal AutoTdpControllerSnapshot? Controller { get; set; }
-
-    internal int? PriorLearnedFloor { get; set; }
-
-    internal int? PriorFailedProbeFloor { get; set; }
 
     internal long? ProbeId { get; set; }
 
@@ -162,7 +159,12 @@ internal sealed class AutoTdpTraceRow
 internal static class AutoTdpTraceCsv
 {
     /// <summary>Schema version written into every row.</summary>
-    internal const int Version = 1;
+    /// <remarks>
+    ///     Version 2 replaced the learned-floor controller. The floor columns are gone and the state
+    ///     column names a control phase rather than three booleans, so a version 1 file describes a
+    ///     policy this build no longer has. Its raw RTSS columns still replay.
+    /// </remarks>
+    internal const int Version = 2;
 
     private static readonly (string Name, Func<AutoTdpTraceRow, string?> Value)[] Columns =
     [
@@ -210,27 +212,29 @@ internal static class AutoTdpTraceCsv
         ("rtss_age_ms", row => Integer(row.Frametime?.AgeMs)),
         ("rtss_window_repeat", row => Flag(row.WindowRepeat)),
         ("rtss_window_gap_ms", row => Integer(row.WindowGapMs)),
-        ("capped", row => Flag(row.Capped)),
         ("controller_started", row => Flag(row.ControllerStarted)),
         ("start_w", row => Integer(row.StartWatts)),
         ("controller_rebased", row => Flag(row.Rebased)),
-        ("prior_learned_floor_w", row => Integer(row.PriorLearnedFloor)),
-        ("prior_failed_probe_floor_w", row => Integer(row.PriorFailedProbeFloor)),
-        ("judged", row => Flag(row.Controller?.Judged)),
-        ("ratio", row => row.Controller is { Judged: true } snapshot ? Number(snapshot.Ratio) : null),
-        ("window_missed", row => row.Controller is { Judged: true } snapshot ? Flag(snapshot.Missed) : null),
-        ("window_comfortable", row => row.Controller is { Judged: true } snapshot
-            ? Flag(snapshot.Comfortable)
+        ("window_class", row => row.Controller is { } snapshot ? ClassToken(snapshot.Class) : null),
+        ("ratio", row => row.Controller is { } snapshot && double.IsFinite(snapshot.Ratio)
+            ? Number(snapshot.Ratio)
             : null),
-        ("state", row => State(row.Controller)),
+        ("present_gap_ms", row => Number(row.Controller?.GapMs)),
+        ("hiatus", row => Flag(row.Controller?.Hiatus)),
+        ("state", row => row.Controller is { } snapshot ? PhaseToken(snapshot.Phase, snapshot.IsPaused) : null),
         ("believed_w", row => Integer(row.Controller?.Watts)),
         ("last_good_w", row => Integer(row.Controller?.LastGood)),
-        ("learned_floor_w", row => Integer(row.Controller?.LearnedFloor)),
-        ("failed_probe_floor_w", row => Integer(row.Controller?.FailedProbeFloor)),
         ("miss_count", row => Integer(row.Controller?.MissedWindows)),
-        ("comfortable_count", row => Integer(row.Controller?.ComfortableWindows)),
+        ("dwell_ms", row => Number(row.Controller?.DwellMs)),
+        ("dwell_required_ms", row => Number(row.Controller?.RequiredDwellMs)),
+        ("raise_baseline", row => row.Controller is { } snapshot && double.IsFinite(snapshot.RaiseBaseline)
+            ? Number(snapshot.RaiseBaseline)
+            : null),
+        ("raise_unimproved", row => Integer(row.Controller?.RaiseUnimproved)),
         ("probe_elapsed", row => Integer(row.Controller?.ProbeWindows)),
-        ("settling_remaining", row => Integer(row.Controller?.SettlingWindows)),
+        ("settling_windows", row => Integer(row.Controller?.SettlingWindows)),
+        ("severe_windows", row => Integer(row.Controller?.SevereWindows)),
+        ("utilization_rule", row => row.Controller?.Utilization),
         ("probe_id", row => Integer(row.ProbeId)),
         ("action", row => row.Decision is { } decision ? ActionToken(decision.Action) : null),
         ("reason", row => row.Decision?.Reason),
@@ -316,15 +320,42 @@ internal static class AutoTdpTraceCsv
         };
     }
 
-    private static string? State(AutoTdpControllerSnapshot? snapshot)
+    /// <summary>Stable token for a control phase.</summary>
+    /// <param name="phase">The phase.</param>
+    /// <param name="paused">Whether a manual change has suspended control.</param>
+    /// <returns>The token.</returns>
+    internal static string PhaseToken(AutoTdpPhase phase, bool paused)
     {
-        return snapshot switch
+        if (paused)
         {
-            null => null,
-            { IsPaused: true } => "paused",
-            { SettlingWindows: > 0 } => "settling",
-            { IsProbing: true } => "probing",
-            _ => "tracking"
+            return "paused";
+        }
+
+        return phase switch
+        {
+            AutoTdpPhase.Settling => "settling",
+            AutoTdpPhase.Tracking => "tracking",
+            AutoTdpPhase.Raising => "raising",
+            AutoTdpPhase.Unresponsive => "unresponsive",
+            AutoTdpPhase.Quarantine => "quarantine",
+            AutoTdpPhase.Probing => "probing",
+            _ => throw new ArgumentOutOfRangeException(nameof(phase))
+        };
+    }
+
+    /// <summary>Stable token for a window classification.</summary>
+    /// <param name="value">The classification.</param>
+    /// <returns>The token.</returns>
+    internal static string ClassToken(AutoTdpWindowClass value)
+    {
+        return value switch
+        {
+            AutoTdpWindowClass.None => "none",
+            AutoTdpWindowClass.Severe => "severe",
+            AutoTdpWindowClass.Missed => "missed",
+            AutoTdpWindowClass.OnTarget => "on-target",
+            AutoTdpWindowClass.Comfortable => "comfortable",
+            _ => throw new ArgumentOutOfRangeException(nameof(value))
         };
     }
 
