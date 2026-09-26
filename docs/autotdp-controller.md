@@ -24,6 +24,12 @@ minute hold with loading cycles, and two 37 W starts) show:
   writing it. With 37 W on the hardware the controller believed 28 W, and its first "raise" to 29 W
   cut the limit by 8 W in one write.
 - 38 windows were the previous RTSS window read again. One raise was decided on a repeated window.
+- A present hiatus is visible while it happens. RTSS closes a window on a frame boundary after one
+  second, so a blocked render thread leaves the previous window in place with a growing age.
+  Ordinary tick phase drift reads 984 to 1032 ms; every repeat with an age above 1300 ms preceded a
+  stall window (1406 ms before a 2218 ms window, 1359 and 1500 ms inside the 5.6 s loading stall,
+  1578 ms before a 1734 ms window of 43 frames). The last-frame field showed 818 ms inside a stall,
+  while healthy capped play at GPU 65 to 80 % produced last frames of 95 to 185 ms.
 
 The full analysis is in issue 181. The CSVs are the replay inputs for the new controller.
 
@@ -58,24 +64,43 @@ neither speed up nor slow down a dwell. Every dwell below is a sum of fresh wind
 
 RTSS publishes a mean and a frame count per window and the last frame's time in microseconds. There
 is no per-frame history without polling faster than the frame rate, which this design does not do.
-Severity is therefore judged from the mean, the frame count and the window's length: RTSS closes a
-window on a frame boundary after one second, so a window much longer than one second ends with one
-long frame.
+What it does have is elapsed time since the last present, which is the stall signal the issue asks
+for, measured in target frames.
+
+### Hiatus detection
+
+A hiatus is a gap in presents of at least `HiatusFrames` target frames, 15 by default and never
+under 250 ms, so a 60 FPS target quarantines at 250 ms and a 30 FPS target at 500 ms. Ordinary
+hitches of 95 to 185 ms stay in the normal statistics. Two fields expose it:
+
+- In progress: the tick reads the same window as the previous tick and its age exceeds the nominal
+  window length by the hiatus threshold. No frame has been presented for that long. The controller
+  enters Quarantine on that tick, before the stall's own window has closed, and the trace records
+  the gap so far. The gap keeps growing on each tick while the stall lasts; a repeat with an age
+  inside the nominal length is tick phase drift and means nothing.
+- Completed: a fresh window whose last-frame time is at or above the threshold contained a hiatus
+  that ended inside it. The window is severe.
+
+Persistence comes from the quarantine rules, not from the detector: leaving takes three ordinary
+windows, and a stall that keeps going is judged by the persistent-stall rule. A hiatus is detected
+at most one tick late, because the tick is the sampling rate.
 
 ### Window classes
 
 For a fresh window with ratio `r = mean / target`:
 
-| Class       | Condition                                                                  | Meaning                                              |
-| ----------- | -------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Severe      | `r >= 1.5`, or duration `>= 1.4 x` nominal (1000 ms plus one target frame) | A stall, hiatus or loading interval. Contaminated.   |
-| Missed      | `r > 1.05` and not severe                                                  | Delivery below target. Evidence, once sustained.     |
-| On target   | `1.0 < r <= 1.05` and not capped                                           | Meeting the deadline without headroom.               |
-| Comfortable | `r <= 0.92`, or capped and not missed                                      | Headroom, or the limiter holding the game at target. |
+| Class       | Condition                                                                                                                  | Meaning                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Severe      | last frame at or above the hiatus threshold, or `r >= 1.5`, or duration `>= 1.4 x` nominal (1000 ms plus one target frame) | A stall, hiatus or loading interval. Contaminated.   |
+| Missed      | `r > 1.05` and not severe                                                                                                  | Delivery below target. Evidence, once sustained.     |
+| On target   | `1.0 < r <= 1.05` and not capped                                                                                           | Meeting the deadline without headroom.               |
+| Comfortable | `r <= 0.92`, or capped and not missed                                                                                      | Headroom, or the limiter holding the game at target. |
 
-A repeated window, or a tick with no window, is none of these and touches no counter. Three seconds
-without a fresh window resets the miss and comfort streaks, since the game may have been paused or
-minimized.
+The ratio and duration conditions are the backstop for a stall the last-frame field did not happen
+to hold, such as a loading interval of many slow frames rather than one long one. A repeated window,
+or a tick with no window, is none of these and touches no counter, except that a repeat carrying a
+hiatus in progress enters Quarantine as above. Three seconds without a fresh window resets the miss
+and comfort streaks, since the game may have been paused or minimized.
 
 ### Utilization rules
 
@@ -160,23 +185,23 @@ here goes to Quarantine.
 
 ### Quarantine
 
-Entered on a severe window from any judging state. A probe in flight is restored first and recorded
-as inconclusive; a raise chain is abandoned. While in Quarantine nothing is learned, no probe is
-judged and no step is taken from the stall itself.
+Entered on a hiatus in progress or a severe window, from any judging state. A probe in flight is
+restored first and recorded as inconclusive; a raise chain is abandoned. While in Quarantine nothing
+is learned, no probe is judged and no step is taken from the stall itself.
 
 - Recovery: three consecutive non-severe fresh windows end the quarantine. Their misses do not count
   toward a raise; Tracking starts with empty streaks. That is the fresh window the issue asks for
   before reacting to post-loading frames.
-- Persistent stall: four consecutive severe windows. With GPU load under 40 % the quarantine simply
-  continues; a loading screen is not a power request however long it takes. With GPU load at or
-  above 60 %, or no GPU value, the windows are treated as a sustained miss and the controller enters
-  Raising, whose response test bounds the damage at three steps if the stall was not power-bound
-  after all.
+- Persistent stall: four consecutive severe windows, or a hiatus in progress for four ticks. With
+  GPU load under 40 % the quarantine simply continues; a loading screen is not a power request
+  however long it takes. With GPU load at or above 60 %, or no GPU value, the windows are treated as
+  a sustained miss and the controller enters Raising, whose response test bounds the damage at three
+  steps if the stall was not power-bound after all.
 
 Quarantine never freezes control: recovery needs only three ordinary windows.
 
-The trace records quarantine entry and exit with the window that caused each, the probe id it
-interrupted, and whether the persistent-stall escape fired.
+The trace records quarantine entry and exit with the window or hiatus that caused each, the gap in
+target frames, the probe id it interrupted, and whether the persistent-stall escape fired.
 
 ### Probing
 
@@ -246,12 +271,14 @@ Replay first, hardware second:
 - The four 2026-09-26 traces replayed through the new controller must show: no raise on a window
   with GPU load under 40 %, no floor holds, start at the observed 37 W, and a descent from 37 W to
   the capped operating point in the two high-start traces.
-- Unit tests per rule: repeated window skipped, three-second gap resets streaks, severe window
-  interrupts a probe without confirming it, two-of-three failure, single-miss tolerance, backoff
-  doubling and its three resets, raise chain stops after three unimproved steps, GPU deferral
-  expires after six windows, persistent stall with low GPU never raises, persistent stall with no
-  GPU value raises at most three steps, quarantine recovery discards its misses, capped windows
-  still probe, at-maximum and at-minimum holds, manual pause and stop unchanged.
+- Unit tests per rule: repeated window skipped, a repeat inside the nominal length is phase drift, a
+  repeat past the hiatus threshold quarantines on that tick, a last frame at the threshold is severe
+  and one below it is not, three-second gap resets streaks, severe window interrupts a probe without
+  confirming it, two-of-three failure, single-miss tolerance, backoff doubling and its three resets,
+  raise chain stops after three unimproved steps, GPU deferral expires after six windows, persistent
+  stall with low GPU never raises, persistent stall with no GPU value raises at most three steps,
+  quarantine recovery discards its misses, capped windows still probe, at-maximum and at-minimum
+  holds, manual pause and stop unchanged.
 - Then the issue's live checks on the Claw with the trace on: Cult of the Lamb from a high start
   through loading screens, a sustained power-limited scene, a second target frame rate, and the
   manual reference run.
