@@ -216,7 +216,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         LoadArtworkTabs();
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
-        DeviceMotionOnlyInGame = _config.DeviceIntegration.MotionStream is MotionStreamMode.InGame;
+        DeviceMotionOnDemand = _config.DeviceIntegration.MotionStream is MotionStreamMode.OnDemand;
         DeviceKeepGuideChordEdits = _config.DeviceIntegration.KeepGuideChordEdits;
         DeviceControllerTargetIndex =
             (int)(_config.Profiles.Global.ControllerTarget ?? ProfileFields.DefaultControllerTarget);
@@ -722,16 +722,16 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>Gets or sets whether the plugin's motion stream stops while no application runs.</summary>
     /// <remarks>
-    ///     Maps <see cref="MotionStreamMode.InGame" /> onto a switch. Only this window edits the mode,
+    ///     Maps <see cref="MotionStreamMode.OnDemand" /> onto a switch. Only this window edits the mode,
     ///     so it is written on every save like <see cref="DeviceControllerManagementEnabled" />.
     /// </remarks>
-    public bool DeviceMotionOnlyInGame
+    public bool DeviceMotionOnDemand
     {
         get;
         set
         {
             field = value;
-            Raise(nameof(DeviceMotionOnlyInGame));
+            Raise(nameof(DeviceMotionOnDemand));
         }
     }
 
@@ -2106,8 +2106,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.GameLibrary.ImportUnroutable = GameLibraryImportUnroutable;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
-        config.DeviceIntegration.MotionStream = DeviceMotionOnlyInGame
-            ? MotionStreamMode.InGame
+        config.DeviceIntegration.MotionStream = DeviceMotionOnDemand
+            ? MotionStreamMode.OnDemand
             : MotionStreamMode.Always;
         config.DeviceIntegration.KeepGuideChordEdits = DeviceKeepGuideChordEdits;
         // Same rule as the three below, for the same reason: only settings this window actually

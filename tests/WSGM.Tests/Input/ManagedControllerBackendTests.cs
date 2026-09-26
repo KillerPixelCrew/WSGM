@@ -380,6 +380,14 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
 
     public event EventHandler<HidTargetOutput>? OutputReceived;
 
+    public event EventHandler<bool>? MotionRequested;
+
+    /// <summary>Plays a consumer turning the target's IMU on or off.</summary>
+    internal void RequestMotion(bool requested)
+    {
+        MotionRequested?.Invoke(this, requested);
+    }
+
     public event EventHandler<long>? TargetLost;
 
     public Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken)

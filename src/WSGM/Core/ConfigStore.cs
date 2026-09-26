@@ -263,6 +263,16 @@ public static class ConfigStore
         }
 
         RepairEnum(device, "GlyphSelection", Defaults.DeviceIntegration.GlyphSelection);
+        // The 2026-09-26 "InGame" mode gated motion on Steam's running app; its successor gates on
+        // the consumer's own request, which is what that setting was reaching for.
+        if (device["MotionStream"] is JsonValue motion
+            && motion.TryGetValue<string>(out var motionName)
+            && string.Equals(motionName, "InGame", StringComparison.OrdinalIgnoreCase))
+        {
+            device["MotionStream"] = nameof(MotionStreamMode.OnDemand);
+        }
+
+        RepairEnum(device, "MotionStream", Defaults.DeviceIntegration.MotionStream);
         foreach (var assignment in (device["OemAssignments"] as JsonArray ?? []).OfType<JsonObject>())
         {
             RepairEnum(assignment, "Action", OemAction.Disabled);

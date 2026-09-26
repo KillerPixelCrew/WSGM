@@ -115,8 +115,9 @@ public interface IDevicePlugin : IAsyncDisposable
     /// <remarks>
     ///     Gyroscope and accelerometer samples are the highest-rate data a plugin moves, and on a
     ///     handheld every read costs the game a cycle. WSGM sends <c>Wanted = false</c> while no
-    ///     application runs, while the managed target has no motion report, or while controller
-    ///     management is off, and <c>true</c> again before a game that may use motion gets it. A plugin
+    ///     consumer has asked the virtual controller for motion, while the managed target has no
+    ///     motion report, or while controller management is off, and <c>true</c> again as soon as a
+    ///     layout or an application turns the controller's IMU on. A plugin
     ///     should stop reading the hardware on <c>false</c>, not just drop samples, and resume quickly
     ///     and without a calibration jump on <c>true</c>. Until the first call the plugin behaves as if
     ///     motion is wanted. The default implementation ignores the signal.

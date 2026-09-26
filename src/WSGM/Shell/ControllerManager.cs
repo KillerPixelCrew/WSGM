@@ -91,7 +91,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     private CanonicalButtons _lastButtons;
     private CanonicalControllerSample? _lastSample;
 
-    private MotionStreamMode _motionStream = MotionStreamMode.Always;
+    /// <summary>Whether the backend's current target has a consumer asking for motion.</summary>
+    private bool _motionRequested;
+
+    private MotionStreamMode _motionStream = MotionStreamMode.OnDemand;
     private bool _motionWanted = true;
     private List<CanonicalControllerSample> _pendingSamples = [];
 
@@ -105,7 +108,6 @@ internal sealed class ControllerManager : IAsyncDisposable
     private long _sourceGeneration;
     private List<CanonicalControllerSample>? _spareSamples = [];
     private bool _steamCapture;
-    private bool _steamGameRunning;
     private bool _steamOwnershipPaused;
     private CanonicalButtons _syntheticButtons;
 
@@ -127,6 +129,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         _controllerReaderApplication = controllerReaderApplication;
         _router = new ManagedControllerRouter(backend, hapticSink, timeProvider);
         _router.TargetFaulted += OnRouterTargetFaulted;
+        _backend.MotionRequested += OnMotionRequested;
         _sampleDrain = DrainSamplesAsync();
     }
 
@@ -136,10 +139,13 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Whether anything downstream reads motion samples right now.</summary>
     /// <remarks>
     ///     True only while management is active on a target that carries a motion report, and, in
-    ///     <see cref="MotionStreamMode.InGame" />, while Steam reports a running app. A foreground
-    ///     desktop window counts as an application for the profile layers but not here. The
-    ///     plugin is told on every change through <see cref="MotionDemandChanged" /> so it can stop
-    ///     reading the sensors rather than publish samples nobody encodes.
+    ///     <see cref="MotionStreamMode.OnDemand" />, while a consumer of a Steam Deck target has turned
+    ///     its IMU on through the backend (<see cref="IHidBackend.MotionRequested" />), the way real
+    ///     Deck firmware powers its IMU on request. Steam sends that for a layout that uses gyro and
+    ///     SDL's Deck driver sends it for an application that opens the pad, so a desktop emulator
+    ///     counts without WSGM knowing it exists. A DualShock 4 target has no such request and always
+    ///     streams. The plugin is told on every change through <see cref="MotionDemandChanged" /> so it
+    ///     can stop reading the sensors rather than publish samples nobody encodes.
     /// </remarks>
     internal bool MotionWanted
     {
@@ -204,6 +210,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
 
         _router.TargetFaulted -= OnRouterTargetFaulted;
+        _backend.MotionRequested -= OnMotionRequested;
         _sampleAvailable.Release();
         await _sampleDrain.ConfigureAwait(false);
         // Order matters here exactly as it does in the make-safe sequence: the router removes the
@@ -238,7 +245,9 @@ internal sealed class ControllerManager : IAsyncDisposable
             wanted = State is ControllerManagementState.Active
                      && Effective is { } effective
                      && effective.Target is not ManagedControllerTarget.Xbox360
-                     && (_motionStream is MotionStreamMode.Always || _steamGameRunning);
+                     && (_motionStream is MotionStreamMode.Always
+                         || effective.Target is not ManagedControllerTarget.SteamDeckComposite
+                         || _motionRequested);
             if (wanted == _motionWanted)
             {
                 return;
@@ -248,9 +257,19 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
 
         Log.Info(wanted
-            ? "Motion stream wanted: a managed target with a motion report is active."
+            ? "Motion stream wanted: a managed target with a motion report is active and asked for."
             : "Motion stream not wanted: nothing downstream reads motion.");
         MotionDemandChanged?.Invoke(wanted);
+    }
+
+    private void OnMotionRequested(object? sender, bool requested)
+    {
+        lock (_stateGate)
+        {
+            _motionRequested = requested;
+        }
+
+        UpdateMotionDemand();
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>
@@ -458,13 +477,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            lock (_stateGate)
-            {
-                // A foreground desktop window is an application for the profile layers, but only a
-                // Steam app id is a game for the motion demand: on the desktop nothing reads motion.
-                _steamGameRunning = snapshot.SteamAppId is not null;
-            }
-
             return await ReconcileTargetUnderGateAsync(snapshot.ApplicationId, snapshot.RtssProfileName,
                     cancellationToken)
                 .ConfigureAwait(false);

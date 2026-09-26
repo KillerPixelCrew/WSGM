@@ -116,10 +116,12 @@ default, so the sensor stream still ran. Report in
 
 Thread-pool work items fell from 488 to 377 per second. The remaining cost is what the log says it
 is: with the stream on, every frame carries sensor noise, so no frame equals the last and each one
-still reaches VIIPER; the VIIPER thread alone still takes 700 wakeups/s. A run with "Motion only in
-game" switched on could not be taken: the mode never switched the stream off because the profile
-layers report the foreground desktop window as the running application, which the fix in the
-following commit corrects. That run, and the in-game scenarios, are the next captures.
+still reaches VIIPER; the VIIPER thread alone still takes 700 wakeups/s. A run with the stream off
+could not be taken that night: the "only in game" mode never switched it off because the profile
+layers report the foreground desktop window as the running application. That mode has since been
+replaced by "Motion only on request", which follows the consumer's own IMU-mode write to the Steam
+Deck target (see device-integration.md), so an idle desktop with no gyro layout has the stream off
+by default. That run, and the in-game scenarios, are the next captures.
 
 ## Budgets
 
@@ -142,7 +144,7 @@ those are the product working.
 | Per-sample thread-pool hops                              | 35 % CPU, 25 % wakeups                                | partly fixed: the pool's spin-then-sleep is off and an unchanged frame no longer reaches VIIPER; routing a sample on its publishing thread was tried and reverted, because a route runs WSGM's own observers and one that blocks would stall the plugin's HID reader; the drain hop and the HID completion-port hop remain |
 | Power preset replayed on every foreground change         | WMI writes and readbacks per window switch, WmiPrvSE  | fixed: the same assignment resolving for another application is not re-applied while the device still shows it                                                                                                                                                                                                             |
 | Steam running-application poll every 2 s over CEF        | part of the steamwebhelper 1.8 %                      | open: `RunningApplicationTarget` polls the client; Steam's app lifetime notifications would make it event-driven                                                                                                                                                                                                           |
-| Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core                     | fixed: the motion demand signal stops the source outside a game (see device-integration.md), and in game the Sensor API delivers reports by event instead of the 2 ms poll, with polling as the fallback                                                                                                                   |
+| Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core                     | fixed: the motion demand signal stops the source while no consumer has asked the Steam Deck target for motion (see device-integration.md), and while one has, the Sensor API delivers reports by event instead of the 2 ms poll, with polling as the fallback                                                              |
 | WinRT Bluetooth enumeration every 2 s at idle            | 17 % CPU                                              | fixed: the radio timer stops when the overlay closes                                                                                                                                                                                                                                                                       |
 | SDL joystick thread polling XInput, looping after resume | 2 to 3 % of a core always, a full core after a resume | fixed: SDL starts without its joystick thread; device changes are picked up while WSGM polls, which is when it uses a pad                                                                                                                                                                                                  |
 | Audio volume and endpoints polled every second           | two COM round trips per second, enumeration every 5 s | fixed: Core Audio change watches (windows-device-control `StartVolumeWatch`, `StartEndpointWatch`) replace the poll; a ten-second safety poll remains                                                                                                                                                                      |

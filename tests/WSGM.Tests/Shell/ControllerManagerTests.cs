@@ -63,6 +63,51 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
+    public async Task MotionFollowsTheConsumersRequestOnASteamDeckTarget()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        List<bool> demands = [];
+        manager.MotionDemandChanged += demands.Add;
+
+        await manager.StartAsync(
+            Enabled(ManagedControllerTarget.SteamDeckComposite), [Device()], null, null, 5, CancellationToken.None);
+
+        // On demand by default: active, but nobody has turned the IMU on yet.
+        Assert.False(manager.MotionWanted);
+
+        harness.Backend.RequestMotion(true);
+        Assert.True(manager.MotionWanted);
+
+        harness.Backend.RequestMotion(false);
+        Assert.False(manager.MotionWanted);
+
+        // Always overrides the request; switching back honours the last request again.
+        manager.ApplyMotionStreamMode(MotionStreamMode.Always);
+        Assert.True(manager.MotionWanted);
+        manager.ApplyMotionStreamMode(MotionStreamMode.OnDemand);
+        Assert.False(manager.MotionWanted);
+        Assert.Equal([false, true, false, true, false], demands);
+    }
+
+    [Fact]
+    public async Task ADualShockTargetStreamsMotionWithoutARequestAndAnXboxTargetNever()
+    {
+        Harness dualShock = new();
+        await using var dualShockManager = dualShock.Manager;
+        await dualShockManager.StartAsync(
+            Enabled(ManagedControllerTarget.DualShock4), [Device()], null, null, 5, CancellationToken.None);
+        Assert.True(dualShockManager.MotionWanted);
+
+        Harness xbox = new();
+        await using var xboxManager = xbox.Manager;
+        await xboxManager.StartAsync(
+            Enabled(ManagedControllerTarget.Xbox360), [Device()], null, null, 5, CancellationToken.None);
+        xbox.Backend.RequestMotion(true);
+        Assert.False(xboxManager.MotionWanted);
+    }
+
+    [Fact]
     public async Task AnApplicationOverrideChoosesTheTargetAtStart()
     {
         Harness harness = new();

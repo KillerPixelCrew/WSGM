@@ -282,11 +282,18 @@ with nothing consuming a sample (docs/perf). The controller manager therefore co
 demand and the coordinator forwards every change to the plugin through
 `IDevicePlugin.SetMotionDemandAsync`. Motion is wanted only while controller management is active on
 a target with a motion report (Steam Deck or DualShock 4, never Xbox 360) and, with the "Motion only
-in game" setting on, only while Steam reports a running application. The plugin stops reading the
-hardware, not just publishing; the Claw source keeps its measured zero-rate offset across stops so
-the first samples after a restart are corrected. A plugin built against an older SDK never sees the
-signal and streams as before. The demand is a runtime signal, not a setting the plugin owns, which
-is why it is a contract member rather than a declared plugin setting.
+on request" setting on (the default), only while a consumer has asked the Steam Deck target for it.
+That request is the protocol's own: a real Deck controller keeps its IMU off until Steam, for a
+layout whose gyro is on, or an application through SDL's Deck driver writes the IMU mode setting
+(feature report 0x87, setting 0x30). The VIIPER backend reads that write out of the feedback channel
+and raises `IHidBackend.MotionRequested`; a settings reset or a new device returns it to off. So a
+desktop emulator such as RPCS3 gets motion without WSGM knowing it exists, and a game without a gyro
+layout costs nothing, which is what the earlier "only in game" mode, gated on Steam's running app
+id, could not tell apart. A DualShock 4 target has no such request and always streams. The plugin
+stops reading the hardware, not just publishing; the Claw source keeps its measured zero-rate offset
+across stops so the first samples after a restart are corrected. A plugin built against an older SDK
+never sees the signal and streams as before. The demand is a runtime signal, not a setting the
+plugin owns, which is why it is a contract member rather than a declared plugin setting.
 
 ### The Steam Deck target loses guide chord edits without help
 

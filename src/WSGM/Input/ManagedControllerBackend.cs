@@ -43,6 +43,13 @@ internal interface IHidBackend : IAsyncDisposable
 {
     event EventHandler<HidTargetOutput>? OutputReceived;
 
+    /// <summary>
+    ///     Raised when a consumer of the current target asks for motion or stops asking, with the new
+    ///     answer. A Steam Deck target's consumers turn its IMU on through the set-settings feature
+    ///     report, the way real Deck firmware expects; a new or removed target starts at false.
+    /// </summary>
+    event EventHandler<bool>? MotionRequested;
+
     event EventHandler<long>? TargetLost;
 
     Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken);
