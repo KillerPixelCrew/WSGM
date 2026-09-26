@@ -31,12 +31,6 @@ public static class ExplorerControl
     internal static string ExplorerPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 
-    /// <summary>Gets whether Explorer is running in the current interactive session.</summary>
-    public static bool IsRunningInSession()
-    {
-        return WindowFinder.FindProcessIds("explorer").Count > 0;
-    }
-
     /// <summary>Starts Explorer for the current session when it is not already running.</summary>
     public static void StartExplorer()
     {
@@ -66,9 +60,11 @@ public static class ExplorerControl
     /// <remarks>
     ///     Explorer is a per-session shell singleton, so starting it while its taskbar
     ///     exists only opens a File Explorer window. WSGM's own tray host also creates a
-    ///     Shell_TrayWnd, which is why the owner must be the canonical explorer.exe.
+    ///     Shell_TrayWnd, which is why the owner must be the canonical explorer.exe. Folder windows
+    ///     have run in their own explorer.exe since Windows 10 1903, so a process count says nothing
+    ///     about the desktop; every mode decision asks this instead.
     /// </remarks>
-    internal static bool IsDesktopShellRunning()
+    public static bool IsDesktopShellRunning()
     {
         var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
         if (!IsCurrentSessionWindow(taskbar))
@@ -246,6 +242,8 @@ public static class ExplorerControl
                 DateTime? absentSince = null;
                 var replacement = false;
                 var closeRequested = false;
+                var uncleanExit = false;
+                var exitSeen = false;
                 while (DateTime.UtcNow < deadline)
                 {
                     var currentTaskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
@@ -260,7 +258,14 @@ public static class ExplorerControl
 
                     absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
                     var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
-                    var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent, closeRequested);
+                    if (original.HasExited && !exitSeen)
+                    {
+                        exitSeen = true;
+                        uncleanExit = ExitedUncleanly(original, owner);
+                    }
+
+                    var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent, closeRequested,
+                        uncleanExit);
                     // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                     switch (action)
                     {
@@ -282,7 +287,8 @@ public static class ExplorerControl
                             // windows to close, as Task Manager's End task asks first.
                             closeRequested = true;
                             var asked = CloseWindowsOf(owner);
-                            Log.Info($"Retired Explorer pid {owner} is still running; asked {asked} window(s) to close.");
+                            Log.Info($"Retired Explorer pid {owner} is still running; asked {asked} window(s) to close. "
+                                     + $"Third-party modules: {ThirdPartyModules(original)}.");
                             break;
                         case ExplorerExitAction.Wait:
                             break;
@@ -357,6 +363,69 @@ public static class ExplorerControl
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
         {
             // It exited meanwhile, which is the outcome being waited for.
+        }
+    }
+
+    /// <summary>
+    ///     Whether the retired shell stopped unexpectedly, which is what Winlogon's AutoRestartShell
+    ///     answers with a respawn. A clean "Exit Explorer" exits with 0.
+    /// </summary>
+    private static bool ExitedUncleanly(Process original, uint owner)
+    {
+        try
+        {
+            var code = original.ExitCode;
+            if (code == 0)
+            {
+                Log.Info($"Retired Explorer pid {owner} exited cleanly.");
+                return false;
+            }
+
+            Log.Warn($"Retired Explorer pid {owner} exited with code 0x{code:X8}; Winlogon may respawn the shell, "
+                     + "so the replacement is awaited before Game Mode continues.");
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            Log.Warn($"Retired Explorer pid {owner} exited; its exit code could not be read ({ex.Message}).");
+            return true;
+        }
+    }
+
+    /// <summary>
+    ///     Names the modules a lingering shell process loaded from outside the Windows directory: the
+    ///     shell extensions that can hold it open through <c>SHGetInstanceExplorer</c>. Read-only.
+    /// </summary>
+    private static string ThirdPartyModules(Process process)
+    {
+        try
+        {
+            var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            var names = new List<string>();
+            foreach (ProcessModule module in process.Modules)
+            {
+                using (module)
+                {
+                    var path = module.FileName;
+                    if (!string.IsNullOrEmpty(path)
+                        && !path.StartsWith(windows, StringComparison.OrdinalIgnoreCase))
+                    {
+                        names.Add(module.ModuleName);
+                    }
+                }
+
+                if (names.Count == 16)
+                {
+                    names.Add("...");
+                    break;
+                }
+            }
+
+            return names.Count == 0 ? "none" : string.Join(", ", names);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            return $"unreadable ({ex.GetType().Name})";
         }
     }
 

@@ -699,7 +699,7 @@ public sealed class ShellSession : IAsyncDisposable
 
         // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
         // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
-        // gating this on IsRunningInSession made the takeover never run, leaving
+        // gating this on a running Explorer made the takeover never run, leaving
         // explorer alive behind Big Picture next to our tray host). The takeover
         // owns every explorer state: its readiness poll waits for explorer to
         // appear AND finish logon prep, then shuts it down cleanly; if explorer
@@ -710,7 +710,7 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-        if (_desktopResident || ExplorerControl.IsRunningInSession())
+        if (_desktopResident || ExplorerControl.IsDesktopShellRunning())
         {
             // A live desktop at --shell start is either the sign-in start of a Desktop session,
             // the update restart (updates only run in desktop mode), or a manual start next to a
@@ -1418,7 +1418,7 @@ public sealed class ShellSession : IAsyncDisposable
                     return false;
                 }
 
-                if (ExplorerControl.IsRunningInSession())
+                if (ExplorerControl.IsDesktopShellRunning())
                 {
                     _modes.EnterGameMode();
                 }
@@ -1917,8 +1917,7 @@ public sealed class ShellSession : IAsyncDisposable
             bool desktopPresent;
             try
             {
-                desktopPresent = ExplorerControl.IsRunningInSession()
-                                 || NativeMethods.GetShellWindow() != 0
+                desktopPresent = NativeMethods.GetShellWindow() != 0
                                  || NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0;
             }
             catch (Exception ex)

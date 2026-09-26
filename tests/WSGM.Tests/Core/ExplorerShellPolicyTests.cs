@@ -445,6 +445,17 @@ public sealed class ExplorerShellPolicyTests
             ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs), asked));
     }
 
+    [Theory]
+    // An unclean exit is what Winlogon respawns: wait out the respawn grace before calling the shell gone.
+    [InlineData(1500, 0)]
+    [InlineData(7999, 0)]
+    [InlineData(8000, 2)]
+    public void AnUncleanExitWaitsForWinlogonsReplacement(int absentMs, int expected)
+    {
+        Assert.Equal((ExplorerExitAction)expected,
+            ExplorerExitPolicy.Decide(false, true, TimeSpan.FromMilliseconds(absentMs), false, true));
+    }
+
     [Fact]
     public void AnUnresponsiveDesktopIsNotReadyEvenWithMatchingWindowOwners()
     {

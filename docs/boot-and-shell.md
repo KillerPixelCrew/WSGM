@@ -224,12 +224,30 @@ checks for Explorer's desktop shell, not for any `explorer.exe`. On refusal or t
 desktop-return sequence restores the layout, shell and captured integrations before optional leave
 actions.
 
-On 2026-09-13 a new Explorer started beside a lingering retired one came up unresponsive. Desktop
-return therefore waits up to 5 s for a retired process that Game Mode entry left running, asking its
-windows to close again, before it starts Explorer. The same day's fix released (killed) that process
-after 2 s instead. An Xbox Ally X, whose orderly exit takes longer, then fought a Winlogon respawn
-on every entry and failed to create the Game Mode tray (2026-09-25), so the release was removed
-again.
+Why the process outlives its windows: any shell extension can hold a reference on explorer.exe
+through `SHGetInstanceExplorer`, and the process ends only when the last one is released. When a
+retired shell is still running after 3 s, the log names the modules it loaded from outside the
+Windows directory, so the extension holding it can be identified without any probe on the device.
+
+The retired process's exit code is read once it exits. Winlogon's AutoRestartShell relaunches a
+shell that stopped unexpectedly and leaves a clean exit alone, and "Exit Explorer" exits with 0. A
+non-zero code therefore predicts a respawn: entry then watches for the replacement taskbar for 8 s
+(device logs put it at about 3 s) and gives it the one orderly attempt, instead of racing the tray
+host against it.
+
+On 2026-09-13 a new Explorer started beside a lingering retired one came up unresponsive. Explorer
+takes the `ExplorerIsShellMutex` on start and polls `GetShellWindow` for 3 s to decide whether it is
+the shell or a folder window, so a shell still winding down confuses it. Desktop return therefore
+waits for a retired process that Game Mode entry left running, asking its windows to close again, up
+to the transition deadline less an 8 s launch reserve, before it starts Explorer. The same day's fix
+released (killed) that process after 2 s instead. An Xbox Ally X, whose orderly exit takes longer,
+then fought a Winlogon respawn on every entry and failed to create the Game Mode tray (2026-09-25),
+so the release was removed again.
+
+Folder windows have run in their own explorer.exe since Windows 10 1903, so a process count never
+answers "is the desktop up". Every mode decision (tray host, overlay swipes and scale, the mode
+toggle, resume at shell start, Settings) asks `ExplorerControl.IsDesktopShellRunning`, which
+requires a current-session `Shell_TrayWnd` owned by the canonical explorer.exe.
 
 ## How Explorer is restored
 

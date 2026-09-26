@@ -461,7 +461,7 @@ public sealed class OverlayController : IDisposable
 
     private void OnSwipeTriggered(ScreenEdge edge)
     {
-        switch (DecideSwipe(edge, ExplorerControl.IsRunningInSession()))
+        switch (DecideSwipe(edge, ExplorerControl.IsDesktopShellRunning()))
         {
             case SwipeAction.QuickAccessApps:
                 ShowOverlayOnOpenApps();
@@ -650,7 +650,7 @@ public sealed class OverlayController : IDisposable
     private SteamExitReaction DecideSteamExitReaction()
     {
         return SteamExitPolicy.Decide(
-            !ExplorerControl.IsRunningInSession(),
+            !ExplorerControl.IsDesktopShellRunning(),
             _config.SteamAutoRelaunch,
             _monitor?.Paused == true,
             _modes.SteamClosedByUser);
@@ -1222,7 +1222,7 @@ public sealed class OverlayController : IDisposable
 
         var openStarted = Stopwatch.GetTimestamp();
         // One process-table scan per open: the view model and the UI scale both need it.
-        var explorerRunning = ExplorerControl.IsRunningInSession();
+        var explorerRunning = ExplorerControl.IsDesktopShellRunning();
         var vm = new OverlayViewModel
         {
             ExplorerRunning = explorerRunning,
@@ -1414,7 +1414,7 @@ public sealed class OverlayController : IDisposable
             _overlayViewModel.WarningText = _pendingWarning;
             // Recompute what the fresh-open path computes — Steam may have died
             // or the desktop may have changed while the panel stayed open.
-            _overlayViewModel.ExplorerRunning = ExplorerControl.IsRunningInSession();
+            _overlayViewModel.ExplorerRunning = ExplorerControl.IsDesktopShellRunning();
             _overlayViewModel.HomeAppAlive = _monitor?.IsAlive ?? false;
             _overlayViewModel.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
             _overlayViewModel.KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false;
@@ -1464,7 +1464,7 @@ public sealed class OverlayController : IDisposable
                 return;
             }
 
-            var explorerRunning = ExplorerControl.IsRunningInSession();
+            var explorerRunning = ExplorerControl.IsDesktopShellRunning();
             _suppressFocusRestore = true;
             CloseOverlay();
             if (explorerRunning)
@@ -1654,7 +1654,7 @@ public sealed class OverlayController : IDisposable
         _overlayViewModel = null;
         // Game mode only: call back the window that was focused before the
         // panel opened (exclusive-fullscreen games sit minimized by now).
-        if (!_suppressFocusRestore && _restoreFocusTo != 0 && !ExplorerControl.IsRunningInSession())
+        if (!_suppressFocusRestore && _restoreFocusTo != 0 && !ExplorerControl.IsDesktopShellRunning())
         {
             Log.Info("Restoring previously focused window.");
             WindowFinder.BringToForeground(_restoreFocusTo);
@@ -1909,7 +1909,7 @@ public sealed class OverlayController : IDisposable
         }
 
         var standalone = _overlay is null;
-        ShowOverlayCore(!ExplorerControl.IsRunningInSession());
+        ShowOverlayCore(!ExplorerControl.IsDesktopShellRunning());
         _powerMenuOnly |= standalone;
         _overlay?.ShowPowerMenu();
     }
@@ -1950,7 +1950,7 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     private double UiScale()
     {
-        return UiScale(ExplorerControl.IsRunningInSession());
+        return UiScale(ExplorerControl.IsDesktopShellRunning());
     }
 
     private double UiScale(bool explorerRunning)

@@ -29,7 +29,7 @@ public static class RadioProbe
         // Both are the conditions the open questions are about, so they belong
         // in the same log block as the answers.
         Log.Info($"Radio probe: elevated={ElevationCheck.IsCurrentProcessElevated()}, "
-                 + $"explorer={ExplorerControl.IsRunningInSession()}");
+                 + $"explorer={ExplorerControl.IsDesktopShellRunning()}");
 
         ProbeRadio("Wi-Fi", WindowsRadio.RadioKind.WiFi);
         ProbeRadio("Bluetooth", WindowsRadio.RadioKind.Bluetooth);

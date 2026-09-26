@@ -15,6 +15,9 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan ReadinessStability = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>Deadline share kept for starting Explorer after a retired shell was waited for.</summary>
+    private static readonly TimeSpan LaunchReserve = TimeSpan.FromSeconds(8);
+
     private readonly DesktopAppLifecycle _desktopApps = new(new DesktopAppProcessBackend(), Log.Warn);
 
     // Anchor replacement, Explorer dispatch, and disposal share one owner. Disposal closes
@@ -345,8 +348,11 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         }
 
         var anchorError = "No anchor was captured.";
-        // A retired shell still finishing its exit is waited for, never killed, before a new one starts.
-        var retiredWait = Remaining(deadline) < TimeSpan.FromSeconds(5) ? Remaining(deadline) : TimeSpan.FromSeconds(5);
+        // A retired shell still finishing its exit is waited for, never killed, before a new one starts:
+        // a fresh Explorer takes the shell mutex and polls GetShellWindow for 3 s to decide what it is,
+        // and one started beside a lingering shell came up unresponsive (2026-09-13). The wait keeps
+        // enough of the deadline for that decision and the readiness window.
+        var retiredWait = Remaining(deadline) - LaunchReserve;
         if (retiredWait > TimeSpan.Zero)
         {
             await Task.Run(() => ExplorerControl.WaitForRetiredShell(retiredWait), cancellationToken)

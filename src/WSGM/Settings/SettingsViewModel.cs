@@ -1719,7 +1719,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             // starting explorer.exe here would either break UWP for the session (an
             // elevated Explorer; see docs\elevation.md) or bring its taskbar up next to WSGM's
             // own tray host. Show the path instead; the user can open it in desktop mode.
-            if (!ExplorerControl.IsRunningInSession())
+            if (!ExplorerControl.IsDesktopShellRunning())
             {
                 Log.Info(
                     $"Open log location: no Explorer in this session — showing the path instead ({Log.Directory}).");

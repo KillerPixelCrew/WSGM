@@ -12,8 +12,9 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
 - Recovery operations must be idempotent and usable before normal application initialization.
 - ExplorerControl only ever asks Explorer to leave: the orderly `0x05B4` exit, then `WM_CLOSE` to a retired process's
   remaining windows. Never terminate Explorer, retired or not: Winlogon answers a killed shell with a respawn. Never sweep
-  folder processes. Desktop return waits, bounded, for a retired process still finishing. Every failed exit uses verified
-  desktop recovery.
+  folder processes. Desktop return waits, bounded, for a retired process still finishing. A non-zero exit code means
+  Winlogon will respawn the shell: wait for the replacement, do not race it. Every failed exit uses verified desktop
+  recovery. "Is the desktop up" is `IsDesktopShellRunning` (taskbar owned by explorer.exe), never a process count.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware, Steam, RTSS, or input
   resources.
 - At most one device package runs; two different device packages in the Plugins folder refuse device integration.

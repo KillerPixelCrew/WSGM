@@ -26,6 +26,16 @@ internal static class ExplorerExitPolicy
     /// <summary>How long the retired process may keep running before it is asked to close its windows.</summary>
     internal static readonly TimeSpan CloseAfter = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    ///     How long to watch for Winlogon's replacement after an unclean exit before calling the shell gone.
+    /// </summary>
+    /// <remarks>
+    ///     AutoRestartShell relaunches a shell that "stopped unexpectedly", never one that exited cleanly,
+    ///     and a non-zero exit code is that unexpected stop. Device logs put the respawned taskbar at
+    ///     about 3 s; racing the tray host against it was the 2026-08-08 failure.
+    /// </remarks>
+    internal static readonly TimeSpan RespawnGrace = TimeSpan.FromSeconds(8);
+
     /// <summary>How long a retired process that owns no shell may linger before entry proceeds without it.</summary>
     /// <remarks>
     ///     It holds no taskbar or desktop window, so Game Mode can run beside it; the tray host checks the
@@ -37,14 +47,20 @@ internal static class ExplorerExitPolicy
         bool shellSurfacePresent,
         bool originalExited,
         TimeSpan absentFor,
-        bool closeRequested)
+        bool closeRequested,
+        bool uncleanExit = false)
     {
         if (shellSurfacePresent || absentFor < StableAbsence)
         {
             return ExplorerExitAction.Wait;
         }
 
-        if (originalExited || absentFor >= LingerLimit)
+        if (originalExited)
+        {
+            return uncleanExit && absentFor < RespawnGrace ? ExplorerExitAction.Wait : ExplorerExitAction.Complete;
+        }
+
+        if (absentFor >= LingerLimit)
         {
             return ExplorerExitAction.Complete;
         }

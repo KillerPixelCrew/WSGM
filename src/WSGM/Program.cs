@@ -379,7 +379,7 @@ public static class Program
                 }
 
                 ShellRegistration.Uninstall();
-                if (!ExplorerControl.IsRunningInSession())
+                if (!ExplorerControl.IsDesktopShellRunning())
                 {
                     // Same reason as --restore-shell: the disarm exits immediately after
                     // this, so the elevation repair has to complete before we return.
@@ -692,7 +692,7 @@ public static class Program
                 /* recovery must not throw */
             }
 
-            if (!ExplorerControl.IsRunningInSession())
+            if (!ExplorerControl.IsDesktopShellRunning())
             {
                 if (ExplorerShellAnchor.HasRecoveryOwner(WindowFinder.CurrentSessionId))
                 {
