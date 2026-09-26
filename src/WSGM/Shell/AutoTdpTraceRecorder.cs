@@ -25,9 +25,9 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
 {
+    private readonly AutoTdpTraceSystemContext? _context;
     private readonly Func<(string? Package, string? Version)> _device;
     private readonly string _directory;
-    private readonly AutoTdpTraceSystemContext? _context;
     private readonly Lock _gate = new();
 
     private readonly Channel<Entry> _queue = Channel.CreateUnbounded<Entry>(new UnboundedChannelOptions

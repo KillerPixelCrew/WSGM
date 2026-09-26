@@ -72,8 +72,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private readonly IFrametimeSource _frametimes;
     private readonly Lock _gate = new();
     private readonly Func<RtssOsdMetrics>? _metrics;
-    private readonly long _startTimestamp = Stopwatch.GetTimestamp();
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly long _startTimestamp = Stopwatch.GetTimestamp();
     private readonly Func<double> _targetFrametimeMs;
     private readonly AutoTdpTraceRecorder? _trace;
     private readonly SemaphoreSlim _write = new(1, 1);
@@ -733,7 +733,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             rebased = _resync && _controllerStarted;
-            started = !_controllerStarted || _resync;
+            started = (!_controllerStarted || _resync) && context is not null;
             if (started)
             {
                 // Either the first window of this generation, or the window after a write that
@@ -743,7 +743,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 // user's own limit is still what a stop has to return to.
                 _controllerStarted = true;
                 _resync = false;
-                _controller.Start(current, limits, context);
+                _controller.Start(current, limits, context!);
             }
 
             var previousWatts = _controller.Watts;
@@ -768,7 +768,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
         }
 
-        if (rebased)
+        if (rebased && started)
         {
             Log.Info($"AutoTDP re-based on the observed limit of {current} W after an unapplied write.");
         }
@@ -1284,14 +1284,28 @@ internal sealed class AutoTdpService : IAsyncDisposable
     ///     60 FPS one kept one key across both, so evidence gathered for the harder problem went on
     ///     constraining the easier one (Claw, 2026-09-26).
     /// </remarks>
-    private static string ContextKey(
+    private static string? ContextKey(
         RunningApplicationTargetSnapshot? running,
         RtssFrametimeSample? sample,
         double targetFrametimeMs)
     {
-        var identity = running?.ApplicationId is { Length: > 0 } application
-            ? application
-            : $"process:{Path.GetFileName(sample?.ExecutablePath ?? string.Empty)}";
+        string identity;
+        if (running?.ApplicationId is { Length: > 0 } application)
+        {
+            identity = application;
+        }
+        else if (sample?.ExecutablePath is { Length: > 0 } executable)
+        {
+            identity = $"process:{Path.GetFileName(executable)}";
+        }
+        else
+        {
+            // A stall long enough to retire the RTSS entry leaves an unidentified game running. The
+            // controller keeps the context it already has rather than being told the game changed,
+            // which would discard the quarantine the stall just opened.
+            return null;
+        }
+
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{identity}|{targetFrametimeMs:F2}ms");

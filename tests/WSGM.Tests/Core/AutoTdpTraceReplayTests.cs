@@ -18,7 +18,7 @@ public sealed class AutoTdpTraceReplayTests
     {
         var decisions = Replay("capped-descent.csv");
 
-        var probe = Assert.Single(decisions.Where(decision => decision.Action is AutoTdpAction.Probe));
+        var probe = Assert.Single(decisions, decision => decision.Action is AutoTdpAction.Probe);
         Assert.Equal(18, probe.Watts);
         Assert.Equal("probe-accepted", decisions[^3].Reason);
         Assert.Equal(18, decisions[^1].Watts);

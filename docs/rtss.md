@@ -418,29 +418,33 @@ Column groups, in file order:
 - RTSS: renderer count, how the sample was selected, raw `dwTime0`/`dwTime1`, window length, frames,
   mean frametime and FPS, raw `dwFrameTime`, sample age, whether the window repeats the previous
   read (`rtss_window_repeat`) and the gap between consecutive windows.
-- Controller evidence and learning: capped flag, whether the window started or re-based the
-  controller and the limit it started from (`start_w`: the observed value, else the last written
-  value, else the ceiling on a device without readback), the floors it already held for the context,
-  ratio and miss/comfort classification when it judged the window, its state, believed and last-good
-  limits, learned and failed-probe floors, streak and settling counters, and a probe id that follows
-  one probe from start to acceptance or rejection.
+- Controller evidence: whether the window started or re-based the controller and the limit it
+  started from (`start_w`: the observed value, else the last written value, else the ceiling on a
+  device without readback), how the window was classified and its ratio, the gap since the last
+  present and whether that is a hiatus, the control phase, believed and last-good limits, the miss
+  streak, the dwell and the dwell this operating point currently needs, the raise baseline and how
+  many steps went unanswered, probe and settling counters, consecutive severe windows, which
+  utilization rule last changed an outcome, and a probe id that follows one probe from start to
+  acceptance or rejection.
 - Decision: action, reason token, requested limit and delta, time since the last write-requiring
   decision and since the last dispatched write.
 - Application: whether a write was dispatched, its outcome, readback, whether AutoTDP counted it as
   applied, its duration, a note for skipped or failed writes, and the observed limits afterwards.
-- Sensors: CPU and GPU load, CPU and GPU power and battery power, read from what RTSS's sensor
-  provider already publishes plus the kernel CPU counters. The trace never starts the provider, so
-  GPU values are empty unless the OSD has started it.
+- Sensors: CPU and GPU load, CPU and GPU power and battery power. The control path reads these
+  before its decision and the row records that same sample, so the GPU load beside a decision is the
+  one the decision used.
 
-Columns are only appended. Numbers use invariant round-trip formatting and an empty cell means the
-value was unavailable, never zero. The classifications issue 181 asks for, such as long-stall
-quarantine and probe outcome, are not in the file because the current controller does not make them;
-the raw window bounds and timings let them be derived from the same trace.
+Numbers use invariant round-trip formatting and an empty cell means the value was unavailable, never
+zero. Columns are read by name, so the replay tolerates a file with more or fewer of them; the
+schema version says which policy wrote it, and version 1 files were written by the learned-floor
+controller that version 2 replaced.
 
 `AutoTdpTraceReplay` in `tests\WSGM.Tests\Builders` replays a trace file through a controller. It
-starts at the first window that started the controller, seeds each context's learning from the
-prior-floor columns, and pairs every recorded decision with the replayed one, so the current and a
-candidate controller can be compared on the same input.
+starts at the first window that started the controller and feeds back only raw inputs — the window,
+the deadline, the device bounds and the sensor sample — so a file recorded under one policy can
+drive another. Where the file also holds a recorded decision it pairs it with the replayed one.
+`tests\WSGM.Tests\Fixtures\AutoTdp` holds hand-authored traces of the shapes that matter, with their
+provenance in a README beside them.
 
 ## Remaining live work
 

@@ -118,6 +118,23 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
+    public async Task ARendererThatDisappearsMidStallDoesNotLookLikeADifferentGame()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        await RunWindowsAsync(harness, 2, 10);
+
+        // RTSS retires an entry two seconds into a stall. Without an identity the context is
+        // unknown, not new: reporting a change here would discard the quarantine the stall opened.
+        harness.Frametimes.Live = [];
+        await harness.Service.TickAsync(CancellationToken.None);
+
+        Assert.NotEqual("context-changed", harness.Service.Status.Detail);
+        Assert.Empty(harness.Writes);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
     public async Task SustainedMissesRaiseThePowerLimitThroughTheCapability()
     {
         Harness harness = new();
