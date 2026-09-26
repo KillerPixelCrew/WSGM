@@ -40,10 +40,9 @@ public sealed class DeviceLightingRestoreTests
     }
 
     [Theory]
-    [InlineData(HardwareStateQuality.Unknown)]
     [InlineData(HardwareStateQuality.Stale)]
     [InlineData(HardwareStateQuality.Faulted)]
-    public void LightingRestoreRequiresFreshHardwareEvidence(HardwareStateQuality quality)
+    public void LightingRestoreRefusesExpiredOrFaultedState(HardwareStateQuality quality)
     {
         DeviceLightingRestore restore = new();
         var view = View();
@@ -51,6 +50,22 @@ public sealed class DeviceLightingRestoreTests
         Assert.False(Begin(restore, view with
         {
             Projection = view.Projection with { State = view.Projection.State with { Quality = quality } }
+        }));
+    }
+
+    [Fact]
+    public void LightingThatWasNeverReadBackIsStillRestored()
+    {
+        // Aura on the Ally is write-only; readback is never a precondition for a restore.
+        DeviceLightingRestore restore = new();
+        var view = View();
+
+        Assert.True(Begin(restore, view with
+        {
+            Projection = view.Projection with
+            {
+                State = view.Projection.State with { Quality = HardwareStateQuality.Unknown, ObservedValue = null }
+            }
         }));
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -18,6 +19,20 @@ namespace WSGM.DeviceLab.Worker;
 /// <summary>The worker stopped answering or exited; whatever was in flight is uncertain.</summary>
 /// <param name="message">What happened.</param>
 internal sealed class LabWorkerLostException(string message) : InvalidOperationException(message);
+
+/// <summary>How the worker process is started: the executable and the arguments before the worker mode.</summary>
+/// <param name="FileName">The executable to start.</param>
+/// <param name="LeadingArguments">Arguments placed before <see cref="LabWorkerHost.Mode" />.</param>
+/// <remarks>
+///     The wizard starts its own self-contained apphost. A test host's copy of that apphost cannot run
+///     (its runtime configuration names no framework), so tests start the worker assembly through the
+///     dotnet host with their own runtime configuration instead; the worker code is the same.
+/// </remarks>
+internal sealed record LabWorkerLaunch(string FileName, IReadOnlyList<string> LeadingArguments)
+{
+    /// <summary>The Device Lab apphost, which is this process outside a test host.</summary>
+    public static LabWorkerLaunch Self => new(DeviceLabExecutable.CurrentPath, []);
+}
 
 /// <summary>
 ///     The wizard's side of <see cref="LabWorkerHost" />: starts the worker in a kill-on-close job,
@@ -73,10 +88,19 @@ internal sealed class LabWorkerClient : IDisposable
     /// <returns>The client.</returns>
     public static LabWorkerClient Start()
     {
+        return Start(LabWorkerLaunch.Self);
+    }
+
+    /// <summary>Starts and authenticates the worker through the given launch. Blocking; call off the UI thread.</summary>
+    /// <param name="launch">How the worker process is started.</param>
+    /// <returns>The client.</returns>
+    internal static LabWorkerClient Start(LabWorkerLaunch launch)
+    {
+        ArgumentNullException.ThrowIfNull(launch);
         var secret = SelfWorkerAuthorization.CreateSecret();
         var job = WorkerJobObject.Create();
         using AnonymousPipeServerStream authorization = new(PipeDirection.Out, HandleInheritability.Inheritable);
-        ProcessStartInfo start = new(DeviceLabExecutable.CurrentPath)
+        ProcessStartInfo start = new(launch.FileName)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -84,6 +108,11 @@ internal sealed class LabWorkerClient : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+        foreach (var argument in launch.LeadingArguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
         start.ArgumentList.Add(LabWorkerHost.Mode);
         start.ArgumentList.Add("--authorization-handle");
         start.ArgumentList.Add(authorization.GetClientHandleAsString());

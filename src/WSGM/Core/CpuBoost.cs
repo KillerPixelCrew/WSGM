@@ -156,7 +156,10 @@ internal sealed class CpuBoost(ICpuBoostApi api)
             // Read the active scheme inside the shared gate: a scheme switch between the read and
             // the write would land the mode in a scheme that is no longer active.
             var scheme = api.ReadActiveScheme();
-            if (api.Read(scheme, false) == value && api.Read(scheme, true) == value)
+            // HC's ReadPowerCfg returns both sources in one call; both are read before comparing.
+            var acValue = api.Read(scheme, false);
+            var dcValue = api.Read(scheme, true);
+            if (acValue == value && dcValue == value)
             {
                 return;
             }

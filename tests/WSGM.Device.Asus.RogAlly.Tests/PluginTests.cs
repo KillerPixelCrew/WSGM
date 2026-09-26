@@ -607,8 +607,11 @@ public sealed class PluginTests
             CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedVerified, fan.Outcome);
 
+        // The explicit command re-armed the fans entry for release. The controller tables' own
+        // pending entry sits beside it for as long as the tables are applied.
         await using var journal = await AllyRecoveryJournal.OpenAsync(directory.Root, CancellationToken.None);
-        Assert.Equal(AllyRecoveryStatus.Pending, Assert.Single(journal.OutstandingEntries).Status);
+        var fans = Assert.Single(journal.OutstandingEntries, entry => entry.ServiceId == AllyServiceIds.Fans);
+        Assert.Equal(AllyRecoveryStatus.Pending, fans.Status);
     }
 
     [Fact]
