@@ -16,10 +16,6 @@ public sealed class ViiperControllerBackendTests
     [InlineData(new byte[] { 0x8E }, "ImuOff")] // load defaults
     // SDL's Deck driver feeding its lizard-mode watchdog: right trackpad mode to none, alone.
     [InlineData(new byte[] { 0x87, 0x03, 0x08, 0x07, 0x00 }, "ConsumerHeartbeat")]
-    // SDL's Deck driver opening the pad: smooth mouse off, both pads none, both click pressures max.
-    [InlineData(
-        new byte[] { 0x87, 0x0F, 0x18, 0x00, 0x00, 0x07, 0x07, 0x00, 0x08, 0x07, 0x00, 0x34, 0xFF, 0xFF, 0x35, 0xFF, 0xFF },
-        "ConsumerHeartbeat")]
     // A frame that says both: the IMU answer wins.
     [InlineData(new byte[] { 0x87, 0x06, 0x08, 0x07, 0x00, 0x30, 0x00, 0x00 }, "ImuOff")]
     public void TheImuModeTheResetsAndTheSdlWatchdogAreRead(byte[] frame, string expected)
@@ -30,6 +26,13 @@ public sealed class ViiperControllerBackendTests
     [Theory]
     [InlineData(new byte[] { 0x87, 0x03, 0x09, 0x01, 0x00 })] // lizard mode only
     [InlineData(new byte[] { 0x87, 0x03, 0x08, 0x00, 0x00 })] // right trackpad set to a real mode by Steam
+    // Steam's layout apply, which sets both pads to none among other settings: not SDL's watchdog,
+    // whose write carries that one setting and nothing else (SDL's DisableDeckLizardMode has the
+    // same five-setting shape, but its watchdog follows within 200 reports and does count).
+    [InlineData(new byte[]
+    {
+        0x87, 0x0F, 0x18, 0x00, 0x00, 0x07, 0x07, 0x00, 0x08, 0x07, 0x00, 0x34, 0xFF, 0xFF, 0x35, 0xFF, 0xFF
+    })]
     [InlineData(new byte[] { 0x87, 0x02, 0x30, 0x01 })] // truncated triple
     [InlineData(new byte[] { 0xEB, 0x08, 0x00, 0x00, 0x00, 0x00 })] // rumble
     [InlineData(new byte[] { 0x81 })] // clear digital mappings, the watchdog's first half

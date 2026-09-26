@@ -76,6 +76,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// </remarks>
     private readonly byte[] _lastFrame = new byte[SteamDeckNeptuneReport.Length];
 
+    /// <summary>Settings-frame shapes already logged, so each is reported once.</summary>
+    private readonly ConcurrentDictionary<int, byte> _tracedSettingsFrames = new();
+
     private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private uint _deviceId;
     private ManagedControllerTarget? _deviceKind;
@@ -486,7 +489,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
             ReadOnlySpan<byte> report = new(data, length);
             if (target.Kind is ManagedControllerTarget.SteamDeckComposite)
             {
-                backend._motionDemand.Observe(ReadMotionSignal(report));
+                var signal = ReadMotionSignal(report);
+                backend._motionDemand.Observe(signal);
+                backend.TraceSettingsFrame(report, signal);
             }
 
             if (DecodeFeedback(target.Kind, report) is not { } feedback)
@@ -568,26 +573,69 @@ internal sealed class ViiperControllerBackend : IHidBackend
             case 0x87 when report.Length >= 2:
             {
                 var payload = Math.Min(report[1], report.Length - 2);
+                var settings = 0;
                 var signal = MotionSignal.None;
                 for (var offset = 2; offset + 2 < 2 + payload; offset += 3)
                 {
+                    settings++;
                     var value = report[offset + 1] | (report[offset + 2] << 8);
                     switch (report[offset])
                     {
                         case 0x30:
                             signal = value != 0 ? MotionSignal.ImuOn : MotionSignal.ImuOff;
                             break;
+                        // Only a write of this setting and nothing else is SDL's watchdog. Steam
+                        // writes trackpad modes too, but always alongside other settings.
                         case 0x08 when value == TrackpadModeNone && signal is MotionSignal.None:
                             signal = MotionSignal.ConsumerHeartbeat;
                             break;
                     }
                 }
 
-                return signal;
+                return signal is MotionSignal.ConsumerHeartbeat && settings != 1
+                    ? MotionSignal.None
+                    : signal;
             }
             default:
                 return MotionSignal.None;
         }
+    }
+
+    /// <summary>
+    ///     Logs the distinct settings frames a Steam Deck target receives, once per shape, so the
+    ///     consumers behind the motion demand can be told apart on a device.
+    /// </summary>
+    /// <param name="report">The feedback frame.</param>
+    /// <param name="signal">What the frame was read as.</param>
+    /// <remarks>
+    ///     Steam and SDL both write controller settings, and only their shapes distinguish them. One
+    ///     line per shape, never per frame: SDL repeats its watchdog every 200 reports for as long as
+    ///     an application holds the pad.
+    /// </remarks>
+    private void TraceSettingsFrame(ReadOnlySpan<byte> report, MotionSignal signal)
+    {
+        var body = report.Length > 1 && report[0] == 0x00 ? report[1..] : report;
+        if (body.Length < 2 || body[0] != 0x87)
+        {
+            return;
+        }
+
+        var payload = Math.Min(body[1], body.Length - 2);
+        var shape = 0;
+        List<string> settings = [];
+        for (var offset = 2; offset + 2 < 2 + payload; offset += 3)
+        {
+            var value = body[offset + 1] | (body[offset + 2] << 8);
+            shape = (shape * 397) ^ (body[offset] << 16) ^ value;
+            settings.Add($"0x{body[offset]:X2}={value}");
+        }
+
+        if (!_tracedSettingsFrames.TryAdd(shape, 0) || _tracedSettingsFrames.Count > 16)
+        {
+            return;
+        }
+
+        Log.Info($"Virtual controller settings write ({signal}): {string.Join(", ", settings)}.");
     }
 
     private void OnMotionDemandChanged(bool requested)
