@@ -275,6 +275,8 @@ internal static class LabWmiFirmwareEvents
 /// </summary>
 internal static class LabWmiQuarantine
 {
+    // wsgm-allow-live-data-path: the wizard's own "WSGM Device Lab" folder for its WMI quarantine record,
+    // never %LOCALAPPDATA%\WSGM.
     private static readonly string Folder = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM Device Lab", "wizard");
 
