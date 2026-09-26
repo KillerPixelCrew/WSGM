@@ -282,7 +282,8 @@ public static class ExplorerControl
                             // windows to close, as Task Manager's End task asks first.
                             closeRequested = true;
                             var asked = CloseWindowsOf(owner);
-                            Log.Info($"Retired Explorer pid {owner} is still running; asked {asked} window(s) to close.");
+                            Log.Info(
+                                $"Retired Explorer pid {owner} is still running; asked {asked} window(s) to close.");
                             break;
                         case ExplorerExitAction.Wait:
                             break;

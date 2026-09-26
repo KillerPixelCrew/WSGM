@@ -88,30 +88,31 @@ internal sealed class ControllerManager : IAsyncDisposable
     private volatile bool _disposed;
     private bool _forwardingBlocked;
 
-    private CanonicalButtons _lastButtons;
-    private CanonicalControllerSample? _lastSample;
-    private List<CanonicalControllerSample> _pendingSamples = [];
-
     /// <summary>The sample being routed on its publishing thread, while it has not completed.</summary>
     private Task? _inlineRoute;
+
+    private CanonicalButtons _lastButtons;
+    private CanonicalControllerSample? _lastSample;
+
+    private MotionStreamMode _motionStream = MotionStreamMode.Always;
+    private bool _motionWanted = true;
+    private List<CanonicalControllerSample> _pendingSamples = [];
+
+    private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
 
     /// <summary>Whether a sample is in flight, inline or through the drain worker.</summary>
     /// <remarks>Guarded by <c>_sampleGate</c>. While set, new samples queue instead of routing inline.</remarks>
     private bool _routing;
-
-    private IReadOnlyList<PhysicalDeviceIdentity> _physicalDevices = [];
 
     private ControllerSelection _selection = new(
         false,
         new ProfileConfig(),
         "Controller management has not started.");
 
-    private MotionStreamMode _motionStream = MotionStreamMode.Always;
-    private bool _motionWanted = true;
-    private bool _steamGameRunning;
     private long _sourceGeneration;
     private List<CanonicalControllerSample>? _spareSamples = [];
     private bool _steamCapture;
+    private bool _steamGameRunning;
     private bool _steamOwnershipPaused;
     private CanonicalButtons _syntheticButtons;
 
@@ -156,44 +157,6 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return _motionWanted;
             }
         }
-    }
-
-    /// <summary>Raised when <see cref="MotionWanted" /> changes, with the new value.</summary>
-    internal event Action<bool>? MotionDemandChanged;
-
-    /// <summary>Applies the configured motion stream mode and re-evaluates the demand.</summary>
-    /// <param name="mode">The mode from the device integration settings.</param>
-    internal void ApplyMotionStreamMode(MotionStreamMode mode)
-    {
-        lock (_stateGate)
-        {
-            _motionStream = mode;
-        }
-
-        UpdateMotionDemand();
-    }
-
-    private void UpdateMotionDemand()
-    {
-        bool wanted;
-        lock (_stateGate)
-        {
-            wanted = State is ControllerManagementState.Active
-                     && Effective is { } effective
-                     && effective.Target is not ManagedControllerTarget.Xbox360
-                     && (_motionStream is MotionStreamMode.Always || _steamGameRunning);
-            if (wanted == _motionWanted)
-            {
-                return;
-            }
-
-            _motionWanted = wanted;
-        }
-
-        Log.Info(wanted
-            ? "Motion stream wanted: a managed target with a motion report is active."
-            : "Motion stream not wanted: nothing downstream reads motion.");
-        MotionDemandChanged?.Invoke(wanted);
     }
 
     /// <summary>Why the current state holds, for logs and the overlay.</summary>
@@ -270,6 +233,44 @@ internal sealed class ControllerManager : IAsyncDisposable
         _transition.Dispose();
         _routeGate.Dispose();
         _sampleAvailable.Dispose();
+    }
+
+    /// <summary>Raised when <see cref="MotionWanted" /> changes, with the new value.</summary>
+    internal event Action<bool>? MotionDemandChanged;
+
+    /// <summary>Applies the configured motion stream mode and re-evaluates the demand.</summary>
+    /// <param name="mode">The mode from the device integration settings.</param>
+    internal void ApplyMotionStreamMode(MotionStreamMode mode)
+    {
+        lock (_stateGate)
+        {
+            _motionStream = mode;
+        }
+
+        UpdateMotionDemand();
+    }
+
+    private void UpdateMotionDemand()
+    {
+        bool wanted;
+        lock (_stateGate)
+        {
+            wanted = State is ControllerManagementState.Active
+                     && Effective is { } effective
+                     && effective.Target is not ManagedControllerTarget.Xbox360
+                     && (_motionStream is MotionStreamMode.Always || _steamGameRunning);
+            if (wanted == _motionWanted)
+            {
+                return;
+            }
+
+            _motionWanted = wanted;
+        }
+
+        Log.Info(wanted
+            ? "Motion stream wanted: a managed target with a motion report is active."
+            : "Motion stream not wanted: nothing downstream reads motion.");
+        MotionDemandChanged?.Invoke(wanted);
     }
 
     /// <summary>Reports the projection change a lost target must produce.</summary>

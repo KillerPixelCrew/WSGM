@@ -75,11 +75,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private readonly ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private uint _deviceId;
     private ManagedControllerTarget? _deviceKind;
-    private int _lastFrameLength;
     private bool _disposed;
     private uint _fastHandle;
     private long _generation;
     private bool _initialized;
+    private int _lastFrameLength;
     private long? _removalUnverifiedGeneration;
     private GCHandle _self;
     private HidTargetHandle? _target;

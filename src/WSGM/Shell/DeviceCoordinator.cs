@@ -59,11 +59,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly DeviceCoordinatorDiagnosticsServer _diagnostics;
     private readonly PluginHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly Lock _motionDemandGate = new();
-    private bool _motionDemandDirty;
-    private Task? _motionDemandTask;
-    private bool _motionDemandWanted = true;
     private readonly DeviceLightingRestore _lightingRestore = new();
+    private readonly Lock _motionDemandGate = new();
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly Mutex _ownerMutex;
     private readonly PluginHost _pluginHost;
@@ -87,6 +84,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private bool _intentionalStop;
     private int _lightingRestoreScheduled;
     private Action<bool>? _manualVariableRefreshOverride;
+    private bool _motionDemandDirty;
+    private Task? _motionDemandTask;
+    private bool _motionDemandWanted = true;
     private DevicePluginCompatibilityAdapter? _pluginAdapter;
     private PluginRegistration? _pluginRegistration;
     private Task _resumeRestore = Task.CompletedTask;
@@ -1816,7 +1816,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                Log.Warn($"The plugin did not apply the motion demand ({(wanted ? "wanted" : "not wanted")}): {ex.Message}");
+                Log.Warn(
+                    $"The plugin did not apply the motion demand ({(wanted ? "wanted" : "not wanted")}): {ex.Message}");
             }
         }
     }

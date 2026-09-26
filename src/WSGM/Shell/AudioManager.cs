@@ -52,12 +52,20 @@ public sealed class AudioEndpointEntry : ObservableObject
 /// </summary>
 public sealed class AudioManager : ObservableObject, IDisposable
 {
+    /// <summary>How often the state is re-read without a notification.</summary>
+    private static readonly TimeSpan SafetyPollInterval = TimeSpan.FromSeconds(10);
+
     private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
     private readonly CoalescingVolumeWrite _inputVolumeWrite = new("Microphone volume");
     private readonly SemaphoreSlim _outputSelectionGate = new(1, 1);
     private readonly CoalescingVolumeWrite _volumeWrite = new("Volume");
+    private IDisposable? _captureVolumeWatch;
     private bool _disposed;
     private string _endpointSummary = "";
+
+    // Core Audio pushes changes; the timer is only a safety net. Each watch is bound to the
+    // endpoint that was the default when it started, so a default change restarts the volume watches.
+    private IDisposable? _endpointWatch;
     private bool _hasOutputSnapshot;
 
     private bool _inputMuted;
@@ -66,7 +74,13 @@ public sealed class AudioManager : ObservableObject, IDisposable
     private double? _inputVolumePercent;
     private int _inputVolumeRevision;
     private EndpointSelectionTracker _outputSelection;
+
+    // A change notified while a refresh is running would be lost with the one-flight guard alone;
+    // the pending flags make the running refresh queue one more.
+    private bool _refreshPending;
+    private bool _refreshPendingEndpoints;
     private int _refreshing;
+    private IDisposable? _renderVolumeWatch;
 
     private AudioEndpointEntry? _selectedInput;
 
@@ -76,23 +90,9 @@ public sealed class AudioManager : ObservableObject, IDisposable
 
     private DispatcherTimer? _timer;
 
-    /// <summary>How often the state is re-read without a notification.</summary>
-    private static readonly TimeSpan SafetyPollInterval = TimeSpan.FromSeconds(10);
-
-    // Core Audio pushes changes; the timer is only a safety net. Each watch is bound to the
-    // endpoint that was the default when it started, so a default change restarts the volume watches.
-    private IDisposable? _endpointWatch;
-    private IDisposable? _captureVolumeWatch;
-    private IDisposable? _renderVolumeWatch;
-    private int _volumeWatchGeneration;
-
-    // A change notified while a refresh is running would be lost with the one-flight guard alone;
-    // the pending flags make the running refresh queue one more.
-    private bool _refreshPending;
-    private bool _refreshPendingEndpoints;
-
     private double _volumePercent;
     private int _volumeRevision;
+    private int _volumeWatchGeneration;
 
     /// <summary>Gets the active playback endpoints.</summary>
     public ObservableCollection<AudioEndpointEntry> OutputEndpoints { get; } = [];
@@ -292,8 +292,10 @@ public sealed class AudioManager : ObservableObject, IDisposable
                 return;
             }
 
-            var render = CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Render, OnVolumeNotified, out var renderWatch);
-            var capture = CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Capture, OnVolumeNotified, out var captureWatch);
+            var render =
+                CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Render, OnVolumeNotified, out var renderWatch);
+            var capture = CoreAudio.StartVolumeWatch(CoreAudio.AudioDirection.Capture, OnVolumeNotified,
+                out var captureWatch);
             IDisposable? endpointWatch = null;
             var endpointResult = 0;
             if (endpoints)
