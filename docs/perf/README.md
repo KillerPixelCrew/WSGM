@@ -83,7 +83,12 @@ Ranked by measured share of WSGM.exe's 6.6 s of CPU and 132,000 wakeups over the
    `WindowsRadio.ConnectedBluetoothCount` (76 ms per call) and
    `AudioProfileService.ReadPlaybackCapabilities` are the managed callers seen in the trace. The
    audio manager's one-second timer runs from shell start, and the system status and radio timers
-   run from the overlay window's creation on, whether the sheet is visible or not.
+   run from the overlay window's creation on, whether the sheet is visible or not. Every later
+   capture kept an unnamed thread of the same shape, about 900 ms per 45 s with one wakeup a second,
+   after the radio timer was gone: that one is SDL's `SDL_joystick` thread polling the XInput slots
+   every 300 ms. After a resume on 2026-09-26 the same thread looped at a full core, Task Manager's
+   13 %, until the overlay opened and WSGM pumped SDL on the UI thread. WSGM now starts SDL without
+   the joystick thread.
 5. **WMI, about 1 % in process plus the WmiPrvSE rows.** The identity reads seen in the trace
    (`WindowsClawIdentityReader`, `MsiWmiPlatform`) belong to capability commands: every desktop
    foreground change resolved the same power preset again and replayed it as a full command
@@ -139,6 +144,7 @@ those are the product working.
 | Steam running-application poll every 2 s over CEF        | part of the steamwebhelper 1.8 %                      | open: `RunningApplicationTarget` polls the client; Steam's app lifetime notifications would make it event-driven                                                                                                                                           |
 | Motion polled at 2 ms with nobody reading it             | 12 % CPU + WUDFHost 5 % of a core                     | fixed: the motion demand signal stops the source outside a game (see device-integration.md), and in game the Sensor API delivers reports by event instead of the 2 ms poll, with polling as the fallback                                                   |
 | WinRT Bluetooth enumeration every 2 s at idle            | 17 % CPU                                              | fixed: the radio timer stops when the overlay closes                                                                                                                                                                                                       |
+| SDL joystick thread polling XInput, looping after resume | 2 to 3 % of a core always, a full core after a resume | fixed: SDL starts without its joystick thread; device changes are picked up while WSGM polls, which is when it uses a pad                                                                                                                                  |
 | Audio volume and endpoints polled every second           | two COM round trips per second, enumeration every 5 s | fixed: Core Audio change watches (windows-device-control `StartVolumeWatch`, `StartEndpointWatch`) replace the poll; a ten-second safety poll remains                                                                                                      |
 | Identity and AC state over WMI every 10 s                | 1 % CPU + WmiPrvSE                                    | not a finding: the identity reads belonged to the preset replays above; the observation cycle reads only the capabilities it publishes                                                                                                                     |
 | `WaitHandleCannotBeOpenedException` every second         | negligible CPU, one throw/s                           | fixed: `LhmSensorReader` opened the provider's missing mutex on every read; it now tries once per mapping                                                                                                                                                  |
