@@ -305,6 +305,7 @@ describes. The layout was confirmed against a live RTSS 2.21 (`dwVersion 0x00020
 | `dwFlags`             | entry + 264                                      |
 | `dwTime0` / `dwTime1` | entry + 268 / + 272, `GetTickCount` milliseconds |
 | `dwFrames`            | entry + 276                                      |
+| `dwFrameTime`         | entry + 280, unit not live-verified              |
 
 A 1 fps application reported `dwTime1 - dwTime0 = 2000` over `dwFrames = 2`, the 1000 ms mean WSGM
 uses. Entries RTSS has not updated for two seconds are treated as not rendering: RTSS leaves an
@@ -378,6 +379,60 @@ saved: the assignment loop never turns AutoTDP's readings into a Custom assignme
 assigned power change cancels pending automatic dispatch and updates the restoration target;
 disabling AutoTDP cannot restore an older value over that newer intent. Editing the boost companion
 pauses the pair without saving observed sustained wattage as a new primary preference.
+
+## AutoTDP trace
+
+Settings, System, **AutoTDP trace** records what the controller saw and did, for diagnosing a
+control problem such as issue 181. While it is on, each AutoTDP control generation writes one CSV to
+`%LOCALAPPDATA%\WSGM\autotdp-traces\autotdp-<local time>-<trace id>.csv`. The setting applies on the
+next config reload; switching it off closes the current file.
+
+Recording does not change a decision. `AutoTdpService` fills a row with the values it already
+computes and `AutoTdpTraceRecorder` queues it to one background writer, so a manual change on the UI
+thread never waits for the disk. A file that cannot be created is logged and that generation goes
+untraced; AutoTDP carries on.
+
+Rows:
+
+- `tick`: one per controller window, whether or not the controller was reached. Early exits (no
+  power capability, no renderer) keep their status and detail with the controller columns empty.
+- `enabled`, `disabled`, `application`, `manual-pause`, `resume`: generation and ownership events.
+  The `disabled` row carries the release write and its outcome.
+
+Column groups, in file order:
+
+- Identity and timing: schema version, row, event, monotonic `elapsed_ms`, `wall_utc`, the measured
+  `tick_interval_ms`, trace id, WSGM version and the installed device package.
+- Context: application id, executable, process id, running generation, context key and target.
+- Windows and device: AC state, battery percent, effective power mode, active scheme, the plugin's
+  limit range and step, the primary and paired capability ids, their observed values, quality and
+  cycle generation.
+- RTSS: renderer count, how the sample was selected, raw `dwTime0`/`dwTime1`, window length, frames,
+  mean frametime and FPS, raw `dwFrameTime`, sample age, whether the window repeats the previous
+  read (`rtss_window_repeat`) and the gap between consecutive windows.
+- Controller evidence and learning: capped flag, whether the window started or re-based the
+  controller and the limit it started from (`start_w`: the observed value, else the last written
+  value, else the ceiling on a device without readback), the floors it already held for the context,
+  ratio and miss/comfort classification when it judged the window, its state, believed and last-good
+  limits, learned and failed-probe floors, streak and settling counters, and a probe id that follows
+  one probe from start to acceptance or rejection.
+- Decision: action, reason token, requested limit and delta, time since the last write-requiring
+  decision and since the last dispatched write.
+- Application: whether a write was dispatched, its outcome, readback, whether AutoTDP counted it as
+  applied, its duration, a note for skipped or failed writes, and the observed limits afterwards.
+- Sensors: CPU and GPU load, CPU and GPU power and battery power, read from what RTSS's sensor
+  provider already publishes plus the kernel CPU counters. The trace never starts the provider, so
+  GPU values are empty unless the OSD has started it.
+
+Columns are only appended. Numbers use invariant round-trip formatting and an empty cell means the
+value was unavailable, never zero. The classifications issue 181 asks for, such as long-stall
+quarantine and probe outcome, are not in the file because the current controller does not make them;
+the raw window bounds and timings let them be derived from the same trace.
+
+`AutoTdpTraceReplay` in `tests\WSGM.Tests\Builders` replays a trace file through a controller. It
+starts at the first window that started the controller, seeds each context's learning from the
+prior-floor columns, and pairs every recorded decision with the replayed one, so the current and a
+candidate controller can be compared on the same input.
 
 ## Remaining live work
 

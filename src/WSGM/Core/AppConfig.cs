@@ -838,6 +838,13 @@ public sealed class AppConfig
     /// </remarks>
     public LogVerbosity LogVerbosity { get; set; } = LogVerbosity.Normal;
 
+    /// <summary>Whether AutoTDP writes a CSV trace of every control window.</summary>
+    /// <remarks>
+    ///     A diagnostic for reproducing an AutoTDP problem. Each control session gets its own file under
+    ///     <c>autotdp-traces</c> beside <c>wsgm.log</c>. Recording never changes a control decision.
+    /// </remarks>
+    public bool AutoTdpTraceEnabled { get; set; }
+
     /// <summary>
     ///     Steam CEF integration master switch and per-feature sub-toggles
     ///     (see <see cref="CefConfig" />).

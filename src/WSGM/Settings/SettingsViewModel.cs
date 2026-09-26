@@ -252,6 +252,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? standby.Summary
             : $"{standby.Summary} Allowed to wake it: {string.Join(", ", standby.ArmedWakeSources)}.";
         VerboseLogging = _config.LogVerbosity == LogVerbosity.Verbose;
+        AutoTdpTrace = _config.AutoTdpTraceEnabled;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -1021,6 +1022,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(VerboseLogging));
+    }
+
+    /// <summary>Gets or sets whether AutoTDP writes a CSV trace of its decisions.</summary>
+    public bool AutoTdpTrace
+    {
+        get;
+        set => SetField(ref field, value, nameof(AutoTdpTrace));
     }
 
     /// <summary>Gets a user-facing explanation of the current sign-in behavior.</summary>
@@ -2167,6 +2175,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         config.CheckForUpdates = CheckForUpdates;
         config.ResuspendUnexplainedWakes = ResuspendUnexplainedWakes;
         config.LogVerbosity = VerboseLogging ? LogVerbosity.Verbose : LogVerbosity.Normal;
+        config.AutoTdpTraceEnabled = AutoTdpTrace;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;

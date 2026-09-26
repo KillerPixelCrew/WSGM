@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -71,6 +72,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<double> _targetFrametimeMs;
+    private readonly AutoTdpTraceRecorder? _trace;
     private readonly SemaphoreSlim _write = new(1, 1);
 
     private readonly Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>>
@@ -102,7 +104,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         IFrametimeSource frametimes,
         Func<IReadOnlyList<DeviceCapabilityView>> capabilities,
         Func<DeviceCapabilityView, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> writeAsync,
-        Func<double> targetFrametimeMs)
+        Func<double> targetFrametimeMs,
+        AutoTdpTraceRecorder? trace = null)
     {
         ArgumentNullException.ThrowIfNull(frametimes);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -112,6 +115,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         _capabilities = capabilities;
         _writeAsync = writeAsync;
         _targetFrametimeMs = targetFrametimeMs;
+        _trace = trace;
     }
 
     /// <summary>Current projection.</summary>
@@ -217,6 +221,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         (_frametimes as IDisposable)?.Dispose();
+        if (_trace is not null)
+        {
+            await _trace.DisposeAsync().ConfigureAwait(false);
+        }
+
         applicationWrites.Dispose();
         _write.Dispose();
         _shutdown.Dispose();
@@ -229,6 +238,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     /// <summary>Raised when the projection changes.</summary>
     internal event Action<AutoTdpStatus>? StatusChanged;
+
+    /// <summary>Switches the AutoTDP CSV trace on or off.</summary>
+    /// <param name="enabled">Whether control generations are traced.</param>
+    /// <remarks>Recording only. Control makes the same decisions with the trace on or off.</remarks>
+    internal void SetTraceEnabled(bool enabled)
+    {
+        _trace?.SetEnabled(enabled);
+    }
 
     /// <summary>Releases control immediately when the limiter disappears.</summary>
     /// <returns>Whether an active session was forced off.</returns>
@@ -307,6 +324,9 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 {
                     await priorStop.ConfigureAwait(false);
                     started.Token.ThrowIfCancellationRequested();
+                    // Recorded here rather than by the caller: the previous generation's restore
+                    // has finished, so its rows close the previous trace file before this one opens.
+                    TraceEnabled();
                     await RunAsync(started.Token).ConfigureAwait(false);
                 }, started.Token);
                 return;
@@ -325,6 +345,26 @@ internal sealed class AutoTdpService : IAsyncDisposable
         applicationWrites.Cancel();
         applicationWrites.Dispose();
         Log.Observe(stop, "AutoTDP stop");
+    }
+
+    private void TraceEnabled()
+    {
+        var row = _trace?.Begin(AutoTdpTraceEvent.Enabled);
+        if (row is null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            row.ApplicationId = _running?.ApplicationId;
+            row.Executable = _running?.ExecutablePath;
+            row.RunningGeneration = _running?.Generation;
+            row.Controller = _controller.Snapshot();
+        }
+
+        row.Detail = "AutoTDP enabled.";
+        _trace!.Commit(row);
     }
 
     /// <summary>Records the running application whose frames are being judged.</summary>
@@ -355,6 +395,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         previousApplicationWrites?.Cancel();
         previousApplicationWrites?.Dispose();
+        if (enabled && previousApplicationWrites is not null)
+        {
+            var row = _trace?.Begin(AutoTdpTraceEvent.Application);
+            if (row is not null)
+            {
+                row.ApplicationId = snapshot.ApplicationId;
+                row.Executable = snapshot.ExecutablePath;
+                row.RunningGeneration = snapshot.Generation;
+                row.Detail = "context-changed";
+            }
+
+            _trace?.Commit(row);
+        }
+
         if (enabled)
         {
             // Retire the previous application's visible status immediately. A tick may still be
@@ -381,6 +435,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     internal void NoteManualChange(int watts)
     {
         CancellationTokenSource previousWrites;
+        var row = _trace?.Begin(AutoTdpTraceEvent.ManualPause);
         lock (_gate)
         {
             if (!_enabled)
@@ -389,6 +444,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             _controller.PauseForManualChange(watts);
+            if (row is not null)
+            {
+                row.Controller = _controller.Snapshot();
+                row.ApplicationId = _running?.ApplicationId;
+                row.RunningGeneration = _running?.Generation;
+                row.Detail = $"Manual power change to {watts} W.";
+            }
+
             previousWrites = _applicationWrites;
             _applicationWrites = new CancellationTokenSource();
             if (_restoreTo is not null)
@@ -403,6 +466,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         previousWrites.Cancel();
         previousWrites.Dispose();
+        _trace?.Commit(row);
         Publish(AutoTdpState.Paused, watts, null, null, "Paused by a manual power change.");
     }
 
@@ -416,6 +480,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </remarks>
     internal void ResumeAutomaticControl()
     {
+        var row = _trace?.Begin(AutoTdpTraceEvent.Resume);
         lock (_gate)
         {
             if (!_enabled)
@@ -424,11 +489,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             _controller.ResumeAutomaticControl();
+            if (row is not null)
+            {
+                row.Controller = _controller.Snapshot();
+                row.ApplicationId = _running?.ApplicationId;
+                row.RunningGeneration = _running?.Generation;
+                row.Detail = "Automatic control resumed.";
+            }
+
             // Force the next tick through Start(current, …) so control re-bases on the limit the
             // device actually holds now, not the value it believed before the application's override.
             _controllerStarted = false;
         }
 
+        _trace?.Commit(row);
         Publish(AutoTdpState.Idle, null, null, null, "Automatic control resumed.");
     }
 
@@ -457,7 +531,17 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         generation?.Dispose();
-        return await StopAsync(CancellationToken.None).ConfigureAwait(false);
+        var row = _trace?.Begin(AutoTdpTraceEvent.Disabled);
+        var restored = await StopAsync(CancellationToken.None, row).ConfigureAwait(false);
+        if (row is not null)
+        {
+            row.Status = AutoTdpTraceStatus(Status.State);
+            row.Detail = Status.Detail;
+        }
+
+        _trace?.Commit(row);
+        _trace?.EndGeneration();
+        return restored;
     }
 
     private async Task RunAsync(CancellationToken cancellationToken)
@@ -509,13 +593,28 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 _applicationWrites.Token);
         }
 
+        var row = _trace?.Begin(AutoTdpTraceEvent.Tick);
         using (writeCancellation)
         {
-            await TickForApplicationAsync(
-                running,
-                runningGeneration,
-                writeCancellation,
-                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await TickForApplicationAsync(
+                    running,
+                    runningGeneration,
+                    writeCancellation,
+                    cancellationToken,
+                    row).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (row is not null)
+                {
+                    var status = Status;
+                    row.Status = AutoTdpTraceStatus(status.State);
+                    row.Detail = status.Detail;
+                    _trace!.Commit(row);
+                }
+            }
         }
     }
 
@@ -524,12 +623,21 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="runningGeneration">The snapshot generation that may publish its result.</param>
     /// <param name="writeCancellation">Cancels the write when this application is retired.</param>
     /// <param name="cancellationToken">Cancels the AutoTDP worker or caller.</param>
+    /// <param name="trace">The trace row this tick fills, or null when the trace is off.</param>
     private async Task TickForApplicationAsync(
         RunningApplicationTargetSnapshot? running,
         long runningGeneration,
         CancellationTokenSource writeCancellation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AutoTdpTraceRow? trace)
     {
+        if (trace is not null)
+        {
+            trace.ApplicationId = running?.ApplicationId;
+            trace.Executable = running?.ExecutablePath;
+            trace.RunningGeneration = runningGeneration;
+        }
+
         if (FindPowerCapability() is not { } power || !Availability.Available)
         {
             Publish(
@@ -547,6 +655,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
             power.Descriptor.Minimum ?? 0,
             power.Descriptor.Maximum ?? 0,
             power.Descriptor.Step ?? 0);
+        if (trace is not null)
+        {
+            TracePower(trace, power, limits);
+        }
+
         // Firmware without readback starts control from the ceiling until the first write lands.
         var current = CurrentWatts(power) ?? limits.Maximum;
         if (!limits.IsUsable)
@@ -562,7 +675,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return;
         }
 
-        if (SelectSample(running) is not { } frametime)
+        if (SelectSample(running, trace) is not { } frametime)
         {
             Publish(
                 AutoTdpState.Idle,
@@ -576,6 +689,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         var target = _targetFrametimeMs();
+        if (trace is not null)
+        {
+            trace.TargetFrametimeMs = target;
+        }
+
         if (!double.IsFinite(target) || target <= 0)
         {
             Apply(false);
@@ -585,6 +703,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         var context = ContextKey(running, frametime);
         AutoTdpDecision decision;
         bool rebased;
+        bool started;
         lock (_gate)
         {
             if (!_enabled || (_running?.Generation ?? -1) != runningGeneration)
@@ -593,7 +712,16 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             rebased = _resync && _controllerStarted;
-            if (!_controllerStarted || _resync)
+            started = !_controllerStarted || _resync;
+            if (trace is not null)
+            {
+                // What the controller already knew about this context before this window, so a
+                // replay of this file can start from the same learning.
+                trace.PriorLearnedFloor = _controller.LearnedFloor(context);
+                trace.PriorFailedProbeFloor = _controller.FailedProbeFloor(context);
+            }
+
+            if (started)
             {
                 // Either the first window of this generation, or the window after a write that
                 // never reached hardware. Re-basing on the value just observed is the only honest
@@ -605,9 +733,22 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 _controller.Start(current, limits, context);
             }
 
+            var capped = IsCapped(frametime, target);
+            var previousWatts = _controller.Watts;
             decision = _controller.Evaluate(
-                new AutoTdpSample(frametime.MeanFrametimeMs, target, IsCapped(frametime, target), context),
+                new AutoTdpSample(frametime.MeanFrametimeMs, target, capped, context),
                 limits);
+            if (trace is not null)
+            {
+                trace.ContextKey = context;
+                trace.Capped = capped;
+                trace.ControllerStarted = started;
+                trace.StartWatts = started ? current : null;
+                trace.Rebased = rebased;
+                trace.PreviousWatts = previousWatts;
+                trace.Decision = decision;
+                trace.Controller = _controller.Snapshot();
+            }
         }
 
         if (rebased)
@@ -625,14 +766,27 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     decision,
                     writeCancellation.Token,
                     runningGeneration,
-                    current).ConfigureAwait(false);
+                    current,
+                    trace).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (
                 writeCancellation.IsCancellationRequested
                 && !cancellationToken.IsCancellationRequested)
             {
+                if (trace is not null)
+                {
+                    trace.WriteNote = "cancelled";
+                }
+
                 MarkWriteUnapplied();
                 return;
+            }
+            finally
+            {
+                if (trace is not null)
+                {
+                    TracePostWrite(trace);
+                }
             }
 
             if (!applied)
@@ -666,6 +820,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <param name="expectedRunningGeneration">The application generation allowed to dispatch.</param>
     /// <param name="restoreFrom">The user's prior limit to capture when the write is admitted.</param>
+    /// <param name="trace">The trace row that records the write, or null.</param>
     /// <returns><see langword="true" /> when the device accepted the value.</returns>
     /// <remarks>
     ///     The outcome is acted on, not merely logged. <see cref="AutoTdpController" /> has already moved
@@ -678,13 +833,19 @@ internal sealed class AutoTdpService : IAsyncDisposable
         AutoTdpDecision decision,
         CancellationToken cancellationToken,
         long? expectedRunningGeneration = null,
-        int? restoreFrom = null)
+        int? restoreFrom = null,
+        AutoTdpTraceRow? trace = null)
     {
         // One power command at a time. An overlapping write would leave the controller unable to say
         // which value the hardware actually ended up with, and an uncertain hardware write is never
         // retried behind the user's back.
         if (!await _write.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
+            if (trace is not null)
+            {
+                trace.WriteNote = "write-in-flight";
+            }
+
             Log.Warn("AutoTDP skipped a power write: an earlier write is still in flight.");
             MarkWriteUnapplied();
             return false;
@@ -698,6 +859,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 if (expectedRunningGeneration is { } expected
                     && (!_enabled || (_running?.Generation ?? -1) != expected))
                 {
+                    if (trace is not null)
+                    {
+                        trace.WriteNote = "application-changed";
+                    }
+
                     _resync = true;
                     return false;
                 }
@@ -714,6 +880,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
                         _restorePair = FindPairedPower(power);
                         if (power.Descriptor.PairedPowerLimitId is not null && !IsObserved(_restorePair))
                         {
+                            if (trace is not null)
+                            {
+                                trace.WriteNote = "paired-unobserved";
+                            }
+
                             _resync = true;
                             return false;
                         }
@@ -737,7 +908,20 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     cancellationToken);
             }
 
+            var dispatched = Stopwatch.GetTimestamp();
+            if (trace is not null)
+            {
+                trace.WriteDispatched = true;
+            }
+
             var result = await command.ConfigureAwait(false);
+            if (trace is not null)
+            {
+                trace.WriteMs = Stopwatch.GetElapsedTime(dispatched).TotalMilliseconds;
+                trace.WriteOutcome = result.Outcome.ToString();
+                trace.WriteReadbackWatts = result.ReadbackValue?.IntegerValue;
+            }
+
             var applied = power.Descriptor.PairedPowerLimitId is not null
                 ? result.Applied(decision.Watts)
                 : result.Outcome.IsApplied();
@@ -758,6 +942,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 }
             }
 
+            if (trace is not null)
+            {
+                trace.WriteApplied = applied;
+            }
+
             Log.Info(
                 $"AutoTDP {decision.Action}: {decision.Watts} W ({decision.Reason}), "
                 + $"outcome={result.Outcome}, applied={applied}.");
@@ -770,6 +959,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (trace is not null)
+            {
+                trace.WriteNote = ex.GetType().Name;
+            }
+
             Log.Warn($"AutoTDP power write failed: {ex.Message}");
             lock (_gate)
             {
@@ -794,7 +988,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
     }
 
-    private async Task<bool> StopAsync(CancellationToken cancellationToken)
+    private async Task<bool> StopAsync(CancellationToken cancellationToken, AutoTdpTraceRow? trace = null)
     {
         int? restoreTo;
         var power = FindPowerCapability();
@@ -829,11 +1023,22 @@ internal sealed class AutoTdpService : IAsyncDisposable
             return false;
         }
 
+        if (trace is not null)
+        {
+            trace.PreviousWatts = _controller.Watts;
+            TracePower(trace, power, null);
+        }
+
         var decision = _controller.Stop(watts);
+        if (trace is not null)
+        {
+            trace.Decision = decision;
+        }
+
         // Reported from the write's own outcome. Saying "restored" for a value that was refused,
         // timed out, or skipped is the one message that makes the handheld's real state
         // undiagnosable from a log.
-        var restored = await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
+        var restored = await WriteAsync(power, decision, cancellationToken, trace: trace).ConfigureAwait(false);
         if (restored && _restorePair is { } pair)
         {
             var live = FindPairedPower(power);
@@ -858,6 +1063,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     Log.Warn($"AutoTDP paired-limit restoration failed: {ex.Message}");
                 }
             }
+        }
+
+        if (trace is not null)
+        {
+            TracePostWrite(trace);
         }
 
         lock (_gate)
@@ -928,11 +1138,29 @@ internal sealed class AutoTdpService : IAsyncDisposable
         return view?.Projection.State.ObservedValue?.IntegerValue ?? view?.Projection.DesiredValue?.IntegerValue;
     }
 
-    private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running)
+    private RtssFrametimeSample? SelectSample(RunningApplicationTargetSnapshot? running, AutoTdpTraceRow? trace)
     {
         var live = _frametimes.ReadLive();
+        var selected = SelectSample(running, live, out var selection);
+        if (trace is not null)
+        {
+            trace.Renderers = live.Count;
+            trace.Selection = selection;
+            trace.Frametime = selected;
+            trace.ProcessId = selected?.ProcessId;
+        }
+
+        return selected;
+    }
+
+    private static RtssFrametimeSample? SelectSample(
+        RunningApplicationTargetSnapshot? running,
+        IReadOnlyList<RtssFrametimeSample> live,
+        out string selection)
+    {
         if (live.Count == 0)
         {
+            selection = "none";
             return null;
         }
 
@@ -945,12 +1173,49 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 Path.GetFileName(executable),
                 StringComparison.OrdinalIgnoreCase)) is { } matched)
         {
+            selection = "executable";
             return matched;
         }
 
         // With exactly one renderer there is nothing to confuse it with. With several and no
         // identity, AutoTDP declines rather than guessing which one the user is playing.
+        selection = live.Count == 1 ? "only-renderer" : "ambiguous";
         return live.Count == 1 ? live[0] : null;
+    }
+
+    private static string AutoTdpTraceStatus(AutoTdpState state)
+    {
+        return state switch
+        {
+            AutoTdpState.Off => "off",
+            AutoTdpState.Unavailable => "unavailable",
+            AutoTdpState.Idle => "idle",
+            AutoTdpState.Controlling => "controlling",
+            AutoTdpState.Paused => "paused",
+            _ => throw new ArgumentOutOfRangeException(nameof(state))
+        };
+    }
+
+    private void TracePower(AutoTdpTraceRow trace, DeviceCapabilityView power, AutoTdpLimits? limits)
+    {
+        trace.Limits = limits;
+        trace.PowerCapability = power.Descriptor.CapabilityId;
+        trace.PairedCapability = power.Descriptor.PairedPowerLimitId;
+        trace.ObservedWatts = power.Projection.State.ObservedValue?.IntegerValue;
+        trace.ObservedQuality = power.Projection.State.Quality.ToString();
+        trace.CycleGeneration = power.Projection.State.CycleGeneration;
+        trace.PairedObservedWatts = FindPairedPower(power)?.Projection.State.ObservedValue?.IntegerValue;
+    }
+
+    private void TracePostWrite(AutoTdpTraceRow trace)
+    {
+        if (FindPowerCapability() is not { } power)
+        {
+            return;
+        }
+
+        trace.PostObservedWatts = power.Projection.State.ObservedValue?.IntegerValue;
+        trace.PostPairedObservedWatts = FindPairedPower(power)?.Projection.State.ObservedValue?.IntegerValue;
     }
 
     private static bool IsCapped(RtssFrametimeSample sample, double targetFrametimeMs)

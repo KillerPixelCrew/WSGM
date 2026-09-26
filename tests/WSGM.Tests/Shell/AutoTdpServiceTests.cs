@@ -1,6 +1,7 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
+using WSGM.Tests.Builders;
 using static WSGM.Tests.Builders.ControllerBuilders;
 
 namespace WSGM.Tests.Shell;
@@ -505,6 +506,103 @@ public sealed class AutoTdpServiceTests
         Assert.Contains("could not verify restoration", failure.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ATracedSessionReplaysToTheDecisionsItRecorded()
+    {
+        var directory = Directory.CreateTempSubdirectory("wsgm-autotdp-trace-").FullName;
+        try
+        {
+            AutoTdpTraceRecorder trace = new(directory, () => ("test.device", "1.0.0"), null);
+            trace.SetEnabled(true);
+            Harness harness = new(trace: trace);
+
+            await RunRaiseProbeAndRejectAsync(harness);
+            await harness.Service.DisposeAsync();
+
+            var file = Assert.Single(Directory.GetFiles(directory, "autotdp-*.csv"));
+            var lines = await File.ReadAllLinesAsync(file);
+            Assert.Equal(AutoTdpTraceCsv.Header, lines[0]);
+            var replayed = AutoTdpTraceReplay.Run(file);
+            Assert.Contains(replayed, decision => decision.Recorded.Action == AutoTdpAction.Raise);
+            Assert.Contains(replayed, decision => decision.Recorded.Action == AutoTdpAction.Probe);
+            Assert.Contains(replayed, decision => decision.Recorded.Action == AutoTdpAction.Restore);
+            Assert.All(replayed, decision => Assert.Equal(decision.Recorded, decision.Replayed));
+            Assert.Contains(lines, line => line.Contains(",disabled,", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task TracingDoesNotChangeThePowerWrites()
+    {
+        var directory = Directory.CreateTempSubdirectory("wsgm-autotdp-trace-").FullName;
+        try
+        {
+            AutoTdpTraceRecorder trace = new(directory, () => (null, null), null);
+            trace.SetEnabled(true);
+            Harness traced = new(trace: trace);
+            Harness untraced = new();
+
+            await RunRaiseProbeAndRejectAsync(traced);
+            await RunRaiseProbeAndRejectAsync(untraced);
+            await traced.Service.DisposeAsync();
+            await untraced.Service.DisposeAsync();
+
+            Assert.NotEmpty(untraced.Writes);
+            Assert.Equal(
+                untraced.Writes.Select(write => write.Value.IntegerValue),
+                traced.Writes.Select(write => write.Value.IntegerValue));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task TraceSwitchedOffWritesNoFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("wsgm-autotdp-trace-").FullName;
+        try
+        {
+            AutoTdpTraceRecorder trace = new(directory, () => (null, null), null);
+            Harness harness = new(trace: trace);
+
+            await RunRaiseProbeAndRejectAsync(harness);
+            await harness.Service.DisposeAsync();
+
+            Assert.Empty(Directory.GetFiles(directory));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    /// <summary>Three misses raise, a comfortable run probes down, and misses during the probe reject it.</summary>
+    private static async Task RunRaiseProbeAndRejectAsync(Harness harness)
+    {
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22)];
+        for (var tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        harness.Frametimes.Live = [Rendering(10)];
+        for (var tick = 0; tick < AutoTdpController.SettleWindows + AutoTdpController.SettledWindows
+                                 + AutoTdpController.SettleWindows; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        harness.Frametimes.Live = [Rendering(22)];
+        await harness.Service.TickAsync(CancellationToken.None);
+    }
+
     private static async Task WaitForWriteCountAsync(Harness harness, int count)
     {
         for (var attempt = 0; attempt < 100 && harness.Writes.Count < count; attempt++)
@@ -748,7 +846,9 @@ public sealed class AutoTdpServiceTests
 
     private sealed class Harness
     {
-        internal Harness(IReadOnlyList<DeviceCapabilityView>? capabilities = null)
+        internal Harness(
+            IReadOnlyList<DeviceCapabilityView>? capabilities = null,
+            AutoTdpTraceRecorder? trace = null)
         {
             var views = capabilities ?? [PowerView(15)];
             Service = new AutoTdpService(
@@ -775,7 +875,8 @@ public sealed class AutoTdpServiceTests
                     PendingWrite = null;
                     return pending.Task.WaitAsync(cancellationToken);
                 },
-                () => TargetFrametimeMs);
+                () => TargetFrametimeMs,
+                trace);
         }
 
         internal FakeFrametimeSource Frametimes { get; } = new();

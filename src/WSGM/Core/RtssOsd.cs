@@ -892,6 +892,11 @@ internal sealed class RtssOsdMetricsSource : IDisposable
     private long _lastIdle;
     private long _providerAttemptTicks = -(long)ProviderStartCooldown.TotalMilliseconds;
 
+    /// <summary>Creates a metrics source.</summary>
+    /// <param name="rtssExecutablePath">
+    ///     Locates RTSS so its sensor provider can be started. Null only reads what a running provider
+    ///     publishes, for a diagnostic reader that must not start processes of its own.
+    /// </param>
     internal RtssOsdMetricsSource(Func<string?>? rtssExecutablePath = null)
     {
         _rtssExecutablePath = rtssExecutablePath;
@@ -919,7 +924,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         _cachedAtTicks = now;
         var xml = _lhm.TryReadXml();
         var metrics = xml is null ? RtssOsdMetrics.Empty : RtssLhmSensors.Parse(xml);
-        if (xml is null)
+        if (xml is null && _rtssExecutablePath is not null)
         {
             TryStartProvider(now);
         }
