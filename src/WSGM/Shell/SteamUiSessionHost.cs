@@ -718,6 +718,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         QueueSynchronization();
+        // The capability hook's mask follows the profile's absent controls.
+        QueueStatePublication();
     }
 
     internal async Task DisableAsync()
@@ -993,6 +995,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // reporting, so a session with the mirror off installs the hook and never hears from it.
             modules.Add(SteamChordResetSurface.Module(HostSteamUiEnabled, chordMirror));
         }
+
+        // The controller's capabilities as Steam's pages read them. Declared unconditionally: the
+        // state carries an empty mask until a profile marks a whole pair of controls absent.
+        modules.Add(SteamControllerCapsSurface.Module(HostSteamUiEnabled, () => _glyphDeliveryState.Current));
 
         // Steam's game menu. Declared unconditionally: WSGM's own Change Artwork entry is in it
         // whether or not a plugin contributes anything.

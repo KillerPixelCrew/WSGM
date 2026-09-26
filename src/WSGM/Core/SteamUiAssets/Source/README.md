@@ -19,7 +19,7 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 A fragment lives here only when it is WSGM's own feature and no other host could possibly want it.
-Four qualify, each with a gate of its own; the first three are pages registered with
+Five qualify, each with a gate of its own; the first three are pages registered with
 `registerSteamPageRenderer`:
 
 - `artwork-browser.ts`, the Change Artwork page.
@@ -31,6 +31,11 @@ Four qualify, each with a gate of its own; the first three are pages registered 
   `SteamClient.Input.SetSelectedConfigForApp` and reports a reset of the chord pseudo-app to WSGM,
   which puts Valve's template back before Steam reloads it. See docs/steam-input.md, "Guide button
   chord edits".
+- `controller-caps.ts`, the controller capability hook. It wraps the one generated RPC every store
+  reads the controller list through, `SteamInputManager.GetControllerList`, and clears the
+  capability bits the active glyph profile marks absent (trackpads, touch-sensing sticks) on WSGM's
+  virtual pad, so the pages stop drawing settings for controls the handheld does not have. See
+  docs/steam-cef.md, "Physical glyphs are CSS".
 
 The library tabs and download sorting are resident scripts and patches of their own, and the card
 badge became a toolkit surface (`gates/library-badge.ts`) that WSGM only feeds data into. A new
