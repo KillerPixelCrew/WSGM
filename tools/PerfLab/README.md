@@ -44,7 +44,24 @@ Windows binaries, cached under `%TEMP%\SymCache`; the first run downloads for se
 `libviiper.dll` is a Go c-shared library and has no PDB, so its frames stay as offsets and its
 threads usually have no walkable stack at all. Profile VIIPER with its own hook instead: set
 `VIIPER_CPUPROFILE=<path>` in WSGM's environment and it writes a pprof file on every init and
-shutdown cycle.
+shutdown cycle. To measure what one virtual controller report costs, without WSGM in the picture,
+use the submodule's own harness:
+
+    cd external\viiper
+    $env:VIIPER_URB_BENCH = "1"; go test .\internal\server\usb -run TestURBCycleCost -v
+
+It drives the real USB/IP server from a second process and reports cycles, context switches and
+allocations per completed URB. The numbers it produced are in
+[docs/perf](../../docs/perf/README.md#inside-viiper-what-one-controller-report-costs).
+
+An offset in a `libviiper.dll` frame resolves against the staged library, whose exact source commit
+is in `src\WSGM\Native\Viiper\libviiper.revision`:
+
+    go tool nm -n src\WSGM\Native\Viiper\libviiper.dll
+
+Those addresses already include the image's preferred base, which `dumpbin /headers` reports as
+`ImageBase`, so a `libviiper.dll!0x12411` in a report is the last symbol at or below
+`ImageBase + 0x12411`.
 
 ## What the numbers mean
 

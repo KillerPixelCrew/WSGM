@@ -42,9 +42,12 @@ create` defaults to the wrong repository. Always pass `--repo KillerPixelCrew/VI
 
 - `clib`, the C library WSGM binds: add and attach as separate calls, port plug-out on remove,
   per-type input fast paths, raw feedback callbacks drained before removal, panic recovery at the
-  cgo boundary, a `GOMAXPROCS` cap, and the device-type aliases.
-- `internal/server/usb`: persistent per-endpoint interrupt-IN workers, hardware-paced completions and
-  per-device NAK-idle endpoints, in place of upstream's per-URB completion goroutines.
+  cgo boundary, a single-P `GOMAXPROCS`, and the device-type aliases.
+- `internal/server/usb`: persistent per-endpoint interrupt-IN workers, hardware-paced completions,
+  per-device NAK-idle endpoints, a paced repeat of a report the host already has, and an
+  allocation-free completion path for devices that implement `usb.InterruptInSource`, in place of
+  upstream's per-URB completion goroutines. The Steam Deck uses that path; what it saves, and how
+  it was measured, is in [docs/perf](../../docs/perf/README.md#inside-viiper-what-one-controller-report-costs).
 - Windows attach: a cancellable overlapped `plugin_hardware` IOCTL that negotiates three driver
   layouts, and does not retry an attach whose outcome is uncertain.
 - `device/steamdeck`, which upstream does not have, and the input gate that `xbox360`, `keyboard`,
@@ -65,7 +68,11 @@ replaced. The route that shrinks the fork is upstreaming instead:
   no 0.9.7.8 layout and misplaces the new fields), plug-out on remove, the cancellable IOCTL, the
   `xbox360` secondary-endpoint resubmit loop, accept backoff and panic recovery.
 - The Steam Deck device, once it uses upstream's input pattern instead of the fork's input gate.
-- The idle and pacing work, proposed as an `IdleMode` option with measured CPU numbers.
+- The idle and pacing work, proposed as `IdleMode` and `IdleKeepaliveInterval` options with measured
+  CPU numbers. The measurement harness travels with it, so the numbers can be reproduced rather than
+  believed.
+- `usb.InterruptInSource` and the allocation-free completion path, which are device-agnostic and cost
+  nothing for a device that does not implement them.
 - The `lib/viiper` features above, which would let WSGM bind upstream's library.
 
 ## Downstream commits
