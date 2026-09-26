@@ -53,13 +53,16 @@ internal sealed class ViiperControllerBackend : IHidBackend
     ///     queries, settings writes and resets, default-settings load and default-mappings, audio
     ///     mapping, the haptic gain set, and the empty frame. Anything outside this set is a protocol
     ///     novelty and is worth its bounded log line. The settings writes are not entirely ignored:
-    ///     <see cref="TryReadMotionRequest" /> reads the IMU mode out of them first.
+    ///     <see cref="ReadMotionSignal" /> reads the motion demand out of them first.
     /// </remarks>
     private static readonly FrozenSet<byte> KnownIgnoredFeedback =
         FrozenSet.ToFrozenSet<byte>(
             [0x00, 0x81, 0x83, 0x85, 0x86, 0x87, 0x88, 0x8E, 0xAE, 0xC1, HapticGainCommandId]);
 
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
+
+    /// <summary>Steam's <c>TRACKPAD_NONE</c>, the mode SDL's Deck driver writes to feed its watchdog.</summary>
+    private const int TrackpadModeNone = 0x07;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -82,8 +85,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private bool _initialized;
     private int _lastFrameLength;
 
-    /// <summary>Whether the current target's consumers have asked for motion; 1 while they have.</summary>
-    private int _motionRequested;
+    /// <summary>Who wants motion from the current Steam Deck target, read out of its feedback frames.</summary>
+    private readonly MotionDemandTracker _motionDemand = new();
 
     private long? _removalUnverifiedGeneration;
     private GCHandle _self;
@@ -345,6 +348,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 TargetLost?.Invoke(this, generation);
             }
 
+            _motionDemand.Dispose();
+
             if (_initialized)
             {
                 // Shutdown releases the bus and the server together, so the bus is not removed
@@ -429,6 +434,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         if (!_self.IsAllocated)
         {
             _self = GCHandle.Alloc(this);
+            _motionDemand.Changed += OnMotionDemandChanged;
         }
 
         var result = NativeViiper.DeviceSetFeedbackCallback(
@@ -478,10 +484,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
             }
 
             ReadOnlySpan<byte> report = new(data, length);
-            if (target.Kind is ManagedControllerTarget.SteamDeckComposite
-                && TryReadMotionRequest(report, out var requested))
+            if (target.Kind is ManagedControllerTarget.SteamDeckComposite)
             {
-                backend.SetMotionRequested(requested);
+                backend._motionDemand.Observe(ReadMotionSignal(report));
             }
 
             if (DecodeFeedback(target.Kind, report) is not { } feedback)
@@ -528,22 +533,24 @@ internal sealed class ViiperControllerBackend : IHidBackend
     }
 
     /// <summary>
-    ///     Reads whether a Steam Deck feedback frame turns the controller's IMU on or off: the
-    ///     set-settings report (0x87) carrying setting 0x30, or a reset that returns every setting to
-    ///     its default (factory reset 0x86, clear settings 0x88, load defaults 0x8E).
+    ///     Reads what a Steam Deck feedback frame says about who wants motion: the set-settings report
+    ///     (0x87) carrying IMU mode (setting 0x30) on or off, a reset that returns every setting to its
+    ///     default (factory reset 0x86, clear settings 0x88, load defaults 0x8E), or the SDL Deck
+    ///     driver's watchdog write of right trackpad mode (setting 0x08) to none.
     /// </summary>
     /// <param name="report">The feedback frame, with or without its leading report id byte.</param>
-    /// <param name="requested">Whether motion is requested after this frame.</param>
-    /// <returns>Whether the frame said anything about the IMU.</returns>
+    /// <returns>The signal, or <see cref="MotionSignal.None" />.</returns>
     /// <remarks>
-    ///     This is the consumer-side demand signal a real Deck controller acts on: its IMU is off
-    ///     until Steam (for a layout that uses gyro) or an application through SDL's Deck driver sets
-    ///     the mode. The settings payload is a length byte followed by (setting, value low, value high)
-    ///     triples, the layout VIIPER's own Deck device parses.
+    ///     The IMU mode is the demand signal a real Deck controller acts on: its IMU is off until Steam
+    ///     sets the mode for a layout that uses gyro. SDL's Deck driver never sets it ("sensors are
+    ///     enabled by default" on a Deck, SDL2 and SDL3 alike) and instead feeds a lizard-mode watchdog
+    ///     every 200 reports while it holds the pad, a single-setting write that Steam does not repeat;
+    ///     that is the only thing on the wire that says an SDL application is reading. The settings
+    ///     payload is a length byte followed by (setting, value low, value high) triples, the layout
+    ///     VIIPER's own Deck device parses. A frame carrying both settings answers for the IMU.
     /// </remarks>
-    internal static bool TryReadMotionRequest(ReadOnlySpan<byte> report, out bool requested)
+    internal static MotionSignal ReadMotionSignal(ReadOnlySpan<byte> report)
     {
-        requested = false;
         if (report.Length > 1 && report[0] == 0x00)
         {
             report = report[1..];
@@ -551,46 +558,43 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
         if (report.Length == 0)
         {
-            return false;
+            return MotionSignal.None;
         }
 
         switch (report[0])
         {
             case 0x86 or 0x88 or 0x8E:
-                return true;
+                return MotionSignal.ImuOff;
             case 0x87 when report.Length >= 2:
             {
                 var payload = Math.Min(report[1], report.Length - 2);
-                var found = false;
+                var signal = MotionSignal.None;
                 for (var offset = 2; offset + 2 < 2 + payload; offset += 3)
                 {
-                    if (report[offset] != 0x30)
+                    var value = report[offset + 1] | (report[offset + 2] << 8);
+                    switch (report[offset])
                     {
-                        continue;
+                        case 0x30:
+                            signal = value != 0 ? MotionSignal.ImuOn : MotionSignal.ImuOff;
+                            break;
+                        case 0x08 when value == TrackpadModeNone && signal is MotionSignal.None:
+                            signal = MotionSignal.ConsumerHeartbeat;
+                            break;
                     }
-
-                    found = true;
-                    requested = (report[offset + 1] | (report[offset + 2] << 8)) != 0;
                 }
 
-                return found;
+                return signal;
             }
             default:
-                return false;
+                return MotionSignal.None;
         }
     }
 
-    private void SetMotionRequested(bool requested)
+    private void OnMotionDemandChanged(bool requested)
     {
-        var value = requested ? 1 : 0;
-        if (Interlocked.Exchange(ref _motionRequested, value) == value)
-        {
-            return;
-        }
-
         Log.Info(requested
-            ? "Virtual controller motion requested: a consumer turned the IMU on."
-            : "Virtual controller motion released: the IMU was turned off or reset.");
+            ? "Virtual controller motion requested: a consumer turned the IMU on or is holding the pad."
+            : "Virtual controller motion released: the IMU is off and no consumer is holding the pad.");
         MotionRequested?.Invoke(this, requested);
     }
 
@@ -768,8 +772,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
         _fastHandle = 0;
         _deviceKind = null;
         _lastFrameLength = 0;
-        // A new device starts with the IMU off, as real firmware does; its consumers ask again.
-        SetMotionRequested(false);
+        // A new device starts with the IMU off and no reader, as real firmware does; its consumers
+        // ask again.
+        _motionDemand.Reset();
         var removed = false;
         Log.Info($"Virtual controller removal started: {kind} as VIIPER device {BusId}:{deviceId}.");
         SafeNative(

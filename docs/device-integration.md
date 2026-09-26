@@ -283,17 +283,32 @@ demand and the coordinator forwards every change to the plugin through
 `IDevicePlugin.SetMotionDemandAsync`. Motion is wanted only while controller management is active on
 a target with a motion report (Steam Deck or DualShock 4, never Xbox 360) and, with the "Motion only
 on request" setting on (the default), only while a consumer has asked the Steam Deck target for it.
-That request is the protocol's own: a real Deck controller keeps its IMU off until Steam, for a
-layout whose gyro is on, or an application through SDL's Deck driver writes the IMU mode setting
-(feature report 0x87, setting 0x30). The VIIPER backend reads that write out of the feedback channel
-and raises `IHidBackend.MotionRequested`; a settings reset or a new device returns it to off. So a
-desktop emulator such as RPCS3 gets motion without WSGM knowing it exists, and a game without a gyro
-layout costs nothing, which is what the earlier "only in game" mode, gated on Steam's running app
-id, could not tell apart. A DualShock 4 target has no such request and always streams. The plugin
-stops reading the hardware, not just publishing; the Claw source keeps its measured zero-rate offset
-across stops so the first samples after a restart are corrected. A plugin built against an older SDK
-never sees the signal and streams as before. The demand is a runtime signal, not a setting the
-plugin owns, which is why it is a contract member rather than a declared plugin setting.
+That request is read off the wire, where a consumer cannot hide. Two signals count, both feature
+reports VIIPER already hands to the backend's feedback callback:
+
+- **Steam's IMU mode write.** A real Deck controller keeps its IMU off until Steam writes the IMU
+  mode setting (report 0x87, setting 0x30) for a layout whose gyro is on, and writes it off again
+  for a layout without. Measured on the Claw, 2026-09-26: removing the gyro component from the
+  desktop layout released the stream within the second. A settings reset or a new device returns it
+  to off.
+- **SDL's watchdog heartbeat.** SDL2 and SDL3's Steam Deck driver never ask for the IMU ("on steam
+  deck, sensors are enabled by default"), so an SDL application such as Eden or RPCS3 gets no gyro
+  from a layout that has none, which is the problem SteamDeckGyroDSU worked around by forcing the
+  IMU on itself. That driver does write something distinctive while it holds the pad: to keep lizard
+  mode off it sends a clear-mappings frame and a single-setting write of right trackpad mode to none
+  every 200 input reports, and nothing at all when it closes. `MotionDemandTracker` counts one beat
+  as a consumer for five seconds, so an SDL reader is present while beats arrive and gone shortly
+  after it lets go. WSGM's own SDL ignores the virtual pad (vendor `28de`, product `1205`) rather
+  than become a consumer of itself.
+
+The backend raises `IHidBackend.MotionRequested` whenever that combined answer changes. A desktop
+emulator gets motion without WSGM knowing it exists, and a game whose layout has no gyro costs
+nothing, which is what the earlier "only in game" mode, gated on Steam's running app id, could not
+tell apart. A DualShock 4 target has no such request and always streams. The plugin stops reading
+the hardware, not just publishing; the Claw source keeps its measured zero-rate offset across stops
+so the first samples after a restart are corrected. A plugin built against an older SDK never sees
+the signal and streams as before. The demand is a runtime signal, not a setting the plugin owns,
+which is why it is a contract member rather than a declared plugin setting.
 
 ### The Steam Deck target loses guide chord edits without help
 

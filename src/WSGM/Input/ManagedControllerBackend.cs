@@ -45,8 +45,10 @@ internal interface IHidBackend : IAsyncDisposable
 
     /// <summary>
     ///     Raised when a consumer of the current target asks for motion or stops asking, with the new
-    ///     answer. A Steam Deck target's consumers turn its IMU on through the set-settings feature
-    ///     report, the way real Deck firmware expects; a new or removed target starts at false.
+    ///     answer. A Steam Deck target's consumers are Steam, which turns the IMU on through the
+    ///     set-settings feature report for a layout that uses gyro, and SDL applications, which never
+    ///     touch the IMU but feed a watchdog write for as long as they hold the pad; a new or removed
+    ///     target starts at false.
     /// </summary>
     event EventHandler<bool>? MotionRequested;
 

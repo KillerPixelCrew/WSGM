@@ -74,6 +74,12 @@ internal static unsafe class SdlGamepads
             SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
             // Real Steam Controller grips (parity with the old Valve HID reader).
             SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_STEAM, "1");
+            // Never WSGM's own virtual Steam Deck pad. While that target exists the UI reads the
+            // managed canonical stream, so SDL opening it only made WSGM a consumer of itself: SDL's
+            // Deck driver feeds a lizard-mode watchdog with a feature report every 200 reports, which
+            // is exactly the heartbeat the motion demand counts an SDL application by
+            // (ViiperControllerBackend.ReadMotionSignal), and one more reader of the 6 ms endpoint.
+            SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES, "0x28de/0x1205");
             // No background joystick thread. SDL's thread polls the XInput slots every 300 ms for
             // the whole session, two to three percent of a core on the Claw with the pad hidden
             // behind HidHide, and after a resume on 2026-09-26 it looped at a full core until the

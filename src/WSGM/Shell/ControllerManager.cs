@@ -139,13 +139,14 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Whether anything downstream reads motion samples right now.</summary>
     /// <remarks>
     ///     True only while management is active on a target that carries a motion report, and, in
-    ///     <see cref="MotionStreamMode.OnDemand" />, while a consumer of a Steam Deck target has turned
-    ///     its IMU on through the backend (<see cref="IHidBackend.MotionRequested" />), the way real
-    ///     Deck firmware powers its IMU on request. Steam sends that for a layout that uses gyro and
-    ///     SDL's Deck driver sends it for an application that opens the pad, so a desktop emulator
-    ///     counts without WSGM knowing it exists. A DualShock 4 target has no such request and always
-    ///     streams. The plugin is told on every change through <see cref="MotionDemandChanged" /> so it
-    ///     can stop reading the sensors rather than publish samples nobody encodes.
+    ///     <see cref="MotionStreamMode.OnDemand" />, while the backend reports a consumer of a Steam
+    ///     Deck target (<see cref="IHidBackend.MotionRequested" />): Steam turning the IMU on for a
+    ///     layout that uses gyro, the way real Deck firmware powers its IMU on request, or an SDL
+    ///     application holding the pad open, which SDL's Deck driver betrays through its watchdog
+    ///     writes since it never asks for the IMU itself. So a desktop emulator counts without WSGM
+    ///     knowing it exists. A DualShock 4 target has no such request and always streams. The plugin
+    ///     is told on every change through <see cref="MotionDemandChanged" /> so it can stop reading
+    ///     the sensors rather than publish samples nobody encodes.
     /// </remarks>
     internal bool MotionWanted
     {
