@@ -9,86 +9,86 @@ public sealed class SteamGuideChordMirrorTests
     // Valve's file is indented the way Steam writes it, so a mirrored autosave fits once its
     // indentation is gone, the way the real 6 KB template does.
     private const string ValveTemplate = """
-        "controller_mappings"
-        {
-        	"version"		"3"
-        	"revision"		"19"
-        	"title"		"Steam Button Chord Basic Configuration"
-        	"description"		""
-        	"controller_type"		"controller_neptune"
-        	"group"
-        	{
-        		"id"		"0"
-        		"mode"		"switches"
-        		"inputs"
-        		{
-        			"button_b"
-        			{
-        				"activators"
-        				{
-        					"Long_Press"
-        					{
-        						"bindings"
-        						{
-        							"binding"		"controller_action quit_application"
-        						}
-        					}
-        				}
-        			}
-        			"button_x"
-        			{
-        				"activators"
-        				{
-        					"Full_Press"
-        					{
-        						"bindings"
-        						{
-        							"binding"		"controller_action screenshot"
-        						}
-        					}
-        				}
-        			}
-        		}
-        	}
-        }
-        """;
+                                         "controller_mappings"
+                                         {
+                                         	"version"		"3"
+                                         	"revision"		"19"
+                                         	"title"		"Steam Button Chord Basic Configuration"
+                                         	"description"		""
+                                         	"controller_type"		"controller_neptune"
+                                         	"group"
+                                         	{
+                                         		"id"		"0"
+                                         		"mode"		"switches"
+                                         		"inputs"
+                                         		{
+                                         			"button_b"
+                                         			{
+                                         				"activators"
+                                         				{
+                                         					"Long_Press"
+                                         					{
+                                         						"bindings"
+                                         						{
+                                         							"binding"		"controller_action quit_application"
+                                         						}
+                                         					}
+                                         				}
+                                         			}
+                                         			"button_x"
+                                         			{
+                                         				"activators"
+                                         				{
+                                         					"Full_Press"
+                                         					{
+                                         						"bindings"
+                                         						{
+                                         							"binding"		"controller_action screenshot"
+                                         						}
+                                         					}
+                                         				}
+                                         			}
+                                         		}
+                                         	}
+                                         }
+                                         """;
 
     private static readonly int ValveSize = Encoding.UTF8.GetByteCount(ValveTemplate);
 
     private static string Autosave(int revision)
     {
         return $$"""
-            "controller_mappings"
-            {
-            	"version"		"3"
-            	"revision"		"{{revision}}"
-            	"title"		"Steam Button Chord Basic Configuration"
-            	"description"		"#SettingsController_AutosaveDescription"
-            	"progenitor"		"default://c:\\program files (x86)\\steam/controller_base/chord_neptune.vdf"
-            	"controller_type"		"controller_neptune"
-            	"group"
-            	{
-            		"id"		"0"
-            		"mode"		"switches"
-            		"inputs"
-            		{
-            			"button_a"
-            			{
-            				"activators"
-            				{
-            					"Full_Press"
-            					{
-            						"bindings"
-            						{
-            							"binding"		"controller_action gr_toggle, , "
-            						}
-            					}
-            				}
-            			}
-            		}
-            	}
-            }
-            """;
+                 "controller_mappings"
+                 {
+                 	"version"		"3"
+                 	"revision"		"{{revision}}"
+                 	"title"		"Steam Button Chord Basic Configuration"
+                 	"description"		"#SettingsController_AutosaveDescription"
+                 	"progenitor"		"default://c:\\program files (x86)\\steam/controller_base/chord_neptune.vdf"
+                 	"controller_type"		"controller_neptune"
+                 	"group"
+                 	{
+                 		"id"		"0"
+                 		"mode"		"switches"
+                 		"inputs"
+                 		{
+                 			"button_a"
+                 			{
+                 				"activators"
+                 				{
+                 					"Full_Press"
+                 					{
+                 						"bindings"
+                 						{
+                 							"binding"		"controller_action gr_toggle, , "
+                 						}
+                 					}
+                 				}
+                 			}
+                 		}
+                 	}
+                 }
+                 """;
     }
 
     private static string Mirrored(int revision)
@@ -148,7 +148,8 @@ public sealed class SteamGuideChordMirrorTests
     {
         const string layout = "\"a\"\n{\n\t\"k\"\t\t\"v\"\n\t\"g\"\n\t{\n\t\t\"x\"\t\t\"y\"\n\t}\n}\n";
 
-        Assert.Equal("\"a\"\n{\n\"k\"\t\"v\"\n\"g\"\n{\n\"x\"\t\"y\"\n}\n}\n\n\n", SteamGuideChordMirror.FitToSize(layout, 34));
+        Assert.Equal("\"a\"\n{\n\"k\"\t\"v\"\n\"g\"\n{\n\"x\"\t\"y\"\n}\n}\n\n\n",
+            SteamGuideChordMirror.FitToSize(layout, 34));
         Assert.Equal("\"a\"{\"k\"\"v\"\"g\"{\"x\"\"y\"}}\n", SteamGuideChordMirror.FitToSize(layout, 23));
         Assert.Null(SteamGuideChordMirror.FitToSize(layout, 21));
     }

@@ -21,7 +21,8 @@ public sealed class SteamControllerCapsSurfaceTests
     [Fact]
     public void BothTrackpadsAbsentClearsTheTrackpadBit()
     {
-        var mask = SteamControllerCapsSurface.Mask(Presentation(GlyphControlId.LeftTrackpad, GlyphControlId.RightTrackpad));
+        var mask = SteamControllerCapsSurface.Mask(Presentation(GlyphControlId.LeftTrackpad,
+            GlyphControlId.RightTrackpad));
 
         Assert.Equal(SteamControllerCapsSurface.TrackpadBit, mask);
     }
@@ -36,7 +37,8 @@ public sealed class SteamControllerCapsSurfaceTests
     public void BothStickTouchesAbsentClearsTheCapacitiveStickBit()
     {
         var mask = SteamControllerCapsSurface.Mask(Presentation(
-            GlyphControlId.LeftStickTouch, GlyphControlId.RightStickTouch, GlyphControlId.RearLeft2, GlyphControlId.RearRight2));
+            GlyphControlId.LeftStickTouch, GlyphControlId.RightStickTouch, GlyphControlId.RearLeft2,
+            GlyphControlId.RearRight2));
 
         // The back-button pair is not mapped to a bit on purpose.
         Assert.Equal(SteamControllerCapsSurface.CapacitiveStickBit, mask);

@@ -47,6 +47,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private const byte HapticEventCommandId = 0xDC;
     private const byte HapticGainCommandId = 0xE2;
 
+    /// <summary>Steam's <c>TRACKPAD_NONE</c>, the mode SDL's Deck driver writes to feed its watchdog.</summary>
+    private const int TrackpadModeNone = 0x07;
+
     /// <summary>Feedback command ids Steam sends that deliberately produce no motor output.</summary>
     /// <remarks>
     ///     Configuration and identity chatter observed live: clear-mappings, attribute and string
@@ -61,9 +64,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
-    /// <summary>Steam's <c>TRACKPAD_NONE</c>, the mode SDL's Deck driver writes to feed its watchdog.</summary>
-    private const int TrackpadModeNone = 0x07;
-
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>The last frame the library accepted for the current device, and its length.</summary>
@@ -76,6 +76,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// </remarks>
     private readonly byte[] _lastFrame = new byte[SteamDeckNeptuneReport.Length];
 
+    /// <summary>Who wants motion from the current Steam Deck target, read out of its feedback frames.</summary>
+    private readonly MotionDemandTracker _motionDemand = new();
+
     /// <summary>Settings-frame shapes already logged, so each is reported once.</summary>
     private readonly ConcurrentDictionary<int, byte> _tracedSettingsFrames = new();
 
@@ -87,9 +90,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private long _generation;
     private bool _initialized;
     private int _lastFrameLength;
-
-    /// <summary>Who wants motion from the current Steam Deck target, read out of its feedback frames.</summary>
-    private readonly MotionDemandTracker _motionDemand = new();
 
     private long? _removalUnverifiedGeneration;
     private GCHandle _self;

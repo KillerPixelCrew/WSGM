@@ -98,6 +98,22 @@ public sealed class SteamGuideChordMirror : IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+        }
+
+        Apply(false, false);
+    }
+
     /// <summary>Raised when <see cref="Active" /> changed.</summary>
     public event Action? Changed;
 
@@ -115,23 +131,7 @@ public sealed class SteamGuideChordMirror : IDisposable
     public static bool RestoreInstalledSteam(string steamDirectory)
     {
         using SteamGuideChordMirror mirror = new(steamDirectory);
-        return mirror.RestoreDefault(forget: true);
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-        }
-
-        Apply(false, false);
+        return mirror.RestoreDefault(true);
     }
 
     /// <summary>Applies the setting and the managed target's state.</summary>
@@ -149,7 +149,7 @@ public sealed class SteamGuideChordMirror : IDisposable
             _enabled = enabled;
             _targetActive = steamDeckTargetActive;
             var wanted = !_disposed && enabled && steamDeckTargetActive;
-            if (wanted == (_watcher is not null))
+            if (wanted == _watcher is not null)
             {
                 return;
             }
@@ -161,7 +161,7 @@ public sealed class SteamGuideChordMirror : IDisposable
             else
             {
                 StopUnderGate();
-                RestoreUnderGate(forget: true);
+                RestoreUnderGate(true);
                 changed = true;
             }
         }
@@ -189,7 +189,7 @@ public sealed class SteamGuideChordMirror : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || _watcher is null && !_targetActive)
+            if (_disposed || (_watcher is null && !_targetActive))
             {
                 return;
             }
@@ -268,7 +268,8 @@ public sealed class SteamGuideChordMirror : IDisposable
 
     private void OnAutosaveChanged(object sender, FileSystemEventArgs e)
     {
-        if (!e.FullPath.Contains($"{Path.DirectorySeparatorChar}{ChordAppId}{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+        if (!e.FullPath.Contains($"{Path.DirectorySeparatorChar}{ChordAppId}{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal))
         {
             return;
         }
@@ -383,7 +384,8 @@ public sealed class SteamGuideChordMirror : IDisposable
             File.WriteAllText(temporary, mirror, new UTF8Encoding(false));
             File.Move(temporary, _template, true);
             File.Delete(marker);
-            Log.Change("steam-chord-mirror", $"Guide chord layout mirrored into Steam's template (revision {revision}).");
+            Log.Change("steam-chord-mirror",
+                $"Guide chord layout mirrored into Steam's template (revision {revision}).");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -559,13 +561,17 @@ public sealed class SteamGuideChordMirror : IDisposable
         return builder.ToString();
     }
 
-    private static string Separator((string Text, bool Quoted) previous, (string Text, bool Quoted) next, int level, bool keyPending)
+    private static string Separator((string Text, bool Quoted) previous, (string Text, bool Quoted) next, int level,
+        bool keyPending)
     {
         // Level 0 keeps one pair per line with a tab between key and value; level 1 keeps a space
         // only where two unquoted tokens would otherwise merge.
         if (level == 1)
         {
-            return !previous.Quoted && !next.Quoted && previous.Text is not ("{" or "}") && next.Text is not ("{" or "}") ? " " : "";
+            return !previous.Quoted && !next.Quoted && previous.Text is not ("{" or "}") &&
+                   next.Text is not ("{" or "}")
+                ? " "
+                : "";
         }
 
         return keyPending && next.Text is not ("{" or "}") ? "\t" : "\n";

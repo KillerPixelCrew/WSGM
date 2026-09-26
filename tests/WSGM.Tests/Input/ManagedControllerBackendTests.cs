@@ -382,12 +382,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
 
     public event EventHandler<bool>? MotionRequested;
 
-    /// <summary>Plays a consumer turning the target's IMU on or off.</summary>
-    internal void RequestMotion(bool requested)
-    {
-        MotionRequested?.Invoke(this, requested);
-    }
-
     public event EventHandler<long>? TargetLost;
 
     public Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken)
@@ -581,6 +575,12 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             _operations.Add("dispose");
             return ValueTask.CompletedTask;
         }
+    }
+
+    /// <summary>Plays a consumer turning the target's IMU on or off.</summary>
+    internal void RequestMotion(bool requested)
+    {
+        MotionRequested?.Invoke(this, requested);
     }
 
     internal void EmitOutput(

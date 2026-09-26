@@ -72,9 +72,6 @@ internal sealed class MotionDemandTracker : IDisposable
         }
     }
 
-    /// <summary>Raised when <see cref="Requested" /> changed, outside the tracker's lock.</summary>
-    internal event Action<bool>? Changed;
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -90,6 +87,9 @@ internal sealed class MotionDemandTracker : IDisposable
 
         _timer.Dispose();
     }
+
+    /// <summary>Raised when <see cref="Requested" /> changed, outside the tracker's lock.</summary>
+    internal event Action<bool>? Changed;
 
     /// <summary>Applies one signal read out of a feedback frame.</summary>
     /// <param name="signal">The signal.</param>

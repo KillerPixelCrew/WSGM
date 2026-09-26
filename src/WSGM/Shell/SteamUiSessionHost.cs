@@ -45,6 +45,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly SteamUiBridgeHost _bridge;
     private readonly NativeQamBrightnessService _brightness;
+    private readonly SteamGuideChordMirror? _chordMirror;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
 
     /// <summary>The processor boost row's backend, or null when this session cannot write Windows power policy.</summary>
@@ -127,7 +128,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly ISteamUiTransport _transport;
     private readonly WsgmSteamSettingsService? _wsgmSettings;
-    private readonly SteamGuideChordMirror? _chordMirror;
     private volatile bool _carouselShowUninstalled;
     private volatile bool _disposed;
     private volatile bool _downloadSortEnabled;
