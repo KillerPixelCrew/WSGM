@@ -268,6 +268,14 @@ internal static partial class NativeMethods
     internal static partial bool PostMessageW(nint hWnd, uint msg, nint wParam, nint lParam);
 
     /// <summary>
+    ///     Returns whether Windows considers the window's thread to have stopped pumping
+    ///     messages. Unlike a probe of our own, this is the state the window manager itself acts on.
+    /// </summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsHungAppWindow(nint hWnd);
+
+    /// <summary>
     ///     Returns the effective DPI for the monitor currently containing
     ///     <paramref name="hWnd" />. Unlike a cached screen descriptor, this reflects
     ///     a window that has just crossed onto another monitor.

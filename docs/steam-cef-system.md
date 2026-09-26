@@ -109,9 +109,14 @@ one choke point the patch host, the running-application probe and every one-shot
 nothing WSGM does can reach a cold-starting Steam's port before its window exists.
 
 ```text
-TransportShouldBeOpen(cefMaster, inGameMode, bigPictureRequestPending, bigPictureReady)
-  = cefMaster && ((!inGameMode && !pending) || bigPictureReady)
+TransportShouldBeOpen(cefMaster, inGameMode, bigPictureRequestPending, bigPictureReady,
+                      bigPictureClosePending)
+  = cefMaster && !bigPictureClosePending && ((!inGameMode && !pending) || bigPictureReady)
 ```
+
+The hold is symmetric. Leaving Big Picture rebuilds Steam's front-end exactly as entering it does,
+so `bigPictureClosePending` closes the transport before `steam://close/bigpicture` fires and keeps
+it closed until the desktop return settles.
 
 Desktop mode permits discovery on the master switch. In both modes WSGM constructs the toolkit
 transport with `requireMainWindow: true`: discovery must find exactly one validated, shaped
@@ -122,13 +127,14 @@ runs a one-second gate loop that re-decides on every signal (mode change, `Steam
 `SteamExited`, master switch) and logs the transition under
 `Log.Change("steam-ui-transport-gate", …)`:
 
-| Log line                                                                                                                         | Meaning                     |
-| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `Steam UI transport open: Big Picture window is up.`                                                                             | healthy game mode           |
-| `Steam UI transport open: desktop mode.`                                                                                         | healthy desktop mode        |
-| `Steam UI transport closed: game mode without a Big Picture window — holding every automatic CEF touch until Steam's UI exists.` | Steam cold-starting or gone |
-| `Steam UI transport closed: Big Picture was requested — holding every automatic CEF touch until Steam's UI exists.`              | transition in flight        |
-| `Steam UI transport closed: Steam CEF integration is off.`                                                                       | master switch off           |
+| Log line                                                                                                                          | Meaning                     |
+| --------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `Steam UI transport open: Big Picture window is up.`                                                                              | healthy game mode           |
+| `Steam UI transport open: desktop mode.`                                                                                          | healthy desktop mode        |
+| `Steam UI transport closed: game mode without a Big Picture window — holding every automatic CEF touch until Steam's UI exists.`  | Steam cold-starting or gone |
+| `Steam UI transport closed: Big Picture was requested — holding every automatic CEF touch until Steam's UI exists.`               | transition in flight        |
+| `Steam UI transport closed: Big Picture was asked to close — holding every automatic CEF touch until the desktop return settles.` | desktop return in flight    |
+| `Steam UI transport closed: Steam CEF integration is off.`                                                                        | master switch off           |
 
 A healthy cold boot shows `Big Picture window detected` before the first `open:` line and before any
 `steam.ui.patch.<id>: Applied`. The gate decision is applied before
@@ -141,7 +147,7 @@ half-built game-mode session; their shared transport still waits for a MainWindo
 The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport hold.
 A first cold start must write the flag while attachment is still prohibited.
 
-### Retract before Big Picture
+### Retract before either Big Picture mode change
 
 Steam rebuilds its front-end for a Big Picture request and bootstraps against whatever
 `SteamClient.System.*` says exists, so namespaces WSGM supplied on the desktop would go unanswered
@@ -155,6 +161,23 @@ re-applies the current configuration on the UI dispatcher. It explicitly restore
 profile and absent-control hiding because disabling the host clears that profile. CEF master-switch
 re-enabling also restores it after retraction; neither path relies on another device publication.
 The transition sequence itself is in `docs\boot-and-shell.md`.
+
+`PrepareSteamUiForDesktopAsync` is the mirror image on the way out, under a shorter 2 s budget
+because the user is waiting for their desktop: the desktop return retracts and closes before
+`steam://close/bigpicture`, then waits up to 3 s for the Big Picture window to actually disappear.
+If it is still there, WSGM posts `WM_CLOSE` to the window itself — which needs neither the shell
+protocol handler nor Steam's main thread — waits another 3 s, and logs the window handle and
+`IsHungAppWindow` either way before restoring the display scale and restarting Explorer. The whole
+exit is deliberately shorter than the 20 s Explorer restore budget it precedes.
+
+Both holds release through `ReleaseSteamUiBigPictureHold` when the transition settles. Closing the
+gate detaches and disposes the channel's CDP connection, so the hold also retires a socket Steam has
+stopped servicing. Without the exit half, patch traffic and the running-application probe kept
+driving the front-end Steam was rebuilding, and nothing retired the dead connection: on 2026-09-26
+the Big Picture entry patch pass stalled on `steam-ui.bridge`, every later evaluation timed out for
+three minutes until Steam's own websocket closed and steamwebhelper restarted, the close request
+thirteen seconds later was never consumed, and Explorer came up underneath a Big Picture window
+Steam was no longer servicing and never answered a liveness probe.
 
 Mode events: `DesktopModeStarting` clears game mode, cancels the tab boot sync and retracts the
 tabs; `GameModeEntered` sets game mode, re-checks the gate and starts the tab boot sync. The header

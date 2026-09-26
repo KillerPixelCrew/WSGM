@@ -100,13 +100,16 @@ public sealed class ShellSession : IAsyncDisposable
     ///     disagree with the taskbar about which device is default.
     /// </remarks>
     private AudioManager? _audio;
-    private SteamGuideChordMirror? _chordMirror;
-    private bool _steamDeckTargetActive;
 
     /// <summary>Serializes profile and live advanced-format writes against the session audio manager.</summary>
     private AudioProfileService? _audioProfiles;
 
     private AutoTdpService? _autoTdp;
+
+    // The same hold for the opposite direction: true from just before the desktop return asks Steam
+    // to close Big Picture until that return settles (PrepareSteamUiForDesktopAsync /
+    // ReleaseSteamUiBigPictureHold). Leaving rebuilds the front-end exactly as entering does.
+    private volatile bool _bigPictureExitPending;
 
     // Non-null from the moment the service-boot splash becomes interactive until
     // the worker releases SessionModes' transition gate. The splash's desktop
@@ -124,6 +127,7 @@ public sealed class ShellSession : IAsyncDisposable
     // retraction task reads it to decide whether closing the choke point is still
     // wanted, while the UI thread writes it.
     private volatile bool _cefMasterEnabled;
+    private SteamGuideChordMirror? _chordMirror;
     private Task _commonPluginStartup = Task.CompletedTask;
 
     private CommonPluginManager? _commonPlugins;
@@ -243,6 +247,7 @@ public sealed class ShellSession : IAsyncDisposable
     private StartupAppWatcher? _startupWatcher;
     private SteamControllerHandoff? _steamControllerHandoff;
     private SteamControllerOwnershipAdapter? _steamControllerOwnership;
+    private bool _steamDeckTargetActive;
 
     /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
     private SteamStorageBridge? _steamStorage;
@@ -408,9 +413,10 @@ public sealed class ShellSession : IAsyncDisposable
         var master = _cefMasterEnabled;
         var inGameMode = _inGameMode;
         var transitionPending = _gameModeCefTransitionPending;
+        var exitPending = _bigPictureExitPending;
         var bigPictureReady = master && (inGameMode || transitionPending) && SteamUiReadiness.IsReady;
         var open = SteamUiReadiness.TransportShouldBeOpen(
-            master, inGameMode, transitionPending, bigPictureReady);
+            master, inGameMode, transitionPending, bigPictureReady, exitPending);
         // A held transport is not a disabled one: patches that meet it must say they are waiting.
         SteamUiTransportSession.SetEnabled(open, master ? SteamUiHeldReason : null);
         string state;
@@ -419,6 +425,11 @@ public sealed class ShellSession : IAsyncDisposable
             state = inGameMode || transitionPending
                 ? "Steam UI transport open: Big Picture window is up."
                 : "Steam UI transport open: desktop mode.";
+        }
+        else if (master && exitPending)
+        {
+            state = "Steam UI transport closed: Big Picture was asked to close — "
+                    + "holding every automatic CEF touch until the desktop return settles.";
         }
         else if (master)
         {
@@ -506,17 +517,77 @@ public sealed class ShellSession : IAsyncDisposable
     }
 
     /// <summary>
-    ///     Ends the Big Picture request hold and re-applies the configured Steam UI state
-    ///     for whichever mode the transition settled in. UI thread; safe when no hold is pending.
+    ///     Retracts every injected Steam UI surface and closes the transport before a
+    ///     transition asks Steam to leave Big Picture.
+    /// </summary>
+    /// <remarks>
+    ///     The mirror of <see cref="PrepareSteamUiForBigPictureAsync" />, and for the same reason:
+    ///     <c>steam://close/bigpicture</c> makes Steam rebuild its whole front-end back to the desktop
+    ///     client, and WSGM used to keep the transport open and every patch applied straight through
+    ///     that rebuild. On 2026-09-26 that wedged steamwebhelper — every evaluation timed out for
+    ///     three minutes until the websocket closed and Steam restarted its helper — and the fresh
+    ///     Explorer started underneath it never answered a liveness probe, so the desktop return
+    ///     failed outright. Nothing may touch Steam's UI between the close request and the settled
+    ///     desktop.
+    /// </remarks>
+    private async Task PrepareSteamUiForDesktopAsync()
+    {
+        if (_steamUiTransport is null)
+        {
+            return;
+        }
+
+        _bigPictureExitPending = true;
+        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_cefMasterEnabled)
+            {
+                if (_steamUi is not null)
+                {
+                    try
+                    {
+                        await _steamUi.DisableAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Retracting the native Steam UI patch for the Big Picture "
+                                 + $"close failed: {ex.Message}");
+                    }
+                }
+
+                try
+                {
+                    await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Retracting legacy injected Steam UI for the Big Picture "
+                             + $"close failed: {ex.Message}");
+                }
+            }
+
+            ApplySteamUiTransportGate();
+        }
+        finally
+        {
+            _cefMasterGate.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Ends the Big Picture request or close hold and re-applies the configured Steam UI
+    ///     state for whichever mode the transition settled in. UI thread; safe when no hold is pending.
     /// </summary>
     private void ReleaseSteamUiBigPictureHold()
     {
-        if (!_gameModeCefTransitionPending)
+        if (!_gameModeCefTransitionPending && !_bigPictureExitPending)
         {
             return;
         }
 
         _gameModeCefTransitionPending = false;
+        _bigPictureExitPending = false;
         RequestSteamUiTransportGateCheck();
         Log.Observe(RestoreSteamUiAfterBigPictureAsync(), "Steam UI transition restore");
     }
@@ -529,7 +600,8 @@ public sealed class ShellSession : IAsyncDisposable
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (_disposed || !_cefMasterEnabled || _gameModeCefTransitionPending)
+                if (_disposed || !_cefMasterEnabled
+                              || _gameModeCefTransitionPending || _bigPictureExitPending)
                 {
                     return;
                 }
@@ -1569,6 +1641,7 @@ public sealed class ShellSession : IAsyncDisposable
             _volumeButtons?.SetGameModeActive(false);
         };
         _modes.PrepareSteamUiForBigPictureAsync = PrepareSteamUiForBigPictureAsync;
+        _modes.PrepareSteamUiForDesktopAsync = PrepareSteamUiForDesktopAsync;
         _modes.SteamUiBigPictureRequestSettled = () =>
             Dispatcher.UIThread.Post(ReleaseSteamUiBigPictureHold);
         _modes.GameModeEntered += () =>
@@ -2266,7 +2339,8 @@ public sealed class ShellSession : IAsyncDisposable
                 // other caller.
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (_disposed || !_cefMasterEnabled || _gameModeCefTransitionPending)
+                    if (_disposed || !_cefMasterEnabled
+                                  || _gameModeCefTransitionPending || _bigPictureExitPending)
                     {
                         return;
                     }

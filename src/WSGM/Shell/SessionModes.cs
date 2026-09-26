@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -49,6 +50,8 @@ public sealed class SessionModes
     public const string ExplorerTakeoverRefusedWarning =
         "Game Mode could not safely take over this Windows Explorer. Desktop mode was preserved; sign out or reboot once before retrying.";
 
+    private const uint WmClose = 0x0010;
+
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
 
     // Upper bound for an unresponsive exit. Healthy and retired-shell paths finish on observation.
@@ -64,6 +67,30 @@ public sealed class SessionModes
     ///     broken CEF session can never block the mode switch itself.
     /// </summary>
     private static readonly TimeSpan SteamUiPrepareTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    ///     How long the desktop return waits for Steam's Big Picture window to actually go away,
+    ///     per close attempt. The rest of the return — the display-scale restore and the Explorer
+    ///     restart — runs underneath that window otherwise, and on 2026-09-26 it did: Steam's CEF
+    ///     renderer had stopped answering, nothing consumed the close URL, and the fresh Explorer
+    ///     never answered a liveness probe for the whole 20 s restore budget.
+    /// </summary>
+    /// <remarks>
+    ///     Two attempts plus the retraction below are the worst case the user waits before Explorer
+    ///     starts, so the whole exit is deliberately shorter than that 20 s budget. Big Picture
+    ///     normally closes well inside the first attempt.
+    /// </remarks>
+    private static readonly TimeSpan BigPictureCloseTimeout = TimeSpan.FromSeconds(3);
+
+    /// <summary>How often the Big Picture close wait re-reads Steam's window.</summary>
+    private static readonly TimeSpan BigPictureClosePollInterval = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    ///     How long the Steam UI retraction may delay the Big Picture close. Shorter than the
+    ///     request budget: on the way out the retraction is a courtesy to Steam's rebuild, and the
+    ///     one case that needs it most is the one where Steam has stopped answering entirely.
+    /// </summary>
+    private static readonly TimeSpan SteamUiDesktopPrepareTimeout = TimeSpan.FromSeconds(2);
 
     private readonly ExplorerDesktopHost? _desktopHost;
     private readonly Lock _homeLaunchGate = new();
@@ -111,6 +138,13 @@ public sealed class SessionModes
     ///     <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>).
     /// </summary>
     internal Func<Task>? PrepareSteamUiForBigPictureAsync { get; set; }
+
+    /// <summary>
+    ///     Awaited (bounded) immediately before the desktop return asks Steam to close Big
+    ///     Picture, for the same reason as the entry hook above: closing rebuilds Steam's front-end
+    ///     just as opening does (see <c>ShellSession.PrepareSteamUiForDesktopAsync</c>).
+    /// </summary>
+    internal Func<Task>? PrepareSteamUiForDesktopAsync { get; set; }
 
     /// <summary>
     ///     Invoked when a transition worker that may have requested Big Picture has settled,
@@ -535,6 +569,113 @@ public sealed class SessionModes
     }
 
     /// <summary>
+    ///     The desktop return's Big Picture exit: retract injected Steam UI and close the
+    ///     transport, ask Steam to leave Big Picture, then wait for that window to go away before the
+    ///     rest of the return runs. No-op when Steam isn't running.
+    /// </summary>
+    internal async Task ExitBigPictureAndSettleAsync()
+    {
+        // Live check, not the up-to-5 s-stale monitor poll: entering desktop mode
+        // right after Steam started must still send the close URL.
+        if (!Steam.IsRunning)
+        {
+            return;
+        }
+
+        await PrepareSteamUiAsync(
+                PrepareSteamUiForDesktopAsync,
+                "Big Picture close",
+                SteamUiDesktopPrepareTimeout)
+            .ConfigureAwait(false);
+        ExitBigPicture();
+        if (await WaitForBigPictureToCloseAsync(BigPictureCloseTimeout).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        // The protocol request went unanswered. That is not a slow Steam: on 2026-09-26 its CEF
+        // renderer had stopped answering thirteen seconds earlier, so nothing consumed the URL and
+        // the fullscreen window simply stayed up while the rest of the return rebuilt the desktop
+        // underneath it. Post the close straight to the window, which needs neither the shell
+        // protocol handler nor Steam's main thread, and record what the window manager thinks of
+        // that window either way.
+        var window = await Task.Run(Steam.FindBigPictureWindow).ConfigureAwait(false);
+        if (window == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var hung = NativeMethods.IsHungAppWindow(window);
+        Log.Warn($"Steam's Big Picture window (hwnd 0x{window:X}) outlived the close request "
+                 + $"(hung={hung}); posting WM_CLOSE to it directly.");
+        NativeMethods.PostMessageW(window, WmClose, 0, 0);
+        if (await WaitForBigPictureToCloseAsync(BigPictureCloseTimeout).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        Log.Error("Steam kept its Big Picture window through both close requests "
+                  + $"(hwnd 0x{window:X}, hung={NativeMethods.IsHungAppWindow(window)}). The desktop "
+                  + "is being restored underneath it, so Explorer may come up behind a window "
+                  + "Steam is no longer servicing.");
+    }
+
+    /// <summary>Waits, bounded, for Steam's Big Picture window to disappear.</summary>
+    /// <param name="timeout">How long to wait.</param>
+    /// <returns>Whether the window was gone before the timeout.</returns>
+    private static async Task<bool> WaitForBigPictureToCloseAsync(TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (true)
+        {
+            if (!await Task.Run(() => Steam.IsBigPictureVisible).ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                return false;
+            }
+
+            await Task.Delay(BigPictureClosePollInterval).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    ///     Runs one bounded Steam UI retraction before a Big Picture mode change. A broken CEF
+    ///     session delays the switch by at most <see cref="SteamUiPrepareTimeout" /> and never blocks it.
+    /// </summary>
+    private static async Task PrepareSteamUiAsync(Func<Task>? prepare, string request, TimeSpan budget)
+    {
+        if (prepare is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var work = prepare();
+            var first = await Task
+                .WhenAny(work, Task.Delay(budget))
+                .ConfigureAwait(false);
+            if (first == work)
+            {
+                await work.ConfigureAwait(false);
+            }
+            else
+            {
+                Log.Warn($"Steam UI retraction did not finish before the {request}; "
+                         + "continuing with the transition.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam UI retraction before the {request} failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     ///     Deliberately stops Steam (graceful steam://exit). Pauses the monitor
     ///     first so neither auto-relaunch nor the exit-overlay reaction fires.
     /// </summary>
@@ -590,29 +731,11 @@ public sealed class SessionModes
     internal async Task<string?> RequestBigPictureWhilePausedAsync()
     {
         Volatile.Write(ref _steamClosedByUser, 0);
-        if (PrepareSteamUiForBigPictureAsync is { } prepare)
-        {
-            try
-            {
-                var work = prepare();
-                var first = await Task
-                    .WhenAny(work, Task.Delay(SteamUiPrepareTimeout))
-                    .ConfigureAwait(false);
-                if (first == work)
-                {
-                    await work.ConfigureAwait(false);
-                }
-                else
-                {
-                    Log.Warn("Steam UI retraction did not finish before the Big Picture request; "
-                             + "continuing with the transition.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Steam UI retraction before the Big Picture request failed: {ex.Message}");
-            }
-        }
+        await PrepareSteamUiAsync(
+                PrepareSteamUiForBigPictureAsync,
+                "Big Picture request",
+                SteamUiPrepareTimeout)
+            .ConfigureAwait(false);
 
         // Live check, not the up-to-5 s-stale monitor poll: a desktop session leaves Steam running
         // windowed, so the protocol has to re-activate that client into Big Picture rather than
@@ -704,8 +827,7 @@ public sealed class SessionModes
     {
         public Task ExitBigPictureAsync()
         {
-            ExitBigPicture();
-            return Task.CompletedTask;
+            return modes.ExitBigPictureAndSettleAsync();
         }
 
         public async Task<bool> RestoreLayoutAsync()
@@ -763,12 +885,23 @@ public sealed class SessionModes
             var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed")
                 .ConfigureAwait(false);
             var restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
-            if (restored)
+            if (!restored)
             {
-                await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
+                // The whole desktop return is abandoned here, leaving game mode retired and no
+                // desktop. One warning among the patch traffic hid that for a whole session; say it
+                // once, as an error, with the reason the observer recorded.
+                Log.Error("Desktop return abandoned: Explorer was not restored "
+                          + $"({result.Route}, {result.Detail}, {result.Elapsed.TotalMilliseconds:0} ms).");
+                return false;
             }
 
-            return restored;
+            if (result.Outcome is ExplorerDesktopOutcome.Degraded)
+            {
+                warnings.Add("Desktop shell: restored but unverified (" + result.Detail + ").");
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
+            return true;
         }
 
         public async Task RunLeaveActionsAsync()

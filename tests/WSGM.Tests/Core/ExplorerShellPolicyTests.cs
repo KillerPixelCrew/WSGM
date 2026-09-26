@@ -175,6 +175,33 @@ public sealed class ExplorerShellPolicyTests
             ExplorerShellPolicy.ClassifyDesktop(result, ExplorerDesktopRoute.ExistingShell));
     }
 
+    [Fact]
+    public void OwnsShellSurfaces_IsOwnershipAloneSoAnUnresponsiveDesktopStillCounts()
+    {
+        Assert.True(ExplorerShellPolicy.OwnsShellSurfaces(true, true, 17248, 17248));
+        Assert.False(ExplorerShellPolicy.IsInitializedShellOwner(true, true, 17248, 17248, false));
+        Assert.False(ExplorerShellPolicy.OwnsShellSurfaces(true, true, 17248, 900));
+        Assert.False(ExplorerShellPolicy.OwnsShellSurfaces(true, false, 17248, 17248));
+        Assert.False(ExplorerShellPolicy.OwnsShellSurfaces(true, true, 0, 0));
+    }
+
+    [Fact]
+    public void ClassifyDesktop_UnresponsiveCanonicalShellIsDegradedNotAbsent()
+    {
+        // The canonical Explorer owned both surfaces and passed every identity check; only the
+        // 500 ms liveness probe went unanswered, because Steam's closing Big Picture window had
+        // Explorer's UI thread blocked. Reporting that as Failed abandoned the whole desktop
+        // return and left the session with no desktop and no Steam (Claw, 2026-09-26).
+        var acceptance = new ExplorerShellAcceptance(false, ExplorerShellRejection.ShellUnresponsive);
+
+        Assert.Equal(
+            ExplorerDesktopOutcome.Degraded,
+            ExplorerShellPolicy.ClassifyDesktop(acceptance, ExplorerDesktopRoute.ShellAnchor));
+        Assert.Equal(
+            ExplorerDesktopOutcome.Degraded,
+            ExplorerShellPolicy.ClassifyDesktop(acceptance, ExplorerDesktopRoute.ExistingShell));
+    }
+
     [Theory]
     [InlineData((int)ExplorerDesktopRoute.ExistingShell, (int)ExplorerDesktopOutcome.Normal)]
     [InlineData((int)ExplorerDesktopRoute.ShellAnchor, (int)ExplorerDesktopOutcome.Normal)]

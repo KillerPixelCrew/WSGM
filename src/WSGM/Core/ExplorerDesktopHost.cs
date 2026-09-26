@@ -469,19 +469,30 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         var process = processId == 0
             ? NativeShellProcessInfo.Unavailable(0, 0)
             : NativeShellProcess.Inspect(processId);
-        var ready = ExplorerShellPolicy.IsInitializedShellOwner(
+        var ownsSurfaces = ExplorerShellPolicy.OwnsShellSurfaces(
             taskbarPresent,
             shellPresent,
             taskbarOwner,
-            shellOwner,
-            !requireResponsive || (taskbarPresent && shellPresent
-                                                  && IsResponsive(taskbar) && IsResponsive(shellWindow)));
+            shellOwner);
+        var responsive = !requireResponsive
+                         || (ownsSurfaces && IsResponsive(taskbar) && IsResponsive(shellWindow));
+        var ready = ownsSurfaces && responsive;
         var acceptance = ExplorerShellPolicy.Evaluate(
             process,
             ExplorerPath,
             expectedSessionId,
             ready,
             true);
+        // Only the liveness probe failed: the canonical Explorer owns both surfaces and passed every
+        // identity check. Name that separately so the desktop is reported as degraded rather than
+        // absent when a third-party window blocks Explorer's UI thread (Steam Big Picture, 2026-09-26).
+        if (!acceptance.Accepted
+            && acceptance.Rejection is ExplorerShellRejection.NotReady
+            && ownsSurfaces)
+        {
+            acceptance = new ExplorerShellAcceptance(false, ExplorerShellRejection.ShellUnresponsive);
+        }
+
         var outcome = ExplorerShellPolicy.ClassifyDesktop(
             acceptance,
             ExplorerDesktopRoute.ExistingShell);
@@ -519,6 +530,14 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             last = ObserveCurrentDesktop(_sessionId);
             var outcome = ExplorerShellPolicy.ClassifyDesktop(last.Acceptance, route);
+            // An unresponsive owner is a usable desktop, but only as the deadline fallback below.
+            // A starting Explorer is briefly unresponsive on every return, so accepting it here
+            // would stop the wait early and report every ordinary return as degraded.
+            if (last.Acceptance.Rejection is ExplorerShellRejection.ShellUnresponsive)
+            {
+                outcome = ExplorerDesktopOutcome.Failed;
+            }
+
             if (outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded)
             {
                 if (stable is null
@@ -559,16 +578,22 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
                 .ConfigureAwait(false);
         }
 
-        // One final observation closes the race where the taskbar appeared on the deadline. It is
-        // deliberately not accepted without the stability window, but it prevents TrayHost from
-        // being recreated next to a late Explorer.
+        // One final observation closes the race where the taskbar appeared on the deadline, and it
+        // decides what the caller is handed. A desktop the canonical Explorer already owns is
+        // reported as degraded rather than as a total failure: the whole desktop return is abandoned
+        // on Failed, and a shell that is merely late or blocked behind another application's hung
+        // window left the session with no desktop, no Steam and no retry (Claw, 2026-09-26).
         last = ObserveCurrentDesktop(_sessionId);
         var finalOutcome = ExplorerShellPolicy.ClassifyDesktop(last.Acceptance, route);
-        var detail = finalOutcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded
-            ? "timeout-not-stable"
-            : $"timeout-{last.Acceptance.Rejection}";
+        var unresponsive = last.Acceptance.Rejection is ExplorerShellRejection.ShellUnresponsive;
+        var usable = finalOutcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded;
+        var detail = unresponsive
+            ? "timeout-unresponsive-shell"
+            : usable
+                ? "timeout-not-stable"
+                : $"timeout-{last.Acceptance.Rejection}";
         return new ExplorerDesktopResult(
-            ExplorerDesktopOutcome.Failed,
+            usable ? ExplorerDesktopOutcome.Degraded : ExplorerDesktopOutcome.Failed,
             route,
             last.Process.ProcessId,
             createdProcessId,

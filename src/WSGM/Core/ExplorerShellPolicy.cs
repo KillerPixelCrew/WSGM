@@ -7,7 +7,25 @@ namespace WSGM.Core;
 /// <summary>Pure acceptance policy for Explorer and its fixed-purpose launch anchor.</summary>
 internal static class ExplorerShellPolicy
 {
-    /// <summary>Gets whether both initialized shell surfaces exist and belong to one process.</summary>
+    /// <summary>Gets whether both shell surfaces exist and belong to one process.</summary>
+    /// <remarks>
+    ///     Ownership alone, deliberately separate from responsiveness: a desktop whose canonical
+    ///     Explorer owns both surfaces exists even while its UI thread is blocked behind some other
+    ///     application's hung window, and that state must not be reported as no desktop at all.
+    /// </remarks>
+    internal static bool OwnsShellSurfaces(
+        bool taskbarPresent,
+        bool shellWindowPresent,
+        uint taskbarOwnerProcessId,
+        uint shellOwnerProcessId)
+    {
+        return taskbarPresent
+               && shellWindowPresent
+               && taskbarOwnerProcessId != 0
+               && taskbarOwnerProcessId == shellOwnerProcessId;
+    }
+
+    /// <summary>Gets whether both initialized shell surfaces exist, belong to one process, and answer.</summary>
     internal static bool IsInitializedShellOwner(
         bool taskbarPresent,
         bool shellWindowPresent,
@@ -15,10 +33,11 @@ internal static class ExplorerShellPolicy
         uint shellOwnerProcessId,
         bool responsive = true)
     {
-        return responsive && taskbarPresent
-                          && shellWindowPresent
-                          && taskbarOwnerProcessId != 0
-                          && taskbarOwnerProcessId == shellOwnerProcessId;
+        return responsive && OwnsShellSurfaces(
+            taskbarPresent,
+            shellWindowPresent,
+            taskbarOwnerProcessId,
+            shellOwnerProcessId);
     }
 
     /// <summary>
@@ -121,6 +140,7 @@ internal static class ExplorerShellPolicy
 
         return acceptance.Rejection is ExplorerShellRejection.JobBound
             or ExplorerShellRejection.JobMembershipUnknown
+            or ExplorerShellRejection.ShellUnresponsive
             ? ExplorerDesktopOutcome.Degraded
             : ExplorerDesktopOutcome.Failed;
     }
@@ -230,7 +250,13 @@ internal enum ExplorerShellRejection
     JobBound,
 
     /// <summary>The process does not own the initialized taskbar.</summary>
-    NotReady
+    NotReady,
+
+    /// <summary>
+    ///     The canonical Explorer owns both shell surfaces but did not answer the liveness probe.
+    ///     The desktop exists; only its responsiveness is unverified.
+    /// </summary>
+    ShellUnresponsive
 }
 
 /// <summary>Action taken by an anchor after its owning WSGM process disappears.</summary>

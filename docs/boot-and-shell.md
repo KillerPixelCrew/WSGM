@@ -376,9 +376,24 @@ Normal return and every failed entry use `Shell\DesktopReturnSequence.cs`: leave
 restore the desktop layout, retire the game tray, restore and verify Explorer, clear a successfully
 restored layout record, then run optional leave actions. Each phase catches its own failure. A
 failed layout remains recorded. A failed desktop return never redirects the user back into Game
-Mode. Shell readiness requires matching taskbar/desktop owners and responsive windows; surviving
-processes or window handles alone are insufficient. The splash closes when the desktop is ready,
-before slow IR actions finish. Repeated completed returns do not replay the leave list.
+Mode. The splash closes when the desktop is ready, before slow IR actions finish. Repeated completed
+returns do not replay the leave list.
+
+Leaving Big Picture is verified, not fired and forgotten. The phase retracts the injected Steam UI
+and closes the transport first (`docs\steam-cef-system.md`), sends `steam://close/bigpicture`, then
+waits for Steam's Big Picture window to disappear; if it does not, WSGM posts `WM_CLOSE` to that
+window directly and logs its handle and `IsHungAppWindow`. On 2026-09-26 the close request reached a
+Steam whose CEF renderer had stopped answering thirteen seconds earlier, so nothing consumed it, and
+the rest of the return rebuilt the desktop underneath a Big Picture window that was still up.
+
+Shell readiness requires matching taskbar/desktop owners and responsive windows; surviving processes
+or window handles alone are insufficient. Responsiveness alone is the one check that cannot condemn
+a desktop: when the restore budget runs out and the canonical Explorer owns both surfaces and passes
+every identity check but has not answered the 500 ms liveness probe, the result is `Degraded`
+(`timeout-unresponsive-shell`), not `Failed`. `Failed` abandons the whole return — game mode already
+retired, no desktop, no Steam, monitor paused — and on 2026-09-26 that is what a shell blocked
+behind Steam's hung window produced. A genuine failure now logs
+`Desktop return abandoned: Explorer was not restored` once, as an error.
 
 Big Picture is requested after the exit and after the layout, which reverses the old order. That
 order was a latency optimisation, worth having when Steam was not already running. In a resident

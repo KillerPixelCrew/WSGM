@@ -112,8 +112,7 @@ public static class Steam
     ///     process and headless CEF context exist before its UI is safe for autonomous
     ///     mutation.
     /// </summary>
-    public static bool IsBigPictureVisible =>
-        WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass) != IntPtr.Zero;
+    public static bool IsBigPictureVisible => FindBigPictureWindow() != IntPtr.Zero;
 
     /// <summary>
     ///     Gets whether WSGM must match Steam's elevated integrity level so
@@ -132,6 +131,17 @@ public static class Steam
             var path = ExePath;
             return path is not null && HasRunAsAdminCompatibilityLayer(path);
         }
+    }
+
+    /// <summary>
+    ///     Finds Steam's process-owned Big Picture window, or zero when there is none. The
+    ///     desktop return needs the handle itself, not just its existence: a Big Picture window that
+    ///     outlives the close request is what the restored desktop has to come up underneath.
+    /// </summary>
+    /// <returns>The window handle, or <see cref="IntPtr.Zero" />.</returns>
+    public static nint FindBigPictureWindow()
+    {
+        return WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass);
     }
 
     private static string? ResolveExePath()

@@ -60,6 +60,37 @@ public sealed class SteamUiTransportGateTests
     }
 
     [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void TransportShouldBeOpen_BigPictureClosePending_HoldsTheTransportClosed(
+        bool inGameMode,
+        bool bigPictureReady)
+    {
+        // The mirror of the request hold. steam://close/bigpicture rebuilds Steam's front-end
+        // back to the desktop client, and driving patches and evaluations through that rebuild
+        // wedged steamwebhelper for three minutes (Claw, 2026-09-26). The hold covers the whole
+        // desktop return, including the window still being up as the request is dispatched.
+        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
+            true,
+            inGameMode,
+            false,
+            bigPictureReady,
+            true));
+    }
+
+    [Fact]
+    public void TransportShouldBeOpen_BigPictureCloseSettled_ReopensInDesktopMode()
+    {
+        Assert.True(SteamUiReadiness.TransportShouldBeOpen(
+            true,
+            false,
+            false,
+            false));
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]

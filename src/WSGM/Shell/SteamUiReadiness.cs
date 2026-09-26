@@ -44,16 +44,34 @@ internal static class SteamUiReadiness
     ///     gate seconds after Steam already started bootstrapping against injected state.
     /// </param>
     /// <param name="bigPictureReady">Whether <see cref="IsReady" /> held when the caller sampled it.</param>
+    /// <param name="bigPictureExitPending">
+    ///     Whether a transition has asked (or is about to ask) Steam to leave Big Picture and has not
+    ///     settled yet. Leaving rebuilds Steam's front-end exactly as entering does, so the hold is
+    ///     symmetric: every automatic CEF touch stops before the close request fires and resumes only
+    ///     once the desktop return has settled.
+    /// </param>
     /// <returns>True to open the transport; false to hold every automatic CEF touch.</returns>
     /// <remarks>
     ///     Desktop mode opens on the master switch alone: Steam there is the user's own
     ///     windowed client, not a session WSGM is constructing, and the startup hang has only ever been
-    ///     observed while Steam constructs a Big Picture session.
+    ///     observed while Steam constructs a Big Picture session. The one desktop-mode exception is the
+    ///     transition that produced it: driving patches and evaluations into the front-end Steam is
+    ///     rebuilding on the way out of Big Picture wedged steamwebhelper for three minutes and, with
+    ///     it, the Explorer restart that ran underneath (Claw, 2026-09-26).
     /// </remarks>
     internal static bool TransportShouldBeOpen(
-        bool cefMasterEnabled, bool inGameMode, bool gameModeTransitionPending, bool bigPictureReady)
+        bool cefMasterEnabled,
+        bool inGameMode,
+        bool gameModeTransitionPending,
+        bool bigPictureReady,
+        bool bigPictureExitPending = false)
     {
-        return cefMasterEnabled && ((!inGameMode && !gameModeTransitionPending) || bigPictureReady);
+        if (!cefMasterEnabled || bigPictureExitPending)
+        {
+            return false;
+        }
+
+        return (!inGameMode && !gameModeTransitionPending) || bigPictureReady;
     }
 
     /// <summary>Runs one bounded automatic CEF operation after Big Picture and its target are ready.</summary>
