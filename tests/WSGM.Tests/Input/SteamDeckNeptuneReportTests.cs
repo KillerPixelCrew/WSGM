@@ -92,13 +92,14 @@ public sealed class SteamDeckNeptuneReportTests
     }
 
     [Fact]
-    public void AnAnaloguePullLeavesTheDigitalTriggerBitsClear()
+    public void TheDigitalTriggerBitRisesNearFullTravel()
     {
         var frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.5f, RightTrigger = 1f });
 
-        // Steam reads the bits as Full Pull; the analogue value alone gives it both pulls in order.
-        Assert.Equal(0x00, frame[8]);
+        // Steam reads the bits as Full Pull and nothing else fires it; HHD raises it at 0.8 travel.
+        // Half travel is a soft pull only; a full pull carries the bit.
+        Assert.Equal(0x01, frame[8]);
         // The wire fields are signed 16-bit, so full travel is 32767. A 0..65535 scale read as
         // negative past half pull: Steam saw the trigger release mid-pull and press again on the
         // way back, double-clicking and tearing drags loose in desktop mode.
@@ -117,6 +118,16 @@ public sealed class SteamDeckNeptuneReportTests
         Assert.Equal(0x00, frame[8] & 0x03);
         Assert.True(BitConverter.ToUInt16(frame, 44) > 0);
         Assert.Equal(0, BitConverter.ToUInt16(frame, 46));
+    }
+
+    [Theory]
+    [InlineData(0.8f, 0x00)]
+    [InlineData(0.81f, 0x02)]
+    public void TheDigitalTriggerBitRisesJustPastEightyPercent(float travel, int expected)
+    {
+        var frame = Frame(Sample(CanonicalButtons.None) with { LeftTrigger = travel });
+
+        Assert.Equal(expected, frame[8] & 0x03);
     }
 
     [Fact]

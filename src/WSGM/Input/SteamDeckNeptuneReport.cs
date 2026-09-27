@@ -57,6 +57,14 @@ internal static class SteamDeckNeptuneReport
     // Byte 14: the quick-access button.
     private const byte Byte14QuickAccess = 0x04;
 
+    /// <summary>
+    ///     The travel at which the digital trigger bit rises. Steam reads that bit as Full Pull and
+    ///     the analogue value as Soft Pull, and nothing else produces Full Pull: with the bits clear
+    ///     it never fired (Xbox Ally X, 2026-09-27). HHD's Deck emulation raises the bit at 0.8 for
+    ///     every pad without a trigger click, the ROG Ally included (<c>trigger_discrete_lvl</c>).
+    /// </summary>
+    private const float DigitalTriggerTravel = 0.8f;
+
     // The Deck IMU fields are signed 16-bit values over fixed physical ranges. Steam/SDL expose
     // their application-space axes as raw X, raw Z, -raw Y, so WSGM reverses that transform while
     // packing the canonical application-space sample.
@@ -89,14 +97,15 @@ internal static class SteamDeckNeptuneReport
                                 | Mask(buttons, CanonicalButtons.B, Byte8B)
                                 | Mask(buttons, CanonicalButtons.Y, Byte8Y)
                                 | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
-                                | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1));
-        // The Deck's digital trigger bits (byte 8 bits 0 and 1) stay clear. Steam reads them as
-        // "full pull", so raising them with the analogue value fired Full Pull at the first
-        // millimetre, before Soft Pull, and made every hip-fire style take the full-pull action
-        // (Xbox Ally X, 2026-09-27). Steam derives both pulls from the analogue value when the bits
-        // are clear; HHD's Deck emulation never sets them for a pad without a trigger click either.
-        // A mid-travel threshold is no better: it gave desktop mode a second activation per pull
-        // (2026-09-02).
+                                | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
+                                // Raising the bit with the first movement, as Handheld Companion's
+                                // Deck target does, fired Full Pull before Soft Pull and made every
+                                // hip-fire style take the full-pull action; leaving it clear made
+                                // Full Pull never fire (Xbox Ally X, 2026-09-27). The 2026-09-02
+                                // desktop double-click that was blamed on a mid-travel threshold
+                                // came from the 0..65535 trigger scale fixed the same day.
+                                | (sample.LeftTrigger > DigitalTriggerTravel ? Byte8L2 : 0)
+                                | (sample.RightTrigger > DigitalTriggerTravel ? Byte8R2 : 0));
 
         destination[9] = (byte)(Mask(buttons, CanonicalButtons.RearPaddle3, Byte9L5)
                                 | Mask(buttons, CanonicalButtons.Menu, Byte9Menu)
