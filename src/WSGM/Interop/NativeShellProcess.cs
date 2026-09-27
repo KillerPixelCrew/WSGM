@@ -16,8 +16,6 @@ internal static partial class NativeShellProcess
     private const uint TokenDuplicate = 0x0002;
     private const int TokenIntegrityLevel = 25;
     private const uint CreateUnicodeEnvironment = 0x00000400;
-    private const uint ExtendedStartupInfoPresent = 0x00080000;
-    private const nuint ProcThreadAttributeParentProcess = 0x00020000;
     private const uint WaitObject0 = 0;
 
     /// <summary>Inspects a process without retaining a handle.</summary>
@@ -128,7 +126,7 @@ internal static partial class NativeShellProcess
     /// <param name="process">Owned handle for the exact created process on success.</param>
     /// <param name="error">Win32 error on failure.</param>
     /// <returns>Whether process creation succeeded.</returns>
-    internal static unsafe bool TryStartWithParent(
+    internal static bool TryStartWithParent(
         NativeShellLaunchParent parent,
         string applicationPath,
         string commandLine,
@@ -138,110 +136,14 @@ internal static partial class NativeShellProcess
     {
         ArgumentNullException.ThrowIfNull(parent);
         process = null;
-        error = 0;
-        nint environment = 0;
-        nint attributeList = 0;
-        var attributeListInitialized = false;
-
-        try
+        if (!ParentProcessStart.TryCreate(parent.ProcessHandle, parent.TokenHandle, applicationPath, commandLine,
+                workingDirectory, out var processId, out var processHandle, out error))
         {
-            if (!Win32Common.CreateEnvironmentBlock(out environment, parent.TokenHandle, false))
-            {
-                error = Marshal.GetLastPInvokeError();
-                return false;
-            }
-
-            nuint attributeListSize = 0;
-            _ = InitializeProcThreadAttributeList(0, 1, 0, ref attributeListSize);
-            if (attributeListSize == 0)
-            {
-                error = Marshal.GetLastPInvokeError();
-                return false;
-            }
-
-            attributeList = (nint)NativeMemory.Alloc(attributeListSize);
-            if (attributeList == 0)
-            {
-                error = 8; // ERROR_NOT_ENOUGH_MEMORY
-                return false;
-            }
-
-            if (!InitializeProcThreadAttributeList(attributeList, 1, 0, ref attributeListSize))
-            {
-                error = Marshal.GetLastPInvokeError();
-                return false;
-            }
-
-            attributeListInitialized = true;
-
-            var parentHandle = parent.ProcessHandle;
-            if (!UpdateProcThreadAttribute(
-                    attributeList,
-                    0,
-                    ProcThreadAttributeParentProcess,
-                    (nint)(&parentHandle),
-                    (nuint)sizeof(nint),
-                    0,
-                    0))
-            {
-                error = Marshal.GetLastPInvokeError();
-                return false;
-            }
-
-            StartupInfoEx startup = new()
-            {
-                StartupInfo = new StartupInfo
-                {
-                    Size = checked((uint)sizeof(StartupInfoEx))
-                },
-                AttributeList = attributeList
-            };
-
-            char[] mutableCommandLine = [.. commandLine, '\0'];
-            fixed (char* application = applicationPath)
-            fixed (char* command = mutableCommandLine)
-            fixed (char* directory = workingDirectory)
-            {
-                if (!CreateProcessW(
-                        application,
-                        command,
-                        0,
-                        0,
-                        false,
-                        CreateUnicodeEnvironment | ExtendedStartupInfoPresent,
-                        environment,
-                        directory,
-                        in startup,
-                        out var processInformation))
-                {
-                    error = Marshal.GetLastPInvokeError();
-                    return false;
-                }
-
-                Win32Common.CloseHandle(processInformation.Thread);
-                process = new NativeShellChildProcess(
-                    processInformation.ProcessId,
-                    processInformation.Process);
-                return true;
-            }
+            return false;
         }
-        finally
-        {
-            if (attributeListInitialized)
-            {
-                DeleteProcThreadAttributeList(attributeList);
-            }
 
-            if (attributeList != 0)
-            {
-                NativeMemory.Free((void*)attributeList);
-            }
-
-            if (environment != 0)
-            {
-                Win32Common.DestroyEnvironmentBlock(environment);
-            }
-        }
+        process = new NativeShellChildProcess(processId, processHandle);
+        return true;
     }
 
     private static string? QueryImagePath(nint process, out int error)
@@ -339,42 +241,6 @@ internal static partial class NativeShellProcess
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool InitializeProcThreadAttributeList(
-        nint attributeList,
-        int attributeCount,
-        uint flags,
-        ref nuint size);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool UpdateProcThreadAttribute(
-        nint attributeList,
-        uint flags,
-        nuint attribute,
-        nint value,
-        nuint size,
-        nint previousValue,
-        nint returnSize);
-
-    [LibraryImport("kernel32.dll")]
-    private static partial void DeleteProcThreadAttributeList(nint attributeList);
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateProcessW", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static unsafe partial bool CreateProcessW(
-        char* applicationName,
-        char* commandLine,
-        nint processAttributes,
-        nint threadAttributes,
-        [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
-        uint creationFlags,
-        nint environment,
-        char* currentDirectory,
-        in StartupInfoEx startupInfo,
-        out ProcessInformation processInformation);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool TerminateProcess(nint process, uint exitCode);
 
     /// <summary>Waits for one owned process handle without blocking the caller.</summary>
@@ -453,13 +319,6 @@ internal static partial class NativeShellProcess
         internal nint StandardInput;
         internal nint StandardOutput;
         internal nint StandardError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct StartupInfoEx
-    {
-        internal StartupInfo StartupInfo;
-        internal nint AttributeList;
     }
 
     [StructLayout(LayoutKind.Sequential)]

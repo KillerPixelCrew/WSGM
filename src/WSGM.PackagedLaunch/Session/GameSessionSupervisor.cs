@@ -6,6 +6,44 @@ using System.Threading;
 
 namespace WSGM.PackagedLaunch;
 
+/// <summary>Finds a game's processes in a snapshot of the machine.</summary>
+internal interface IGameProcesses
+{
+    /// <summary>What the session is waiting for, for the log.</summary>
+    string Description { get; }
+
+    /// <summary>The game's processes among these.</summary>
+    /// <param name="snapshot">Every process running, other than the idle and system processes and this one.</param>
+    /// <returns>The game's processes, described.</returns>
+    IReadOnlyList<ProcessFacts> Find(IReadOnlyList<ProcessEntry> snapshot);
+}
+
+/// <summary>A packaged game's processes: every one that carries its package identity.</summary>
+/// <param name="packageFamilyName">The package family.</param>
+internal sealed class PackagedGameProcesses(string packageFamilyName) : IGameProcesses
+{
+    /// <inheritdoc />
+    public string Description => packageFamilyName;
+
+    /// <inheritdoc />
+    public IReadOnlyList<ProcessFacts> Find(IReadOnlyList<ProcessEntry> snapshot)
+    {
+        List<ProcessFacts> found = [];
+        foreach (var entry in snapshot)
+        {
+            if (ProcessInspector.PackageFamilyNameOf(entry.Id) is { } family
+                && string.Equals(family, packageFamilyName, StringComparison.OrdinalIgnoreCase)
+                && ProcessInspector.Describe(entry.Id, entry.Name) is { } facts
+                && GameSessionJob.BelongsToGame(facts, packageFamilyName))
+            {
+                found.Add(facts);
+            }
+        }
+
+        return found;
+    }
+}
+
 /// <summary>
 ///     Stays alive for the whole game session, so Steam keeps the shortcut in a running state, and
 ///     holds the game's processes in the kill-on-close job so stopping the shortcut stops the game.
@@ -16,21 +54,32 @@ namespace WSGM.PackagedLaunch;
 ///         activation puts the game outside Steam's launch tree, so Steam can only see the wrapper.
 ///     </para>
 ///     <para>
-///         Discovery polls, because a packaged title's processes appear over several seconds and
-///         Windows offers no notification a non-elevated process can rely on. Lifetime does not: once
-///         a game process is contained, the job's own active count answers whether it is still
-///         running, which is cheaper and more truthful than re-enumerating the machine. The poll
-///         therefore slows down once the game is established.
+///         Discovery polls, because a game's processes appear over several seconds and Windows offers
+///         no notification a non-elevated process can rely on. It polls quickly until the game
+///         appears and at the session's own pace after that. Lifetime does not poll the machine:
+///         once the game is established the job's own active count answers whether it is still
+///         running, which is cheaper and more truthful than re-enumerating the machine.
+///     </para>
+///     <para>
+///         When that count reaches zero the machine is looked at again for as long as the exit grace
+///         lasts. A game can restart itself outside the tree that was contained - Epic's online
+///         services relaunch a title through the launcher, Battle.net after a patch - and only a
+///         fresh look finds the new process before the session is declared over.
+///     </para>
+///     <para>
+///         A process is known by its id together with its start time, never by its id alone: ids are
+///         reused, and a new game process that happened to take a finished one's id would otherwise
+///         never be contained.
 ///     </para>
 /// </remarks>
 internal sealed class GameSessionSupervisor(
-    Func<ProcessEntry, ProcessFacts?> identify,
-    string gameName,
+    IGameProcesses game,
     GameSessionJob job,
     Action<ProcessFacts>? onGameProcess = null,
-    GameSessionTimings? timings = null)
+    GameSessionTimings? timings = null,
+    Func<bool>? startFailed = null)
 {
-    /// <summary>How often to look for new processes while the game is still starting.</summary>
+    /// <summary>How often to look for the game before any of it has appeared.</summary>
     private static readonly TimeSpan DiscoveryPoll = TimeSpan.FromMilliseconds(500);
 
     /// <summary>How often to check a settled session, which only has to notice an exit.</summary>
@@ -38,10 +87,7 @@ internal sealed class GameSessionSupervisor(
 
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
-    /// <summary>How long a game stays in discovery after its first process appears.</summary>
-    private readonly TimeSpan _discoveryWindow = (timings ?? GameSessionTimings.Packaged).DiscoveryWindow;
-
-    private readonly HashSet<int> _known = [];
+    private readonly HashSet<(int Id, DateTime? StartedAt)> _known = [];
 
     private readonly GameSessionTimings _timings = timings ?? GameSessionTimings.Packaged;
 
@@ -60,7 +106,7 @@ internal sealed class GameSessionSupervisor(
     /// <param name="onGameProcess">Hears each game process as it is first seen.</param>
     internal GameSessionSupervisor(
         string packageFamilyName, GameSessionJob job, Action<ProcessFacts>? onGameProcess = null)
-        : this(entry => PackagedProcess(entry, packageFamilyName), packageFamilyName, job, onGameProcess)
+        : this(new PackagedGameProcesses(packageFamilyName), job, onGameProcess)
     {
     }
 
@@ -68,7 +114,7 @@ internal sealed class GameSessionSupervisor(
     internal bool Degraded { get; set; }
 
     /// <summary>Supervises until the game exits, never appears, or a stop is requested.</summary>
-    /// <param name="seedProcessId">The process activation returned.</param>
+    /// <param name="seedProcessId">The process activation returned, or zero when there is none.</param>
     /// <param name="cancellationToken">Requests a stop, leaving the game running.</param>
     /// <returns>Why the session ended.</returns>
     internal GameSessionOutcome Run(int seedProcessId, CancellationToken cancellationToken)
@@ -79,7 +125,7 @@ internal sealed class GameSessionSupervisor(
 
         while (true)
         {
-            var discoveryOpen = firstSeen is null || _clock.Elapsed - firstSeen < _discoveryWindow;
+            var discoveryOpen = firstSeen is null || _clock.Elapsed - firstSeen < _timings.DiscoveryWindow;
             var running = Observe(seedProcessId, discoveryOpen, ref sawGame, ref firstSeen);
             if (running)
             {
@@ -96,7 +142,8 @@ internal sealed class GameSessionSupervisor(
                     _clock.Elapsed,
                     goneSince is { } gone ? _clock.Elapsed - gone : null,
                     Degraded,
-                    cancellationToken.IsCancellationRequested),
+                    cancellationToken.IsCancellationRequested,
+                    !sawGame && startFailed?.Invoke() == true),
                 _timings.Settle,
                 _timings.ExitGrace);
             if (outcome is not GameSessionOutcome.Running)
@@ -104,9 +151,24 @@ internal sealed class GameSessionSupervisor(
                 return outcome;
             }
 
-            var discovering = firstSeen is null || _clock.Elapsed - firstSeen < _discoveryWindow;
-            cancellationToken.WaitHandle.WaitOne(discovering ? DiscoveryPoll : SettledPoll);
+            cancellationToken.WaitHandle.WaitOne(Poll(firstSeen, goneSince));
         }
+    }
+
+    /// <summary>How long to wait before looking again.</summary>
+    /// <remarks>
+    ///     Quick while nothing has appeared, and while the game is gone and may be restarting: both
+    ///     are waiting for a process to show up. At the session's own pace while it is still being
+    ///     discovered, and slow once it is settled.
+    /// </remarks>
+    private TimeSpan Poll(TimeSpan? firstSeen, TimeSpan? goneSince)
+    {
+        if (firstSeen is null || goneSince is not null)
+        {
+            return DiscoveryPoll;
+        }
+
+        return _clock.Elapsed - firstSeen < _timings.DiscoveryWindow ? _timings.EstablishingPoll : SettledPoll;
     }
 
     /// <summary>Whether any of the game's processes is running, contained and reported as it appears.</summary>
@@ -123,55 +185,46 @@ internal sealed class GameSessionSupervisor(
         // match is the launch helper, and the real game appears after it. Returning early there
         // would mean the game itself is never found, never contained, and the helper's exit alone
         // releases Steam while the game is still running.
-        if (sawGame && !discoveryOpen && job.ActiveProcesses() is { } active)
+        //
+        // An empty job is not trusted either. Zero active processes may be the game exiting, a game
+        // restarting itself outside the contained tree, or - when an assignment was refused, which is
+        // legal and normal for a packaged app already in a system job - a running process the kernel
+        // is not counting. All three are settled by looking at the machine.
+        if (sawGame && !discoveryOpen && job.ActiveProcesses() is > 0)
         {
-            if (active > 0)
-            {
-                return true;
-            }
+            return true;
+        }
 
-            // Zero active processes is the normal exit only if the job holds everything that was
-            // seen. A refused assignment — legal, and normal for a packaged app already in a
-            // system job — leaves a running process the kernel is not counting, so its absence
-            // from the count proves nothing and the machine is looked at instead.
-            if (_containedCount == _known.Count)
+        List<ProcessEntry> candidates = [];
+        foreach (var entry in ProcessInspector.Snapshot())
+        {
+            if (entry.Id > 4 && entry.Id != Environment.ProcessId)
             {
-                return false;
+                candidates.Add(entry);
             }
         }
 
-        var snapshot = ProcessInspector.Snapshot();
         var running = false;
-        foreach (var entry in snapshot)
+        foreach (var facts in game.Find(candidates))
         {
-            if (entry.Id <= 4 || entry.Id == Environment.ProcessId)
-            {
-                continue;
-            }
-
-            // The seed is the game's own process for a UWP title and its launch helper for a GDK
-            // one, so it is admitted by identity like everything else rather than by being the seed.
-            if (identify(entry) is not { } facts)
-            {
-                continue;
-            }
-
             running = true;
             sawGame = true;
             firstSeen ??= _clock.Elapsed;
-            if (_known.Add(entry.Id))
+            if (!_known.Add((facts.Id, facts.StartedAt)))
             {
-                PackagedLaunchLog.Info(
-                    $"+{Seconds(_clock.Elapsed)}s game process {facts.Name} ({facts.Id}), "
-                    + $"{(facts.IsAppContainer == true ? "AppContainer" : "full trust")} at "
-                    + $"{(facts.Integrity.Length > 0 ? facts.Integrity : "unreadable")} integrity.");
-                if (job.Contain(facts.Id, facts.Name))
-                {
-                    _containedCount++;
-                }
-
-                onGameProcess?.Invoke(facts);
+                continue;
             }
+
+            PackagedLaunchLog.Info(
+                $"+{Seconds(_clock.Elapsed)}s game process {facts.Name} ({facts.Id}), "
+                + $"{(facts.IsAppContainer == true ? "AppContainer" : "full trust")} at "
+                + $"{(facts.Integrity.Length > 0 ? facts.Integrity : "unreadable")} integrity.");
+            if (job.Contain(facts))
+            {
+                _containedCount++;
+            }
+
+            onGameProcess?.Invoke(facts);
         }
 
         if (!running && seedProcessId > 0 && !sawGame)
@@ -183,25 +236,10 @@ internal sealed class GameSessionSupervisor(
                 "seed",
                 ProcessInspector.StartedAt(seedProcessId) is null
                     ? $"Activation's process {seedProcessId} is gone and no game process has appeared yet."
-                    : $"Waiting for {gameName}; activation's process {seedProcessId} is running.");
+                    : $"Waiting for {game.Description}; activation's process {seedProcessId} is running.");
         }
 
         return running;
-    }
-
-    /// <summary>A process of the packaged game, or null for anything else.</summary>
-    private static ProcessFacts? PackagedProcess(ProcessEntry entry, string packageFamilyName)
-    {
-        if (ProcessInspector.PackageFamilyNameOf(entry.Id) is not { } family
-            || !string.Equals(family, packageFamilyName, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return ProcessInspector.Describe(entry.Id, entry.Name) is { } facts
-               && GameSessionJob.BelongsToGame(facts, packageFamilyName)
-            ? facts
-            : null;
     }
 
     private static string Seconds(TimeSpan elapsed)
@@ -210,20 +248,32 @@ internal sealed class GameSessionSupervisor(
     }
 }
 
-/// <summary>How long a supervised session waits at each stage.</summary>
+/// <summary>How long a supervised session waits at each stage, and how often it looks.</summary>
 /// <param name="Settle">How long the game may take to appear at all.</param>
 /// <param name="ExitGrace">How long it must be gone before the session is over.</param>
 /// <param name="DiscoveryWindow">How long new game processes are looked for after the first one.</param>
-internal sealed record GameSessionTimings(TimeSpan Settle, TimeSpan ExitGrace, TimeSpan DiscoveryWindow)
+/// <param name="EstablishingPoll">How often the machine is looked at during that window.</param>
+internal sealed record GameSessionTimings(
+    TimeSpan Settle,
+    TimeSpan ExitGrace,
+    TimeSpan DiscoveryWindow,
+    TimeSpan EstablishingPoll)
 {
-    /// <summary>A packaged game, which Windows activates at once.</summary>
+    /// <summary>
+    ///     A packaged game, which Windows activates at once. Its window is short and polled quickly:
+    ///     a GDK title's launch helper hands over to the game within seconds, and the overlay route
+    ///     acts on the game process as soon as it is seen.
+    /// </summary>
     internal static GameSessionTimings Packaged { get; } = new(
-        GameSessionExitDecision.Settle, GameSessionExitDecision.ExitGrace, TimeSpan.FromSeconds(30));
+        GameSessionExitDecision.Settle, GameSessionExitDecision.ExitGrace, TimeSpan.FromSeconds(30),
+        TimeSpan.FromMilliseconds(500));
 
     /// <summary>
     ///     A game another launcher starts: the launcher may update or ask for a sign-in first, and a
-    ///     bootstrapper can hand over to the game with a gap between them.
+    ///     bootstrapper can hand over to the game with a gap between them. Its window is long, so it
+    ///     is polled at the settled pace once the game has appeared: nothing acts on a followed
+    ///     process except containment, and a late helper is contained two seconds later just the same.
     /// </summary>
     internal static GameSessionTimings Followed { get; } = new(
-        TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(3));
+        TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(3), TimeSpan.FromSeconds(2));
 }

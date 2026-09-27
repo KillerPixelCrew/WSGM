@@ -24,7 +24,13 @@ namespace WSGM.PackagedLaunch;
 internal static class Program
 {
     private const int ExitBadArguments = 2;
-    private const int ExitActivationFailed = 3;
+
+    /// <summary>
+    ///     The game could not be started: activation failed, or in follow mode the launcher program
+    ///     did not start.
+    /// </summary>
+    internal const int ExitActivationFailed = 3;
+
     private const int ExitRefused = 4;
 
     /// <summary>A package is still recorded as exempt after a recovery sweep.</summary>
@@ -67,10 +73,16 @@ internal static class Program
     }
 
     /// <summary>Starts another launcher's game and supervises it until it exits.</summary>
+    /// <remarks>
+    ///     The line comes from <c>GetCommandLineW</c>. <see cref="Environment.CommandLine" /> is not the
+    ///     raw line: .NET rebuilds it from the argument array Windows already split, so a folder ending
+    ///     in a backslash has swallowed its closing quote by then, and a launcher argument such as
+    ///     <c>--exec="launch Pro"</c> comes back re-quoted.
+    /// </remarks>
     private static int Follow()
     {
-        if (!PackagedLaunchCommand.TryParseFollow(RawArguments(Environment.CommandLine), out var request,
-                out var error))
+        if (!PackagedLaunchCommand.TryParseFollow(RawCommandLine.Arguments(NativeMethods.CommandLine()),
+                out var request, out var error))
         {
             Console.Error.WriteLine(error);
             Console.Error.WriteLine();
@@ -87,22 +99,6 @@ internal static class Program
             cancellation.Cancel();
         };
         return FollowSession.Run(request, cancellation.Token);
-    }
-
-    /// <summary>Everything after this executable's own path in a raw command line.</summary>
-    /// <param name="commandLine">The command line as Windows passed it.</param>
-    /// <returns>The arguments, verbatim.</returns>
-    internal static string RawArguments(string commandLine)
-    {
-        var line = commandLine.TrimStart();
-        if (line.StartsWith('"'))
-        {
-            var close = line.IndexOf('"', 1);
-            return close < 0 ? string.Empty : line[(close + 1)..].TrimStart();
-        }
-
-        var space = line.IndexOf(' ');
-        return space < 0 ? string.Empty : line[(space + 1)..].TrimStart();
     }
 
     /// <summary>Releases package exemptions left behind by a launcher that was killed.</summary>

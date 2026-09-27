@@ -15,7 +15,8 @@ public sealed class GameSessionExitDecisionTests
         double elapsedSeconds = 30,
         double? goneForSeconds = null,
         bool degraded = false,
-        bool cancelled = false)
+        bool cancelled = false,
+        bool startFailed = false)
     {
         return new GameSessionFacts(
             sawGame,
@@ -23,7 +24,23 @@ public sealed class GameSessionExitDecisionTests
             TimeSpan.FromSeconds(elapsedSeconds),
             goneForSeconds is { } gone ? TimeSpan.FromSeconds(gone) : null,
             degraded,
-            cancelled);
+            cancelled,
+            startFailed);
+    }
+
+    [Fact]
+    public void AStartKnownToHaveFailedEndsTheWaitBeforeTheSettleWindow()
+    {
+        // A launcher that failed with no copy of itself running had nobody to hand the game to.
+        Assert.Equal(GameSessionOutcome.NeverAppeared,
+            GameSessionExitDecision.Decide(Facts(false, elapsedSeconds: 1, startFailed: true)));
+    }
+
+    [Fact]
+    public void AGameThatAppearedIsNotEndedByTheStartFailingLater()
+    {
+        Assert.Equal(GameSessionOutcome.Running,
+            GameSessionExitDecision.Decide(Facts(gameRunning: true, startFailed: true)));
     }
 
     [Fact]

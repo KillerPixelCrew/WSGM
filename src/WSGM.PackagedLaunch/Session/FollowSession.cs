@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using WSGM.Core;
 
@@ -19,11 +21,16 @@ namespace WSGM.PackagedLaunch;
 ///         job so stopping the shortcut in Steam stops the game, and exits when the game does.
 ///         Nothing is injected into the game, and nothing is written into it.
 ///     </para>
+///     <para>
+///         The launcher it starts is held by its handle. A launcher that exits at once is ordinary -
+///         it handed the request to a copy already running - so an exit alone ends nothing. One that
+///         exits with a failure while no copy of it runs had nobody to hand the request to, and the
+///         game cannot appear; waiting out the settle window for it would only keep Steam showing a
+///         game that is not there.
+///     </para>
 /// </remarks>
 internal static class FollowSession
 {
-    private const int ExitStartFailed = 3;
-
     /// <summary>Runs one followed session.</summary>
     /// <param name="request">What to start and how to recognise the game.</param>
     /// <param name="cancellation">Requests a stop, leaving the game running.</param>
@@ -35,20 +42,20 @@ internal static class FollowSession
             + $"{(request.Directory.Length > 0 ? ", installed in its own folder" : string.Empty)}"
             + $"{(request.Marker.Length > 0 ? ", recognised by its instance folder" : string.Empty)}.");
 
-        FollowedGame game = new(request.Directory, request.Marker, request.Program);
-        var started = DetachedStart.Start(request.Program, request.Arguments, out var detail);
+        FollowedGame game = new(request.Directory, request.Marker, request.MarkerImages, request.Program);
+        using var launcher = DetachedStart.Start(request.Program, request.Arguments, out var detail);
         PackagedLaunchLog.Info(detail);
-        if (started <= 0)
+        if (launcher is null)
         {
             PackagedLaunchLog.Error(
                 "The launcher did not start, so this wrapper is exiting rather than leaving Steam showing a "
                 + "game that never started.");
-            return ExitStartFailed;
+            return Program.ExitActivationFailed;
         }
 
-        using GameSessionJob job = new();
-        GameSessionSupervisor supervisor = new(game.Identify, game.Description, job, null,
-            GameSessionTimings.Followed);
+        using GameSessionJob job = new(true);
+        GameSessionSupervisor supervisor = new(game, job, null, GameSessionTimings.Followed,
+            () => LauncherFailed(launcher));
         var outcome = supervisor.Run(0, cancellation);
         if (outcome is GameSessionOutcome.Cancelled)
         {
@@ -60,6 +67,9 @@ internal static class FollowSession
         PackagedLaunchLog.Info(outcome switch
         {
             GameSessionOutcome.Completed => "The game exited; releasing Steam's running state.",
+            GameSessionOutcome.NeverAppeared when LauncherFailed(launcher) =>
+                $"{launcher.Name} exited with code {launcher.ExitCode()} and no copy of it is running, so the "
+                + "game cannot start. Open the launcher to see what it needs, then start the game again.",
             GameSessionOutcome.NeverAppeared =>
                 $"The game never appeared: nothing matched {game.Description} within "
                 + $"{GameSessionTimings.Followed.Settle.TotalMinutes:0} minutes. Check that the launcher "
@@ -68,5 +78,18 @@ internal static class FollowSession
             _ => "The session ended."
         });
         return GameSessionExitDecision.ExitCode(outcome);
+    }
+
+    /// <summary>Whether the launcher failed with nobody to hand the game to.</summary>
+    /// <remarks>
+    ///     Both halves are needed. A zero exit is the ordinary handoff to a resident copy, and a
+    ///     failure exit while a copy runs may still have reached it. The resident copy is found by the
+    ///     program's file name in the process list, which opens no process.
+    /// </remarks>
+    private static bool LauncherFailed(StartedLauncher launcher)
+    {
+        return launcher.ExitCode() is { } code and not 0
+               && !ProcessInspector.Snapshot().Any(entry =>
+                   string.Equals(entry.Name, launcher.Name, StringComparison.OrdinalIgnoreCase));
     }
 }

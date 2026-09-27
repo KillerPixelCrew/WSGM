@@ -174,8 +174,8 @@ internal static class Program
 
     private static void LogSdlEnvironment(string target, string disposition)
     {
-        var present = Environment.GetEnvironmentVariable("SDL_GAMECONTROLLER_IGNORE_DEVICES") is not null;
-        LaunchLog.Info($"SDL_GAMECONTROLLER_IGNORE_DEVICES present={present}, " +
+        var present = Environment.GetEnvironmentVariable(SteamControllerExclusion.Variable) is not null;
+        LaunchLog.Info($"{SteamControllerExclusion.Variable} present={present}, " +
                        $"disposition={(present ? disposition : "absent; no change")}, " +
                        $"target={Path.GetFileName(target)}.");
     }

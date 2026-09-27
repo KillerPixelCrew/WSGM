@@ -51,7 +51,6 @@ internal static class NativeMethods
 
     // ---- Token ----
     internal const uint TokenQuery = 0x0008;
-    internal const int TokenElevation = 20;
     internal const int TokenIntegrityLevel = 25;
     internal const int TokenIsAppContainer = 29;
 
@@ -84,10 +83,45 @@ internal static class NativeMethods
     // ---- Following another launcher's game ----
     internal const uint ProcessCreateProcess = 0x0080;
     internal const int ProcessCommandLineInformation = 60;
-    internal const uint ExtendedStartupInfoPresent = 0x0008_0000;
-    internal const uint CreateUnicodeEnvironment = 0x0000_0400;
-    internal const uint CreateBreakawayFromJob = 0x0100_0000;
-    internal static readonly IntPtr ProcThreadAttributeParentProcess = new(0x0002_0000);
+
+    /// <summary>
+    ///     Lets a contained process start children outside the job without asking, so only what the
+    ///     supervisor recognises and contains is ever in it.
+    /// </summary>
+    internal const uint JobObjectLimitSilentBreakawayOk = 0x1000;
+
+    // ---- Resolving a folder behind a junction ----
+    internal const uint FileShareReadWriteDelete = 0x0000_0007;
+    internal const uint OpenExisting = 3;
+
+    /// <summary>Required to open a directory, rather than a file, for its handle.</summary>
+    internal const uint FileFlagBackupSemantics = 0x0200_0000;
+
+    /// <summary>The final path with a drive letter, in its normalised form.</summary>
+    internal const uint VolumeNameDos = 0x0;
+
+    /// <summary>This process's command line exactly as Windows received it.</summary>
+    /// <returns>The raw line, or empty when Windows returned none.</returns>
+    internal static string CommandLine()
+    {
+        return Marshal.PtrToStringUni(GetCommandLineW()) ?? string.Empty;
+    }
+
+    // Returns a pointer into the process's own memory that must not be freed.
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCommandLineW();
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern IntPtr CreateFileW(
+        string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition,
+        uint flagsAndAttributes, IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern uint GetFinalPathNameByHandleW(IntPtr file, StringBuilder? path, uint length, uint flags);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetExitCodeProcess(SafeHandle process, out uint exitCode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern IntPtr OpenProcess(
@@ -317,27 +351,6 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool InitializeProcThreadAttributeList(
-        IntPtr attributeList, int attributeCount, int flags, ref IntPtr size);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool UpdateProcThreadAttribute(
-        IntPtr attributeList, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previousValue,
-        IntPtr returnSize);
-
-    [DllImport("kernel32.dll")]
-    internal static extern void DeleteProcThreadAttributeList(IntPtr attributeList);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool CreateProcessW(
-        string? applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes,
-        [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment,
-        string? currentDirectory, ref StartupInfoEx startupInfo, out ProcessInformation processInformation);
-
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct ProcessEntry32W
     {
@@ -505,45 +518,6 @@ internal static class NativeMethods
     internal delegate bool EnumWindowsProc(IntPtr window, IntPtr param);
 
     internal delegate bool ConsoleCtrlHandler(uint controlType);
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal struct StartupInfo
-    {
-        internal int cb;
-        internal IntPtr lpReserved;
-        internal IntPtr lpDesktop;
-        internal IntPtr lpTitle;
-        internal int dwX;
-        internal int dwY;
-        internal int dwXSize;
-        internal int dwYSize;
-        internal int dwXCountChars;
-        internal int dwYCountChars;
-        internal int dwFillAttribute;
-        internal int dwFlags;
-        internal short wShowWindow;
-        internal short cbReserved2;
-        internal IntPtr lpReserved2;
-        internal IntPtr hStdInput;
-        internal IntPtr hStdOutput;
-        internal IntPtr hStdError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct StartupInfoEx
-    {
-        internal StartupInfo StartupInfo;
-        internal IntPtr lpAttributeList;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct ProcessInformation
-    {
-        internal IntPtr hProcess;
-        internal IntPtr hThread;
-        internal int dwProcessId;
-        internal int dwThreadId;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct UnicodeString

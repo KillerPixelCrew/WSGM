@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace WSGM.PackagedLaunch;
 
@@ -15,123 +16,171 @@ namespace WSGM.PackagedLaunch;
 ///         command line. <see cref="FollowedGameRule" /> is that rule.
 ///     </para>
 ///     <para>
-///         A process already rejected is remembered by id and start time, so discovery reads each
-///         process once rather than on every poll.
+///         Each process is judged once. The verdict is kept for as long as the process stays in the
+///         snapshots under the same id, parent and name, so a poll opens no handle to a process it has
+///         already judged, accepted or not, and the memory is pruned to the processes still running.
+///         A process id is only reused after its process is gone, and a gone process leaves the
+///         snapshot and the memory with it; a new process that took over the id, the parent and the
+///         name between two polls half a second apart is the one case this does not tell apart.
 ///     </para>
 /// </remarks>
-internal sealed class FollowedGame
+internal sealed class FollowedGame : IGameProcesses
 {
-    private readonly Func<int, string?> _commandLine;
-    private readonly Func<int, ProcessFacts?> _describe;
-    private readonly string _directory;
-    private readonly Func<int, string?> _imagePath;
-    private readonly string _launcher;
-    private readonly IReadOnlyList<string> _markers;
-    private readonly Dictionary<int, DateTime?> _rejected = [];
+    private readonly FollowedGameTarget _target;
+    private Dictionary<int, Verdict> _judged = [];
 
-    /// <summary>Creates the recogniser over the real process readers.</summary>
+    /// <summary>Creates the recogniser for a follow request.</summary>
     /// <param name="directory">The game's install folder, or empty.</param>
     /// <param name="marker">A path the game's command line carries, or empty.</param>
+    /// <param name="markerImages">The runtime images a marker is looked for in.</param>
     /// <param name="launcher">The launcher program, which is never the game.</param>
-    internal FollowedGame(string directory, string marker, string launcher)
+    internal FollowedGame(string directory, string marker, IReadOnlyList<string> markerImages, string launcher)
     {
-        _directory = FollowedGameRule.Folder(directory);
-        _launcher = FollowedGameRule.Normalize(launcher);
-        _imagePath = ProcessInspector.ImagePathOf;
-        _commandLine = ProcessInspector.CommandLineOf;
-        _describe = id => ProcessInspector.Describe(id);
+        _target = new FollowedGameTarget(
+            [.. SpellingsOf(directory).Select(FollowedGameRule.Folder)],
+            [.. SpellingsOf(marker, true).Select(spelling => FollowedGameRule.Normalize(spelling).TrimEnd('\\'))],
+            markerImages,
+            [.. SpellingsOf(launcher).Select(FollowedGameRule.Normalize)]);
+        Description = directory.Length > 0
+            ? $"a process running from {directory.TrimEnd('\\')}"
+            : "the Java process of the instance";
+    }
 
-        // A launcher may write the path with forward slashes, as Qt does, or in its 8.3 form, as
-        // Prism does for a folder whose name the system code page cannot hold. All are looked for.
-        List<string> markers = [];
-        if (marker.Length > 0)
+    /// <inheritdoc />
+    public string Description { get; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ProcessFacts> Find(IReadOnlyList<ProcessEntry> snapshot)
+    {
+        Dictionary<int, Verdict> judged = new(snapshot.Count);
+        List<ProcessFacts> found = [];
+        foreach (var entry in snapshot)
         {
-            markers.Add(FollowedGameRule.Normalize(marker).TrimEnd('\\'));
-            if (ProcessInspector.ShortPathOf(marker) is { Length: > 0 } shortened)
+            if (!_judged.TryGetValue(entry.Id, out var verdict)
+                || verdict.ParentId != entry.ParentId
+                || !string.Equals(verdict.Name, entry.Name, StringComparison.OrdinalIgnoreCase))
             {
-                markers.Add(FollowedGameRule.Normalize(shortened).TrimEnd('\\'));
+                verdict = new Verdict(entry.ParentId, entry.Name, Judge(entry));
+            }
+
+            judged[entry.Id] = verdict;
+            if (verdict.Facts is { } facts)
+            {
+                found.Add(facts);
             }
         }
 
-        _markers = markers;
+        _judged = judged;
+        return found;
     }
-
-    /// <summary>What the session is waiting for, for the log.</summary>
-    internal string Description => _directory.Length > 0
-        ? $"a process running from {_directory.TrimEnd('\\')}"
-        : "the Java process of the instance";
 
     /// <summary>The game's facts when a process is part of it, or null.</summary>
-    /// <param name="entry">One process from a snapshot.</param>
-    internal ProcessFacts? Identify(ProcessEntry entry)
+    private ProcessFacts? Judge(ProcessEntry entry)
     {
-        if (_rejected.TryGetValue(entry.Id, out var started))
-        {
-            if (started == ProcessInspector.StartedAt(entry.Id))
-            {
-                return null;
-            }
-
-            _rejected.Remove(entry.Id);
-        }
-
-        if (_imagePath(entry.Id) is { } path
-            && FollowedGameRule.Matches(_directory, _markers, _launcher, path, () => _commandLine(entry.Id)))
-        {
-            return _describe(entry.Id);
-        }
-
-        _rejected[entry.Id] = ProcessInspector.StartedAt(entry.Id);
-        return null;
+        return ProcessInspector.ImagePathOf(entry.Id) is { } path
+               && FollowedGameRule.Matches(_target, path, () => ProcessInspector.CommandLineOf(entry.Id))
+            ? ProcessInspector.Describe(entry.Id, entry.Name)
+            : null;
     }
+
+    /// <summary>A path as it was written and as Windows reports it, each once.</summary>
+    /// <param name="path">The path, or empty.</param>
+    /// <param name="shortForm">
+    ///     Whether its 8.3 form counts too: Prism writes an instance folder that way when its name does
+    ///     not fit the system code page.
+    /// </param>
+    /// <remarks>
+    ///     A process's image is reported after junctions are resolved, and a launcher may write the
+    ///     path with forward slashes, as Qt does, or in its short form. All are looked for.
+    /// </remarks>
+    private static IEnumerable<string> SpellingsOf(string path, bool shortForm = false)
+    {
+        if (path.Length == 0)
+        {
+            return [];
+        }
+
+        HashSet<string> spellings = new(StringComparer.OrdinalIgnoreCase) { path };
+        if (ProcessInspector.FinalPathOf(path) is { Length: > 0 } final)
+        {
+            spellings.Add(final);
+        }
+
+        if (shortForm && ProcessInspector.ShortPathOf(path) is { Length: > 0 } shortened)
+        {
+            spellings.Add(shortened);
+        }
+
+        return spellings;
+    }
+
+    private sealed record Verdict(int ParentId, string Name, ProcessFacts? Facts);
 }
+
+/// <summary>What identifies one followed game: where it runs from, what it carries, and what it is not.</summary>
+/// <param name="Directories">
+///     Its install folder in every spelling that counts, each as <see cref="FollowedGameRule.Folder" />
+///     returns it, or none.
+/// </param>
+/// <param name="Markers">
+///     Paths its command line carries, normalized and without a trailing separator, or none.
+/// </param>
+/// <param name="MarkerImages">The runtime images whose command line is read for a marker.</param>
+/// <param name="Launchers">The launcher program in every spelling that counts, normalized.</param>
+public sealed record FollowedGameTarget(
+    IReadOnlyList<string> Directories,
+    IReadOnlyList<string> Markers,
+    IReadOnlyList<string> MarkerImages,
+    IReadOnlyList<string> Launchers);
 
 /// <summary>The pure rule that says whether a process is a followed game.</summary>
 public static class FollowedGameRule
 {
-    private static readonly string[] JavaImages = ["java.exe", "javaw.exe"];
-
     /// <summary>Whether a process is the game.</summary>
-    /// <param name="directory">The game's install folder as <see cref="Folder" /> returns it, or empty.</param>
-    /// <param name="markers">Normalized paths the game's command line carries, or none.</param>
-    /// <param name="launcher">The launcher program, normalized, which is never the game.</param>
+    /// <param name="target">What identifies the game.</param>
     /// <param name="imagePath">The process's image path.</param>
     /// <param name="commandLine">Reads its command line, only when a marker needs it.</param>
-    /// <returns>True for a process running from the folder, or a Java process naming a marker.</returns>
-    public static bool Matches(
-        string directory, IReadOnlyList<string> markers, string launcher, string imagePath,
-        Func<string?> commandLine)
+    /// <returns>
+    ///     True for a process running from an install folder, or a marker image whose command line
+    ///     names a marker as a whole path. Never the launcher.
+    /// </returns>
+    public static bool Matches(FollowedGameTarget target, string imagePath, Func<string?> commandLine)
     {
-        ArgumentNullException.ThrowIfNull(markers);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(imagePath);
         ArgumentNullException.ThrowIfNull(commandLine);
         var normalized = Normalize(imagePath);
-        if (string.Equals(normalized, launcher, StringComparison.Ordinal))
+        if (target.Launchers.Any(launcher => string.Equals(normalized, launcher, StringComparison.Ordinal)))
         {
             return false;
         }
 
-        if (directory.Length > 0 && normalized.StartsWith(directory, StringComparison.Ordinal))
+        if (target.Directories.Any(directory =>
+                directory.Length > 0 && normalized.StartsWith(directory, StringComparison.Ordinal)))
         {
             return true;
         }
 
-        if (markers.Count == 0
-            || Array.IndexOf(JavaImages, Path.GetFileName(imagePath).ToLowerInvariant()) < 0
+        var image = Path.GetFileName(imagePath);
+        if (target.Markers.Count == 0
+            || !target.MarkerImages.Any(candidate =>
+                string.Equals(candidate, image, StringComparison.OrdinalIgnoreCase))
             || commandLine() is not { Length: > 0 } line)
         {
             return false;
         }
 
         var arguments = Normalize(line);
-        foreach (var marker in markers)
+        foreach (var marker in target.Markers)
         {
             // The folder itself or something inside it, never a sibling that shares its name as a
-            // prefix: an instance called Pack must not match one called Pack 2.
+            // prefix. A space does not end the path: an instance called Pack must not match one
+            // called Pack 2, and a quote, a separator or a classpath semicolon does end it.
             var at = arguments.IndexOf(marker, StringComparison.Ordinal);
             while (at >= 0)
             {
                 var end = at + marker.Length;
-                if (end == arguments.Length || arguments[end] is '\\' or '"' or ' ' or ';')
+                if (end == arguments.Length || arguments[end] is '\\' or '"' or ';')
                 {
                     return true;
                 }

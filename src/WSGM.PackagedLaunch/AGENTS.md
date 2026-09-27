@@ -32,9 +32,18 @@ behavior.
   of lifetime management until something puts it back, so an exemption with no record is a game that
   is never suspended again for the rest of the machine's life.
 - The follow mode never injects and never writes into a process, whatever the launcher. It reads
-  image paths, reads a command line only for a Java process, and contains what it recognised.
+  image paths, reads a command line only for a Java process, and contains what it recognised. Its
+  job lets children break away silently, so nothing it did not recognise, such as a launcher the
+  game starts, is ever killed with the game.
+- The follow mode starts its program under Explorer or WSGM through the shared
+  `WSGM\Interop\ParentProcessStart.cs`, with that parent's user environment. Do not grow a second
+  copy of the parent-process start here.
 - Nothing polls the whole machine on a timer once the game is established. Lifetime comes from the
-  containment job's own active count; discovery slows down as soon as the game appears.
+  containment job's own active count; discovery slows down as soon as the game appears, and the
+  machine is looked at again only while the job is empty, for as long as the exit grace lasts.
+- A process is identified by its id and start time, never its id alone.
+- The follow command line is read with `GetCommandLineW`. `Environment.CommandLine` is rebuilt from
+  the split argument array and loses the verbatim arguments the follow request promises.
 
 ## Logging
 
@@ -50,7 +59,8 @@ nothing is a defect.
 ## Shared source
 
 `Core\PackagedLaunchCommand.cs` is compiled into both WSGM and this project, so the importer and the
-launcher cannot drift. That means two copies of those types exist at runtime, so this project
+launcher cannot drift. `Interop\ParentProcessStart.cs` and `Interop\Win32Common.cs` come from WSGM
+and `SteamControllerExclusion.cs` from WSGM.Launch the same way. That means two copies of those types exist at runtime, so this project
 deliberately declares no `InternalsVisibleTo`: the types worth testing are public, and the public
 surface uses this project's own vocabulary rather than the shortcut's.
 
@@ -58,7 +68,7 @@ surface uses this project's own vocabulary rather than the shortcut's.
 
 Unit-testable without hardware, Steam or a package, and expected to stay that way: command parsing
 and every refusal, route selection over the full matrix, the session exit decision, the
-followed-game match rule, and recovery-journal replay. I/O sits behind a seam — the journal takes a
+followed-game match rule, the raw command-line cut, and recovery-journal replay. I/O sits behind a seam — the journal takes a
 path and a liveness predicate, so its rules are tested without starting processes.
 
 Attended only, and reported as such: package activation, any remote write, the bridge, real

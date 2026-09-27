@@ -106,28 +106,55 @@ The Game Library also points titles that start through Epic Games, GOG Galaxy, U
 Battle.net, Amazon Games, Prism Launcher or ATLauncher at this launcher, in its follow mode:
 
 ```text
-WSGM.PackagedLaunch.exe --follow --dir "<install folder>" [--marker "<instance folder>"] -- "<program>" <arguments>
+WSGM.PackagedLaunch.exe --follow [--dir "<install folder>"] [--marker "<instance folder>"] -- "<program>" <arguments>
 ```
+
+At least one of `--dir` and `--marker` is required, and neither may be a drive root: every process
+on the drive would count as the game and be killed with it. Both are written without a trailing
+backslash, because under Windows' argument rules a backslash before the closing quote escapes it and
+swallows the rest of the line. The composer trims them once for every source, and a shortcut written
+before that is read back in the same form.
 
 The program those launchers are started with usually hands the request to a copy that is already
 running and exits at once. Steam reads that as the game stopping, and the shortcut's Steam Input
 layout goes with the running state. So the follow mode stays alive instead:
 
-- It starts the program with Explorer, or WSGM when Explorer is not running, as its parent, so a
-  launcher that stays in the tray is not in Steam's tree and cannot hold the shortcut running after
-  the game exits. When neither can be used it starts the program as its own child and says so.
+- It starts the program with Explorer, or WSGM when Explorer is not running, as its parent, and with
+  that parent's own user environment, so a launcher that stays in the tray is not in Steam's tree
+  and does not hand Steam's launch variables to the games it starts later. This is the same
+  parent-process start WSGM uses for its shell work (`Interop\ParentProcessStart.cs`, linked into
+  the launcher). When neither parent can be used it starts the program as its own child, with
+  `SDL_GAMECONTROLLER_IGNORE_DEVICES` removed as for every child WSGM's launchers start, and says
+  so.
 - It finds the game as any process whose image is inside `--dir`, or, for Minecraft, a Java process
-  whose command line names the `--marker` folder, with forward slashes and the 8.3 form both
-  recognised. The launcher program itself is never the game.
-- It holds the game in its kill-on-close job, so stopping the shortcut in Steam stops the game, and
-  exits once the game has been gone for 15 seconds, which covers a bootstrapper handing over.
+  whose command line names the `--marker` folder as a whole path: `instances\Pack` never matches
+  `instances\Pack 2`. Forward slashes, the 8.3 form and the folder's real location behind a junction
+  are all recognised. The launcher program itself is never the game. Only Java's `java.exe` and
+  `javaw.exe` are read for a marker, because whatever matches is contained and killed with the game,
+  and an editor or file manager opened on the instance folder must never be.
+- It holds the game in its kill-on-close job, so stopping the shortcut in Steam stops the game. Only
+  what it recognised goes in: a launcher the game starts, such as Ubisoft Connect from an Epic
+  title, leaves the job, so it neither keeps the session alive nor dies with the game.
+- It exits once the game has been gone for 15 seconds, which covers a bootstrapper handing over.
+  While the job is empty it looks at the machine again, so a game that restarts itself outside the
+  contained tree, as Epic's online services and Battle.net's patcher do, is found and contained
+  rather than taken for an exit.
 - It waits up to five minutes for the game to appear, since a launcher may update itself or ask for
-  a sign-in first, and exits with "never appeared" after that.
+  a sign-in first, and exits with "never appeared" after that. It stops waiting at once when the
+  program it started failed with a non-zero exit code and no copy of it is running, since nothing is
+  left to start the game. A zero exit is the ordinary handoff to a resident copy and ends nothing.
 
-The program's arguments follow `--` verbatim, because a launcher's own can carry quotes:
-Battle.net's `--exec="launch Pro"` does. Nothing is injected into a followed game, so Steam's
-overlay reaches it only if Steam gets there on its own. `SDL_GAMECONTROLLER_IGNORE_DEVICES` is
-removed from the program's environment, as for every child WSGM's launchers start.
+The program's arguments follow `--` and reach the program exactly as written, because a launcher's
+own can carry quotes: Battle.net's `--exec="launch Pro"` does. That holds because the launcher reads
+its own raw command line (`GetCommandLineW`), not the argument array .NET rebuilds from what Windows
+split. Nothing is injected into a followed game, so Steam's overlay reaches it only if Steam gets
+there on its own.
+
+Discovery reads each process once. A process keeps its verdict while it stays in the snapshots under
+the same id, parent and name, so a poll opens no handle to a process already judged, and the memory
+is pruned to what is running. It polls every half second until the game appears and every two
+seconds after that. A process is known by its id and start time, so a new game process that reuses a
+finished one's id is still contained.
 
 For Minecraft, the shortcut starts the launcher with the instance rather than building a Java
 command itself. A direct command would carry a Microsoft account token that expires within a day,
@@ -163,7 +190,8 @@ instance's name, which its `--launch` matches together with the safe name (`App.
 - A mid-session failure records once, marks the session degraded and keeps supervising. Foreground
   correction keeps working, because that is the repair that worked.
 - The follow mode never injects and never writes into any process. It only starts a program, reads
-  process image paths and, for Java alone, command lines, and contains what it recognised.
+  process image paths and, for Java alone, command lines, and contains what it recognised. Nothing
+  else ever joins its job.
 
 ## Logging
 

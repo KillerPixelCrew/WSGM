@@ -42,6 +42,13 @@ internal sealed record WindowEntry(IntPtr Handle, string ClassName, bool Visible
 /// </remarks>
 internal static class ProcessInspector
 {
+    /// <summary>The longest path Windows can report for an image, in characters.</summary>
+    /// <remarks>
+    ///     Not <c>MAX_PATH</c>: a game under a long library path reports an image well past 260
+    ///     characters, and a truncated or failed read makes it look like no game at all.
+    /// </remarks>
+    private const int LongPathCharacters = 32_768;
+
     /// <summary>Every process currently running, or an empty list when the snapshot failed.</summary>
     internal static IReadOnlyList<ProcessEntry> Snapshot()
     {
@@ -82,47 +89,19 @@ internal static class ProcessInspector
     /// <param name="name">Its image name from the snapshot, when one is already known.</param>
     internal static ProcessFacts? Describe(int processId, string? name = null)
     {
-        var process = NativeMethods.OpenProcess(
-            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
-        if (process == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        try
-        {
-            return new ProcessFacts(
-                processId,
-                name is { Length: > 0 } ? name : ImageName(process),
-                PackageFamilyNameOf(process),
-                IsAppContainer(process),
-                IntegrityOf(process),
-                StartedAtOf(process));
-        }
-        finally
-        {
-            NativeMethods.CloseHandle(process);
-        }
+        return WithProcess(processId, process => new ProcessFacts(
+            processId,
+            name is { Length: > 0 } ? name : Path.GetFileName(ImagePathOf(process) ?? string.Empty),
+            PackageFamilyNameOf(process),
+            IsAppContainer(process),
+            IntegrityOf(process),
+            StartedAtOf(process)));
     }
 
     /// <summary>The package family a process carries, or null when it carries none.</summary>
     internal static string? PackageFamilyNameOf(int processId)
     {
-        var process = NativeMethods.OpenProcess(
-            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
-        if (process == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        try
-        {
-            return PackageFamilyNameOf(process);
-        }
-        finally
-        {
-            NativeMethods.CloseHandle(process);
-        }
+        return WithProcess(processId, PackageFamilyNameOf);
     }
 
     /// <summary>When a process started, or null when that cannot be read.</summary>
@@ -132,21 +111,7 @@ internal static class ProcessInspector
     /// </remarks>
     internal static DateTime? StartedAt(int processId)
     {
-        var process = NativeMethods.OpenProcess(
-            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
-        if (process == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        try
-        {
-            return StartedAtOf(process);
-        }
-        finally
-        {
-            NativeMethods.CloseHandle(process);
-        }
+        return WithProcess(processId, StartedAtOf);
     }
 
     /// <summary>Whether a process runs as native x64 code, the only kind the overlay components are built for.</summary>
@@ -158,19 +123,30 @@ internal static class ProcessInspector
     /// </remarks>
     internal static bool? IsNativeX64(int processId)
     {
+        return WithProcess<bool?>(processId, process =>
+            NativeMethods.IsWow64Process2(process, out var processMachine, out var nativeMachine)
+                ? processMachine == NativeMethods.ImageFileMachineUnknown
+                  && nativeMachine == NativeMethods.ImageFileMachineAmd64
+                : null);
+    }
+
+    /// <summary>Opens a process for limited query, reads it, and closes it again.</summary>
+    /// <typeparam name="T">What is read.</typeparam>
+    /// <param name="processId">The process.</param>
+    /// <param name="read">Reads the open process.</param>
+    /// <returns>What was read, or the default when the process is gone or cannot be opened.</returns>
+    private static T? WithProcess<T>(int processId, Func<IntPtr, T?> read)
+    {
         var process = NativeMethods.OpenProcess(
             NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
         if (process == IntPtr.Zero)
         {
-            return null;
+            return default;
         }
 
         try
         {
-            return NativeMethods.IsWow64Process2(process, out var processMachine, out var nativeMachine)
-                ? processMachine == NativeMethods.ImageFileMachineUnknown
-                  && nativeMachine == NativeMethods.ImageFileMachineAmd64
-                : null;
+            return read(process);
         }
         finally
         {
@@ -241,25 +217,7 @@ internal static class ProcessInspector
     /// <param name="processId">The process.</param>
     internal static string? ImagePathOf(int processId)
     {
-        var process = NativeMethods.OpenProcess(
-            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
-        if (process == IntPtr.Zero)
-        {
-            return null;
-        }
-
-        try
-        {
-            StringBuilder buffer = new(1024);
-            var size = (uint)buffer.Capacity;
-            return NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref size)
-                ? buffer.ToString()
-                : null;
-        }
-        finally
-        {
-            NativeMethods.CloseHandle(process);
-        }
+        return WithProcess(processId, ImagePathOf);
     }
 
     /// <summary>A process's command line, or null when it cannot be read.</summary>
@@ -271,13 +229,11 @@ internal static class ProcessInspector
     /// </remarks>
     internal static string? CommandLineOf(int processId)
     {
-        var process = NativeMethods.OpenProcess(
-            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
-        if (process == IntPtr.Zero)
-        {
-            return null;
-        }
+        return WithProcess(processId, CommandLineOf);
+    }
 
+    private static string? CommandLineOf(IntPtr process)
+    {
         var length = 4096;
         var buffer = IntPtr.Zero;
         try
@@ -313,8 +269,6 @@ internal static class ProcessInspector
             {
                 Marshal.FreeHGlobal(buffer);
             }
-
-            NativeMethods.CloseHandle(process);
         }
     }
 
@@ -332,13 +286,52 @@ internal static class ProcessInspector
         return NativeMethods.GetShortPathNameW(path, buffer, length) == 0 ? null : buffer.ToString();
     }
 
-    private static string ImageName(IntPtr process)
+    /// <summary>The path a folder really lives at, past any junction or symbolic link, or null.</summary>
+    /// <param name="path">An existing folder or file.</param>
+    /// <returns>The final path with its drive letter, or null when it cannot be opened or has none.</returns>
+    /// <remarks>
+    ///     A process's image path is reported after every reparse point is resolved, so a library that
+    ///     was moved and left a junction behind never matches its old path literally.
+    /// </remarks>
+    internal static string? FinalPathOf(string path)
     {
-        StringBuilder buffer = new(260);
+        var handle = NativeMethods.CreateFileW(path, 0, NativeMethods.FileShareReadWriteDelete, IntPtr.Zero,
+            NativeMethods.OpenExisting, NativeMethods.FileFlagBackupSemantics, IntPtr.Zero);
+        if (handle == IntPtr.Zero || handle == new IntPtr(-1))
+        {
+            return null;
+        }
+
+        try
+        {
+            StringBuilder buffer = new(LongPathCharacters);
+            var length = NativeMethods.GetFinalPathNameByHandleW(
+                handle, buffer, (uint)buffer.Capacity, NativeMethods.VolumeNameDos);
+            if (length == 0 || length >= buffer.Capacity)
+            {
+                return null;
+            }
+
+            var final = buffer.ToString(0, (int)length);
+            return final.StartsWith(@"\\?\UNC\", StringComparison.Ordinal)
+                ? @"\\" + final[8..]
+                : final.StartsWith(@"\\?\", StringComparison.Ordinal)
+                    ? final[4..]
+                    : final;
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(handle);
+        }
+    }
+
+    private static string? ImagePathOf(IntPtr process)
+    {
+        StringBuilder buffer = new(LongPathCharacters);
         var size = (uint)buffer.Capacity;
         return NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref size)
-            ? Path.GetFileName(buffer.ToString())
-            : string.Empty;
+            ? buffer.ToString(0, (int)size)
+            : null;
     }
 
     private static string? PackageFamilyNameOf(IntPtr process)

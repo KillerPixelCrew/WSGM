@@ -55,7 +55,17 @@ internal sealed record PackagedFollowRequest(
     string Program,
     string Arguments,
     string Directory,
-    string Marker);
+    string Marker)
+{
+    /// <summary>The runtime images whose command line is read for <see cref="Marker" />.</summary>
+    /// <remarks>
+    ///     <c>--marker</c> is defined as "the Java process whose command line carries this path", so the
+    ///     images belong to the command's vocabulary rather than to the rule that matches processes.
+    ///     Only Java is read: every process a marker would match is contained in a kill-on-close job,
+    ///     and an editor or file manager opened on the instance folder must never be one of them.
+    /// </remarks>
+    internal IReadOnlyList<string> MarkerImages => Marker.Length > 0 ? PackagedLaunchCommand.JavaImages : [];
+}
 
 /// <summary>What the launcher was asked to do, which is not always to launch something.</summary>
 internal enum PackagedLaunchAction
@@ -138,16 +148,22 @@ internal static class PackagedLaunchCommand
                                     --report-privileges      Report the access the game grants, once, then continue.
                                     --recover                Release package-lifetime exemptions left by a killed
                                                              launcher, then exit. Takes no other option.
-                                    --follow --dir <folder> [--marker <path>] -- "<program>" <arguments>
+                                    --follow [--dir <folder>] [--marker <path>] -- "<program>" <arguments>
                                                              Start another launcher's game and stay alive while
                                                              it runs. The game is the process running from
                                                              <folder>, or the Java process whose command line
-                                                             carries <path>. Nothing is injected.
+                                                             carries <path>; at least one of the two is
+                                                             required, and neither may be a drive root. The
+                                                             program's arguments follow -- and are passed on
+                                                             exactly as written. Nothing is injected.
                                     --help                   Show this text.
 
                                   The launch route is decided from the activated process, not from this command line:
                                   a package can be updated after its shortcut was written.
                                   """;
+
+    /// <summary>The Java runtime's images, the processes a <c>--marker</c> is looked for in.</summary>
+    internal static readonly IReadOnlyList<string> JavaImages = ["java.exe", "javaw.exe"];
 
     /// <summary>Builds the Launch Arguments for a generated non-Steam shortcut.</summary>
     /// <param name="request">The request to encode.</param>
@@ -207,9 +223,17 @@ internal static class PackagedLaunchCommand
     /// <exception cref="ArgumentNullException"><paramref name="request" /> is null.</exception>
     /// <exception cref="ArgumentException">The request could not be encoded.</exception>
     /// <remarks>
-    ///     A launcher's arguments can carry quotes of their own - Battle.net's
-    ///     <c>--exec="launch Pro"</c> does - which no quoting of a single value survives. So they go
-    ///     last, after <c>--</c>, and the launcher hands them on untouched.
+    ///     <para>
+    ///         A launcher's arguments can carry quotes of their own - Battle.net's
+    ///         <c>--exec="launch Pro"</c> does - which no quoting of a single value survives. So they go
+    ///         last, after <c>--</c>, and the launcher hands them on untouched.
+    ///     </para>
+    ///     <para>
+    ///         The folder and the marker are written without a trailing backslash. Launchers store
+    ///         install paths either way, and under Windows' own argument rules a backslash before the
+    ///         closing quote escapes it, which swallows everything after it. Trimming here, once, is
+    ///         what keeps every source from having to remember it.
+    ///     </para>
     /// </remarks>
     internal static string ComposeFollow(PackagedFollowRequest request)
     {
@@ -219,6 +243,7 @@ internal static class PackagedLaunchCommand
             throw new ArgumentException(refusal, nameof(request));
         }
 
+        request = Normalized(request);
         StringBuilder composed = new();
         Append(composed, FollowFlag, null);
         if (request.Directory.Length > 0)
@@ -241,7 +266,10 @@ internal static class PackagedLaunchCommand
     }
 
     /// <summary>Parses a follow command line from the raw string, keeping the program's arguments intact.</summary>
-    /// <param name="raw">Everything after this launcher's own path, as Windows passed it.</param>
+    /// <param name="raw">
+    ///     Everything after this launcher's own path, exactly as Windows passed it: the process's
+    ///     <c>GetCommandLineW</c>, never an argument array rebuilt from the split one.
+    /// </param>
     /// <param name="request">The request, when this returns true.</param>
     /// <param name="error">Why it was refused, when this returns false.</param>
     /// <returns>Whether the command line is a follow request this understands.</returns>
@@ -317,19 +345,40 @@ internal static class PackagedLaunchCommand
 
         request = new PackagedFollowRequest(program, arguments, directory ?? string.Empty, marker ?? string.Empty);
         error = FollowRefusal(request);
-        return error is null;
+        if (error is not null)
+        {
+            return false;
+        }
+
+        // A shortcut written before the composer trimmed its folders still carries the backslash,
+        // which is harmless once the raw line is read, and is read back in the one form.
+        request = Normalized(request);
+        return true;
     }
 
     /// <summary>Why a follow request cannot be run, or null when it can.</summary>
     /// <param name="request">The request.</param>
-    /// <returns>The refusal, naming the problem.</returns>
+    /// <returns>The refusal, naming the condition and the value that failed it.</returns>
+    /// <remarks>
+    ///     Judged on the folders as <see cref="ComposeFollow" /> writes them, without a trailing
+    ///     backslash, so a launcher that stores <c>C:\Games\Foo\</c> is accepted as <c>C:\Games\Foo</c>.
+    /// </remarks>
     internal static string? FollowRefusal(PackagedFollowRequest request)
     {
-        if (!Path.IsPathFullyQualified(request.Program)
-            || !request.Program.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || request.Program.IndexOf('"') >= 0)
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Program.IndexOf('"') >= 0)
         {
-            return "The program to start must be an absolute path to an .exe.";
+            return $"The program to start, '{request.Program}', contains a quote.";
+        }
+
+        if (!Path.IsPathFullyQualified(request.Program))
+        {
+            return $"The program to start, '{request.Program}', is not an absolute path.";
+        }
+
+        if (!request.Program.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"The program to start, '{request.Program}', is not an .exe.";
         }
 
         if (request.Directory.Length == 0 && request.Marker.Length == 0)
@@ -337,15 +386,52 @@ internal static class PackagedLaunchCommand
             return $"{FollowFlag} needs {DirectoryFlag}, {MarkerFlag} or both, or the game cannot be recognised.";
         }
 
-        foreach (var path in new[] { request.Directory, request.Marker })
+        foreach (var (flag, path) in new[] { (DirectoryFlag, request.Directory), (MarkerFlag, request.Marker) })
         {
-            if (path.Length > 0 && (!Path.IsPathFullyQualified(path) || path.IndexOf('"') >= 0 || path.Length < 4))
+            if (path.Length > 0 && PathRefusal(flag, path) is { } refusal)
             {
-                return $"'{path}' is not an absolute folder path.";
+                return refusal;
             }
         }
 
-        return request.Arguments.Length > MaximumArgumentsLength ? "The program's arguments are too long." : null;
+        return request.Arguments.Length > MaximumArgumentsLength
+            ? $"The program's arguments are {request.Arguments.Length} characters; at most "
+              + $"{MaximumArgumentsLength} are accepted."
+            : null;
+    }
+
+    /// <summary>Why a folder given to <c>--dir</c> or <c>--marker</c> cannot identify a game, or null.</summary>
+    private static string? PathRefusal(string flag, string path)
+    {
+        if (path.IndexOf('"') >= 0)
+        {
+            return $"{flag} '{path}' contains a quote.";
+        }
+
+        var trimmed = TrimSeparators(path);
+        if (trimmed.Length == 0 || (trimmed.Length == 2 && trimmed[1] == ':'))
+        {
+            // Every process on the drive runs from inside it, so the whole drive would be contained
+            // and killed with the game.
+            return $"{flag} '{path}' is a drive root, which cannot tell one game from everything else on it.";
+        }
+
+        return Path.IsPathFullyQualified(trimmed) ? null : $"{flag} '{path}' is not an absolute folder path.";
+    }
+
+    /// <summary>The request with its folder and marker in the one form the command writes.</summary>
+    private static PackagedFollowRequest Normalized(PackagedFollowRequest request)
+    {
+        return request with
+        {
+            Directory = TrimSeparators(request.Directory),
+            Marker = TrimSeparators(request.Marker)
+        };
+    }
+
+    private static string TrimSeparators(string path)
+    {
+        return path.TrimEnd('\\', '/');
     }
 
     /// <summary>Where the first <c>--</c> outside quotes starts, or -1.</summary>

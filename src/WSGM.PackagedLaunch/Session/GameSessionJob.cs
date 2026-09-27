@@ -34,11 +34,22 @@ internal sealed class GameSessionJob : IDisposable
         "wwahost.exe"
     };
 
-    private readonly HashSet<int> _contained = [];
+    private readonly HashSet<(int Id, DateTime? StartedAt)> _contained = [];
+
+    /// <summary>The limits the job was created with, which <see cref="Abandon" /> keeps all but one of.</summary>
+    private readonly uint _limits;
+
     private IntPtr _job;
 
     /// <summary>Creates the kill-on-close job, or reports why the session cannot have one.</summary>
-    internal GameSessionJob()
+    /// <param name="recognisedOnly">
+    ///     Whether only the processes the supervisor recognises and contains belong in the job. A
+    ///     followed game can start a launcher of its own - an Epic title starts Ubisoft Connect - and
+    ///     that launcher must neither keep the session alive nor be killed when Steam stops the game.
+    ///     So its children leave the job silently, and each game process is contained on its own.
+    ///     A packaged game keeps the default: its children carry its identity and belong to it.
+    /// </param>
+    internal GameSessionJob(bool recognisedOnly = false)
     {
         _job = NativeMethods.CreateJobObjectW(IntPtr.Zero, null);
         if (_job == IntPtr.Zero)
@@ -49,8 +60,10 @@ internal sealed class GameSessionJob : IDisposable
             return;
         }
 
+        _limits = NativeMethods.JobObjectLimitKillOnJobClose
+                  | (recognisedOnly ? NativeMethods.JobObjectLimitSilentBreakawayOk : 0);
         var information = default(NativeMethods.JobObjectExtendedLimitInformationData);
-        information.BasicLimitInformation.LimitFlags = NativeMethods.JobObjectLimitKillOnJobClose;
+        information.BasicLimitInformation.LimitFlags = _limits;
         var size = Marshal.SizeOf<NativeMethods.JobObjectExtendedLimitInformationData>();
         var buffer = Marshal.AllocHGlobal(size);
         try
@@ -110,40 +123,57 @@ internal sealed class GameSessionJob : IDisposable
     }
 
     /// <summary>Adds one of the game's processes to the job.</summary>
-    /// <param name="processId">The process to contain.</param>
-    /// <param name="name">Its image name, for the log.</param>
+    /// <param name="facts">The process to contain, known by its id and start time.</param>
     /// <returns>Whether the process is now in the job.</returns>
     /// <remarks>
-    ///     Assignment can legitimately fail: a packaged app already lives in a system-managed job,
-    ///     and nesting is permitted but not guaranteed. The failure is recorded rather than
-    ///     swallowed, because it changes what stopping the shortcut will do.
+    ///     <para>
+    ///         Assignment can legitimately fail: a packaged app already lives in a system-managed job,
+    ///         and nesting is permitted but not guaranteed. The failure is recorded rather than
+    ///         swallowed, because it changes what stopping the shortcut will do.
+    ///     </para>
+    ///     <para>
+    ///         A process is remembered by its id and its start time, so a new process that reuses a
+    ///         contained one's id is contained in its own right. The handle is checked against that
+    ///         start time before it is assigned, so the job never takes a process that merely inherited
+    ///         the id since it was seen.
+    ///     </para>
     /// </remarks>
-    internal bool Contain(int processId, string name)
+    internal bool Contain(ProcessFacts facts)
     {
-        if (_job == IntPtr.Zero || !_contained.Add(processId))
+        ArgumentNullException.ThrowIfNull(facts);
+        if (_job == IntPtr.Zero || !_contained.Add((facts.Id, facts.StartedAt)))
         {
             return false;
         }
 
         var process = NativeMethods.OpenProcess(
-            NativeMethods.ProcessSetQuota | NativeMethods.ProcessTerminate, false, (uint)processId);
+            NativeMethods.ProcessSetQuota | NativeMethods.ProcessTerminate
+                                          | NativeMethods.ProcessQueryLimitedInformation, false, (uint)facts.Id);
         if (process == IntPtr.Zero)
         {
             PackagedLaunchLog.Warn(
-                $"Cannot contain {name} ({processId}): access denied (error {Marshal.GetLastWin32Error()}).");
+                $"Cannot contain {facts.Name} ({facts.Id}): access denied (error {Marshal.GetLastWin32Error()}).");
             return false;
         }
 
         try
         {
+            if (facts.StartedAt is { } started
+                && (!NativeMethods.GetProcessTimes(process, out var creation, out _, out _, out _)
+                    || DateTime.FromFileTimeUtc(creation) != started))
+            {
+                PackagedLaunchLog.Warn($"Did not contain {facts.Name} ({facts.Id}): it exited before it could be.");
+                return false;
+            }
+
             if (NativeMethods.AssignProcessToJobObject(_job, process))
             {
-                PackagedLaunchLog.Info($"Contained {name} ({processId}).");
+                PackagedLaunchLog.Info($"Contained {facts.Name} ({facts.Id}).");
                 return true;
             }
 
             PackagedLaunchLog.Warn(
-                $"Could not contain {name} ({processId}): error {Marshal.GetLastWin32Error()}.");
+                $"Could not contain {facts.Name} ({facts.Id}): error {Marshal.GetLastWin32Error()}.");
             return false;
         }
         finally
@@ -167,7 +197,7 @@ internal sealed class GameSessionJob : IDisposable
         }
 
         var information = default(NativeMethods.JobObjectExtendedLimitInformationData);
-        information.BasicLimitInformation.LimitFlags = 0;
+        information.BasicLimitInformation.LimitFlags = _limits & ~NativeMethods.JobObjectLimitKillOnJobClose;
         var size = Marshal.SizeOf<NativeMethods.JobObjectExtendedLimitInformationData>();
         var buffer = Marshal.AllocHGlobal(size);
         try

@@ -28,13 +28,18 @@ public enum GameSessionOutcome
 /// <param name="GoneFor">How long no game process has been seen, or null while one is running.</param>
 /// <param name="Degraded">Whether the session could not do what the user asked.</param>
 /// <param name="Cancelled">Whether a stop was requested.</param>
+/// <param name="StartFailed">
+///     Whether what was started to bring the game up is known to have failed before any of the game
+///     appeared, so there is nothing left to wait for.
+/// </param>
 public readonly record struct GameSessionFacts(
     bool SawGame,
     bool GameRunning,
     TimeSpan Elapsed,
     TimeSpan? GoneFor,
     bool Degraded,
-    bool Cancelled);
+    bool Cancelled,
+    bool StartFailed = false);
 
 /// <summary>Decides when a supervised session is over.</summary>
 /// <remarks>
@@ -96,7 +101,11 @@ public static class GameSessionExitDecision
                 : GameSessionOutcome.Running;
         }
 
-        return facts.Elapsed >= settle ? GameSessionOutcome.NeverAppeared : GameSessionOutcome.Running;
+        // A start that is known to have failed ends the wait at once rather than holding Steam's
+        // running state for a game that cannot appear.
+        return facts.StartFailed || facts.Elapsed >= settle
+            ? GameSessionOutcome.NeverAppeared
+            : GameSessionOutcome.Running;
     }
 
     /// <summary>The process exit code one outcome reports.</summary>
