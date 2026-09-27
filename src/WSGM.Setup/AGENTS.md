@@ -46,17 +46,18 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
 - Steam Input shim cleanup must ask the runtime ownership logic to reconcile it. Never delete or
   replace a Steam DLL merely because its filename matches.
 - Restart-required state is reserved for the USB/IP step and genuine operating system requirements.
-  Quiet runs must not invent an interactive restart. The USB/IP driver-update restart below is the one
-  restart setup performs itself, in every mode, because it has already turned WSGM's autostart off.
+  Quiet runs must not invent an interactive restart; a quiet run that needs the driver-update restart
+  below exits with code 6 and leaves it to the caller.
 - The USB/IP driver cannot be replaced on a boot where anything has attached to it: the installer restarts the USB hubs
   and its teardown blocks behind the attachment, which hangs the upgrade with no way out but a hard reset (upstream
   #188). WSGM attaches its pad seconds after sign-in, so the upgrade takes two runs: the first disables the sign-in
-  service, schedules a RunOnce resume and restarts Windows itself without touching the driver; the second, on a boot
-  WSGM never started in, installs it and puts the start type back to auto. That restart is not a request, and it is
-  the one place setup restarts the machine on its own. The service start type is the whole record of
-  that, read in `Detect` before the register step resets it. Never skip the driver step on presence alone, never
-  install over an attachment, and never start WSGM while the restart is pending;
-  `docs/device-integration.md` has the reasoning.
+  service, schedules a `/finishdrivers` RunOnce and ends on the restart page (`RestartPage`, one button: Restart
+  now; closing asks first) without touching the driver; the second, `/finishdrivers`, runs only the driver step and
+  `--install` for the service, on a boot WSGM never started in. The service start type is the whole record of that,
+  read in `Detect` before anything resets it. Never skip the driver step on presence alone, never install over an
+  attachment, and never start WSGM while the restart is pending; `docs/device-integration.md` has the reasoning.
+- The window refuses to close while steps run, and the restart page asks before closing. `RequestClose` on the
+  view model is the one place that decides; the pages' own buttons close through `CloseRequested` and never ask.
 - Uninstall removes only WSGM-owned files and restores shell, service, driver and input state in a
   recoverable order. The HidHide cleanup always runs, even when HidHide stays installed; an
   unverified cleanup is reported with the device paths and keeps the ownership ledger. A driver that

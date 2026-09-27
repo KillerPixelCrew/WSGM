@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -385,6 +386,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
         try
         {
+            ExposeUsbipTool();
             if (NativeViiper.Init(ListenAddress) != NativeViiper.Ok)
             {
                 detail = $"The controller backend could not start: {NativeViiper.TakeLastError()}";
@@ -422,6 +424,69 @@ internal sealed class ViiperControllerBackend : IHidBackend
         _initialized = true;
         detail = string.Empty;
         return true;
+    }
+
+    /// <summary>
+    ///     Puts the usbip-win2 install folder on this process's PATH when <c>usbip.exe</c> is not
+    ///     already reachable through it.
+    /// </summary>
+    /// <remarks>
+    ///     VIIPER attaches the device by running <c>usbip.exe</c> from PATH. usbip-win2 up to 0.9.7.8
+    ///     added its folder to the machine PATH; 0.9.8.1's rewritten installer does not, and its
+    ///     upgrade removes the old entry, so after the update every attach failed with "executable
+    ///     file not found in %PATH%" (2026-09-27). The folder is read from the package's own uninstall
+    ///     entry, with the default location as the fallback, and only this process's environment is
+    ///     changed. Go reads PATH from the process at each lookup, so this must run before the first
+    ///     attach and needs nothing else.
+    /// </remarks>
+    private static void ExposeUsbipTool()
+    {
+        const string tool = "usbip.exe";
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        if (path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Any(entry => File.Exists(Path.Combine(entry.Trim(), tool))))
+        {
+            return;
+        }
+
+        var folder = UsbipInstallFolder();
+        if (folder is null || !File.Exists(Path.Combine(folder, tool)))
+        {
+            Log.Warn("usbip.exe was not found on PATH or in a usbip-win2 install folder; attach will fail.");
+            return;
+        }
+
+        Environment.SetEnvironmentVariable("PATH", folder + Path.PathSeparator + path);
+        Log.Info($"usbip.exe is not on PATH; using {folder} for this process.");
+    }
+
+    private static string? UsbipInstallFolder()
+    {
+        try
+        {
+            using var uninstall = Microsoft.Win32.RegistryKey
+                .OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64)
+                .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+            foreach (var name in uninstall?.GetSubKeyNames() ?? [])
+            {
+                using var entry = uninstall!.OpenSubKey(name);
+                if (entry?.GetValue("DisplayName") is string display
+                    && display.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
+                    && entry.GetValue("InstallLocation") is string location
+                    && location.Length > 0)
+                {
+                    return location.TrimEnd('\\');
+                }
+            }
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or IOException
+                                       or UnauthorizedAccessException)
+        {
+            // Fall through to the default location.
+        }
+
+        var fallback = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "USBip");
+        return Directory.Exists(fallback) ? fallback : null;
     }
 
     /// <summary>

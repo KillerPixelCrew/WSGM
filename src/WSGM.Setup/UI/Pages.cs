@@ -352,14 +352,13 @@ internal sealed class StepRow(SetupStep step) : Observable
     }
 }
 
-internal sealed class ProgressPage(bool uninstall) : Page
+internal sealed class ProgressPage(string eyebrow, string title) : Page
 {
     private string _running = "";
     public ObservableCollection<StepRow> Steps { get; } = [];
-    public override string Eyebrow => uninstall ? "Uninstalling" : "Installing";
+    public override string Eyebrow => eyebrow;
 
-    public override string Title =>
-        _running.Length > 0 ? _running + "…" : uninstall ? "Removing WSGM" : "Installing WSGM";
+    public override string Title => _running.Length > 0 ? _running + "…" : title;
 
     public override string Lead =>
         Steps.FirstOrDefault(row => row.Step.State is StepState.Running)?.Step.Hint ??
@@ -403,6 +402,52 @@ internal sealed class SummaryPage(
     public bool HasProblem => Problem.Length > 0;
     public override string Primary { get; } = primary;
     public override string Back { get; } = back;
+}
+
+/// <summary>
+///     The end of a run that turned WSGM's autostart off so the USB/IP driver can be replaced on the next
+///     boot. The only way forward is the restart; setup comes back on its own afterwards.
+/// </summary>
+internal sealed class RestartPage(IReadOnlyList<StepRow> steps, bool resumes) : Page
+{
+    private bool _confirming;
+
+    public override string Eyebrow => "Restart";
+
+    public override string Title => _confirming
+        ? "Close without restarting?"
+        : "Restart to finish the controller driver";
+
+    public override string Lead => _confirming
+        ? "WSGM does not start again until Windows restarts and setup installs the driver. "
+          + (resumes
+              ? "Setup opens on its own after that restart, whenever you do it."
+              : "Run this setup again after that restart.")
+        : "The USB/IP driver can only be replaced before anything attaches to it, and WSGM attaches its "
+          + "controller seconds after sign-in. WSGM's autostart is off now. "
+          + (resumes
+              ? "After the restart, setup opens on its own, installs the driver and turns WSGM back on."
+              : "After the restart, run this setup again: it installs the driver and turns WSGM back on.");
+
+    public IReadOnlyList<StepRow> Steps { get; } = steps;
+
+    /// <summary>Set by a close request; the page then asks instead of closing.</summary>
+    public bool Confirming
+    {
+        get => _confirming;
+        set
+        {
+            if (Set(ref _confirming, value))
+            {
+                Raise(nameof(Title));
+                Raise(nameof(Lead));
+                Raise(nameof(Back));
+            }
+        }
+    }
+
+    public override string Primary => "Restart now";
+    public override string Back => _confirming ? "Close anyway" : "";
 }
 
 internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHideOwned) : Page

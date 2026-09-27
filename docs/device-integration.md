@@ -143,15 +143,22 @@ and one restart:
 
 1. Setup asks the install script what it would do. If an upgrade is due, the step sets the
    `WSGMLogonService` start type to Disabled, writes a `RunOnce` entry that starts setup again with
-   `/repair`, and stops without touching the driver. Setup then restarts Windows itself, five
-   seconds after the last step. It does not ask, and it offers no way to start WSGM: with autostart
-   already off, the machine is in the state the update needs and in no other useful state.
+   `/finishdrivers`, and stops without touching the driver. The run ends on a restart page whose
+   only button is Restart now; closing the window instead asks first, because WSGM does not start
+   again until that restart happens. A quiet run exits with code 6 and leaves the restart to its
+   caller.
 2. Nothing starts WSGM at the next sign-in, because the service that would is disabled. This needs
    no cooperation from WSGM and no marker file.
-3. `RunOnce` starts setup, which reads the disabled start type in `Detect` (before the register step
-   puts it back to auto), knows nothing has attached, installs the driver and turns autostart back
-   on. The autostart is restored whether the install succeeds or fails, so a failure never leaves
-   WSGM unable to start.
+3. `RunOnce` starts setup in `/finishdrivers` mode, which runs exactly two steps: the USB/IP driver,
+   then `WSGM.LogonService.exe --install` to put autostart back. `Detect` reads the disabled start
+   type before anything else runs, so the driver step knows nothing has attached. The autostart step
+   runs whether the driver step succeeded or not.
+
+VIIPER runs `usbip.exe` from PATH to attach the device. usbip-win2 up to 0.9.7.8 added its folder to
+the machine PATH; 0.9.8.1's rewritten installer does not, and upgrading removes the old entry, so
+the first attach after the update failed with "executable file not found in %PATH%". WSGM now puts
+the package's install folder (from its uninstall entry, or `%ProgramFiles%\USBip`) on its own
+process PATH before starting the backend when `usbip.exe` is not already reachable.
 
 A fresh install takes the same two runs. Deciding from whether WSGM happened to be running as setup
 started was tried first and was wrong: it says nothing about whether a pad was attached earlier in

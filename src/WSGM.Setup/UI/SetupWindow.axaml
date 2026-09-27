@@ -361,6 +361,27 @@
       </StackPanel>
     </DataTemplate>
 
+    <DataTemplate DataType="ui:RestartPage">
+      <StackPanel Spacing="14">
+        <Border Classes="banner warn">
+          <TextBlock TextWrapping="Wrap"
+                     Text="Save your work in other programs first. Windows restarts as soon as you press Restart now." />
+        </Border>
+        <Border Classes="card">
+          <ItemsControl ItemsSource="{Binding Steps}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="ui:StepRow">
+                <Grid ColumnDefinitions="28,*" Margin="0,3">
+                  <TextBlock Text="{Binding Glyph}" FontWeight="Bold" Foreground="{StaticResource HcSuccessBrush}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="15" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Border>
+      </StackPanel>
+    </DataTemplate>
+
     <DataTemplate DataType="ui:SummaryPage">
       <StackPanel Spacing="14">
         <Border Classes="banner bad" IsVisible="{Binding HasProblem}">

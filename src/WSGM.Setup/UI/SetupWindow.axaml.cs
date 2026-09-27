@@ -21,6 +21,7 @@ internal static class Converters
 internal sealed partial class SetupWindow : Window
 {
     private readonly DispatcherTimer _gamepad = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private bool _closeRequested;
     private ushort _lastButtons;
 
     public SetupWindow()
@@ -32,12 +33,27 @@ internal sealed partial class SetupWindow : Window
         {
             if (DataContext is SetupViewModel model)
             {
-                model.CloseRequested += Close;
+                model.CloseRequested += CloseFromModel;
             }
 
             _gamepad.Start();
         };
+        Closing += (_, e) =>
+        {
+            // The close box, Alt+F4 and the taskbar all land here; the pages' own Close buttons go
+            // through CloseRequested and never ask twice.
+            if (DataContext is SetupViewModel model && !_closeRequested && !model.RequestClose())
+            {
+                e.Cancel = true;
+            }
+        };
         Closed += (_, _) => _gamepad.Stop();
+    }
+
+    private void CloseFromModel()
+    {
+        _closeRequested = true;
+        Close();
     }
 
     // Arrows move focus in reading order, Escape is B, Enter on a focused control is A.

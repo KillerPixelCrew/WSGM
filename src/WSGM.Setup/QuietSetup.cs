@@ -21,6 +21,12 @@ internal static class QuietSetup
     internal const int SteamMissing = 4;
     internal const int NoPayload = 5;
 
+    /// <summary>
+    ///     WSGM's autostart is off and Windows must restart before the USB/IP driver can be installed; setup
+    ///     runs again on its own afterwards. A quiet run does not restart the machine itself.
+    /// </summary>
+    internal const int RestartToFinishDrivers = 6;
+
     /// <summary>Runs the requested mode and returns the exit code.</summary>
     public static int Run(SetupOptions options)
     {
@@ -31,6 +37,18 @@ internal static class QuietSetup
                 !options.KeepComponents));
             var ok = engine.Run(uninstall, () => { });
             return engine.StillHiddenDevices.Count > 0 ? ControllerStillHidden : ok ? Success : Failed;
+        }
+
+        if (options.Mode is SetupMode.FinishDrivers)
+        {
+            if (engine.Payload is null)
+            {
+                SetupLog.Warn("This setup carries no payload; pass /payload=<dir> for a development build.");
+                return NoPayload;
+            }
+
+            var finished = engine.Run(engine.PlanFinishDrivers(), () => { });
+            return engine.DriverUpdatePending ? RestartToFinishDrivers : finished ? Success : Failed;
         }
 
         if (engine.Kind is SetupKind.NewerInstalled)
@@ -70,6 +88,12 @@ internal static class QuietSetup
         answers["deviceIntegration"] = device is not null;
         var plan = engine.PlanInstall(new InstallChoices(device, common, answers));
         var succeeded = engine.Run(plan, () => { });
+        if (engine.DriverUpdatePending)
+        {
+            SetupLog.Info("WSGM's autostart is off; restart Windows to let setup install the USB/IP driver.");
+            return RestartToFinishDrivers;
+        }
+
         if (succeeded && !fresh)
         {
             engine.StartWsgm();

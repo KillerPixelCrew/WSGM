@@ -85,6 +85,26 @@ internal sealed class SetupViewModel : Observable
     public string InstallPath => InstallLayout.Root;
     public string HintLeft => _flow.Count == 0 ? "" : $"Step {_step + 1} of {_flow.Count}";
 
+    private bool FinishingDrivers => _options.Mode is SetupMode.FinishDrivers;
+
+    /// <summary>
+    ///     Whether the window may close now. Not while steps are running: an install interrupted
+    ///     mid-swap is not a WSGM that starts. On the restart page, the first request asks.
+    /// </summary>
+    public bool RequestClose()
+    {
+        switch (Page)
+        {
+            case ProgressPage:
+                return false;
+            case RestartPage { Confirming: false } restart:
+                restart.Confirming = true;
+                return false;
+            default:
+                return true;
+        }
+    }
+
     /// <summary>Raised when setup should close.</summary>
     public event Action? CloseRequested;
 
@@ -106,6 +126,17 @@ internal sealed class SetupViewModel : Observable
         if (_options.Mode is SetupMode.Uninstall)
         {
             StartUninstall();
+        }
+        else if (_options.Mode is SetupMode.FinishDrivers)
+        {
+            if (engine.Payload is null)
+            {
+                Page = new MessagePage("WSGM Setup", "This setup carries no WSGM",
+                    "It was built without its payload. Run it with /payload=<publish directory>, or use a release setup.");
+                return;
+            }
+
+            StartFinishDrivers();
         }
         else if (engine.Kind is SetupKind.NewerInstalled)
         {
@@ -165,6 +196,14 @@ internal sealed class SetupViewModel : Observable
         });
         // Unpacking the new WSGM and asking it for the current answers takes a moment; start now.
         _answersTask = Task.Run(engine.PrepareAnswers);
+        GoTo(0);
+    }
+
+    /// <summary>The run after the driver-update restart: the driver step and autostart, nothing else.</summary>
+    private void StartFinishDrivers()
+    {
+        _flow.Clear();
+        _flow.AddRange(["progress", "summary"]);
         GoTo(0);
     }
 
@@ -239,7 +278,7 @@ internal sealed class SetupViewModel : Observable
                 "profile" => "Profile",
                 "customize" => "Customize",
                 "drivers" => "Drivers",
-                "progress" => _flow.Contains("uninstall") ? "Remove" : "Install",
+                "progress" => _flow.Contains("uninstall") ? "Remove" : FinishingDrivers ? "Driver" : "Install",
                 "summary" => "Done",
                 "uninstall" => "Uninstall",
                 _ => _flow[i]
@@ -356,7 +395,9 @@ internal sealed class SetupViewModel : Observable
             steps = uninstall
                 ? engine.PlanUninstall(new UninstallChoices(_uninstall!.KeepData, _uninstall.RemoveUsbip,
                     _uninstall.RemoveHidHide))
-                : engine.PlanInstall(Choices());
+                : FinishingDrivers
+                    ? engine.PlanFinishDrivers()
+                    : engine.PlanInstall(Choices());
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -365,7 +406,9 @@ internal sealed class SetupViewModel : Observable
             return;
         }
 
-        ProgressPage progress = new(uninstall);
+        ProgressPage progress = uninstall ? new("Uninstalling", "Removing WSGM")
+            : FinishingDrivers ? new("Finishing", "Installing the controller driver")
+            : new("Installing", "Installing WSGM");
         foreach (var step in steps)
         {
             progress.Steps.Add(new StepRow(step));
@@ -423,35 +466,34 @@ internal sealed class SetupViewModel : Observable
             return;
         }
 
-        var problem = string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}"));
-        var title = _flow.Contains("update")
-            ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed"
-            : "WSGM is ready";
-        var lead = engine switch
+        if (engine.DriverUpdatePending)
         {
-            // Setup has already started the restart; this page is only here to say why. WSGM must
-            // not start before it, because it attaches the virtual pad and the driver cannot be
-            // replaced once anything has.
-            { DriverUpdatePending: true } =>
-                "Windows is restarting now to finish the controller driver. WSGM stays off for "
-                + "that sign-in, setup installs the driver on its own and turns WSGM back on.",
-            { RestartRequired: true } =>
-                "Restart Windows to turn on the virtual controller. Everything else works now.",
-            _ => ""
-        };
+            // WSGM's autostart is off now and the only way forward is the restart. WSGM must not
+            // start before it: it attaches the virtual pad, and the driver cannot be replaced once
+            // anything has.
+            Page = new RestartPage(rows, engine.DriverUpdateResumes);
+            return;
+        }
+
+        var problem = string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}"));
+        var title = FinishingDrivers ? "The controller driver is installed"
+            : _flow.Contains("update") ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed"
+            : "WSGM is ready";
+        var lead = engine.RestartRequired
+            ? "Restart Windows to turn on the virtual controller. Everything else works now."
+            : "";
         Page = new SummaryPage(problem.Length > 0 ? "Done, with a problem" : "Done", title, lead, rows, problem,
-            engine switch
-            {
-                { DriverUpdatePending: true } => "Close",
-                { RestartRequired: true } => "Start WSGM, restart later",
-                _ => "Start WSGM"
-            }, "");
+            engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "");
     }
 
     private void OnPrimary()
     {
         switch (Page)
         {
+            case RestartPage:
+                SetupEngine.RestartWindows();
+                CloseRequested?.Invoke();
+                return;
             case MessagePage:
             case SummaryPage:
                 if (Page is SummaryPage && !_flow.Contains("uninstall"))
@@ -478,6 +520,12 @@ internal sealed class SetupViewModel : Observable
     {
         switch (Page)
         {
+            case RestartPage { Confirming: true }:
+                // "Close anyway", after the confirmation: the user leaves the restart to later.
+                CloseRequested?.Invoke();
+                return;
+            case RestartPage:
+                return;
             case UninstallPage { Confirming: true } page:
                 page.Confirming = false;
                 return;

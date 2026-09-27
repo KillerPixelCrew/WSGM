@@ -128,6 +128,9 @@ internal sealed class SetupEngine : IDisposable
     /// </summary>
     public bool DriverUpdatePending { get; private set; }
 
+    /// <summary>Whether setup scheduled itself to open again after that restart.</summary>
+    public bool DriverUpdateResumes { get; private set; }
+
     /// <summary>
     ///     Whether WSGM's autostart was already off when setup started, which means the previous run
     ///     asked for this boot so the driver could be replaced with nothing attached to it.
@@ -377,17 +380,33 @@ internal sealed class SetupEngine : IDisposable
         }
 
         FinishInstall();
-        if (DriverUpdatePending)
-        {
-            // Not a request. WSGM's autostart is off as of now, so the machine is in the state the
-            // driver update needs and in no other useful state; setup restarts it itself and comes
-            // back through RunOnce to install the driver and turn autostart back on.
-            SetupLog.Info("Restarting Windows to install the USB/IP driver with nothing attached to it.");
-            WindowsSetup.Run(WindowsSetup.SystemTool("shutdown.exe"),
-                "/r /t 5 /c \"WSGM is restarting Windows to finish installing the controller driver.\"");
-        }
-
         return true;
+    }
+
+    /// <summary>Restarts Windows now, for the boot the driver update needs.</summary>
+    public static void RestartWindows()
+    {
+        SetupLog.Info("Restarting Windows to install the USB/IP driver with nothing attached to it.");
+        WindowsSetup.Run(WindowsSetup.SystemTool("shutdown.exe"), "/r /t 0");
+    }
+
+    /// <summary>
+    ///     The steps of the run after that restart: the USB/IP driver, then WSGM's autostart back on.
+    ///     Nothing else is touched; the install itself was finished before the restart.
+    /// </summary>
+    public IReadOnlyList<SetupStep> PlanFinishDrivers()
+    {
+        _ = Payload ?? throw new InvalidOperationException("This setup carries no payload.");
+        return
+        [
+            new SetupStep("Installing the USB/IP driver", "USB/IP driver installed", false, InstallUsbip)
+            {
+                Hint = "Your controls drop out for a few seconds now."
+            },
+            new SetupStep("Turning WSGM's autostart back on", "WSGM autostart on", false, step => Fail(step,
+                WindowsSetup.Run(Path.Combine(InstallLayout.App, "WSGM.LogonService.exe"), "--install") == 0,
+                $"WSGM's autostart could not be turned back on. Run: sc.exe config {WindowsSetup.ServiceName} start= auto"))
+        ];
     }
 
     /// <summary>Starts WSGM the way it was running before, or the session on a fresh install.</summary>
@@ -622,31 +641,20 @@ internal sealed class SetupEngine : IDisposable
                 return PrepareDriverUpdateBoot(step);
             }
 
-            // This is the boot the previous run asked for. WSGM's autostart was off for it, so
-            // nothing has attached to the driver and it can be replaced. Turn autostart back on
-            // whatever the install does, so a failure here never leaves WSGM unable to start.
-            try
+            // This is the boot the previous run asked for: WSGM's autostart was off for it, so
+            // nothing has attached to the driver and it can be replaced. The next step turns
+            // autostart back on, whatever happens here; this step is not fatal.
+            Registration.CancelResumeAfterRestart();
+            var outcome = RunUsbipScript(script, string.Empty);
+            SetupLog.Info("USB/IP: " + outcome.Detail);
+            RestartRequired |= outcome.RebootRequired;
+            if (outcome.Outcome == "installed")
             {
-                var outcome = RunUsbipScript(script, string.Empty);
-                SetupLog.Info("USB/IP: " + outcome.Detail);
-                RestartRequired |= outcome.RebootRequired;
-                if (outcome.Outcome == "installed")
-                {
-                    Components = Components with { Usbip = true };
-                    Components.Write();
-                }
+                Components = Components with { Usbip = true };
+                Components.Write();
+            }
 
-                return Fail(step, outcome.Succeeded, outcome.Detail);
-            }
-            finally
-            {
-                Registration.CancelResumeAfterRestart();
-                if (!WindowsSetup.SetServiceDisabled(false))
-                {
-                    SetupLog.Error("USB/IP: WSGM autostart could not be turned back on. "
-                                   + $"Run: sc.exe config {WindowsSetup.ServiceName} start= auto");
-                }
-            }
+            return Fail(step, outcome.Succeeded, outcome.Detail);
         }
         finally
         {
@@ -687,9 +695,10 @@ internal sealed class SetupEngine : IDisposable
     private bool PrepareDriverUpdateBoot(SetupStep step)
     {
         var disabled = WindowsSetup.SetServiceDisabled(true);
-        var resumes = disabled && Registration.ScheduleResumeAfterRestart("/repair");
+        var resumes = disabled && Registration.ScheduleResumeAfterRestart("/finishdrivers");
         RestartRequired = true;
         DriverUpdatePending = disabled;
+        DriverUpdateResumes = resumes;
         step.DoneLabel = disabled
             ? "USB/IP driver update prepared; restart to finish it"
             : "USB/IP driver update could not be prepared";
@@ -698,12 +707,12 @@ internal sealed class SetupEngine : IDisposable
         {
             (true, true) =>
                 "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
-                + "not start at the next sign-in, and setup runs again on its own to install the "
-                + "driver and turn WSGM back on. Windows restarts now.",
+                + "not start at the next sign-in, and setup opens again on its own to install the "
+                + "driver and turn WSGM back on.",
             (true, false) =>
                 "The USB/IP driver can only be replaced before anything attaches to it. WSGM will "
-                + "not start at the next sign-in. Windows restarts now; run this setup again after "
-                + "it comes back to install the driver and turn WSGM back on.",
+                + "not start at the next sign-in. Run this setup again after the restart to install "
+                + "the driver and turn WSGM back on.",
             _ =>
                 "WSGM's autostart could not be turned off, so the driver cannot be replaced safely. "
                 + "The installed driver is unchanged."

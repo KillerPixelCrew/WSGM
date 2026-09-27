@@ -16,7 +16,13 @@ internal enum SetupMode
     Repair,
 
     /// <summary>Remove WSGM.</summary>
-    Uninstall
+    Uninstall,
+
+    /// <summary>
+    ///     The run after the restart a driver update asked for: install the USB/IP driver and turn WSGM's
+    ///     autostart back on, nothing else. Setup schedules this itself through RunOnce.
+    /// </summary>
+    FinishDrivers
 }
 
 /// <summary>Parsed command line. Unknown arguments are refused, not ignored.</summary>
@@ -24,8 +30,8 @@ internal sealed record SetupOptions
 {
     /// <summary>The usage text.</summary>
     public const string Usage =
-        "WSGM.Setup.exe [/quiet] [/update | /repair | /uninstall] [/answers=<file>] [/plugin=<id>|none] "
-        + "[/removedata] [/keepcomponents] [/payload=<dir>]";
+        "WSGM.Setup.exe [/quiet] [/update | /repair | /uninstall | /finishdrivers] [/answers=<file>] "
+        + "[/plugin=<id>|none] [/removedata] [/keepcomponents] [/payload=<dir>]";
 
     /// <summary>No window: take defaults or the given answers and report through the exit code and log.</summary>
     public bool Quiet { get; init; }
@@ -76,6 +82,9 @@ internal sealed record SetupOptions
                     break;
                 case "/uninstall":
                     options = options with { Mode = SetupMode.Uninstall };
+                    break;
+                case "/finishdrivers":
+                    options = options with { Mode = SetupMode.FinishDrivers };
                     break;
                 case "/removedata":
                     options = options with { RemoveData = true };
