@@ -101,6 +101,41 @@ in the Quick Access rows as an override like any other, and can change it there.
 Switching an imported entry back to the overlay route, or removing its shortcut, takes that profile
 away again.
 
+## Following another launcher's game
+
+The Game Library also points titles that start through Epic Games, GOG Galaxy, Ubisoft Connect,
+Battle.net, Amazon Games, Prism Launcher or ATLauncher at this launcher, in its follow mode:
+
+```text
+WSGM.PackagedLaunch.exe --follow --dir "<install folder>" [--marker "<instance folder>"] -- "<program>" <arguments>
+```
+
+The program those launchers are started with usually hands the request to a copy that is already
+running and exits at once. Steam reads that as the game stopping, and the shortcut's Steam Input
+layout goes with the running state. So the follow mode stays alive instead:
+
+- It starts the program with Explorer, or WSGM when Explorer is not running, as its parent, so a
+  launcher that stays in the tray is not in Steam's tree and cannot hold the shortcut running after
+  the game exits. When neither can be used it starts the program as its own child and says so.
+- It finds the game as any process whose image is inside `--dir`, or, for Minecraft, a Java process
+  whose command line names the `--marker` folder, with forward slashes and the 8.3 form both
+  recognised. The launcher program itself is never the game.
+- It holds the game in its kill-on-close job, so stopping the shortcut in Steam stops the game, and
+  exits once the game has been gone for 15 seconds, which covers a bootstrapper handing over.
+- It waits up to five minutes for the game to appear, since a launcher may update itself or ask for
+  a sign-in first, and exits with "never appeared" after that.
+
+The program's arguments follow `--` verbatim, because a launcher's own can carry quotes:
+Battle.net's `--exec="launch Pro"` does. Nothing is injected into a followed game, so Steam's
+overlay reaches it only if Steam gets there on its own. `SDL_GAMECONTROLLER_IGNORE_DEVICES` is
+removed from the program's environment, as for every child WSGM's launchers start.
+
+For Minecraft, the shortcut starts the launcher with the instance rather than building a Java
+command itself: a direct command would carry a Microsoft account token that expires within a day,
+and refreshing it would mean WSGM handling the user's sign-in. ATLauncher is started with the
+instance's name, which its `--launch` matches together with the safe name (`App.java`), and with
+`--close-launcher --no-launcher-update`; Prism Launcher with the instance's folder, which is its id.
+
 ## Rules that do not bend
 
 - An uncertain remote write is never retried. One remote operation that misses its budget latches
@@ -128,6 +163,8 @@ away again.
   or `dllhost`.
 - A mid-session failure records once, marks the session degraded and keeps supervising. Foreground
   correction keeps working, because that is the repair that actually worked.
+- The follow mode never injects and never writes into any process. It only starts a program, reads
+  process image paths and, for Java alone, command lines, and contains what it recognised.
 
 ## Logging
 

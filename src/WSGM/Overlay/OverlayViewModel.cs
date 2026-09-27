@@ -314,19 +314,16 @@ public sealed class OverlayViewModel : ObservableObject
     ///     its header is hidden rather than left orphaned when every CEF feature is off.
     /// </summary>
     public bool ShowSteamLibrarySection =>
-        ShowGameLibrary || ShowLibraryTabs || ShowCardManager || ShowSdCard;
+        ShowLibraryTabs || ShowCardManager || ShowSdCard;
 
-    /// <summary>Whether the Game Library row is offered: CEF is on and this session has a library.</summary>
+    /// <summary>
+    ///     Whether the Steam tab's Game Library tile is offered: CEF is on and this session has a
+    ///     library.
+    /// </summary>
     public bool ShowGameLibrary
     {
         get;
-        set
-        {
-            if (SetFieldIfChanged(ref field, value, nameof(ShowGameLibrary)))
-            {
-                Raise(nameof(ShowSteamLibrarySection));
-            }
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(ShowGameLibrary));
     }
 
     /// <summary>

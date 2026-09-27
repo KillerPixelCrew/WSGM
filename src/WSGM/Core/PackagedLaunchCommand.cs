@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 
 namespace WSGM.Core;
@@ -42,11 +43,28 @@ internal sealed record PackagedLaunchRequest(
     }
 }
 
+/// <summary>One parsed request to start a launcher's game and stay alive for as long as it runs.</summary>
+/// <param name="Program">The launcher program to start, absolute and unquoted.</param>
+/// <param name="Arguments">Its arguments, verbatim.</param>
+/// <param name="Directory">The game's install folder: a process running from inside it is the game.</param>
+/// <param name="Marker">
+///     A path the game's command line carries, for a game that runs from a shared runtime such as
+///     Java: a Minecraft instance's folder. Empty when the install folder is enough.
+/// </param>
+internal sealed record PackagedFollowRequest(
+    string Program,
+    string Arguments,
+    string Directory,
+    string Marker);
+
 /// <summary>What the launcher was asked to do, which is not always to launch something.</summary>
 internal enum PackagedLaunchAction
 {
     /// <summary>Activate and supervise a packaged title.</summary>
     Launch,
+
+    /// <summary>Start another launcher's game and supervise it.</summary>
+    Follow,
 
     /// <summary>Release package-lifetime exemptions left behind by a launcher that was killed.</summary>
     Recover,
@@ -58,9 +76,11 @@ internal enum PackagedLaunchAction
 /// <summary>One parsed command line, or the reason it was refused.</summary>
 /// <param name="Action">What to do.</param>
 /// <param name="Request">The launch request, when <see cref="Action" /> is a launch.</param>
+/// <param name="Follow">The follow request, when <see cref="Action" /> is a follow.</param>
 internal sealed record PackagedLaunchCommandLine(
     PackagedLaunchAction Action,
-    PackagedLaunchRequest? Request = null);
+    PackagedLaunchRequest? Request = null,
+    PackagedFollowRequest? Follow = null);
 
 /// <summary>
 ///     The command line the library importer writes into a generated shortcut and the packaged-game
@@ -90,6 +110,10 @@ internal static class PackagedLaunchCommand
     private const string DiagnosticsFlag = "--diagnostics";
     private const string ReportPrivilegesFlag = "--report-privileges";
     private const string RecoverFlag = "--recover";
+    private const string FollowFlag = "--follow";
+    private const string DirectoryFlag = "--dir";
+    private const string MarkerFlag = "--marker";
+    private const string EndOfOptions = "--";
     private const string SteamOverlayValue = "steam-overlay";
     private const string ControllerOnlyValue = "controller-only";
 
@@ -114,6 +138,11 @@ internal static class PackagedLaunchCommand
                                     --report-privileges      Report the access the game grants, once, then continue.
                                     --recover                Release package-lifetime exemptions left by a killed
                                                              launcher, then exit. Takes no other option.
+                                    --follow --dir <folder> [--marker <path>] -- "<program>" <arguments>
+                                                             Start another launcher's game and stay alive while
+                                                             it runs. The game is the process running from
+                                                             <folder>, or the Java process whose command line
+                                                             carries <path>. Nothing is injected.
                                     --help                   Show this text.
 
                                   The launch route is decided from the activated process, not from this command line:
@@ -170,6 +199,181 @@ internal static class PackagedLaunchCommand
         }
 
         return composed.ToString();
+    }
+
+    /// <summary>Builds the Launch Arguments for a shortcut that follows another launcher's game.</summary>
+    /// <param name="request">The request to encode.</param>
+    /// <returns>The argument string. The program's own arguments follow <c>--</c> verbatim.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="request" /> is null.</exception>
+    /// <exception cref="ArgumentException">The request could not be encoded.</exception>
+    /// <remarks>
+    ///     A launcher's arguments can carry quotes of their own - Battle.net's
+    ///     <c>--exec="launch Pro"</c> does - which no quoting of a single value survives. So they go
+    ///     last, after <c>--</c>, and the launcher hands them on untouched.
+    /// </remarks>
+    internal static string ComposeFollow(PackagedFollowRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (FollowRefusal(request) is { } refusal)
+        {
+            throw new ArgumentException(refusal, nameof(request));
+        }
+
+        StringBuilder composed = new();
+        Append(composed, FollowFlag, null);
+        if (request.Directory.Length > 0)
+        {
+            AppendQuoted(composed, DirectoryFlag, request.Directory);
+        }
+
+        if (request.Marker.Length > 0)
+        {
+            AppendQuoted(composed, MarkerFlag, request.Marker);
+        }
+
+        composed.Append(' ').Append(EndOfOptions).Append(" \"").Append(request.Program).Append('"');
+        if (request.Arguments.Trim().Length > 0)
+        {
+            composed.Append(' ').Append(request.Arguments.Trim());
+        }
+
+        return composed.ToString();
+    }
+
+    /// <summary>Parses a follow command line from the raw string, keeping the program's arguments intact.</summary>
+    /// <param name="raw">Everything after this launcher's own path, as Windows passed it.</param>
+    /// <param name="request">The request, when this returns true.</param>
+    /// <param name="error">Why it was refused, when this returns false.</param>
+    /// <returns>Whether the command line is a follow request this understands.</returns>
+    internal static bool TryParseFollow(string raw, out PackagedFollowRequest request, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+        request = new PackagedFollowRequest(string.Empty, string.Empty, string.Empty, string.Empty);
+        var split = EndOfOptionsIndex(raw);
+        if (split < 0)
+        {
+            error = $"{FollowFlag} needs {EndOfOptions} and the program to start.";
+            return false;
+        }
+
+        var options = Tokenize(raw[..split]);
+        var tail = raw[(split + EndOfOptions.Length)..].TrimStart();
+        string? directory = null;
+        string? marker = null;
+        var follow = false;
+        for (var index = 0; index < options.Count; index++)
+        {
+            switch (options[index])
+            {
+                case FollowFlag:
+                    follow = true;
+                    break;
+                case DirectoryFlag:
+                    if (!TryTake(options, ref index, DirectoryFlag, ref directory, out error))
+                    {
+                        return false;
+                    }
+
+                    break;
+                case MarkerFlag:
+                    if (!TryTake(options, ref index, MarkerFlag, ref marker, out error))
+                    {
+                        return false;
+                    }
+
+                    break;
+                default:
+                    error = $"Unknown option '{options[index]}' for {FollowFlag}.";
+                    return false;
+            }
+        }
+
+        if (!follow)
+        {
+            error = $"{FollowFlag} is required before {EndOfOptions}.";
+            return false;
+        }
+
+        string program;
+        string arguments;
+        if (tail.StartsWith('"'))
+        {
+            var close = tail.IndexOf('"', 1);
+            if (close < 0)
+            {
+                error = "The program's path is not closed with a quote.";
+                return false;
+            }
+
+            program = tail[1..close];
+            arguments = tail[(close + 1)..].Trim();
+        }
+        else
+        {
+            var space = tail.IndexOf(' ');
+            program = space < 0 ? tail : tail[..space];
+            arguments = space < 0 ? string.Empty : tail[(space + 1)..].Trim();
+        }
+
+        request = new PackagedFollowRequest(program, arguments, directory ?? string.Empty, marker ?? string.Empty);
+        error = FollowRefusal(request);
+        return error is null;
+    }
+
+    /// <summary>Why a follow request cannot be run, or null when it can.</summary>
+    /// <param name="request">The request.</param>
+    /// <returns>The refusal, naming the problem.</returns>
+    internal static string? FollowRefusal(PackagedFollowRequest request)
+    {
+        if (!Path.IsPathFullyQualified(request.Program)
+            || !request.Program.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || request.Program.IndexOf('"') >= 0)
+        {
+            return "The program to start must be an absolute path to an .exe.";
+        }
+
+        if (request.Directory.Length == 0 && request.Marker.Length == 0)
+        {
+            return $"{FollowFlag} needs {DirectoryFlag}, {MarkerFlag} or both, or the game cannot be recognised.";
+        }
+
+        foreach (var path in new[] { request.Directory, request.Marker })
+        {
+            if (path.Length > 0 && (!Path.IsPathFullyQualified(path) || path.IndexOf('"') >= 0 || path.Length < 4))
+            {
+                return $"'{path}' is not an absolute folder path.";
+            }
+        }
+
+        return request.Arguments.Length > MaximumArgumentsLength ? "The program's arguments are too long." : null;
+    }
+
+    /// <summary>Where the first <c>--</c> outside quotes starts, or -1.</summary>
+    private static int EndOfOptionsIndex(string raw)
+    {
+        var quoted = false;
+        for (var index = 0; index < raw.Length - 1; index++)
+        {
+            if (raw[index] == '"')
+            {
+                quoted = !quoted;
+                continue;
+            }
+
+            if (quoted || raw[index] != '-' || raw[index + 1] != '-')
+            {
+                continue;
+            }
+
+            var startsToken = index == 0 || char.IsWhiteSpace(raw[index - 1]);
+            var endsToken = index + 2 >= raw.Length || char.IsWhiteSpace(raw[index + 2]);
+            if (startsToken && endsToken)
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Reads back a launch request this composed.</summary>
@@ -436,6 +640,11 @@ internal static class PackagedLaunchCommand
         }
 
         composed.Append(value);
+    }
+
+    private static void AppendQuoted(StringBuilder composed, string flag, string value)
+    {
+        composed.Append(' ').Append(flag).Append(" \"").Append(value).Append('"');
     }
 
     private static bool TryTake(

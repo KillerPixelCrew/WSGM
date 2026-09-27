@@ -237,7 +237,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _extensionsTab = new SteamExtensionsTabBackend(
             pluginSteamUi,
             libraryImport is null ? null : () => SteamLibraryImportSurface.Route,
-            libraryImport is null ? null : () => string.Join(", ", libraryImport.ReadState().Sources));
+            libraryImport is null
+                ? null
+                : () => string.Join(", ", libraryImport.ReadState().Sources
+                    .Where(source => source is { Installed: true, Enabled: true })
+                    .Select(source => source.Name)));
         _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -1044,6 +1048,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 HostSteamUiEnabled,
                 () => new ValueTask<GameLibraryState?>(libraryImport.ReadState()),
                 libraryImport));
+
+            // The toolkit's folder picker, which the Game Library opens to add a shortcuts folder.
+            // It lists names only, and only while WSGM's own Steam pages are enabled.
+            modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
 
         // WSGM's settings page, and the WSGM row in Steam's main menu that opens it. The row carries

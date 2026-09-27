@@ -38,6 +38,13 @@ internal static class Program
     [STAThread]
     internal static int Main(string[] args)
     {
+        // A follow request carries another program's arguments verbatim, which the argument array
+        // Windows split has already lost, so it is parsed from the raw command line.
+        if (args.Length > 0 && args[0] == "--follow")
+        {
+            return Follow();
+        }
+
         if (!PackagedLaunchCommand.TryParse(args, out var command, out var error))
         {
             Console.Error.WriteLine(error);
@@ -57,6 +64,45 @@ internal static class Program
             default:
                 return Launch(command.Request!);
         }
+    }
+
+    /// <summary>Starts another launcher's game and supervises it until it exits.</summary>
+    private static int Follow()
+    {
+        if (!PackagedLaunchCommand.TryParseFollow(RawArguments(Environment.CommandLine), out var request,
+                out var error))
+        {
+            Console.Error.WriteLine(error);
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(PackagedLaunchCommand.Usage);
+            PackagedLaunchLog.Error($"Refused the command line: {error}");
+            return ExitBadArguments;
+        }
+
+        HideConsole();
+        using CancellationTokenSource cancellation = new();
+        Console.CancelKeyPress += (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        return FollowSession.Run(request, cancellation.Token);
+    }
+
+    /// <summary>Everything after this executable's own path in a raw command line.</summary>
+    /// <param name="commandLine">The command line as Windows passed it.</param>
+    /// <returns>The arguments, verbatim.</returns>
+    internal static string RawArguments(string commandLine)
+    {
+        var line = commandLine.TrimStart();
+        if (line.StartsWith('"'))
+        {
+            var close = line.IndexOf('"', 1);
+            return close < 0 ? string.Empty : line[(close + 1)..].TrimStart();
+        }
+
+        var space = line.IndexOf(' ');
+        return space < 0 ? string.Empty : line[(space + 1)..].TrimStart();
     }
 
     /// <summary>Releases package exemptions left behind by a launcher that was killed.</summary>

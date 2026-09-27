@@ -15,6 +15,7 @@ namespace WSGM.Interop;
 internal static class ShellLink
 {
     private const int MaxPath = 260;
+    private const int MaxArguments = 1024;
     private const uint NoUi = 0x0004;
     private const uint NoSearch = 0x0010;
     private const uint NoTrack = 0x0020;
@@ -25,6 +26,14 @@ internal static class ShellLink
     /// <param name="path">Full path of the .lnk file.</param>
     /// <returns>The stored target path, or null.</returns>
     internal static string? ReadTarget(string path)
+    {
+        return Read(path)?.Target;
+    }
+
+    /// <summary>Returns what a shortcut runs, or null when it cannot be read or names no file.</summary>
+    /// <param name="path">Full path of the .lnk file.</param>
+    /// <returns>The stored target, arguments and working directory, or null.</returns>
+    internal static ShellLinkInfo? Read(string path)
     {
         object? instance = null;
         try
@@ -39,12 +48,24 @@ internal static class ShellLink
             link.Resolve(0, NoUi | NoSearch | NoTrack | NoLinkInfo | UncacheSitename);
             StringBuilder target = new(MaxPath);
             link.GetPath(target, target.Capacity, IntPtr.Zero, 0);
-            var result = target.ToString();
-            return result.Length == 0 ? null : result;
+            if (target.Length == 0)
+            {
+                return null;
+            }
+
+            // Arguments can run far past MAX_PATH; the shell stores up to INFOTIPSIZE characters.
+            StringBuilder arguments = new(MaxArguments);
+            link.GetArguments(arguments, arguments.Capacity);
+            StringBuilder directory = new(MaxPath);
+            link.GetWorkingDirectory(directory, directory.Capacity);
+            return new ShellLinkInfo(
+                target.ToString(),
+                arguments.ToString(),
+                Environment.ExpandEnvironmentVariables(directory.ToString()));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Warn($"Shortcut target could not be read from {path}: {ex.Message}");
+            Log.Warn($"Shortcut could not be read from {path}: {ex.Message}");
             return null;
         }
         finally
@@ -99,3 +120,9 @@ internal static class ShellLink
         void GetCurFile([Out] [MarshalAs(UnmanagedType.LPWStr)] StringBuilder file);
     }
 }
+
+/// <summary>What a Windows shortcut runs.</summary>
+/// <param name="Target">The program or file it points at.</param>
+/// <param name="Arguments">Its stored arguments, or empty.</param>
+/// <param name="WorkingDirectory">Its working directory with variables expanded, or empty.</param>
+internal sealed record ShellLinkInfo(string Target, string Arguments, string WorkingDirectory);

@@ -71,6 +71,13 @@ public sealed class XboxLibrarySource : ILibrarySource
     public string DisplayName => "Xbox";
 
     /// <inheritdoc />
+    /// <remarks>Packages are part of Windows, so there is always something to read.</remarks>
+    public SourceAvailability Detect()
+    {
+        return new SourceAvailability(true, "Microsoft Store and Game Pass");
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
     {
         List<DiscoveredGame> found = [];
@@ -179,9 +186,13 @@ public sealed class XboxLibrarySource : ILibrarySource
         };
     }
 
-    /// <summary>Picks one catalog image per Steam capsule.</summary>
+    /// <summary>Sorts the catalog's images into Steam capsules.</summary>
     /// <param name="images">Everything the catalog offered for the title.</param>
-    /// <returns>At most one image per asset, largest first, in a stable order.</returns>
+    /// <returns>
+    ///     Every usable image, grouped by asset in a stable order and largest first within each, so the
+    ///     first of each asset is the one a title starts on and the rest are the alternatives it cycles
+    ///     through.
+    /// </returns>
     /// <remarks>
     ///     The Store's purposes do not line up with Steam's capsules one for one, so each is mapped
     ///     to the capsule whose aspect it actually fills. An unmapped purpose is dropped rather than
@@ -197,14 +208,12 @@ public sealed class XboxLibrarySource : ILibrarySource
                      ArtworkAsset.Icon
                  ])
         {
-            var best = images
+            chosen.AddRange(images
                 .Where(image => Asset(image.Purpose) == asset)
                 .OrderByDescending(image => (long)image.Width * image.Height)
-                .FirstOrDefault();
-            if (best is not null)
-            {
-                chosen.Add(new DiscoveredArtwork(asset, best.Url));
-            }
+                .Select(image => image.Url)
+                .Distinct(StringComparer.Ordinal)
+                .Select(url => new DiscoveredArtwork(asset, url)));
         }
 
         return chosen;

@@ -115,7 +115,7 @@ public sealed class ImportStateStore
         {
             var state = Read();
             state.Choices.RemoveAll(existing => Same(existing.Source, existing.Key, choice.Source, choice.Key));
-            if (choice.Mode.Length > 0 || choice.Excluded)
+            if (!choice.IsEmpty())
             {
                 state.Choices.Add(choice);
             }
@@ -188,7 +188,8 @@ public sealed class ImportStateStore
                     Key.Length: > 0 and <= 512,
                     Name.Length: <= 256,
                     Target.Length: <= 1024,
-                    LaunchOptions.Length: <= 2048
+                    LaunchOptions.Length: <= 2048,
+                    Route.Length: <= 32
                 } && (entry.Mode == nameof(ImportMode.ControllerOnly)
                       || entry.Mode == nameof(ImportMode.SteamIntegration)))
                 .Take(MaximumEntries)
@@ -196,10 +197,31 @@ public sealed class ImportStateStore
         _state.Choices =
         [
             .. _state.Choices
-                .Where(choice => choice is { Source.Length: > 0 and <= 32, Key.Length: > 0 and <= 512, Mode: not null }
+                .Where(choice => choice is
+                                 {
+                                     Source.Length: > 0 and <= 32, Key.Length: > 0 and <= 512, Mode: not null,
+                                     Route.Length: <= 32, MatchProvider.Length: <= 32, MatchId.Length: <= 64,
+                                     MatchName.Length: <= 256
+                                 }
                                  && (choice.Mode.Length == 0 || choice.PickedMode() is not null))
                 .Take(MaximumEntries)
         ];
+        foreach (var choice in _state.Choices)
+        {
+            // One pick per artwork type, and only an image the apply could download: an https URL, or
+            // empty for a slot the user cleared.
+            choice.Artwork =
+            [
+                .. (choice.Artwork ?? [])
+                .Where(pick => pick is { Url.Length: <= 2048, Thumb.Length: <= 2048, Provider.Length: <= 64 }
+                               && Enum.IsDefined(pick.Asset)
+                               && (pick.Url.Length == 0
+                                   || pick.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                .GroupBy(pick => pick.Asset)
+                .Select(group => group.First())
+            ];
+        }
+
         return _state;
     }
 

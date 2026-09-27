@@ -67,7 +67,7 @@ public sealed class SteamShortcutWriter
     /// <param name="fields">What it should run.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     public async Task<ShortcutWriteResult> AddAsync(
-        string name, PackagedLauncherShortcutFields fields, CancellationToken cancellationToken)
+        string name, ShortcutFields fields, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fields);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -112,7 +112,7 @@ public sealed class SteamShortcutWriter
     ///     Never remove-and-re-add: that would lose the id and every piece of artwork attached to it.
     /// </remarks>
     public async Task<ShortcutWriteResult> UpdateAsync(
-        uint appId, PackagedLauncherShortcutFields fields, CancellationToken cancellationToken)
+        uint appId, ShortcutFields fields, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fields);
         var accepted = await _setLaunch(appId, fields.Target, fields.LaunchOptions, cancellationToken)

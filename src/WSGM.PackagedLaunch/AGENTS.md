@@ -2,8 +2,12 @@
 
 This project is the launcher Steam starts for an imported Xbox, UWP or MSIX game. Steam launches it,
 Windows activates the game outside Steam's launch tree, and it stays alive for the whole session so
-Steam keeps the shortcut running. It is a sibling of `WSGM.Launch`, not an extension of it: that
-wrapper de-elevates and holds input leases for ordinary Steam games and is required to stay small.
+Steam keeps the shortcut running. Its follow mode (`--follow`) does the same for a game another
+launcher starts: it starts that launcher outside Steam's tree, recognises the game by its install
+folder or, for Java, its instance folder, and stays alive while it runs. See "Following another
+launcher's game" in `docs/packaged-game-launcher.md`. It is a sibling of `WSGM.Launch`, not an
+extension of it: that wrapper de-elevates and holds input leases for ordinary Steam games and is
+required to stay small.
 
 The feature is explicitly experimental. Anti-cheat compatibility is unverified, and no result from
 one title generalizes to another. Read `docs/steam-launcher-handoff.md` before changing launch
@@ -27,6 +31,8 @@ behavior.
 - Every package-lifetime exemption is journalled before it is requested. Windows keeps a package out
   of lifetime management until something puts it back, so an exemption with no record is a game that
   is never suspended again for the rest of the machine's life.
+- The follow mode never injects and never writes into a process, whatever the launcher. It reads
+  image paths, reads a command line only for a Java process, and contains what it recognised.
 - Nothing polls the whole machine on a timer once the game is established. Lifetime comes from the
   containment job's own active count; discovery slows down as soon as the game appears.
 
@@ -51,10 +57,11 @@ surface uses this project's own vocabulary rather than the shortcut's.
 ## Tests
 
 Unit-testable without hardware, Steam or a package, and expected to stay that way: command parsing
-and every refusal, route selection over the full matrix, the session exit decision, and
-recovery-journal replay. I/O sits behind a seam — the journal takes a path and a liveness predicate,
-so its rules are tested without starting processes.
+and every refusal, route selection over the full matrix, the session exit decision, the
+followed-game match rule, and recovery-journal replay. I/O sits behind a seam — the journal takes a
+path and a liveness predicate, so its rules are tested without starting processes.
 
 Attended only, and reported as such: package activation, any remote write, the bridge, real
-controller switching, overlay and QAM operation, Alt-Tab recovery, and clean exit. A compiler pass
-or a loaded DLL is not evidence that overlay and input work.
+controller switching, overlay and QAM operation, Alt-Tab recovery, clean exit, and a followed
+launcher game's start, recognition and exit. A compiler pass or a loaded DLL is not evidence that
+overlay and input work.

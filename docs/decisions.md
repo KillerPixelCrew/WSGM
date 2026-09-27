@@ -155,7 +155,9 @@ Settings behind the user's back. Details in `docs\boot-and-shell.md`, "Install m
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from
 `src\WSGM\Licenses\`. `FluentAvaloniaUI` 3.1.0 and an explicit `Avalonia.Controls.ColorPicker`
 12.1.2 pin keep the controls on the same Avalonia line. `Avalonia.Labs.Panels` 12.0.2 supplies the
-production overlay's FlexPanel layout.
+production overlay's FlexPanel layout. `Microsoft.Data.Sqlite` 10.0.12 reads launchers' SQLite
+databases for the Game Library; its MIT text and SQLitePCLRaw's Apache 2.0 text ship from
+`src\WSGM\Licenses\`.
 
 **Overlay glass uses one live compositor backdrop (2026-09-24).** A reusable Avalonia attachment
 owns a native companion window behind the Overlay and applies one 8-pixel blur to shared desktop
@@ -255,6 +257,21 @@ surfaces, the overlay and Steam's Quick Access plugin tab, and both render the s
 the first source, and shipping it needed the packaged-game launcher. The work first shipped as an
 Xbox importer beside a separate artwork page, with no overlay surface, because its plan listed edits
 rather than describing the finished product; see [the Game Library](game-library.md).
+
+**The Game Library reads every major launcher, the way Steam ROM Manager does (2026-09-27).** The
+maintainer asked for the importer to work like Steam ROM Manager. Sources are detected on their own
+and ticked in a sidebar: Xbox, Epic Games, GOG Galaxy, Ubisoft Connect, Battle.net, itch, Amazon
+Games, Prism Launcher, ATLauncher and folders of shortcuts. Titles other than Xbox launch by an
+exact command, through the launcher or directly, never through Explorer or a PowerShell wrapper.
+Artwork is chosen before saving, per title or for every title at once, from the launcher's own
+images, SteamGridDB and Screenscraper. A title started through its launcher runs through
+`WSGM.PackagedLaunch --follow`, which starts the launcher outside Steam's tree and stays alive while
+the game runs, recognised by its install folder or, for Minecraft, its instance folder, so Steam
+keeps the title running and its controller layout; it injects nothing. Minecraft is not launched by
+a hand-built Java command, which would carry an account token that expires within a day. A
+launcher's own SQLite database is read with `Microsoft.Data.Sqlite`, which ships its own SQLite
+rather than depending on the copy in Windows. Steam has no file picker, so the toolkit draws one.
+ROM folders wait for the emulator installer. See [the Game Library](game-library.md).
 
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the ban in
 [Steam launcher handoff](steam-launcher-handoff.md), which was written after CEF shortcut-management

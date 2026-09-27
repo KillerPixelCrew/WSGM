@@ -735,6 +735,44 @@ public static class ConfigStore
         {
             library.DefaultMode = ImportMode.SteamIntegration;
         }
+
+        if (!Enum.IsDefined(library.ArtworkPreference))
+        {
+            library.ArtworkPreference = ArtworkPreference.Catalog;
+        }
+
+        library.DisabledSources =
+        [
+            .. (library.DisabledSources ?? [])
+            .Where(id => id is { Length: > 0 and <= 32 })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+        ];
+
+        // A folder needs an identity no other folder has and an absolute path; its file types are
+        // the few a shortcut can be, so a hand edit cannot turn a folder of documents into titles.
+        HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
+        library.ShortcutFolders =
+        [
+            .. (library.ShortcutFolders ?? [])
+            .Where(folder => folder is { Id.Length: > 7 and <= 32, Path.Length: > 2 and <= 260 }
+                             && folder.Id.StartsWith("folder:", StringComparison.Ordinal)
+                             && Path.IsPathFullyQualified(folder.Path)
+                             && ids.Add(folder.Id))
+            .Take(GameLibraryConfig.MaximumFolders)
+        ];
+        foreach (var folder in library.ShortcutFolders)
+        {
+            folder.Extensions =
+            [
+                .. (folder.Extensions ?? [])
+                .Where(extension => extension is ".lnk" or ".url" or ".exe")
+                .Distinct(StringComparer.Ordinal)
+            ];
+            if (folder.Extensions.Count == 0)
+            {
+                folder.Extensions = [".lnk", ".url", ".exe"];
+            }
+        }
     }
 
     /// <summary>Brings the artwork section into a shape the Steam browser can render.</summary>

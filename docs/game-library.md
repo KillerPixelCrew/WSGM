@@ -1,58 +1,119 @@
 # Game Library
 
-WSGM's own Steam ROM Manager: one system that brings other launchers' games into Steam, reachable
-from both of WSGM's surfaces, with artwork as a stage of the same pipeline. This page describes the
-finished shape, what each part owns, and the rules that keep a second run from duplicating or
-destroying what the first one wrote. How an imported game actually launches with Steam's overlay is
-in [the packaged-game launcher](packaged-game-launcher.md).
+WSGM's own Steam ROM Manager: one system that brings other launchers' games into Steam with their
+artwork, reachable from both of WSGM's surfaces. This page describes the finished shape, what each
+part owns, and the rules that keep a second run from duplicating or destroying what the first one
+wrote. How an imported Xbox game actually launches with Steam's overlay is in
+[the packaged-game launcher](packaged-game-launcher.md).
 
-Xbox is the first source. The feature is experimental: anti-cheat compatibility is unverified.
+The feature is experimental: anti-cheat compatibility is unverified.
 
 ## What a user can do
 
 **In Steam:** Quick Access → the plugin tab → "Game Library" → "Import games…" opens a full page
-built from native Big Picture components. **In the overlay:** the Steam Library panel → "Game
-Library". Both show the same state and call the same backend, so a change made in one is what the
-other shows next.
+built from Big Picture's own components. **In the overlay:** the Steam tab → the "Game Library"
+tile, shown while Steam integration is on. Both show the same state and call the same backend, so a
+change made in one is what the other shows next. The overlay has no artwork pictures; it hands the
+artwork stages to the Steam page.
 
-From either surface: scan every source; review every title with what a sync would do (add, update,
-adopt, skip, remove, or edited by hand), how it launches and in which mode; select what to import;
-change a title's launch mode, with an acknowledgement for a multiplayer title; leave a title out, or
-offer it again; apply; and change any imported title's artwork. After an apply the review stays on
-the result, so the user can walk the imported titles' artwork without a rescan.
+On the Steam page:
+
+- **Sources.** A sidebar lists every launcher WSGM knows, each detected on its own. A found one has
+  a checkbox and a title count; one that is not installed is shown greyed as "Not found". A
+  shortcuts folder the user added is listed under Custom, with "Add folder…" opening a native folder
+  picker. Unticking a source leaves it out of the next scan and never offers its imported titles for
+  removal.
+- **Review.** A poster grid grouped by source, with tabs for All, New, Imported, Needs attention and
+  Left out, a search, and one artwork type shown at a time (portrait, wide, hero, logo, icon). Each
+  card shows the image that will be applied, a selection check, what a sync would do, and how the
+  title launches. LT and RT cycle the focused card's image in place, A selects, X switches the
+  launch mode or route, Y opens the title's artwork and Menu its details.
+- **One title's artwork** (Y on a card): every candidate for each artwork type, grouped by provider,
+  with "Fix match" to search for the right game when the automatic match is wrong.
+- **All artwork:** every selected title as a row, one column per artwork type. The D-pad moves
+  between cells and LT/RT cycle an image, so a whole library is dressed without opening titles one
+  by one. Bulk actions fill every title from the Store or SteamGridDB first, fill only empty slots,
+  set one column for every title, or reset.
+- **Details** (Menu on a card): how the title launches and why, the launch route or mode, what a
+  sync would do, the chosen artwork per type, where it is installed, and its identity; "Don't
+  import" and "Offer again".
+- **Save to Steam** applies the selected titles: shortcuts, controller overrides and the chosen
+  artwork. A title already in Steam whose artwork was changed here is saved as an artwork update
+  without touching its shortcut.
+
+## Sources
+
+| Source           | Id           | Detected by                                            | Titles from                                                                                       | Launch routes, default first                                                         |
+| ---------------- | ------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Xbox             | `xbox`       | always                                                 | installed packages, classified by runtime; Store catalog for game, multiplayer and images         | the packaged launcher, in Steam-integration or controller-only mode                  |
+| Epic Games       | `epic`       | the launcher's uninstall entry or its manifests folder | `%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests\*.item`, DLC and engine parts dropped        | through the Epic launcher; the game's own executable                                 |
+| GOG Galaxy       | `gog`        | `GOG.com\GalaxyClient\paths`                           | `<id>_is1` uninstall entries by GOG.com and their `goggame-<id>.info` primary play task           | the game's executable; through Galaxy                                                |
+| Ubisoft Connect  | `ubisoft`    | the launcher's uninstall entry                         | `ubisoft\Launcher\Installs\<id>` and the launcher's configuration cache for names and executables | the game's executable; through Ubisoft Connect                                       |
+| Battle.net       | `battlenet`  | the uninstall entry naming `--uid=battle.net`          | uninstall entries with a Battle.net uid, mapped to product codes                                  | through Battle.net only                                                              |
+| itch             | `itch`       | `%LocalAppData%\itch\state.json`                       | the butler database's caves and their verdict executables                                         | the game's executable only                                                           |
+| Amazon Games     | `amazon`     | the launcher's uninstall entry                         | `GameInstallInfo.sqlite` installed rows and each game's `fuel.json`                               | through Amazon Games when the game needs its sign-in; otherwise the executable first |
+| Prism Launcher   | `prism`      | its data folder and executable                         | instance folders and their `instance.cfg` names                                                   | `prismlauncher.exe --launch <instance>` only                                         |
+| ATLauncher       | `atlauncher` | its data folder and executable                         | instance folders and their `instance.json` names                                                  | `ATLauncher.exe --launch <instance>` only                                            |
+| Shortcuts folder | `folder:<n>` | the folder exists                                      | `.lnk`, `.url` and `.exe` files, optionally in subfolders                                         | the shortcut's own target and arguments; a `.url` through its protocol's handler     |
+
+Playnite's library plugins and Steam ROM Manager's parsers in `_ref` are the reference for every
+launcher except Prism Launcher and ATLauncher, which neither covers; those two follow their own
+instance layouts and command lines. A ROM folder source comes with the emulator installer and is not
+part of the Game Library on its own. Amazon Games and itch keep their installs in SQLite databases,
+which are copied and read, never opened in place.
+
+Battle.net titles come from the uninstall list and, for games it wrote no entry for, from the
+agent's `product.db`, as Playnite reads both. itch's folders are resolved as butler's own
+`Cave.GetInstallFolder` resolves them, a custom install folder first, from the column names in
+butler's models; its queries fall back to narrower ones if a release renamed a column. ATLauncher's
+`--launch` matches the instance's name or safe name (`App.java`), and it closes after starting the
+game, which the follow mode covers.
+
+A launcher route never goes through `explorer.exe` or a PowerShell wrapper, because Explorer is not
+running in Game Mode and a wrapper that exits at once leaves Steam thinking the game stopped. A
+launcher's URI is handed to the executable its protocol is registered to, with the URI as the
+argument that registration names.
+
+Every route through a launcher runs through `WSGM.PackagedLaunch --follow`, which starts the
+launcher outside Steam's tree and stays alive while the game runs, so Steam shows it running and
+keeps its controller layout; see
+[following another launcher's game](packaged-game-launcher.md#following-another-launchers-game). It
+needs the install folder, or for Minecraft the instance folder, to recognise the game. A `.url` in a
+shortcuts folder has neither, so it runs the handler directly and Steam may lose track of it. A
+direct route runs the game's own executable, which Steam tracks and injects its overlay into.
 
 ## The pipeline
 
 ```
-sources ──discover──▶ games ──plan──▶ entries ──choices──▶ review ──apply──▶ records
-                                                                              │
-                                                    shortcut, controller override,
-                                                    Store artwork; then SteamGridDB per entry
+sources ──detect/discover──▶ games ──plan──▶ entries ──choices──▶ review ──apply──▶ records
+                                                │                                     │
+                                         artwork candidates ──picks──────▶ shortcut, controller
+                                         (Store, SteamGridDB,                override, chosen art
+                                          Screenscraper)
 ```
 
-| Part         | Home                                                                                                   | Owns                                                                                                                                                                                                                                                        |
-| ------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sources      | `Core\Library\LibrarySource.cs`, `XboxLibrarySource.cs`                                                | Finding one launcher's installed games and describing them in one shape: identity, name, install path, launch route, multiplayer, whether it is a game, Store artwork. Everything after discovery is shared and knows nothing about where a game came from. |
-| Launch route | `Core\Library\PackagedLauncherShortcut.cs`, `Core\PackagedLaunchCommand.cs`, `src\WSGM.PackagedLaunch` | How a shortcut for a packaged game is written, and reading one back. The only code that knows what such a shortcut looks like.                                                                                                                              |
-| Plan         | `Core\Library\ImportPlan.cs`                                                                           | Pure: what a sync would do to each title, from the sources, WSGM's records and Steam's live shortcuts.                                                                                                                                                      |
-| Choices      | `Core\Library\ImportStateStore.cs`                                                                     | What the user decided per title, kept across scans: a picked launch mode and acknowledgement, or "don't import".                                                                                                                                            |
-| Records      | same                                                                                                   | What WSGM created: the exact Target and arguments written, the app id, how much Store art landed.                                                                                                                                                           |
-| Service      | `Shell\GameLibraryService.cs`                                                                          | Scanning, choices, applying, the artwork stage, the controller override; publishes the state both surfaces render.                                                                                                                                          |
-| Steam page   | `Shell\SteamLibraryImportSurface.cs`, `Core\SteamUiAssets\Source\library-import.ts`                    | Surface one: route `/wsgm/library-import`.                                                                                                                                                                                                                  |
-| Overlay view | `Overlay\GameLibraryView.cs`                                                                           | Surface two, one level at a time.                                                                                                                                                                                                                           |
-| Artwork      | `Shell\SteamArtworkBrowserSource.cs`, `Core\Artwork\`                                                  | Store art on confirmation; the artwork page for per-entry changes.                                                                                                                                                                                          |
-| Settings     | `AppConfig.GameLibrary`, Settings → Steam                                                              | The mode new single-player titles start on; whether titles with no launch route are offered.                                                                                                                                                                |
+| Part             | Home                                                                                                           | Owns                                                                                                                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sources          | `Core\Library\LibrarySource.cs`, `Core\Library\Sources\`                                                       | Detecting one launcher and finding its installed games in one shape: identity, name, install path, launch routes, multiplayer, whether it is a game, catalog images. Nothing after discovery knows where a game came from. |
+| Launch routes    | `Core\Library\ShortcutRoute.cs`, `Core\Library\ProtocolHandler.cs`, `Core\Library\PackagedLauncherShortcut.cs` | How a title's shortcut is written and recognised again. The packaged route composes a `WSGM.PackagedLaunch.exe` request; a command route is an exact Target, directory and arguments.                                      |
+| Plan             | `Core\Library\ImportPlan.cs`                                                                                   | Pure: what a sync would do to each title, from the sources, WSGM's records and Steam's live shortcuts.                                                                                                                     |
+| Choices, records | `Core\Library\ImportStateStore.cs`                                                                             | What the user decided per title (mode or route, "don't import", artwork picks, a fixed match) and what WSGM created.                                                                                                       |
+| Artwork stage    | `Shell\GameLibraryArtwork.cs`                                                                                  | Candidates per title and artwork type, fetched in the background after a scan; picks, cycling, bulk fills; applying the picks.                                                                                             |
+| Service          | `Shell\GameLibraryService.cs`                                                                                  | Scanning, choices, applying, the controller override; publishes the state both surfaces render.                                                                                                                            |
+| Steam page       | `Shell\SteamLibraryImportSurface.cs`, `Core\SteamUiAssets\Source\library-import.ts`                            | Surface one: route `/wsgm/library-import`.                                                                                                                                                                                 |
+| Toolkit          | `external\steam-ui-toolkit`: library capsule and file picker                                                   | The capsule drawn with Steam's own library classes, and a folder and file picker Steam does not have. WSGM lists the file system for it.                                                                                   |
+| Overlay view     | `Overlay\GameLibraryView.cs`                                                                                   | Surface two: sources, review and apply, one level at a time.                                                                                                                                                               |
+| Settings         | `AppConfig.GameLibrary`, Settings → Steam                                                                      | The mode new single-player Xbox titles start on, whether titles with no launch route are offered, which artwork provider a title starts on, the disabled sources and the shortcuts folders.                                |
 
 ## Identity
 
-A title is the pair of its source and its key - the AUMID, for Xbox - never its display name. Two
-titles can share a name, and two sources could share a key; no two titles share both. Records and
-choices are matched on the pair everywhere.
+A title is the pair of its source and its key - the AUMID for Xbox, the launcher's own id elsewhere,
+the file's path relative to the folder for a shortcuts folder - never its display name. Records and
+choices are matched on the pair everywhere. A source id is never reused.
 
 ## Classifying how a title launches
 
-A source reports a route for each title: a label, whether a validated route exists, and why. For
-Xbox the manifest and game config decide.
+Xbox titles are classified from the manifest and game config:
 
 | Verdict            | Evidence                                                                            |
 | ------------------ | ----------------------------------------------------------------------------------- |
@@ -64,34 +125,57 @@ A title with no validated route can only be imported controller-only and is hidd
 says to offer it. This is the source's evidence, not a launch argument: the launcher decides the
 route again from the process it actually starts.
 
+Every other source offers one or more command routes, each with its label and why. X on a card
+switches between them; a title with one route has nothing to switch. Controller-only mode and the
+ban-risk acknowledgement belong to the packaged route alone, because only that route injects.
+
 ## "Is it a game?", and the multiplayer tag
 
 Nothing in a UWP manifest says a title is a game. GDK evidence answers it on its own; otherwise one
 lookup against Microsoft's public Store display catalog by package family name answers it, along
 with the multiplayer capabilities and the official images. A title neither source can vouch for is
-listed and selectable, but never ticked for the user.
+listed and selectable, but never ticked for the user. Launcher sources drop DLC, engine parts and
+tools the way their references do, and what they list is a game.
 
-A multiplayer title starts controller-only. The overlay route is available only by accepting the ban
-risk explicitly, enforced in the backend rather than the page. A title with no multiplayer answer
-starts on the mode Settings names, the Steam overlay by default.
+A multiplayer Xbox title starts controller-only. The overlay route is available only by accepting
+the ban risk explicitly, enforced in the backend rather than the page. A title with no multiplayer
+answer starts on the mode Settings names, the Steam overlay by default.
 
 ## The user's choices
 
 A scan rebuilds every entry from what the sources and Steam say now, and then lays the user's stored
-choices over it. A launch mode picked and not yet applied, an acknowledgement, and "don't import"
-all survive a rescan. A stored choice is judged again each time by the same rule the command uses,
-so a title that has since become multiplayer does not keep an overlay route nobody accepted the risk
-for. Once an apply writes a record, that title's choice is dropped: the record says what Steam has.
+choices over it. A launch mode or route picked and not yet applied, an acknowledgement, "don't
+import", artwork picks and a fixed match all survive a rescan. A stored choice is judged again each
+time by the same rule the command uses, so a title that has since become multiplayer does not keep
+an overlay route nobody accepted the risk for, and a route the source no longer offers is dropped.
+Once an apply writes a record, that title's route and mode choice is dropped: the record says what
+Steam has. Its artwork picks are dropped once applied.
 
 Only a title that is not imported yet can be left out. An imported title leaves Steam by being
-removed, which is a separate, deliberate act.
+removed, which is a separate, deliberate act. A title whose source is unticked is neither scanned
+nor offered for removal: turning a launcher off is not a request to delete its games.
+
+## Artwork
+
+After a scan, the artwork stage gathers candidates for every listed title in the background, one
+title at a time, starting with the ones a surface asks for: the source's catalog images (the Store,
+for Xbox) and the SteamGridDB and Screenscraper results for the title's match. Rows fill in as their
+results arrive. The match is the first exact search result for the title's name, or the game the
+user picked with "Fix match", kept as a choice.
+
+Each title starts on the first candidate from the provider Settings prefers, per artwork type. A
+title Steam already has starts on "keep current" and changes nothing until the user picks an image.
+Cycling, picking, clearing and the bulk fills change picks only; nothing is downloaded until Save to
+Steam. On save, each pick is downloaded and applied to the confirmed shortcut through the same path
+the artwork page uses. A pick that fails to download or apply is reported and does not stop the run.
 
 ## Writing to Steam
 
 Shortcuts are written through the running Steam client, one at a time. There is no offline
-`shortcuts.vdf` editing; if Steam is not running the apply refuses. The Target is
+`shortcuts.vdf` editing; if Steam is not running the apply refuses. For an Xbox title the Target is
 `WSGM.PackagedLaunch.exe` beside the running WSGM and the key travels in the arguments, because a
-non-Steam shortcut ignores an exe-replacing launch option. A missing launcher refuses the apply.
+non-Steam shortcut ignores an exe-replacing launch option. A missing launcher refuses the Xbox
+titles in an apply; other sources do not need it.
 
 A new app id is confirmed by the add call's answer and a before/after diff of Steam's library, and
 **the diff is the authority**. Disagreement records the entry as unconfirmed and stops the run; that
@@ -102,45 +186,55 @@ a write, Stop waits for that entry to be recorded, so the next scan does not mis
 change for a hand edit.
 
 - **Update** rewrites the launch fields in place, never remove-and-re-add, which would lose the id
-  and its artwork. It only happens because the user changed an imported or adopted title's mode.
+  and its artwork. It only happens because the user changed an imported or adopted title's mode or
+  route. An imported title with new artwork picks and nothing else changed is an artwork update: no
+  shortcut call at all.
 - **Adopt** takes over an unrecorded entry as what it currently launches, and records its live
-  fields.
+  fields. For a command route that means a shortcut whose Target and arguments are exactly one the
+  title's routes would write.
 - **Conflict** means the entry was edited by hand: its Target is no longer ours, or its fields
-  differ from what was written even with our Target and key still in them. It is never touched,
-  because restoring the recorded command would silently undo the user's own change.
-- **Remove** needs the record, the live entry, our Target and our key to agree, and is never
-  pre-selected. A record whose shortcut is already gone is cleaned up without a client call.
+  differ from what was written. It is never touched, because restoring the recorded command would
+  silently undo the user's own change.
+- **Remove** needs the record, the live entry and its fields to agree, and is never pre-selected. A
+  record whose shortcut is already gone is cleaned up without a client call.
 
-While an apply runs the list is read-only: a mode changed between composing a shortcut and recording
-it would be pinned while the shortcut still launched the old way. Each applied title is deselected,
-so when more are selected than one run takes, the next apply carries on with the rest. A controller
-override that could not be written is reported as an error when the run ends, and so is a
-controller-only title applied while controller management is off, since nothing would switch the
-controller for it. An update or an adoption keeps the artwork the entry already has.
+While an apply runs the list is read-only. Each applied title is deselected, so when more are
+selected than one run takes, the next apply carries on with the rest. A controller override that
+could not be written is reported as an error when the run ends, and so is a controller-only title
+applied while controller management is off. An update or an adoption keeps the artwork the entry
+already has unless the user picked something.
 
 Each entry is re-checked against Steam immediately before its own write, keeping the user's chosen
 action and rechecking only its premise. Applies are capped per run; a failure stops and reports how
 far it got, without rolling back. Steam refusing to return a shortcut's details stops a scan rather
 than being read as "not ours", which would add a duplicate.
 
-## The artwork stage
-
-When a new shortcut's write is confirmed, the Store's images are applied to it, each to the capsule
-whose shape it fills, and the count is recorded. The entry learns its app id at that moment, so
-"Change artwork…" is offered straight away. It opens the artwork page for that shortcut exactly as
-the game menu does - the host opens the artwork source for the title and answers with the route -
-and passes the title along, because a shortcut created moments ago is not in Steam's list yet.
-Steam's own back returns to the review. From the overlay, the controller opens the page, closes the
-sheet, waits for the close and the input lease, and then focuses Steam.
-
-A controller-only entry also gets a per-game profile pinning the Xbox 360 target, keyed by the
+A controller-only Xbox entry also gets a per-game profile pinning the Xbox 360 target, keyed by the
 shortcut's identity; see [the packaged-game launcher](packaged-game-launcher.md#controller-only).
 The record notes whether the import created that profile. Switching the title to Steam integration
 or removing it clears the target, and removes the profile only when the import created it and
-nothing else is left in it; a profile the user already had keeps its name, executables and switch.
+nothing else is left in it.
+
+## The folder picker
+
+Steam has no file or folder picker a page can open, and a Windows dialog would open behind Big
+Picture with no controller support. The toolkit's picker is a Steam modal with drives and places,
+the current path, and the folder's contents; A opens a folder, X uses the current folder, Y goes up
+a level and B cancels. The page cannot read the disk, so WSGM answers its listing requests: the
+drives, the known places, one folder's subfolders and the files matching the requested types. It
+lists names only and never reads a file. A drive that is not ready or a folder that cannot be opened
+is an error in the picker, not a failed page.
+
+## Evidence
+
+The sources, the plan and the service are covered by tests over fixtures. What the installed Steam
+client was checked for offline on 2026-09-27: the library item class map, the checkbox module and
+the tabs module each match one module. What has not had a live pass: the capsules' look and focus in
+Big Picture, the triggers reaching `onButtonDown` as codes 7 and 8, the checkbox rendering, the
+folder picker, a launch through each launcher's route, and the follow mode's parenting, recognition
+and exit.
 
 ## Not in this pass
 
-Further sources. Source-declared settings. A second route family. Title resolution for sources whose
-names are messy. Picking artwork alternatives before apply rather than after. Steam collections.
-Scheduled sync. Renaming an existing shortcut.
+ROM folders, which come with the emulator installer. Scheduled sync. Steam collections. Renaming an
+existing shortcut. Artwork pictures in the overlay.

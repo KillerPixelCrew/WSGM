@@ -707,6 +707,11 @@ public sealed class GameLibraryServiceTests
 
         public string DisplayName => "Xbox";
 
+        public SourceAvailability Detect()
+        {
+            return new SourceAvailability(true, "Installed");
+        }
+
         public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
         {
             return Task.FromResult(games);

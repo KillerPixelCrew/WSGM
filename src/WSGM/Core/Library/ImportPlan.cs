@@ -57,8 +57,11 @@ public sealed class ImportedEntry
     /// <summary>Exactly the Launch Arguments that were written.</summary>
     public string LaunchOptions { get; set; } = "";
 
-    /// <summary>Which route it was generated for.</summary>
+    /// <summary>Which input mode it was generated for: the packaged route's choice.</summary>
     public string Mode { get; set; } = "";
+
+    /// <summary>Which command route it was generated for, or empty for the packaged route.</summary>
+    public string Route { get; set; } = "";
 
     /// <summary>Whether the user accepted the ban risk for this title.</summary>
     public bool Acknowledged { get; set; }
@@ -112,6 +115,29 @@ public sealed class ImportChoice
     /// <summary>Whether the user said not to import this title.</summary>
     public bool Excluded { get; set; }
 
+    /// <summary>The command route the user picked, or empty when they have not picked one.</summary>
+    public string Route { get; set; } = "";
+
+    /// <summary>The artwork the user picked, one per artwork type at most.</summary>
+    public List<ArtworkPick> Artwork { get; set; } = [];
+
+    /// <summary>The provider of the game the user matched the title to, or empty for the automatic match.</summary>
+    public string MatchProvider { get; set; } = "";
+
+    /// <summary>That provider's id for the game.</summary>
+    public string MatchId { get; set; } = "";
+
+    /// <summary>That game's name, as the provider calls it.</summary>
+    public string MatchName { get; set; } = "";
+
+    /// <summary>Whether this choice says anything at all, so an empty one can be dropped.</summary>
+    /// <returns>True when nothing is left in it.</returns>
+    public bool IsEmpty()
+    {
+        return Mode.Length == 0 && !Acknowledged && !Excluded && Route.Length == 0 && Artwork.Count == 0
+               && MatchId.Length == 0;
+    }
+
     /// <summary>The picked mode, when there is one.</summary>
     /// <returns>The mode, or null when the user has not picked one.</returns>
     public ImportMode? PickedMode()
@@ -119,6 +145,27 @@ public sealed class ImportChoice
         // Numeric strings parse too, whether or not they name a mode.
         return Enum.TryParse<ImportMode>(Mode, false, out var mode) && Enum.IsDefined(mode) ? mode : null;
     }
+}
+
+/// <summary>An image the user picked for one artwork type of one title.</summary>
+/// <remarks>
+///     Kept by URL rather than by position, because the candidates are fetched again after every scan
+///     and their order is the provider's to change. An empty URL means the user cleared the slot: no
+///     image is applied for that type.
+/// </remarks>
+public sealed class ArtworkPick
+{
+    /// <summary>Which artwork type.</summary>
+    public ArtworkAsset Asset { get; set; }
+
+    /// <summary>The full-size image, or empty for "apply nothing".</summary>
+    public string Url { get; set; } = "";
+
+    /// <summary>The thumbnail shown for it.</summary>
+    public string Thumb { get; set; } = "";
+
+    /// <summary>Who supplied it, as shown on screen.</summary>
+    public string Provider { get; set; } = "";
 }
 
 /// <summary>One line of a sync preview.</summary>
@@ -136,6 +183,7 @@ public sealed class ImportChoice
 ///     Whether this adds a title again after an earlier add Steam never confirmed. That entry may
 ///     still appear, so this is offered for the user to decide and never started ticked.
 /// </param>
+/// <param name="Route">The command route it launches with, or empty for the packaged route.</param>
 public sealed record ImportPlanEntry(
     string Source,
     string Key,
@@ -147,7 +195,8 @@ public sealed record ImportPlanEntry(
     bool RequiresAcknowledgement,
     uint AppId,
     bool Selectable,
-    bool Unconfirmed = false);
+    bool Unconfirmed = false,
+    string Route = "");
 
 /// <summary>An existing non-Steam shortcut, as Steam reports it.</summary>
 /// <param name="AppId">Its generated id.</param>
@@ -180,6 +229,11 @@ public static class ImportPlan
     /// <param name="launcherTarget">The Target a generated entry would carry.</param>
     /// <param name="defaultMode">The mode to use when nothing else decides.</param>
     /// <param name="includeUnroutable">Whether to offer titles with no validated launch route.</param>
+    /// <param name="scanned">
+    ///     Whether a source was read in this scan. A record from a source that was not - one the user
+    ///     unticked - is left out entirely rather than offered for removal: turning a launcher off is
+    ///     not a request to delete its games. Null means every source was read.
+    /// </param>
     /// <returns>One entry per title, in discovery order, then removals.</returns>
     public static IReadOnlyList<ImportPlanEntry> Build(
         IReadOnlyList<DiscoveredGame> discovered,
@@ -187,7 +241,8 @@ public static class ImportPlan
         IReadOnlyList<ExistingShortcut> existing,
         string launcherTarget,
         ImportMode defaultMode,
-        bool includeUnroutable)
+        bool includeUnroutable,
+        Func<string, bool>? scanned = null)
     {
         ArgumentNullException.ThrowIfNull(discovered);
         ArgumentNullException.ThrowIfNull(recorded);
@@ -207,7 +262,8 @@ public static class ImportPlan
         // Removals last, and only for entries WSGM itself created whose title is gone.
         foreach (var record in recorded)
         {
-            if (seen.Contains((record.Source, record.Key)) || record.AppId == 0)
+            if (seen.Contains((record.Source, record.Key)) || record.AppId == 0
+                                                           || (scanned is not null && !scanned(record.Source)))
             {
                 continue;
             }
@@ -220,17 +276,17 @@ public static class ImportPlan
                 // is a record that announces on every scan that it is about to be dropped, forever.
                 plan.Add(new ImportPlanEntry(record.Source, record.Key, record.Name, ImportAction.Remove,
                     "This entry is no longer in Steam, so only its record is left to drop.",
-                    ParseMode(record.Mode), false, false, record.AppId, true));
+                    ParseMode(record.Mode), false, false, record.AppId, true, Route: record.Route));
                 continue;
             }
 
             // Three-way agreement before anything is deleted: the record, the live entry's Target,
             // and its arguments must all still describe the entry WSGM created.
-            if (!PackagedLauncherShortcut.Owns(shortcut, launcherTarget, record.Key))
+            if (!OwnsRecorded(shortcut, record, launcherTarget))
             {
                 plan.Add(new ImportPlanEntry(record.Source, record.Key, record.Name, ImportAction.Conflict,
                     "This entry has been changed by hand, so it is left alone.",
-                    ParseMode(record.Mode), false, false, record.AppId, false));
+                    ParseMode(record.Mode), false, false, record.AppId, false, Route: record.Route));
                 continue;
             }
 
@@ -238,10 +294,39 @@ public static class ImportPlan
             // is a thing they ask for, and an entry they cannot tick is one they can never ask for.
             plan.Add(new ImportPlanEntry(record.Source, record.Key, record.Name, ImportAction.Remove,
                 "This title is no longer installed.",
-                ParseMode(record.Mode), false, false, record.AppId, true));
+                ParseMode(record.Mode), false, false, record.AppId, true, Route: record.Route));
         }
 
         return plan;
+    }
+
+    /// <summary>Whether a live shortcut is one WSGM created for a discovered title.</summary>
+    /// <param name="shortcut">The shortcut Steam reports.</param>
+    /// <param name="game">The title.</param>
+    /// <param name="launcherTarget">The Target a generated packaged entry carries.</param>
+    /// <returns>
+    ///     For a packaged title, the launcher Target with the title's key in the arguments; for a
+    ///     command title, exactly one of its routes.
+    /// </returns>
+    public static bool Owns(ExistingShortcut shortcut, DiscoveredGame game, string launcherTarget)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        return game.Packaged
+            ? PackagedLauncherShortcut.Owns(shortcut, launcherTarget, game.Key)
+            : CommandShortcut.RouteOf(shortcut, game.CommandRoutes, launcherTarget) is not null;
+    }
+
+    /// <summary>Whether a live shortcut is still the one a record describes, by the record alone.</summary>
+    /// <param name="shortcut">The shortcut Steam reports.</param>
+    /// <param name="record">What WSGM wrote.</param>
+    /// <param name="launcherTarget">The Target a generated packaged entry carries.</param>
+    /// <returns>True when it still runs what was written for that title.</returns>
+    public static bool OwnsRecorded(ExistingShortcut shortcut, ImportedEntry record, string launcherTarget)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return record.Route.Length == 0
+            ? PackagedLauncherShortcut.Owns(shortcut, launcherTarget, record.Key)
+            : CommandShortcut.Same(shortcut, record.Target, record.LaunchOptions);
     }
 
     /// <summary>Whether a record belongs to a title.</summary>
@@ -264,6 +349,11 @@ public static class ImportPlan
         ImportMode defaultMode,
         bool includeUnroutable)
     {
+        if (!game.Packaged)
+        {
+            return DescribeCommand(game, recorded, byId, existing, launcherTarget);
+        }
+
         // The overlay route needs a validated launch route. Without one there is nothing for the
         // user to accept a risk about, so the choice is not offered rather than offered and refused.
         var canIntegrate = game.Launch.Validated;
@@ -348,6 +438,60 @@ public static class ImportPlan
 
         return Entry(game, ImportAction.Add, game.Launch.Evidence,
             mode, canIntegrate, requiresAcknowledgement, 0, true);
+    }
+
+    /// <summary>Describes a title that launches by a command rather than the packaged launcher.</summary>
+    /// <remarks>
+    ///     The same actions as a packaged title, with ownership by exact command. There is no input
+    ///     mode and no acknowledgement: WSGM injects nothing into these, and Steam launches them as it
+    ///     launches any non-Steam game. The route stands in for the mode.
+    /// </remarks>
+    private static ImportPlanEntry DescribeCommand(
+        DiscoveredGame game,
+        IReadOnlyList<ImportedEntry> recorded,
+        IReadOnlyDictionary<uint, ExistingShortcut> byId,
+        IReadOnlyList<ExistingShortcut> existing,
+        string launcherTarget)
+    {
+        var fallback = game.CommandRoutes[0].Id;
+        var record = recorded.FirstOrDefault(entry => Matches(entry, game.SourceId, game.Key));
+        if (record is { AppId: > 0 } && byId.TryGetValue(record.AppId, out var live))
+        {
+            var route = record.Route.Length > 0 ? record.Route : fallback;
+            return OwnsRecorded(live, record, launcherTarget)
+                ? Command(game, ImportAction.Skip, "Already imported.", record.AppId, false, route)
+                : Command(game, ImportAction.Conflict, "This entry has been changed by hand, so it is left alone.",
+                    record.AppId, false, route);
+        }
+
+        foreach (var shortcut in existing)
+        {
+            if (CommandShortcut.RouteOf(shortcut, game.CommandRoutes, launcherTarget) is { } adopted)
+            {
+                return Command(game, ImportAction.Adopt, "Steam already has an entry for this title.",
+                    shortcut.AppId, true, adopted.Id);
+            }
+        }
+
+        if (record is { ConfirmedUtc.Length: 0 })
+        {
+            return Command(game, ImportAction.Add,
+                    "An earlier import of this title was never confirmed by Steam and may still appear. "
+                    + "Check the library before adding it again.", 0, true, fallback)
+                with
+                {
+                    Unconfirmed = true
+                };
+        }
+
+        return Command(game, ImportAction.Add, game.Launch.Evidence, 0, true, fallback);
+    }
+
+    private static ImportPlanEntry Command(
+        DiscoveredGame game, ImportAction action, string reason, uint appId, bool selectable, string route)
+    {
+        return new ImportPlanEntry(game.SourceId, game.Key, game.Name, action, reason,
+            ImportMode.SteamIntegration, false, false, appId, selectable, Route: route);
     }
 
     private static ImportPlanEntry Entry(

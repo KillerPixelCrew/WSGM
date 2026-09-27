@@ -3,15 +3,6 @@ using System.IO;
 
 namespace WSGM.Core;
 
-/// <summary>What a generated non-Steam shortcut points at.</summary>
-/// <param name="Target">The Target Steam stores, quoted when it needs to be.</param>
-/// <param name="StartDirectory">The working directory Steam stores.</param>
-/// <param name="LaunchOptions">The Launch Arguments Steam stores.</param>
-public sealed record PackagedLauncherShortcutFields(
-    string Target,
-    string StartDirectory,
-    string LaunchOptions);
-
 /// <summary>The packaged launch route: the only code that knows how its shortcut is written.</summary>
 /// <remarks>
 ///     <para>
@@ -61,7 +52,7 @@ public static class PackagedLauncherShortcut
     /// <param name="acknowledged">Whether the user accepted the ban risk.</param>
     /// <returns>The Target, working directory and arguments, all stored verbatim by Steam.</returns>
     /// <exception cref="ArgumentException">The request could not be composed.</exception>
-    public static PackagedLauncherShortcutFields Compose(
+    public static ShortcutFields Compose(
         string launcherPath,
         string aumid,
         ImportMode mode,
@@ -78,7 +69,8 @@ public static class PackagedLauncherShortcut
             acknowledged));
 
         var directory = Path.GetDirectoryName(launcherPath) ?? string.Empty;
-        return new PackagedLauncherShortcutFields(Quote(launcherPath), Quote(directory), arguments);
+        return new ShortcutFields(
+            CommandShortcut.Quote(launcherPath), CommandShortcut.Quote(directory), arguments);
     }
 
     /// <summary>Whether a live shortcut is one WSGM created for this title.</summary>
@@ -95,7 +87,7 @@ public static class PackagedLauncherShortcut
     public static bool Owns(ExistingShortcut shortcut, string launcherTarget, string key)
     {
         ArgumentNullException.ThrowIfNull(shortcut);
-        return SameProgram(shortcut.Target, launcherTarget)
+        return CommandShortcut.SameProgram(shortcut.Target, launcherTarget)
                && TryReadKey(shortcut.LaunchOptions, out var owned)
                && string.Equals(owned, key, StringComparison.OrdinalIgnoreCase);
     }
@@ -126,20 +118,5 @@ public static class PackagedLauncherShortcut
             ? ImportMode.SteamIntegration
             : ImportMode.ControllerOnly;
         return true;
-    }
-
-    /// <summary>Whether two Target values name the same program, ignoring the quoting.</summary>
-    private static bool SameProgram(string left, string right)
-    {
-        return string.Equals(
-            left.Trim().Trim('"'), right.Trim().Trim('"'), StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Quotes a path Steam stores verbatim, and only when it needs it.</summary>
-    private static string Quote(string path)
-    {
-        return path.Length > 0 && path.Contains(' ') && !path.StartsWith('"')
-            ? $"\"{path}\""
-            : path;
     }
 }

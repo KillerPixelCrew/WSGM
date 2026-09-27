@@ -104,9 +104,11 @@ public sealed class GameLibraryView : OverlaySubView
             return;
         }
 
-        stack.Children.Add(Caption(state.Sources.Count > 0
-            ? $"Brings games from {string.Join(", ", state.Sources)} into Steam."
-            : "No sources are registered."));
+        var reading = state.Sources.Where(source => source is { Installed: true, Enabled: true })
+            .Select(source => source.Name).ToList();
+        stack.Children.Add(Caption(reading.Count > 0
+            ? $"Brings games from {string.Join(", ", reading)} into Steam."
+            : "No source is ticked and installed."));
         AddStatus(stack, state);
 
         if (state.Phase is "scanning" or "applying")
@@ -118,6 +120,9 @@ public sealed class GameLibraryView : OverlaySubView
         }
 
         stack.Children.Add(Caption(GameLibraryRows.Summary(state)));
+        stack.Children.Add(Tagged(Row($"Sources ({reading.Count} on)",
+            "Tick the launchers and folders a scan reads", Icons.ListLines,
+            () => Navigate(RenderSources)), "sources"));
         stack.Children.Add(Tagged(Row("Scan for games", "Look again. Nothing is written until you apply",
             Icons.Restart, () => Run(_service.ScanAsync)), "scan"));
         if (state.Entries.Count > 0)
@@ -142,8 +147,49 @@ public sealed class GameLibraryView : OverlaySubView
                 Icons.Play, () => Run(_service.ApplyAsync)), "apply"));
         }
 
-        stack.Children.Add(Tagged(Row("Open in Steam", "Continue on the Game Library page in Big Picture",
+        stack.Children.Add(Tagged(Row("Open in Steam",
+            "Choose artwork for every title, or add a shortcuts folder, on the Game Library page",
             Icons.SteamLike, () => OpenInSteamRequested?.Invoke(GameLibrarySteamTarget.Library)), "open-in-steam"));
+        SetContent(stack);
+    }
+
+    private void RenderSources()
+    {
+        var stack = NewStack("Sources");
+        if (_service?.ReadState() is not { } state)
+        {
+            SetContent(stack);
+            return;
+        }
+
+        AddStatus(stack, state);
+        var busy = state.Phase is "scanning" or "applying";
+        foreach (var source in state.Sources)
+        {
+            var id = source.Id;
+            var enabled = source.Enabled;
+            stack.Children.Add(Tagged(Row(source.Name, GameLibraryRows.SourceLine(source),
+                source.Installed ? null : Icons.BlockedCircle,
+                source.Installed && !busy
+                    ? () => Run(token => _service.SetSourceEnabledAsync(id, !enabled, token))
+                    : null), "source:" + id));
+        }
+
+        var folders = state.Sources.Where(source => source.Kind == "folder").ToList();
+        if (folders.Count > 0)
+        {
+            stack.Children.Add(SectionLabel("REMOVE A FOLDER"));
+            foreach (var folder in folders)
+            {
+                var id = folder.Id;
+                stack.Children.Add(Tagged(Row($"Remove {folder.Name}",
+                    "Stops reading it. Titles already imported from it stay in Steam", Icons.Close,
+                    busy ? null : () => Run(token => _service.RemoveFolderAsync(id, token))), "remove:" + id));
+            }
+        }
+
+        stack.Children.Add(Tagged(Row("Add a folder in Steam", "The folder picker is on the Game Library page",
+            Icons.SteamLike, () => OpenInSteamRequested?.Invoke(GameLibrarySteamTarget.Library)), "add-folder"));
         SetContent(stack);
     }
 
@@ -202,15 +248,26 @@ public sealed class GameLibraryView : OverlaySubView
                 Icons.ListLines, () => Run(token => _service.ToggleEntryAsync(id, token))), "toggle"));
         }
 
-        stack.Children.Add(Tagged(Row($"Launch mode: {GameLibraryRows.Mode(entry.Mode)}",
-            GameLibraryRows.ModeChoice(entry), Icons.Rocket,
-            entry.CanUseSteamIntegration ? () => ChangeMode(entry) : null), "mode"));
-
-        if (entry.AppId > 0 && entry.Action != "Remove")
+        if (entry.Routes.Count > 0)
         {
-            stack.Children.Add(Tagged(Row("Change artwork…", "Opens this title's artwork page in Steam",
+            stack.Children.Add(Tagged(Row($"Launch route: {entry.LaunchLabel}",
+                entry.Routes.Count > 1 ? "Press to switch to the next route" : entry.LaunchEvidence, Icons.Rocket,
+                entry.Routes.Count > 1 ? () => NextRoute(entry) : null), "route"));
+        }
+        else
+        {
+            stack.Children.Add(Tagged(Row($"Launch mode: {GameLibraryRows.Mode(entry.Mode)}",
+                GameLibraryRows.ModeChoice(entry), Icons.Rocket,
+                entry.CanUseSteamIntegration ? () => ChangeMode(entry) : null), "mode"));
+        }
+
+        if (entry.Action is not ("Remove" or "Conflict") && !entry.Excluded)
+        {
+            stack.Children.Add(Tagged(Row("Choose artwork in Steam…", GameLibraryRows.Artwork(entry),
                     Icons.Palette,
-                    () => OpenInSteamRequested?.Invoke(new GameLibrarySteamTarget(entry.AppId, entry.Name))),
+                    () => OpenInSteamRequested?.Invoke(entry.AppId > 0
+                        ? new GameLibrarySteamTarget(entry.AppId, entry.Name)
+                        : GameLibrarySteamTarget.Library)),
                 "artwork"));
         }
 
@@ -228,7 +285,9 @@ public sealed class GameLibraryView : OverlaySubView
         stack.Children.Add(SectionLabel("DETAILS"));
         stack.Children.Add(Caption($"{entry.LaunchLabel}: {entry.LaunchEvidence}"));
         stack.Children.Add(Caption($"Multiplayer: {entry.Multiplayer}. {entry.MultiplayerEvidence}"));
-        stack.Children.Add(Caption(GameLibraryRows.Artwork(entry)));
+        stack.Children.Add(Caption(entry.MatchName.Length > 0
+            ? $"Artwork matched to {entry.MatchName}."
+            : "Artwork not matched to a game yet."));
         stack.Children.Add(Caption($"From {entry.Source}: {entry.Identity}"));
         foreach (var note in entry.Notes)
         {
@@ -236,6 +295,13 @@ public sealed class GameLibraryView : OverlaySubView
         }
 
         SetContent(stack);
+    }
+
+    private void NextRoute(GameLibraryEntry entry)
+    {
+        var index = entry.Routes.ToList().FindIndex(route => route.Id == entry.Route);
+        var next = entry.Routes[(index + 1) % entry.Routes.Count];
+        Run(token => _service!.SetRouteAsync(entry.Id, next.Id, token));
     }
 
     private void ChangeMode(GameLibraryEntry entry)

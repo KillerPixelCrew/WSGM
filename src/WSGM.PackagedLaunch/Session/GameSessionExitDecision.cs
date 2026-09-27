@@ -62,6 +62,21 @@ public static class GameSessionExitDecision
     /// <returns>The outcome, which is <see cref="GameSessionOutcome.Running" /> until it is over.</returns>
     public static GameSessionOutcome Decide(GameSessionFacts facts)
     {
+        return Decide(facts, Settle, ExitGrace);
+    }
+
+    /// <summary>Decides the outcome with timings of the caller's own.</summary>
+    /// <param name="facts">What is known now.</param>
+    /// <param name="settle">How long the game may take to appear at all.</param>
+    /// <param name="exitGrace">How long it must be gone before the session is over.</param>
+    /// <returns>The outcome, which is <see cref="GameSessionOutcome.Running" /> until it is over.</returns>
+    /// <remarks>
+    ///     A game another launcher starts takes longer on both ends: the launcher may update itself or
+    ///     ask for a sign-in before it starts anything, and a bootstrapper can hand over to the game
+    ///     with a gap between them.
+    /// </remarks>
+    public static GameSessionOutcome Decide(GameSessionFacts facts, TimeSpan settle, TimeSpan exitGrace)
+    {
         // A stop request outranks everything: the game is deliberately left running, and claiming a
         // completed session would tell Steam the user finished playing.
         if (facts.Cancelled)
@@ -76,12 +91,12 @@ public static class GameSessionExitDecision
 
         if (facts.SawGame)
         {
-            return facts.GoneFor >= ExitGrace
+            return facts.GoneFor >= exitGrace
                 ? facts.Degraded ? GameSessionOutcome.Degraded : GameSessionOutcome.Completed
                 : GameSessionOutcome.Running;
         }
 
-        return facts.Elapsed >= Settle ? GameSessionOutcome.NeverAppeared : GameSessionOutcome.Running;
+        return facts.Elapsed >= settle ? GameSessionOutcome.NeverAppeared : GameSessionOutcome.Running;
     }
 
     /// <summary>The process exit code one outcome reports.</summary>

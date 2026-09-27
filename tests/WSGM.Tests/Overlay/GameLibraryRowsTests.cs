@@ -6,6 +6,8 @@ namespace WSGM.Tests.Overlay;
 /// <summary>What the overlay's Game Library view says. It reads the same state the Steam page does.</summary>
 public sealed class GameLibraryRowsTests
 {
+    private static readonly GameLibrarySource Xbox = new("xbox", "Xbox", "launcher", true, true, "Installed", 1);
+
     private static GameLibraryEntry Entry(
         string action = "Add",
         string mode = "SteamIntegration",
@@ -16,14 +18,15 @@ public sealed class GameLibraryRowsTests
         int offered = 3,
         int? applied = null)
     {
-        return new GameLibraryEntry("0", "Moonlit", "Xbox", "Publisher.Game_abc!App", @"C:\WindowsApps\Game",
+        return new GameLibraryEntry("0", "Moonlit", "Xbox", "xbox", "Publisher.Game_abc!App", @"C:\WindowsApps\Game",
             "UWP", true, "Evidence.", "SinglePlayer", "Evidence.", mode, canIntegrate, requiresAcknowledgement,
-            false, action, "Reason.", selected, !excluded, excluded, [], 0, offered, applied);
+            false, action, "Reason.", selected, !excluded, excluded, [], 0, offered, applied, [], string.Empty, [],
+            "ready", string.Empty, false);
     }
 
     private static GameLibraryState State(params GameLibraryEntry[] entries)
     {
-        return new GameLibraryState(["Xbox"], "review", entries, 0, 2, 1, 0, 4, 0, 0, 0, 0, true);
+        return new GameLibraryState([Xbox], "review", entries, 0, 2, 1, 0, 4, 0, 0, 0, 0, true);
     }
 
     [Fact]
@@ -66,7 +69,7 @@ public sealed class GameLibraryRowsTests
     public void TheSummaryPromptsForAScanBeforeThereIsOne()
     {
         Assert.Equal("Scan to see which games can be brought into Steam.",
-            GameLibraryRows.Summary(new GameLibraryState(["Xbox"], "idle", [], 0, 0, 0, 0, 0, 0, 0, 0, 0, true)));
+            GameLibraryRows.Summary(new GameLibraryState([Xbox], "idle", [], 0, 0, 0, 0, 0, 0, 0, 0, 0, true)));
         Assert.Equal("2 to add, 1 to update, 4 already imported", GameLibraryRows.Summary(State(Entry())));
     }
 

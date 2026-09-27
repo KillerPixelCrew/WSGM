@@ -199,6 +199,13 @@
                             IconGeometry="{x:Static c:Icons.Rocket}"
                             Title="Per-game launch fixes"
                             Description="De-elevation, the Steam Input lease and custom launch actions" />
+              <c:ActionButton Classes="tile" Click="OnGameLibrary"
+                            Tag="steam.game-library"
+                            IsVisible="{Binding ShowGameLibrary}"
+                            Margin="0,0,10,10"
+                            IconGeometry="{x:Static c:Icons.Grid4}"
+                            Title="Game Library"
+                            Description="Bring games from other launchers into Steam, with their artwork" />
             </UniformGrid>
 
             <StackPanel x:Name="PanelSteamLibrary" Spacing="10" IsVisible="False" HorizontalAlignment="Stretch">
@@ -206,12 +213,6 @@
               <TextBlock Text="Steam integration is turned off in Settings."
                          Classes="caption"
                          IsVisible="{Binding !ShowSteamLibrarySection}" />
-              <c:ActionButton Click="OnGameLibrary"
-                            Tag="steam.game-library"
-                            IsVisible="{Binding ShowGameLibrary}"
-                            IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Game Library"
-                            Description="Bring games from other launchers into Steam" />
               <c:ActionButton Click="OnLibraryTabs"
                             Tag="steam.library-tabs"
                             IsVisible="{Binding ShowLibraryTabs}"

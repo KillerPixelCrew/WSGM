@@ -24,9 +24,11 @@ namespace WSGM.PackagedLaunch;
 ///     </para>
 /// </remarks>
 internal sealed class GameSessionSupervisor(
-    string packageFamilyName,
+    Func<ProcessEntry, ProcessFacts?> identify,
+    string gameName,
     GameSessionJob job,
-    Action<ProcessFacts>? onGameProcess = null)
+    Action<ProcessFacts>? onGameProcess = null,
+    GameSessionTimings? timings = null)
 {
     /// <summary>How often to look for new processes while the game is still starting.</summary>
     private static readonly TimeSpan DiscoveryPoll = TimeSpan.FromMilliseconds(500);
@@ -34,12 +36,14 @@ internal sealed class GameSessionSupervisor(
     /// <summary>How often to check a settled session, which only has to notice an exit.</summary>
     private static readonly TimeSpan SettledPoll = TimeSpan.FromSeconds(2);
 
-    /// <summary>How long a game stays in discovery after its first process appears.</summary>
-    private static readonly TimeSpan DiscoveryWindow = TimeSpan.FromSeconds(30);
-
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
+    /// <summary>How long a game stays in discovery after its first process appears.</summary>
+    private readonly TimeSpan _discoveryWindow = (timings ?? GameSessionTimings.Packaged).DiscoveryWindow;
+
     private readonly HashSet<int> _known = [];
+
+    private readonly GameSessionTimings _timings = timings ?? GameSessionTimings.Packaged;
 
     /// <summary>How many of the processes seen the job actually accepted.</summary>
     /// <remarks>
@@ -49,6 +53,16 @@ internal sealed class GameSessionSupervisor(
     ///     a job that holds everything seen can be trusted to answer that question.
     /// </remarks>
     private int _containedCount;
+
+    /// <summary>Supervises a packaged game: every process that carries its package identity.</summary>
+    /// <param name="packageFamilyName">The package family.</param>
+    /// <param name="job">The kill-on-close job the game's processes go into.</param>
+    /// <param name="onGameProcess">Hears each game process as it is first seen.</param>
+    internal GameSessionSupervisor(
+        string packageFamilyName, GameSessionJob job, Action<ProcessFacts>? onGameProcess = null)
+        : this(entry => PackagedProcess(entry, packageFamilyName), packageFamilyName, job, onGameProcess)
+    {
+    }
 
     /// <summary>Whether the session could not do what the user asked of it.</summary>
     internal bool Degraded { get; set; }
@@ -65,7 +79,7 @@ internal sealed class GameSessionSupervisor(
 
         while (true)
         {
-            var discoveryOpen = firstSeen is null || _clock.Elapsed - firstSeen < DiscoveryWindow;
+            var discoveryOpen = firstSeen is null || _clock.Elapsed - firstSeen < _discoveryWindow;
             var running = Observe(seedProcessId, discoveryOpen, ref sawGame, ref firstSeen);
             if (running)
             {
@@ -77,18 +91,20 @@ internal sealed class GameSessionSupervisor(
             }
 
             var outcome = GameSessionExitDecision.Decide(new GameSessionFacts(
-                sawGame,
-                running,
-                _clock.Elapsed,
-                goneSince is { } gone ? _clock.Elapsed - gone : null,
-                Degraded,
-                cancellationToken.IsCancellationRequested));
+                    sawGame,
+                    running,
+                    _clock.Elapsed,
+                    goneSince is { } gone ? _clock.Elapsed - gone : null,
+                    Degraded,
+                    cancellationToken.IsCancellationRequested),
+                _timings.Settle,
+                _timings.ExitGrace);
             if (outcome is not GameSessionOutcome.Running)
             {
                 return outcome;
             }
 
-            var discovering = firstSeen is null || _clock.Elapsed - firstSeen < DiscoveryWindow;
+            var discovering = firstSeen is null || _clock.Elapsed - firstSeen < _discoveryWindow;
             cancellationToken.WaitHandle.WaitOne(discovering ? DiscoveryPoll : SettledPoll);
         }
     }
@@ -135,14 +151,7 @@ internal sealed class GameSessionSupervisor(
 
             // The seed is the game's own process for a UWP title and its launch helper for a GDK
             // one, so it is admitted by identity like everything else rather than by being the seed.
-            if (ProcessInspector.PackageFamilyNameOf(entry.Id) is not { } family
-                || !string.Equals(family, packageFamilyName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (ProcessInspector.Describe(entry.Id, entry.Name) is not { } facts
-                || !GameSessionJob.BelongsToGame(facts, packageFamilyName))
+            if (identify(entry) is not { } facts)
             {
                 continue;
             }
@@ -174,14 +183,47 @@ internal sealed class GameSessionSupervisor(
                 "seed",
                 ProcessInspector.StartedAt(seedProcessId) is null
                     ? $"Activation's process {seedProcessId} is gone and no game process has appeared yet."
-                    : $"Waiting for {packageFamilyName}; activation's process {seedProcessId} is running.");
+                    : $"Waiting for {gameName}; activation's process {seedProcessId} is running.");
         }
 
         return running;
+    }
+
+    /// <summary>A process of the packaged game, or null for anything else.</summary>
+    private static ProcessFacts? PackagedProcess(ProcessEntry entry, string packageFamilyName)
+    {
+        if (ProcessInspector.PackageFamilyNameOf(entry.Id) is not { } family
+            || !string.Equals(family, packageFamilyName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return ProcessInspector.Describe(entry.Id, entry.Name) is { } facts
+               && GameSessionJob.BelongsToGame(facts, packageFamilyName)
+            ? facts
+            : null;
     }
 
     private static string Seconds(TimeSpan elapsed)
     {
         return elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
     }
+}
+
+/// <summary>How long a supervised session waits at each stage.</summary>
+/// <param name="Settle">How long the game may take to appear at all.</param>
+/// <param name="ExitGrace">How long it must be gone before the session is over.</param>
+/// <param name="DiscoveryWindow">How long new game processes are looked for after the first one.</param>
+internal sealed record GameSessionTimings(TimeSpan Settle, TimeSpan ExitGrace, TimeSpan DiscoveryWindow)
+{
+    /// <summary>A packaged game, which Windows activates at once.</summary>
+    internal static GameSessionTimings Packaged { get; } = new(
+        GameSessionExitDecision.Settle, GameSessionExitDecision.ExitGrace, TimeSpan.FromSeconds(30));
+
+    /// <summary>
+    ///     A game another launcher starts: the launcher may update or ask for a sign-in first, and a
+    ///     bootstrapper can hand over to the game with a gap between them.
+    /// </summary>
+    internal static GameSessionTimings Followed { get; } = new(
+        TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(3));
 }

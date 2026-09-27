@@ -208,10 +208,17 @@ public sealed class ShellSession : IAsyncDisposable
     // DesktopModeStarting/GameModeEntered keep it current afterwards.
     private volatile bool _inGameMode = true;
     private KeepAwakeService? _keepAwake;
+    private GameLibraryArtwork? _libraryArtwork;
     private bool _libraryBadgeEnabled;
 
     /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
     private GameLibraryService? _libraryImport;
+
+    /// <summary>
+    ///     The Game Library's own last settings write, until the config reload that carries it arrives.
+    ///     The service reads its sources back straight after writing them, and the reload is debounced.
+    /// </summary>
+    private LibrarySettingsWrite? _librarySettingsOverride;
 
     private MessageWindow? _messageWindow;
     private SessionModes? _modes;
@@ -1136,16 +1143,30 @@ public sealed class ShellSession : IAsyncDisposable
 
         ReleaseAbandonedPackageExemptions();
 
-        // The importer talks to the same running Steam client everything else here does, and reads
-        // the machine's installed packages through WinRT. Every seam is injected so the discovery
-        // and planning rules stay testable without a live Steam or a real package.
+        // The Game Library talks to the same running Steam client everything else here does, and reads
+        // each launcher's own files. Every seam is injected so the discovery and planning rules stay
+        // testable without a live Steam or a real launcher.
         StoreCatalogClient catalog = new();
+        GameLibraryArtwork libraryArtwork = new(
+            async (term, token) =>
+                await ArtworkSearch.SearchGamesAsync(term, _config.Artwork, token).ConfigureAwait(false),
+            async (asset, match, token) =>
+                (await ArtworkSearch.GetAssetsForMatchAsync(asset, match, _config.Artwork, token)
+                    .ConfigureAwait(false)).Candidates);
         _libraryImport = new GameLibraryService(
             [
                 new XboxLibrarySource(
                     XboxPackages.Enumerate,
                     XboxPackages.ReadPackageFile,
-                    (package, token) => catalog.LookUpAsync(package.FamilyName, token))
+                    (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
+                new EpicLibrarySource(),
+                new GogLibrarySource(),
+                new UbisoftLibrarySource(),
+                new BattleNetLibrarySource(),
+                new ItchLibrarySource(),
+                new AmazonLibrarySource(),
+                new PrismLauncherSource(),
+                new AtLauncherSource()
             ],
             new ImportStateStore(),
             () => new SteamShortcutWriter(
@@ -1164,14 +1185,34 @@ public sealed class ShellSession : IAsyncDisposable
                 async (appId, token) =>
                     (await SteamApps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
             async token => [.. await ReadShortcutsAsync(token).ConfigureAwait(false)],
-            () => _config.GameLibrary.DefaultMode,
-            () => _config.GameLibrary.ImportUnroutable,
+            () => LibrarySettings().DefaultMode,
+            () => LibrarySettings().ImportUnroutable,
             ApplyCatalogArtworkAsync,
             (id, name, target, removeEmptyProfile, token) => _profiles is null
                 ? Task.FromResult(false)
                 : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
             openArtwork: _artwork.OpenAsync,
-            controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true });
+            controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true },
+            settings: LibrarySettings,
+            updateSettings: change =>
+            {
+                var basis = _config;
+                var persisted = CommitWsgmSetting(config => change(config.GameLibrary), false);
+                Volatile.Write(ref _librarySettingsOverride, new LibrarySettingsWrite(basis, persisted.GameLibrary));
+            },
+            folderSource: folder => new ShortcutFolderSource(folder),
+            artwork: libraryArtwork);
+        _libraryArtwork = libraryArtwork;
+        _libraryImport.Start();
+    }
+
+    /// <summary>The Game Library's settings: its own latest write until the reload catches up.</summary>
+    private GameLibraryConfig LibrarySettings()
+    {
+        var current = _config;
+        return Volatile.Read(ref _librarySettingsOverride) is { } pending && ReferenceEquals(pending.Basis, current)
+            ? pending.Settings
+            : current.GameLibrary;
     }
 
     /// <summary>Saves one change from WSGM's settings page in Steam.</summary>
@@ -3704,6 +3745,20 @@ public sealed class ShellSession : IAsyncDisposable
 
         try
         {
+            _libraryArtwork?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, "Disposing the library artwork stage during application shutdown failed",
+                ex);
+        }
+        finally
+        {
+            _libraryArtwork = null;
+        }
+
+        try
+        {
             _artwork?.Dispose();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -4392,6 +4447,11 @@ public sealed class ShellSession : IAsyncDisposable
             // Application teardown deliberately suppresses the post-boot trim.
         }
     }
+
+    /// <summary>A Game Library settings write and the config it was made against.</summary>
+    /// <param name="Basis">The session's config when the write was made.</param>
+    /// <param name="Settings">What was persisted.</param>
+    private sealed record LibrarySettingsWrite(AppConfig Basis, GameLibraryConfig Settings);
 
     /// <summary>
     ///     The session's half of the Game Mode entry transaction. Everything here needs state

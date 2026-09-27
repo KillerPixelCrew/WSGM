@@ -201,6 +201,18 @@
                           VerticalAlignment="Center" />
           </Grid>
         </Border>
+        <Border Classes="setting-row alt">
+          <Grid ColumnDefinitions="*,200" ColumnSpacing="8">
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="New titles start with artwork from" Classes="setting-title" />
+              <TextBlock Text="Each artwork type can still be changed per title, or for every title at once, before saving."
+                         Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding GameLibraryArtworkPreferences}"
+                      SelectedIndex="{Binding GameLibraryArtworkPreferenceIndex}" VerticalAlignment="Center"
+                      AutomationProperties.Name="Where Game Library artwork starts from" />
+          </Grid>
+        </Border>
 
         <Border Classes="section-header">
           <TextBlock Text="WINDOWS POLICIES" />

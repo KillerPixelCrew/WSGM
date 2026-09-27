@@ -9,7 +9,7 @@ namespace WSGM.Tests.Core;
 /// </summary>
 public sealed class SteamShortcutWriterTests
 {
-    private static readonly PackagedLauncherShortcutFields Fields =
+    private static readonly ShortcutFields Fields =
         new("\"C:\\WSGM\\WSGM.PackagedLaunch.exe\"", "\"C:\\WSGM\"", "--aumid A_x!App --mode controller-only");
 
     private static SteamShortcutWriter Writer(

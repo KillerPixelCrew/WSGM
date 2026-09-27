@@ -237,6 +237,101 @@ internal static class ProcessInspector
             : string.Empty;
     }
 
+    /// <summary>The full path of a process's image, or null when it cannot be read.</summary>
+    /// <param name="processId">The process.</param>
+    internal static string? ImagePathOf(int processId)
+    {
+        var process = NativeMethods.OpenProcess(
+            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
+        if (process == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            StringBuilder buffer = new(1024);
+            var size = (uint)buffer.Capacity;
+            return NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref size)
+                ? buffer.ToString()
+                : null;
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(process);
+        }
+    }
+
+    /// <summary>A process's command line, or null when it cannot be read.</summary>
+    /// <param name="processId">The process.</param>
+    /// <remarks>
+    ///     Read through the documented information class rather than the process's memory, so it needs
+    ///     only limited query access. Used to recognise a game that runs from a shared runtime, such as
+    ///     Java, by the instance folder its launcher passed it; the line itself is never logged.
+    /// </remarks>
+    internal static string? CommandLineOf(int processId)
+    {
+        var process = NativeMethods.OpenProcess(
+            NativeMethods.ProcessQueryLimitedInformation, false, (uint)processId);
+        if (process == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        var length = 4096;
+        var buffer = IntPtr.Zero;
+        try
+        {
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                buffer = Marshal.AllocHGlobal(length);
+                var status = NativeMethods.NtQueryInformationProcess(
+                    process, NativeMethods.ProcessCommandLineInformation, buffer, length, out var needed);
+                if (status == 0)
+                {
+                    var text = Marshal.PtrToStructure<NativeMethods.UnicodeString>(buffer);
+                    return text.Buffer == IntPtr.Zero
+                        ? string.Empty
+                        : Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
+                }
+
+                Marshal.FreeHGlobal(buffer);
+                buffer = IntPtr.Zero;
+                if (needed <= length || needed > 1 << 20)
+                {
+                    return null;
+                }
+
+                length = needed;
+            }
+
+            return null;
+        }
+        finally
+        {
+            if (buffer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+
+            NativeMethods.CloseHandle(process);
+        }
+    }
+
+    /// <summary>The 8.3 form of a path, or null when Windows keeps none for it.</summary>
+    /// <param name="path">An existing path.</param>
+    internal static string? ShortPathOf(string path)
+    {
+        var length = NativeMethods.GetShortPathNameW(path, null, 0);
+        if (length == 0)
+        {
+            return null;
+        }
+
+        StringBuilder buffer = new((int)length);
+        return NativeMethods.GetShortPathNameW(path, buffer, length) == 0 ? null : buffer.ToString();
+    }
+
     private static string ImageName(IntPtr process)
     {
         StringBuilder buffer = new(260);

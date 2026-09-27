@@ -51,7 +51,14 @@ public sealed record GameLaunch(string Label, bool Validated, string Evidence);
 /// <param name="MultiplayerEvidence">Why, in one sentence the preview shows.</param>
 /// <param name="IsGame">Whether this is a game rather than an ordinary application.</param>
 /// <param name="Notes">Anything else worth showing, such as an unmodelled config element.</param>
-/// <param name="Artwork">The official images the catalog offered, empty when it offered none.</param>
+/// <param name="Artwork">
+///     The official images the catalog offered, best first within each artwork type, empty when it
+///     offered none.
+/// </param>
+/// <param name="Routes">
+///     The command routes the title can be launched by, default first, or null for the packaged route
+///     that only the Xbox source uses.
+/// </param>
 public sealed record DiscoveredGame(
     string SourceId,
     string Key,
@@ -62,7 +69,24 @@ public sealed record DiscoveredGame(
     string MultiplayerEvidence,
     bool IsGame,
     IReadOnlyList<string> Notes,
-    IReadOnlyList<DiscoveredArtwork> Artwork);
+    IReadOnlyList<DiscoveredArtwork> Artwork,
+    IReadOnlyList<ShortcutRoute>? Routes = null)
+{
+    /// <summary>The command routes, empty for a packaged title.</summary>
+    public IReadOnlyList<ShortcutRoute> CommandRoutes => Routes ?? [];
+
+    /// <summary>Whether the title launches through the packaged launcher rather than a command.</summary>
+    public bool Packaged => CommandRoutes.Count == 0;
+}
+
+/// <summary>Whether a source's launcher is on this machine.</summary>
+/// <param name="Installed">Whether it was found.</param>
+/// <param name="Detail">What was found or why not, in one short phrase the sidebar shows.</param>
+public sealed record SourceAvailability(bool Installed, string Detail)
+{
+    /// <summary>A launcher that is not installed.</summary>
+    public static SourceAvailability NotFound { get; } = new(false, "Not found");
+}
 
 /// <summary>One launcher whose installed games the Game Library can bring into Steam.</summary>
 /// <remarks>
@@ -84,6 +108,10 @@ public interface ILibrarySource
 
     /// <summary>What to call it in the UI.</summary>
     string DisplayName { get; }
+
+    /// <summary>Whether the launcher is installed. Cheap: registry and file checks only.</summary>
+    /// <returns>What was found.</returns>
+    SourceAvailability Detect();
 
     /// <summary>Finds everything this source can offer.</summary>
     /// <param name="cancellationToken">Cancels the scan.</param>

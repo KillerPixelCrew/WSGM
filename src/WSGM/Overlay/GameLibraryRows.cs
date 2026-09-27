@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -48,9 +49,13 @@ internal static class GameLibraryRows
         List<string> parts =
         [
             entry.Excluded ? "Not importing" : Action(entry.Action),
-            entry.LaunchLabel,
-            Mode(entry.Mode)
+            entry.LaunchLabel
         ];
+        if (entry.Routes.Count == 0)
+        {
+            parts.Add(Mode(entry.Mode));
+        }
+
         if (entry.Selected)
         {
             parts.Insert(0, "Selected");
@@ -67,15 +72,37 @@ internal static class GameLibraryRows
         return entry.AppId > 0 && entry.Action is not ("Remove" or "Conflict");
     }
 
-    /// <summary>What the Store's artwork did for a title.</summary>
+    /// <summary>What a title's artwork would be.</summary>
     /// <param name="entry">The title.</param>
-    /// <returns>Offered, and applied once it has been imported.</returns>
+    /// <returns>How many artwork types have an image, and how many were applied once imported.</returns>
     internal static string Artwork(GameLibraryEntry entry)
     {
-        var offered = entry.ArtworkOffered == 1
-            ? "1 Store image offered"
-            : $"{entry.ArtworkOffered} Store images offered";
-        return entry.ArtworkApplied is { } applied ? $"{offered}, {applied} applied" : offered;
+        if (entry.ArtworkStatus is "pending" or "loading" &&
+            entry.Artwork.All(slot => slot.Kind is not ("pick" or "default")))
+        {
+            return "Finding images…";
+        }
+
+        var chosen = entry.Artwork.Count(slot => slot.Kind is "pick" or "default");
+        var line = entry.Artwork.Count == 0
+            ? "No artwork"
+            : $"{chosen} of {entry.Artwork.Count} artwork types have an image";
+        return entry.ArtworkApplied is { } applied ? $"{line}, {applied} applied" : line;
+    }
+
+    /// <summary>One source's line in the overlay's source list.</summary>
+    /// <param name="source">The source.</param>
+    /// <returns>Whether it is on, and what it found or why it cannot be read.</returns>
+    internal static string SourceLine(GameLibrarySource source)
+    {
+        if (!source.Installed)
+        {
+            return source.Detail.Length > 0 ? source.Detail : "Not found";
+        }
+
+        var found = source.Count >= 0 ? $" · {source.Count} found" : string.Empty;
+        return (source.Enabled ? "On" : "Off") + found
+                                               + (source.Kind == "folder" ? $" · {source.Detail}" : string.Empty);
     }
 
     /// <summary>The home level's summary of the last scan.</summary>

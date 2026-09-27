@@ -216,6 +216,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ArtworkScreenscraperPassword = _config.Artwork.ScreenscraperUserPassword;
         GameLibraryDefaultModeIndex = _config.GameLibrary.DefaultMode is ImportMode.ControllerOnly ? 1 : 0;
         GameLibraryImportUnroutable = _config.GameLibrary.ImportUnroutable;
+        GameLibraryArtworkPreferenceIndex =
+            _config.GameLibrary.ArtworkPreference is ArtworkPreference.Providers ? 1 : 0;
         LoadArtworkTabs();
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
@@ -718,6 +720,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get;
         set => SetField(ref field, value, nameof(GameLibraryImportUnroutable));
+    }
+
+    /// <summary>Gets where a new Game Library title's artwork starts from, in index order.</summary>
+    public IReadOnlyList<string> GameLibraryArtworkPreferences { get; } =
+        ["The launcher's own images", "SteamGridDB"];
+
+    /// <summary>Gets or sets which artwork a new title starts on, as an index into the list.</summary>
+    public int GameLibraryArtworkPreferenceIndex
+    {
+        get;
+        set => SetField(ref field, value, nameof(GameLibraryArtworkPreferenceIndex));
     }
 
     /// <summary>Gets or sets which tab the artwork page opens on, as an index into the strip.</summary>
@@ -2196,6 +2209,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? ImportMode.ControllerOnly
             : ImportMode.SteamIntegration;
         config.GameLibrary.ImportUnroutable = GameLibraryImportUnroutable;
+        config.GameLibrary.ArtworkPreference = GameLibraryArtworkPreferenceIndex == 1
+            ? ArtworkPreference.Providers
+            : ArtworkPreference.Catalog;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
         config.DeviceIntegration.MotionStream = DeviceMotionOnDemand

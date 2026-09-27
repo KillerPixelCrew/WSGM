@@ -81,6 +81,14 @@ internal static class NativeMethods
     /// <summary>What <c>IsWow64Process2</c> reports for a process that is not running under WOW64.</summary>
     internal const ushort ImageFileMachineUnknown = 0;
 
+    // ---- Following another launcher's game ----
+    internal const uint ProcessCreateProcess = 0x0080;
+    internal const int ProcessCommandLineInformation = 60;
+    internal const uint ExtendedStartupInfoPresent = 0x0008_0000;
+    internal const uint CreateUnicodeEnvironment = 0x0000_0400;
+    internal const uint CreateBreakawayFromJob = 0x0100_0000;
+    internal static readonly IntPtr ProcThreadAttributeParentProcess = new(0x0002_0000);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern IntPtr OpenProcess(
         uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
@@ -298,6 +306,38 @@ internal static class NativeMethods
     internal static extern bool SetConsoleCtrlHandler(ConsoleCtrlHandler? handler,
         [MarshalAs(UnmanagedType.Bool)] bool add);
 
+    [DllImport("ntdll.dll")]
+    internal static extern int NtQueryInformationProcess(
+        IntPtr process, int informationClass, IntPtr information, int length, out int returnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern uint GetShortPathNameW(string longPath, StringBuilder? shortPath, uint length);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool InitializeProcThreadAttributeList(
+        IntPtr attributeList, int attributeCount, int flags, ref IntPtr size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UpdateProcThreadAttribute(
+        IntPtr attributeList, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previousValue,
+        IntPtr returnSize);
+
+    [DllImport("kernel32.dll")]
+    internal static extern void DeleteProcThreadAttributeList(IntPtr attributeList);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CreateProcessW(
+        string? applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes,
+        [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment,
+        string? currentDirectory, ref StartupInfoEx startupInfo, out ProcessInformation processInformation);
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct ProcessEntry32W
     {
@@ -465,4 +505,51 @@ internal static class NativeMethods
     internal delegate bool EnumWindowsProc(IntPtr window, IntPtr param);
 
     internal delegate bool ConsoleCtrlHandler(uint controlType);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct StartupInfo
+    {
+        internal int cb;
+        internal IntPtr lpReserved;
+        internal IntPtr lpDesktop;
+        internal IntPtr lpTitle;
+        internal int dwX;
+        internal int dwY;
+        internal int dwXSize;
+        internal int dwYSize;
+        internal int dwXCountChars;
+        internal int dwYCountChars;
+        internal int dwFillAttribute;
+        internal int dwFlags;
+        internal short wShowWindow;
+        internal short cbReserved2;
+        internal IntPtr lpReserved2;
+        internal IntPtr hStdInput;
+        internal IntPtr hStdOutput;
+        internal IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct StartupInfoEx
+    {
+        internal StartupInfo StartupInfo;
+        internal IntPtr lpAttributeList;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ProcessInformation
+    {
+        internal IntPtr hProcess;
+        internal IntPtr hThread;
+        internal int dwProcessId;
+        internal int dwThreadId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct UnicodeString
+    {
+        internal ushort Length;
+        internal ushort MaximumLength;
+        internal IntPtr Buffer;
+    }
 }

@@ -1,0 +1,239 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace WSGM.Core;
+
+/// <summary>Finds the Minecraft instances ATLauncher manages.</summary>
+/// <remarks>
+///     <para>
+///         ATLauncher starts an instance with <c>--launch &lt;instance&gt;</c>. The shortcut therefore
+///         runs ATLauncher itself, and Steam tracks the launcher rather than the game's Java process.
+///     </para>
+///     <para>
+///         ATLauncher looks the argument up by the instance's safe name, its display name with
+///         everything but ASCII letters and digits removed, which is also the folder name it gives a
+///         new instance. That rule has not been checked against a copy of ATLauncher's source here.
+///         The safe name is the argument that survives the likely alternatives: it equals the folder
+///         name in the usual case, and a lookup that compares display names usually compares safe
+///         names as well.
+///     </para>
+///     <para>
+///         ATLauncher is portable by default and keeps its data beside the executable. The installer
+///         puts both in <c>%APPDATA%\ATLauncher</c>.
+///     </para>
+/// </remarks>
+public sealed class AtLauncherSource : ILibrarySource
+{
+    private const string ExecutableName = "ATLauncher.exe";
+
+    private readonly Func<string, bool> _directoryExists;
+    private readonly Func<string, IReadOnlyList<string>> _enumerateDirectories;
+    private readonly Func<string, bool> _fileExists;
+    private readonly Func<Environment.SpecialFolder, string> _folder;
+    private readonly Func<string, string?> _readText;
+    private readonly Func<IReadOnlyList<UninstallEntry>> _uninstallEntries;
+
+    /// <summary>Creates the source over the real registry and file system.</summary>
+    public AtLauncherSource()
+        : this(UninstallEntries.Read, Environment.GetFolderPath, File.Exists, Directory.Exists,
+            LibraryFiles.Directories, LibraryFiles.ReadText)
+    {
+    }
+
+    /// <summary>Creates the source over injected discovery seams.</summary>
+    /// <param name="uninstallEntries">Reads Windows' installed-programs list.</param>
+    /// <param name="folder">Resolves a special folder, such as roaming application data.</param>
+    /// <param name="fileExists">Whether a file exists.</param>
+    /// <param name="directoryExists">Whether a folder exists.</param>
+    /// <param name="enumerateDirectories">Lists a folder's subfolders as full paths, empty when unreadable.</param>
+    /// <param name="readText">Reads a file's text, or returns null when it cannot be read.</param>
+    internal AtLauncherSource(
+        Func<IReadOnlyList<UninstallEntry>> uninstallEntries,
+        Func<Environment.SpecialFolder, string> folder,
+        Func<string, bool> fileExists,
+        Func<string, bool> directoryExists,
+        Func<string, IReadOnlyList<string>> enumerateDirectories,
+        Func<string, string?> readText)
+    {
+        ArgumentNullException.ThrowIfNull(uninstallEntries);
+        ArgumentNullException.ThrowIfNull(folder);
+        ArgumentNullException.ThrowIfNull(fileExists);
+        ArgumentNullException.ThrowIfNull(directoryExists);
+        ArgumentNullException.ThrowIfNull(enumerateDirectories);
+        ArgumentNullException.ThrowIfNull(readText);
+        _uninstallEntries = uninstallEntries;
+        _folder = folder;
+        _fileExists = fileExists;
+        _directoryExists = directoryExists;
+        _enumerateDirectories = enumerateDirectories;
+        _readText = readText;
+    }
+
+    /// <inheritdoc />
+    public string Id => "atlauncher";
+
+    /// <inheritdoc />
+    public string DisplayName => "ATLauncher";
+
+    /// <inheritdoc />
+    public SourceAvailability Detect()
+    {
+        return FindExecutable() is null ? SourceAvailability.NotFound : new SourceAvailability(true, "Installed");
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<DiscoveredGame>> DiscoverAsync(CancellationToken cancellationToken)
+    {
+        return Task.Run(() => Discover(cancellationToken), cancellationToken);
+    }
+
+    /// <summary>The name ATLauncher matches <c>--launch</c> against: letters and digits only.</summary>
+    /// <param name="name">The instance's display name.</param>
+    /// <returns>The safe name, empty when nothing is left.</returns>
+    internal static string SafeName(string name)
+    {
+        StringBuilder safe = new(name.Length);
+        foreach (var character in name)
+        {
+            if (char.IsAsciiLetterOrDigit(character))
+            {
+                safe.Append(character);
+            }
+        }
+
+        return safe.ToString();
+    }
+
+    private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
+    {
+        var executable = FindExecutable();
+        if (executable is null)
+        {
+            return [];
+        }
+
+        var programFolder = Path.GetDirectoryName(executable) ?? string.Empty;
+        var data = _directoryExists(Path.Combine(programFolder, "instances"))
+            ? programFolder
+            : Path.Combine(_folder(Environment.SpecialFolder.ApplicationData), "ATLauncher");
+        var instances = Path.Combine(data, "instances");
+        if (!_directoryExists(instances))
+        {
+            return [];
+        }
+
+        List<DiscoveredGame> found = [];
+        foreach (var directory in _enumerateDirectories(instances).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var folderName = Path.GetFileName(directory);
+            if (folderName.Length == 0 || folderName.StartsWith('.'))
+            {
+                continue;
+            }
+
+            var json = _readText(Path.Combine(directory, "instance.json"));
+            if (json is null)
+            {
+                continue;
+            }
+
+            var name = InstanceName(json);
+            var shown = string.IsNullOrWhiteSpace(name) ? folderName : name.Trim();
+            // ATLauncher's --launch matches an instance's name or its safe name, case-insensitively
+            // (App.java, the autoLaunch lookup). The name itself is exact; a name with a quote in it
+            // cannot be passed, and falls back to the safe name, then to the folder, which is the safe
+            // name ATLauncher gave the instance when it was created.
+            var argument = name is { Length: > 0 } && name.Trim().Length > 0 && name.IndexOf('"') < 0
+                ? name.Trim()
+                : name is null
+                    ? folderName
+                    : SafeName(name);
+            if (argument.Length == 0)
+            {
+                argument = folderName;
+            }
+
+            ShortcutRoute route = new(
+                "launcher",
+                "ATLauncher",
+                executable,
+                programFolder,
+                $"--launch \"{argument}\" --close-launcher --no-launcher-update",
+                "ATLauncher starts this instance and closes. WSGM follows the instance's Java process, so Steam "
+                + "shows the game running for as long as it is.",
+                FollowMarker: directory);
+            found.Add(new DiscoveredGame(
+                Id,
+                folderName,
+                shown,
+                directory,
+                new GameLaunch(route.Label, true, route.Evidence),
+                MultiplayerVerdict.Unknown,
+                "The launcher does not say.",
+                true,
+                [],
+                [],
+                [route]));
+        }
+
+        return found;
+    }
+
+    /// <summary>The instance's display name from <c>launcher.name</c>, or null when absent or unreadable.</summary>
+    private static string? InstanceName(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind is JsonValueKind.Object
+                   && document.RootElement.TryGetProperty("launcher", out var launcher)
+                   && launcher.ValueKind is JsonValueKind.Object
+                   && launcher.TryGetProperty("name", out var name)
+                   && name.ValueKind is JsonValueKind.String
+                ? name.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            // A half-written instance.json is an instance without a readable name, not an error.
+            return null;
+        }
+    }
+
+    /// <summary>The installed executable, or null when ATLauncher is not on this machine.</summary>
+    private string? FindExecutable()
+    {
+        foreach (var entry in _uninstallEntries())
+        {
+            if (entry.DisplayName.StartsWith("ATLauncher", StringComparison.OrdinalIgnoreCase)
+                && entry.InstallLocation.Length > 0
+                && Existing(Path.Combine(entry.InstallLocation, ExecutableName)) is { } installed)
+            {
+                return installed;
+            }
+        }
+
+        var roaming = _folder(Environment.SpecialFolder.ApplicationData);
+        if (roaming.Length > 0 && Existing(Path.Combine(roaming, "ATLauncher", ExecutableName)) is { } portable)
+        {
+            return portable;
+        }
+
+        var local = _folder(Environment.SpecialFolder.LocalApplicationData);
+        return local.Length == 0
+            ? null
+            : Existing(Path.Combine(local, "Programs", "ATLauncher", ExecutableName));
+    }
+
+    private string? Existing(string path)
+    {
+        return _fileExists(path) ? path : null;
+    }
+}
